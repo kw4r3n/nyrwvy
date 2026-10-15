@@ -1,0 +1,81 @@
+{
+  "wireCharacterLimit": 4096,
+  "evidenceCharacterLimit": 262144,
+  "parserDepthLimit": 16,
+  "recipeNodeLimit": 256,
+  "largestCreatedRecipeNodes": 245,
+  "largestPersistedRecipeNodes": 107,
+  "referencePolicy": "inventory-raw-values/v1",
+  "completeStandardReceiptRawCharacters": 28179,
+  "conservativeStandardReceiptCharacters": 169706,
+  "originalCrashStorageValues": 59,
+  "originalCrashStorageCharacters": 152099,
+  "acceptedMeasurements": [
+    {
+      "request": 3772,
+      "receipt": 31361,
+      "facts": 33735
+    },
+    {
+      "request": 3788,
+      "receipt": 31375,
+      "facts": 33735
+    },
+    {
+      "request": 3788,
+      "receipt": 31375,
+      "facts": 33735
+    },
+    {
+      "request": 3788,
+      "receipt": 31375,
+      "facts": 33735
+    },
+    {
+      "request": 3788,
+      "receipt": 31375,
+      "facts": 33735
+    },
+    {
+      "request": 3788,
+      "receipt": 31375,
+      "facts": 33735
+    },
+    {
+      "request": 3679,
+      "receipt": 31103,
+      "facts": 33455
+    },
+    {
+      "request": 3741,
+      "receipt": 31263,
+      "facts": 33694
+    },
+    {
+      "request": 3800,
+      "receipt": 31578,
+      "facts": 33948
+    }
+  ],
+  "maxAcceptedRequestCharacters": 3800,
+  "maxAcceptedReceiptCharacters": 31578,
+  "maxFactsCharacters": 33948,
+  "receiptDepth": 1,
+  "largeAuthorityControl": {
+    "requestCharacters": 238749,
+    "attemptedReceiptCharacters": 266336,
+    "accepted": false,
+    "writes": 0
+  },
+  "enforcedRule": "Existing bounded parser checks facts/request and the complete constructed receipt before immutable agreement or either write. Nested history is referenced, never truncated; all referenced raw values are revalidated on replay.",
+  "preflight": {
+    "checks": 36,
+    "historicalRawSHA256": "0be540bf3a4b1bc821f6dfaba307550c982c17bec3d9e16a54902dce2069d847",
+    "storageCount": 59,
+    "storageCharacters": 152099,
+    "boundedRetainedRawCharacters": 23177,
+    "conservativeAsciiEscapingBoundForRetainedFields": 149062,
+    "parserBound": 262144,
+    "policy": "References every unchanged raw record by inventory; embeds current request, registry/journal/plan/custody. Receipt checked by existing bounded parser before writes."
+  }
+}

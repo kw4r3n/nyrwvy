@@ -1,0 +1,493 @@
+{
+  "scope": "disposable standalone SHA1 repository, single plain-text file including Git executable mode, one trusted writer, quiescent subprocess exits; no power loss",
+  "rows": 133,
+  "domains": 48,
+  "sigkills": 36,
+  "proof": [
+    {
+      "name": "restoration",
+      "processes": 3,
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      },
+      "headIsReadOnly": true
+    },
+    {
+      "name": "lost-response",
+      "processes": 3,
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      },
+      "actualOutcomeRecovered": true
+    },
+    {
+      "name": "after-physical-intent",
+      "processes": 3,
+      "sigkill": true,
+      "absent": true,
+      "published": false,
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "after-registry-intent",
+      "processes": 3,
+      "sigkill": true,
+      "absent": true,
+      "published": false,
+      "newId": "err:unresolved",
+      "sameId": "ok:c42e9d370de11d9452fa528a029e723ffe073521",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "after-intent",
+      "processes": 3,
+      "sigkill": true,
+      "absent": true,
+      "published": false,
+      "newId": "err:unresolved",
+      "sameId": "ok:c42e9d370de11d9452fa528a029e723ffe073521",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "after-git-object",
+      "processes": 3,
+      "sigkill": true,
+      "absent": false,
+      "published": false,
+      "newId": "err:unresolved",
+      "sameId": "err:unresolved",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 0,
+        "read-tree": 0
+      }
+    },
+    {
+      "name": "after-git-ref",
+      "processes": 3,
+      "sigkill": true,
+      "absent": false,
+      "published": false,
+      "newId": "err:unresolved",
+      "sameId": "err:unresolved",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 0
+      }
+    },
+    {
+      "name": "after-commit",
+      "processes": 3,
+      "sigkill": true,
+      "absent": false,
+      "published": false,
+      "newId": "err:unresolved",
+      "sameId": "err:unresolved",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 0
+      }
+    },
+    {
+      "name": "after-git-worktree",
+      "processes": 3,
+      "sigkill": true,
+      "absent": false,
+      "published": false,
+      "newId": "err:unresolved",
+      "sameId": "err:unresolved",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "before-registry-publication",
+      "processes": 3,
+      "sigkill": true,
+      "absent": false,
+      "published": false,
+      "newId": "err:unresolved",
+      "sameId": "err:unresolved",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "after-registry-publication",
+      "processes": 3,
+      "sigkill": true,
+      "absent": false,
+      "published": true,
+      "newId": "ok:c42e9d370de11d9452fa528a029e723ffe073521",
+      "sameId": "ok:c42e9d370de11d9452fa528a029e723ffe073521",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "before-outcome-receipt",
+      "processes": 3,
+      "sigkill": true,
+      "absent": false,
+      "published": true,
+      "newId": "ok:c42e9d370de11d9452fa528a029e723ffe073521",
+      "sameId": "ok:c42e9d370de11d9452fa528a029e723ffe073521",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "after-effect",
+      "processes": 3,
+      "sigkill": true,
+      "absent": false,
+      "published": true,
+      "newId": "ok:c42e9d370de11d9452fa528a029e723ffe073521",
+      "sameId": "ok:c42e9d370de11d9452fa528a029e723ffe073521",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "cancel-before-registry-publication",
+      "processes": 3,
+      "sigkill": true,
+      "exactActualCancellation": false,
+      "sameId": "err:unresolved",
+      "newId": "err:unresolved",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "cancel-after-registry-publication",
+      "processes": 3,
+      "sigkill": true,
+      "exactActualCancellation": true,
+      "sameId": "err:cancelled",
+      "newId": "ok:c42e9d370de11d9452fa528a029e723ffe073521",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "cancel-before-outcome-receipt",
+      "processes": 3,
+      "sigkill": true,
+      "exactActualCancellation": true,
+      "sameId": "err:cancelled",
+      "newId": "ok:c42e9d370de11d9452fa528a029e723ffe073521",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "cancel-after-effect",
+      "processes": 3,
+      "sigkill": true,
+      "exactActualCancellation": true,
+      "sameId": "err:cancelled",
+      "newId": "ok:c42e9d370de11d9452fa528a029e723ffe073521",
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "reader-utf8",
+      "processes": 3,
+      "exactReaderException": true,
+      "exactCancellation": true,
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "reader-oversize",
+      "processes": 3,
+      "exactReaderException": true,
+      "exactCancellation": true,
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "unavailable",
+      "processes": 3,
+      "unknownNeverAutomaticallyRetries": true
+    },
+    {
+      "name": "payload-conflict",
+      "processes": 2,
+      "beforeInspection": true
+    },
+    {
+      "name": "selected-drift",
+      "processes": 2,
+      "authoritativeAbsenceDoesNotOverrideChangedIntent": true
+    },
+    {
+      "name": "pending-unreachable-object",
+      "processes": 3,
+      "constructedDamage": true,
+      "unknownNeverAutomaticallyRetries": true
+    },
+    {
+      "name": "pending-index-worktree",
+      "processes": 3,
+      "constructedDamage": true,
+      "unknownNeverAutomaticallyRetries": true
+    },
+    {
+      "name": "pending-extra-ref",
+      "processes": 3,
+      "constructedDamage": true,
+      "unknownNeverAutomaticallyRetries": true
+    },
+    {
+      "name": "pending-missing-plan",
+      "processes": 3,
+      "constructedDamage": true,
+      "unknownNeverAutomaticallyRetries": true
+    },
+    {
+      "name": "pending-contradictory-receipt",
+      "processes": 3,
+      "constructedDamage": true,
+      "unknownNeverAutomaticallyRetries": true
+    },
+    {
+      "name": "pending-unowned-plan",
+      "processes": 3,
+      "constructedDamage": true,
+      "unknownNeverAutomaticallyRetries": true
+    },
+    {
+      "name": "pending-repository-identity",
+      "processes": 3,
+      "constructedDamage": true,
+      "unknownNeverAutomaticallyRetries": true
+    },
+    {
+      "name": "ready-unreachable-object",
+      "processes": 2,
+      "constructedDamage": true,
+      "closedBeforeReaderAndRepair": true
+    },
+    {
+      "name": "ready-head-ref",
+      "processes": 2,
+      "constructedDamage": true,
+      "closedBeforeReaderAndRepair": true
+    },
+    {
+      "name": "ready-index-worktree",
+      "processes": 2,
+      "constructedDamage": true,
+      "closedBeforeReaderAndRepair": true
+    },
+    {
+      "name": "ready-missing-plan",
+      "processes": 2,
+      "constructedDamage": true,
+      "closedBeforeReaderAndRepair": true
+    },
+    {
+      "name": "ready-receipt",
+      "processes": 2,
+      "constructedDamage": true,
+      "closedBeforeReaderAndRepair": true
+    },
+    {
+      "name": "ready-actual-outcome",
+      "processes": 2,
+      "constructedDamage": true,
+      "closedBeforeReaderAndRepair": true
+    },
+    {
+      "name": "pending-executable-mode",
+      "processes": 3,
+      "seedSigkill": true,
+      "constructedMetadataDamage": true,
+      "contentOnlyControl": false,
+      "contractRejected": false,
+      "total": {
+        "commit-tree": 0,
+        "update-ref": 0,
+        "read-tree": 0
+      },
+      "retainedGitMode": "100644",
+      "changedGitMode": "100755"
+    },
+    {
+      "name": "pending-executable-mode-content-only-control",
+      "processes": 3,
+      "seedSigkill": true,
+      "constructedMetadataDamage": true,
+      "contentOnlyControl": true,
+      "contractRejected": true,
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      },
+      "retainedGitMode": "omitted",
+      "changedGitMode": "100755"
+    },
+    {
+      "name": "ready-executable-mode",
+      "processes": 3,
+      "seedSigkill": true,
+      "constructedMetadataDamage": true,
+      "contentOnlyControl": false,
+      "contractRejected": false,
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      },
+      "retainedGitMode": "100644",
+      "changedGitMode": "100755"
+    },
+    {
+      "name": "ready-executable-mode-content-only-control",
+      "processes": 3,
+      "seedSigkill": true,
+      "constructedMetadataDamage": true,
+      "contentOnlyControl": true,
+      "contractRejected": true,
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      },
+      "retainedGitMode": "omitted",
+      "changedGitMode": "100755"
+    },
+    {
+      "name": "pending-index-mode",
+      "processes": 3,
+      "seedSigkill": true,
+      "constructedMetadataDamage": true,
+      "unresolvedWithoutRetryOrRepair": true
+    },
+    {
+      "name": "pending-symlink",
+      "processes": 3,
+      "seedSigkill": true,
+      "constructedMetadataDamage": true,
+      "unresolvedWithoutRetryOrRepair": true
+    },
+    {
+      "name": "pending-legacy-content-only-plan",
+      "processes": 3,
+      "seedSigkill": true,
+      "constructedMetadataDamage": true,
+      "unresolvedWithoutRetryOrRepair": true
+    },
+    {
+      "name": "ready-index-mode",
+      "processes": 3,
+      "seedSigkill": true,
+      "constructedMetadataDamage": true,
+      "unresolvedWithoutRetryOrRepair": true
+    },
+    {
+      "name": "ready-symlink",
+      "processes": 3,
+      "seedSigkill": true,
+      "constructedMetadataDamage": true,
+      "unresolvedWithoutRetryOrRepair": true
+    },
+    {
+      "name": "ready-legacy-content-only-plan",
+      "processes": 3,
+      "seedSigkill": true,
+      "constructedMetadataDamage": true,
+      "unresolvedWithoutRetryOrRepair": true
+    },
+    {
+      "name": "receipt-only-control",
+      "processes": 2,
+      "sameGraphAndBindingExceptEvidenceRule": true,
+      "contractRejected": true,
+      "total": {
+        "commit-tree": 2,
+        "update-ref": 1,
+        "read-tree": 1
+      },
+      "uniqueCommitObjects": 1,
+      "duplicateGitInvocation": true
+    },
+    {
+      "name": "graph-control",
+      "processes": 2,
+      "sameBinding": true,
+      "restoredHeadContractRejected": true,
+      "total": {
+        "commit-tree": 1,
+        "update-ref": 1,
+        "read-tree": 1
+      }
+    },
+    {
+      "name": "capacity",
+      "processes": 2,
+      "repairedMemberAssociationPreserved": true
+    }
+  ],
+  "counts": {
+    "commit-tree": 35,
+    "update-ref": 33,
+    "read-tree": 31
+  },
+  "inspectionCommands": 3072,
+  "headObservationSteps": 31,
+  "identity": {
+    "recordKey": "journal/v1/049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c",
+    "token": "journal:049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c:e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65"
+  },
+  "hashes": {
+    "raw": "620d633b4ae80cfc3da6f909fe0e22d09380808ae0244dbd6e4ab72b2928a7e5",
+    "source": "bb60f8c82005a3ccb0590b27d015ece981ea8065bed295192d85a4a3580bb526"
+  }
+}

@@ -2,7 +2,8 @@
 
 This checklist distinguishes demonstrated composition from missing application
 behavior. It is scoped to offline Linux-pipe reconstruction with synthetic
-provider/Git effects. Private historical Rrawrlet artifacts and physical-provider
+providers and synthetic Git effects, plus a bounded disposable physical Git binding.
+Private historical Rrawrlet artifacts and physical-provider
 equivalence are absent. Passing observations do not establish arbitrary race or
 platform coverage. No Rrawrlet-specific core feature is proposed.
 
@@ -19,7 +20,13 @@ platform coverage. No Rrawrlet-specific core feature is proposed.
 | Successful EOF while foreground command is held | Observer completes normally; owner waits for dispatcher and protected gate release | Supported; queued-frame EOF observation still waits for dispatch acknowledgement |
 | Peer acknowledgement of outcome | OS accepted writes and correlation ID do not prove peer processing | Missing |
 | Durable outcome retention and request deduplication | Graph-written actual outcome receipt and provenance; cancellation/crash returns the original err:cancelled after receipt, remains unresolved before it; complete effects do not imply success; legacy inferred results need actual evidence | Demonstrated in selected synchronous integration windows, one retained single-writer domain |
-| Restart reconciliation of interrupted synthetic mutations | Durable selected intent; absence/applied/partial/unavailable evidence; SIGKILL before mutation and after commit/save; conflicting payload and changed candidate stay blocked before retry | Demonstrated in measured windows; physical Git/provider binding remains missing |
+| Restart reconciliation of interrupted mutations | Durable selected intent; absence/applied/partial/unavailable evidence; synthetic and [bounded physical Git](../../examples/offline-session-physical-git/README.md) subprocess-exit SIGKILL windows; conflicting payload and changed candidate stay blocked before retry | Demonstrated for synthetic effects and disposable single-file SHA1 repositories; explicit partial-effect disposition and live provider effects remain missing |
+| Owned physical Git launch boundary | [Child launch fence](offline-session-git-child-20261014.md) retained before creation; controlled surviving-child restart and late object write close before input, timeout joins and bounded output; opt-in [owner join and explicit retention](offline-session-git-disposition-20261014.md) survives launcher death | Demonstrated for selected controlled Linux fixtures; original active fences stay intact after separate retention disposition, arbitrary descendants/races and saturated input remain unverified |
+| Explicit retention of abandoned launches and owned partial tails | [Separate retain-unresolved request/result](../../examples/offline-session-physical-git/DISPOSITION.md), exact controlled join witness and owned absent/object/ref/applied inspection | Demonstrated in bounded administrative fixture mode; original missing outcome preserved; retention never authorizes continuation/release |
+| Explicit owned partial-tail completion and observation release | [New continuation intent/result and separate release decision](../../examples/offline-session-physical-git/CONTINUATION.md); original records/fences preserved; missing new results block all replay | Demonstrated in bounded offline administrative fixture mode; renewed mutation admission and public language-composed recovery remain missing |
+| Separate disposition of an interrupted new continuation | [Exact accepted lineage, per-stage custody and current state](../../examples/offline-session-physical-git/INTERRUPTION.md); one distinct receipt, both unknown outcomes and all fences preserved | Demonstrated in controlled offline fixtures; independent review pending; no execution or admission release; retained active/no-PID slots remain unresolved |
+| One explicit renewed admission epoch | [Graph-authored epoch](../../examples/offline-session-epoch/README.md), frozen predecessor facts, blocked request identities, separate registry and one fresh selected Member/integration | Implemented for an applied, clean, fully owned interrupted tail; independent review pending; broader and repeated recovery remains missing |
+| Separate graph disposition of one interrupted fresh epoch integration | [Exact new-effect facts, pending result/custody and lineage](offline-session-epoch-disposition-20261015.md); separate intent/receipt retain all three unknowns and close startup before input | Demonstrated in controlled offline applied/quiescent fixtures; independent exact-head review pending; further admission and general chained recovery remain missing |
 | Bounded registry restoration and durable continuation | [Registry continuation](../../examples/offline-session-registry/README.md) restores owned Member value state, admission identity and integrated HEAD before input; same/new IDs retain aggregate 1/1/1; paired restoration-disabled graph retains empty replay HEAD and 2/2/2 | Demonstrated in selected single-writer windows; arbitrary application continuation remains unverified |
 | Full historical application, MCP/Python and provider equivalence | Private source and real-provider artifacts not supplied | Unverified / unavailable |
 | Arbitrary races, uncooperative effects, blocked stderr, other platforms and multiple clients | Outside bounded fixture execution | Unverified |
@@ -44,10 +51,37 @@ effects. Missing registry facts in a nonempty domain close admission.
 The [identity/actual-data repair](offline-session-registry-repair-20261014.md)
 authenticates replayed Member associations and checks all retained current-ready
 actual results before repair or input, including constructed contradiction controls.
-Broader application continuation and the physical mutation/evidence binding
-remain separate proof obligations for an approved isolated offline fixture.
-The current synthetic effect ledger cannot prove physical Git
-reconciliation or provider equivalence. Multi-writer exclusion, pruning,
+The [physical Git milestone](offline-session-physical-git-20261014.md) binds the
+unchanged reviewed registry graph to real commit-object, ref and index/worktree
+effects in clean disposable fixtures. Complete local inspection, including
+unreachable objects and raw pre-index bytes, is required for safe absence;
+missing receipts alone never authorize retry. Complete Git state without a
+retained actual outcome remains unresolved. Original/moved matrices retain
+once-only lost-response effects and exact cancellation; partial/unowned state
+never automatically retries. This does not establish arbitrary Git interruption,
+partial-operation resumption, linked-worktree lifecycle or provider equivalence.
+The [executable-mode repair](offline-session-physical-git-mode-repair-20261014.md)
+adds Git file modes to retained pre-state and applied-state facts. Pending/ready
+mode drift, index-mode changes and symlink substitution fail closed; old
+content-only plans cannot authorize retry or ready receipt repair.
+The synthetic effect ledger retains its narrower original meaning.
+The [child launch milestone](offline-session-git-child-20261014.md) adds a durable
+version-3 launch boundary to the example binding. A held child surviving its parent
+demonstrates why complete unchanged Git state alone cannot establish absence.
+Active launches remain unresolved before input even after the child disappears or
+writes late effects. Quiescence and actual request outcomes remain distinct facts.
+The [retention milestone](offline-session-git-disposition-20261014.md) adds separate
+authorized disposition results and controlled owner join witnesses without changing
+the registry graph or any original result/fence. The [continuation milestone](offline-session-git-continuation-20261014.md)
+adds separately authorized completion and observation release for owned object/ref
+tails. It preserves original pending admission and missing outcome, and never
+retries a new intent whose result is missing. [Interrupted-new-request disposition](offline-session-git-interruption-20261014.md)
+adds one separately authorized receipt without changing either outcome, prior
+records, Git facts or admission. The [bounded epoch example](../../examples/offline-session-epoch/README.md)
+adds graph-composed admission for one fresh Member and one integration while
+preserving those unknowns. General public language-composed recovery and repeated
+renewed admission remain missing; no generic core primitive is introduced.
+Multi-writer exclusion, pruning,
 power-loss behavior, peer acknowledgement and historical MCP/Python parity
 remain outside this proof. No existing core primitive has been shown
 insufficient, and no Rrawrlet-specific core policy is warranted.

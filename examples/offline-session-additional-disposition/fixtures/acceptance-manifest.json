@@ -1,0 +1,204 @@
+{
+  "version": 1,
+  "baseCommit": "bb696d77958b30596c0c542a1d69543146bd72ef",
+  "baseTree": "2599c914f00104c41cf8d74474305d2600bccf6d",
+  "authorities": [
+    "original retention",
+    "explicit continuation",
+    "interrupted continuation disposition",
+    "fresh epoch admission",
+    "first fresh disposition",
+    "additional admission",
+    "terminal additional disposition"
+  ],
+  "authorityRule": "Each accepted opaque JSON-string authority differs from its predecessors; optional labels only confirm authenticated accepted bytes.",
+  "matrix": [
+    {
+      "state": "original/preacceptance",
+      "policy": "no acceptance",
+      "authority": "original selected wire request",
+      "evidence": "additional"
+    },
+    {
+      "state": "original/active-or-partial-tail",
+      "policy": "closed/refusal",
+      "authority": "ordinary startup or integration retry",
+      "evidence": "owner"
+    },
+    {
+      "state": "original/quiescent-object-only-retained",
+      "policy": "terminal receipt",
+      "authority": "original retention authority",
+      "evidence": "additional"
+    },
+    {
+      "state": "continuation/intent-accepted-without-actual-result",
+      "policy": "closed/refusal",
+      "authority": "ordinary startup or same continuation retry",
+      "evidence": "additional"
+    },
+    {
+      "state": "continuation/active-or-partial-tail",
+      "policy": "closed/refusal",
+      "authority": "ordinary startup or integration retry",
+      "evidence": "owner"
+    },
+    {
+      "state": "continuation/quiescent-applied-pending",
+      "policy": "terminal receipt",
+      "authority": "interrupted continuation authority",
+      "evidence": "additional"
+    },
+    {
+      "state": "fresh-admission/partial-publication",
+      "policy": "exact explicit completion",
+      "authority": "identical fresh admission request/authority",
+      "evidence": "epoch"
+    },
+    {
+      "state": "fresh-admission/no-integration-intent",
+      "policy": "no acceptance",
+      "authority": "exact admitted Member/integration frames",
+      "evidence": "epoch"
+    },
+    {
+      "state": "fresh-integration/active-or-partial-tail",
+      "policy": "closed/refusal",
+      "authority": "ordinary startup or integration retry",
+      "evidence": "epoch"
+    },
+    {
+      "state": "fresh-integration/quiescent-applied-pending",
+      "policy": "terminal receipt",
+      "authority": "first fresh disposition authority",
+      "evidence": "fresh-disposition"
+    },
+    {
+      "state": "fresh-disposition/partial-publication",
+      "policy": "exact explicit completion",
+      "authority": "identical first fresh disposition request/authority",
+      "evidence": "fresh-disposition"
+    },
+    {
+      "state": "fresh-disposition/disposed",
+      "policy": "closed/refusal",
+      "authority": "ordinary startup",
+      "evidence": "fresh-disposition"
+    },
+    {
+      "state": "additional-admission/partial-publication",
+      "policy": "exact explicit completion",
+      "authority": "identical additional admission request/authority",
+      "evidence": "additional"
+    },
+    {
+      "state": "additional-admission/pre-integration-acceptance",
+      "policy": "no acceptance",
+      "authority": "exact admitted Member/integration frames",
+      "evidence": "additional"
+    },
+    {
+      "state": "additional-integration/active-or-partial-tail",
+      "policy": "closed/refusal",
+      "authority": "terminal disposition or ordinary startup",
+      "evidence": "terminal"
+    },
+    {
+      "state": "additional-integration/quiescent-applied-pending",
+      "policy": "terminal receipt",
+      "authority": "distinct seventh modeled authority; exact frozen request",
+      "evidence": "terminal"
+    },
+    {
+      "state": "additional-integration/saved-actual-result",
+      "policy": "actual replay",
+      "authority": "same selected actual-result wire identity/frame",
+      "evidence": "terminal"
+    },
+    {
+      "state": "terminal-disposition/intent-without-receipt",
+      "policy": "exact explicit completion",
+      "authority": "identical raw terminal request and seventh authority",
+      "evidence": "terminal"
+    },
+    {
+      "state": "terminal-disposition/before-intent-interruption",
+      "policy": "no acceptance",
+      "authority": "new decision still requires complete eligibility",
+      "evidence": "terminal"
+    },
+    {
+      "state": "terminal-disposition/receipt-only-or-conflicting",
+      "policy": "closed/refusal",
+      "authority": "all inputs",
+      "evidence": "terminal"
+    },
+    {
+      "state": "terminal-disposition/completed-explicit-replay",
+      "policy": "terminal receipt",
+      "authority": "identical raw terminal request and authority; no writes",
+      "evidence": "terminal"
+    },
+    {
+      "state": "terminal-disposition/disposed-startup",
+      "policy": "closed/refusal",
+      "authority": "all wire frames, admissions and old administrative inputs",
+      "evidence": "terminal"
+    }
+  ],
+  "historicalEvidence": [
+    {
+      "name": "additional",
+      "origin": "/home/kw4/Documents/Codex/2026-10-15/task-6/evidence/focused-final/additional/raw.json",
+      "rawFileSHA256": "0be540bf3a4b1bc821f6dfaba307550c982c17bec3d9e16a54902dce2069d847",
+      "arrayEncodingSHA256": "ee833eb84f760d8905e6c45d71b520beb5eb8dd09f46beea5a56d5e95d051de3",
+      "rows": 377,
+      "provenanceCommit": "bb696d77958b30596c0c542a1d69543146bd72ef",
+      "sourceProof": "../../offline-session-additional-admission/fixtures/proof.json"
+    },
+    {
+      "name": "fresh-disposition",
+      "origin": "/home/kw4/Documents/Codex/2026-10-15/task-6/evidence/disposition-regression/disposition/raw.json",
+      "rawFileSHA256": "36d8b50f2bd262ccd0e3c175542c7d8a7818341651d28ce264c00c3e7522a413",
+      "arrayEncodingSHA256": "a130c9ae62cd36f0bd0c86ad1ffbb3d5c24753c0a09b3329648c787aaaf35430",
+      "rows": 217,
+      "provenanceCommit": "bb696d77958b30596c0c542a1d69543146bd72ef",
+      "sourceProof": "../../offline-session-additional-admission/fixtures/proof.json"
+    },
+    {
+      "name": "epoch",
+      "origin": "/home/kw4/Documents/Codex/2026-10-15/task-6/evidence/epoch-regression/epoch/raw.json",
+      "rawFileSHA256": "2f3732ba946804c1911e736893cc2db63e6bcfc2fb86d0f03c2f6ce0c17eb2d9",
+      "arrayEncodingSHA256": "85f8953e052dc86d22c38a8fe36fc4a9a70440f711b243fa43443d7e6da84b72",
+      "rows": 258,
+      "provenanceCommit": "bb696d77958b30596c0c542a1d69543146bd72ef",
+      "sourceProof": "../../offline-session-additional-admission/fixtures/proof.json"
+    },
+    {
+      "name": "owner",
+      "origin": "/home/kw4/Documents/Codex/2026-10-15/task-6/evidence/owner-regression/epoch/raw.json",
+      "rawFileSHA256": "d428d23b811dd88d369e3832a32e5bd172fc6e7bc0f4d9e2b0a554add0b87b11",
+      "arrayEncodingSHA256": "b56baa711dc8911d0cfaf5a4adba3e075b6ac79beb3744cbbe22ce2c054cbd96",
+      "rows": 67,
+      "provenanceCommit": "bb696d77958b30596c0c542a1d69543146bd72ef",
+      "sourceProof": "../../offline-session-additional-admission/fixtures/proof.json"
+    }
+  ],
+  "terminalEvidence": "proof.json",
+  "terminalRawOrigin": "../../../../evidence/focused-v5/additional/raw.json",
+  "unchangedCoreAndAncestorSources": true,
+  "claim": "One terminal applied-tail administrative disposition, four unknowns, exact owned state, permanent startup closure; finite offline milestone only",
+  "deferred": [
+    "further admission",
+    "arbitrary epoch count",
+    "integration rerun",
+    "active/partial-tail completion",
+    "concurrent/hostile writers",
+    "mutable-owner races",
+    "storage faults/power loss",
+    "full filesystem/index metadata",
+    "live provider/production recovery",
+    "scale/compaction",
+    "peer acknowledgement"
+  ]
+}
