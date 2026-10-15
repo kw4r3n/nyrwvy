@@ -20,7 +20,7 @@ platform coverage. No Rrawrlet-specific core feature is proposed.
 | Peer acknowledgement of outcome | OS accepted writes and correlation ID do not prove peer processing | Missing |
 | Durable outcome retention and request deduplication | Graph-written actual outcome receipt and provenance; cancellation/crash returns the original err:cancelled after receipt, remains unresolved before it; complete effects do not imply success; legacy inferred results need actual evidence | Demonstrated in selected synchronous integration windows, one retained single-writer domain |
 | Restart reconciliation of interrupted synthetic mutations | Durable selected intent; absence/applied/partial/unavailable evidence; SIGKILL before mutation and after commit/save; conflicting payload and changed candidate stay blocked before retry | Demonstrated in measured windows; physical Git/provider binding remains missing |
-| Complete live registry restoration and durable continuation | Independent review measured empty integrated HEAD after replay; a new ID rebuilding the prefix repeats integration, aggregate 2/2/2 | Demonstrated remaining gap; outside actual-outcome repair |
+| Bounded registry restoration and durable continuation | [Registry continuation](../../examples/offline-session-registry/README.md) restores owned Member value state, admission identity and integrated HEAD before input; same/new IDs retain aggregate 1/1/1; paired restoration-disabled graph retains empty replay HEAD and 2/2/2 | Demonstrated in selected single-writer windows; arbitrary application continuation remains unverified |
 | Full historical application, MCP/Python and provider equivalence | Private source and real-provider artifacts not supplied | Unverified / unavailable |
 | Arbitrary races, uncooperative effects, blocked stderr, other platforms and multiple clients | Outside bounded fixture execution | Unverified |
 
@@ -36,10 +36,17 @@ restricted to synchronous, non-null-ID integration requests. Reused reader
 fixtures remain historical evidence; fresh journal reader rows preserve the
 original cancellation outcome and exact reader exception.
 
-Next substantial milestone: reconstruct a complete durable application
-continuation, including Member/registry state and the integrated HEAD, then
-prove the physical mutation/evidence binding in a separately approved isolated
-offline fixture. The current synthetic effect ledger cannot prove physical Git
+The [registry milestone](offline-session-registry-20261014.md) now demonstrates
+bounded durable Member/registry/HEAD continuation with existing graph primitives.
+Its atomic application publication retains actual outcome data before the scalar
+receipt; pre-publication uncertainty blocks distinct IDs and cannot retry unknown
+effects. Missing registry facts in a nonempty domain close admission.
+The [identity/actual-data repair](offline-session-registry-repair-20261014.md)
+authenticates replayed Member associations and checks all retained current-ready
+actual results before repair or input, including constructed contradiction controls.
+Broader application continuation and the physical mutation/evidence binding
+remain separate proof obligations for an approved isolated offline fixture.
+The current synthetic effect ledger cannot prove physical Git
 reconciliation or provider equivalence. Multi-writer exclusion, pruning,
 power-loss behavior, peer acknowledgement and historical MCP/Python parity
 remain outside this proof. No existing core primitive has been shown

@@ -1,0 +1,752 @@
+{
+  "movedReplay": true,
+  "identicalControlBinding": true,
+  "normalizedHostHash": "be602b26447b3e63c645632cc62c726542dba8b5d4e05403ccaa043cc3ce4329",
+  "inputBytesChecked": true,
+  "acceptedWriteBytesChecked": true,
+  "artifactHashClosure": true,
+  "sourceHashes": {
+    "examples/offline-session-registry/author.mjs": "6bb301ded6a4477edee4ae145312c9e23ac15a67e6ac861acabc9e23783f35e3",
+    "examples/offline-session-journal/author.mjs": "a71d45c33d628014c21d6e6630342dcbd1c262e1b24525b3c230e868d9e15c2c",
+    "examples/offline-session-reader-propagation/author.mjs": "3e9ce07303decd89a524317c61096e77fd4554ec2642b5505e45660d53204c91",
+    "examples/offline-session-bounded-input/author.mjs": "40f1decf4fbe00037702baa0247fa227a632c3af6ec6aea5f117287c405c770d",
+    "examples/offline-session-owned-io/author.mjs": "bdc9978b818db1c6289eb8ff1246e06c19fb3c85c660a86d8b3e3d7bc9bc98bb",
+    "examples/offline-leader-jsonrpc/author.mjs": "274379ec3e481808020e356cd9d6ffceedb2533a38f20c0e47a6d27fff62c4bc",
+    "examples/offline-leader-team/author.mjs": "7c1ba72ff4c3b17675b246e5bdb145c147d175c6f52f82b7d21f1057d433a8f0",
+    "examples/member-concurrency/author.mjs": "d69a101a70a832172ef83ca1a773bd150b4c459f356845b9e9c98f419a8a378e",
+    "examples/member-controller/author.mjs": "7020c1962be58e113ddb9dbdf3230bfd3e6237b8756b9b7f44cd3b9e88fdbd86",
+    "examples/member-lifecycle/author.mjs": "ec3d9238686549bb68edfcd1cf8d21ce7e69ae616f7160eb394e97525f9afd4e",
+    "examples/dynamic-worker-collector/lib.mjs": "b35e7e65036e410a182b9db77805fadf3b450380e0a79a573b11f06945a15cf7",
+    "examples/member-integration/author.mjs": "259f18bfa3275a579725e55ddbdfb914bc35297bee336719cf0fd1797aec478a",
+    "examples/task-wait-observer/author.mjs": "09a6876affc2eb45099b3d019e282cfc383de8a7f160887260e60c426c6f318c",
+    "examples/offline-leader-jsonrpc/parser.mjs": "689a7f112cf921f08534ebc9b2d9aea4d4e6c32cc7124775898c85081fbd145a",
+    "examples/offline-leader-jsonrpc/recipes.mjs": "834197c9abdc2fe90e315271f747011c88df6d4910f564ec0e08c0e2cdfb6912",
+    "examples/offline-session-registry/run.mjs": "14dc7204448a3da6a73493bba563d2aab9c6c2bc6f9dfbf63d61cb5fc63a6f6e",
+    "examples/offline-session-registry/compile.mjs": "01a9592e48ba7f8e4fcc8909877cb5270db09c80ebb0f8dc87243411fb29b1e2",
+    "examples/offline-session-owned-io/compile.mjs": "a60b6d08ca163313d7884540887864bd59735b65fcd4284314c89e95e8639073",
+    "examples/dynamic-worker-collector/compile-runtime.mjs": "7875c9a4475d46843f1e4d4fb2ce6109e94dcd72913ad6b1d2050b42c4b40553",
+    "examples/offline-session-registry/test-runtime.mjs": "4191c50089b4ef7459137fa6fbf827d82f692c3c1e313e476ce51dc6b2973521",
+    "examples/offline-leader-jsonrpc/cases.mjs": "21fa3f4b25ea59667ab6ee5a226954fe069c9168b59f097d78fbe359b86660e3",
+    "examples/offline-leader-team/cases.mjs": "bd8e310390de6d0f9281c617ab011877923919a2fa64759bee5a364b0803379e",
+    "examples/member-lifecycle/cases.mjs": "5a4adca1161df48a502707a2c5381737be0a7454d722278e695669c9fb9754dd",
+    "examples/member-concurrency/cases.mjs": "7eade6ea601f840db63fe2c6391eaf47bfa5dbbc2f092488f16ecd8951495a3e",
+    "examples/member-controller/cases.mjs": "d38683a6d815b3bee7927c95578bfa6b99a2fa109637dfc98869f4f668f322e4",
+    "examples/member-integration/cases.mjs": "32c0893fe929483fd6994d99fe3f31f6b7212596e2cb1a35785f9f475fdf06c5",
+    "examples/offline-session-registry/verify.mjs": "ad6a9d355f608348c20be39303de1e1515e30af5e39f4318ec800fd9e0d324dc",
+    "examples/offline-session-journal/storage.template.cs": "d430fc32181912fb8e0e51eee52052c7efbe29743c4d47f386433708cf793f9d",
+    "examples/offline-session-owned-io/pipe.template.cs": "4e8fa58eca61678a770188a1447dd3b8dd73ca20c8650a4d64703c4c7a9771f7",
+    "examples/offline-session-bounded-input/pipe.template.cs": "29bbe18ed8073d918b23132f9c10ed892ef867ec900fb69f5b70bc0d75e2a0ea",
+    "examples/offline-leader-jsonrpc/runtime.template.cs": "d9f9ffd1410ad8b1e79f1fe06ba96e5d3995ede80bcc6a494eccb20904704d9f",
+    ".opencode/tests/nyrwvy-authoring-offline-session-registry.test.mjs": "4f2ba28b5f2b897d711dc5bf8e12b9d058e9adf4e70a56170f47271e65a165e7"
+  },
+  "bundles": [
+    {
+      "dir": "/home/kw4/Work/Codex/2026-10-14/task-3/candidate/artifacts/registry/final",
+      "hashes": {
+        "Generated.cs": "5d69c3167aa54b48b818235b089552f408daf71924b6a988c15eb3b23dc50be6",
+        "Program.cs": "febc615189219132be413304a944036c41c6b683dab930550902aebed20d834c",
+        "Runtime.dll": "a9d999afac7427f2c952beb78dd21aa3595e6cb4e272625ed61feb9f1639cd8c",
+        "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+        "session.json": "dbcb9955835ab23e16f24f78b9bb6fda5f5939f4d31064114057fe436fd20428",
+        "symbols.json": "37021dbde0639d9766e5b30ecbc54fe8d41ed244fd4c0c55d71f1de09851678b",
+        "declarations.json": "5d77061b431953b6faae2048fa14f8bf3fe5f87037f17a81fb968736ab5e7a94",
+        "authoring.json": "b02c24c22202279758ec17de7c8bebcdf90567afde2f232c0a5cb4da6927f76d",
+        "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+        "restoration-disabled/Generated.cs": "234e758bcb5826c1745e472a2f361505e45a4d6a040f8bc441b98654cc849107",
+        "restoration-disabled/Program.cs": "06f00375edac67ce73b26fc19f4bf1f504585d0a59ee9014892b383fd4dd3c2b",
+        "restoration-disabled/Runtime.dll": "521257b3f2d8a0116f19f19952e4f7a11a3b48c7df4e5df7afebe44982dcb853",
+        "restoration-disabled/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+        "restoration-disabled/session.json": "7be93a2e75cfff8bceb6e4d8ab7a8b49f10c5079d4c76c084299b3d413928332",
+        "restoration-disabled/symbols.json": "b912cdf89c0266e73a90b6bb5c6bddc38269af4f0c18d3f2b838332ef96b4b81",
+        "restoration-disabled/declarations.json": "891b8d6be2789e34d317d07d4ea7aded9c66297b301fa5d9f43a2d93a6fb634f",
+        "restoration-disabled/authoring.json": "f0c933e7af54b7b6bbe5029558a4a3e6abe2670147cc30740d1c630b90a6902a",
+        "restoration-disabled/compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097"
+      },
+      "rawHash": "15a7f26a352887c2192de6fb4f3e2c5442e68b1a46d9fd14ab73ce815a1d3cf4",
+      "proof": [
+        {
+          "name": "restoration-disabled",
+          "processes": 3,
+          "total": {
+            "commit": 2,
+            "head": 2,
+            "save": 2
+          },
+          "restorationContractRejected": true,
+          "observations": {
+            "sameIdTerminal": "1,completed,w1,base,0,false,different-commit,passed,;",
+            "newIdTerminal": "1,completed,w1,base,0,false,commit1,passed,integrated-head;",
+            "sameIdInspect": "",
+            "newIdInspect": ""
+          }
+        },
+        {
+          "name": "restoration",
+          "processes": 3,
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "restorationContractRejected": false,
+          "observations": {
+            "sameIdTerminal": "1,completed,w1,base,0,false,commit1,passed,integrated-head;",
+            "newIdTerminal": "1,completed,w1,base,0,false,commit1,passed,integrated-head;",
+            "sameIdInspect": "1,completed,w1,base,0,false,commit1,passed,integrated-head;",
+            "newIdInspect": "1,completed,w1,base,0,false,commit1,passed,integrated-head;"
+          }
+        },
+        {
+          "name": "before-registry-intent",
+          "processes": 3,
+          "sigkill": true,
+          "published": false,
+          "uncertain": false,
+          "newId": "ok:integrated-head",
+          "sameId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "idle"
+        },
+        {
+          "name": "after-registry-intent",
+          "processes": 3,
+          "sigkill": true,
+          "published": false,
+          "uncertain": false,
+          "newId": "err:unresolved",
+          "sameId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "pending"
+        },
+        {
+          "name": "after-intent",
+          "processes": 3,
+          "sigkill": true,
+          "published": false,
+          "uncertain": false,
+          "newId": "err:unresolved",
+          "sameId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "pending"
+        },
+        {
+          "name": "after-commit",
+          "processes": 3,
+          "sigkill": true,
+          "published": false,
+          "uncertain": true,
+          "newId": "err:unresolved",
+          "sameId": "err:unresolved",
+          "total": {
+            "commit": 1,
+            "head": 0,
+            "save": 0
+          },
+          "retainedRegistryPhase": "pending"
+        },
+        {
+          "name": "before-registry-publication",
+          "processes": 3,
+          "sigkill": true,
+          "published": false,
+          "uncertain": true,
+          "newId": "err:unresolved",
+          "sameId": "err:unresolved",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "pending"
+        },
+        {
+          "name": "after-registry-publication",
+          "processes": 3,
+          "sigkill": true,
+          "published": true,
+          "uncertain": false,
+          "newId": "ok:integrated-head",
+          "sameId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "ready"
+        },
+        {
+          "name": "before-outcome-receipt",
+          "processes": 3,
+          "sigkill": true,
+          "published": true,
+          "uncertain": false,
+          "newId": "ok:integrated-head",
+          "sameId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "ready"
+        },
+        {
+          "name": "after-effect",
+          "processes": 3,
+          "sigkill": true,
+          "published": true,
+          "uncertain": false,
+          "newId": "ok:integrated-head",
+          "sameId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "ready"
+        },
+        {
+          "name": "cancel-before-registry-publication",
+          "processes": 3,
+          "sigkill": true,
+          "actualDeterminedOutcome": "err:cancelled",
+          "sameId": "err:unresolved",
+          "newId": "err:unresolved",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "restoredWitness": "running"
+        },
+        {
+          "name": "cancel-after-registry-publication",
+          "processes": 3,
+          "sigkill": true,
+          "actualDeterminedOutcome": "err:cancelled",
+          "sameId": "err:cancelled",
+          "newId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "restoredWitness": "stopped"
+        },
+        {
+          "name": "cancel-before-outcome-receipt",
+          "processes": 3,
+          "sigkill": true,
+          "actualDeterminedOutcome": "err:cancelled",
+          "sameId": "err:cancelled",
+          "newId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "restoredWitness": "stopped"
+        },
+        {
+          "name": "cancel-after-effect",
+          "processes": 3,
+          "sigkill": true,
+          "actualDeterminedOutcome": "err:cancelled",
+          "sameId": "err:cancelled",
+          "newId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "restoredWitness": "stopped"
+        },
+        {
+          "name": "unavailable",
+          "processes": 4,
+          "noAutomaticUnknownRetry": true,
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          }
+        },
+        {
+          "name": "payload-conflict",
+          "processes": 2,
+          "conflictBeforeEffectObservation": true
+        },
+        {
+          "name": "changed-selected-intent",
+          "processes": 2,
+          "absentEffectsWithChangedSelectedIntentDoNotRetry": true
+        },
+        {
+          "name": "member-admission-conflict",
+          "processes": 2,
+          "admissionConflictBeforeProvider": true
+        },
+        {
+          "name": "damage-malformed",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "damage-oversized",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "damage-version",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "damage-duplicate-member",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "damage-invalid-next",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "damage-invalid-eligibility",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "damage-inferred-outcome",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "receipt-mismatch",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "conflictingActualEvidenceDoesNotRewrite": true
+        },
+        {
+          "name": "missing-registry",
+          "processes": 1,
+          "nonemptyDomainWithoutRegistryClosesAdmission": true
+        },
+        {
+          "name": "reader-utf8",
+          "processes": 3,
+          "exactReaderException": true,
+          "protectedPublication": true,
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          }
+        },
+        {
+          "name": "reader-oversize",
+          "processes": 3,
+          "exactReaderException": true,
+          "protectedPublication": true,
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          }
+        },
+        {
+          "name": "discarded",
+          "processes": 2,
+          "restoredEligibilityRejects": true,
+          "noMutation": true
+        },
+        {
+          "name": "superseded",
+          "processes": 2,
+          "constructedEligibilityInputFromFreshSeed": true,
+          "restoredEligibilityRejects": true,
+          "noMutation": true
+        },
+        {
+          "name": "unrepresentable-checkpoint",
+          "processes": 1,
+          "oversizedCheckpointStopsBeforeIntentOrMutation": true
+        }
+      ]
+    },
+    {
+      "dir": "/home/kw4/Work/Codex/2026-10-14/task-3/candidate/artifacts/registry/moved-final",
+      "hashes": {
+        "Generated.cs": "5d69c3167aa54b48b818235b089552f408daf71924b6a988c15eb3b23dc50be6",
+        "Program.cs": "febc615189219132be413304a944036c41c6b683dab930550902aebed20d834c",
+        "Runtime.dll": "a9d999afac7427f2c952beb78dd21aa3595e6cb4e272625ed61feb9f1639cd8c",
+        "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+        "session.json": "dbcb9955835ab23e16f24f78b9bb6fda5f5939f4d31064114057fe436fd20428",
+        "symbols.json": "37021dbde0639d9766e5b30ecbc54fe8d41ed244fd4c0c55d71f1de09851678b",
+        "declarations.json": "5d77061b431953b6faae2048fa14f8bf3fe5f87037f17a81fb968736ab5e7a94",
+        "authoring.json": "b02c24c22202279758ec17de7c8bebcdf90567afde2f232c0a5cb4da6927f76d",
+        "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+        "restoration-disabled/Generated.cs": "234e758bcb5826c1745e472a2f361505e45a4d6a040f8bc441b98654cc849107",
+        "restoration-disabled/Program.cs": "06f00375edac67ce73b26fc19f4bf1f504585d0a59ee9014892b383fd4dd3c2b",
+        "restoration-disabled/Runtime.dll": "521257b3f2d8a0116f19f19952e4f7a11a3b48c7df4e5df7afebe44982dcb853",
+        "restoration-disabled/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+        "restoration-disabled/session.json": "7be93a2e75cfff8bceb6e4d8ab7a8b49f10c5079d4c76c084299b3d413928332",
+        "restoration-disabled/symbols.json": "b912cdf89c0266e73a90b6bb5c6bddc38269af4f0c18d3f2b838332ef96b4b81",
+        "restoration-disabled/declarations.json": "891b8d6be2789e34d317d07d4ea7aded9c66297b301fa5d9f43a2d93a6fb634f",
+        "restoration-disabled/authoring.json": "f0c933e7af54b7b6bbe5029558a4a3e6abe2670147cc30740d1c630b90a6902a",
+        "restoration-disabled/compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097"
+      },
+      "rawHash": "1e8b459bc1692128de04a4c5f798883d73f2c6d67aa278e5750db85cd01f06e1",
+      "proof": [
+        {
+          "name": "restoration-disabled",
+          "processes": 3,
+          "total": {
+            "commit": 2,
+            "head": 2,
+            "save": 2
+          },
+          "restorationContractRejected": true,
+          "observations": {
+            "sameIdTerminal": "1,completed,w1,base,0,false,different-commit,passed,;",
+            "newIdTerminal": "1,completed,w1,base,0,false,commit1,passed,integrated-head;",
+            "sameIdInspect": "",
+            "newIdInspect": ""
+          }
+        },
+        {
+          "name": "restoration",
+          "processes": 3,
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "restorationContractRejected": false,
+          "observations": {
+            "sameIdTerminal": "1,completed,w1,base,0,false,commit1,passed,integrated-head;",
+            "newIdTerminal": "1,completed,w1,base,0,false,commit1,passed,integrated-head;",
+            "sameIdInspect": "1,completed,w1,base,0,false,commit1,passed,integrated-head;",
+            "newIdInspect": "1,completed,w1,base,0,false,commit1,passed,integrated-head;"
+          }
+        },
+        {
+          "name": "before-registry-intent",
+          "processes": 3,
+          "sigkill": true,
+          "published": false,
+          "uncertain": false,
+          "newId": "ok:integrated-head",
+          "sameId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "idle"
+        },
+        {
+          "name": "after-registry-intent",
+          "processes": 3,
+          "sigkill": true,
+          "published": false,
+          "uncertain": false,
+          "newId": "err:unresolved",
+          "sameId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "pending"
+        },
+        {
+          "name": "after-intent",
+          "processes": 3,
+          "sigkill": true,
+          "published": false,
+          "uncertain": false,
+          "newId": "err:unresolved",
+          "sameId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "pending"
+        },
+        {
+          "name": "after-commit",
+          "processes": 3,
+          "sigkill": true,
+          "published": false,
+          "uncertain": true,
+          "newId": "err:unresolved",
+          "sameId": "err:unresolved",
+          "total": {
+            "commit": 1,
+            "head": 0,
+            "save": 0
+          },
+          "retainedRegistryPhase": "pending"
+        },
+        {
+          "name": "before-registry-publication",
+          "processes": 3,
+          "sigkill": true,
+          "published": false,
+          "uncertain": true,
+          "newId": "err:unresolved",
+          "sameId": "err:unresolved",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "pending"
+        },
+        {
+          "name": "after-registry-publication",
+          "processes": 3,
+          "sigkill": true,
+          "published": true,
+          "uncertain": false,
+          "newId": "ok:integrated-head",
+          "sameId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "ready"
+        },
+        {
+          "name": "before-outcome-receipt",
+          "processes": 3,
+          "sigkill": true,
+          "published": true,
+          "uncertain": false,
+          "newId": "ok:integrated-head",
+          "sameId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "ready"
+        },
+        {
+          "name": "after-effect",
+          "processes": 3,
+          "sigkill": true,
+          "published": true,
+          "uncertain": false,
+          "newId": "ok:integrated-head",
+          "sameId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "retainedRegistryPhase": "ready"
+        },
+        {
+          "name": "cancel-before-registry-publication",
+          "processes": 3,
+          "sigkill": true,
+          "actualDeterminedOutcome": "err:cancelled",
+          "sameId": "err:unresolved",
+          "newId": "err:unresolved",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "restoredWitness": "running"
+        },
+        {
+          "name": "cancel-after-registry-publication",
+          "processes": 3,
+          "sigkill": true,
+          "actualDeterminedOutcome": "err:cancelled",
+          "sameId": "err:cancelled",
+          "newId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "restoredWitness": "stopped"
+        },
+        {
+          "name": "cancel-before-outcome-receipt",
+          "processes": 3,
+          "sigkill": true,
+          "actualDeterminedOutcome": "err:cancelled",
+          "sameId": "err:cancelled",
+          "newId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "restoredWitness": "stopped"
+        },
+        {
+          "name": "cancel-after-effect",
+          "processes": 3,
+          "sigkill": true,
+          "actualDeterminedOutcome": "err:cancelled",
+          "sameId": "err:cancelled",
+          "newId": "ok:integrated-head",
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          },
+          "restoredWitness": "stopped"
+        },
+        {
+          "name": "unavailable",
+          "processes": 4,
+          "noAutomaticUnknownRetry": true,
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          }
+        },
+        {
+          "name": "payload-conflict",
+          "processes": 2,
+          "conflictBeforeEffectObservation": true
+        },
+        {
+          "name": "changed-selected-intent",
+          "processes": 2,
+          "absentEffectsWithChangedSelectedIntentDoNotRetry": true
+        },
+        {
+          "name": "member-admission-conflict",
+          "processes": 2,
+          "admissionConflictBeforeProvider": true
+        },
+        {
+          "name": "damage-malformed",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "damage-oversized",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "damage-version",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "damage-duplicate-member",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "damage-invalid-next",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "damage-invalid-eligibility",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "damage-inferred-outcome",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "storageUnchanged": true
+        },
+        {
+          "name": "receipt-mismatch",
+          "processes": 1,
+          "closedBeforeInput": true,
+          "conflictingActualEvidenceDoesNotRewrite": true
+        },
+        {
+          "name": "missing-registry",
+          "processes": 1,
+          "nonemptyDomainWithoutRegistryClosesAdmission": true
+        },
+        {
+          "name": "reader-utf8",
+          "processes": 3,
+          "exactReaderException": true,
+          "protectedPublication": true,
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          }
+        },
+        {
+          "name": "reader-oversize",
+          "processes": 3,
+          "exactReaderException": true,
+          "protectedPublication": true,
+          "total": {
+            "commit": 1,
+            "head": 1,
+            "save": 1
+          }
+        },
+        {
+          "name": "discarded",
+          "processes": 2,
+          "restoredEligibilityRejects": true,
+          "noMutation": true
+        },
+        {
+          "name": "superseded",
+          "processes": 2,
+          "constructedEligibilityInputFromFreshSeed": true,
+          "restoredEligibilityRejects": true,
+          "noMutation": true
+        },
+        {
+          "name": "unrepresentable-checkpoint",
+          "processes": 1,
+          "oversizedCheckpointStopsBeforeIntentOrMutation": true
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "example-source/artifact closure excludes core/tool implementation, compiler, references, environment and power-loss behavior; core/tool sources remain pinned by base commit",
+    "fresh processes and SIGKILL establish selected single-writer windows, not arbitrary interruptions or physical provider/Git safety"
+  ]
+}
