@@ -95,7 +95,7 @@ node examples/offline-session-owned-io/compile.mjs artifacts/owned-io/moved
 node examples/offline-session-owned-io/compile.mjs artifacts/owned-io/moved/sequential
 node examples/offline-session-owned-io/test-runtime.mjs artifacts/owned-io/moved
 node examples/offline-session-owned-io/verify.mjs artifacts/owned-io/bundle artifacts/owned-io/moved
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-offline-session-owned-io.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-offline-session-owned-io.test.mjs
 ```
 
 Bundles retain snapshot/transcript, symbols/declarations, unedited emitted C#,

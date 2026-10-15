@@ -76,10 +76,10 @@ Install a .NET 10 SDK of the feature band selected by [`global.json`](global.jso
 
 ```shell
 dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --settings tests/fast.runsettings
-node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs scripts/tests/*.test.mjs
+node scripts/run-node-tests.mjs fast-contracts
 ```
 
-`./scripts/test-fast.fish` wraps the same two commands.
+`./scripts/test-fast.fish` wraps the same two commands. The Node group includes ordinary authoring workflow, transport, evaluation transport, and script contracts. Example pipelines that repeatedly generate and execute C# live under `.opencode/tests-extended/` and run only through the extended entry point.
 
 The maintained Node/Bun adapters also have a repository-owned, locked TypeScript toolchain. From a clean checkout, no global `tsc`, OpenCode installation, or .NET build is needed to typecheck them:
 
@@ -89,7 +89,7 @@ npm run typecheck
 npm test
 ```
 
-`npm test` is the root entry point for the adapter contracts plus the Node transport and MCP contracts (`test:adapters` and `test:node`; the latter needs the Release AuthoringSession built). These are deterministic adapter checks, not live model evaluations. Node runs the Node adapters with native type stripping; Bun 1.4.2 is optional and runs only the Bun unit tests (`npm run test:bun`). See [adapter setup and test suites](tests/README.md#adapter-toolchain-and-typechecking) for the dependency ownership, configuration boundaries, and runtime test prerequisites.
+`npm test` is the fast root entry point for the adapter contracts plus the Node transport and MCP contracts (`test:adapters` and `test:node`; the latter needs the Release AuthoringSession built). `npm run test:node:extended` selects only the heavy Node example pipelines; `fish scripts/test-extended.fish` runs both xUnit extended and those pipelines. These are deterministic checks, not live model evaluations. Node runs the Node adapters with native type stripping; Bun 1.4.2 is optional and runs only the Bun unit tests (`npm run test:bun`). See [adapter setup and test suites](tests/README.md#adapter-toolchain-and-typechecking) for the dependency ownership, configuration boundaries, and runtime test prerequisites.
 
 Tests run locally before a change is merged. The two GitHub Actions workflows (`CI` with the checks above plus the MCP, evaluation-transport and Bun contracts; `Extended` with the broader suite) are started manually by the maintainer at milestones rather than on every push or pull request; see the [verification philosophy](docs/developer/verification.md#reproducible-tooling-and-shell-checks). External pull requests are not accepted at this stage.
 

@@ -29,7 +29,7 @@ node examples/member-snapshot-faults/prove.mjs /tmp/snapshot-before /tmp/snapsho
 cp -r /tmp/snapshot-after /tmp/snapshot-moved
 node examples/member-snapshot-faults/run.mjs --replay /tmp/snapshot-moved
 node examples/member-snapshot-faults/prove.mjs /tmp/snapshot-before /tmp/snapshot-moved --replay
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-member-snapshot-faults.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-member-snapshot-faults.test.mjs
 ```
 
 The independent oracle verifies exact HEAD and source bytes against Python

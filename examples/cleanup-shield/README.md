@@ -33,7 +33,7 @@ It compares the protected results with committed, normalized Python expectations
 Run only that regression with:
 
 ```nu
-node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-cleanup-shield.test.mjs
+node --experimental-strip-types --test .opencode/tests-extended/nyrwvy-authoring-cleanup-shield.test.mjs
 ```
 
 For the before result, build AuthoringSession in a separate checkout of pinned

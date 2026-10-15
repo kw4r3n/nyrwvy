@@ -30,7 +30,7 @@ node examples/member-close-intent/prove.mjs /tmp/close-before /tmp/close-after -
 cp -r /tmp/close-after /tmp/close-moved
 node examples/member-close-intent/run.mjs --replay /tmp/close-moved
 node examples/member-close-intent/prove.mjs /tmp/close-before /tmp/close-moved --replay
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-member-close-intent.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-member-close-intent.test.mjs
 ```
 
 The unchanged Python oracle checks HEAD and exact bytes of team.py, codex.py,

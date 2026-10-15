@@ -28,7 +28,7 @@ node examples/task-cancellation-outcome/test-runtime.mjs artifacts/task-outcome/
 cp -r artifacts/task-outcome/bundle artifacts/task-outcome/moved
 node examples/task-cancellation-outcome/run.mjs --replay artifacts/task-outcome/moved
 node examples/task-cancellation-outcome/test-runtime.mjs artifacts/task-outcome/moved
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-task-cancellation-outcome.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-task-cancellation-outcome.test.mjs
 ```
 
 The maintained Node test compares snapshot, emitted source, symbols, observations

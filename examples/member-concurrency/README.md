@@ -50,7 +50,7 @@ node examples/member-concurrency/run.mjs --replay /tmp/admission-fresh
 cp -r /tmp/admission-fresh /tmp/admission-moved
 node examples/member-concurrency/run.mjs --replay /tmp/admission-moved
 node examples/member-concurrency/verify.mjs /tmp/admission-moved --replay
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-member-concurrency.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-member-concurrency.test.mjs
 ```
 
 `verify.mjs` uses the independently recorded Python fixture, so routine regression

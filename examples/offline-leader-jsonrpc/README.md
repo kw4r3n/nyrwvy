@@ -96,7 +96,7 @@ cp -r artifacts/wire/bundle artifacts/wire/moved
 node examples/offline-leader-jsonrpc/run.mjs --replay artifacts/wire/moved
 node examples/offline-leader-jsonrpc/test-runtime.mjs artifacts/wire/moved
 node examples/offline-leader-jsonrpc/verify.mjs artifacts/wire/bundle artifacts/wire/moved
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-offline-leader-jsonrpc.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-offline-leader-jsonrpc.test.mjs
 ```
 
 The bundle retains the snapshot, proposals/reviews/commits, declarations, symbols,

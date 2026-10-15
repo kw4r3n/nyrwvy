@@ -15,8 +15,9 @@
     "typecheck:adapters": "tsc --project tsconfig.adapters.json",
     "typecheck:bun": "tsc --project tsconfig.bun.json",
     "test": "npm run test:adapters && npm run test:node",
-    "test:adapters": "node --experimental-strip-types --test tools/nyrwvy-agent/*.test.mjs",
-    "test:node": "node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs .opencode/tests/nyrwvy-evaluation-transport.test.mjs scripts/tests/*.test.mjs && npm test --workspace tools/nyrwvy-mcp",
+    "test:adapters": "node scripts/run-node-tests.mjs fast-adapters",
+    "test:node": "node scripts/run-node-tests.mjs fast-contracts fast-mcp",
+    "test:node:extended": "node scripts/run-node-tests.mjs extended",
     "test:bun": "bun test ./.opencode/tests/*.test.ts"
   },
   "devDependencies": {

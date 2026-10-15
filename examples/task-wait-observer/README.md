@@ -5,7 +5,7 @@ through ordinary `simulateCreateFunctionByName` and `commit` calls. Its
 `defineTaskWaitObserver(create)` callback receives `(name, parameterTypes,
 resultType, body)`; publish each in order with `requiredEffects: []`. Normal
 authoring allocates fresh U/E type parameter identities for each function.
-The [regression test](../../.opencode/tests/nyrwvy-authoring-task-wait-observer.test.mjs)
+The [regression test](../../.opencode/tests-extended/nyrwvy-authoring-task-wait-observer.test.mjs)
 shows the callback, concrete graph assembly and local execution.
 
 This composes existing TaskWait and OneShot operations. It preserves the current
@@ -80,7 +80,7 @@ From the repository root, with Node 22.6+ and installed .NET 10:
 
 ```nu
 dotnet build tools/Nyrwvy.AuthoringSession --configuration Release -m:1
-node --test .opencode/tests/nyrwvy-authoring-task-wait-observer.test.mjs
+node --test .opencode/tests-extended/nyrwvy-authoring-task-wait-observer.test.mjs
 ```
 
 The test uses the repository's AuthoringSession transport, temporary snapshots,

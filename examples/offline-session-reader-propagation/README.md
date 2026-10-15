@@ -55,7 +55,7 @@ node examples/offline-session-reader-propagation/compile.mjs artifacts/reader-pr
 node examples/offline-session-reader-propagation/test-runtime.mjs artifacts/reader-propagation/moved
 node examples/offline-session-reader-propagation/probe-restart.mjs artifacts/reader-propagation/moved
 node examples/offline-session-reader-propagation/verify.mjs artifacts/reader-propagation/bundle artifacts/reader-propagation/moved
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-offline-session-reader-propagation.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-offline-session-reader-propagation.test.mjs
 ```
 
 The one next-gap probe closes peer stdout at the held integration, releases the

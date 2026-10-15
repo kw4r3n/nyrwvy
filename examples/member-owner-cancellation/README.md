@@ -111,7 +111,7 @@ node examples/member-owner-cancellation/run.mjs --replay /tmp/owner-final
 cp -r /tmp/owner-final /tmp/owner-moved
 node examples/member-owner-cancellation/run.mjs --replay /tmp/owner-moved
 node examples/member-owner-cancellation/verify.mjs /tmp/owner-moved --replay
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-member-owner-cancellation.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-member-owner-cancellation.test.mjs
 ```
 
 Virtual and real paths share the unchanged C# emitter. Virtual timing is
