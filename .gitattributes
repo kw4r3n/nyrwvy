@@ -1,0 +1,2 @@
+# Preserve the exact authenticated compressed offline input bytes on checkout.
+examples/offline-session-replay/fixtures/retained-inputs/**/*.gz binary
