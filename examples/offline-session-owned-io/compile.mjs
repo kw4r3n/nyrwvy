@@ -3,13 +3,13 @@ import {readFile,writeFile} from 'node:fs/promises'
 import {join,resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {compileRuntime} from '../dynamic-worker-collector/compile-runtime.mjs'
-export async function compile(dir,{pipeTemplate,effectsTransform=source=>source}={}){
+export async function compile(dir,{pipeTemplate,effectsTransform=source=>source,hostMethods={}}={}){
 dir=resolve(dir)
 const d=JSON.parse(await readFile(join(dir,'declarations.json'),'utf8')),symbols=JSON.parse(await readFile(join(dir,'symbols.json'),'utf8'))
 const find=(items,name)=>items.find(x=>x.displayName===name),symbol=(kind,id)=>symbols[kind].find(x=>x.id===id).name
 const host=find(d.capabilities,'Host'),run=find(d.functions,'wireRun'),transport=find(d.capabilities,'Transport')
-const csType=t=>t.kind==='primitive'?({string:'NyStr',unit:'NyUnit',int64:'long',bool:'bool'})[t.primitive]:`${({result:'NyResult',list:'NyList'})[t.generic]}<${t.arguments.map(csType).join(',')}>`
-const names={open:'Open',close:'Close',workspaceCreate:'WorkspaceCreate',workspaceDiscard:'WorkspaceDiscard',provider:'Provider',memberClose:'MemberClose',snapshot:'Snapshot',checks:'Checks',gate:'Gate',reply:'Reply',step:'Step'}
+const csType=t=>t.kind==='primitive'?({string:'NyStr',unit:'NyUnit',int64:'long',bool:'bool'})[t.primitive]:`${({result:'NyResult',list:'NyList',option:'NyOption'})[t.generic]}<${t.arguments.map(csType).join(',')}>`
+const names={open:'Open',close:'Close',workspaceCreate:'WorkspaceCreate',workspaceDiscard:'WorkspaceDiscard',provider:'Provider',memberClose:'MemberClose',snapshot:'Snapshot',checks:'Checks',gate:'Gate',reply:'Reply',step:'Step',...hostMethods}
 const replacements={HOST:symbol('capabilities',host.id),RUN:symbol('functions',run.id),RUN_HOST:symbol('parameters',find(run.parameters,'host').id),RUN_TRANSPORT:symbol('parameters',find(run.parameters,'transport').id),RUN_WRONG:symbol('parameters',find(run.parameters,'wrongBoundary').id),TRANSPORT:symbol('capabilities',transport.id),READ:symbol('capabilityOperations',transport.operations[0].id),
  ...(transport.operations[0].parameters.length?{READ_LIMIT:symbol('capabilityParameters',transport.operations[0].parameters[0].id)}:{}),
  METHODS:host.operations.map(o=>`public ${csType(o.resultType)} ${symbol('capabilityOperations',o.id)}(${o.parameters.map(p=>`${csType(p.type)} ${p.displayName==='base'?'basis':p.displayName}`).join(',')}) => ${names[o.displayName]}(${o.parameters.map(p=>p.displayName==='base'?'basis':p.displayName).join(',')});`).join('\n')}

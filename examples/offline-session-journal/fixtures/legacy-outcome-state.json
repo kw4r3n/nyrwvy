@@ -1,0 +1,35 @@
+{
+  "scope": "Exact retained storage input from 6f4c2c3 author/reviewer observations; reused evidence, not fresh executions",
+  "base": "6f4c2c3a8e9dea07ff992de1b29190e82d5bb19e",
+  "cases": [
+    {
+      "name": "legacy-inferred-result",
+      "source": "/home/kw4/Work/Codex/2026-10-14/task/review-journal/artifacts/reviewer-journal/original/reviewer-unmodified-raw.json",
+      "sourceRawHash": "1e986b85c4bdef182d76a47ea665aa90e9b77ffd306761697606087cb21784c9",
+      "sourceRow": {
+        "name": "cancelled-before-outcome-unmodified",
+        "index": 2
+      },
+      "expected": "err:unresolved",
+      "storage": {
+        "b8a49998d9ff78eba80bb6345ee605e9ee898d9ceac55918681d3eb247b4a8b5.json": "{\"version\":\"1\",\"id\":\"journal/v1/049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c\",\"fingerprint\":\"e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65\",\"intent\":\"{\\\"op\\\":\\\"integrate\\\",\\\"target\\\":1,\\\"workspace\\\":\\\"w1\\\",\\\"commit\\\":\\\"commit1\\\",\\\"status\\\":\\\"completed\\\",\\\"settled\\\":true,\\\"latest\\\":true,\\\"discarded\\\":false,\\\"integrated\\\":\\\"\\\"}\",\"effectIdentity\":\"journal:049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c:e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65\",\"state\":\"done\",\"outcome\":\"ok:integrated-head\"}",
+        "d93b78e3cf9adf6cf449acea250fd2d0ca86065e09b016da3f36a8a38ff20671.json": "[{\"identity\":\"journal:049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c:e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65\",\"phase\":\"commit\",\"patch\":\"\"},{\"identity\":\"journal:049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c:e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65\",\"phase\":\"head\",\"patch\":\"\"},{\"identity\":\"journal:049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c:e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65\",\"phase\":\"save\",\"patch\":\"integrated-head\"}]"
+      }
+    },
+    {
+      "name": "legacy-actual-result",
+      "source": "/home/kw4/Documents/Codex/2026-10-14/task-31/durable-journal/artifacts/journal/review/journal-raw.json",
+      "sourceRawHash": "cd1342a048fd2915eba591d23e81ea26df1b94c46bc997d983cc2a73cb737850",
+      "sourceRow": {
+        "name": "lost-response",
+        "index": 1
+      },
+      "expected": "ok:integrated-head",
+      "storage": {
+        "b8a49998d9ff78eba80bb6345ee605e9ee898d9ceac55918681d3eb247b4a8b5.json": "{\"version\":\"1\",\"id\":\"journal/v1/049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c\",\"fingerprint\":\"e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65\",\"intent\":\"{\\\"op\\\":\\\"integrate\\\",\\\"target\\\":1,\\\"workspace\\\":\\\"w1\\\",\\\"commit\\\":\\\"commit1\\\",\\\"status\\\":\\\"completed\\\",\\\"settled\\\":true,\\\"latest\\\":true,\\\"discarded\\\":false,\\\"integrated\\\":\\\"\\\"}\",\"effectIdentity\":\"journal:049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c:e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65\",\"state\":\"done\",\"outcome\":\"ok:integrated-head\"}",
+        "d93b78e3cf9adf6cf449acea250fd2d0ca86065e09b016da3f36a8a38ff20671.json": "[{\"identity\":\"journal:049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c:e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65\",\"phase\":\"commit\",\"patch\":\"\"},{\"identity\":\"journal:049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c:e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65\",\"phase\":\"head\",\"patch\":\"\"},{\"identity\":\"journal:049a4245df9b3facb441373ee2be7c351d079c36d18dadd35320e0400f26aa4c:e084c1942c90c03f4c8d140d3e28f713ed2d7c2325d3c26a5c36341fcd61ce65\",\"phase\":\"save\",\"patch\":\"integrated-head\"}]",
+        "fab1fbfc378cf85dbcf9c75c9a849932dbd98344f88b4814f295553e3e1ee0cd.json": "ok:integrated-head"
+      }
+    }
+  ]
+}
