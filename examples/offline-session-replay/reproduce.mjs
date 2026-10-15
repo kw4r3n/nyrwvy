@@ -19,7 +19,9 @@ const framework=config.runtimeOptions.framework
 const runtimes=execFileSync('dotnet',['--list-runtimes'],{encoding:'utf8'}).split(/\r?\n/)
 assert.ok(runtimes.some(line=>line.startsWith(framework.name+' '+framework.version+' ')),`Retained inputs require ${framework.name} ${framework.version}; install that runtime without changing retained bytes`)
 const hash=x=>createHash('sha256').update(x).digest('hex'),runs=[]
-const run=(script,...args)=>execFileSync(process.execPath,[join(cwd,'examples',script+'.mjs'),...args],{cwd,stdio:'inherit',timeout:600000})
+// Existing fixture processes own their bounded waits and child cleanup. An outer
+// wall-time kill could bypass that cleanup on a slow machine.
+const run=(script,...args)=>execFileSync(process.execPath,[join(cwd,'examples',script+'.mjs'),...args],{cwd,stdio:'inherit'})
 for(const kind of selection==='all'?kinds:[selection]){
  const name='offline-session-'+kind,output=join(root,kind),bundle=join(output,'bundle'),moved=join(output,'moved')
  await mkdir(output)
