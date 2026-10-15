@@ -656,6 +656,27 @@ module ViewerHtml =
                 + " " + verb + " required effect " + code (stableText "effect:" effectId) + "</li>")
         writer.Line("</ul>")
 
+        writer.Line("<h3>Functions removed</h3><ul>")
+        for item in diff.FunctionsRemoved do
+            writer.Line("<li>" + html item.DisplayName + " — " + code (stableText "function:" item.FunctionId))
+            if not (List.isEmpty item.RetiredObligations) then
+                writer.Line("<ul>")
+                for obligation in item.RetiredObligations do
+                    writer.Line(
+                        "<li>Retired resolved obligation " + code (stableText "obligation:" obligation.Id)
+                        + "; call " + code (stableText "node:" obligation.CallNodeId)
+                        + "; parameter " + code (stableText "parameter:" obligation.ParameterId)
+                        + "; origin " + code (stableText "transaction:" obligation.OriginTransactionId))
+                    match obligation.Status with
+                    | ObligationStatus.Resolved resolution ->
+                        writer.Line("; resolved in " + code (stableText "transaction:" resolution.TransactionId)
+                                    + " with " + code (stableText "node:" resolution.ValueNodeId))
+                    | ObligationStatus.Open -> ()
+                    writer.Line("</li>")
+                writer.Line("</ul>")
+            writer.Line("</li>")
+        writer.Line("</ul>")
+
         writer.Line("<h3>Arguments attached</h3><ul>")
         for item in diff.ArgumentsAttached do
             writer.Line(

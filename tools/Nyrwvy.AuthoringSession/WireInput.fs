@@ -67,7 +67,7 @@ module internal WireInput =
         if value.ValueKind <> JsonValueKind.String then fail $"Property '{name}' must be a JSON string."
         value.GetString()
 
-    /// Reads a run-value String: any sequence of UTF-16 code units. JSON's `\uD800`-style escapes may
+    /// Reads a semantic String (run value or literal): any sequence of UTF-16 code units. JSON's `\uD800`-style escapes may
     /// spell lone surrogates, which `JsonElement.GetString` refuses, so those strings are unescaped here.
     let runText (value: JsonElement): string =
         if value.ValueKind <> JsonValueKind.String then fail "A String run value must be a JSON string."

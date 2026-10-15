@@ -25,9 +25,9 @@ module internal WireProposalProjection =
             omissions.Add(objectValue [ "path", box path; "kind", box kind; "totalCount", box total; "shownCount", box shown ])
         let rec visit depth path (value: JsonElement): obj =
             if path = "/proposalId" || path = "/detail"
-               || (path.EndsWith("/kind", StringComparison.Ordinal) && value.ValueKind = JsonValueKind.String && value.GetString().Length <= 64) then box (value.Clone())
+               || (path.EndsWith("/kind", StringComparison.Ordinal) && value.ValueKind = JsonValueKind.String && (WireInput.runText value).Length <= 64) then box (value.Clone())
             elif value.ValueKind = JsonValueKind.String && path <> rootPath && identityPath path then
-                let text = value.GetString()
+                let text = WireInput.runText value
                 if text.Length <= 256 then box (value.Clone())
                 else
                     // An identity prefix is never presented as an exact identity.
@@ -54,11 +54,11 @@ module internal WireProposalProjection =
                     value.EnumerateObject() |> Seq.map (fun item ->
                         item.Name, visit (depth + 1) (path + "/" + escape item.Name) item.Value) |> Seq.toList |> objectValue
                 | JsonValueKind.String ->
-                    let text = value.GetString()
+                    let text = WireInput.runText value
                     let mutable shown = min text.Length textLimit
-                    if shown > 0 && shown < text.Length && Char.IsHighSurrogate text[shown - 1] then shown <- shown - 1
+                    if shown > 0 && shown < text.Length && Char.IsHighSurrogate text[shown - 1] && Char.IsLowSurrogate text[shown] then shown <- shown - 1
                     if shown < text.Length then omit path "stringUtf16" text.Length shown
-                    box (text.Substring(0, shown))
+                    runString (text.Substring(0, shown))
                 | _ -> box (value.Clone())
         visit 0 rootPath root, List.ofSeq omissions
 
@@ -122,7 +122,7 @@ module internal WireProposalProjection =
             match source.ValueKind with
             | JsonValueKind.Array -> source.GetArrayLength(), "array"
             | JsonValueKind.Object -> source.EnumerateObject() |> Seq.length, "object"
-            | JsonValueKind.String -> source.GetString().Length, "stringUtf16"
+            | JsonValueKind.String -> (WireInput.runText source).Length, "stringUtf16"
             | _ -> 1, "scalar"
         if offset < 0 || offset > total then WireInput.fail "offset must be within the selected value's totalCount."
         if limit < 1 || limit > (if kind = "stringUtf16" then 1024 else 20) then WireInput.fail "limit must be 1..20 items/properties, or 1..1024 UTF-16 code units for a String."
@@ -130,7 +130,7 @@ module internal WireProposalProjection =
             match source.ValueKind with
             | JsonValueKind.Array -> source.EnumerateArray() |> Seq.skip offset |> Seq.truncate count |> Seq.map (fun v -> box (v.Clone())) |> Seq.toList |> arrayValue
             | JsonValueKind.Object -> source.EnumerateObject() |> Seq.skip offset |> Seq.truncate count |> Seq.map (fun p -> p.Name, box (p.Value.Clone())) |> Seq.toList |> objectValue
-            | JsonValueKind.String -> box (source.GetString().Substring(offset, count))
+            | JsonValueKind.String -> runString ((WireInput.runText source).Substring(offset, count))
             | _ -> if count = 0 then null else box (source.Clone())
         let header count value projection =
             objectValue [ "proposalId", box pending.Proposal.ProposalId; "baseIsCurrent", box pending.BaseIsCommitted; "structuredReview", box structuredReview
@@ -139,9 +139,9 @@ module internal WireProposalProjection =
                           "value", value; "projection", projection ]
         let mutable count = min limit (total - offset)
         if kind = "stringUtf16" then
-            let text = source.GetString()
+            let text = WireInput.runText source
             if offset > 0 && offset < total && Char.IsLowSurrogate text[offset] && Char.IsHighSurrogate text[offset - 1] then WireInput.fail "offset splits a surrogate pair; use the returned nextOffset."
-            if count > 0 && offset + count < total && Char.IsHighSurrogate text[offset + count - 1] then
+            if count > 0 && offset + count < total && Char.IsHighSurrogate text[offset + count - 1] && Char.IsLowSurrogate text[offset + count] then
                 if count = 1 then WireInput.fail "limit would split a surrogate pair; use at least 2 UTF-16 code units."
                 count <- count - 1
         let mutable answer = None
