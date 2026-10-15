@@ -1,0 +1,32 @@
+{
+  "movedReplay": true,
+  "exactFiles": [
+    "session.json",
+    "Generated.cs",
+    "Program.cs",
+    "Runtime.dll",
+    "Runtime.runtimeconfig.json",
+    "symbols.json",
+    "declarations.json",
+    "authoring.json",
+    "pipe-cases.json",
+    "compilation.json",
+    "relaxed/session.json",
+    "relaxed/Generated.cs",
+    "relaxed/Program.cs",
+    "relaxed/Runtime.dll",
+    "relaxed/Runtime.runtimeconfig.json",
+    "relaxed/symbols.json",
+    "relaxed/declarations.json",
+    "relaxed/authoring.json",
+    "relaxed/compilation.json"
+  ],
+  "artifactHashClosure": true,
+  "sourceHashClosure": true,
+  "actualPipeRows": 24,
+  "positiveRows": 20,
+  "causalControls": 3,
+  "verificationGuards": 1,
+  "inputBytesChecked": true,
+  "acceptedWriteBytesChecked": true
+}

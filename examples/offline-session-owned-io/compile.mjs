@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict'
 import {readFile,writeFile} from 'node:fs/promises'
 import {join,resolve} from 'node:path'
+import {pathToFileURL} from 'node:url'
 import {compileRuntime} from '../dynamic-worker-collector/compile-runtime.mjs'
-const dir=resolve(process.argv[2])
+export async function compile(dir,{pipeTemplate}={}){
+dir=resolve(dir)
 const d=JSON.parse(await readFile(join(dir,'declarations.json'),'utf8')),symbols=JSON.parse(await readFile(join(dir,'symbols.json'),'utf8'))
 const find=(items,name)=>items.find(x=>x.displayName===name),symbol=(kind,id)=>symbols[kind].find(x=>x.id===id).name
 const host=find(d.capabilities,'Host'),run=find(d.functions,'wireRun'),transport=find(d.capabilities,'Transport')
 const csType=t=>t.kind==='primitive'?({string:'NyStr',unit:'NyUnit',int64:'long',bool:'bool'})[t.primitive]:`${({result:'NyResult',list:'NyList'})[t.generic]}<${t.arguments.map(csType).join(',')}>`
 const names={open:'Open',close:'Close',workspaceCreate:'WorkspaceCreate',workspaceDiscard:'WorkspaceDiscard',provider:'Provider',memberClose:'MemberClose',snapshot:'Snapshot',checks:'Checks',gate:'Gate',reply:'Reply',step:'Step'}
 const replacements={HOST:symbol('capabilities',host.id),RUN:symbol('functions',run.id),RUN_HOST:symbol('parameters',find(run.parameters,'host').id),RUN_TRANSPORT:symbol('parameters',find(run.parameters,'transport').id),RUN_WRONG:symbol('parameters',find(run.parameters,'wrongBoundary').id),TRANSPORT:symbol('capabilities',transport.id),READ:symbol('capabilityOperations',transport.operations[0].id),
+ ...(transport.operations[0].parameters.length?{READ_LIMIT:symbol('capabilityParameters',transport.operations[0].parameters[0].id)}:{}),
  METHODS:host.operations.map(o=>`public ${csType(o.resultType)} ${symbol('capabilityOperations',o.id)}(${o.parameters.map(p=>`${csType(p.type)} ${p.displayName==='base'?'basis':p.displayName}`).join(',')}) => ${names[o.displayName]}(${o.parameters.map(p=>p.displayName==='base'?'basis':p.displayName).join(',')});`).join('\n')}
 // Reuse the maintained synthetic effects fixture, adding pipe observations and
 // output only. No host Team state, tickets, command dispatch or ledger is added.
@@ -28,10 +31,12 @@ effects=effects.replace('Log("reply",("label",label.ToString()),("record",record
    try{UnixPipe.Write(output);Observe(new {operation="response-written",terminal=label.ToString()=="@wire-terminal",line=output});if(label.ToString()=="@wire-terminal")TerminalWritten=true;}
    catch(Exception error){OutputFault=error.GetType().Name;Observe(new {operation="output-fault",type=OutputFault,message=error.Message,terminal=label.ToString()=="@wire-terminal",elapsedMs=writeClock.ElapsedMilliseconds,deadlineMs=UnixPipe.WriteDeadlineMs});if(control!="suppress-output-fault")throw;Observe(new {operation="output-fault-suppressed"});}
   }return NyUnit.Value;`)
-const template=effects+await readFile(new URL('./pipe.template.cs',import.meta.url),'utf8')
+const template=effects+(pipeTemplate??await readFile(new URL('./pipe.template.cs',import.meta.url),'utf8'))
 const program=template.replace(/@@([A-Z_]+)@@/g,(_,key)=>{assert.ok(replacements[key],key);return replacements[key]})
 assert.ok(program.includes('Observe(row)'),'fixture observation insertion')
 await writeFile(join(dir,'Program.cs'),program)
 const compilation=await compileRuntime(dir,{cwd:dir,encoding:'utf8',timeout:90000}).catch(error=>{throw new Error(error.stdout||error.stderr||error.message)})
 await writeFile(join(dir,'compilation.json'),JSON.stringify(compilation.evidence,null,2)+'\n')
 console.log('PASS: offline Roslyn compilation with unedited Generated.cs')
+}
+if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)await compile(process.argv[2])

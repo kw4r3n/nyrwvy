@@ -1,0 +1,262 @@
+{
+  "base": "f62782acd06188f35ba4ccb4fd6c3517a261a956",
+  "baseTree": "1b5fe82c6d64bd7dfee934e7ff3afbdee0ae416a",
+  "limitBytes": 16384,
+  "execution": "real compiled Linux pipes; graph maxBytes policy; bounded host framing before strict UTF-8 decode; synthetic application effects",
+  "proof": [
+    {
+      "id": "oversize-lf",
+      "releaseCount": 1,
+      "outcomeType": "InvalidDataException",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": true,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "oversize-crlf",
+      "releaseCount": 1,
+      "outcomeType": "InvalidDataException",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": true,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "oversize-unterminated",
+      "releaseCount": 1,
+      "outcomeType": "InvalidDataException",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": true,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "one-mib-unterminated",
+      "releaseCount": 1,
+      "outcomeType": "InvalidDataException",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": true,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "oversize-member",
+      "releaseCount": 1,
+      "outcomeType": "InvalidDataException",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": true,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "exact-limit-lf",
+      "releaseCount": 1,
+      "outcomeType": "success",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "exact-limit-crlf-split",
+      "releaseCount": 1,
+      "outcomeType": "success",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "exact-limit-eof",
+      "releaseCount": 1,
+      "outcomeType": "success",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "exact-limit-retained-cancel",
+      "releaseCount": 1,
+      "outcomeType": "TaskCanceledException",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "partial-multibyte-cancel",
+      "releaseCount": 1,
+      "outcomeType": "TaskCanceledException",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "valid-4096-codepoints-multibyte",
+      "releaseCount": 1,
+      "outcomeType": "success",
+      "maxBufferedBytes": 16261,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "fragmented-multibyte",
+      "releaseCount": 1,
+      "outcomeType": "success",
+      "maxBufferedBytes": 53,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "byte-limit-before-multibyte-decode",
+      "releaseCount": 1,
+      "outcomeType": "InvalidDataException",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": true,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "invalid-utf8-member",
+      "releaseCount": 1,
+      "outcomeType": "DecoderFallbackException",
+      "maxBufferedBytes": 152,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "incomplete-utf8-exact-limit-eof",
+      "releaseCount": 1,
+      "outcomeType": "DecoderFallbackException",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "malformed-json-and-tail",
+      "releaseCount": 1,
+      "outcomeType": "success",
+      "maxBufferedBytes": 46,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "empty-eof",
+      "releaseCount": 1,
+      "outcomeType": "success",
+      "maxBufferedBytes": 0,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "coalesced-cr-lf-crlf-tail",
+      "releaseCount": 1,
+      "outcomeType": "success",
+      "maxBufferedBytes": 45,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "valid-prefix-before-bad-utf8",
+      "releaseCount": 1,
+      "outcomeType": "DecoderFallbackException",
+      "maxBufferedBytes": 47,
+      "oversizeRejected": false,
+      "foregroundFaultDeferred": false
+    },
+    {
+      "id": "foreground-reader-fault-deferred",
+      "releaseCount": 1,
+      "outcomeType": "InvalidDataException",
+      "maxBufferedBytes": 16384,
+      "oversizeRejected": true,
+      "foregroundFaultDeferred": true
+    },
+    {
+      "id": "oversize-lf",
+      "control": "relaxed-policy",
+      "rejected": true,
+      "cause": {
+        "graphMaxBytes": 2097152,
+        "observedPayloadBytes": 16385,
+        "decoded": true,
+        "releaseCount": 1
+      },
+      "contract": "predecode-byte-limit"
+    },
+    {
+      "id": "oversize-unterminated",
+      "control": "relaxed-policy",
+      "rejected": true,
+      "cause": {
+        "graphMaxBytes": 2097152,
+        "observedPayloadBytes": 16385,
+        "decoded": false,
+        "releaseCount": 1
+      },
+      "contract": "predecode-byte-limit"
+    },
+    {
+      "id": "one-mib-unterminated",
+      "control": "relaxed-policy",
+      "rejected": true,
+      "cause": {
+        "graphMaxBytes": 2097152,
+        "observedPayloadBytes": 1048576,
+        "decoded": false,
+        "releaseCount": 1
+      },
+      "contract": "predecode-byte-limit"
+    }
+  ],
+  "guards": [
+    {
+      "id": "unrelated-input-fault-guard",
+      "refusedAsOversize": true,
+      "type": "NotSupportedException"
+    }
+  ],
+  "hashes": {
+    "session.json": "b7b03a51dfab6f0c9f5287182f73ee73477df170d8059d15d5b8038729c5ba41",
+    "Generated.cs": "f8e10d374dd5ca0211ece21bcc5259d16bbd213b4488aca05423785b9dad9b67",
+    "Program.cs": "649f0d825e1dc99e41c3dc53eec42bc6052980ad0a7772e146fbdd2fe4866e0a",
+    "Runtime.dll": "4b8acd78be1db1471ad95a81d2ca3c15e3726e34abe39a7e5a3de00f46f4fb66",
+    "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "symbols.json": "e526c499d1b35275e58166887782944d7d3df12387f16df21541cf1baca1f292",
+    "declarations.json": "534bda664df571778ff0450fa6cf6675751ea70ab594cbb51086982ec0a75c82",
+    "authoring.json": "5db4f3f02fccebc9791c86e0bbbda75bdc4df1f647b4c1c666071819aa573576",
+    "pipe-cases.json": "32a6fe231c27e24c6667014eeb8037c868cf8a8189d64305212d81d475b3c7bb",
+    "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+    "pipe-raw.json": "e02341800243760fcbddd2466e56cf0b1d33f38edf1b50380cc4737efe9d2f31",
+    "relaxed/session.json": "6bc960048119ca21cf42a3172acc86f2c42a3ce81d56354191655a2c77ac7c64",
+    "relaxed/Generated.cs": "2af0da6b9acaf8c9c3836d3e04cd7269d2a2b5fa381fe0c95ed2e62237cc1a50",
+    "relaxed/Program.cs": "117bcf6e3e24f32a73f46646ab9a8320a9e161c56af69ee1c965448ae6cb094e",
+    "relaxed/Runtime.dll": "ef5629334cc1da4b22b59c06d07bde05a79aacfaf6954f1625fba20318034e5e",
+    "relaxed/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "relaxed/symbols.json": "74e8ed8dcfddf6efb77cca37e7714511978b74751fd0c888a8a517db7b4ad9fa",
+    "relaxed/declarations.json": "1ab37210baa495408446dacfc3f8c6fa7d1918950e0493de9d037457f5ea0cb7",
+    "relaxed/authoring.json": "e8200f4e1043791e3618d3e20b7e8bc7f4fa3aeabd966677b0140516793765e3",
+    "relaxed/compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097"
+  },
+  "sourceHashes": {
+    "examples/offline-session-bounded-input/author.mjs": "40f1decf4fbe00037702baa0247fa227a632c3af6ec6aea5f117287c405c770d",
+    "examples/offline-session-owned-io/author.mjs": "bdc9978b818db1c6289eb8ff1246e06c19fb3c85c660a86d8b3e3d7bc9bc98bb",
+    "examples/offline-leader-jsonrpc/author.mjs": "274379ec3e481808020e356cd9d6ffceedb2533a38f20c0e47a6d27fff62c4bc",
+    "examples/offline-leader-team/author.mjs": "7c1ba72ff4c3b17675b246e5bdb145c147d175c6f52f82b7d21f1057d433a8f0",
+    "examples/member-concurrency/author.mjs": "d69a101a70a832172ef83ca1a773bd150b4c459f356845b9e9c98f419a8a378e",
+    "examples/member-controller/author.mjs": "7020c1962be58e113ddb9dbdf3230bfd3e6237b8756b9b7f44cd3b9e88fdbd86",
+    "examples/member-lifecycle/author.mjs": "ec3d9238686549bb68edfcd1cf8d21ce7e69ae616f7160eb394e97525f9afd4e",
+    "examples/dynamic-worker-collector/lib.mjs": "b35e7e65036e410a182b9db77805fadf3b450380e0a79a573b11f06945a15cf7",
+    "examples/member-integration/author.mjs": "259f18bfa3275a579725e55ddbdfb914bc35297bee336719cf0fd1797aec478a",
+    "examples/task-wait-observer/author.mjs": "09a6876affc2eb45099b3d019e282cfc383de8a7f160887260e60c426c6f318c",
+    "examples/offline-leader-jsonrpc/parser.mjs": "689a7f112cf921f08534ebc9b2d9aea4d4e6c32cc7124775898c85081fbd145a",
+    "examples/offline-leader-jsonrpc/recipes.mjs": "834197c9abdc2fe90e315271f747011c88df6d4910f564ec0e08c0e2cdfb6912",
+    "examples/offline-session-bounded-input/run.mjs": "d08d6bc83316fb17e02b10479215b57c951558b168761d7e639024667796eba7",
+    "examples/offline-session-bounded-input/compile.mjs": "a7e7bb66a8d41fc5f29459a615aabe9e572a0b39ca772182b7f348fa6b6cac86",
+    "examples/offline-session-owned-io/compile.mjs": "7cabd4088b39e3adf77184b157ecf9c362e0c59ba578a20c547bd19e31eaac13",
+    "examples/dynamic-worker-collector/compile-runtime.mjs": "7875c9a4475d46843f1e4d4fb2ce6109e94dcd72913ad6b1d2050b42c4b40553",
+    "examples/offline-session-bounded-input/test-runtime.mjs": "6f349cd66be3982be5984992a41aba6f1b1d1eada74526177fe785d41eca3ba8",
+    "examples/offline-leader-jsonrpc/cases.mjs": "21fa3f4b25ea59667ab6ee5a226954fe069c9168b59f097d78fbe359b86660e3",
+    "examples/offline-leader-team/cases.mjs": "bd8e310390de6d0f9281c617ab011877923919a2fa64759bee5a364b0803379e",
+    "examples/member-lifecycle/cases.mjs": "5a4adca1161df48a502707a2c5381737be0a7454d722278e695669c9fb9754dd",
+    "examples/member-concurrency/cases.mjs": "7eade6ea601f840db63fe2c6391eaf47bfa5dbbc2f092488f16ecd8951495a3e",
+    "examples/member-controller/cases.mjs": "d38683a6d815b3bee7927c95578bfa6b99a2fa109637dfc98869f4f668f322e4",
+    "examples/member-integration/cases.mjs": "32c0893fe929483fd6994d99fe3f31f6b7212596e2cb1a35785f9f475fdf06c5",
+    "examples/offline-session-bounded-input/verify.mjs": "f3e9c1689a5a8fb5d2066f90d1e5bd235702c077b8a06807ef512115de9d3c33",
+    "examples/offline-session-bounded-input/pipe.template.cs": "29bbe18ed8073d918b23132f9c10ed892ef867ec900fb69f5b70bc0d75e2a0ea",
+    "examples/offline-session-owned-io/pipe.template.cs": "4e8fa58eca61678a770188a1447dd3b8dd73ca20c8650a4d64703c4c7a9771f7",
+    "examples/offline-leader-jsonrpc/runtime.template.cs": "d9f9ffd1410ad8b1e79f1fe06ba96e5d3995ede80bcc6a494eccb20904704d9f"
+  }
+}

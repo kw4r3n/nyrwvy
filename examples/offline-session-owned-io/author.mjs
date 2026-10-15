@@ -1,5 +1,5 @@
 import {author as wireAuthor} from '../offline-leader-jsonrpc/author.mjs'
-import {cap,scope,string,bool,unit,unitValue,result,ok,option,named,oneShot,task,p,invoke,direct,field,construct,boolean,text,integer,cond,cancellation,letIn,some,resolveFrames,L,ctx} from '../offline-leader-jsonrpc/recipes.mjs'
+import {cap,scope,string,int,bool,unit,unitValue,result,ok,option,named,oneShot,task,p,invoke,direct,field,construct,boolean,text,integer,cond,cancellation,letIn,some,resolveFrames,L,ctx} from '../offline-leader-jsonrpc/recipes.mjs'
 
 const F=named('InputFrame'),C=oneShot(F),A=oneShot(unit),W=named('AdmissionOwner'),R=result(unit)
 const f=(value,key)=>field(value,'InputFrame',key)
@@ -7,16 +7,18 @@ const create=valueType=>({kind:'oneShotCreate',scope:p('scope'),valueType})
 const complete=(cell,value)=>({kind:'oneShotComplete',cell,value})
 const wait=(cell,limit)=>({kind:'oneShotWait',cell,...(limit===undefined?{}:{limit:{kind:'optionSome',value:integer(limit)}})})
 const loop=(fn,args={})=>({...direct(fn,args),keepUnlisted:true})
-const read=()=>invoke(p('transport'),'Transport','readLine')
 
 // One reader task owns framing. The driver acknowledges a frame before folding
 // it, allowing one following frame (or EOF) to be read while that fold blocks.
 // All command policy, ordered admission and lifecycle remain graph functions.
-export async function author(s){
+export async function author(s,{maxFrameBytes}={}){
+ const bounded=maxFrameBytes!==undefined
+ if(bounded&&(!Number.isSafeInteger(maxFrameBytes)||maxFrameBytes<1))throw Error('positive safe frame byte limit required')
+ const read=()=>invoke(p('transport'),'Transport','readLine',bounded?{maxBytes:integer(maxFrameBytes)}:{})
  return wireAuthor(s,{sessionInput:{parameters:{transport:cap('Transport')},
   async define(s){
    const make=(name,ps,type,body,effects=['Io'])=>s.create(name,ps,type,resolveFrames(body),effects)
-   await s.publish(await s.call('request',{op:'simulateCreateCapabilityByName',arguments:{displayName:'Transport',operations:[{displayName:'readLine',parameters:[],resultType:option(string),effect:'Io'}]}}))
+   await s.publish(await s.call('request',{op:'simulateCreateCapabilityByName',arguments:{displayName:'Transport',operations:[{displayName:'readLine',parameters:bounded?[{displayName:'maxBytes',type:int}]:[],resultType:option(string),effect:'Io'}]}}))
    await s.publish(await s.call('request',{op:'simulateCreateTypesByName',arguments:{types:[{displayName:'InputFrame',typeKind:{kind:'product',fields:Object.entries({ended:bool,line:string,next:C,ack:A}).map(([displayName,type])=>({displayName,type}))}}]}}))
    const reader={transport:cap('Transport'),scope,tail:C,item:unit}
    await make('inputReader',reader,R,ok(unitValue))
