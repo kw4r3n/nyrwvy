@@ -8,6 +8,10 @@ executes. The host receives raw synthetic text and records raw graph output;
 its other responsibilities remain synthetic provider/Git effects and test gates.
 No core, runtime, schema or domain primitive is added.
 
+The separate [offline pipe continuation](../offline-session-transport/README.md)
+probes byte framing, EOF and root cancellation using this parser and command
+fold. The finite decoded-text claim below remains the scope of this example.
+
 This feature depends on **PR395** until that PR merges. Its isolated branch
 starts at reviewed `e2fc3a0488171d9978a781f519c7a0dca20e1206`; it does not merge,
 modify or replace that PR. Repository history for probe 9 contains only the
