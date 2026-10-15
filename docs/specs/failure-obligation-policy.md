@@ -105,6 +105,30 @@ Properties:
 
 An obligation is not a stored compiler error.
 
+### Retiring a resolved obligation with its function
+
+`DeleteFunction` retires resolved obligations whose call nodes belong to the
+removed function body. Any open obligation on that body still rejects the entire
+transaction with `FunctionHasObligations`; resolving it is an explicit semantic
+choice, including when resolution precedes deletion in the same ordered batch.
+References from other functions still block deletion as before.
+
+Retirement is part of the reviewed function deletion, never an invisible cleanup
+or a standalone way to discard a live body's obligations. The `FunctionRemoved`
+diff retains every retired `MissingArgumentObligation` exactly, including its
+origin, call, parameter and resolution transaction/value; wire and HTML reviews
+show those records. Only the removed body's resolved records leave the proposed
+snapshot. Other obligations remain exact. Rejection publishes none of the
+candidate changes, and reviewed commit retains the normal exact-request,
+stale-base and blocking-obligation policy checks.
+
+The immutable base snapshot remains available through workspace history; the
+current snapshot no longer refers to deleted nodes. This does not add a durable
+history store or promise historical snapshots across file replacement/restart.
+No snapshot schema, fingerprint domain or `ObligationStatus` state changes.
+Whole-body/target replacement still refuses bodies targeted by obligations;
+general invalidation or retirement while an owner remains alive is not added.
+
 ## Public diagnostic shape target
 
 The current implementation has intentionally small diagnostic records. As M1 grows, public cross-component diagnostics should converge toward a typed shape conceptually equivalent to:

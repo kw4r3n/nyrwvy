@@ -25,6 +25,17 @@ module internal WireEncode =
             | FunctionRequiredEffectChange.Removed(functionId, effectId) -> "removed", functionId, effectId
         objectValue [ "kind", box kind; "functionId", box (StableId.value functionId); "effectId", box (StableId.value effectId) ]
 
+    let private obligationRecord (value: MissingArgumentObligation) =
+        let status =
+            match value.Status with
+            | ObligationStatus.Open -> objectValue [ "kind", box "open" ]
+            | ObligationStatus.Resolved resolution ->
+                objectValue [ "kind", box "resolved"; "transactionId", box (StableId.value resolution.TransactionId)
+                              "valueNodeId", box (StableId.value resolution.ValueNodeId) ]
+        objectValue [ "obligationId", box (StableId.value value.Id); "originTransactionId", box (StableId.value value.OriginTransactionId)
+                      "callNodeId", box (StableId.value value.CallNodeId); "parameterId", box (StableId.value value.ParameterId)
+                      "status", status ]
+
     let private affectedUse (value: AgentExpressionStructuralWorkflow.Targeted.Use) =
         match value with
         | AgentExpressionStructuralWorkflow.Targeted.Use.NodeDependency(consumerNodeId, role) ->
@@ -108,10 +119,12 @@ module internal WireEncode =
               "functionsRemoved",
                 value.FunctionsRemoved
                 |> List.map (fun item ->
-                    objectValue
+                    objectValue (
                         [ "functionId", box (StableId.value item.FunctionId)
                           "displayName", box item.DisplayName
-                          "removedNodeIds", item.RemovedNodeIds |> List.map (StableId.value >> box) |> arrayValue ])
+                          "removedNodeIds", item.RemovedNodeIds |> List.map (StableId.value >> box) |> arrayValue ]
+                        @ (if List.isEmpty item.RetiredObligations then [] else
+                               [ "retiredObligations", item.RetiredObligations |> List.map obligationRecord |> arrayValue ])))
                 |> arrayValue
               "argumentsAttached",
                 value.ArgumentsAttached

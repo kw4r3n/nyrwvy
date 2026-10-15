@@ -67,7 +67,7 @@ module internal WireEncodeCommon =
             |> List.map (fun node ->
                 objectValue
                     [ "id", box (StableId.value node.Id)
-                      "kind", box (sprintf "%A" node.Kind) ])
+                      "kind", runString (sprintf "%A" node.Kind) ])
         objectValue
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName
@@ -184,11 +184,11 @@ module internal WireEncodeCommon =
         | StructuralNodeLiteral.Bool value -> objectValue [ "kind", box "bool"; "value", box value ]
         | StructuralNodeLiteral.Int64 value -> objectValue [ "kind", box "int64"; "value", box (value.ToString(Globalization.CultureInfo.InvariantCulture)) ]
         | StructuralNodeLiteral.String value when value.Length <= summaryStringLimit ->
-            objectValue [ "kind", box "string"; "value", box value ]
+            objectValue [ "kind", box "string"; "value", runString value ]
         | StructuralNodeLiteral.String value ->
             // Never split a surrogate pair at the cut.
-            let cut = if Char.IsHighSurrogate value[summaryStringLimit - 1] then summaryStringLimit - 1 else summaryStringLimit
-            objectValue [ "kind", box "string"; "value", box (value.Substring(0, cut)); "truncated", box true; "length", box value.Length ]
+            let cut = if Char.IsHighSurrogate value[summaryStringLimit - 1] && Char.IsLowSurrogate value[summaryStringLimit] then summaryStringLimit - 1 else summaryStringLimit
+            objectValue [ "kind", box "string"; "value", runString (value.Substring(0, cut)); "truncated", box true; "length", box value.Length ]
 
     /// Value-dependency roles are fieldless or carry one index/ID; the case text is their wire name.
     let dependencyRole (role: ValueDependencyRole) = sprintf "%A" role

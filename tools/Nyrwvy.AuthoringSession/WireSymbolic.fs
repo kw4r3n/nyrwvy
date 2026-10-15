@@ -317,7 +317,7 @@ module internal WireSymbolic =
             | value -> fail $"Unsupported pattern slot '{value}'."
         | "stringLiteral" ->
             ensureFields "string literal recipe" [ "kind"; "value" ] [ "kind"; "value" ] element
-            ExpressionRecipe.StringLiteral(requiredString "value" element)
+            ExpressionRecipe.StringLiteral(requiredRunText "value" element)
         | "boolLiteral" ->
             ensureFields "bool literal recipe" [ "kind"; "value" ] [ "kind"; "value" ] element
             ExpressionRecipe.BoolLiteral(requiredBool "value" element)

@@ -98,7 +98,10 @@ type TypeRemoved =
 type FunctionRemoved =
     { FunctionId: FunctionId
       DisplayName: string
-      RemovedNodeIds: GraphNodeId list }
+      RemovedNodeIds: GraphNodeId list
+      /// Resolved records owned by the removed body, retained exactly in the reviewed diff.
+      /// Open obligations still block deletion; no live body's obligations are retired.
+      RetiredObligations: MissingArgumentObligation list }
 
 type ProductFieldAdded =
     { OwnerTypeId: TypeId
@@ -677,6 +680,8 @@ module Transaction =
                 |> Result.map (List.filter (fun site -> site.CallerFunctionId <> functionId))
             let bodyNodeIds =
                 ValueGraph.collectNodes target.Body |> List.map (fun node -> node.Id) |> Set.ofList
+            let ownedObligations =
+                snapshot.Obligations |> List.filter (fun item -> Set.contains item.CallNodeId bodyNodeIds)
             match callers with
             | Error _ -> Error("FunctionCallSiteInspectionFailed", "The function's callers could not be inspected.")
             | Ok (_ :: _ as sites) ->
@@ -692,15 +697,18 @@ module Transaction =
                     "FunctionStillReferenced",
                     $"Function {describe functionId} is still referenced by {referrers}. Repair or remove those direct calls, callbacks and function references, or delete the referring functions earlier in the same batch, before deleting this function."
                 )
-            | Ok [] when snapshot.Obligations |> List.exists (fun item -> Set.contains item.CallNodeId bodyNodeIds) ->
-                Error("FunctionHasObligations", "Resolve or remove obligations attached to this function before deletion.")
+            | Ok [] when ownedObligations |> List.exists (fun item -> item.Status = ObligationStatus.Open) ->
+                Error("FunctionHasObligations", "Resolve open obligations attached to this function before deletion. Deleting the function retires only its resolved obligations, with their exact records in the reviewed diff.")
             | Ok [] ->
                 let removed: FunctionRemoved =
                     { FunctionId = target.Id
                       DisplayName = target.DisplayName
-                      RemovedNodeIds = bodyNodeIds |> Set.toList |> List.sortBy StableId.value }
+                      RemovedNodeIds = bodyNodeIds |> Set.toList |> List.sortBy StableId.value
+                      RetiredObligations = ownedObligations |> List.sortBy (fun item -> StableId.value item.Id) }
                 Ok(
-                    { snapshot with Functions = snapshot.Functions |> List.filter (fun fn -> fn.Id <> functionId) },
+                    { snapshot with
+                        Functions = snapshot.Functions |> List.filter (fun fn -> fn.Id <> functionId)
+                        Obligations = snapshot.Obligations |> List.filter (fun item -> not (Set.contains item.CallNodeId bodyNodeIds)) },
                     { changes with FunctionsRemoved = removed :: changes.FunctionsRemoved }
                 )
 

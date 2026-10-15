@@ -8,6 +8,42 @@ open System.Text.Json
 open System.Text.Json.Serialization
 
 module internal WireJson =
+    type private ElementWrite =
+        | Element of JsonElement
+        | Property of string
+        | EndObject
+        | EndArray
+
+    /// JsonElement.WriteTo unescapes Strings and rejects legal lone-surrogate escapes.
+    /// Retained review/page elements need the same lossless value contract as LooseText.
+    /// Preserve a validated String token verbatim, but write containers normally so the
+    /// response writer still enforces its depth limit. Iteration avoids a recursive copy.
+    type private LosslessElementConverter() =
+        inherit JsonConverter<JsonElement>()
+        override _.Read(_, _, _) = raise (NotSupportedException "Response elements are only written.")
+        override _.Write(writer, value, _) =
+            let pending = Stack<ElementWrite>()
+            pending.Push(Element value)
+            while pending.Count > 0 do
+                match pending.Pop() with
+                | Property name -> writer.WritePropertyName name
+                | EndObject -> writer.WriteEndObject()
+                | EndArray -> writer.WriteEndArray()
+                | Element item ->
+                    match item.ValueKind with
+                    | JsonValueKind.Object ->
+                        writer.WriteStartObject()
+                        pending.Push EndObject
+                        for property in item.EnumerateObject() |> Seq.toArray |> Array.rev do
+                            pending.Push(Element property.Value)
+                            pending.Push(Property property.Name)
+                    | JsonValueKind.Array ->
+                        writer.WriteStartArray()
+                        pending.Push EndArray
+                        for child in item.EnumerateArray() |> Seq.toArray |> Array.rev do pending.Push(Element child)
+                    | JsonValueKind.String -> writer.WriteRawValue(item.GetRawText(), true)
+                    | _ -> item.WriteTo writer
+
     let objectValue (pairs: (string * obj) list): obj =
         let value = Dictionary<string, obj>(StringComparer.Ordinal)
         for key, item in pairs do
@@ -23,6 +59,7 @@ module internal WireJson =
     /// to Core recipe bounds.
     let responseMaxJsonDepth = 2 * Nyrwvy.Core.SnapshotCodec.maxJsonDepth
     let private responseOptions = JsonSerializerOptions(MaxDepth = responseMaxJsonDepth)
+    do responseOptions.Converters.Add(LosslessElementConverter())
     let serialize (value: obj): string = JsonSerializer.Serialize(value, responseOptions)
 
     let private wellFormed (text: string) =

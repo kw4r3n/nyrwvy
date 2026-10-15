@@ -48,7 +48,7 @@ module internal WireGraph =
         match value with
         | SemanticNodeKind.ParameterReference parameterId -> tagged "parameter" [ "parameterId", identity parameterId ]
         | SemanticNodeKind.PatternReference bindingId -> tagged "patternReference" [ "bindingId", identity bindingId ]
-        | SemanticNodeKind.StringLiteral value -> tagged "stringLiteral" [ "value", box value ]
+        | SemanticNodeKind.StringLiteral value -> tagged "stringLiteral" [ "value", runString value ]
         | SemanticNodeKind.BoolLiteral value -> tagged "boolLiteral" [ "value", box value ]
         | SemanticNodeKind.UnitLiteral -> tagged "unitLiteral" []
         | SemanticNodeKind.Int64Literal value -> tagged "int64Literal" [ "value", box (value.ToString(CultureInfo.InvariantCulture)) ]

@@ -20,6 +20,7 @@
     <Compile Include="ValueGraphTests.fs" />
     <Compile Include="CapabilityTests.fs" />
     <Compile Include="TransactionTests.fs" />
+    <Compile Include="ResolvedObligationDeletionTests.fs" />
     <Compile Include="WorkspaceTests.fs" />
     <Compile Include="PreviewReceiptTests.fs" />
     <Compile Include="AgentWorkflowTests.fs" />

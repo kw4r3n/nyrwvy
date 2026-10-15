@@ -70,6 +70,110 @@ module PureRunLoneSurrogateTests =
         session.SimulateCreateFunction request |> unwrap ("create " + name) |> publish session
         session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
 
+    let private withLiteralSession run =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-literal-wire-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(root) |> ignore
+        let path = Path.Combine(root, "workspace.json")
+        try
+            use session = AuthoringSession.createNew path |> unwrap "session"
+            run path session
+        finally
+            Directory.Delete(root, true)
+
+    let private wireResult session line =
+        let raw = AuthoringProtocol.executeLine session line
+        use document = JsonDocument.Parse(raw)
+        Assert.True(document.RootElement.GetProperty("ok").GetBoolean(), raw)
+        document.RootElement.GetProperty("result").Clone()
+
+    let private structuredLiteral (functionValue: JsonElement) =
+        let first = (functionValue.GetProperty("body").GetProperty("nodes"))[0]
+        WireInput.runText (first.GetProperty("kind").GetProperty("value"))
+
+    [<Theory; InlineData(true); InlineData(false)>]
+    let ``wire literal creation replacement review and reopen preserve every String code unit`` named =
+        withLiteralSession (fun path session ->
+            let expected =
+                texts @ [ ""; "\uFFFD"; "雪"; "a\"b\\c\n" ]
+                |> List.mapi (fun index text ->
+                    let name = "literal" + string index
+                    let op = if named then "simulateCreateFunctionByName" else "simulateCreateFunction"
+                    let created = wireResult session $"""{{"id":"create","op":"{op}","displayName":"{name}","parameters":[],"resultType":{{"kind":"primitive","primitive":"string"}},"requiredEffects":[],"body":{{"kind":"stringLiteral","value":{literal text}}},"structuredReview":true,"detail":"full"}}"""
+                    Assert.Equal(text, structuredLiteral (created.GetProperty("review").GetProperty("createdFunction")))
+                    let proposalId = created.GetProperty("proposalId").GetString()
+                    let page = wireResult session $"""{{"id":"page","op":"readProposal","proposalId":"{proposalId}","path":"/review/createdFunction/body/nodes/0/kind/value","limit":1024}}"""
+                    Assert.Equal(text, WireInput.runText (page.GetProperty("value")))
+                    session.Commit(proposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "create commit" |> ignore
+                    let fn = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
+                    let replacement = text + (utf16 "{DC00}")
+                    let selector =
+                        if named then $"\"op\":\"simulateReplaceBodyByName\",\"function\":\"{name}\""
+                        else $"\"op\":\"simulateReplaceBody\",\"functionId\":\"{StableId.value fn.Id}\",\"expectedCurrentResultNodeId\":\"{StableId.value fn.Body.ResultNodeId}\""
+                    let changed = wireResult session $"""{{"id":"replace",{selector},"replacement":{{"kind":"stringLiteral","value":{literal replacement}}},"structuredReview":true,"detail":"full"}}"""
+                    Assert.Equal(replacement, structuredLiteral (changed.GetProperty("review").GetProperty("proposedFunction")))
+                    session.Commit(changed.GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap "replace commit" |> ignore
+                    let changedFn=session.Declarations().Functions |> List.find (fun item -> item.Id=fn.Id)
+                    let finalText=replacement+(utf16 "{D800}")
+                    let targetSelector = if named then $"\"op\":\"simulateReplaceTargetByName\",\"function\":\"{name}\"" else $"\"op\":\"simulateReplaceTarget\",\"functionId\":\"{StableId.value fn.Id}\""
+                    let targeted=wireResult session $"""{{"id":"target",{targetSelector},"targetNodeId":"{StableId.value changedFn.Body.ResultNodeId}","replacement":{{"kind":"stringLiteral","value":{literal finalText}}},"structuredReview":true,"detail":"full"}}"""
+                    Assert.Equal(finalText,WireInput.runText (targeted.GetProperty("review").GetProperty("diff").GetProperty("proposedTarget").GetProperty("literal").GetProperty("value")))
+                    session.Commit(targeted.GetProperty("proposalId").GetString(),CommitPolicy.RejectBlockingObligations) |> unwrap "target commit" |> ignore
+                    let read = wireResult session $"""{{"id":"read","op":"readFunction","function":"{name}"}}"""
+                    Assert.Equal(finalText, structuredLiteral (read.GetProperty("function")))
+                    name, finalText)
+            session.Close()
+            use reopened = AuthoringSession.openExisting path |> unwrap "reopen"
+            for name, text in expected do
+                let read = wireResult reopened $"""{{"id":"read","op":"readFunction","function":"{name}"}}"""
+                Assert.Equal(text, structuredLiteral (read.GetProperty("function"))))
+
+    [<Fact>]
+    let ``literal review pagination distinguishes lone surrogates from actual pairs`` () =
+        withLiteralSession (fun _ session ->
+            let text = (utf16 "{D800}x") + String.replicate 1100 (utf16 "{DC00}") + "😀end"
+            let proposal =
+                session.SimulateCreateFunction
+                    { ExpectedBaseSnapshotId = current session; DisplayName = "paged"; Parameters = []
+                      ResultType = stringType; RequiredEffects = []; Body = ExpressionRecipe.StringLiteral text }
+                |> unwrap "create"
+            let id = proposal.ProposalId
+            let page offset limit =
+                wireResult session $"""{{"id":"page","op":"readProposal","proposalId":"{id}","path":"/review/createdFunction/body/nodes/0/kind/value","offset":{offset},"limit":{limit}}}"""
+            let first = page 0 1
+            Assert.Equal((utf16 "{D800}"), WireInput.runText (first.GetProperty("value")))
+            Assert.Equal(1, first.GetProperty("nextOffset").GetInt32())
+            let rebuilt = System.Text.StringBuilder()
+            let mutable offset = 0
+            let mutable more = true
+            while more do
+                let result = page offset 1024
+                Assert.True(System.Text.Encoding.UTF8.GetByteCount(result.GetRawText()) <= 8192)
+                rebuilt.Append(WireInput.runText (result.GetProperty("value"))) |> ignore
+                let next = result.GetProperty("nextOffset")
+                more <- next.ValueKind <> JsonValueKind.Null
+                if more then offset <- next.GetInt32()
+            Assert.Equal(text, rebuilt.ToString())
+            let pairOffset = text.Length - "😀end".Length
+            use split = JsonDocument.Parse(AuthoringProtocol.executeLine session $"""{{"id":"split","op":"readProposal","proposalId":"{id}","path":"/review/createdFunction/body/nodes/0/kind/value","offset":{pairOffset},"limit":1}}""")
+            Assert.False(split.RootElement.GetProperty("ok").GetBoolean())
+            Assert.Equal("😀", WireInput.runText ((page pairOffset 2).GetProperty("value"))))
+
+    [<Fact>]
+    let ``bounded compact reviews keep lone literal prefixes and remain retrievable`` () =
+        withLiteralSession (fun _ session ->
+            let fn = createFunction session "large" [] stringType [] (ExpressionRecipe.StringLiteral "seed")
+            let text = String.replicate 300 (utf16 "{D800}")
+            let body = [1..12] |> List.map (fun _ -> ExpressionRecipe.StringLiteral text) |> List.reduce (fun left right -> ExpressionRecipe.StringConcat(left, right))
+            let proposal = session.SimulateReplaceTarget { ExpectedBaseSnapshotId=current session; TargetFunctionId=fn.Id; TargetNodeId=fn.Body.ResultNodeId; Replacement=body } |> unwrap "replace"
+            let compact = WireEncode.compactProposal proposal |> WireJson.serialize
+            Assert.True(System.Text.Encoding.UTF8.GetByteCount compact <= 16384)
+            Assert.DoesNotContain("\\uFFFD", compact, StringComparison.OrdinalIgnoreCase)
+            use parsed = JsonDocument.Parse compact
+            Assert.True(parsed.RootElement.GetProperty("projection").GetProperty("requiresDetailedReview").GetBoolean())
+            let root = wireResult session $"""{{"id":"page","op":"readProposal","proposalId":"{proposal.ProposalId}","limit":20}}"""
+            Assert.True(System.Text.Encoding.UTF8.GetByteCount(root.GetRawText()) <= 8192)
+            Assert.DoesNotContain("\\uFFFD", root.GetRawText(), StringComparison.OrdinalIgnoreCase))
+
     [<Fact; Trait("Suite", "Extended")>]
     let ``lone surrogates round-trip through arguments, results, containers and fakes`` () =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-lone-surrogates-" + Guid.NewGuid().ToString("N"))

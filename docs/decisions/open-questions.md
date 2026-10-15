@@ -130,6 +130,12 @@ What additional durable obligation states are required beyond the implemented `O
 
 `Open` and `Resolved` are sufficient today. `Invalidated` is the next justified candidate when a later semantic edit makes an old obligation no longer applicable. Do not add a larger workflow taxonomy preemptively.
 
+Deleting an unreferenced function is an explicit, bounded retirement case:
+resolved obligations owned by its removed body leave the current snapshot and
+their exact records remain in the reviewed deletion diff; open obligations still
+block the deletion. This removes no live owner's record and adds no third status
+or general invalidation rule. See the [retirement contract](../specs/failure-obligation-policy.md#retiring-a-resolved-obligation-with-its-function).
+
 ### Resolution target
 
 Add a state only when an implemented workflow needs the distinction.

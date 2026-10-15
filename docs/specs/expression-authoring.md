@@ -236,6 +236,11 @@ Before allocating replacement graph-node or pattern-binding IDs, simulation chec
 25. the inferred recipe result type exactly equals the target function result type;
 26. no open or resolved obligation targets a node in the body being replaced.
 
+This replacement guard is unchanged by function deletion's bounded retirement
+of resolved obligations: that operation removes the owner itself and exposes the
+exact retired records in its review. It does not authorize dropping obligations
+from a body that remains alive.
+
 For `Bind`, input inference uses only the enclosing frames. Its body receives a new `Value` slot with exactly the input's inferred type; the Bind expression has the body's type. There is no inferred conversion or caller-supplied binding type.
 
 There is no implicit numeric conversion, collection item conversion, or fallback type coercion.

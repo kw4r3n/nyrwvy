@@ -59,7 +59,7 @@ module internal WireRecipe =
             ExpressionRecipe.PatternReference { ScopeDepth = requiredInt "scopeDepth" element; Slot = slot }
         | "stringLiteral" ->
             ensureFields "string literal recipe" [ "kind"; "value" ] [ "kind"; "value" ] element
-            ExpressionRecipe.StringLiteral(requiredString "value" element)
+            ExpressionRecipe.StringLiteral(requiredRunText "value" element)
         | "boolLiteral" ->
             ensureFields "bool literal recipe" [ "kind"; "value" ] [ "kind"; "value" ] element
             ExpressionRecipe.BoolLiteral(requiredBool "value" element)
