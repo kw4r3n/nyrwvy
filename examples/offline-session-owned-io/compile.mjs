@@ -3,7 +3,7 @@ import {readFile,writeFile} from 'node:fs/promises'
 import {join,resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'
 import {compileRuntime} from '../dynamic-worker-collector/compile-runtime.mjs'
-export async function compile(dir,{pipeTemplate}={}){
+export async function compile(dir,{pipeTemplate,effectsTransform=source=>source}={}){
 dir=resolve(dir)
 const d=JSON.parse(await readFile(join(dir,'declarations.json'),'utf8')),symbols=JSON.parse(await readFile(join(dir,'symbols.json'),'utf8'))
 const find=(items,name)=>items.find(x=>x.displayName===name),symbol=(kind,id)=>symbols[kind].find(x=>x.id===id).name
@@ -31,7 +31,7 @@ effects=effects.replace('Log("reply",("label",label.ToString()),("record",record
    try{UnixPipe.Write(output);Observe(new {operation="response-written",terminal=label.ToString()=="@wire-terminal",line=output});if(label.ToString()=="@wire-terminal")TerminalWritten=true;}
    catch(Exception error){OutputFault=error.GetType().Name;Observe(new {operation="output-fault",type=OutputFault,message=error.Message,terminal=label.ToString()=="@wire-terminal",elapsedMs=writeClock.ElapsedMilliseconds,deadlineMs=UnixPipe.WriteDeadlineMs});if(control!="suppress-output-fault")throw;Observe(new {operation="output-fault-suppressed"});}
   }return NyUnit.Value;`)
-const template=effects+(pipeTemplate??await readFile(new URL('./pipe.template.cs',import.meta.url),'utf8'))
+const template=effectsTransform(effects)+(pipeTemplate??await readFile(new URL('./pipe.template.cs',import.meta.url),'utf8'))
 const program=template.replace(/@@([A-Z_]+)@@/g,(_,key)=>{assert.ok(replacements[key],key);return replacements[key]})
 assert.ok(program.includes('Observe(row)'),'fixture observation insertion')
 await writeFile(join(dir,'Program.cs'),program)

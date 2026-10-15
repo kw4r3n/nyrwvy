@@ -1,0 +1,140 @@
+{
+  "base": "43507a5aee1aa0f706ec4b86e19392936fdcd94a",
+  "baseTree": "a5ac4707f764dcd2219e7d16badb57a29f5b18c3",
+  "execution": "real Linux pipes; ordinary graph supervision; externally held synthetic effects",
+  "identicalNormalizedHostHash": "d879c3fef3522d3419a67a77f07988f9e51de3c427807d730f5a310d4a8e2183",
+  "proof": [
+    {
+      "id": "foreground-oversize",
+      "readerFault": "oversize",
+      "releaseCount": 1,
+      "protectedTail": true,
+      "promptCancellation": true
+    },
+    {
+      "id": "foreground-invalid-utf8",
+      "readerFault": "utf8",
+      "releaseCount": 1,
+      "protectedTail": true,
+      "promptCancellation": true
+    },
+    {
+      "id": "foreground-eof",
+      "readerFault": null,
+      "releaseCount": 1,
+      "protectedTail": true,
+      "promptCancellation": false
+    },
+    {
+      "id": "foreground-healthy",
+      "readerFault": null,
+      "releaseCount": 1,
+      "protectedTail": true,
+      "promptCancellation": false
+    },
+    {
+      "id": "idle-oversize",
+      "readerFault": "oversize",
+      "releaseCount": 1,
+      "protectedTail": false,
+      "promptCancellation": false
+    },
+    {
+      "id": "idle-invalid-utf8",
+      "readerFault": "utf8",
+      "releaseCount": 1,
+      "protectedTail": false,
+      "promptCancellation": false
+    },
+    {
+      "id": "retained-input-cancel",
+      "readerFault": null,
+      "releaseCount": 1,
+      "protectedTail": false,
+      "promptCancellation": false
+    },
+    {
+      "id": "fragmented-ping-eof",
+      "readerFault": null,
+      "releaseCount": 1,
+      "protectedTail": false,
+      "promptCancellation": false
+    },
+    {
+      "id": "foreground-oversize",
+      "control": "deferred-graph",
+      "rejected": true,
+      "readerFaultIdentity": true,
+      "protectedTail": true,
+      "releaseCount": 1
+    },
+    {
+      "id": "foreground-invalid-utf8",
+      "control": "deferred-graph",
+      "rejected": true,
+      "readerFaultIdentity": true,
+      "protectedTail": true,
+      "releaseCount": 1
+    }
+  ],
+  "guards": [
+    {
+      "id": "unrelated-input-fault-guard",
+      "type": "NotSupportedException",
+      "refusedAsOversize": true
+    }
+  ],
+  "hashes": {
+    "session.json": "b69af48d5db013b69ce321d9b84c49555c22c264b44f9d6bdc5c4d0987bf9bdd",
+    "Generated.cs": "2a52533c776e908b44b5bc740fb36a2de7ed8c024d0d687d391e9c4316dc08cd",
+    "Program.cs": "cf289c50857d14ed6746eb0b18ffe81a1062cd7a8afbb83c8581c3e379fed81c",
+    "Runtime.dll": "ae96a25c0a5a693ce59e338b7b08bedbba0a32319e8acc279324578b329307cd",
+    "Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "symbols.json": "3b46458b17f586d49e496407a933c104317c538861551f42e8dc9f0bda3be307",
+    "declarations.json": "582f1f5a089089ad878caf475df4c5c9bf95f3ad21869c8409e9fb7732f9c2bb",
+    "authoring.json": "1bcba03264031fb11b2d401ec6ccce0119f2a2bd47b4acd5923558e1ae0d40e9",
+    "compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+    "deferred/session.json": "cd6e6c256bb0736fe63856f3ef4386cb8a8104b09781048dee4611c1e6951926",
+    "deferred/Generated.cs": "e47fe1951c11ec2d6e6675ce5b3d04eb8e62879b43cf5a14510dfc49c64a8772",
+    "deferred/Program.cs": "c75f269382e1d36efcdb7c2f78b35457cf62544c6ffb0d4b47b714356d132aa1",
+    "deferred/Runtime.dll": "c09bee3b0c88d3c55d42f1facb3bfb7098e0c0f7b56fce266251d5f094653410",
+    "deferred/Runtime.runtimeconfig.json": "e17d7238425cc363a850c7e53ad31221b40b7dbfe37c8b155703f9b8e73af1cc",
+    "deferred/symbols.json": "682314e998b09f03eb0d7a281ef3800a26248c53c130ac74f86d25cf039600bc",
+    "deferred/declarations.json": "13232f29763cef132302fcd2f4f494f87a3743d29378588cefc7797e12f2b2bd",
+    "deferred/authoring.json": "7275bf0664d1f1c5fba429033e0b48449057bb0f0c01660d2b9449b4f301eccf",
+    "deferred/compilation.json": "db7b402097213c197fb9cce98001385ab30fdb446646eb9df73b369bbae37097",
+    "pipe-cases.json": "8bf9fa45ddb926e239d8b5baec215257bd0f6f9a6a1b87ba59bb7bfbf152562c",
+    "pipe-raw.json": "bbf56f9d871c1556ef8b0e9d12be331d5b1d3c2060510203d6a7ce000eae51c3"
+  },
+  "sourceHashes": {
+    "examples/offline-session-reader-propagation/author.mjs": "3e9ce07303decd89a524317c61096e77fd4554ec2642b5505e45660d53204c91",
+    "examples/offline-session-bounded-input/author.mjs": "40f1decf4fbe00037702baa0247fa227a632c3af6ec6aea5f117287c405c770d",
+    "examples/offline-session-owned-io/author.mjs": "bdc9978b818db1c6289eb8ff1246e06c19fb3c85c660a86d8b3e3d7bc9bc98bb",
+    "examples/offline-leader-jsonrpc/author.mjs": "274379ec3e481808020e356cd9d6ffceedb2533a38f20c0e47a6d27fff62c4bc",
+    "examples/offline-leader-team/author.mjs": "7c1ba72ff4c3b17675b246e5bdb145c147d175c6f52f82b7d21f1057d433a8f0",
+    "examples/member-concurrency/author.mjs": "d69a101a70a832172ef83ca1a773bd150b4c459f356845b9e9c98f419a8a378e",
+    "examples/member-controller/author.mjs": "7020c1962be58e113ddb9dbdf3230bfd3e6237b8756b9b7f44cd3b9e88fdbd86",
+    "examples/member-lifecycle/author.mjs": "ec3d9238686549bb68edfcd1cf8d21ce7e69ae616f7160eb394e97525f9afd4e",
+    "examples/dynamic-worker-collector/lib.mjs": "b35e7e65036e410a182b9db77805fadf3b450380e0a79a573b11f06945a15cf7",
+    "examples/member-integration/author.mjs": "259f18bfa3275a579725e55ddbdfb914bc35297bee336719cf0fd1797aec478a",
+    "examples/task-wait-observer/author.mjs": "09a6876affc2eb45099b3d019e282cfc383de8a7f160887260e60c426c6f318c",
+    "examples/offline-leader-jsonrpc/parser.mjs": "689a7f112cf921f08534ebc9b2d9aea4d4e6c32cc7124775898c85081fbd145a",
+    "examples/offline-leader-jsonrpc/recipes.mjs": "834197c9abdc2fe90e315271f747011c88df6d4910f564ec0e08c0e2cdfb6912",
+    "examples/offline-session-reader-propagation/run.mjs": "5608752d03af2113d5e7a9dc6931b58111c226e60ed0a334ce543d4d08684841",
+    "examples/offline-session-reader-propagation/compile.mjs": "77ea5151a7cfd78f78f8135d058ac8d1a8fd4894655f60587a24aa1c1ef8a66a",
+    "examples/offline-session-owned-io/compile.mjs": "ced24c6e62e345f27d19129c0e4fce1890516d6e02cf97ada2f8c3cbd52bbabf",
+    "examples/dynamic-worker-collector/compile-runtime.mjs": "7875c9a4475d46843f1e4d4fb2ce6109e94dcd72913ad6b1d2050b42c4b40553",
+    "examples/offline-session-reader-propagation/test-runtime.mjs": "f05d2c1f9dbc9999980f3278ef2e15062be6db750be60b4d3bce7a330e745b65",
+    "examples/offline-leader-jsonrpc/cases.mjs": "21fa3f4b25ea59667ab6ee5a226954fe069c9168b59f097d78fbe359b86660e3",
+    "examples/offline-leader-team/cases.mjs": "bd8e310390de6d0f9281c617ab011877923919a2fa64759bee5a364b0803379e",
+    "examples/member-lifecycle/cases.mjs": "5a4adca1161df48a502707a2c5381737be0a7454d722278e695669c9fb9754dd",
+    "examples/member-concurrency/cases.mjs": "7eade6ea601f840db63fe2c6391eaf47bfa5dbbc2f092488f16ecd8951495a3e",
+    "examples/member-controller/cases.mjs": "d38683a6d815b3bee7927c95578bfa6b99a2fa109637dfc98869f4f668f322e4",
+    "examples/member-integration/cases.mjs": "32c0893fe929483fd6994d99fe3f31f6b7212596e2cb1a35785f9f475fdf06c5",
+    "examples/offline-session-reader-propagation/verify.mjs": "92a8daa1483d4f4e08218a98ec818c79d6620731e50629770171d12e5ad26013",
+    "examples/offline-session-reader-propagation/probe-restart.mjs": "207276cc9c007aa771775db03caa3cc9be3eac3ac7bf1b653ab02e4a5476647a",
+    "examples/offline-session-owned-io/pipe.template.cs": "4e8fa58eca61678a770188a1447dd3b8dd73ca20c8650a4d64703c4c7a9771f7",
+    "examples/offline-session-bounded-input/pipe.template.cs": "29bbe18ed8073d918b23132f9c10ed892ef867ec900fb69f5b70bc0d75e2a0ea",
+    "examples/offline-leader-jsonrpc/runtime.template.cs": "d9f9ffd1410ad8b1e79f1fe06ba96e5d3995ede80bcc6a494eccb20904704d9f"
+  }
+}

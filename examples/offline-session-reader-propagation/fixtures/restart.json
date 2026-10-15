@@ -1,0 +1,23 @@
+{
+  "gap": "durable deduplication/restart reconciliation",
+  "processes": 2,
+  "sameRequestBytes": true,
+  "sameCorrelationId": "same-integration-id",
+  "firstResponseLostAfterMutation": true,
+  "firstOutcome": "IOException",
+  "secondOutcome": "success",
+  "repeatedEffects": {
+    "commit": 2,
+    "head": 2,
+    "save": 2
+  },
+  "scope": "real Linux pipes and fresh processes; synthetic Git effects; no durable ledger or physical Git",
+  "hashes": {
+    "raw": "c3b91e1cd0fa0565b570e8a98f5699a09174acc7cae15ea9aeb8458370c4e644",
+    "source": "207276cc9c007aa771775db03caa3cc9be3eac3ac7bf1b653ab02e4a5476647a"
+  },
+  "elapsedMs": [
+    187.227896,
+    166.17384899999996
+  ]
+}
