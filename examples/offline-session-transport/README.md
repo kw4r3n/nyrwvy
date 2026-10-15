@@ -105,7 +105,7 @@ node examples/offline-session-transport/run.mjs --replay artifacts/transport/mov
 node examples/offline-session-transport/compile.mjs artifacts/transport/moved
 node examples/offline-session-transport/test-runtime.mjs artifacts/transport/moved
 node examples/offline-session-transport/verify.mjs artifacts/transport/bundle artifacts/transport/moved
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-offline-session-transport.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-offline-session-transport.test.mjs
 ```
 
 Bundles retain the reviewed/committed snapshot and transcript, symbols,

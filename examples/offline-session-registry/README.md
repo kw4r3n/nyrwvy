@@ -122,7 +122,7 @@ node examples/offline-session-registry/compile.mjs artifacts/registry/moved/rest
 node examples/offline-session-registry/test-runtime.mjs artifacts/registry/moved
 node examples/offline-session-registry/test-repair.mjs artifacts/registry/moved artifacts/registry/moved/repair
 node examples/offline-session-registry/verify.mjs artifacts/registry/bundle artifacts/registry/moved
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-offline-session-registry.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-offline-session-registry.test.mjs
 ```
 
 ## Limits

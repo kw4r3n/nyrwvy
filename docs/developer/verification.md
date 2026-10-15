@@ -41,13 +41,14 @@ npm run test:bun
 git ls-files -z '*.fish' | xargs -0 -r -n 1 fish --no-execute
 fish scripts/tests/m2-listmap-evaluation-summary.test.fish
 fish scripts/test-fast.fish
-node --experimental-strip-types --test .opencode/tests/nyrwvy-evaluation-transport.test.mjs
 npm --prefix tools/nyrwvy-mcp test
 ```
 
+The `test-fast.fish` wrapper includes ordinary authoring, authoring and evaluation transport, and script contracts through the shared Node discovery runner. Root `npm test` runs only fast groups, adding the adapter and MCP contracts.
+
 The `test-extended.fish` wrapper is separate; `extended.yml` runs it after a
 Release solution build, together with the suite partition audit
-(`node scripts/check-test-suite-partition.mjs`). CI installs fish in the
+(`node scripts/check-test-suite-partition.mjs`). The wrapper runs xUnit extended and then the heavy Node pipelines in `.opencode/tests-extended/`, passing extra arguments only to dotnet and stopping on either stage's failure. `npm run test:node:extended` runs those Node pipelines alone. They retain Node's default file concurrency and their per-test timeouts; the workflow's existing 45-minute bound covers both stages. CI installs fish in the
 background beside the F# build. Tests that compile and run
 generated C# many times for a finished feature (the `runPure` behaviour tests
 of Map, Set, shared `MatchUnion` arms, `ListMinBy`, the List random sequences)
@@ -58,6 +59,8 @@ test cannot hold a runner for the default six hours. Exploratory/live runner and
 scripts, freeze-ref materialization, and historical evaluation helpers are
 syntax-checked only; discovering a `.fish` file does not authorize executing a
 model, changing Git refs, or running frozen workloads in routine CI.
+
+Node runner and audit share directory-based ownership in `scripts/node-test-suites.mjs`. The audit discovers all Git-visible `*.test.mjs`, including new untracked tests and excluding ignored generated outputs, and rejects unassigned files or overlapping rules. Example-local tests retain explicit manual ownership and their documented commands; the latest offline recovery matrices remain opt-in manual reproduction. Observed suite sizes belong in verification evidence, not a maintained count gate. `--node-only` audits Node ownership without building .NET.
 
 ## Evidence is reusable
 

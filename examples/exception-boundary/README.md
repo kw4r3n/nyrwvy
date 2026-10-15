@@ -17,7 +17,7 @@ not an independent oracle. The controller example supplies independent Python ev
 node examples/exception-boundary/run.mjs /tmp/exceptions-fresh
 node examples/exception-boundary/run.mjs --replay /tmp/exceptions-fresh
 node examples/exception-boundary/test-runtime.mjs /tmp/exceptions-fresh
-node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-exception-boundary.test.mjs
+node --experimental-strip-types --test .opencode/tests-extended/nyrwvy-authoring-exception-boundary.test.mjs
 ```
 
 No real provider, account, filesystem recovery or integration Git effects run.

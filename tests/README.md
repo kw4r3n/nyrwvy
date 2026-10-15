@@ -24,12 +24,16 @@ Run for larger related changes and milestone validation:
 
 `Nyrwvy.Extended.Tests` contains milestone end-to-end tests, evaluation corpus/harness integration, and verification integration. Its test modules carry `[<Trait("Suite", "Extended")>]`, inherited by all their cases. Apply that attribute to new extended modules as well; do not move classification into test names. Use `dotnet test ... --list-tests --settings tests/{fast,extended}.runsettings` to audit discovery without executing expensive cases. The `m2-listmap-evaluation-summary.test.fish` script test under `scripts/tests/` exercises a fish function library and therefore needs fish; everything else runs without it. The extended suite also includes the broader generated-program execution cases kept beside their fast contract tests. Run it locally with `fish scripts/test-extended.fish`; the `Extended` workflow (`.github/workflows/extended.yml`) runs it only on demand.
 
+The wrapper runs xUnit extended first, then the Node example pipelines in `.opencode/tests-extended/`. These generate, compile, execute, and relocate example bundles, so they belong outside routine smoke verification. The move preserves their test bodies and assertions. Extra wrapper arguments go only to `dotnet test`; a failure in either stage fails the wrapper, and an xUnit failure prevents starting Node. Node keeps its default file concurrency; individual test timeouts still apply.
+
+To run only the Node pipelines, use `npm run test:node:extended` after the Release AuthoringSession build. Example-local `examples/**/*.test.mjs` tests retain their documented manual commands. The four latest offline recovery oracles remain separately opt-in; the extended runner does not admit new recovery work or run those manual matrices.
+
 After changing suite ownership, build the solution in Release and run
 `node scripts/check-test-suite-partition.mjs`. This discovery-only audit (also run by the `Extended` workflow)
 checks that fast and extended are disjoint and cover every discovered case,
 including new modules. It does not execute tests or impose historical test-count
 gates. An unclassified extended-project module fails the audit instead of silently
-falling outside both maintained entry points.
+falling outside both maintained entry points. The same audit checks every Git-visible `*.test.mjs` (tracked or new, excluding ignored artifacts) against the directory rules in `scripts/node-test-suites.mjs`. It assigns exactly one of fast contracts, fast adapters, fast MCP, extended pipelines, or manual example-local ownership; unknown paths or overlaps fail. The runner uses that same discovery, so there is no second list of historical test names or counts. Use `node scripts/check-test-suite-partition.mjs --node-only` to audit Node ownership without a .NET build.
 
 ## Adapter toolchain and typechecking
 
@@ -66,19 +70,19 @@ Bun is the test runtime only; npm remains the repository dependency/lockfile man
 
 ## Node transport and script contracts
 
-The fast wrapper also runs the ordinary-authoring Node tests and the isolated verification-script regression tests:
+The fast wrapper also runs the ordinary-authoring smoke tests, authoring and evaluation transport tests, and isolated verification-script regression tests:
 
 ```shell
-node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-*.test.mjs scripts/tests/*.test.mjs
+node scripts/run-node-tests.mjs fast-contracts
 ```
 
-The on-demand CI workflow additionally verifies the MCP adapter and the shared evaluation runtime behind the frozen structural and ListMap bridges. After `npm ci` and building the Release AuthoringSession, run all Node transport/script contracts with:
+The on-demand CI workflow additionally verifies the MCP adapter. The fast evaluation transport tests cover the shared runtime behind the frozen structural and ListMap bridges. After `npm ci` and building the Release AuthoringSession, run all fast Node transport/script and MCP contracts with:
 
 ```shell
 npm run test:node
 ```
 
-`npm test` at the root runs `test:adapters` followed by `test:node`. `.node-version` names the Node release this toolchain is developed and installed with (22.22.2, the lowest that satisfies every dependency's `engines` without a warning); `engines` in `package.json` keeps the lower runtime minimum, 22.6.0.
+`npm test` at the root runs only fast groups: `test:adapters` followed by `test:node`. `npm run test:node:extended` selects the broader Node example pipelines separately. `.node-version` names the Node release this toolchain is developed and installed with (22.22.2, the lowest that satisfies every dependency's `engines` without a warning); `engines` in `package.json` keeps the lower runtime minimum, 22.6.0.
 
 Or select an individual boundary:
 
@@ -87,7 +91,7 @@ npm test --workspace tools/nyrwvy-mcp
 node --experimental-strip-types --test .opencode/tests/nyrwvy-evaluation-transport.test.mjs
 ```
 
-The ordinary workflow and MCP transport tests require `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` beforehand. The evaluation transport tests use small local Node children, not live models or frozen evaluation reruns. The default fast wrapper does not install or require the extra tooling dependencies; the dependency-backed adapter/typechecking checks above are explicit separate commands. `npm --prefix tools/nyrwvy-mcp run setup` remains a convenience command, now using the root `npm ci` lockfile before building AuthoringSession.
+The ordinary workflow and MCP transport tests require `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` beforehand. The evaluation transport tests use small local Node children, not live models or frozen evaluation reruns. The default fast wrapper does not install or require the extra tooling dependencies; the dependency-backed adapter/typechecking checks above are explicit separate commands. The Node wrapper-contract test runs when fish is installed and otherwise reports a skip. `npm --prefix tools/nyrwvy-mcp run setup` remains a convenience command, now using the root `npm ci` lockfile before building AuthoringSession.
 
 ## live / environment-dependent
 

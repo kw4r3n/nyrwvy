@@ -43,7 +43,7 @@ cp -r artifacts/leader-session/bundle artifacts/leader-session/moved
 node examples/offline-leader-team/run.mjs --replay artifacts/leader-session/moved
 node examples/offline-leader-team/test-runtime.mjs artifacts/leader-session/moved
 node examples/offline-leader-team/verify.mjs artifacts/leader-session/bundle artifacts/leader-session/moved
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-offline-leader-team.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-offline-leader-team.test.mjs
 ```
 
 Use fresh directories for authoring. The bundle includes the semantic snapshot,

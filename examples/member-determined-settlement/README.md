@@ -33,7 +33,7 @@ node examples/member-determined-settlement/prove.mjs /tmp/determined-before /tmp
 cp -r /tmp/determined-after /tmp/determined-moved
 node examples/member-determined-settlement/run.mjs --replay /tmp/determined-moved
 node examples/member-determined-settlement/prove.mjs /tmp/determined-before /tmp/determined-moved --replay
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-member-determined-settlement.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-member-determined-settlement.test.mjs
 ```
 
 The same assertions reject five baseline cases in each of the three graph modes

@@ -3,7 +3,12 @@
 set -l script_dir (path resolve (dirname (status filename)))
 set -l repo_root (path resolve "$script_dir/..")
 
-exec dotnet test "$repo_root/Nyrwvy.slnx" \
+dotnet test "$repo_root/Nyrwvy.slnx" \
     --configuration Release \
     --settings "$repo_root/tests/extended.runsettings" \
     $argv
+or exit $status
+
+cd "$repo_root"
+or exit $status
+exec node "$script_dir/run-node-tests.mjs" extended

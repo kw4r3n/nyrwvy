@@ -33,7 +33,7 @@ node examples/member-controller/test-runtime.mjs /tmp/controller-fresh
 python examples/member-controller/oracle.py /path/to/pinned-rrawrlet /tmp/controller-fresh
 cp -r /tmp/controller-fresh /tmp/controller-moved
 node examples/member-controller/run.mjs --replay /tmp/controller-moved
-node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-member-controller.test.mjs
+node --experimental-strip-types --test .opencode/tests-extended/nyrwvy-authoring-member-controller.test.mjs
 ```
 
 Fresh authoring requires an empty directory. Ordinary proposals create, review

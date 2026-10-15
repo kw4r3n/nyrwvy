@@ -108,7 +108,7 @@ node examples/offline-session-journal/compile.mjs artifacts/journal/moved/disabl
 node examples/offline-session-journal/compile.mjs artifacts/journal/moved/receipt-disabled
 node examples/offline-session-journal/test-runtime.mjs artifacts/journal/moved
 node examples/offline-session-journal/verify.mjs artifacts/journal/bundle artifacts/journal/moved
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-offline-session-journal.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-offline-session-journal.test.mjs
 ```
 
 This establishes bounded application behavior across real process death and

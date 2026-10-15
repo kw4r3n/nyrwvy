@@ -61,7 +61,7 @@ node examples/offline-session-bounded-input/compile.mjs artifacts/bounded-input/
 node examples/offline-session-bounded-input/compile.mjs artifacts/bounded-input/moved/relaxed
 node examples/offline-session-bounded-input/test-runtime.mjs artifacts/bounded-input/moved
 node examples/offline-session-bounded-input/verify.mjs artifacts/bounded-input/bundle artifacts/bounded-input/moved
-node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-offline-session-bounded-input.test.mjs
+node --experimental-strip-types --test --test-concurrency=1 .opencode/tests-extended/nyrwvy-authoring-offline-session-bounded-input.test.mjs
 ```
 
 Each bundle retains snapshot/transcript, symbols/declarations, unedited emitted

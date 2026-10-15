@@ -74,9 +74,6 @@ jobs:
       - name: Test fast suite and authoring tools through the maintained entry point
         run: fish scripts/test-fast.fish --no-build --no-restore
 
-      - name: Test evaluation transport regressions without live models
-        run: node --experimental-strip-types --test .opencode/tests/nyrwvy-evaluation-transport.test.mjs
-
       - name: Test MCP transport contract
         run: npm --prefix tools/nyrwvy-mcp test
 
