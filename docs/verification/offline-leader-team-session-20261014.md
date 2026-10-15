@@ -27,6 +27,7 @@ attribution and deterministic gates. It holds no Team registry or controller.
 | Save/reopen, moved replay and unedited projection | Proven | Exact snapshot/source/symbol/case/assembly bytes; identical contract observations |
 | Wrong-boundary compiled control | Proven rejection | Wait-only catch executes; original child OCE still escapes scope; identical acceptance rejects it |
 | Full historical JSON-RPC command relay | Unverified composition; reusable artifact missing | Probe 9 documented private scripts/snapshots; this session uses the maintained typed Request relay |
+| Re-authored bounded JSON-RPC wire/parser/envelope/keyword relay | Proven in [separate continuation](offline-leader-jsonrpc-session-20261014.md), dependent on PR395 | Raw wire feeds the same typed session; exact outputs, validation before dispatch, correlated IDs, notification spawn, compiled negative controls; no historical/full-conformance claim |
 | Whole-owner cancellation recovery and protected close intent | Reused recipe; whole-owner behavior unverified here | Existing owner/close-intent evidence remains authoritative; no new equivalence claim |
 | Python retained-mutator shutdown | Separate application policy | Not identified as a missing generic primitive; not implemented by this session |
 | Live providers, physical Git, budgets, restart recovery, unbounded fairness | Unverified and outside milestone | Advance with separate bounded probes only when requested |
