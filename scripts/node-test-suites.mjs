@@ -33,3 +33,14 @@ export function discoverNodeTests(root = repositoryRoot) {
     .split("\0").filter(path => path && existsSync(join(root, path)))
   return partitionNodeTests([...new Set(paths)])
 }
+
+// Round-robin over the sorted discovery list, so shards stay exhaustive and disjoint
+// without a maintained duration table; `index/total` is 1-based.
+export function selectNodeTestShard(files, shard) {
+  const match = /^([1-9]\d*)\/([1-9]\d*)$/.exec(shard ?? "")
+  assert.ok(match, `Shard must be index/total with positive integers, got ${shard}`)
+  const [index, total] = [Number(match[1]), Number(match[2])]
+  assert.ok(index <= total, `Shard index ${index} exceeds total ${total}`)
+  assert.ok(total <= files.length, `${total} shards exceed ${files.length} discovered Node test files`)
+  return files.filter((_, position) => position % total === index - 1)
+}

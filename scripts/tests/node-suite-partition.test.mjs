@@ -4,7 +4,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import test from "node:test"
-import { discoverNodeTests, partitionNodeTests, repositoryRoot } from "../node-test-suites.mjs"
+import { discoverNodeTests, partitionNodeTests, repositoryRoot, selectNodeTestShard } from "../node-test-suites.mjs"
 
 test("Node ownership discovers every maintained test, including new files, and rejects gaps or overlaps", () => {
   const suites = discoverNodeTests()
@@ -26,6 +26,22 @@ test("Node ownership discovers every maintained test, including new files, and r
     ]), /found fast, extended/)
     assert.throws(() => partitionNodeTests(["one.test.mjs", "one.test.mjs"]), /Duplicate Node test identities/)
   } finally { rmSync(fixture, { recursive: true, force: true }) }
+})
+
+test("Node shards are disjoint and exhaustive, reject malformed selectors, and the Extended matrix is contiguous", () => {
+  const files = ["a", "b", "c", "d", "e", "f", "g"]
+  const shards = [1, 2, 3].map(index => selectNodeTestShard(files, `${index}/3`))
+  assert.deepEqual(shards, [["a", "d", "g"], ["b", "e"], ["c", "f"]])
+  for (const shard of [undefined, "", "0/3", "4/3", "1/0", "1.5/3", "-1/3", "1/8", "2"]) {
+    assert.throws(() => selectNodeTestShard(files, shard), /Shard|exceed/, String(shard))
+  }
+  const workflow = readFileSync(join(repositoryRoot, ".github/workflows/extended.yml"), "utf8")
+  const matrix = /^\s+shard: \[([\d, ]+)\]$/m.exec(workflow)
+  assert.ok(matrix, "Extended workflow declares a shard matrix")
+  const indices = matrix[1].split(",").map(Number)
+  assert.deepEqual(indices, indices.map((_, position) => position + 1), "Shard matrix is 1..n")
+  assert.ok(indices.length <= discoverNodeTests().extended.length, "Every shard has a test file")
+  assert.match(workflow, /run-node-tests\.mjs extended --shard \$\{\{ matrix\.shard \}\}\/\$\{\{ strategy\.job-total \}\}/)
 })
 
 test("maintained entry points select shared discovery and keep ordinary and MCP coverage in root npm", () => {
