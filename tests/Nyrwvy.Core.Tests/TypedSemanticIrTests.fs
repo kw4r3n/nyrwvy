@@ -175,6 +175,8 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.OneShotComplete _
                 | TypedSemanticNodeKind.OneShotWait _
                 | TypedSemanticNodeKind.TaskCancel _
+                | TypedSemanticNodeKind.ListZipWith _
+                | TypedSemanticNodeKind.ListFlatMap _
                 | TypedSemanticNodeKind.ListMap _
                 | TypedSemanticNodeKind.MapFromList _
                 | TypedSemanticNodeKind.ListFilter _

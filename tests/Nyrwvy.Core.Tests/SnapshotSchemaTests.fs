@@ -152,7 +152,13 @@ module SnapshotSchemaTests =
               create "least" [ "a", float64Type; "b", float64Type ] float64Type [] (ExpressionRecipe.Float64Min(slot 0, slot 1)) |> ignore)
           "positional update", SnapshotSchemaFeature.ListPositionalUpdate, (fun create ->
               create "replace" [ "items", listOf int64Type; "index", int64Type; "item", int64Type ] (listOf int64Type) []
-                  (ExpressionRecipe.ListSetAt(slot 0, slot 1, slot 2)) |> ignore) ]
+                  (ExpressionRecipe.ListSetAt(slot 0, slot 1, slot 2)) |> ignore)
+          "zip with", SnapshotSchemaFeature.ListZipWithAndFlatMap, (fun create ->
+              let add = create "add" [ "a", int64Type; "b", int64Type ] int64Type [] (ExpressionRecipe.Int64WrappingAdd(slot 0, slot 1))
+              create "sums" [ "xs", listOf int64Type; "ys", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListZipWith(slot 0, slot 1, add.Id, [])) |> ignore)
+          "flat map", SnapshotSchemaFeature.ListZipWithAndFlatMap, (fun create ->
+              let twice = create "twice" [ "a", int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListConstruct(int64Type, [ slot 0; slot 0 ]))
+              create "doubled" [ "xs", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListFlatMap(slot 0, twice.Id, [])) |> ignore) ]
 
     let caseNames: obj array seq = cases |> Seq.map (fun (name, _, _) -> [| box name |])
 

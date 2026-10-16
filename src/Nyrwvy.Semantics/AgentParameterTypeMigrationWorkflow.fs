@@ -476,6 +476,12 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.OneShotWait(cell, Some limit) -> two (fun (cell, limit) -> ExpressionRecipe.OneShotWait(cell, Some limit)) cell limit
             | ExpressionRecipe.TaskCancel task -> one ExpressionRecipe.TaskCancel task
             | ExpressionRecipe.ListMap(source, functionId, context) -> callback ExpressionRecipe.ListMap source functionId context
+            | ExpressionRecipe.ListFlatMap(source, functionId, context) -> callback ExpressionRecipe.ListFlatMap source functionId context
+            | ExpressionRecipe.ListZipWith(left, right, combiner, context) ->
+                nonCallTargetUse combiner
+                |> Result.bind (fun () -> two (fun (left, right) -> left, right) left right)
+                |> Result.bind (fun (left, right) ->
+                    rewritePairs context |> Result.map (fun context -> ExpressionRecipe.ListZipWith(left, right, combiner, context)))
             | ExpressionRecipe.MapFromList(source, functionId, context) -> callback ExpressionRecipe.MapFromList source functionId context
             | ExpressionRecipe.ListFilter(source, functionId, context) -> callback ExpressionRecipe.ListFilter source functionId context
             | ExpressionRecipe.MapFilter(source, functionId, context) -> callback ExpressionRecipe.MapFilter source functionId context

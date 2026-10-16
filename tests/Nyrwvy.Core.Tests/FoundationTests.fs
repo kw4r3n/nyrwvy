@@ -180,6 +180,8 @@ module FoundationTests =
                 | SemanticNodeKind.OneShotComplete _
                 | SemanticNodeKind.OneShotWait _
                 | SemanticNodeKind.TaskCancel _
+                | SemanticNodeKind.ListZipWith _
+                | SemanticNodeKind.ListFlatMap _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.MapFromList _
                 | SemanticNodeKind.ListFilter _

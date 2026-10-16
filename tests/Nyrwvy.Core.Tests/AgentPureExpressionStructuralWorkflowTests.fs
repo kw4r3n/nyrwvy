@@ -658,6 +658,8 @@ module AgentPureExpressionStructuralWorkflowTests =
               "UseResource"
               "ListEffectFold"
               "ListMap"
+              "ListZipWith"
+              "ListFlatMap"
               "MapFromList"
               "ListFilter"
               "MapFilter"

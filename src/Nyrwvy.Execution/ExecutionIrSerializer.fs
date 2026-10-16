@@ -690,6 +690,14 @@ module ExecutionIrSerializer =
               property "taskValueId" (executionValueIdValue taskValueId) ]
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writeListCallbackInstruction "listMap" sourceListValueId "mapperFunctionId" mapperFunctionId context
+        | ExecutionInstructionKind.ListZipWith(leftListValueId, rightListValueId, combinerFunctionId, context) ->
+            [ property "kind" (quote "listZipWith")
+              property "leftListValueId" (executionValueIdValue leftListValueId)
+              property "rightListValueId" (executionValueIdValue rightListValueId)
+              property "combinerFunctionId" (stableIdValue combinerFunctionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.ListFlatMap(sourceListValueId, mapperFunctionId, context) ->
+            writeListCallbackInstruction "listFlatMap" sourceListValueId "mapperFunctionId" mapperFunctionId context
         | ExecutionInstructionKind.MapFromList(sourceListValueId, keyOfFunctionId, context) ->
             writeListCallbackInstruction "mapFromList" sourceListValueId "keyOfFunctionId" keyOfFunctionId context
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->

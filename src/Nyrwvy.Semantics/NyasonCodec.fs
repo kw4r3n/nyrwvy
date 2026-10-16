@@ -913,6 +913,10 @@ module NyasonCodec =
         | SemanticNodeKind.TaskCancel taskNodeId -> record "task-cancel" [ nodeId; "task", encodeId "node" taskNodeId ]
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             encodeListCallbackNode "list-map" nodeId sourceListNodeId mapperFunctionId context
+        | SemanticNodeKind.ListZipWith(leftListNodeId, rightListNodeId, combinerFunctionId, context) ->
+            record "list-zip-with" ([ nodeId; "left", encodeId "node" leftListNodeId; "right", encodeId "node" rightListNodeId; "combiner", encodeId "function" combinerFunctionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.ListFlatMap(sourceListNodeId, mapperFunctionId, context) ->
+            encodeListCallbackNode "list-flat-map" nodeId sourceListNodeId mapperFunctionId context
         | SemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
             encodeListCallbackNode "map-from-list" nodeId sourceListNodeId keyOfFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
@@ -1764,6 +1768,12 @@ module NyasonCodec =
               Kind = SemanticNodeKind.TaskCancel(decodeId<GraphNodeTag> "node" (require "task" fields)) }
         | NyasonValue.Record("list-map", _) ->
             decodeListCallbackNode "list-map" value (fun source callback context -> SemanticNodeKind.ListMap(source, callback, context))
+        | NyasonValue.Record("list-zip-with", _) ->
+            let fields = recordFields "list-zip-with" [ "id"; "left"; "right"; "combiner" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ListZipWith(decodeId<GraphNodeTag> "node" (require "left" fields), decodeId<GraphNodeTag> "node" (require "right" fields), decodeId<FunctionTag> "function" (require "combiner" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("list-flat-map", _) ->
+            decodeListCallbackNode "list-flat-map" value (fun source callback context -> SemanticNodeKind.ListFlatMap(source, callback, context))
         | NyasonValue.Record("map-from-list", _) ->
             decodeListCallbackNode "map-from-list" value (fun source callback context -> SemanticNodeKind.MapFromList(source, callback, context))
         | NyasonValue.Record("list-filter", _) ->

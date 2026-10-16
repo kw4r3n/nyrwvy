@@ -41,6 +41,8 @@ type SnapshotSchemaFeature =
     | Int64BitwiseAndFloat64MinMax
     /// ListSetAt, ListInsertAt and ListRemoveAt.
     | ListPositionalUpdate
+    /// ListZipWith and ListFlatMap.
+    | ListZipWithAndFlatMap
 
 /// One persisted snapshot schema: its JSON `schemaVersion` and its Nyason schema identifier.
 /// The two formats number their versions separately but move together.
@@ -78,6 +80,7 @@ module SnapshotSchema =
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
         [ SnapshotSchemaFeature.ExceptionIsCancellation, v17, "Exception cancellation classification"
           SnapshotSchemaFeature.StringReplaceAndTrim, v17, "StringReplace and StringTrim"
+          SnapshotSchemaFeature.ListZipWithAndFlatMap, v17, "ListZipWith and ListFlatMap"
           SnapshotSchemaFeature.ExceptionBoundary, v16, "Host exception boundary"
           SnapshotSchemaFeature.CancellationShield, v15, "Lexical cancellation shield"
           SnapshotSchemaFeature.OneShot, v14, "Scoped one-shot handoff"
@@ -175,6 +178,8 @@ module SnapshotSchema =
         | SemanticNodeKind.ListSetAt _
         | SemanticNodeKind.ListInsertAt _
         | SemanticNodeKind.ListRemoveAt _ -> Some SnapshotSchemaFeature.ListPositionalUpdate
+        | SemanticNodeKind.ListZipWith _
+        | SemanticNodeKind.ListFlatMap _ -> Some SnapshotSchemaFeature.ListZipWithAndFlatMap
         | SemanticNodeKind.TaskWait _
         | SemanticNodeKind.MatchUnion _
         | SemanticNodeKind.ParameterReference _

@@ -142,6 +142,8 @@ ExpressionRecipe =
   | TaskCancel(task)
   | UseResource(acquire, releaseCapability, releaseOperationId, bodyFunctionId, context)
   | ListMap(source, mapperFunctionId, context)
+  | ListZipWith(left, right, combinerFunctionId, context)
+  | ListFlatMap(source, mapperFunctionId, context)
   | ListFilter(source, predicateFunctionId, context)
   | ListSortBy(source, lessThanFunctionId, context)
   | ListMinBy(source, lessThanFunctionId, context)
@@ -331,12 +333,14 @@ for purity, persistence, dependency and host-boundary contracts.
 
 ## Higher-order List callbacks
 
-`ListFold`, `ListMap`, `ListFilter`, `ListSortBy`, `ListMinBy`, `ListFindIndex`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
+`ListFold`, `ListMap`, `ListZipWith`, `ListFlatMap`, `ListFilter`, `ListSortBy`, `ListMinBy`, `ListFindIndex`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
 
 For a source `List<T>`:
 
 - `ListFold(source, seed, f)` requires a pure binary `f : (S, T) -> S` where `seed : S`; it returns `S`, traverses left to right, and returns the seed for an empty source;
 - `ListMap(source, f)` requires a pure unary `f : T -> R` and produces `List<R>`;
+- `ListZipWith(left, right, f)` takes a second list `right : List<U>` and requires a pure binary `f : (T, U) -> R` receiving `(left item, right item)`; it produces `List<R>` of `f(left[i], right[i])` for every index below the shorter length, ignoring the longer list's extra items as Python `zip` does. Wire `listZipWith` with the fields `left`, `right`, `function` (name-resolved) or `functionId`, and `context`; Nyason `list-zip-with` with `left`, `right`, `combiner`; persisted `leftListNodeId`, `rightListNodeId`, `combinerFunctionId`. A non-List operand reports `PureExpressionOperandTypeMismatch`, another number of unbound parameters `PureExpressionCallbackArityMismatch`, parameters that do not match the item types `PureExpressionCallbackInputTypeMismatch`, and an impure combiner `PureExpressionCallbackEffectsNotAllowed`; persisted graphs report `CallbackArityMismatch`, `CallbackParameterTypeMismatch` and `CallbackEffectsNotAllowed`;
+- `ListFlatMap(source, f)` requires a pure unary `f : T -> List<R>` and produces the `List<R>` concatenating `f(item)` for each item in source order, in time linear in the output length; wire `listFlatMap` (the `listMap` fields), Nyason `list-flat-map`, persisted callback field `mapperFunctionId`. A mapper that does not return a List reports `PureExpressionCallbackResultTypeMismatch` (persisted: `CallbackResultTypeMismatch`); the other diagnostics are `ListMap`'s;
 - `ListFilter(source, p)` requires a pure unary `p : T -> Bool` and produces `List<T>`;
 - `ListSortBy(source, lessThan)` requires a pure binary `lessThan : (T, T) -> Bool` receiving `(left, right)` and produces `List<T>` in stable merge-sort order (see the [language subset](../reference/language-subset.md#immutable-ordered-listt)); wire `listSortBy`, Nyason `list-sort-by`, persisted callback field `lessThanFunctionId`. A callback with another number of unbound parameters reports `PureExpressionCallbackArityMismatch`, one whose parameters do not both match the item type `PureExpressionCallbackInputTypeMismatch`, a non-Bool result `PureExpressionCallbackResultTypeMismatch`, and required effects `PureExpressionCallbackEffectsNotAllowed`; persisted graphs report `CallbackArityMismatch`, `CallbackParameterTypeMismatch`, `PredicateResultTypeMismatch` and `CallbackEffectsNotAllowed`;
 - `ListMinBy(source, lessThan)` takes the same callback as `ListSortBy` and produces `Option<T>`: `None` for the empty list, otherwise the first smallest item of a left-to-right scan that replaces the best so far only when `lessThan(item, best)` holds; wire `listMinBy`, Nyason `list-min-by`, persisted callback field `lessThanFunctionId`, with the same diagnostics as `ListSortBy`;

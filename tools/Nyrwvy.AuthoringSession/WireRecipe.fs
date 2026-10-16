@@ -340,6 +340,10 @@ module internal WireRecipe =
         | "mapMapValues" ->
             ensureFields "map-map-values recipe" [ "kind"; "map"; "functionId"; "context" ] [ "kind"; "map"; "functionId" ] element
             ExpressionRecipe.MapMapValues(recipe (property "map" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "listZipWith" ->
+            ensureFields "list-zip-with recipe" [ "kind"; "left"; "right"; "functionId"; "context" ] [ "kind"; "left"; "right"; "functionId" ] element
+            ExpressionRecipe.ListZipWith(recipe (property "left" element), recipe (property "right" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "listFlatMap"
         | "listMap"
         | "mapFromList"
         | "listSortBy"
@@ -354,6 +358,7 @@ module internal WireRecipe =
             let context = callbackContext ()
             match kind with
             | "listMap" -> ExpressionRecipe.ListMap(source, functionId, context)
+            | "listFlatMap" -> ExpressionRecipe.ListFlatMap(source, functionId, context)
             | "mapFromList" -> ExpressionRecipe.MapFromList(source, functionId, context)
             | "listFilter" -> ExpressionRecipe.ListFilter(source, functionId, context)
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, functionId, context)

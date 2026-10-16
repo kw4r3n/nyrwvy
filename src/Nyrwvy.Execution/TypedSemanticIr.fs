@@ -224,6 +224,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | UseResource of acquireNodeId: GraphNodeId * releaseCapabilityNodeId: GraphNodeId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListZipWith of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId * combinerFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListFlatMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
     | MapFromList of sourceListNodeId: GraphNodeId * keyOfFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     | MapFilter of sourceMapNodeId: GraphNodeId * keepFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -436,6 +438,8 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.TaskCancel _
         | TypedSemanticNodeKind.UseResource _
         | TypedSemanticNodeKind.ListEffectFold _
+        | TypedSemanticNodeKind.ListZipWith _
+        | TypedSemanticNodeKind.ListFlatMap _
         | TypedSemanticNodeKind.ListMap _
         | TypedSemanticNodeKind.MapFromList _
         | TypedSemanticNodeKind.ListFilter _
@@ -585,6 +589,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.ListReverse listNodeId -> [ listNodeId ]
         | TypedSemanticNodeKind.ListLast listNodeId -> [ listNodeId ]
         | TypedSemanticNodeKind.ListDropLast listNodeId -> [ listNodeId ]
+        | TypedSemanticNodeKind.ListZipWith(leftNodeId, rightNodeId, _, context) ->
+            leftNodeId :: rightNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.ListFlatMap(listNodeId, _, context)
         | TypedSemanticNodeKind.ListMap(listNodeId, _, context)
         | TypedSemanticNodeKind.MapFromList(listNodeId, _, context)
         | TypedSemanticNodeKind.ListFilter(listNodeId, _, context)
@@ -1034,6 +1041,10 @@ module TypedSemanticIr =
                     | SemanticNodeKind.OneShotComplete(cell, value) -> Ok(TypedSemanticNodeKind.OneShotComplete(cell, value))
                     | SemanticNodeKind.OneShotWait(cell, limit) -> Ok(TypedSemanticNodeKind.OneShotWait(cell, limit))
                     | SemanticNodeKind.TaskCancel taskNodeId -> Ok(TypedSemanticNodeKind.TaskCancel taskNodeId)
+                    | SemanticNodeKind.ListZipWith(leftListNodeId, rightListNodeId, combinerFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListZipWith(leftListNodeId, rightListNodeId, combinerFunctionId, projectContext context))
+                    | SemanticNodeKind.ListFlatMap(sourceListNodeId, mapperFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListFlatMap(sourceListNodeId, mapperFunctionId, projectContext context))
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, projectContext context))
                     | SemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->

@@ -202,6 +202,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListConcat _
         | TypedSemanticNodeKind.ListFold _
         | TypedSemanticNodeKind.MapFold _
+        | TypedSemanticNodeKind.ListZipWith _
+        | TypedSemanticNodeKind.ListFlatMap _
         | TypedSemanticNodeKind.ListMap _
         | TypedSemanticNodeKind.MapFromList _
         | TypedSemanticNodeKind.ListFilter _

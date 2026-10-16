@@ -233,6 +233,8 @@ type ExecutionInstructionKind =
     | UseResource of acquireValueId: ExecutionValueId * releaseCapabilityValueId: ExecutionValueId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListEffectFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ListZipWith of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId * combinerFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ListFlatMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
     | MapFromList of sourceListValueId: ExecutionValueId * keyOfFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | MapFilter of sourceMapValueId: ExecutionValueId * keepFunctionId: FunctionId * context: ExecutionCallArgument list
@@ -296,6 +298,8 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.DirectCall(functionId, _) -> [ callback FunctionReferenceRole.DirectCall functionId ]
         | ExecutionInstructionKind.ListFold(_, _, functionId, _)
         | ExecutionInstructionKind.MapFold(_, _, functionId, _)
+        | ExecutionInstructionKind.ListZipWith(_, _, functionId, _)
+        | ExecutionInstructionKind.ListFlatMap(_, functionId, _)
         | ExecutionInstructionKind.ListMap(_, functionId, _)
         | ExecutionInstructionKind.MapFromList(_, functionId, _)
         | ExecutionInstructionKind.ListFilter(_, functionId, _)

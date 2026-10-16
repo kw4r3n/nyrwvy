@@ -284,6 +284,8 @@ module ViewerHtml =
         | ViewerNodeRole.OneShotWait -> "one-shot wait"
         | ViewerNodeRole.TaskCancel -> "task cancel"
         | ViewerNodeRole.ListMap -> "List map"
+        | ViewerNodeRole.ListZipWith -> "List zip with"
+        | ViewerNodeRole.ListFlatMap -> "List flat map"
         | ViewerNodeRole.MapFromList -> "Map from list"
         | ViewerNodeRole.ListFilter -> "List filter"
         | ViewerNodeRole.MapFilter -> "Map filter"

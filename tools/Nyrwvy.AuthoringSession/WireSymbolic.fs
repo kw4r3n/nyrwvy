@@ -750,6 +750,16 @@ module internal WireSymbolic =
             ensureFields "map-map-values recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
             ExpressionRecipe.MapMapValues(recipe declarations parameterContext (property "map" element), callback.Id, callbackContext callback)
+        | "listZipWith" ->
+            ensureFields "list-zip-with recipe" [ "kind"; "left"; "right"; "function"; "context" ] [ "kind"; "left"; "right"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.ListZipWith(
+                recipe declarations parameterContext (property "left" element),
+                recipe declarations parameterContext (property "right" element),
+                callback.Id,
+                callbackContext callback
+            )
+        | "listFlatMap"
         | "listMap"
         | "mapFromList"
         | "listSortBy"
@@ -764,6 +774,7 @@ module internal WireSymbolic =
             let context = callbackContext callback
             match kind with
             | "listMap" -> ExpressionRecipe.ListMap(source, callback.Id, context)
+            | "listFlatMap" -> ExpressionRecipe.ListFlatMap(source, callback.Id, context)
             | "mapFromList" -> ExpressionRecipe.MapFromList(source, callback.Id, context)
             | "listFilter" -> ExpressionRecipe.ListFilter(source, callback.Id, context)
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, callback.Id, context)
