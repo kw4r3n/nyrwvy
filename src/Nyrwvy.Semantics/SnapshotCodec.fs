@@ -886,6 +886,14 @@ module SnapshotCodec =
             writer.WriteString("taskNodeId", StableId.value taskNodeId)
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
+        | SemanticNodeKind.ListZipWith(leftListNodeId, rightListNodeId, combinerFunctionId, context) ->
+            writer.WriteString("kind", "listZipWith")
+            writer.WriteString("leftListNodeId", StableId.value leftListNodeId)
+            writer.WriteString("rightListNodeId", StableId.value rightListNodeId)
+            writer.WriteString("combinerFunctionId", StableId.value combinerFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.ListFlatMap(sourceListNodeId, mapperFunctionId, context) ->
+            writeListCallbackNode writer "listFlatMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
         | SemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
             writeListCallbackNode writer "mapFromList" sourceListNodeId "keyOfFunctionId" keyOfFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
@@ -2055,6 +2063,12 @@ module SnapshotCodec =
             | "listMap" ->
                 readListCallbackNode "ListMap node" "mapperFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListMap(source, callback, context))
+            | "listZipWith" ->
+                ensureProperties "ListZipWith node" (set [ "id"; "kind"; "leftListNodeId"; "rightListNodeId"; "combinerFunctionId" ]) (set [ "id"; "kind"; "leftListNodeId"; "rightListNodeId"; "combinerFunctionId"; "context" ]) element
+                SemanticNodeKind.ListZipWith(readId<GraphNodeTag> "leftListNodeId" element, readId<GraphNodeTag> "rightListNodeId" element, readId<FunctionTag> "combinerFunctionId" element, readCallbackContext element)
+            | "listFlatMap" ->
+                readListCallbackNode "ListFlatMap node" "mapperFunctionId" element (fun source callback context ->
+                    SemanticNodeKind.ListFlatMap(source, callback, context))
             | "mapFromList" ->
                 readListCallbackNode "MapFromList node" "keyOfFunctionId" element (fun source callback context ->
                     SemanticNodeKind.MapFromList(source, callback, context))

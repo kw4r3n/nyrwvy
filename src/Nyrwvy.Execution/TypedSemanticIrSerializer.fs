@@ -784,6 +784,14 @@ module TypedSemanticIrSerializer =
             writer.WriteString("taskNodeId", StableId.value taskNodeId)
         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
+        | TypedSemanticNodeKind.ListZipWith(leftListNodeId, rightListNodeId, combinerFunctionId, context) ->
+            writer.WriteString("kind", "listZipWith")
+            writer.WriteString("leftListNodeId", StableId.value leftListNodeId)
+            writer.WriteString("rightListNodeId", StableId.value rightListNodeId)
+            writer.WriteString("combinerFunctionId", StableId.value combinerFunctionId)
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.ListFlatMap(sourceListNodeId, mapperFunctionId, context) ->
+            writeListCallbackNode writer "listFlatMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
         | TypedSemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
             writeListCallbackNode writer "mapFromList" sourceListNodeId "keyOfFunctionId" keyOfFunctionId context
         | TypedSemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->

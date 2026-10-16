@@ -33,6 +33,8 @@ module internal OneShotPayloadRequirements =
                         | SemanticNodeKind.MapFold(source, seed, _, _) -> (nodeType seed |> Option.toList) @ mapItems source
                         | SemanticNodeKind.ListSortBy(source, _, _)
                         | SemanticNodeKind.ListMinBy(source, _, _) -> let items = listItem source in items @ items
+                        | SemanticNodeKind.ListZipWith(left, right, _, _) -> listItem left @ listItem right
+                        | SemanticNodeKind.ListFlatMap(source, _, _)
                         | SemanticNodeKind.ListMap(source, _, _)
                         | SemanticNodeKind.MapFromList(source, _, _)
                         | SemanticNodeKind.ListFilter(source, _, _)

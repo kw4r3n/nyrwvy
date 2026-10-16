@@ -441,6 +441,21 @@ module SemanticFacts =
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some mapper ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ callbackResult nextVisiting mapper context [ itemType ] ]))
                         | _ -> None
+                    | SemanticNodeKind.ListZipWith(leftListNodeId, rightListNodeId, combinerFunctionId, context) ->
+                        match tryNodeType nextVisiting leftListNodeId, tryNodeType nextVisiting rightListNodeId, Map.tryFind combinerFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ leftItemType ])),
+                          Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ rightItemType ])),
+                          Some combiner ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ callbackResult nextVisiting combiner context [ leftItemType; rightItemType ] ]))
+                        | _ -> None
+                    | SemanticNodeKind.ListFlatMap(sourceListNodeId, mapperFunctionId, context) ->
+                        // The mapper returns List<R>; the node is that same List<R>.
+                        match tryNodeType nextVisiting sourceListNodeId, Map.tryFind mapperFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some mapper ->
+                            match callbackResult nextVisiting mapper context [ itemType ] with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ]) as resultType -> Some resultType
+                            | _ -> None
+                        | _ -> None
                     | SemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
                         match tryNodeType nextVisiting sourceListNodeId, Map.tryFind keyOfFunctionId index.Functions with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some keyOf ->

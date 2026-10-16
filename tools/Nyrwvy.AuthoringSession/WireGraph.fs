@@ -223,6 +223,9 @@ module internal WireGraph =
         | SemanticNodeKind.OneShotWait(cell, limit) -> tagged "oneShotWait" ([ "cellNodeId", identity cell ] @ (limit |> Option.map (fun id -> "limitNodeId", identity id) |> Option.toList))
         | SemanticNodeKind.TaskCancel task -> tagged "taskCancel" [ "taskNodeId", identity task ]
         | SemanticNodeKind.ListMap(source, callback, bindings) -> traversal "listMap" source callback bindings
+        | SemanticNodeKind.ListZipWith(left, right, combiner, bindings) ->
+            tagged "listZipWith" ([ "leftListNodeId", identity left; "rightListNodeId", identity right; "combinerFunctionId", identity combiner ] @ context bindings)
+        | SemanticNodeKind.ListFlatMap(source, callback, bindings) -> traversal "listFlatMap" source callback bindings
         | SemanticNodeKind.MapFromList(source, callback, bindings) -> traversal "mapFromList" source callback bindings
         | SemanticNodeKind.ListFilter(source, callback, bindings) -> traversal "listFilter" source callback bindings
         | SemanticNodeKind.MapFilter(source, callback, bindings) ->

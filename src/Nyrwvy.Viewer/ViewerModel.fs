@@ -183,6 +183,8 @@ type ViewerNodeRole =
     | OneShotComplete
     | OneShotWait
     | ListMap
+    | ListZipWith
+    | ListFlatMap
     | MapFromList
     | ListFilter
     | MapFilter
@@ -471,6 +473,8 @@ module ViewerProjection =
         | SemanticNodeKind.OneShotWait _ -> ViewerNodeRole.OneShotWait, []
         | SemanticNodeKind.TaskCancel _ -> ViewerNodeRole.TaskCancel, []
         | SemanticNodeKind.ListMap _ -> ViewerNodeRole.ListMap, []
+        | SemanticNodeKind.ListZipWith _ -> ViewerNodeRole.ListZipWith, []
+        | SemanticNodeKind.ListFlatMap _ -> ViewerNodeRole.ListFlatMap, []
         | SemanticNodeKind.MapFromList _ -> ViewerNodeRole.MapFromList, []
         | SemanticNodeKind.ListFilter _ -> ViewerNodeRole.ListFilter, []
         | SemanticNodeKind.MapFilter _ -> ViewerNodeRole.MapFilter, []

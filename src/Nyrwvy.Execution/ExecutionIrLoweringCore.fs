@@ -658,6 +658,15 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId mapperFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListMap(source, callback, lowered))
+                        | TypedSemanticNodeKind.ListZipWith(leftListNodeId, rightListNodeId, combinerFunctionId, context) ->
+                            match lowerCallArguments context with
+                            | Error error -> Error error
+                            | Ok lowered ->
+                                lowerBinaryNode node leftListNodeId rightListNodeId (fun left right ->
+                                    ExecutionInstructionKind.ListZipWith(left, right, combinerFunctionId, lowered))
+                        | TypedSemanticNodeKind.ListFlatMap(sourceListNodeId, mapperFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId mapperFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListFlatMap(source, callback, lowered))
                         | TypedSemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId keyOfFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.MapFromList(source, callback, lowered))

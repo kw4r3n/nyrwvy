@@ -346,6 +346,40 @@ module CSharpBackend =
           "        }"
           "        return NyList<U>.FromOwnedArray(next);"
           "    }"
+          "    // ListZipWith: item i is combiner(this[i], other[i]) for every i below the shorter length, as"
+          "    // Python zip; the extra items of the longer list are not visited."
+          "    public NyList<V> ZipWith<U, V>(NyList<U> other, Func<T, U, V> combiner)"
+          "    {"
+          "        var count = System.Math.Min(Count, other.Count);"
+          "        var next = new V[count];"
+          "        for (var i = 0; i < count; i++) next[i] = combiner(Get(_start + i), other.Get(other._start + i));"
+          "        return NyList<V>.FromOwnedArray(next);"
+          "    }"
+          "    // ListFlatMap: the mapper's lists concatenated in source order. Each part is copied once into"
+          "    // one buffer, so the time is linear in the output length rather than quadratic as repeated Concat."
+          "    public NyList<U> FlatMap<U>(Func<T, NyList<U>> mapper)"
+          "    {"
+          "        var parts = new NyList<U>[Count];"
+          "        var total = 0;"
+          "        var index = 0;"
+          "        for (var at = _start; at < _count; at = Next(at))"
+          "            foreach (var item in Segment(at))"
+          "            {"
+          "                var part = mapper(item);"
+          "                parts[index++] = part;"
+          "                total = checked(total + part.Count);"
+          "            }"
+          "        var next = new U[total];"
+          "        var offset = 0;"
+          "        foreach (var part in parts)"
+          "            for (var at = part._start; at < part._count; at = Next(at))"
+          "            {"
+          "                var segment = part.Segment(at);"
+          "                segment.CopyTo(next.AsSpan(offset));"
+          "                offset += segment.Length;"
+          "            }"
+          "        return NyList<U>.FromOwnedArray(next);"
+          "    }"
           "    // ListSortBy: top-down merge sort, left half = length / 2, taking the right head only when"
           "    // lessThan(right, left) holds. The algorithm fixes the result for any callback, so an"
           "    // inconsistent callback still yields a deterministic permutation; a strict order is stable."
@@ -2434,6 +2468,10 @@ module CSharpBackend =
             writer.Line("}")
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callback mapperFunctionId context + ");")
+        | ExecutionInstructionKind.ListZipWith(leftListValueId, rightListValueId, combinerFunctionId, context) ->
+            writer.Line(target + " = " + valueName leftListValueId + ".ZipWith(" + valueName rightListValueId + ", " + callback combinerFunctionId context + ");")
+        | ExecutionInstructionKind.ListFlatMap(sourceListValueId, mapperFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".FlatMap(" + callback mapperFunctionId context + ");")
         | ExecutionInstructionKind.MapFromList(sourceListValueId, keyOfFunctionId, context) ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".FromList(" + valueName sourceListValueId + ", " + callback keyOfFunctionId context + ");")
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->

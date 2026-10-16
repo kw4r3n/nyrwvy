@@ -171,6 +171,8 @@ type ExpressionRecipe =
     | UseResource of acquire: ExpressionRecipe * releaseCapability: ExpressionRecipe * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListEffectFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListZipWith of left: ExpressionRecipe * right: ExpressionRecipe * combinerFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListFlatMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | MapFromList of source: ExpressionRecipe * keyOfFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListFilter of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | MapFilter of source: ExpressionRecipe * keepFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -404,6 +406,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.TaskCancel task -> ExpressionRecipe.TaskCancel(go task)
         | ExpressionRecipe.ListEffectFold(source, seed, folder, context) -> ExpressionRecipe.ListEffectFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.ListMap(source, callback, context) -> ExpressionRecipe.ListMap(go source, callback, pairs context)
+        | ExpressionRecipe.ListZipWith(left, right, callback, context) -> ExpressionRecipe.ListZipWith(go left, go right, callback, pairs context)
+        | ExpressionRecipe.ListFlatMap(source, callback, context) -> ExpressionRecipe.ListFlatMap(go source, callback, pairs context)
         | ExpressionRecipe.MapFromList(source, callback, context) -> ExpressionRecipe.MapFromList(go source, callback, pairs context)
         | ExpressionRecipe.ListFilter(source, callback, context) -> ExpressionRecipe.ListFilter(go source, callback, pairs context)
         | ExpressionRecipe.MapFilter(source, callback, context) -> ExpressionRecipe.MapFilter(go source, callback, pairs context)
@@ -745,6 +749,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.OneShotWait(cell, limit) -> seq { yield cell; yield! Option.toList limit }
         | ExpressionRecipe.TaskWait(tasks, _, limit) -> seq { yield tasks; yield! Option.toList limit }
         | ExpressionRecipe.TaskCancel task -> Seq.singleton task
+        | ExpressionRecipe.ListZipWith(left, right, _, context) -> seq { yield left; yield right; yield! context |> Seq.map snd }
+        | ExpressionRecipe.ListFlatMap(source, _, context)
         | ExpressionRecipe.ListMap(source, _, context)
         | ExpressionRecipe.MapFromList(source, _, context)
         | ExpressionRecipe.ListFilter(source, _, context)
@@ -1985,6 +1991,50 @@ module AgentExpressionStructuralWorkflow =
                         match validateListCallback "ListMap" mapperFunctionId context sourceItemType false (infer frames) with
                         | Error error -> Error error
                         | Ok(mapper, substitution) -> Ok(listType (TypeParameters.substitute substitution mapper.ResultType))
+            | ExpressionRecipe.ListZipWith(left, right, combinerFunctionId, context) ->
+                match infer frames left with
+                | Error error -> Error error
+                | Ok leftType ->
+                    match listItemType leftType with
+                    | None -> Error(listMismatch "ListZipWith" "left" leftType)
+                    | Some leftItemType ->
+                        match infer frames right with
+                        | Error error -> Error error
+                        | Ok rightType ->
+                            match listItemType rightType with
+                            | None -> Error(listMismatch "ListZipWith" "right" rightType)
+                            | Some rightItemType ->
+                                match Map.tryFind combinerFunctionId functionsById with
+                                | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"ListZipWith combiner '{StableId.value combinerFunctionId}' does not exist.")
+                                | Some combiner ->
+                                    match validateCallbackContext "ListZipWith" combiner context (infer frames) with
+                                    | Error error -> Error error
+                                    | Ok(unbound, _) when unbound.Length <> 2 ->
+                                        Error(diagnostic "PureExpressionCallbackArityMismatch" $"ListZipWith combiner {callbackName combiner} must have exactly two parameters not bound by context (left item, right item); it has type {callbackSignature combiner} and context binds {List.length context}.")
+                                    | Ok(unbound, substitution) ->
+                                        let matched =
+                                            TypeParameters.matchType substitution unbound.Head.Type leftItemType
+                                            |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type rightItemType)
+                                        match matched with
+                                        | None ->
+                                            Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ListZipWith combiner {callbackName combiner} must take (left item, right item), here ({ty leftItemType}, {ty rightItemType}); the combiner has type {callbackSignature combiner}.")
+                                        | Some _ when not (PureFunctions.isPure snapshot combiner.Id) ->
+                                            Error(diagnostic "PureExpressionCallbackEffectsNotAllowed" $"ListZipWith combiner {callbackName combiner} must be pure, including its transitive calls and ambient task or cancellation behavior.")
+                                        | Some current -> Ok(listType (TypeParameters.substitute current combiner.ResultType))
+            | ExpressionRecipe.ListFlatMap(source, mapperFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType with
+                    | None -> Error(listMismatch "ListFlatMap" "source" sourceType)
+                    | Some sourceItemType ->
+                        match validateListCallback "ListFlatMap" mapperFunctionId context sourceItemType false (infer frames) with
+                        | Error error -> Error error
+                        | Ok(mapper, substitution) ->
+                            match TypeParameters.substitute substitution mapper.ResultType with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ]) as resultType -> Ok resultType
+                            | other ->
+                                Error(diagnostic "PureExpressionCallbackResultTypeMismatch" $"ListFlatMap mapper {callbackName mapper} must return List<R>, not {ty other}; it has type {callbackSignature mapper}. Use ListMap for a mapper that returns one item.")
             | ExpressionRecipe.MapFromList(source, keyOfFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -2759,6 +2809,13 @@ module AgentExpressionStructuralWorkflow =
             cellNodes @ limitNodes @ [ { Id = id; Kind = SemanticNodeKind.OneShotWait(cellId, limitId) } ], id
         | ExpressionRecipe.TaskCancel task -> unary SemanticNodeKind.TaskCancel task
         | ExpressionRecipe.ListMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListMap source mapperFunctionId context
+        | ExpressionRecipe.ListFlatMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListFlatMap source mapperFunctionId context
+        | ExpressionRecipe.ListZipWith(left, right, combinerFunctionId, context) ->
+            let leftNodes, leftResult = materializeRecipe left
+            let rightNodes, rightResult = materializeRecipe right
+            let contextNodes, contextBindings = materializeContext combinerFunctionId context
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            leftNodes @ rightNodes @ contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListZipWith(leftResult, rightResult, combinerFunctionId, contextBindings) } ], nodeId
         | ExpressionRecipe.MapFromList(source, keyOfFunctionId, context) -> listCallback SemanticNodeKind.MapFromList source keyOfFunctionId context
         | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId context
         | ExpressionRecipe.MapFilter(source, keepFunctionId, context) -> listCallback SemanticNodeKind.MapFilter source keepFunctionId context

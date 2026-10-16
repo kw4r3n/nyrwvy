@@ -198,6 +198,11 @@ module ValueDependency =
         | SemanticNodeKind.ListDropLast sourceNodeId
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) ->
             [ create ValueDependencyRole.Source sourceNodeId ]
+        | SemanticNodeKind.ListZipWith(leftNodeId, rightNodeId, _, context) ->
+            [ create ValueDependencyRole.LeftOperand leftNodeId
+              create ValueDependencyRole.RightOperand rightNodeId ]
+            @ contextDependencies context
+        | SemanticNodeKind.ListFlatMap(sourceNodeId, _, context)
         | SemanticNodeKind.ListMap(sourceNodeId, _, context)
         | SemanticNodeKind.MapFromList(sourceNodeId, _, context)
         | SemanticNodeKind.ListFilter(sourceNodeId, _, context)

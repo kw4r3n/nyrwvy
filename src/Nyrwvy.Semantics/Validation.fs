@@ -1656,6 +1656,33 @@ module SnapshotValidator =
                         | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" $"ParallelAll node '{StableId.value node.Id}' requires List<T> input."
                         | _, None -> add "UnknownCallbackFunction" $"ParallelAll node '{StableId.value node.Id}' references an unknown worker."
                         | None, _ -> ()
+                    | SemanticNodeKind.ListZipWith(leftListNodeId, rightListNodeId, combinerFunctionId, context) ->
+                        match nodeType leftListNodeId, nodeType rightListNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ leftItemType ])),
+                          Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ rightItemType ])) ->
+                            match Map.tryFind combinerFunctionId functionsById with
+                            | None -> add "UnknownCallbackFunction" $"ListZipWith node '{StableId.value node.Id}' references an unknown combiner."
+                            | Some combiner ->
+                                let unbound, substitution = validateCallbackContext node.Id combiner context
+                                if unbound.Length <> 2 then
+                                    add "CallbackArityMismatch" $"ListZipWith node '{StableId.value node.Id}' combiner must have exactly two parameters not bound by context (left item, right item)."
+                                else
+                                    match
+                                        TypeParameters.matchType substitution unbound.Head.Type leftItemType
+                                        |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type rightItemType)
+                                    with
+                                    | Some _ -> ()
+                                    | None -> add "CallbackParameterTypeMismatch" $"ListZipWith node '{StableId.value node.Id}' combiner input types must match the left and right list item types."
+                                if not (PureFunctions.isPure snapshot combiner.Id) then
+                                    add "CallbackEffectsNotAllowed" $"ListZipWith node '{StableId.value node.Id}' combiner must be pure, including its transitive calls and ambient task or cancellation behavior."
+                        | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" $"ListZipWith node '{StableId.value node.Id}' requires List<T> inputs."
+                        | _ -> ()
+                    | SemanticNodeKind.ListFlatMap(sourceListNodeId, mapperFunctionId, context) ->
+                        validateListCallback node.Id sourceListNodeId mapperFunctionId context false
+                        match nodeType sourceListNodeId, Map.tryFind mapperFunctionId functionsById, nodeType node.Id with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])), Some _, None ->
+                            add "CallbackResultTypeMismatch" $"ListFlatMap node '{StableId.value node.Id}' mapper must return List<R>."
+                        | _ -> ()
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         validateListCallback node.Id sourceListNodeId mapperFunctionId context false
                     | SemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
@@ -2356,6 +2383,8 @@ module SnapshotValidator =
                 | SemanticNodeKind.OneShotComplete _
                 | SemanticNodeKind.OneShotWait _
                 | SemanticNodeKind.TaskCancel _
+                | SemanticNodeKind.ListZipWith _
+                | SemanticNodeKind.ListFlatMap _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.MapFromList _
                 | SemanticNodeKind.ListFilter _

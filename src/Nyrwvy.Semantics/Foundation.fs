@@ -562,6 +562,12 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | OneShotWait of cell: GraphNodeId * limit: GraphNodeId option
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    /// The List<R> whose item i is combiner(left[i], right[i]) for every index below the shorter
+    /// length; the extra items of the longer list are ignored, as Python zip. Never fails.
+    | ListZipWith of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId * combinerFunctionId: FunctionId * context: ArgumentBinding list
+    /// The concatenation, in source order, of the List<R> the mapper returns for each item, built in
+    /// time linear in the total output length. Never fails.
+    | ListFlatMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
     /// The items of a List<T> indexed by a pure `T -> K` callback, as Map<K, T>: a repeated key
     /// keeps its first position and takes the last item, as repeated MapInsert does. K must be
     /// equatable. Never fails.
@@ -669,6 +675,7 @@ type FunctionReferenceRole =
     | DirectCall
     /// ListFold, ListMap, ListFilter, ListSortBy, ListMinBy, ListFindIndex, ListAny, ListAll, MapFold,
     /// MapFromList, MapFilter or MapMapValues: a callback validation requires to be pure.
+    /// ListZipWith and ListFlatMap callbacks are pure in the same way.
     | PureListCallback
     /// ListEffectFold: a folder that may require effects.
     | EffectListCallback
@@ -874,6 +881,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListReverse listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListLast listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListDropLast listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListZipWith(leftNodeId, rightNodeId, _, context) -> leftNodeId :: rightNodeId :: contextValues context
+        | SemanticNodeKind.ListFlatMap(sourceNodeId, _, context)
         | SemanticNodeKind.ListMap(sourceNodeId, _, context)
         | SemanticNodeKind.MapFromList(sourceNodeId, _, context)
         | SemanticNodeKind.ListFilter(sourceNodeId, _, context)
@@ -1210,6 +1219,10 @@ module SemanticNodeShape =
             | SemanticNodeKind.OneShotComplete(cell, value) -> SemanticNodeKind.OneShotComplete(mapNodeId cell, mapNodeId value)
             | SemanticNodeKind.OneShotWait(cell, limit) -> SemanticNodeKind.OneShotWait(mapNodeId cell, Option.map mapNodeId limit)
             | SemanticNodeKind.TaskCancel taskNodeId -> SemanticNodeKind.TaskCancel(mapNodeId taskNodeId)
+            | SemanticNodeKind.ListZipWith(leftNodeId, rightNodeId, functionId, context) ->
+                SemanticNodeKind.ListZipWith(mapNodeId leftNodeId, mapNodeId rightNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ListFlatMap(sourceListNodeId, functionId, context) ->
+                SemanticNodeKind.ListFlatMap(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListMap(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListMap(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.MapFromList(sourceListNodeId, functionId, context) ->
@@ -1440,6 +1453,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.OneShotWait _
         | SemanticNodeKind.TaskCancel _
         | SemanticNodeKind.ListEffectFold _
+        | SemanticNodeKind.ListZipWith _
+        | SemanticNodeKind.ListFlatMap _
         | SemanticNodeKind.ListMap _
         | SemanticNodeKind.MapFromList _
         | SemanticNodeKind.ListFilter _
@@ -1677,6 +1692,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.OneShotWait _
         | SemanticNodeKind.TaskCancel _
         | SemanticNodeKind.ListEffectFold _
+        | SemanticNodeKind.ListZipWith _
+        | SemanticNodeKind.ListFlatMap _
         | SemanticNodeKind.ListMap _
         | SemanticNodeKind.MapFromList _
         | SemanticNodeKind.ListFilter _
@@ -1725,6 +1742,8 @@ module SemanticNodeShape =
             [ reference FunctionReferenceRole.DirectCall arguments functionId ], []
         | SemanticNodeKind.ListFold(_, _, functionId, context)
         | SemanticNodeKind.MapFold(_, _, functionId, context)
+        | SemanticNodeKind.ListZipWith(_, _, functionId, context)
+        | SemanticNodeKind.ListFlatMap(_, functionId, context)
         | SemanticNodeKind.ListMap(_, functionId, context)
         | SemanticNodeKind.MapFromList(_, functionId, context)
         | SemanticNodeKind.ListFilter(_, functionId, context)
@@ -2079,6 +2098,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListFold _
         | SemanticNodeKind.MapFold _
         | SemanticNodeKind.ListEffectFold _
+        | SemanticNodeKind.ListZipWith _
+        | SemanticNodeKind.ListFlatMap _
         | SemanticNodeKind.ListMap _
         | SemanticNodeKind.MapFromList _
         | SemanticNodeKind.ListFilter _
