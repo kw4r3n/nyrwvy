@@ -2442,6 +2442,9 @@ module TypeParameters =
         | _ when declared = actual -> Some substitution
         | _ -> None
 
+    /// Extends `substitution` by matching declared types against actual types in order; None when any pair conflicts.
+    let matchFrom (substitution: Map<TypeParameterId, TypeRef>) (pairs: (TypeRef * TypeRef) list) =
+        pairs |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some substitution)
+
     /// Matches declared parameter types against actual types in order; None when any pair conflicts.
-    let matchAll (pairs: (TypeRef * TypeRef) list) =
-        pairs |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some Map.empty)
+    let matchAll (pairs: (TypeRef * TypeRef) list) = matchFrom Map.empty pairs

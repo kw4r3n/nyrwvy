@@ -2,6 +2,7 @@
   <ItemGroup>
     <Compile Include="CSharpBackendModel.fs" />
     <Compile Include="CSharpBackendValidation.fs" />
+    <Compile Include="CSharpBackendRuntime.fs" />
     <Compile Include="CSharpBackendEmitter.fs" />
   </ItemGroup>
   <ItemGroup>
