@@ -14,7 +14,7 @@ sealed class Effects : @@HOST@@
  readonly string peerSchedule;
  readonly ManualResetEventSlim peerRelease=new(false);
  readonly CancellationTokenSource root; readonly string mode;
- readonly ManualResetEventSlim ownerParked=new(false),rootInjected=new(false);
+ readonly ManualResetEventSlim ownerParked=new(false),rootInjected=new(false),cancelDelivered=new(false);
  readonly ConcurrentDictionary<long,int> leases=new();
  readonly ConcurrentDictionary<string,ManualResetEventSlim> callerReplied=new();
  public System.Threading.Tasks.Task Driver {get;private set;}=System.Threading.Tasks.Task.CompletedTask;
@@ -108,9 +108,11 @@ sealed class Effects : @@HOST@@
  public NyUnit Gate(NyStr raw)
  {
   string label=raw.ToString();Log("gate",("label",label));
-  if(label=="owner-park"){ownerParked.Set();NyRuntime.Cancellation.Value.WaitHandle.WaitOne();}
+  // A cancelled token wakes waiters before its linked descendants are cancelled.
+  // Resume only after Cancel() has returned, matching the atomic virtual TaskCancel.
+  if(label=="owner-park"){ownerParked.Set();NyRuntime.Cancellation.Value.WaitHandle.WaitOne();Wait(cancelDelivered,"owner cancellation delivered");}
   else if(label=="probe-ready"){Wait(ownerParked,label);if(mode=="external")Wait(rootInjected,label);}
-  else if(label=="probe-cancelled"){if(Setting("kind")=="queued"||Setting("kind")=="integration")Wait(callerReplied.GetOrAdd(Setting("kind")=="queued"?"loser":"second",_=>new(false)),"queued cancellation reply before held mutation release");}
+  else if(label=="probe-cancelled"){cancelDelivered.Set();if(Setting("kind")=="queued"||Setting("kind")=="integration")Wait(callerReplied.GetOrAdd(Setting("kind")=="queued"?"loser":"second",_=>new(false)),"queued cancellation reply before held mutation release");}
   else if(label=="probe-release"){if(peerSchedule=="early")peerRelease.Set();spawnReleased.Set();integrationRelease.Set();closeReleased.Set();if(Setting("kind")!="settlement")Cell(snapshotRelease,1).Set();Cell(workerRelease,1).Set();Cell(workerRelease,2).Set();}
   else if(label.StartsWith("request-start:"))requestStarted.GetOrAdd(label[14..],_=>new(false)).Set();
   else if(label.StartsWith("enter:")){requestLabel.Value=label[6..];acquired[label[6..]]=true;}
