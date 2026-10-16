@@ -710,6 +710,14 @@ module SnapshotCodec =
             writer.WriteString("kind", "setDifference")
             writer.WriteString("leftSetNodeId", StableId.value leftSetNodeId)
             writer.WriteString("rightSetNodeId", StableId.value rightSetNodeId)
+        | SemanticNodeKind.SetIsSubset(leftSetNodeId, rightSetNodeId) ->
+            writer.WriteString("kind", "setIsSubset")
+            writer.WriteString("leftSetNodeId", StableId.value leftSetNodeId)
+            writer.WriteString("rightSetNodeId", StableId.value rightSetNodeId)
+        | SemanticNodeKind.MapUnion(leftMapNodeId, rightMapNodeId) ->
+            writer.WriteString("kind", "mapUnion")
+            writer.WriteString("leftMapNodeId", StableId.value leftMapNodeId)
+            writer.WriteString("rightMapNodeId", StableId.value rightMapNodeId)
         | SemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapContainsKey")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -1763,6 +1771,12 @@ module SnapshotCodec =
             | "setDifference" ->
                 ensureProperties "SetDifference node" (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) element
                 SemanticNodeKind.SetDifference(readId<GraphNodeTag> "leftSetNodeId" element, readId<GraphNodeTag> "rightSetNodeId" element)
+            | "setIsSubset" ->
+                ensureProperties "SetIsSubset node" (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) element
+                SemanticNodeKind.SetIsSubset(readId<GraphNodeTag> "leftSetNodeId" element, readId<GraphNodeTag> "rightSetNodeId" element)
+            | "mapUnion" ->
+                ensureProperties "MapUnion node" (set [ "id"; "kind"; "leftMapNodeId"; "rightMapNodeId" ]) (set [ "id"; "kind"; "leftMapNodeId"; "rightMapNodeId" ]) element
+                SemanticNodeKind.MapUnion(readId<GraphNodeTag> "leftMapNodeId" element, readId<GraphNodeTag> "rightMapNodeId" element)
             | "mapContainsKey" ->
                 ensureProperties
                     "MapContainsKey node"

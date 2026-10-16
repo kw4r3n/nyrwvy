@@ -34,6 +34,8 @@ type SnapshotSchemaFeature =
     | ListIndexSearch
     /// StringReplace, StringTrim, StringTrimStart and StringTrimEnd.
     | StringReplaceAndTrim
+    /// SetIsSubset and MapUnion.
+    | SetIsSubsetAndMapUnion
 
 /// One persisted snapshot schema: its JSON `schemaVersion` and its Nyason schema identifier.
 /// The two formats number their versions separately but move together.
@@ -85,7 +87,8 @@ module SnapshotSchema =
           SnapshotSchemaFeature.Set, v13, "Set"
           SnapshotSchemaFeature.ListMinBy, v13, "ListMinBy"
           SnapshotSchemaFeature.ListLastAndDropLast, v13, "ListLast and ListDropLast"
-          SnapshotSchemaFeature.ListIndexSearch, v13, "ListIndexOf, ListLastIndexOf and ListFindIndex" ]
+          SnapshotSchemaFeature.ListIndexSearch, v13, "ListIndexOf, ListLastIndexOf and ListFindIndex"
+          SnapshotSchemaFeature.SetIsSubsetAndMapUnion, v17, "SetIsSubset and MapUnion" ]
 
     let private rows =
         minimumVersions |> List.map (fun (feature, minimum, name) -> feature, (minimum, name)) |> Map.ofList
@@ -123,6 +126,8 @@ module SnapshotSchema =
         | SemanticNodeKind.StringTrimStart _
         | SemanticNodeKind.StringTrimEnd _ -> Some SnapshotSchemaFeature.StringReplaceAndTrim
         | SemanticNodeKind.Float64Round _ -> Some SnapshotSchemaFeature.Float64Round
+        | SemanticNodeKind.SetIsSubset _
+        | SemanticNodeKind.MapUnion _ -> Some SnapshotSchemaFeature.SetIsSubsetAndMapUnion
         | SemanticNodeKind.MapEmpty _
         | SemanticNodeKind.MapValues _
         | SemanticNodeKind.MapKeys _

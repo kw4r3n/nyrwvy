@@ -141,6 +141,8 @@ module FoundationTests =
                 | SemanticNodeKind.SetUnion _
                 | SemanticNodeKind.SetIntersection _
                 | SemanticNodeKind.SetDifference _
+                | SemanticNodeKind.SetIsSubset _
+                | SemanticNodeKind.MapUnion _
                 | SemanticNodeKind.MapContainsKey _
                 | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.ListIndexOf _

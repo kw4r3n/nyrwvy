@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-16
-- **Roadmap:** [post-M2 owner choice of 2026-10-16](../plans/post-m2-roadmap.md#owner-choice-of-2026-10-16-ordinary-string-builtins), order 59
+- **Roadmap:** [post-M2 owner choice of 2026-10-16](../plans/post-m2-roadmap.md#owner-choice-of-2026-10-16-ordinary-builtins), order 59
 
 The owner chose to add these ordinary builtins ahead of probe evidence. Their semantics follow what one would normally expect, which is Python's except where stated below. No probe ranked their absence as a cost, but probes wrote around them: [probe 8](../verification/rrawrlet-slice-probe8-20260929.md) wrote `text.replace(secret, "[REDACTED]")` as a `StringSplit` and `StringJoin`, and several probes wrote `strip()` with `StringSpan`, `StringSpanBack` and `StringSlice`.
 

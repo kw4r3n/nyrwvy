@@ -183,6 +183,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | SetUnion of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
     | SetIntersection of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
     | SetDifference of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
+    | SetIsSubset of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
+    | MapUnion of leftMapNodeId: GraphNodeId * rightMapNodeId: GraphNodeId
     | MapContainsKey of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | SetContains of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
@@ -383,6 +385,8 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.SetUnion _
         | TypedSemanticNodeKind.SetIntersection _
         | TypedSemanticNodeKind.SetDifference _
+        | TypedSemanticNodeKind.SetIsSubset _
+        | TypedSemanticNodeKind.MapUnion _
         | TypedSemanticNodeKind.MapContainsKey _
         | TypedSemanticNodeKind.SetContains _
         | TypedSemanticNodeKind.ListIndexOf _
@@ -528,7 +532,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.ListConcat(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.SetUnion(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.SetIntersection(leftNodeId, rightNodeId)
-        | TypedSemanticNodeKind.SetDifference(leftNodeId, rightNodeId) ->
+        | TypedSemanticNodeKind.SetDifference(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.SetIsSubset(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.MapUnion(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
         | TypedSemanticNodeKind.Float64IsNaN valueNodeId
         | TypedSemanticNodeKind.Float64IsFinite valueNodeId
@@ -924,6 +930,10 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.SetIntersection(leftSetNodeId, rightSetNodeId))
                     | SemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId) ->
                         Ok(TypedSemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId))
+                    | SemanticNodeKind.SetIsSubset(leftSetNodeId, rightSetNodeId) ->
+                        Ok(TypedSemanticNodeKind.SetIsSubset(leftSetNodeId, rightSetNodeId))
+                    | SemanticNodeKind.MapUnion(leftMapNodeId, rightMapNodeId) ->
+                        Ok(TypedSemanticNodeKind.MapUnion(leftMapNodeId, rightMapNodeId))
                     | SemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
                         Ok(TypedSemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId))
                     | SemanticNodeKind.SetContains(mapNodeId, itemNodeId) ->

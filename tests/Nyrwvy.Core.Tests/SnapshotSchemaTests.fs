@@ -139,7 +139,13 @@ module SnapshotSchemaTests =
           "last item", SnapshotSchemaFeature.ListLastAndDropLast, (fun create ->
               create "last" [ "items", listOf int64Type ] (optionOf int64Type) [] (ExpressionRecipe.ListLast(slot 0)) |> ignore)
           "index of", SnapshotSchemaFeature.ListIndexSearch, (fun create ->
-              create "find" [ "items", listOf int64Type; "item", int64Type ] (optionOf int64Type) [] (ExpressionRecipe.ListIndexOf(slot 0, slot 1)) |> ignore) ]
+              create "find" [ "items", listOf int64Type; "item", int64Type ] (optionOf int64Type) [] (ExpressionRecipe.ListIndexOf(slot 0, slot 1)) |> ignore)
+          "set subset", SnapshotSchemaFeature.SetIsSubsetAndMapUnion, (fun create ->
+              let seen = generic BuiltinGenericType.Set [ int64Type ]
+              create "subset" [ "left", seen; "right", seen ] boolType [] (ExpressionRecipe.SetIsSubset(slot 0, slot 1)) |> ignore)
+          "map union", SnapshotSchemaFeature.SetIsSubsetAndMapUnion, (fun create ->
+              let counts = generic BuiltinGenericType.Map [ stringType; int64Type ]
+              create "merge" [ "left", counts; "right", counts ] counts [] (ExpressionRecipe.MapUnion(slot 0, slot 1)) |> ignore) ]
 
     let caseNames: obj array seq = cases |> Seq.map (fun (name, _, _) -> [| box name |])
 
@@ -169,7 +175,12 @@ module SnapshotSchemaTests =
     let ``a gated construct is written at its minimum version and rejected one version below`` (name: string) =
         let _, feature, define = cases |> List.find (fun (caseName, _, _) -> caseName = name)
         let snapshot = build define
-        let expectedFeatures = if feature = SnapshotSchemaFeature.ExceptionIsCancellation then Set.ofList [ feature; SnapshotSchemaFeature.ExceptionBoundary ] else Set.singleton feature
+        let expectedFeatures =
+            match name with
+            | "exception classification" -> Set.ofList [ feature; SnapshotSchemaFeature.ExceptionBoundary ]
+            | "set subset" -> Set.ofList [ feature; SnapshotSchemaFeature.Set ]
+            | "map union" -> Set.ofList [ feature; SnapshotSchemaFeature.Map ]
+            | _ -> Set.singleton feature
         Assert.Equal<Set<SnapshotSchemaFeature>>(expectedFeatures, SnapshotSchema.usedFeatures snapshot)
         let minimum = SnapshotSchema.minimumVersion feature
         let label = SnapshotSchema.featureName feature

@@ -614,6 +614,14 @@ module TypedSemanticIrSerializer =
             writer.WriteString("kind", "setDifference")
             writer.WriteString("leftSetNodeId", StableId.value leftSetNodeId)
             writer.WriteString("rightSetNodeId", StableId.value rightSetNodeId)
+        | TypedSemanticNodeKind.SetIsSubset(leftSetNodeId, rightSetNodeId) ->
+            writer.WriteString("kind", "setIsSubset")
+            writer.WriteString("leftSetNodeId", StableId.value leftSetNodeId)
+            writer.WriteString("rightSetNodeId", StableId.value rightSetNodeId)
+        | TypedSemanticNodeKind.MapUnion(leftMapNodeId, rightMapNodeId) ->
+            writer.WriteString("kind", "mapUnion")
+            writer.WriteString("leftMapNodeId", StableId.value leftMapNodeId)
+            writer.WriteString("rightMapNodeId", StableId.value rightMapNodeId)
         | TypedSemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapContainsKey")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)

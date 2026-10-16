@@ -220,6 +220,8 @@ module internal WireRecipe =
         | "setUnion" -> binary "set-union recipe" ExpressionRecipe.SetUnion
         | "setIntersection" -> binary "set-intersection recipe" ExpressionRecipe.SetIntersection
         | "setDifference" -> binary "set-difference recipe" ExpressionRecipe.SetDifference
+        | "setIsSubset" -> binary "set-is-subset recipe" ExpressionRecipe.SetIsSubset
+        | "mapUnion" -> binary "map-union recipe" ExpressionRecipe.MapUnion
         | "listItemAt" ->
             ensureFields "list-item-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
             ExpressionRecipe.ListItemAt(recipe (property "list" element), recipe (property "index" element))

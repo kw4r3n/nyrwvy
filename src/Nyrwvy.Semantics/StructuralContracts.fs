@@ -166,7 +166,9 @@ module ValueDependency =
         | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId)
         | SemanticNodeKind.SetUnion(leftNodeId, rightNodeId)
         | SemanticNodeKind.SetIntersection(leftNodeId, rightNodeId)
-        | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId) ->
+        | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId)
+        | SemanticNodeKind.SetIsSubset(leftNodeId, rightNodeId)
+        | SemanticNodeKind.MapUnion(leftNodeId, rightNodeId) ->
             [ create ValueDependencyRole.LeftOperand leftNodeId
               create ValueDependencyRole.RightOperand rightNodeId ]
         | SemanticNodeKind.Float64IsNaN valueNodeId

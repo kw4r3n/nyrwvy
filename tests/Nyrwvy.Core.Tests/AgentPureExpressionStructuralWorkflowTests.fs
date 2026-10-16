@@ -626,6 +626,8 @@ module AgentPureExpressionStructuralWorkflowTests =
               "SetUnion"
               "SetIntersection"
               "SetDifference"
+              "SetIsSubset"
+              "MapUnion"
               "ListFold"
               "MapFold"
               "ParallelAll"

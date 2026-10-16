@@ -166,6 +166,7 @@ MapGet(map, key)                   Option<V>
 MapGetOrDefault(map, key, default) V, the value for key, or default when absent
 MapContainsKey(map, key)           Bool
 MapRemove(map, key)                Map<K, V>, unchanged when the key is absent
+MapUnion(left, right)              Map<K, V>, both maps' entries; right's value on a shared key
 MapSize(map)                       Int64
 MapKeys(map)                       List<K>, in iteration order
 MapValues(map)                     List<V>, in iteration order
@@ -175,7 +176,7 @@ MapFilter(map, keep)               Map<K, V>, the entries where keep(key, value)
 MapMapValues(map, mapper)          Map<K, U>, the same keys in order, values mapper(key, value)
 ```
 
-Insert, get, contains and remove are O(log n), and size is O(1). None of them fails. `MapGetOrDefault` evaluates its default whether or not the key is present, as every operand is evaluated. `MapFold`, `MapFromList`, `MapFilter` and `MapMapValues` take pure named callbacks with context, like `ListFold`, `ListMap` and `ListFilter`. `MapFromList` keeps the first position and the last item for a repeated key, as repeated `MapInsert` does. See the [decision](../decisions/map.md).
+Insert, get, contains and remove are O(log n), and size is O(1). None of them fails. `MapGetOrDefault` evaluates its default whether or not the key is present, as every operand is evaluated. `MapFold`, `MapFromList`, `MapFilter` and `MapMapValues` take pure named callbacks with context, like `ListFold`, `ListMap` and `ListFilter`. `MapFromList` keeps the first position and the last item for a repeated key, as repeated `MapInsert` does. `MapUnion` is Python `left | right`: its order is that of inserting right's entries into left one by one, so left's keys keep their positions and right's other keys follow in right's order ([decision](../decisions/set-is-subset-and-map-union.md)). See the [decision](../decisions/map.md).
 
 ## Immutable insertion-ordered `Set<T>`
 
@@ -192,9 +193,10 @@ SetToList(set)               List<T>, in iteration order
 SetUnion(left, right)        Set<T>, left's items, then right's new items in right's order
 SetIntersection(left, right) Set<T>, left's items that right contains, in left's order
 SetDifference(left, right)   Set<T>, left's items that right does not contain, in left's order
+SetIsSubset(left, right)     Bool, every item of left is in right (Python left <= right)
 ```
 
-Insert, contains and remove are O(log n). None of them fails. See the [decision](../decisions/set.md).
+Insert, contains and remove are O(log n). None of them fails. An empty set is a subset of any set; `SetIsSubset` is false at once when left is larger, and otherwise O(|left| log |right|) ([decision](../decisions/set-is-subset-and-map-union.md)). See the [decision](../decisions/set.md).
 
 ## Program-defined capability values
 

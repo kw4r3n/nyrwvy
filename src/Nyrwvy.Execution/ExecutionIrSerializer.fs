@@ -537,6 +537,14 @@ module ExecutionIrSerializer =
             [ property "kind" (quote "setDifference")
               property "leftSetValueId" (executionValueIdValue leftSetValueId)
               property "rightSetValueId" (executionValueIdValue rightSetValueId) ]
+        | ExecutionInstructionKind.SetIsSubset(leftSetValueId, rightSetValueId) ->
+            [ property "kind" (quote "setIsSubset")
+              property "leftSetValueId" (executionValueIdValue leftSetValueId)
+              property "rightSetValueId" (executionValueIdValue rightSetValueId) ]
+        | ExecutionInstructionKind.MapUnion(leftMapValueId, rightMapValueId) ->
+            [ property "kind" (quote "mapUnion")
+              property "leftMapValueId" (executionValueIdValue leftMapValueId)
+              property "rightMapValueId" (executionValueIdValue rightMapValueId) ]
         | ExecutionInstructionKind.MapContainsKey(mapValueId, keyValueId) ->
             [ property "kind" (quote "mapContainsKey")
               property "mapValueId" (executionValueIdValue mapValueId)

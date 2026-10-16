@@ -242,6 +242,8 @@ module ViewerHtml =
         | ViewerNodeRole.SetUnion -> "Set union"
         | ViewerNodeRole.SetIntersection -> "Set intersection"
         | ViewerNodeRole.SetDifference -> "Set difference"
+        | ViewerNodeRole.SetIsSubset -> "Set is subset"
+        | ViewerNodeRole.MapUnion -> "Map union (right wins)"
         | ViewerNodeRole.MapContainsKey -> "Map contains key"
         | ViewerNodeRole.SetContains -> "Set contains"
         | ViewerNodeRole.ListIndexOf -> "List index of"

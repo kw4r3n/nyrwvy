@@ -461,6 +461,13 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | SetIntersection of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
     /// The left items that the right set does not contain, in left order. Never fails.
     | SetDifference of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
+    /// True when every left item is in the right set (ValueEqual), as Python left <= right; an empty
+    /// left set is a subset of any set. Never fails.
+    | SetIsSubset of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
+    /// The Map<K, V> with every entry of both maps; on a shared key the right value wins (Python
+    /// left | right). Left keys keep their positions, then right's new keys follow in right's order,
+    /// as inserting right's entries into left with MapInsert. Never fails.
+    | MapUnion of leftMapNodeId: GraphNodeId * rightMapNodeId: GraphNodeId
     /// True when the map has the key, compared with ValueEqual, as Python key in map. Never fails.
     | MapContainsKey of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     /// True when the set has the item, compared with ValueEqual, as Python item in set. Never fails.
@@ -847,7 +854,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetRemove(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
         | SemanticNodeKind.SetUnion(leftNodeId, rightNodeId)
         | SemanticNodeKind.SetIntersection(leftNodeId, rightNodeId)
-        | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId)
+        | SemanticNodeKind.SetIsSubset(leftNodeId, rightNodeId)
+        | SemanticNodeKind.MapUnion(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
         | SemanticNodeKind.ListIndexOf(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
@@ -1085,6 +1094,10 @@ module SemanticNodeShape =
                 SemanticNodeKind.SetIntersection(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.SetDifference(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.SetIsSubset(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.SetIsSubset(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.MapUnion(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.MapUnion(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId) ->
                 SemanticNodeKind.MapContainsKey(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
             | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) ->
@@ -1328,6 +1341,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetUnion _
         | SemanticNodeKind.SetIntersection _
         | SemanticNodeKind.SetDifference _
+        | SemanticNodeKind.SetIsSubset _
+        | SemanticNodeKind.MapUnion _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
@@ -1552,6 +1567,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetUnion _
         | SemanticNodeKind.SetIntersection _
         | SemanticNodeKind.SetDifference _
+        | SemanticNodeKind.SetIsSubset _
+        | SemanticNodeKind.MapUnion _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
@@ -1766,6 +1783,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetUnion _
         | SemanticNodeKind.SetIntersection _
         | SemanticNodeKind.SetDifference _
+        | SemanticNodeKind.SetIsSubset _
+        | SemanticNodeKind.MapUnion _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
@@ -1941,6 +1960,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetUnion _
         | SemanticNodeKind.SetIntersection _
         | SemanticNodeKind.SetDifference _
+        | SemanticNodeKind.SetIsSubset _
+        | SemanticNodeKind.MapUnion _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _

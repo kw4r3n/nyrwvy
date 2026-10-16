@@ -1193,7 +1193,8 @@ module SnapshotValidator =
                         | None -> ()
                     | SemanticNodeKind.SetUnion(leftSetNodeId, rightSetNodeId)
                     | SemanticNodeKind.SetIntersection(leftSetNodeId, rightSetNodeId)
-                    | SemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId) ->
+                    | SemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId)
+                    | SemanticNodeKind.SetIsSubset(leftSetNodeId, rightSetNodeId) ->
                         match requireSetInput node.Id leftSetNodeId with
                         | Some itemType ->
                             requireNodeType
@@ -1220,6 +1221,15 @@ module SnapshotValidator =
                                 $"MapInsert node '{StableId.value node.Id}' requires a value of the map's value type."
                                 valueType
                                 valueNodeId
+                        | None -> ()
+                    | SemanticNodeKind.MapUnion(leftMapNodeId, rightMapNodeId) ->
+                        match requireMapInput node.Id leftMapNodeId with
+                        | Some(keyType, valueType) ->
+                            requireNodeType
+                                "MapInputTypeMismatch"
+                                $"MapUnion node '{StableId.value node.Id}' requires two maps of the same key and value types."
+                                (TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]))
+                                rightMapNodeId
                         | None -> ()
                     | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) ->
                         match requireMapInput node.Id sourceMapNodeId with
@@ -2245,6 +2255,8 @@ module SnapshotValidator =
                 | SemanticNodeKind.SetUnion _
                 | SemanticNodeKind.SetIntersection _
                 | SemanticNodeKind.SetDifference _
+                | SemanticNodeKind.SetIsSubset _
+                | SemanticNodeKind.MapUnion _
                 | SemanticNodeKind.MapContainsKey _
                 | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.ListIndexOf _
