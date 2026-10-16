@@ -351,6 +351,9 @@ module SemanticFacts =
                         | None -> None
                     | SemanticNodeKind.ListAppendItem(listNodeId, _)
                     | SemanticNodeKind.ListSlice(listNodeId, _, _)
+                    | SemanticNodeKind.ListSetAt(listNodeId, _, _)
+                    | SemanticNodeKind.ListInsertAt(listNodeId, _, _)
+                    | SemanticNodeKind.ListRemoveAt(listNodeId, _)
                     | SemanticNodeKind.ListReverse listNodeId
                     | SemanticNodeKind.ListDropLast listNodeId
                     | SemanticNodeKind.ListFilter(listNodeId, _, _)

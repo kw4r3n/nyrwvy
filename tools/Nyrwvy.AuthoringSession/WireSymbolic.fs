@@ -610,6 +610,26 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "start" element),
                 recipe declarations parameterContext (property "end" element)
             )
+        | "listSetAt" ->
+            ensureFields "list-set-at recipe" [ "kind"; "list"; "index"; "item" ] [ "kind"; "list"; "index"; "item" ] element
+            ExpressionRecipe.ListSetAt(
+                recipe declarations parameterContext (property "list" element),
+                recipe declarations parameterContext (property "index" element),
+                recipe declarations parameterContext (property "item" element)
+            )
+        | "listInsertAt" ->
+            ensureFields "list-insert-at recipe" [ "kind"; "list"; "index"; "item" ] [ "kind"; "list"; "index"; "item" ] element
+            ExpressionRecipe.ListInsertAt(
+                recipe declarations parameterContext (property "list" element),
+                recipe declarations parameterContext (property "index" element),
+                recipe declarations parameterContext (property "item" element)
+            )
+        | "listRemoveAt" ->
+            ensureFields "list-remove-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
+            ExpressionRecipe.ListRemoveAt(
+                recipe declarations parameterContext (property "list" element),
+                recipe declarations parameterContext (property "index" element)
+            )
         | "mapInsert" ->
             ensureFields "map-insert recipe" [ "kind"; "map"; "key"; "value" ] [ "kind"; "map"; "key"; "value" ] element
             ExpressionRecipe.MapInsert(

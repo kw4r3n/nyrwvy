@@ -768,6 +768,20 @@ module SnapshotCodec =
             writer.WriteString("listNodeId", StableId.value listNodeId)
             writer.WriteString("startNodeId", StableId.value startNodeId)
             writer.WriteString("endNodeId", StableId.value endNodeId)
+        | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listSetAt")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | SemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listInsertAt")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | SemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) ->
+            writer.WriteString("kind", "listRemoveAt")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
         | SemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId) ->
             writer.WriteString("kind", "mapInsert")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -1894,6 +1908,38 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "listNodeId" element,
                     readId<GraphNodeTag> "startNodeId" element,
                     readId<GraphNodeTag> "endNodeId" element
+                )
+            | "listSetAt" ->
+                ensureProperties
+                    "ListSetAt node"
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId"; "itemNodeId" ])
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId"; "itemNodeId" ])
+                    element
+                SemanticNodeKind.ListSetAt(
+                    readId<GraphNodeTag> "listNodeId" element,
+                    readId<GraphNodeTag> "indexNodeId" element,
+                    readId<GraphNodeTag> "itemNodeId" element
+                )
+            | "listInsertAt" ->
+                ensureProperties
+                    "ListInsertAt node"
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId"; "itemNodeId" ])
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId"; "itemNodeId" ])
+                    element
+                SemanticNodeKind.ListInsertAt(
+                    readId<GraphNodeTag> "listNodeId" element,
+                    readId<GraphNodeTag> "indexNodeId" element,
+                    readId<GraphNodeTag> "itemNodeId" element
+                )
+            | "listRemoveAt" ->
+                ensureProperties
+                    "ListRemoveAt node"
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId" ])
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId" ])
+                    element
+                SemanticNodeKind.ListRemoveAt(
+                    readId<GraphNodeTag> "listNodeId" element,
+                    readId<GraphNodeTag> "indexNodeId" element
                 )
             | "mapInsert" ->
                 ensureProperties

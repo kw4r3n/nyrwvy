@@ -141,6 +141,9 @@ module FoundationTests =
                 | SemanticNodeKind.ListLast _
                 | SemanticNodeKind.ListDropLast _
                 | SemanticNodeKind.ListSlice _
+                | SemanticNodeKind.ListSetAt _
+                | SemanticNodeKind.ListInsertAt _
+                | SemanticNodeKind.ListRemoveAt _
                 | SemanticNodeKind.MapInsert _
                 | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.MapRemove _

@@ -209,6 +209,21 @@ module OperationSignatures =
               [ operand "list" (SignatureType.List t); operand "start" int64; operand "end" int64 ]
               (SignatureType.List t)
               (Some "clamped")
+          signature
+              "listSetAt"
+              [ operand "list" (SignatureType.List t); operand "index" int64; operand "item" t ]
+              (SignatureType.List t)
+              (Some "unchanged when out of range")
+          signature
+              "listInsertAt"
+              [ operand "list" (SignatureType.List t); operand "index" int64; operand "item" t ]
+              (SignatureType.List t)
+              (Some "index clamped to [0, length]")
+          signature
+              "listRemoveAt"
+              [ operand "list" (SignatureType.List t); operand "index" int64 ]
+              (SignatureType.List t)
+              (Some "unchanged when out of range")
           signature "listRange" [ operand "start" int64; operand "end" int64 ] (SignatureType.List int64) (Some "list(range(start, end))")
           unary "listReverse" (SignatureType.List t) (SignatureType.List t) None
           unary "listLast" (SignatureType.List t) (SignatureType.Option t) (Some "xs[-1] if xs")

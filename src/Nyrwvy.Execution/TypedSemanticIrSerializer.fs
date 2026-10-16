@@ -672,6 +672,20 @@ module TypedSemanticIrSerializer =
             writer.WriteString("listNodeId", StableId.value listNodeId)
             writer.WriteString("startNodeId", StableId.value startNodeId)
             writer.WriteString("endNodeId", StableId.value endNodeId)
+        | TypedSemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listSetAt")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | TypedSemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listInsertAt")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | TypedSemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) ->
+            writer.WriteString("kind", "listRemoveAt")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
         | TypedSemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId) ->
             writer.WriteString("kind", "mapInsert")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)

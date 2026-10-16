@@ -734,6 +734,26 @@ module NyasonCodec =
                   "list", encodeId "node" listNodeId
                   "start", encodeId "node" startNodeId
                   "end", encodeId "node" endNodeId ]
+        | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId) ->
+            record
+                "list-set-at"
+                [ nodeId
+                  "list", encodeId "node" listNodeId
+                  "index", encodeId "node" indexNodeId
+                  "item", encodeId "node" itemNodeId ]
+        | SemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) ->
+            record
+                "list-insert-at"
+                [ nodeId
+                  "list", encodeId "node" listNodeId
+                  "index", encodeId "node" indexNodeId
+                  "item", encodeId "node" itemNodeId ]
+        | SemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) ->
+            record
+                "list-remove-at"
+                [ nodeId
+                  "list", encodeId "node" listNodeId
+                  "index", encodeId "node" indexNodeId ]
         | SemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId) ->
             record
                 "map-insert"
@@ -1511,6 +1531,32 @@ module NyasonCodec =
                     decodeId<GraphNodeTag> "node" (require "list" fields),
                     decodeId<GraphNodeTag> "node" (require "start" fields),
                     decodeId<GraphNodeTag> "node" (require "end" fields)
+                ) }
+        | NyasonValue.Record("list-set-at", _) ->
+            let fields = recordFields "list-set-at" [ "id"; "list"; "index"; "item" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.ListSetAt(
+                    decodeId<GraphNodeTag> "node" (require "list" fields),
+                    decodeId<GraphNodeTag> "node" (require "index" fields),
+                    decodeId<GraphNodeTag> "node" (require "item" fields)
+                ) }
+        | NyasonValue.Record("list-insert-at", _) ->
+            let fields = recordFields "list-insert-at" [ "id"; "list"; "index"; "item" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.ListInsertAt(
+                    decodeId<GraphNodeTag> "node" (require "list" fields),
+                    decodeId<GraphNodeTag> "node" (require "index" fields),
+                    decodeId<GraphNodeTag> "node" (require "item" fields)
+                ) }
+        | NyasonValue.Record("list-remove-at", _) ->
+            let fields = recordFields "list-remove-at" [ "id"; "list"; "index" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.ListRemoveAt(
+                    decodeId<GraphNodeTag> "node" (require "list" fields),
+                    decodeId<GraphNodeTag> "node" (require "index" fields)
                 ) }
         | NyasonValue.Record("map-insert", _) ->
             let fields = recordFields "map-insert" [ "id"; "map"; "key"; "value" ] [] value

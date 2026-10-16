@@ -411,6 +411,9 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.ListLastIndexOf(map, key) -> two ExpressionRecipe.ListLastIndexOf map key
             | ExpressionRecipe.MapGet(map, key) -> two ExpressionRecipe.MapGet map key
             | ExpressionRecipe.ListSlice(list, start, stop) -> three ExpressionRecipe.ListSlice list start stop
+            | ExpressionRecipe.ListSetAt(list, index, item) -> three ExpressionRecipe.ListSetAt list index item
+            | ExpressionRecipe.ListInsertAt(list, index, item) -> three ExpressionRecipe.ListInsertAt list index item
+            | ExpressionRecipe.ListRemoveAt(list, index) -> two ExpressionRecipe.ListRemoveAt list index
             | ExpressionRecipe.MapInsert(map, key, value) -> three ExpressionRecipe.MapInsert map key value
             | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> three ExpressionRecipe.MapGetOrDefault map key defaultValue
             | ExpressionRecipe.ListConcat(left, right) -> two ExpressionRecipe.ListConcat left right

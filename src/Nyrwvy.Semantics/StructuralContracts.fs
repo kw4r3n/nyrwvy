@@ -280,6 +280,14 @@ module ValueDependency =
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.SliceStart startNodeId
               create ValueDependencyRole.SliceEnd endNodeId ]
+        | SemanticNodeKind.ListSetAt(sourceNodeId, indexNodeId, itemNodeId)
+        | SemanticNodeKind.ListInsertAt(sourceNodeId, indexNodeId, itemNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Index indexNodeId
+              create ValueDependencyRole.Item itemNodeId ]
+        | SemanticNodeKind.ListRemoveAt(sourceNodeId, indexNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Index indexNodeId ]
         | SemanticNodeKind.MapInsert(sourceNodeId, keyNodeId, valueNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId

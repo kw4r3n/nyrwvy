@@ -180,6 +180,11 @@ module internal WireGraph =
             tagged "mapGetOrDefault" [ "mapNodeId", identity map; "keyNodeId", identity key; "defaultNodeId", identity fallback ]
         | SemanticNodeKind.ListSlice(list, start, stop) ->
             tagged "listSlice" [ "listNodeId", identity list; "startNodeId", identity start; "endNodeId", identity stop ]
+        | SemanticNodeKind.ListSetAt(list, index, item) ->
+            tagged "listSetAt" [ "listNodeId", identity list; "indexNodeId", identity index; "itemNodeId", identity item ]
+        | SemanticNodeKind.ListInsertAt(list, index, item) ->
+            tagged "listInsertAt" [ "listNodeId", identity list; "indexNodeId", identity index; "itemNodeId", identity item ]
+        | SemanticNodeKind.ListRemoveAt(list, index) -> tagged "listRemoveAt" [ "listNodeId", identity list; "indexNodeId", identity index ]
         | SemanticNodeKind.MapInsert(map, key, value) ->
             tagged "mapInsert" [ "mapNodeId", identity map; "keyNodeId", identity key; "valueNodeId", identity value ]
         | SemanticNodeKind.ListConcat(left, right) -> binary "listConcat" left right

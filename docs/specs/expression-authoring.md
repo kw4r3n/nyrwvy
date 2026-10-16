@@ -115,6 +115,7 @@ ExpressionRecipe =
   | ListRange(start, end)
   | ListItemAt(list, index)
   | ListSlice(list, start, end)
+  | ListSetAt(list, index, item) | ListInsertAt(list, index, item) | ListRemoveAt(list, index)
   | ListAppendItem(list, item)
   | ListConcat(left, right)
   | MapEmpty(keyType, valueType)
@@ -452,6 +453,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## StringJoin and ListSlice
 
 `StringJoin(list, separator)` (wire `stringJoin` with `list`, `separator`; Nyason `string-join`) takes exactly a `List<String>` and a String and produces a String, Python `separator.join(list)`. `ListSlice(list, start, end)` (wire `listSlice` with `list`, `start`, `end`; Nyason `list-slice`) is generic like `ListItemAt`: the item type is inferred from `list`, which must be some `List<T>`, and the result is that same `List<T>`; `start` and `end` are Int64 and clamp like `StringSlice` bounds. Both never fail; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-join-and-list-slice.md). A mistyped operand reports `PureExpressionOperandTypeMismatch` with its path (`body.separator`, `body.end`). A persisted graph reports `StringIntrinsicTypeMismatch` for `StringJoin`, and `ListSliceListTypeMismatch` or `ListSliceBoundTypeMismatch` for `ListSlice`.
+
+## ListSetAt, ListInsertAt and ListRemoveAt
+
+`ListSetAt(list, index, item)` (wire `listSetAt` with `list`, `index`, `item`; Nyason `list-set-at`), `ListInsertAt(list, index, item)` (wire `listInsertAt` with `list`, `index`, `item`; Nyason `list-insert-at`) and `ListRemoveAt(list, index)` (wire `listRemoveAt` with `list`, `index`; Nyason `list-remove-at`) are generic like `ListSlice`: the item type is inferred from `list`, which must be some `List<T>`, `index` is Int64, `item` must be that `T` (any type), and the result is the same `List<T>`. Set and remove return the list unchanged for an index outside `[0, length)`; insert clamps the index to `[0, length]`. All three never fail; the semantics and costs are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/list-positional-update.md). A recipe operand of the wrong type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `ListSetAtListTypeMismatch`, `ListSetAtIndexTypeMismatch` or `ListSetAtItemTypeMismatch` (likewise `ListInsertAt…`, and `ListRemoveAtListTypeMismatch` or `ListRemoveAtIndexTypeMismatch`).
 
 ## Int64ToFloat64
 

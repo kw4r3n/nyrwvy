@@ -267,6 +267,15 @@ module internal WireRecipe =
         | "listSlice" ->
             ensureFields "list-slice recipe" [ "kind"; "list"; "start"; "end" ] [ "kind"; "list"; "start"; "end" ] element
             ExpressionRecipe.ListSlice(recipe (property "list" element), recipe (property "start" element), recipe (property "end" element))
+        | "listSetAt" ->
+            ensureFields "list-set-at recipe" [ "kind"; "list"; "index"; "item" ] [ "kind"; "list"; "index"; "item" ] element
+            ExpressionRecipe.ListSetAt(recipe (property "list" element), recipe (property "index" element), recipe (property "item" element))
+        | "listInsertAt" ->
+            ensureFields "list-insert-at recipe" [ "kind"; "list"; "index"; "item" ] [ "kind"; "list"; "index"; "item" ] element
+            ExpressionRecipe.ListInsertAt(recipe (property "list" element), recipe (property "index" element), recipe (property "item" element))
+        | "listRemoveAt" ->
+            ensureFields "list-remove-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
+            ExpressionRecipe.ListRemoveAt(recipe (property "list" element), recipe (property "index" element))
         | "mapInsert" ->
             ensureFields "map-insert recipe" [ "kind"; "map"; "key"; "value" ] [ "kind"; "map"; "key"; "value" ] element
             ExpressionRecipe.MapInsert(recipe (property "map" element), recipe (property "key" element), recipe (property "value" element))

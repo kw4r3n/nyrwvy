@@ -159,6 +159,9 @@ type ViewerNodeRole =
     | MapGet
     | MapGetOrDefault
     | ListSlice
+    | ListSetAt
+    | ListInsertAt
+    | ListRemoveAt
     | MapInsert
     | ListConcat
     | ListFold
@@ -444,6 +447,9 @@ module ViewerProjection =
         | SemanticNodeKind.MapGet _ -> ViewerNodeRole.MapGet, []
         | SemanticNodeKind.MapGetOrDefault _ -> ViewerNodeRole.MapGetOrDefault, []
         | SemanticNodeKind.ListSlice _ -> ViewerNodeRole.ListSlice, []
+        | SemanticNodeKind.ListSetAt _ -> ViewerNodeRole.ListSetAt, []
+        | SemanticNodeKind.ListInsertAt _ -> ViewerNodeRole.ListInsertAt, []
+        | SemanticNodeKind.ListRemoveAt _ -> ViewerNodeRole.ListRemoveAt, []
         | SemanticNodeKind.MapInsert _ -> ViewerNodeRole.MapInsert, []
         | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
         | SemanticNodeKind.ListFold _ -> ViewerNodeRole.ListFold, []
