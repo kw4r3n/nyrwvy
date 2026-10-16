@@ -39,6 +39,11 @@
     <Compile Include="AgentCapabilityDeclarationWorkflow.fs" />
     <Compile Include="AgentFieldlessUnionVariantEvolutionWorkflow.fs" />
     <Compile Include="OperationSignatures.fs" />
+    <Compile Include="ExpressionRecipe.fs" />
+    <Compile Include="ExpressionRecipeSupport.fs" />
+    <Compile Include="ExpressionRecipeInference.fs" />
+    <Compile Include="ExpressionRecipeMaterialization.fs" />
+    <Compile Include="TargetedReplacementGraph.fs" />
     <Compile Include="AgentExpressionStructuralWorkflow.fs" />
     <Compile Include="AgentParameterTypeMigrationWorkflow.fs" />
     <Compile Include="AgentProductFieldTypeMigrationWorkflow.fs" />
