@@ -44,7 +44,7 @@ module CSharpBackendTests =
             | Error error -> failwithf "Unexpected C# backend error: %A" error
         fixture, execution, artifact
 
-    let private runDotnet (workingDirectory: string) (arguments: string list) =
+    let internal runDotnet (workingDirectory: string) (arguments: string list) =
         let startInfo = ProcessStartInfo("dotnet")
         startInfo.WorkingDirectory <- workingDirectory
         startInfo.UseShellExecute <- false

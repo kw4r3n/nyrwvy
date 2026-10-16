@@ -496,6 +496,111 @@ module TaskScopeTests =
             let result = PureRun.run session lateFanOut.Id [ PureRunValue.String "" ] (Some(PureRunValue.String "|ok:late")) |> unwrap "lateFanOut"
             Assert.True((result.Matches = Some true), sprintf "%A" result.Mismatch))
 
+    /// Real-runtime probes of the generated scope runtime. Cancel() flags a token and wakes its waiters
+    /// before its callbacks cancel linked descendants, and runs callbacks newest first, so a slow
+    /// callback holds that window open: a starter woken by an ancestor's cancellation starts a task
+    /// while the target scope's own token is not cancelled yet.
+    let private causalityProbe =
+        """using System;
+using System.Threading;
+using Nyrwvy.Generated;
+
+static class Program
+{
+    static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
+    static void Await(WaitHandle handle, string what) => Check(handle.WaitOne(TimeSpan.FromSeconds(10)), "timed out: " + what);
+    static bool Join(NyTask<bool> task) { Check(task.Running.Wait(TimeSpan.FromSeconds(10)), "join timed out"); return task.Running.Result; }
+    static NyTask<bool> Probe(NyTaskScope scope) => scope.Start(() => NyRuntime.Cancellation.Value.IsCancellationRequested);
+    static void SlowCallbacks() => NyRuntime.Cancellation.Value.Register(() => Thread.Sleep(300));
+
+    // The scope's parent is the cancelled token itself (a host token here).
+    static void HostParent()
+    {
+        using var root = new CancellationTokenSource();
+        var scope = new NyTaskScope(root.Token);
+        root.Token.Register(() => Thread.Sleep(300));
+        var starter = System.Threading.Tasks.Task.Run(() => { Await(root.Token.WaitHandle, "root"); return Join(Probe(scope)); });
+        root.Cancel();
+        Check(starter.Result, "host-parent: a task started after the root was seen cancelled ran clear");
+        scope.Close(false);
+        Console.WriteLine("host-parent");
+    }
+
+    // inner is created by owner, a task of outer; member, a later task of outer, captures inner. Callbacks
+    // run newest first, so outer's cancellation reaches member, and member's slow callback, before owner.
+    static void SiblingOwnedScope(bool ancestor)
+    {
+        using var root = new CancellationTokenSource();
+        var outer = new NyTaskScope(root.Token);
+        NyTaskScope? inner = null;
+        using var innerReady = new ManualResetEventSlim();
+        using var memberReady = new ManualResetEventSlim();
+        var owner = outer.Start(() =>
+        {
+            inner = new NyTaskScope(NyRuntime.Cancellation.Value);
+            innerReady.Set();
+            NyRuntime.WaitForCancellation();
+            inner.Close(false);
+            return true;
+        });
+        Await(innerReady.WaitHandle, "inner");
+        var member = outer.Start(() =>
+        {
+            SlowCallbacks();
+            memberReady.Set();
+            NyRuntime.WaitForCancellation();
+            bool intoInner = Join(Probe(inner!)), intoOuter = Join(Probe(outer));
+            // A shield cuts the path: a scope created under it stays clear.
+            var token = NyRuntime.Cancellation.Value;
+            NyRuntime.Cancellation.Value = CancellationToken.None;
+            var shielded = new NyTaskScope(NyRuntime.Cancellation.Value);
+            bool intoShielded = Join(Probe(shielded));
+            shielded.Close(false);
+            NyRuntime.Cancellation.Value = token;
+            return ancestor ? intoInner && intoOuter && !intoShielded : !intoInner && !intoOuter && !intoShielded;
+        });
+        Await(memberReady.WaitHandle, "member");
+        if (ancestor) root.Cancel();
+        else member.Cancel();
+        Check(Join(member), ancestor ? "sibling-owned: a start after root cancellation ran clear, or a shield leaked it" : "member-only: cancelling one task reached scopes it does not descend from");
+        if (!ancestor) owner.Cancel();
+        Check(Join(owner), "owner");
+        outer.Close(false);
+        Console.WriteLine(ancestor ? "sibling-owned" : "member-only");
+    }
+
+    static void Main()
+    {
+        HostParent();
+        SiblingOwnedScope(ancestor: true);
+        SiblingOwnedScope(ancestor: false);
+    }
+}
+"""
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``a task started after an ancestor's cancellation is seen starts cancelled on the real runtime`` () =
+        withTeam (fun session _ ->
+            let profile =
+                CSharpBackendProfile.externalImplementations [ nextId; workId; createId; removeId ]
+                |> CSharpBackendProfile.withConcurrentCapabilities [ agentId; workspacesId ]
+            let source = (session.EmitCSharp profile |> unwrap "emit").Source
+            let root = Path.Combine(Path.GetTempPath(), "nyrwvy-task-causality-" + Guid.NewGuid().ToString("N"))
+            Directory.CreateDirectory(root) |> ignore
+            try
+                File.WriteAllText(
+                    Path.Combine(root, "Probe.csproj"),
+                    "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>")
+                File.WriteAllText(Path.Combine(root, "Generated.cs"), source)
+                File.WriteAllText(Path.Combine(root, "Program.cs"), causalityProbe)
+                let buildExit, buildOut, buildErr = CSharpBackendTests.runDotnet root [ "build"; "Probe.csproj"; "--configuration"; "Release"; "--nologo"; "--verbosity"; "quiet" ]
+                Assert.True((buildExit = 0), $"Probe build failed:\n{buildOut}\n{buildErr}")
+                let runExit, runOut, runErr = CSharpBackendTests.runDotnet root [ Path.Combine(root, "bin", "Release", "net10.0", "Probe.dll") ]
+                Assert.True((runExit = 0), $"Probe failed:\n{runOut}\n{runErr}")
+                Assert.Equal("host-parent\nsibling-owned\nmember-only", runOut.Replace("\r\n", "\n").Trim())
+            finally
+                Directory.Delete(root, true))
+
     let private delayed millis response = PureRunFakeResponse.Delayed(millis, response)
 
     [<Fact; Trait("Suite", "Extended")>]
