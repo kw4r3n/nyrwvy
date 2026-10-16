@@ -126,4 +126,5 @@ export const fixedSignatures = Object.freeze({
   "setSize": "(value: Set<T>) -> Int64",
   "setToList": "(value: Set<T>) -> List<T>  // insertion order",
   "optionSome": "(value: T) -> Option<T>",
+  "optionGetOrDefault": "(option: Option<T>, default: T) -> T  // unwrap_or",
 })

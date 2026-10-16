@@ -2290,6 +2290,9 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName listValueId + ".LastIndexOf(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".Get(" + valueName keyValueId + ");")
+        | ExecutionInstructionKind.OptionGetOrDefault(optionValueId, defaultValueId) ->
+            let option = valueName optionValueId
+            writer.Line(target + " = " + option + ".HasValue ? " + option + ".Value : " + valueName defaultValueId + ";")
         | ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".GetOrDefault(" + valueName keyValueId + ", " + valueName defaultValueId + ");")
         | ExecutionInstructionKind.ListSlice(listValueId, startId, endId) ->
@@ -2480,6 +2483,26 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceMapValueId + ".Filter(" + callback keepFunctionId context + ");")
         | ExecutionInstructionKind.MapMapValues(sourceMapValueId, mapperFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceMapValueId + ".MapValues(" + callback mapperFunctionId context + ");")
+        // Option and Result combinators use the same HasValue/Value and IsOk/OkValue/ErrorValue members
+        // as MatchOption and MatchResult; the callback is invoked only in the matching case.
+        | ExecutionInstructionKind.OptionMap(sourceValueId, mapperFunctionId, context) ->
+            let source = valueName sourceValueId
+            let resultType = formatType instruction.Result.Type
+            writer.Line(target + " = " + source + ".HasValue ? " + resultType + ".Some(" + renderInvocation parametersOf mapperFunctionId context [ source + ".Value" ] + ") : " + resultType + ".None();")
+        | ExecutionInstructionKind.OptionAndThen(sourceValueId, binderFunctionId, context) ->
+            let source = valueName sourceValueId
+            writer.Line(target + " = " + source + ".HasValue ? " + renderInvocation parametersOf binderFunctionId context [ source + ".Value" ] + " : " + formatType instruction.Result.Type + ".None();")
+        | ExecutionInstructionKind.ResultMap(sourceValueId, mapperFunctionId, context) ->
+            let source = valueName sourceValueId
+            let resultType = formatType instruction.Result.Type
+            writer.Line(target + " = " + source + ".IsOk ? " + resultType + ".Ok(" + renderInvocation parametersOf mapperFunctionId context [ source + ".OkValue" ] + ") : " + resultType + ".Err(" + source + ".ErrorValue);")
+        | ExecutionInstructionKind.ResultMapErr(sourceValueId, mapperFunctionId, context) ->
+            let source = valueName sourceValueId
+            let resultType = formatType instruction.Result.Type
+            writer.Line(target + " = " + source + ".IsOk ? " + resultType + ".Ok(" + source + ".OkValue) : " + resultType + ".Err(" + renderInvocation parametersOf mapperFunctionId context [ source + ".ErrorValue" ] + ");")
+        | ExecutionInstructionKind.ResultAndThen(sourceValueId, binderFunctionId, context) ->
+            let source = valueName sourceValueId
+            writer.Line(target + " = " + source + ".IsOk ? " + renderInvocation parametersOf binderFunctionId context [ source + ".OkValue" ] + " : " + formatType instruction.Result.Type + ".Err(" + source + ".ErrorValue);")
         | ExecutionInstructionKind.ListSortBy(sourceListValueId, lessThanFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".SortBy(" + callback lessThanFunctionId context + ");")
         | ExecutionInstructionKind.ListMinBy(sourceListValueId, lessThanFunctionId, context) ->

@@ -4,6 +4,8 @@ namespace Nyrwvy.Core
 /// `SnapshotSchema.minimumVersions`.
 [<RequireQualifiedAccess>]
 type SnapshotSchemaFeature =
+    /// OptionGetOrDefault, OptionMap, OptionAndThen, ResultMap, ResultMapErr and ResultAndThen.
+    | OptionResultCombinators
     | ExceptionIsCancellation
     | ExceptionBoundary
     | CancellationShield
@@ -81,6 +83,7 @@ module SnapshotSchema =
         [ SnapshotSchemaFeature.ExceptionIsCancellation, v17, "Exception cancellation classification"
           SnapshotSchemaFeature.StringReplaceAndTrim, v17, "StringReplace and StringTrim"
           SnapshotSchemaFeature.ListZipWithAndFlatMap, v17, "ListZipWith and ListFlatMap"
+          SnapshotSchemaFeature.OptionResultCombinators, v17, "Option and Result combinators"
           SnapshotSchemaFeature.ExceptionBoundary, v16, "Host exception boundary"
           SnapshotSchemaFeature.CancellationShield, v15, "Lexical cancellation shield"
           SnapshotSchemaFeature.OneShot, v14, "Scoped one-shot handoff"
@@ -114,6 +117,12 @@ module SnapshotSchema =
     /// The construct a node's own kind needs, if any; nested graphs are visited separately.
     let featureOfNodeKind (kind: SemanticNodeKind): SnapshotSchemaFeature option =
         match kind with
+        | SemanticNodeKind.OptionGetOrDefault _
+        | SemanticNodeKind.OptionMap _
+        | SemanticNodeKind.OptionAndThen _
+        | SemanticNodeKind.ResultMap _
+        | SemanticNodeKind.ResultMapErr _
+        | SemanticNodeKind.ResultAndThen _ -> Some SnapshotSchemaFeature.OptionResultCombinators
         | SemanticNodeKind.ExceptionIsCancellation _ -> Some SnapshotSchemaFeature.ExceptionIsCancellation
         | SemanticNodeKind.ExceptionCatch _
         | SemanticNodeKind.ExceptionMessage _

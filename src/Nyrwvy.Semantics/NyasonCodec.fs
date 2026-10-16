@@ -923,6 +923,18 @@ module NyasonCodec =
             encodeListCallbackNode "list-filter" nodeId sourceListNodeId predicateFunctionId context
         | SemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, context) ->
             record "map-filter" ([ nodeId; "map", encodeId "node" sourceMapNodeId; "keep", encodeId "function" keepFunctionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
+            record "option-get-or-default" [ nodeId; "option", encodeId "node" optionNodeId; "default", encodeId "node" defaultNodeId ]
+        | SemanticNodeKind.OptionMap(sourceNodeId, functionId, context) ->
+            record "option-map" ([ nodeId; "option", encodeId "node" sourceNodeId; "mapper", encodeId "function" functionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.OptionAndThen(sourceNodeId, functionId, context) ->
+            record "option-and-then" ([ nodeId; "option", encodeId "node" sourceNodeId; "binder", encodeId "function" functionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.ResultMap(sourceNodeId, functionId, context) ->
+            record "result-map" ([ nodeId; "result", encodeId "node" sourceNodeId; "mapper", encodeId "function" functionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.ResultMapErr(sourceNodeId, functionId, context) ->
+            record "result-map-err" ([ nodeId; "result", encodeId "node" sourceNodeId; "mapper", encodeId "function" functionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.ResultAndThen(sourceNodeId, functionId, context) ->
+            record "result-and-then" ([ nodeId; "result", encodeId "node" sourceNodeId; "binder", encodeId "function" functionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
             record "map-map-values" ([ nodeId; "map", encodeId "node" sourceMapNodeId; "mapper", encodeId "function" mapperFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
@@ -1786,6 +1798,30 @@ module NyasonCodec =
             let fields = recordFields "map-map-values" [ "id"; "map"; "mapper" ] [ "context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.MapMapValues(decodeId<GraphNodeTag> "node" (require "map" fields), decodeId<FunctionTag> "function" (require "mapper" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("option-get-or-default", _) ->
+            let fields = recordFields "option-get-or-default" [ "id"; "option"; "default" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.OptionGetOrDefault(decodeId<GraphNodeTag> "node" (require "option" fields), decodeId<GraphNodeTag> "node" (require "default" fields)) }
+        | NyasonValue.Record("option-map", _) ->
+            let fields = recordFields "option-map" [ "id"; "option"; "mapper" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.OptionMap(decodeId<GraphNodeTag> "node" (require "option" fields), decodeId<FunctionTag> "function" (require "mapper" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("option-and-then", _) ->
+            let fields = recordFields "option-and-then" [ "id"; "option"; "binder" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.OptionAndThen(decodeId<GraphNodeTag> "node" (require "option" fields), decodeId<FunctionTag> "function" (require "binder" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("result-map", _) ->
+            let fields = recordFields "result-map" [ "id"; "result"; "mapper" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ResultMap(decodeId<GraphNodeTag> "node" (require "result" fields), decodeId<FunctionTag> "function" (require "mapper" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("result-map-err", _) ->
+            let fields = recordFields "result-map-err" [ "id"; "result"; "mapper" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ResultMapErr(decodeId<GraphNodeTag> "node" (require "result" fields), decodeId<FunctionTag> "function" (require "mapper" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("result-and-then", _) ->
+            let fields = recordFields "result-and-then" [ "id"; "result"; "binder" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ResultAndThen(decodeId<GraphNodeTag> "node" (require "result" fields), decodeId<FunctionTag> "function" (require "binder" fields), decodeCallbackContext fields) }
         | NyasonValue.Record("list-sort-by", _) ->
             decodeListCallbackNode "list-sort-by" value (fun source callback context -> SemanticNodeKind.ListSortBy(source, callback, context))
         | NyasonValue.Record("list-min-by", _) ->

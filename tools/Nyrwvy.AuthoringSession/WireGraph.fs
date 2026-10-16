@@ -176,6 +176,8 @@ module internal WireGraph =
         | SemanticNodeKind.ListIndexOf(map, key) -> tagged "listIndexOf" [ "listNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.ListLastIndexOf(map, key) -> tagged "listLastIndexOf" [ "listNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.MapGet(map, key) -> tagged "mapGet" [ "mapNodeId", identity map; "keyNodeId", identity key ]
+        | SemanticNodeKind.OptionGetOrDefault(option, fallback) ->
+            tagged "optionGetOrDefault" [ "optionNodeId", identity option; "defaultNodeId", identity fallback ]
         | SemanticNodeKind.MapGetOrDefault(map, key, fallback) ->
             tagged "mapGetOrDefault" [ "mapNodeId", identity map; "keyNodeId", identity key; "defaultNodeId", identity fallback ]
         | SemanticNodeKind.ListSlice(list, start, stop) ->
@@ -232,6 +234,16 @@ module internal WireGraph =
             tagged "mapFilter" ([ "sourceMapNodeId", identity source; "keepFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.ListSortBy(source, callback, bindings) -> traversal "listSortBy" source callback bindings
         | SemanticNodeKind.ListMinBy(source, callback, bindings) -> traversal "listMinBy" source callback bindings
+        | SemanticNodeKind.OptionMap(source, callback, bindings) ->
+            tagged "optionMap" ([ "sourceOptionNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
+        | SemanticNodeKind.OptionAndThen(source, callback, bindings) ->
+            tagged "optionAndThen" ([ "sourceOptionNodeId", identity source; "binderFunctionId", identity callback ] @ context bindings)
+        | SemanticNodeKind.ResultMap(source, callback, bindings) ->
+            tagged "resultMap" ([ "sourceResultNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
+        | SemanticNodeKind.ResultMapErr(source, callback, bindings) ->
+            tagged "resultMapErr" ([ "sourceResultNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
+        | SemanticNodeKind.ResultAndThen(source, callback, bindings) ->
+            tagged "resultAndThen" ([ "sourceResultNodeId", identity source; "binderFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.MapMapValues(source, callback, bindings) ->
             tagged "mapMapValues" ([ "sourceMapNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings

@@ -903,6 +903,35 @@ module SnapshotCodec =
             writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
             writer.WriteString("keepFunctionId", StableId.value keepFunctionId)
             writeCallbackContext writer context
+        | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
+            writer.WriteString("kind", "optionGetOrDefault")
+            writer.WriteString("optionNodeId", StableId.value optionNodeId)
+            writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
+        | SemanticNodeKind.OptionMap(sourceOptionNodeId, mapperFunctionId, context) ->
+            writer.WriteString("kind", "optionMap")
+            writer.WriteString("sourceOptionNodeId", StableId.value sourceOptionNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value mapperFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.OptionAndThen(sourceOptionNodeId, binderFunctionId, context) ->
+            writer.WriteString("kind", "optionAndThen")
+            writer.WriteString("sourceOptionNodeId", StableId.value sourceOptionNodeId)
+            writer.WriteString("binderFunctionId", StableId.value binderFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.ResultMap(sourceResultNodeId, mapperFunctionId, context) ->
+            writer.WriteString("kind", "resultMap")
+            writer.WriteString("sourceResultNodeId", StableId.value sourceResultNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value mapperFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.ResultMapErr(sourceResultNodeId, mapperFunctionId, context) ->
+            writer.WriteString("kind", "resultMapErr")
+            writer.WriteString("sourceResultNodeId", StableId.value sourceResultNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value mapperFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.ResultAndThen(sourceResultNodeId, binderFunctionId, context) ->
+            writer.WriteString("kind", "resultAndThen")
+            writer.WriteString("sourceResultNodeId", StableId.value sourceResultNodeId)
+            writer.WriteString("binderFunctionId", StableId.value binderFunctionId)
+            writeCallbackContext writer context
         | SemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
             writer.WriteString("kind", "mapMapValues")
             writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
@@ -2087,6 +2116,28 @@ module SnapshotCodec =
             | "mapMapValues" ->
                 ensureProperties "MapMapValues node" (set [ "id"; "kind"; "sourceMapNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceMapNodeId"; "mapperFunctionId"; "context" ]) element
                 SemanticNodeKind.MapMapValues(readId<GraphNodeTag> "sourceMapNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)
+            | "optionGetOrDefault" ->
+                ensureProperties
+                    "OptionGetOrDefault node"
+                    (set [ "id"; "kind"; "optionNodeId"; "defaultNodeId" ])
+                    (set [ "id"; "kind"; "optionNodeId"; "defaultNodeId" ])
+                    element
+                SemanticNodeKind.OptionGetOrDefault(readId<GraphNodeTag> "optionNodeId" element, readId<GraphNodeTag> "defaultNodeId" element)
+            | "optionMap" ->
+                ensureProperties "OptionMap node" (set [ "id"; "kind"; "sourceOptionNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceOptionNodeId"; "mapperFunctionId"; "context" ]) element
+                SemanticNodeKind.OptionMap(readId<GraphNodeTag> "sourceOptionNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)
+            | "optionAndThen" ->
+                ensureProperties "OptionAndThen node" (set [ "id"; "kind"; "sourceOptionNodeId"; "binderFunctionId" ]) (set [ "id"; "kind"; "sourceOptionNodeId"; "binderFunctionId"; "context" ]) element
+                SemanticNodeKind.OptionAndThen(readId<GraphNodeTag> "sourceOptionNodeId" element, readId<FunctionTag> "binderFunctionId" element, readCallbackContext element)
+            | "resultMap" ->
+                ensureProperties "ResultMap node" (set [ "id"; "kind"; "sourceResultNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceResultNodeId"; "mapperFunctionId"; "context" ]) element
+                SemanticNodeKind.ResultMap(readId<GraphNodeTag> "sourceResultNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)
+            | "resultMapErr" ->
+                ensureProperties "ResultMapErr node" (set [ "id"; "kind"; "sourceResultNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceResultNodeId"; "mapperFunctionId"; "context" ]) element
+                SemanticNodeKind.ResultMapErr(readId<GraphNodeTag> "sourceResultNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)
+            | "resultAndThen" ->
+                ensureProperties "ResultAndThen node" (set [ "id"; "kind"; "sourceResultNodeId"; "binderFunctionId" ]) (set [ "id"; "kind"; "sourceResultNodeId"; "binderFunctionId"; "context" ]) element
+                SemanticNodeKind.ResultAndThen(readId<GraphNodeTag> "sourceResultNodeId" element, readId<FunctionTag> "binderFunctionId" element, readCallbackContext element)
             | "listAny" ->
                 readListCallbackNode "ListAny node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListAny(source, callback, context))

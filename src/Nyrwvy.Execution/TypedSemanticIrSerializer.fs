@@ -662,6 +662,10 @@ module TypedSemanticIrSerializer =
             writer.WriteString("kind", "mapGet")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
             writer.WriteString("keyNodeId", StableId.value keyNodeId)
+        | TypedSemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
+            writer.WriteString("kind", "optionGetOrDefault")
+            writer.WriteString("optionNodeId", StableId.value optionNodeId)
+            writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
             writer.WriteString("kind", "mapGetOrDefault")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -805,6 +809,31 @@ module TypedSemanticIrSerializer =
             writeListCallbackNode writer "listSortBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
         | TypedSemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->
             writeListCallbackNode writer "listMinBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
+        | TypedSemanticNodeKind.OptionMap(sourceNodeId, functionId, context) ->
+            writer.WriteString("kind", "optionMap")
+            writer.WriteString("sourceOptionNodeId", StableId.value sourceNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value functionId)
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.OptionAndThen(sourceNodeId, functionId, context) ->
+            writer.WriteString("kind", "optionAndThen")
+            writer.WriteString("sourceOptionNodeId", StableId.value sourceNodeId)
+            writer.WriteString("binderFunctionId", StableId.value functionId)
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.ResultMap(sourceNodeId, functionId, context) ->
+            writer.WriteString("kind", "resultMap")
+            writer.WriteString("sourceResultNodeId", StableId.value sourceNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value functionId)
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.ResultMapErr(sourceNodeId, functionId, context) ->
+            writer.WriteString("kind", "resultMapErr")
+            writer.WriteString("sourceResultNodeId", StableId.value sourceNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value functionId)
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.ResultAndThen(sourceNodeId, functionId, context) ->
+            writer.WriteString("kind", "resultAndThen")
+            writer.WriteString("sourceResultNodeId", StableId.value sourceNodeId)
+            writer.WriteString("binderFunctionId", StableId.value functionId)
+            writeCallbackContext writer context
         | TypedSemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
             writer.WriteString("kind", "mapMapValues")
             writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)

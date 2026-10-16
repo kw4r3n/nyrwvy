@@ -539,6 +539,9 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
                             lowerBinaryNode node mapNodeId keyNodeId (fun mapValueId keyValueId ->
                                 ExecutionInstructionKind.MapGet(mapValueId, keyValueId))
+                        | TypedSemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
+                            lowerBinaryNode node optionNodeId defaultNodeId (fun optionValueId defaultValueId ->
+                                ExecutionInstructionKind.OptionGetOrDefault(optionValueId, defaultValueId))
                         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
                             lowerTernaryNode node mapNodeId keyNodeId defaultNodeId (fun mapValueId keyValueId defaultValueId ->
                                 ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId))
@@ -682,6 +685,21 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId lessThanFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListMinBy(source, callback, lowered))
+                        | TypedSemanticNodeKind.OptionMap(sourceNodeId, functionId, context) ->
+                            lowerListCallbackNode node sourceNodeId functionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.OptionMap(source, callback, lowered))
+                        | TypedSemanticNodeKind.OptionAndThen(sourceNodeId, functionId, context) ->
+                            lowerListCallbackNode node sourceNodeId functionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.OptionAndThen(source, callback, lowered))
+                        | TypedSemanticNodeKind.ResultMap(sourceNodeId, functionId, context) ->
+                            lowerListCallbackNode node sourceNodeId functionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ResultMap(source, callback, lowered))
+                        | TypedSemanticNodeKind.ResultMapErr(sourceNodeId, functionId, context) ->
+                            lowerListCallbackNode node sourceNodeId functionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ResultMapErr(source, callback, lowered))
+                        | TypedSemanticNodeKind.ResultAndThen(sourceNodeId, functionId, context) ->
+                            lowerListCallbackNode node sourceNodeId functionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ResultAndThen(source, callback, lowered))
                         | TypedSemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
                             lowerListCallbackNode node sourceMapNodeId mapperFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.MapMapValues(source, callback, lowered))

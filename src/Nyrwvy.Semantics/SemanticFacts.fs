@@ -287,6 +287,35 @@ module SemanticFacts =
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ])), Some mapper ->
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; callbackResult nextVisiting mapper context [ keyType; valueType ] ]))
                         | _ -> None
+                    | SemanticNodeKind.OptionGetOrDefault(optionNodeId, _) ->
+                        match tryNodeType nextVisiting optionNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])) -> Some itemType
+                        | _ -> None
+                    | SemanticNodeKind.OptionMap(sourceNodeId, mapperFunctionId, context) ->
+                        match tryNodeType nextVisiting sourceNodeId, Map.tryFind mapperFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])), Some mapper ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ callbackResult nextVisiting mapper context [ itemType ] ]))
+                        | _ -> None
+                    | SemanticNodeKind.OptionAndThen(sourceNodeId, binderFunctionId, context) ->
+                        match tryNodeType nextVisiting sourceNodeId, Map.tryFind binderFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])), Some binder ->
+                            Some(callbackResult nextVisiting binder context [ itemType ])
+                        | _ -> None
+                    | SemanticNodeKind.ResultMap(sourceNodeId, mapperFunctionId, context) ->
+                        match tryNodeType nextVisiting sourceNodeId, Map.tryFind mapperFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])), Some mapper ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ callbackResult nextVisiting mapper context [ okType ]; errorType ]))
+                        | _ -> None
+                    | SemanticNodeKind.ResultMapErr(sourceNodeId, mapperFunctionId, context) ->
+                        match tryNodeType nextVisiting sourceNodeId, Map.tryFind mapperFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])), Some mapper ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; callbackResult nextVisiting mapper context [ errorType ] ]))
+                        | _ -> None
+                    | SemanticNodeKind.ResultAndThen(sourceNodeId, binderFunctionId, context) ->
+                        match tryNodeType nextVisiting sourceNodeId, Map.tryFind binderFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ])), Some binder ->
+                            Some(callbackResult nextVisiting binder context [ okType ])
+                        | _ -> None
                     | SemanticNodeKind.ListMinBy(listNodeId, _, _) ->
                         match tryNodeType nextVisiting listNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->

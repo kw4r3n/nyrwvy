@@ -585,6 +585,10 @@ module ExecutionIrSerializer =
             [ property "kind" (quote "mapGet")
               property "mapValueId" (executionValueIdValue mapValueId)
               property "keyValueId" (executionValueIdValue keyValueId) ]
+        | ExecutionInstructionKind.OptionGetOrDefault(optionValueId, defaultValueId) ->
+            [ property "kind" (quote "optionGetOrDefault")
+              property "optionValueId" (executionValueIdValue optionValueId)
+              property "defaultValueId" (executionValueIdValue defaultValueId) ]
         | ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId) ->
             [ property "kind" (quote "mapGetOrDefault")
               property "mapValueId" (executionValueIdValue mapValueId)
@@ -711,6 +715,31 @@ module ExecutionIrSerializer =
             writeListCallbackInstruction "listSortBy" sourceListValueId "lessThanFunctionId" lessThanFunctionId context
         | ExecutionInstructionKind.ListMinBy(sourceListValueId, lessThanFunctionId, context) ->
             writeListCallbackInstruction "listMinBy" sourceListValueId "lessThanFunctionId" lessThanFunctionId context
+        | ExecutionInstructionKind.OptionMap(sourceValueId, functionId, context) ->
+            [ property "kind" (quote "optionMap")
+              property "sourceOptionValueId" (executionValueIdValue sourceValueId)
+              property "mapperFunctionId" (stableIdValue functionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.OptionAndThen(sourceValueId, functionId, context) ->
+            [ property "kind" (quote "optionAndThen")
+              property "sourceOptionValueId" (executionValueIdValue sourceValueId)
+              property "binderFunctionId" (stableIdValue functionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.ResultMap(sourceValueId, functionId, context) ->
+            [ property "kind" (quote "resultMap")
+              property "sourceResultValueId" (executionValueIdValue sourceValueId)
+              property "mapperFunctionId" (stableIdValue functionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.ResultMapErr(sourceValueId, functionId, context) ->
+            [ property "kind" (quote "resultMapErr")
+              property "sourceResultValueId" (executionValueIdValue sourceValueId)
+              property "mapperFunctionId" (stableIdValue functionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.ResultAndThen(sourceValueId, functionId, context) ->
+            [ property "kind" (quote "resultAndThen")
+              property "sourceResultValueId" (executionValueIdValue sourceValueId)
+              property "binderFunctionId" (stableIdValue functionId) ]
+            @ writeCallbackContext context
         | ExecutionInstructionKind.MapMapValues(sourceMapValueId, mapperFunctionId, context) ->
             [ property "kind" (quote "mapMapValues")
               property "sourceMapValueId" (executionValueIdValue sourceMapValueId)

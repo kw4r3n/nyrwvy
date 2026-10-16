@@ -416,6 +416,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.ListRemoveAt(list, index) -> two ExpressionRecipe.ListRemoveAt list index
             | ExpressionRecipe.MapInsert(map, key, value) -> three ExpressionRecipe.MapInsert map key value
             | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> three ExpressionRecipe.MapGetOrDefault map key defaultValue
+            | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> two ExpressionRecipe.OptionGetOrDefault option defaultValue
             | ExpressionRecipe.ListConcat(left, right) -> two ExpressionRecipe.ListConcat left right
             | ExpressionRecipe.SetUnion(left, right) -> two ExpressionRecipe.SetUnion left right
             | ExpressionRecipe.SetIntersection(left, right) -> two ExpressionRecipe.SetIntersection left right
@@ -487,6 +488,11 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.MapFilter(source, functionId, context) -> callback ExpressionRecipe.MapFilter source functionId context
             | ExpressionRecipe.ListSortBy(source, functionId, context) -> callback ExpressionRecipe.ListSortBy source functionId context
             | ExpressionRecipe.MapMapValues(source, functionId, context) -> callback ExpressionRecipe.MapMapValues source functionId context
+            | ExpressionRecipe.OptionMap(source, functionId, context) -> callback ExpressionRecipe.OptionMap source functionId context
+            | ExpressionRecipe.OptionAndThen(source, functionId, context) -> callback ExpressionRecipe.OptionAndThen source functionId context
+            | ExpressionRecipe.ResultMap(source, functionId, context) -> callback ExpressionRecipe.ResultMap source functionId context
+            | ExpressionRecipe.ResultMapErr(source, functionId, context) -> callback ExpressionRecipe.ResultMapErr source functionId context
+            | ExpressionRecipe.ResultAndThen(source, functionId, context) -> callback ExpressionRecipe.ResultAndThen source functionId context
             | ExpressionRecipe.ListMinBy(source, functionId, context) -> callback ExpressionRecipe.ListMinBy source functionId context
             | ExpressionRecipe.ListAny(source, functionId, context) -> callback ExpressionRecipe.ListAny source functionId context
             | ExpressionRecipe.ListFindIndex(source, functionId, context) -> callback ExpressionRecipe.ListFindIndex source functionId context
