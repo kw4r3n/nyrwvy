@@ -153,10 +153,16 @@ module OperationSignatures =
           binary "int64FloorModulo" int64 int64 (Some "Python %")
           binary "int64Min" int64 int64 None
           binary "int64Max" int64 int64 None
+          binary "int64BitAnd" int64 int64 None
+          binary "int64BitOr" int64 int64 None
+          binary "int64BitXor" int64 int64 None
+          signature "int64ShiftLeft" [ operand "value" int64; operand "count" int64 ] int64 (Some "wraps; count clamped to 0..64")
+          signature "int64ShiftRight" [ operand "value" int64; operand "count" int64 ] int64 (Some "Python >>; count clamped to 0..64")
           binary "int64CheckedAdd" int64 (SignatureType.Option int64) (Some "left + right")
           binary "int64CheckedSubtract" int64 (SignatureType.Option int64) (Some "left - right")
           binary "int64CheckedMultiply" int64 (SignatureType.Option int64) (Some "left * right")
           unary "int64WrappingAbs" int64 int64 (Some "MinValue stays MinValue")
+          unary "int64BitNot" int64 int64 (Some "Python ~x")
           binary "int64Equal" int64 bool None
           binary "int64LessThan" int64 bool None
           binary "int64LessThanOrEqual" int64 bool None
@@ -165,6 +171,8 @@ module OperationSignatures =
           unary "int64ToFloat64" int64 float64 None
           // float64
           binary "float64Add" float64 float64 None
+          binary "float64Min" float64 float64 (Some "NaN if either is NaN; -0.0 < 0.0")
+          binary "float64Max" float64 float64 (Some "NaN if either is NaN; -0.0 < 0.0")
           binary "float64Subtract" float64 float64 None
           binary "float64Multiply" float64 float64 None
           binary "float64Divide" float64 float64 None

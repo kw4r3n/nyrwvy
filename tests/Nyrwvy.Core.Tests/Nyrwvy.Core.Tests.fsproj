@@ -89,6 +89,7 @@
     <Compile Include="Float64ToInt64Tests.fs" />
     <Compile Include="StandardOperationTests.fs" />
     <Compile Include="ListIndexTests.fs" />
+    <Compile Include="Int64BitwiseFloat64MinMaxTests.fs" />
     <Compile Include="StandardOperationChoiceTests.fs" />
     <Compile Include="MatchUnionSharedArmTests.fs" />
     <Compile Include="MapTests.fs" />

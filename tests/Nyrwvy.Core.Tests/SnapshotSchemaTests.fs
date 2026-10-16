@@ -145,7 +145,11 @@ module SnapshotSchemaTests =
               create "subset" [ "left", seen; "right", seen ] boolType [] (ExpressionRecipe.SetIsSubset(slot 0, slot 1)) |> ignore)
           "map union", SnapshotSchemaFeature.SetIsSubsetAndMapUnion, (fun create ->
               let counts = generic BuiltinGenericType.Map [ stringType; int64Type ]
-              create "merge" [ "left", counts; "right", counts ] counts [] (ExpressionRecipe.MapUnion(slot 0, slot 1)) |> ignore) ]
+              create "merge" [ "left", counts; "right", counts ] counts [] (ExpressionRecipe.MapUnion(slot 0, slot 1)) |> ignore)
+          "int64 shift", SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax, (fun create ->
+              create "shift" [ "value", int64Type; "count", int64Type ] int64Type [] (ExpressionRecipe.Int64ShiftRight(slot 0, slot 1)) |> ignore)
+          "float64 minimum", SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax, (fun create ->
+              create "least" [ "a", float64Type; "b", float64Type ] float64Type [] (ExpressionRecipe.Float64Min(slot 0, slot 1)) |> ignore) ]
 
     let caseNames: obj array seq = cases |> Seq.map (fun (name, _, _) -> [| box name |])
 

@@ -560,6 +560,20 @@ module SnapshotCodec =
             writeBinaryNode writer "int64Min" leftNodeId rightNodeId
         | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64Max" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64BitAnd" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64BitOr" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64BitXor" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64ShiftLeft(valueNodeId, countNodeId) ->
+            writer.WriteString("kind", "int64ShiftLeft")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("countNodeId", StableId.value countNodeId)
+        | SemanticNodeKind.Int64ShiftRight(valueNodeId, countNodeId) ->
+            writer.WriteString("kind", "int64ShiftRight")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("countNodeId", StableId.value countNodeId)
         | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64CheckedAdd" leftNodeId rightNodeId
         | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
@@ -590,6 +604,10 @@ module SnapshotCodec =
             writeBinaryNode writer "int64GreaterThanOrEqual" leftNodeId rightNodeId
         | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "float64Add" leftNodeId rightNodeId
+        | SemanticNodeKind.Float64Min(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64Min" leftNodeId rightNodeId
+        | SemanticNodeKind.Float64Max(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64Max" leftNodeId rightNodeId
         | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "float64Subtract" leftNodeId rightNodeId
         | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId) ->
@@ -610,6 +628,8 @@ module SnapshotCodec =
             writeUnaryNode writer "int64ToFloat64" valueNodeId
         | SemanticNodeKind.Int64WrappingAbs valueNodeId ->
             writeUnaryNode writer "int64WrappingAbs" valueNodeId
+        | SemanticNodeKind.Int64BitNot valueNodeId ->
+            writeUnaryNode writer "int64BitNot" valueNodeId
         | SemanticNodeKind.Bits32FromInt64 valueNodeId -> writeUnaryNode writer "bits32FromInt64" valueNodeId
         | SemanticNodeKind.Bits32ToInt64 valueNodeId -> writeUnaryNode writer "bits32ToInt64" valueNodeId
         | SemanticNodeKind.Bits32Not valueNodeId -> writeUnaryNode writer "bits32Not" valueNodeId
@@ -1586,6 +1606,26 @@ module SnapshotCodec =
                 readBinaryNode "Int64Min node" element (fun left right -> SemanticNodeKind.Int64Min(left, right))
             | "int64Max" ->
                 readBinaryNode "Int64Max node" element (fun left right -> SemanticNodeKind.Int64Max(left, right))
+            | "int64BitAnd" ->
+                readBinaryNode "Int64BitAnd node" element (fun left right -> SemanticNodeKind.Int64BitAnd(left, right))
+            | "int64BitOr" ->
+                readBinaryNode "Int64BitOr node" element (fun left right -> SemanticNodeKind.Int64BitOr(left, right))
+            | "int64BitXor" ->
+                readBinaryNode "Int64BitXor node" element (fun left right -> SemanticNodeKind.Int64BitXor(left, right))
+            | "int64ShiftLeft" ->
+                ensureProperties
+                    "Int64ShiftLeft node"
+                    (set [ "id"; "kind"; "valueNodeId"; "countNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "countNodeId" ])
+                    element
+                SemanticNodeKind.Int64ShiftLeft(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "countNodeId" element)
+            | "int64ShiftRight" ->
+                ensureProperties
+                    "Int64ShiftRight node"
+                    (set [ "id"; "kind"; "valueNodeId"; "countNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "countNodeId" ])
+                    element
+                SemanticNodeKind.Int64ShiftRight(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "countNodeId" element)
             | "int64CheckedAdd" ->
                 readBinaryNode "Int64CheckedAdd node" element (fun left right -> SemanticNodeKind.Int64CheckedAdd(left, right))
             | "int64CheckedSubtract" ->
@@ -1625,6 +1665,10 @@ module SnapshotCodec =
                 readBinaryNode "Int64GreaterThanOrEqual node" element (fun left right -> SemanticNodeKind.Int64GreaterThanOrEqual(left, right))
             | "float64Add" ->
                 readBinaryNode "Float64Add node" element (fun left right -> SemanticNodeKind.Float64Add(left, right))
+            | "float64Min" ->
+                readBinaryNode "Float64Min node" element (fun left right -> SemanticNodeKind.Float64Min(left, right))
+            | "float64Max" ->
+                readBinaryNode "Float64Max node" element (fun left right -> SemanticNodeKind.Float64Max(left, right))
             | "float64Subtract" ->
                 readBinaryNode "Float64Subtract node" element (fun left right -> SemanticNodeKind.Float64Subtract(left, right))
             | "float64Multiply" ->
@@ -1645,6 +1689,8 @@ module SnapshotCodec =
                 readUnaryNode "Int64ToFloat64 node" element SemanticNodeKind.Int64ToFloat64
             | "int64WrappingAbs" ->
                 readUnaryNode "Int64WrappingAbs node" element SemanticNodeKind.Int64WrappingAbs
+            | "int64BitNot" ->
+                readUnaryNode "Int64BitNot node" element SemanticNodeKind.Int64BitNot
             | "bits32FromInt64" -> readUnaryNode "Bits32FromInt64 node" element SemanticNodeKind.Bits32FromInt64
             | "bits32ToInt64" -> readUnaryNode "Bits32ToInt64 node" element SemanticNodeKind.Bits32ToInt64
             | "bits32Not" -> readUnaryNode "Bits32Not node" element SemanticNodeKind.Bits32Not

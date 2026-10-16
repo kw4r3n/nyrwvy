@@ -137,6 +137,11 @@ type ExecutionInstructionKind =
     | Int64FloorModulo of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64Min of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64Max of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64BitAnd of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64BitOr of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64BitXor of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64ShiftLeft of valueId: ExecutionValueId * countValueId: ExecutionValueId
+    | Int64ShiftRight of valueId: ExecutionValueId * countValueId: ExecutionValueId
     | Int64CheckedAdd of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64CheckedSubtract of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64CheckedMultiply of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
@@ -149,6 +154,8 @@ type ExecutionInstructionKind =
     | Int64GreaterThan of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64GreaterThanOrEqual of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64Add of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Float64Min of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Float64Max of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64Subtract of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64Multiply of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64Divide of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
@@ -159,6 +166,7 @@ type ExecutionInstructionKind =
     | Float64IsInfinite of valueId: ExecutionValueId
     | Int64ToFloat64 of valueId: ExecutionValueId
     | Int64WrappingAbs of valueId: ExecutionValueId
+    | Int64BitNot of valueId: ExecutionValueId
     | Bits32FromInt64 of valueId: ExecutionValueId
     | Bits32ToInt64 of valueId: ExecutionValueId
     | Bits32Not of valueId: ExecutionValueId
@@ -374,6 +382,11 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.Int64FloorModulo _
         | ExecutionInstructionKind.Int64Min _
         | ExecutionInstructionKind.Int64Max _
+        | ExecutionInstructionKind.Int64BitAnd _
+        | ExecutionInstructionKind.Int64BitOr _
+        | ExecutionInstructionKind.Int64BitXor _
+        | ExecutionInstructionKind.Int64ShiftLeft _
+        | ExecutionInstructionKind.Int64ShiftRight _
         | ExecutionInstructionKind.Int64CheckedAdd _
         | ExecutionInstructionKind.Int64CheckedSubtract _
         | ExecutionInstructionKind.Int64CheckedMultiply _
@@ -386,6 +399,8 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.Int64GreaterThan _
         | ExecutionInstructionKind.Int64GreaterThanOrEqual _
         | ExecutionInstructionKind.Float64Add _
+        | ExecutionInstructionKind.Float64Min _
+        | ExecutionInstructionKind.Float64Max _
         | ExecutionInstructionKind.Float64Subtract _
         | ExecutionInstructionKind.Float64Multiply _
         | ExecutionInstructionKind.Float64Divide _
@@ -396,6 +411,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.Float64IsInfinite _
         | ExecutionInstructionKind.Int64ToFloat64 _
         | ExecutionInstructionKind.Int64WrappingAbs _
+        | ExecutionInstructionKind.Int64BitNot _
         | ExecutionInstructionKind.Bits32FromInt64 _
         | ExecutionInstructionKind.Bits32ToInt64 _
         | ExecutionInstructionKind.Bits32Not _

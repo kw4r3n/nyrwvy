@@ -129,6 +129,11 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Int64FloorModulo of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64Min of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64Max of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64BitAnd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64BitOr of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64BitXor of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Int64ShiftLeft of valueNodeId: GraphNodeId * countNodeId: GraphNodeId
+    | Int64ShiftRight of valueNodeId: GraphNodeId * countNodeId: GraphNodeId
     | Int64CheckedAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64CheckedSubtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64CheckedMultiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -141,6 +146,8 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Int64GreaterThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64GreaterThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Float64Add of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64Min of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | Float64Max of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Float64Subtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Float64Multiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Float64Divide of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -151,6 +158,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Float64IsInfinite of valueNodeId: GraphNodeId
     | Int64ToFloat64 of valueNodeId: GraphNodeId
     | Int64WrappingAbs of valueNodeId: GraphNodeId
+    | Int64BitNot of valueNodeId: GraphNodeId
     | Bits32FromInt64 of valueNodeId: GraphNodeId
     | Bits32ToInt64 of valueNodeId: GraphNodeId
     | Bits32Not of valueNodeId: GraphNodeId
@@ -331,6 +339,11 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Int64FloorModulo _
         | TypedSemanticNodeKind.Int64Min _
         | TypedSemanticNodeKind.Int64Max _
+        | TypedSemanticNodeKind.Int64BitAnd _
+        | TypedSemanticNodeKind.Int64BitOr _
+        | TypedSemanticNodeKind.Int64BitXor _
+        | TypedSemanticNodeKind.Int64ShiftLeft _
+        | TypedSemanticNodeKind.Int64ShiftRight _
         | TypedSemanticNodeKind.Int64CheckedAdd _
         | TypedSemanticNodeKind.Int64CheckedSubtract _
         | TypedSemanticNodeKind.Int64CheckedMultiply _
@@ -343,6 +356,8 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Int64GreaterThan _
         | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
         | TypedSemanticNodeKind.Float64Add _
+        | TypedSemanticNodeKind.Float64Min _
+        | TypedSemanticNodeKind.Float64Max _
         | TypedSemanticNodeKind.Float64Subtract _
         | TypedSemanticNodeKind.Float64Multiply _
         | TypedSemanticNodeKind.Float64Divide _
@@ -353,6 +368,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Float64IsInfinite _
         | TypedSemanticNodeKind.Int64ToFloat64 _
         | TypedSemanticNodeKind.Int64WrappingAbs _
+        | TypedSemanticNodeKind.Int64BitNot _
         | TypedSemanticNodeKind.Bits32FromInt64 _
         | TypedSemanticNodeKind.Bits32ToInt64 _
         | TypedSemanticNodeKind.Bits32Not _
@@ -505,6 +521,11 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64ShiftLeft(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Int64ShiftRight(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
@@ -517,6 +538,8 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Float64Min(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.Float64Max(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
@@ -540,6 +563,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Float64IsFinite valueNodeId
         | TypedSemanticNodeKind.Int64ToFloat64 valueNodeId
         | TypedSemanticNodeKind.Int64WrappingAbs valueNodeId
+        | TypedSemanticNodeKind.Int64BitNot valueNodeId
         | TypedSemanticNodeKind.Bits32FromInt64 valueNodeId
         | TypedSemanticNodeKind.Bits32ToInt64 valueNodeId
         | TypedSemanticNodeKind.Bits32Not valueNodeId
@@ -832,6 +856,16 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Int64Min(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.Int64Max(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64ShiftLeft(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64ShiftLeft(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Int64ShiftRight(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Int64ShiftRight(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
@@ -856,6 +890,10 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.Float64Add(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Float64Min(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Float64Min(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.Float64Max(leftNodeId, rightNodeId) ->
+                        Ok(TypedSemanticNodeKind.Float64Max(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId) ->
                         Ok(TypedSemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId) ->
@@ -876,6 +914,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.Int64ToFloat64 valueNodeId)
                     | SemanticNodeKind.Int64WrappingAbs valueNodeId ->
                         Ok(TypedSemanticNodeKind.Int64WrappingAbs valueNodeId)
+                    | SemanticNodeKind.Int64BitNot valueNodeId ->
+                        Ok(TypedSemanticNodeKind.Int64BitNot valueNodeId)
                     | SemanticNodeKind.Bits32FromInt64 valueNodeId -> Ok(TypedSemanticNodeKind.Bits32FromInt64 valueNodeId)
                     | SemanticNodeKind.Bits32ToInt64 valueNodeId -> Ok(TypedSemanticNodeKind.Bits32ToInt64 valueNodeId)
                     | SemanticNodeKind.Bits32Not valueNodeId -> Ok(TypedSemanticNodeKind.Bits32Not valueNodeId)

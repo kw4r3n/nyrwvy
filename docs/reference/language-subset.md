@@ -57,6 +57,12 @@ Int64FloorModulo
 Int64Min
 Int64Max
 Int64WrappingAbs
+Int64BitAnd
+Int64BitOr
+Int64BitXor
+Int64BitNot
+Int64ShiftLeft
+Int64ShiftRight
 Int64CheckedAdd
 Int64CheckedSubtract
 Int64CheckedMultiply
@@ -70,6 +76,8 @@ Int64GreaterThanOrEqual
 Wrapping arithmetic uses two's-complement modulo-`2^64` behavior.
 
 `Int64Min(left, right)` and `Int64Max(left, right)` yield the smaller and the larger operand, Python `min` and `max` of two values. `Int64WrappingAbs(value)` yields the absolute value with two's-complement wrapping, so `Int64.MinValue` gives `Int64.MinValue`, where Python `abs` gives `2^63`; this is the same wrapping as `Int64.MinValue / -1` below. All three never fail ([decision](../decisions/standard-operation-choices.md)).
+
+`Int64BitAnd(left, right)`, `Int64BitOr(left, right)`, `Int64BitXor(left, right)` and `Int64BitNot(value)` are two's-complement bitwise operations, Python `&`, `|`, `^` and `~` (`Int64BitNot(x)` is `-x - 1`). `Int64ShiftLeft(value, count)` and `Int64ShiftRight(value, count)` clamp the count to `0..64`: a negative count leaves the value unchanged (Python raises), and the count is never masked to 6 bits. `Int64ShiftLeft` keeps the low 64 bits (`Int64ShiftLeft(1, 63)` is `Int64.MinValue`) and gives 0 for a count of 64 or more. `Int64ShiftRight` is arithmetic, Python `>>`: `Int64ShiftRight(-5, 1)` is -3, and a count of 64 or more gives 0 for a non-negative value and -1 for a negative one. None of them fails ([decision](../decisions/int64-bitwise-and-float64-min-max.md)).
 
 `Int64FloorDivide(left, right)` and `Int64FloorModulo(left, right)` follow Python's `//` and `%`: the quotient `q` is `floor(left / right)`, rounding toward negative infinity (`7 / 2 = 3`, `-7 / 2 = -4`, `7 / -2 = -4`, `-7 / -2 = 3`), and the remainder is `left - right * q`, so a nonzero remainder takes the divisor's sign (`7 % 2 = 1`, `-7 % 2 = 1`, `7 % -2 = -1`, `-7 % -2 = -1`). Both operands and the result are Int64 and neither operation has effects. Like the other runtime operations of this subset (compare `StringSlice` clamping), they never fail with an error; only host failures such as an allocation too large for `ListRange` or `StringRepeat`, or recursion too deep, end a run: a zero divisor yields quotient `0` and remainder `left`, which keeps `left = right * q + r`, and `Int64.MinValue / -1` wraps to `Int64.MinValue` with remainder `0`, consistent with wrapping arithmetic. Callers who must distinguish a zero divisor test it with `Int64Equal` before dividing.
 
@@ -247,6 +255,8 @@ Float64FloorToInt64
 Float64Sqrt
 Float64Abs
 Float64Negate
+Float64Min
+Float64Max
 Float64Floor
 Float64Ceiling
 Float64Truncate
@@ -261,6 +271,8 @@ StringParseFloat64
 `Float64Round(value, digits)` rounds to `digits` decimal places (tens, hundreds, ... for negative `digits`), half away from zero, on the shortest decimal text that reads back to the value: `Float64Round(2.675, 2)` is 2.68 and `Float64Round(1250, -2)` is 1300, where Python's `round` gives 2.67 and 1200. NaN, the infinities and zeros are returned unchanged, a result rounded to zero keeps the input's sign, and a result beyond the Float64 range is infinity. It never fails ([decision](../decisions/rounding-half-away-from-zero.md)).
 
 `Float64Sqrt`, `Float64Abs`, `Float64Negate`, `Float64Floor`, `Float64Ceiling` and `Float64Truncate` take a Float64 and yield a Float64. Each is the IEEE 754 operation, which has exactly one result, so every backend agrees bit for bit. `Float64Sqrt` is the correctly rounded square root; a negative value gives NaN, where Python's `math.sqrt` raises, and `-0.0` gives `-0.0`. `Float64Abs` clears the sign (Python `abs(x)`, so `-0.0` gives `0.0`) and `Float64Negate` flips it (Python `-x`, so `0.0` gives `-0.0`, which subtracting from `0.0` does not). `Float64Floor`, `Float64Ceiling` and `Float64Truncate` round to an integral value toward negative infinity, positive infinity and zero, as Python's `math.floor`, `math.ceil` and `math.trunc` but without leaving Float64: a zero result keeps the sign of the input (`-0.5` gives `-0.0` for ceiling and truncation), and NaN, the infinities and the zeros are returned unchanged. All six never fail ([decision](../decisions/standard-operations.md)).
+
+`Float64Min(left, right)` and `Float64Max(left, right)` are the IEEE 754-2019 `minimum` and `maximum` (.NET `Math.Min` and `Math.Max`): NaN when either operand is NaN, and -0.0 is less than 0.0, whatever the operand order. Python's `min` and `max` differ there, since they return the first operand when the comparison is false. Neither fails ([decision](../decisions/int64-bitwise-and-float64-min-max.md)).
 
 `Float64ToString(value)` yields Python `repr(value)`: the shortest decimal digits that read back to the same binary64, in exponent form `d.ddde±XX` (at least two exponent digits) when the decimal point position `decpt` of `0.ddd × 10^decpt` is `<= -4` or `> 16`, and otherwise in fixed form with at least one digit after the point: `0.1`, `100.0`, `1e+16`, `1.5e-05`, `5e-324`. NaN gives `nan`, the infinities `inf` and `-inf`, the zeros `0.0` and `-0.0`. `StringParseFloat64(text)` yields `Option<Float64>`: `Some` when the whole text is `-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?` in ASCII digits (the JSON number grammar, leading zeros accepted), rounded to the nearest binary64 with ties to even for any digit count and exponent length, with a signed infinity on overflow (`1e400`) and a signed zero on underflow (`-1e-400` gives -0.0); `+`, whitespace, `.5`, `5.`, `inf`, `nan`, underscores and empty text yield `None`. Every finite value round-trips through the two. Both never fail; see the [decision](../decisions/float64-decimal-text.md).
 
@@ -339,6 +351,8 @@ StringFromCodePoint / ToCodePoint
 Int64WrappingAdd / Subtract / Multiply
 Int64FloorDivide / FloorModulo
 Int64Min / Max / WrappingAbs
+Int64BitAnd / BitOr / BitXor / BitNot
+Int64ShiftLeft / ShiftRight
 Int64Equal / LessThan / LessThanOrEqual / GreaterThan / GreaterThanOrEqual
 Float64Add / Subtract / Multiply / Divide
 Float64Equal / LessThan
@@ -348,6 +362,7 @@ Float64ToString
 StringParseFloat64
 Float64RoundToInt64 / FloorToInt64
 Float64Sqrt / Abs / Negate
+Float64Min / Max
 Float64Floor / Ceiling / Truncate
 Bits32FromInt64 / ToInt64
 Bits32Xor / And / Or / Not / Add

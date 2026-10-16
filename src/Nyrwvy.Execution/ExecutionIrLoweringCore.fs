@@ -405,6 +405,16 @@ module ExecutionIr =
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64Min(left, right))
                         | TypedSemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64Max(left, right))
+                        | TypedSemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64BitAnd(left, right))
+                        | TypedSemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64BitOr(left, right))
+                        | TypedSemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64BitXor(left, right))
+                        | TypedSemanticNodeKind.Int64ShiftLeft(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64ShiftLeft(left, right))
+                        | TypedSemanticNodeKind.Int64ShiftRight(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64ShiftRight(left, right))
                         | TypedSemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64CheckedAdd(left, right))
                         | TypedSemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
@@ -429,6 +439,10 @@ module ExecutionIr =
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64GreaterThanOrEqual(left, right))
                         | TypedSemanticNodeKind.Float64Add(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Add(left, right))
+                        | TypedSemanticNodeKind.Float64Min(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Min(left, right))
+                        | TypedSemanticNodeKind.Float64Max(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Max(left, right))
                         | TypedSemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Subtract(left, right))
                         | TypedSemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId) ->
@@ -449,6 +463,8 @@ module ExecutionIr =
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64ToFloat64
                         | TypedSemanticNodeKind.Int64WrappingAbs valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64WrappingAbs
+                        | TypedSemanticNodeKind.Int64BitNot valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64BitNot
                         | TypedSemanticNodeKind.Bits32FromInt64 valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.Bits32FromInt64
                         | TypedSemanticNodeKind.Bits32ToInt64 valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.Bits32ToInt64
                         | TypedSemanticNodeKind.Bits32Not valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.Bits32Not

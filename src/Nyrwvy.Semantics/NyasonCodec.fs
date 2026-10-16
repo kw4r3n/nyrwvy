@@ -635,6 +635,16 @@ module NyasonCodec =
             encodeBinaryNode "int64-min" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
             encodeBinaryNode "int64-max" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "int64-bit-and" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "int64-bit-or" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "int64-bit-xor" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Int64ShiftLeft(valueNodeId, countNodeId) ->
+            record "int64-shift-left" [ nodeId; "value", encodeId "node" valueNodeId; "count", encodeId "node" countNodeId ]
+        | SemanticNodeKind.Int64ShiftRight(valueNodeId, countNodeId) ->
+            record "int64-shift-right" [ nodeId; "value", encodeId "node" valueNodeId; "count", encodeId "node" countNodeId ]
         | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
             encodeBinaryNode "int64-checked-add" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
@@ -659,6 +669,10 @@ module NyasonCodec =
             encodeBinaryNode "int64-greater-than-or-equal" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId) ->
             encodeBinaryNode "float64-add" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Float64Min(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "float64-min" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Float64Max(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "float64-max" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId) ->
             encodeBinaryNode "float64-subtract" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId) ->
@@ -679,6 +693,8 @@ module NyasonCodec =
             encodeUnaryNode "int64-to-float64" nodeId valueNodeId
         | SemanticNodeKind.Int64WrappingAbs valueNodeId ->
             encodeUnaryNode "int64-wrapping-abs" nodeId valueNodeId
+        | SemanticNodeKind.Int64BitNot valueNodeId ->
+            encodeUnaryNode "int64-bit-not" nodeId valueNodeId
         | SemanticNodeKind.Bits32FromInt64 valueNodeId -> encodeUnaryNode "bits32-from-int64" nodeId valueNodeId
         | SemanticNodeKind.Bits32ToInt64 valueNodeId -> encodeUnaryNode "bits32-to-int64" nodeId valueNodeId
         | SemanticNodeKind.Bits32Not valueNodeId -> encodeUnaryNode "bits32-not" nodeId valueNodeId
@@ -1292,6 +1308,30 @@ module NyasonCodec =
             decodeBinaryNode "int64-min" value (fun left right -> SemanticNodeKind.Int64Min(left, right))
         | NyasonValue.Record("int64-max", _) ->
             decodeBinaryNode "int64-max" value (fun left right -> SemanticNodeKind.Int64Max(left, right))
+        | NyasonValue.Record("int64-bit-and", _) ->
+            decodeBinaryNode "int64-bit-and" value (fun left right -> SemanticNodeKind.Int64BitAnd(left, right))
+        | NyasonValue.Record("int64-bit-or", _) ->
+            decodeBinaryNode "int64-bit-or" value (fun left right -> SemanticNodeKind.Int64BitOr(left, right))
+        | NyasonValue.Record("int64-bit-xor", _) ->
+            decodeBinaryNode "int64-bit-xor" value (fun left right -> SemanticNodeKind.Int64BitXor(left, right))
+        | NyasonValue.Record("int64-shift-left", _) ->
+            let fields = recordFields "int64-shift-left" [ "id"; "value"; "count" ] [] value
+
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.Int64ShiftLeft(
+                    decodeId<GraphNodeTag> "node" (require "value" fields),
+                    decodeId<GraphNodeTag> "node" (require "count" fields)
+                ) }
+        | NyasonValue.Record("int64-shift-right", _) ->
+            let fields = recordFields "int64-shift-right" [ "id"; "value"; "count" ] [] value
+
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.Int64ShiftRight(
+                    decodeId<GraphNodeTag> "node" (require "value" fields),
+                    decodeId<GraphNodeTag> "node" (require "count" fields)
+                ) }
         | NyasonValue.Record("int64-checked-add", _) ->
             decodeBinaryNode "int64-checked-add" value (fun left right -> SemanticNodeKind.Int64CheckedAdd(left, right))
         | NyasonValue.Record("int64-checked-subtract", _) ->
@@ -1334,6 +1374,10 @@ module NyasonCodec =
             decodeBinaryNode "int64-greater-than-or-equal" value (fun left right -> SemanticNodeKind.Int64GreaterThanOrEqual(left, right))
         | NyasonValue.Record("float64-add", _) ->
             decodeBinaryNode "float64-add" value (fun left right -> SemanticNodeKind.Float64Add(left, right))
+        | NyasonValue.Record("float64-min", _) ->
+            decodeBinaryNode "float64-min" value (fun left right -> SemanticNodeKind.Float64Min(left, right))
+        | NyasonValue.Record("float64-max", _) ->
+            decodeBinaryNode "float64-max" value (fun left right -> SemanticNodeKind.Float64Max(left, right))
         | NyasonValue.Record("float64-subtract", _) ->
             decodeBinaryNode "float64-subtract" value (fun left right -> SemanticNodeKind.Float64Subtract(left, right))
         | NyasonValue.Record("float64-multiply", _) ->
@@ -1389,6 +1433,8 @@ module NyasonCodec =
             decodeUnaryNode "int64-to-float64" value SemanticNodeKind.Int64ToFloat64
         | NyasonValue.Record("int64-wrapping-abs", _) ->
             decodeUnaryNode "int64-wrapping-abs" value SemanticNodeKind.Int64WrappingAbs
+        | NyasonValue.Record("int64-bit-not", _) ->
+            decodeUnaryNode "int64-bit-not" value SemanticNodeKind.Int64BitNot
         | NyasonValue.Record("list-empty", _) ->
             let fields = recordFields "list-empty" [ "id"; "item-type" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
