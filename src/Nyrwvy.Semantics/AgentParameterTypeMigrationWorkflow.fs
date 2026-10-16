@@ -352,6 +352,10 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.StringEndsWith(left, right) -> two ExpressionRecipe.StringEndsWith left right
             | ExpressionRecipe.StringSplit(left, right) -> two ExpressionRecipe.StringSplit left right
             | ExpressionRecipe.StringSplitLines(value, breaks) -> two ExpressionRecipe.StringSplitLines value breaks
+            | ExpressionRecipe.StringReplace(value, pattern, replacement) -> three ExpressionRecipe.StringReplace value pattern replacement
+            | ExpressionRecipe.StringTrim value -> one ExpressionRecipe.StringTrim value
+            | ExpressionRecipe.StringTrimStart value -> one ExpressionRecipe.StringTrimStart value
+            | ExpressionRecipe.StringTrimEnd value -> one ExpressionRecipe.StringTrimEnd value
             | ExpressionRecipe.StringJoin(list, separator) -> two ExpressionRecipe.StringJoin list separator
             | ExpressionRecipe.StringEqual(left, right) -> two ExpressionRecipe.StringEqual left right
             | ExpressionRecipe.StringLessThan(left, right) -> two ExpressionRecipe.StringLessThan left right

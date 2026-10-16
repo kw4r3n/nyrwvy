@@ -981,6 +981,26 @@ module SnapshotValidator =
                             $"{name} node '{StableId.value node.Id}' requires a String {otherRole}."
                             (TypeRef.Primitive PrimitiveType.String)
                             otherNodeId
+                    | SemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+                        for role, operandNodeId in [ "value", valueNodeId; "pattern", patternNodeId; "replacement", replacementNodeId ] do
+                            requireNodeType
+                                "StringIntrinsicTypeMismatch"
+                                $"StringReplace node '{StableId.value node.Id}' requires a String {role}."
+                                (TypeRef.Primitive PrimitiveType.String)
+                                operandNodeId
+                    | SemanticNodeKind.StringTrim valueNodeId
+                    | SemanticNodeKind.StringTrimStart valueNodeId
+                    | SemanticNodeKind.StringTrimEnd valueNodeId ->
+                        let name =
+                            match node.Kind with
+                            | SemanticNodeKind.StringTrimStart _ -> "StringTrimStart"
+                            | SemanticNodeKind.StringTrimEnd _ -> "StringTrimEnd"
+                            | _ -> "StringTrim"
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"{name} node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
                     | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -2155,6 +2175,10 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringJoin _
                 | SemanticNodeKind.StringSplit _
                 | SemanticNodeKind.StringSplitLines _
+                | SemanticNodeKind.StringReplace _
+                | SemanticNodeKind.StringTrim _
+                | SemanticNodeKind.StringTrimStart _
+                | SemanticNodeKind.StringTrimEnd _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringLessThan _
                 | SemanticNodeKind.ValueEqual _

@@ -113,6 +113,10 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringEndsWith of valueNodeId: GraphNodeId * suffixNodeId: GraphNodeId
     | StringSplit of valueNodeId: GraphNodeId * separatorNodeId: GraphNodeId
     | StringSplitLines of valueNodeId: GraphNodeId * breaksNodeId: GraphNodeId
+    | StringReplace of valueNodeId: GraphNodeId * patternNodeId: GraphNodeId * replacementNodeId: GraphNodeId
+    | StringTrim of valueNodeId: GraphNodeId
+    | StringTrimStart of valueNodeId: GraphNodeId
+    | StringTrimEnd of valueNodeId: GraphNodeId
     | StringJoin of listNodeId: GraphNodeId * separatorNodeId: GraphNodeId
     | StringEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | StringLessThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -309,6 +313,10 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.StringEndsWith _
         | TypedSemanticNodeKind.StringSplit _
         | TypedSemanticNodeKind.StringSplitLines _
+        | TypedSemanticNodeKind.StringReplace _
+        | TypedSemanticNodeKind.StringTrim _
+        | TypedSemanticNodeKind.StringTrimStart _
+        | TypedSemanticNodeKind.StringTrimEnd _
         | TypedSemanticNodeKind.StringJoin _
         | TypedSemanticNodeKind.StringEqual _
         | TypedSemanticNodeKind.StringLessThan _
@@ -452,6 +460,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.StringCodePoints valueNodeId
         | TypedSemanticNodeKind.StringToLower valueNodeId
         | TypedSemanticNodeKind.StringToUpper valueNodeId
+        | TypedSemanticNodeKind.StringTrim valueNodeId
+        | TypedSemanticNodeKind.StringTrimStart valueNodeId
+        | TypedSemanticNodeKind.StringTrimEnd valueNodeId
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId
         | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId
         | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId
@@ -476,6 +487,8 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.StringEndsWith(valueNodeId, otherNodeId)
         | TypedSemanticNodeKind.StringSplit(valueNodeId, otherNodeId)
         | TypedSemanticNodeKind.StringSplitLines(valueNodeId, otherNodeId) -> [ valueNodeId; otherNodeId ]
+        | TypedSemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+            [ valueNodeId; patternNodeId; replacementNodeId ]
         | TypedSemanticNodeKind.StringJoin(listNodeId, separatorNodeId) -> [ listNodeId; separatorNodeId ]
         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.StringLessThan(leftNodeId, rightNodeId)
@@ -781,6 +794,14 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.StringSplit(valueNodeId, otherNodeId))
                     | SemanticNodeKind.StringSplitLines(valueNodeId, breaksNodeId) ->
                         Ok(TypedSemanticNodeKind.StringSplitLines(valueNodeId, breaksNodeId))
+                    | SemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+                        Ok(TypedSemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId))
+                    | SemanticNodeKind.StringTrim valueNodeId ->
+                        Ok(TypedSemanticNodeKind.StringTrim valueNodeId)
+                    | SemanticNodeKind.StringTrimStart valueNodeId ->
+                        Ok(TypedSemanticNodeKind.StringTrimStart valueNodeId)
+                    | SemanticNodeKind.StringTrimEnd valueNodeId ->
+                        Ok(TypedSemanticNodeKind.StringTrimEnd valueNodeId)
                     | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
                         Ok(TypedSemanticNodeKind.StringJoin(listNodeId, separatorNodeId))
                     | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->

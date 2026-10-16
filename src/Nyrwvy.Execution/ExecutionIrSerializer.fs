@@ -363,6 +363,17 @@ module ExecutionIrSerializer =
             [ property "kind" (quote "stringSplitLines")
               property "valueId" (executionValueIdValue valueId)
               property "breaksId" (executionValueIdValue breaksId) ]
+        | ExecutionInstructionKind.StringReplace(valueId, patternId, replacementId) ->
+            [ property "kind" (quote "stringReplace")
+              property "valueId" (executionValueIdValue valueId)
+              property "patternId" (executionValueIdValue patternId)
+              property "replacementId" (executionValueIdValue replacementId) ]
+        | ExecutionInstructionKind.StringTrim valueId ->
+            writeUnaryInstruction "stringTrim" valueId
+        | ExecutionInstructionKind.StringTrimStart valueId ->
+            writeUnaryInstruction "stringTrimStart" valueId
+        | ExecutionInstructionKind.StringTrimEnd valueId ->
+            writeUnaryInstruction "stringTrimEnd" valueId
         | ExecutionInstructionKind.StringJoin(listValueId, separatorId) ->
             [ property "kind" (quote "stringJoin")
               property "listValueId" (executionValueIdValue listValueId)

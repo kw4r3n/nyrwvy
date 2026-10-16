@@ -72,6 +72,10 @@ type ViewerNodeRole =
     | StringEndsWith
     | StringSplit
     | StringSplitLines
+    | StringReplace
+    | StringTrim
+    | StringTrimStart
+    | StringTrimEnd
     | StringJoin
     | StringEqual
     | StringLessThan
@@ -343,6 +347,10 @@ module ViewerProjection =
         | SemanticNodeKind.StringEndsWith _ -> ViewerNodeRole.StringEndsWith, []
         | SemanticNodeKind.StringSplit _ -> ViewerNodeRole.StringSplit, []
         | SemanticNodeKind.StringSplitLines _ -> ViewerNodeRole.StringSplitLines, []
+        | SemanticNodeKind.StringReplace _ -> ViewerNodeRole.StringReplace, []
+        | SemanticNodeKind.StringTrim _ -> ViewerNodeRole.StringTrim, []
+        | SemanticNodeKind.StringTrimStart _ -> ViewerNodeRole.StringTrimStart, []
+        | SemanticNodeKind.StringTrimEnd _ -> ViewerNodeRole.StringTrimEnd, []
         | SemanticNodeKind.StringJoin _ -> ViewerNodeRole.StringJoin, []
         | SemanticNodeKind.StringEqual _ -> ViewerNodeRole.StringEqual, []
         | SemanticNodeKind.StringLessThan _ -> ViewerNodeRole.StringLessThan, []

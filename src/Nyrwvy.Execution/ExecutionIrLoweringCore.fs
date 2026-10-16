@@ -372,6 +372,15 @@ module ExecutionIr =
                             lowerBinaryNode node valueNodeId otherNodeId (fun value other -> ExecutionInstructionKind.StringSplit(value, other))
                         | TypedSemanticNodeKind.StringSplitLines(valueNodeId, breaksNodeId) ->
                             lowerBinaryNode node valueNodeId breaksNodeId (fun value breaks -> ExecutionInstructionKind.StringSplitLines(value, breaks))
+                        | TypedSemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+                            lowerTernaryNode node valueNodeId patternNodeId replacementNodeId (fun valueId patternId replacementId ->
+                                ExecutionInstructionKind.StringReplace(valueId, patternId, replacementId))
+                        | TypedSemanticNodeKind.StringTrim valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringTrim
+                        | TypedSemanticNodeKind.StringTrimStart valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringTrimStart
+                        | TypedSemanticNodeKind.StringTrimEnd valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringTrimEnd
                         | TypedSemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
                             lowerBinaryNode node listNodeId separatorNodeId (fun list separator -> ExecutionInstructionKind.StringJoin(list, separator))
                         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->

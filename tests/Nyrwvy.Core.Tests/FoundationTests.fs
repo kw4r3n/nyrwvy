@@ -71,6 +71,10 @@ module FoundationTests =
                 | SemanticNodeKind.StringJoin _
                 | SemanticNodeKind.StringSplit _
                 | SemanticNodeKind.StringSplitLines _
+                | SemanticNodeKind.StringReplace _
+                | SemanticNodeKind.StringTrim _
+                | SemanticNodeKind.StringTrimStart _
+                | SemanticNodeKind.StringTrimEnd _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringLessThan _
                 | SemanticNodeKind.ValueEqual _

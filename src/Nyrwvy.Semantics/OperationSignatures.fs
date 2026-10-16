@@ -119,6 +119,14 @@ module OperationSignatures =
               (SignatureType.List string)
               (Some "str.split(sep)")
           signature "stringSplitLines" [ operand "value" string; operand "breaks" string ] (SignatureType.List string) (Some "str.splitlines")
+          signature
+              "stringReplace"
+              [ operand "value" string; operand "pattern" string; operand "replacement" string ]
+              string
+              (Some "str.replace(old, new)")
+          unary "stringTrim" string string (Some "White_Space")
+          unary "stringTrimStart" string string (Some "White_Space")
+          unary "stringTrimEnd" string string (Some "White_Space")
           signature "stringJoin" [ operand "list" (SignatureType.List string); operand "separator" string ] string None
           unary "stringToLower" string string None
           unary "stringToUpper" string string None

@@ -66,6 +66,10 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.StringJoin _
                 | TypedSemanticNodeKind.StringSplit _
                 | TypedSemanticNodeKind.StringSplitLines _
+                | TypedSemanticNodeKind.StringReplace _
+                | TypedSemanticNodeKind.StringTrim _
+                | TypedSemanticNodeKind.StringTrimStart _
+                | TypedSemanticNodeKind.StringTrimEnd _
                 | TypedSemanticNodeKind.StringEqual _
                 | TypedSemanticNodeKind.StringLessThan _
                 | TypedSemanticNodeKind.ValueEqual _

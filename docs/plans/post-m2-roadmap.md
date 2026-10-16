@@ -486,6 +486,14 @@ After probe 25 nothing was blocked. The owner chose three changes: a scoped hand
 
 #364 fixed confined viewer writes to return errors instead of throwing; it is a fix, not an order.
 
+### Owner choice of 2026-10-16: ordinary string builtins
+
+The owner chose to add ordinary builtins ahead of probe evidence, with semantics that follow normal expectation (Python where it applies, unless stated otherwise).
+
+| Order | Gap | Evidence | Smallest change |
+| --- | --- | --- | --- |
+| 59 | **Done: `StringReplace` and the trims** (owner choice ahead of evidence) | None ranked; probe 8 wrote `str.replace` as `StringJoin(StringSplit(text, secret), "[REDACTED]")`, and several probes wrote `strip()` with `StringSpan`, `StringSpanBack` and `StringSlice` | `StringReplace(value, pattern, replacement)`, Python `str.replace(old, new)` with an empty pattern returning `value`; `StringTrim`, `StringTrimStart` and `StringTrimEnd` over Unicode White_Space ([decision](../decisions/string-replace-and-trim.md)) |
+
 ## Bounded Member integration evidence — 2026-10-12
 
 The [offline integration composition](../verification/member-integration-20261012.md)

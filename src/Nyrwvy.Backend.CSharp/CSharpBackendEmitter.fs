@@ -657,6 +657,46 @@ module CSharpBackend =
         writer.Line("return NyList<NyStr>.FromOwnedArray(lines);")
         writer.Pop()
         writer.Line("}")
+        // Replace takes the matches Split would cut at, so a match never splits a surrogate pair; an
+        // empty pattern returns the text unchanged.
+        writer.Line("public static string Replace(string text, string pattern, string replacement)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (pattern.Length == 0) return text;")
+        writer.Line("var found = Find(text, pattern, 0);")
+        writer.Line("if (found < 0) return text;")
+        writer.Line("var builder = new System.Text.StringBuilder(text.Length);")
+        writer.Line("var start = 0;")
+        writer.Line("for (; found >= 0; found = Find(text, pattern, start))")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("builder.Append(text, start, found - start).Append(replacement);")
+        writer.Line("start = found + pattern.Length;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("return builder.Append(text, start, text.Length - start).ToString();")
+        writer.Pop()
+        writer.Line("}")
+        // Trim removes code points with the Unicode White_Space property, which is char.IsWhiteSpace.
+        // Every White_Space code point is in the BMP and no surrogate unit is white space, so the
+        // walk by code unit never splits a pair.
+        writer.Line("public static string Trim(string text) => TrimEnd(TrimStart(text));")
+        writer.Line("public static string TrimStart(string text)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var start = 0;")
+        writer.Line("while (start < text.Length && char.IsWhiteSpace(text[start])) start++;")
+        writer.Line("return start == 0 ? text : text.Substring(start);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public static string TrimEnd(string text)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var end = text.Length;")
+        writer.Line("while (end > 0 && char.IsWhiteSpace(text[end - 1])) end--;")
+        writer.Line("return end == text.Length ? text : text.Substring(0, end);")
+        writer.Pop()
+        writer.Line("}")
         // ToLower applies the Unicode simple (one-to-one) lowercase mapping per code point, culture
         // invariant. string.ToLowerInvariant is not used: it replaces an unpaired surrogate with U+FFFD,
         // and .NET's invariant casing keeps U+0130 where UnicodeData maps it to U+0069.
@@ -1900,6 +1940,14 @@ module CSharpBackend =
             writer.Line(target + " = NyText.Split(" + valueName sourceValueId + ", " + valueName otherId + ");")
         | ExecutionInstructionKind.StringSplitLines(sourceValueId, breaksId) ->
             writer.Line(target + " = NyText.SplitLines(" + valueName sourceValueId + ", " + valueName breaksId + ");")
+        | ExecutionInstructionKind.StringReplace(sourceValueId, patternId, replacementId) ->
+            writer.Line(target + " = NyText.Replace(" + valueName sourceValueId + ", " + valueName patternId + ", " + valueName replacementId + ");")
+        | ExecutionInstructionKind.StringTrim sourceValueId ->
+            writer.Line(target + " = NyText.Trim(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.StringTrimStart sourceValueId ->
+            writer.Line(target + " = NyText.TrimStart(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.StringTrimEnd sourceValueId ->
+            writer.Line(target + " = NyText.TrimEnd(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringJoin(listValueId, separatorId) ->
             writer.Line(target + " = NyText.Join(" + valueName listValueId + ", " + valueName separatorId + ");")
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->

@@ -331,6 +331,18 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// value gives [] and a final break adds no trailing empty line; an empty `breaks` gives [value]
     /// (or [] for ""). Linear time; never fails.
     | StringSplitLines of valueNodeId: GraphNodeId * breaksNodeId: GraphNodeId
+    /// The String with every non-overlapping ordinal occurrence of the pattern, scanning left to
+    /// right, replaced by the replacement (Python `str.replace(old, new)`). A match starts and ends on
+    /// code-point boundaries, so it never splits a surrogate pair. An empty pattern gives the value
+    /// unchanged. Never fails.
+    | StringReplace of valueNodeId: GraphNodeId * patternNodeId: GraphNodeId * replacementNodeId: GraphNodeId
+    /// The String without its leading and trailing code points that have the Unicode White_Space
+    /// property (.NET `char.IsWhiteSpace`). Never fails.
+    | StringTrim of valueNodeId: GraphNodeId
+    /// The String without its leading White_Space code points, as StringTrim. Never fails.
+    | StringTrimStart of valueNodeId: GraphNodeId
+    /// The String without its trailing White_Space code points, as StringTrim. Never fails.
+    | StringTrimEnd of valueNodeId: GraphNodeId
     /// The List<String> items concatenated in order with the separator between adjacent items
     /// (Python `sep.join(list)`): an empty list gives "", one item gives that item. Never fails.
     | StringJoin of listNodeId: GraphNodeId * separatorNodeId: GraphNodeId
@@ -748,7 +760,12 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringFromCodePoint valueNodeId
         | SemanticNodeKind.StringToCodePoint valueNodeId
         | SemanticNodeKind.StringLength valueNodeId
+        | SemanticNodeKind.StringTrim valueNodeId
+        | SemanticNodeKind.StringTrimStart valueNodeId
+        | SemanticNodeKind.StringTrimEnd valueNodeId
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+            [ valueNodeId; patternNodeId; replacementNodeId ]
         | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
@@ -959,6 +976,11 @@ module SemanticNodeShape =
                 SemanticNodeKind.StringSplit(mapNodeId valueNodeId, mapNodeId separatorNodeId)
             | SemanticNodeKind.StringSplitLines(valueNodeId, breaksNodeId) ->
                 SemanticNodeKind.StringSplitLines(mapNodeId valueNodeId, mapNodeId breaksNodeId)
+            | SemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+                SemanticNodeKind.StringReplace(mapNodeId valueNodeId, mapNodeId patternNodeId, mapNodeId replacementNodeId)
+            | SemanticNodeKind.StringTrim valueNodeId -> SemanticNodeKind.StringTrim(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringTrimStart valueNodeId -> SemanticNodeKind.StringTrimStart(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringTrimEnd valueNodeId -> SemanticNodeKind.StringTrimEnd(mapNodeId valueNodeId)
             | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
                 SemanticNodeKind.StringJoin(mapNodeId listNodeId, mapNodeId separatorNodeId)
             | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
@@ -1235,6 +1257,10 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringJoin _
         | SemanticNodeKind.StringSplit _
         | SemanticNodeKind.StringSplitLines _
+        | SemanticNodeKind.StringReplace _
+        | SemanticNodeKind.StringTrim _
+        | SemanticNodeKind.StringTrimStart _
+        | SemanticNodeKind.StringTrimEnd _
         | SemanticNodeKind.StringEqual _
         | SemanticNodeKind.StringLessThan _
         | SemanticNodeKind.ValueEqual _
@@ -1460,6 +1486,10 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringEndsWith _
         | SemanticNodeKind.StringSplit _
         | SemanticNodeKind.StringSplitLines _
+        | SemanticNodeKind.StringReplace _
+        | SemanticNodeKind.StringTrim _
+        | SemanticNodeKind.StringTrimStart _
+        | SemanticNodeKind.StringTrimEnd _
         | SemanticNodeKind.StringJoin _
         | SemanticNodeKind.StringEqual _
         | SemanticNodeKind.StringLessThan _
@@ -1666,6 +1696,10 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringEndsWith _
         | SemanticNodeKind.StringSplit _
         | SemanticNodeKind.StringSplitLines _
+        | SemanticNodeKind.StringReplace _
+        | SemanticNodeKind.StringTrim _
+        | SemanticNodeKind.StringTrimStart _
+        | SemanticNodeKind.StringTrimEnd _
         | SemanticNodeKind.StringJoin _
         | SemanticNodeKind.StringEqual _
         | SemanticNodeKind.StringLessThan _
@@ -1837,6 +1871,10 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringEndsWith _
         | SemanticNodeKind.StringSplit _
         | SemanticNodeKind.StringSplitLines _
+        | SemanticNodeKind.StringReplace _
+        | SemanticNodeKind.StringTrim _
+        | SemanticNodeKind.StringTrimStart _
+        | SemanticNodeKind.StringTrimEnd _
         | SemanticNodeKind.StringJoin _
         | SemanticNodeKind.StringEqual _
         | SemanticNodeKind.StringLessThan _
