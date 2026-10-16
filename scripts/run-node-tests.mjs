@@ -4,7 +4,7 @@ import { discoverNodeTests, repositoryRoot, selectNodeTestShard } from "./node-t
 
 const args = process.argv.slice(2)
 const shardAt = args.indexOf("--shard")
-const shard = shardAt < 0 ? undefined : args.splice(shardAt, 2)[1]
+const shard = shardAt < 0 ? undefined : args.splice(shardAt, 2)[1] ?? ""
 const selected = args
 const allowed = new Set(["fast-contracts", "fast-adapters", "fast-mcp", "extended"])
 assert.ok(selected.length && new Set(selected).size === selected.length, "Select one or more distinct Node suites")
