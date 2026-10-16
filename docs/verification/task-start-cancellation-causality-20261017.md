@@ -65,8 +65,9 @@ new path. The cost is one walk over the scope's nesting depth per `Start`.
 
 `TaskScopeTests` ``a task started after an ancestor's cancellation is seen
 starts cancelled on the real runtime`` (Extended) emits the team program,
-compiles it with a probe `Program.cs`, and runs it on real threads. Each case
-holds the window open with a `Thread.Sleep(300)` cancellation callback:
+compiles it with a probe `Program.cs`, and runs it on real threads. In each
+case a cancellation callback blocks until the starter has probed, so the start
+always happens inside the window, however the threads are scheduled:
 
 | Case | Expected | Old runtime | Direct-parent check (3) | Path check (5) |
 | --- | --- | --- | --- | --- |

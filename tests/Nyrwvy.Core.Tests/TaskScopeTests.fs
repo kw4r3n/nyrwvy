@@ -497,9 +497,9 @@ module TaskScopeTests =
             Assert.True((result.Matches = Some true), sprintf "%A" result.Mismatch))
 
     /// Real-runtime probes of the generated scope runtime. Cancel() flags a token and wakes its waiters
-    /// before its callbacks cancel linked descendants, and runs callbacks newest first, so a slow
-    /// callback holds that window open: a starter woken by an ancestor's cancellation starts a task
-    /// while the target scope's own token is not cancelled yet.
+    /// before its callbacks cancel linked descendants, and runs callbacks newest first. A callback that
+    /// waits until the starter has probed holds that window open, so the starter, woken by an ancestor's
+    /// cancellation, always starts its task while propagation has not reached the target scope.
     let private causalityProbe =
         """using System;
 using System.Threading;
@@ -511,15 +511,17 @@ static class Program
     static void Await(WaitHandle handle, string what) => Check(handle.WaitOne(TimeSpan.FromSeconds(10)), "timed out: " + what);
     static bool Join(NyTask<bool> task) { Check(task.Running.Wait(TimeSpan.FromSeconds(10)), "join timed out"); return task.Running.Result; }
     static NyTask<bool> Probe(NyTaskScope scope) => scope.Start(() => NyRuntime.Cancellation.Value.IsCancellationRequested);
-    static void SlowCallbacks() => NyRuntime.Cancellation.Value.Register(() => Thread.Sleep(300));
+    // Holds Cancel() of `token` in its callbacks until the starter has probed.
+    static void HoldUntil(CancellationToken token, ManualResetEventSlim probed) => token.Register(() => Await(probed.WaitHandle, "probe inside the window"));
 
     // The scope's parent is the cancelled token itself (a host token here).
     static void HostParent()
     {
         using var root = new CancellationTokenSource();
+        using var probed = new ManualResetEventSlim();
         var scope = new NyTaskScope(root.Token);
-        root.Token.Register(() => Thread.Sleep(300));
-        var starter = System.Threading.Tasks.Task.Run(() => { Await(root.Token.WaitHandle, "root"); return Join(Probe(scope)); });
+        HoldUntil(root.Token, probed);
+        var starter = System.Threading.Tasks.Task.Run(() => { Await(root.Token.WaitHandle, "root"); try { return Join(Probe(scope)); } finally { probed.Set(); } });
         root.Cancel();
         Check(starter.Result, "host-parent: a task started after the root was seen cancelled ran clear");
         scope.Close(false);
@@ -527,7 +529,7 @@ static class Program
     }
 
     // inner is created by owner, a task of outer; member, a later task of outer, captures inner. Callbacks
-    // run newest first, so outer's cancellation reaches member, and member's slow callback, before owner.
+    // run newest first, so outer's cancellation reaches member, and member's held callback, before owner.
     static void SiblingOwnedScope(bool ancestor)
     {
         using var root = new CancellationTokenSource();
@@ -535,6 +537,7 @@ static class Program
         NyTaskScope? inner = null;
         using var innerReady = new ManualResetEventSlim();
         using var memberReady = new ManualResetEventSlim();
+        using var probed = new ManualResetEventSlim();
         var owner = outer.Start(() =>
         {
             inner = new NyTaskScope(NyRuntime.Cancellation.Value);
@@ -546,17 +549,23 @@ static class Program
         Await(innerReady.WaitHandle, "inner");
         var member = outer.Start(() =>
         {
-            SlowCallbacks();
+            HoldUntil(NyRuntime.Cancellation.Value, probed);
             memberReady.Set();
             NyRuntime.WaitForCancellation();
-            bool intoInner = Join(Probe(inner!)), intoOuter = Join(Probe(outer));
-            // A shield cuts the path: a scope created under it stays clear.
-            var token = NyRuntime.Cancellation.Value;
-            NyRuntime.Cancellation.Value = CancellationToken.None;
-            var shielded = new NyTaskScope(NyRuntime.Cancellation.Value);
-            bool intoShielded = Join(Probe(shielded));
-            shielded.Close(false);
-            NyRuntime.Cancellation.Value = token;
+            bool intoInner, intoOuter, intoShielded;
+            try
+            {
+                intoInner = Join(Probe(inner!));
+                intoOuter = Join(Probe(outer));
+                // A shield cuts the path: a scope created under it stays clear.
+                var token = NyRuntime.Cancellation.Value;
+                NyRuntime.Cancellation.Value = CancellationToken.None;
+                var shielded = new NyTaskScope(NyRuntime.Cancellation.Value);
+                intoShielded = Join(Probe(shielded));
+                shielded.Close(false);
+                NyRuntime.Cancellation.Value = token;
+            }
+            finally { probed.Set(); }
             return ancestor ? intoInner && intoOuter && !intoShielded : !intoInner && !intoOuter && !intoShielded;
         });
         Await(memberReady.WaitHandle, "member");
