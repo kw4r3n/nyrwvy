@@ -1395,6 +1395,8 @@ module CSharpBackend =
           "public sealed class NyTaskScope"
           "{"
           "    private readonly System.Threading.CancellationTokenSource _cancellation;"
+          "    private readonly NyCancellationPath? _ancestors;"
+          "    private readonly NyCancellationPath _path;"
           "    private readonly System.Collections.Generic.List<INyTask> _tasks = new();"
           "    private bool _closed;"
           "    internal object HandoffGate { get; } = new();"
@@ -1402,7 +1404,9 @@ module CSharpBackend =
           "    private readonly System.Collections.Generic.HashSet<INyOneShot> _handoffs = new();"
           "    public NyTaskScope(System.Threading.CancellationToken parent)"
           "    {"
+          "        _ancestors = NyCancellationPath.Of(parent);"
           "        _cancellation = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(parent);"
+          "        _path = new NyCancellationPath(_cancellation.Token, _ancestors);"
           "        _cancellation.Token.Register(CloseHandoffs);"
           "    }"
           "    public NyOneShot<T> CreateOneShot<T>()"
@@ -1429,15 +1433,23 @@ module CSharpBackend =
           "    }"
           "    public NyTask<T> Start<T>(Func<T> work)"
           "    {"
+          "        // A starter that has seen an ancestor's cancellation must not start a clear task while that"
+          "        // ancestor's callbacks are still on their way down to this scope. The scope will be"
+          "        // cancelled anyway, so cancelling it now only moves that earlier. Outside the lock: its"
+          "        // callbacks take HandoffGate and may start tasks."
+          "        if (!_cancellation.IsCancellationRequested && _ancestors != null && _ancestors.AnyCancellationRequested()) _cancellation.Cancel();"
           "        System.Threading.CancellationTokenSource cancellation;"
+          "        NyCancellationPath path;"
           "        lock (_tasks)"
           "        {"
           "            cancellation = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(_cancellation.Token);"
+          "            path = new NyCancellationPath(cancellation.Token, _path);"
           "            if (!_closed)"
           "            {"
           "                var running = NyRuntime.Run(() =>"
           "                {"
           "                    NyRuntime.Cancellation.Value = cancellation.Token;"
+          "                    NyRuntime.CancellationPath.Value = path;"
           "                    return work();"
           "                });"
           "                var task = new NyTask<T>(cancellation, running);"
@@ -1450,10 +1462,12 @@ module CSharpBackend =
           "        // from other threads (through ParallelAll) would otherwise wait on it forever."
           "        cancellation.Cancel();"
           "        var previous = NyRuntime.Cancellation.Value;"
+          "        var previousPath = NyRuntime.CancellationPath.Value;"
           "        NyRuntime.Cancellation.Value = cancellation.Token;"
+          "        NyRuntime.CancellationPath.Value = path;"
           "        try { return new NyTask<T>(cancellation, System.Threading.Tasks.Task.FromResult(work())); }"
           "        catch (Exception error) { return new NyTask<T>(cancellation, System.Threading.Tasks.Task.FromException<T>(error)); }"
-          "        finally { NyRuntime.Cancellation.Value = previous; }"
+          "        finally { NyRuntime.Cancellation.Value = previous; NyRuntime.CancellationPath.Value = previousPath; }"
           "    }"
           "    /// Cancels and awaits every task. Unless the body itself threw, rethrows the host exception of"
           "    /// the earliest-started task that raised one."
@@ -1511,9 +1525,34 @@ module CSharpBackend =
     /// Every blocking point of generated concurrency goes through NyRuntime, so a runner can install a
     /// virtual clock. Without one (the default) waits use real threads and the monotonic system timer.
     let private concurrencyRuntime =
-        [ "public static class NyRuntime"
+        [ "/// A runtime-made token and the tokens it descends from, nearest first. Cancel() flags a token"
+          "/// before its callbacks cancel the linked descendants, so a descendant can still read clear"
+          "/// after an ancestor is flagged; the path lets a scope see that ancestor."
+          "internal sealed class NyCancellationPath"
+          "{"
+          "    internal NyCancellationPath(System.Threading.CancellationToken token, NyCancellationPath? parent) { Token = token; Parent = parent; }"
+          "    internal System.Threading.CancellationToken Token { get; }"
+          "    internal NyCancellationPath? Parent { get; }"
+          "    /// The ambient path when it belongs to `token`; a host token starts a path of its own and"
+          "    /// the shield's None has none, so a shield cuts the path as it cuts cancellation."
+          "    internal static NyCancellationPath? Of(System.Threading.CancellationToken token)"
+          "    {"
+          "        var ambient = NyRuntime.CancellationPath.Value;"
+          "        if (ambient != null && ambient.Token == token) return ambient;"
+          "        return token.CanBeCanceled ? new NyCancellationPath(token, null) : null;"
+          "    }"
+          "    internal bool AnyCancellationRequested()"
+          "    {"
+          "        for (var path = this; path != null; path = path.Parent) if (path.Token.IsCancellationRequested) return true;"
+          "        return false;"
+          "    }"
+          "}"
+          ""
+          "public static class NyRuntime"
           "{"
           "    public static readonly System.Threading.AsyncLocal<System.Threading.CancellationToken> Cancellation = new();"
+          "    /// The path of `Cancellation` while it holds a token the runtime made; any other token starts its own."
+          "    internal static readonly System.Threading.AsyncLocal<NyCancellationPath?> CancellationPath = new();"
           "    /// Set once before the entry call by a deterministic runner; null runs on real time."
           "    public static NyVirtualClock? Clock;"
           "    public static bool CancellationRequested => Cancellation.Value.IsCancellationRequested;"
@@ -2435,11 +2474,13 @@ module CSharpBackend =
                 | other -> invalidOp $"ParallelAll result must be Result<List<U>, E>, got {other}."
             let resultType = formatType instruction.Result.Type
             let name suffix = target + "_" + suffix
-            let items, cts, tasks, index, item, result = name "items", name "cts", name "tasks", name "i", name "item", name "result"
+            let items, cts, path, tasks, index, item, result = name "items", name "cts", name "path", name "tasks", name "i", name "item", name "result"
             writer.Line("{")
             writer.Push()
             writer.Line("var " + items + " = " + valueName sourceListValueId + ".Fold(new System.Collections.Generic.List<" + itemType + ">(), (" + name "acc" + ", " + name "x" + ") => { " + name "acc" + ".Add(" + name "x" + "); return " + name "acc" + "; });")
             writer.Line("using var " + cts + " = System.Threading.CancellationTokenSource.CreateLinkedTokenSource(NyRuntime.Cancellation.Value);")
+            // Scopes the workers create see the path above the workers' token.
+            writer.Line("var " + path + " = new NyCancellationPath(" + cts + ".Token, NyCancellationPath.Of(NyRuntime.Cancellation.Value));")
             writer.Line("var " + tasks + " = new System.Threading.Tasks.Task<" + workerResult + ">[" + items + ".Count];")
             writer.Line("for (var " + index + " = 0; " + index + " < " + items + ".Count; " + index + "++)")
             writer.Line("{")
@@ -2449,6 +2490,7 @@ module CSharpBackend =
             writer.Line("{")
             writer.Push()
             writer.Line("NyRuntime.Cancellation.Value = " + cts + ".Token;")
+            writer.Line("NyRuntime.CancellationPath.Value = " + path + ";")
             writer.Line("try")
             writer.Line("{")
             writer.Push()
