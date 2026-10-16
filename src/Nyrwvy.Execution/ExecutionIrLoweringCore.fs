@@ -372,6 +372,15 @@ module ExecutionIr =
                             lowerBinaryNode node valueNodeId otherNodeId (fun value other -> ExecutionInstructionKind.StringSplit(value, other))
                         | TypedSemanticNodeKind.StringSplitLines(valueNodeId, breaksNodeId) ->
                             lowerBinaryNode node valueNodeId breaksNodeId (fun value breaks -> ExecutionInstructionKind.StringSplitLines(value, breaks))
+                        | TypedSemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+                            lowerTernaryNode node valueNodeId patternNodeId replacementNodeId (fun valueId patternId replacementId ->
+                                ExecutionInstructionKind.StringReplace(valueId, patternId, replacementId))
+                        | TypedSemanticNodeKind.StringTrim valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringTrim
+                        | TypedSemanticNodeKind.StringTrimStart valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringTrimStart
+                        | TypedSemanticNodeKind.StringTrimEnd valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringTrimEnd
                         | TypedSemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
                             lowerBinaryNode node listNodeId separatorNodeId (fun list separator -> ExecutionInstructionKind.StringJoin(list, separator))
                         | TypedSemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
@@ -396,6 +405,16 @@ module ExecutionIr =
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64Min(left, right))
                         | TypedSemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64Max(left, right))
+                        | TypedSemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64BitAnd(left, right))
+                        | TypedSemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64BitOr(left, right))
+                        | TypedSemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64BitXor(left, right))
+                        | TypedSemanticNodeKind.Int64ShiftLeft(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64ShiftLeft(left, right))
+                        | TypedSemanticNodeKind.Int64ShiftRight(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64ShiftRight(left, right))
                         | TypedSemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64CheckedAdd(left, right))
                         | TypedSemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
@@ -420,6 +439,10 @@ module ExecutionIr =
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Int64GreaterThanOrEqual(left, right))
                         | TypedSemanticNodeKind.Float64Add(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Add(left, right))
+                        | TypedSemanticNodeKind.Float64Min(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Min(left, right))
+                        | TypedSemanticNodeKind.Float64Max(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Max(left, right))
                         | TypedSemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Subtract(left, right))
                         | TypedSemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId) ->
@@ -440,6 +463,8 @@ module ExecutionIr =
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64ToFloat64
                         | TypedSemanticNodeKind.Int64WrappingAbs valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64WrappingAbs
+                        | TypedSemanticNodeKind.Int64BitNot valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.Int64BitNot
                         | TypedSemanticNodeKind.Bits32FromInt64 valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.Bits32FromInt64
                         | TypedSemanticNodeKind.Bits32ToInt64 valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.Bits32ToInt64
                         | TypedSemanticNodeKind.Bits32Not valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.Bits32Not
@@ -514,12 +539,24 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
                             lowerBinaryNode node mapNodeId keyNodeId (fun mapValueId keyValueId ->
                                 ExecutionInstructionKind.MapGet(mapValueId, keyValueId))
+                        | TypedSemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
+                            lowerBinaryNode node optionNodeId defaultNodeId (fun optionValueId defaultValueId ->
+                                ExecutionInstructionKind.OptionGetOrDefault(optionValueId, defaultValueId))
                         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
                             lowerTernaryNode node mapNodeId keyNodeId defaultNodeId (fun mapValueId keyValueId defaultValueId ->
                                 ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId))
                         | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
                             lowerTernaryNode node listNodeId startNodeId endNodeId (fun listValueId startId endId ->
                                 ExecutionInstructionKind.ListSlice(listValueId, startId, endId))
+                        | TypedSemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId) ->
+                            lowerTernaryNode node listNodeId indexNodeId itemNodeId (fun listValueId indexValueId itemValueId ->
+                                ExecutionInstructionKind.ListSetAt(listValueId, indexValueId, itemValueId))
+                        | TypedSemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) ->
+                            lowerTernaryNode node listNodeId indexNodeId itemNodeId (fun listValueId indexValueId itemValueId ->
+                                ExecutionInstructionKind.ListInsertAt(listValueId, indexValueId, itemValueId))
+                        | TypedSemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) ->
+                            lowerBinaryNode node listNodeId indexNodeId (fun listValueId indexValueId ->
+                                ExecutionInstructionKind.ListRemoveAt(listValueId, indexValueId))
                         | TypedSemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId) ->
                             lowerTernaryNode node mapNodeId keyNodeId valueNodeId (fun mapValueId startId endId ->
                                 ExecutionInstructionKind.MapInsert(mapValueId, startId, endId))
@@ -535,6 +572,12 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId) ->
                             lowerBinaryNode node leftSetNodeId rightSetNodeId (fun leftValueId rightValueId ->
                                 ExecutionInstructionKind.SetDifference(leftValueId, rightValueId))
+                        | TypedSemanticNodeKind.SetIsSubset(leftSetNodeId, rightSetNodeId) ->
+                            lowerBinaryNode node leftSetNodeId rightSetNodeId (fun leftValueId rightValueId ->
+                                ExecutionInstructionKind.SetIsSubset(leftValueId, rightValueId))
+                        | TypedSemanticNodeKind.MapUnion(leftMapNodeId, rightMapNodeId) ->
+                            lowerBinaryNode node leftMapNodeId rightMapNodeId (fun leftValueId rightValueId ->
+                                ExecutionInstructionKind.MapUnion(leftValueId, rightValueId))
                         | TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                             lowerBinaryNode node leftListNodeId rightListNodeId (fun leftValueId rightValueId ->
                                 ExecutionInstructionKind.ListConcat(leftValueId, rightValueId))
@@ -618,6 +661,15 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId mapperFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListMap(source, callback, lowered))
+                        | TypedSemanticNodeKind.ListZipWith(leftListNodeId, rightListNodeId, combinerFunctionId, context) ->
+                            match lowerCallArguments context with
+                            | Error error -> Error error
+                            | Ok lowered ->
+                                lowerBinaryNode node leftListNodeId rightListNodeId (fun left right ->
+                                    ExecutionInstructionKind.ListZipWith(left, right, combinerFunctionId, lowered))
+                        | TypedSemanticNodeKind.ListFlatMap(sourceListNodeId, mapperFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId mapperFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListFlatMap(source, callback, lowered))
                         | TypedSemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId keyOfFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.MapFromList(source, callback, lowered))
@@ -633,6 +685,21 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId lessThanFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListMinBy(source, callback, lowered))
+                        | TypedSemanticNodeKind.OptionMap(sourceNodeId, functionId, context) ->
+                            lowerListCallbackNode node sourceNodeId functionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.OptionMap(source, callback, lowered))
+                        | TypedSemanticNodeKind.OptionAndThen(sourceNodeId, functionId, context) ->
+                            lowerListCallbackNode node sourceNodeId functionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.OptionAndThen(source, callback, lowered))
+                        | TypedSemanticNodeKind.ResultMap(sourceNodeId, functionId, context) ->
+                            lowerListCallbackNode node sourceNodeId functionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ResultMap(source, callback, lowered))
+                        | TypedSemanticNodeKind.ResultMapErr(sourceNodeId, functionId, context) ->
+                            lowerListCallbackNode node sourceNodeId functionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ResultMapErr(source, callback, lowered))
+                        | TypedSemanticNodeKind.ResultAndThen(sourceNodeId, functionId, context) ->
+                            lowerListCallbackNode node sourceNodeId functionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ResultAndThen(source, callback, lowered))
                         | TypedSemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
                             lowerListCallbackNode node sourceMapNodeId mapperFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.MapMapValues(source, callback, lowered))

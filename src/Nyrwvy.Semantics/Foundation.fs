@@ -331,6 +331,18 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// value gives [] and a final break adds no trailing empty line; an empty `breaks` gives [value]
     /// (or [] for ""). Linear time; never fails.
     | StringSplitLines of valueNodeId: GraphNodeId * breaksNodeId: GraphNodeId
+    /// The String with every non-overlapping ordinal occurrence of the pattern, scanning left to
+    /// right, replaced by the replacement (Python `str.replace(old, new)`). A match starts and ends on
+    /// code-point boundaries, so it never splits a surrogate pair. An empty pattern gives the value
+    /// unchanged. Never fails.
+    | StringReplace of valueNodeId: GraphNodeId * patternNodeId: GraphNodeId * replacementNodeId: GraphNodeId
+    /// The String without its leading and trailing code points that have the Unicode White_Space
+    /// property (.NET `char.IsWhiteSpace`). Never fails.
+    | StringTrim of valueNodeId: GraphNodeId
+    /// The String without its leading White_Space code points, as StringTrim. Never fails.
+    | StringTrimStart of valueNodeId: GraphNodeId
+    /// The String without its trailing White_Space code points, as StringTrim. Never fails.
+    | StringTrimEnd of valueNodeId: GraphNodeId
     /// The List<String> items concatenated in order with the separator between adjacent items
     /// (Python `sep.join(list)`): an empty list gives "", one item gives that item. Never fails.
     | StringJoin of listNodeId: GraphNodeId * separatorNodeId: GraphNodeId
@@ -352,6 +364,18 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Int64Min of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     /// The larger of two Int64 values, as Python max(left, right). Never fails.
     | Int64Max of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// Two's-complement bitwise AND, as Python left & right. Never fails.
+    | Int64BitAnd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// Two's-complement bitwise OR, as Python left | right. Never fails.
+    | Int64BitOr of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// Two's-complement bitwise XOR, as Python left ^ right. Never fails.
+    | Int64BitXor of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// The value shifted left by count bits, keeping the low 64 bits. A negative count shifts by 0 and a
+    /// count of 64 or more gives 0. Never fails.
+    | Int64ShiftLeft of valueNodeId: GraphNodeId * countNodeId: GraphNodeId
+    /// The value shifted right by count bits with the sign propagated, as Python value >> count. A negative
+    /// count shifts by 0 and a count of 64 or more gives 0 or -1 by the value's sign. Never fails.
+    | Int64ShiftRight of valueNodeId: GraphNodeId * countNodeId: GraphNodeId
     /// Exact left + right as Option<Int64>: None when the exact result is outside Int64. Never fails.
     | Int64CheckedAdd of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     /// Exact left - right as Option<Int64>: None when the exact result is outside Int64. Never fails.
@@ -374,6 +398,12 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Int64GreaterThan of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Int64GreaterThanOrEqual of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Float64Add of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// The smaller operand as IEEE 754-2019 minimum (.NET Math.Min): NaN when either operand is NaN, and
+    /// -0.0 is less than 0.0. Never fails.
+    | Float64Min of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// The larger operand as IEEE 754-2019 maximum (.NET Math.Max): NaN when either operand is NaN, and
+    /// 0.0 is greater than -0.0. Never fails.
+    | Float64Max of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Float64Subtract of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Float64Multiply of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
     | Float64Divide of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
@@ -388,6 +418,8 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// The absolute value of an Int64 with two's-complement wrapping, so Int64.MinValue gives itself, as
     /// Int64FloorDivide wraps Int64.MinValue / -1. Never fails.
     | Int64WrappingAbs of valueNodeId: GraphNodeId
+    /// The two's-complement bitwise complement, as Python ~value (-value - 1). Never fails.
+    | Int64BitNot of valueNodeId: GraphNodeId
     /// The low 32 bits of the Int64's two's complement form (value mod 2^32). Never fails.
     | Bits32FromInt64 of valueNodeId: GraphNodeId
     /// The Bits32 read as an unsigned integer, 0..4294967295. Never fails.
@@ -449,6 +481,13 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | SetIntersection of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
     /// The left items that the right set does not contain, in left order. Never fails.
     | SetDifference of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
+    /// True when every left item is in the right set (ValueEqual), as Python left <= right; an empty
+    /// left set is a subset of any set. Never fails.
+    | SetIsSubset of leftSetNodeId: GraphNodeId * rightSetNodeId: GraphNodeId
+    /// The Map<K, V> with every entry of both maps; on a shared key the right value wins (Python
+    /// left | right). Left keys keep their positions, then right's new keys follow in right's order,
+    /// as inserting right's entries into left with MapInsert. Never fails.
+    | MapUnion of leftMapNodeId: GraphNodeId * rightMapNodeId: GraphNodeId
     /// True when the map has the key, compared with ValueEqual, as Python key in map. Never fails.
     | MapContainsKey of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     /// True when the set has the item, compared with ValueEqual, as Python item in set. Never fails.
@@ -467,6 +506,15 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// like StringSlice (negative bounds are not counted from the end; end <= start gives the
     /// empty list). Same List<T> type as the input; never fails.
     | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
+    /// The List<T> with the item at zero-based Int64 `index` replaced; an index outside
+    /// [0, length) returns the list unchanged. O(log n) path copy. Never fails.
+    | ListSetAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    /// The List<T> with the item inserted before position `index`, clamped to [0, length]
+    /// (negative inserts first, length or more appends; not counted from the end). Never fails.
+    | ListInsertAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    /// The List<T> without the item at zero-based `index`; an index outside [0, length) returns the
+    /// list unchanged. Never fails.
+    | ListRemoveAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
     /// The Map<K, V> with the key set to the value: a present key keeps its position, an absent key
     /// goes last, as Python map[key] = value on a copy. Never fails.
     | MapInsert of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * valueNodeId: GraphNodeId
@@ -514,6 +562,12 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | OneShotWait of cell: GraphNodeId * limit: GraphNodeId option
     | ListEffectFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     | ListMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    /// The List<R> whose item i is combiner(left[i], right[i]) for every index below the shorter
+    /// length; the extra items of the longer list are ignored, as Python zip. Never fails.
+    | ListZipWith of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId * combinerFunctionId: FunctionId * context: ArgumentBinding list
+    /// The concatenation, in source order, of the List<R> the mapper returns for each item, built in
+    /// time linear in the total output length. Never fails.
+    | ListFlatMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
     /// The items of a List<T> indexed by a pure `T -> K` callback, as Map<K, T>: a repeated key
     /// keeps its first position and takes the last item, as repeated MapInsert does. K must be
     /// equatable. Never fails.
@@ -559,6 +613,24 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ResultOk of errorType: TypeRef * valueNodeId: GraphNodeId
     | Abort of errorNodeId: GraphNodeId
     | ResultErr of okType: TypeRef * errorNodeId: GraphNodeId
+    /// The Some value, or the default (of the option's item type) for None, as Rust's
+    /// Option::unwrap_or. Both operands are evaluated. Never fails.
+    | OptionGetOrDefault of optionNodeId: GraphNodeId * defaultNodeId: GraphNodeId
+    /// Option<T> to Option<R>: None stays None and Some x becomes Some of a pure `T -> R` callback's
+    /// result, as Rust's Option::map. The callback runs only for Some. Never fails.
+    | OptionMap of sourceOptionNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    /// Option<T> to Option<R>: None stays None and Some x becomes a pure `T -> Option<R>` callback's
+    /// result, as Rust's Option::and_then. The callback runs only for Some. Never fails.
+    | OptionAndThen of sourceOptionNodeId: GraphNodeId * binderFunctionId: FunctionId * context: ArgumentBinding list
+    /// Result<T, E> to Result<R, E>: Ok x becomes Ok of a pure `T -> R` callback's result and Err
+    /// stays unchanged, as Rust's Result::map. The callback runs only for Ok. Never fails.
+    | ResultMap of sourceResultNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    /// Result<T, E> to Result<T, F>: Err e becomes Err of a pure `E -> F` callback's result and Ok
+    /// stays unchanged, as Rust's Result::map_err. The callback runs only for Err. Never fails.
+    | ResultMapErr of sourceResultNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    /// Result<T, E> to Result<R, E>: Ok x becomes a pure `T -> Result<R, E>` callback's result and
+    /// Err stays unchanged, as Rust's Result::and_then. The callback runs only for Ok. Never fails.
+    | ResultAndThen of sourceResultNodeId: GraphNodeId * binderFunctionId: FunctionId * context: ArgumentBinding list
     /// Logical negation of a Bool operand; the dedicated form of Conditional(operand, false, true).
     | BoolNot of operandNodeId: GraphNodeId
     /// True when both operands are true. The nested right graph follows Conditional branch rules and
@@ -621,6 +693,9 @@ type FunctionReferenceRole =
     | DirectCall
     /// ListFold, ListMap, ListFilter, ListSortBy, ListMinBy, ListFindIndex, ListAny, ListAll, MapFold,
     /// MapFromList, MapFilter or MapMapValues: a callback validation requires to be pure.
+    /// ListZipWith and ListFlatMap callbacks are pure in the same way.
+    /// MapFromList, MapFilter, MapMapValues, OptionMap, OptionAndThen, ResultMap, ResultMapErr or
+    /// ResultAndThen: a callback validation requires to be pure.
     | PureListCallback
     /// ListEffectFold: a folder that may require effects.
     | EffectListCallback
@@ -748,7 +823,12 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringFromCodePoint valueNodeId
         | SemanticNodeKind.StringToCodePoint valueNodeId
         | SemanticNodeKind.StringLength valueNodeId
+        | SemanticNodeKind.StringTrim valueNodeId
+        | SemanticNodeKind.StringTrimStart valueNodeId
+        | SemanticNodeKind.StringTrimEnd valueNodeId
         | SemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+            [ valueNodeId; patternNodeId; replacementNodeId ]
         | SemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
             [ valueNodeId; substringNodeId ]
@@ -768,6 +848,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64ShiftLeft(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64ShiftRight(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
@@ -780,6 +865,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Min(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Max(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
@@ -798,6 +885,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Float64IsFinite valueNodeId
         | SemanticNodeKind.Int64ToFloat64 valueNodeId
         | SemanticNodeKind.Int64WrappingAbs valueNodeId
+        | SemanticNodeKind.Int64BitNot valueNodeId
         | SemanticNodeKind.Bits32FromInt64 valueNodeId
         | SemanticNodeKind.Bits32ToInt64 valueNodeId
         | SemanticNodeKind.Bits32Not valueNodeId
@@ -813,11 +901,18 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListReverse listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListLast listNodeId -> [ listNodeId ]
         | SemanticNodeKind.ListDropLast listNodeId -> [ listNodeId ]
+        | SemanticNodeKind.ListZipWith(leftNodeId, rightNodeId, _, context) -> leftNodeId :: rightNodeId :: contextValues context
+        | SemanticNodeKind.ListFlatMap(sourceNodeId, _, context)
         | SemanticNodeKind.ListMap(sourceNodeId, _, context)
         | SemanticNodeKind.MapFromList(sourceNodeId, _, context)
         | SemanticNodeKind.ListFilter(sourceNodeId, _, context)
         | SemanticNodeKind.MapFilter(sourceNodeId, _, context)
         | SemanticNodeKind.ListSortBy(sourceNodeId, _, context)
+        | SemanticNodeKind.OptionMap(sourceNodeId, _, context)
+        | SemanticNodeKind.OptionAndThen(sourceNodeId, _, context)
+        | SemanticNodeKind.ResultMap(sourceNodeId, _, context)
+        | SemanticNodeKind.ResultMapErr(sourceNodeId, _, context)
+        | SemanticNodeKind.ResultAndThen(sourceNodeId, _, context)
         | SemanticNodeKind.MapMapValues(sourceNodeId, _, context)
         | SemanticNodeKind.ListMinBy(sourceNodeId, _, context)
         | SemanticNodeKind.ListAny(sourceNodeId, _, context)
@@ -830,14 +925,20 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetRemove(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
         | SemanticNodeKind.SetUnion(leftNodeId, rightNodeId)
         | SemanticNodeKind.SetIntersection(leftNodeId, rightNodeId)
-        | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId)
+        | SemanticNodeKind.SetIsSubset(leftNodeId, rightNodeId)
+        | SemanticNodeKind.MapUnion(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
         | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
         | SemanticNodeKind.ListIndexOf(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.ListLastIndexOf(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
+        | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) -> [ optionNodeId; defaultNodeId ]
         | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) -> [ sourceMapNodeId; keyNodeId; defaultNodeId ]
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
+        | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId)
+        | SemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) -> [ listNodeId; indexNodeId; itemNodeId ]
+        | SemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
         | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) -> [ sourceMapNodeId; keyNodeId; valueNodeId ]
         | SemanticNodeKind.ListFold(sourceNodeId, seedNodeId, _, context)
         | SemanticNodeKind.MapFold(sourceNodeId, seedNodeId, _, context)
@@ -959,6 +1060,11 @@ module SemanticNodeShape =
                 SemanticNodeKind.StringSplit(mapNodeId valueNodeId, mapNodeId separatorNodeId)
             | SemanticNodeKind.StringSplitLines(valueNodeId, breaksNodeId) ->
                 SemanticNodeKind.StringSplitLines(mapNodeId valueNodeId, mapNodeId breaksNodeId)
+            | SemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+                SemanticNodeKind.StringReplace(mapNodeId valueNodeId, mapNodeId patternNodeId, mapNodeId replacementNodeId)
+            | SemanticNodeKind.StringTrim valueNodeId -> SemanticNodeKind.StringTrim(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringTrimStart valueNodeId -> SemanticNodeKind.StringTrimStart(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringTrimEnd valueNodeId -> SemanticNodeKind.StringTrimEnd(mapNodeId valueNodeId)
             | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
                 SemanticNodeKind.StringJoin(mapNodeId listNodeId, mapNodeId separatorNodeId)
             | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
@@ -983,6 +1089,16 @@ module SemanticNodeShape =
                 SemanticNodeKind.Int64Min(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.Int64Max(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64BitAnd(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64BitOr(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Int64BitXor(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Int64ShiftLeft(valueNodeId, countNodeId) ->
+                SemanticNodeKind.Int64ShiftLeft(mapNodeId valueNodeId, mapNodeId countNodeId)
+            | SemanticNodeKind.Int64ShiftRight(valueNodeId, countNodeId) ->
+                SemanticNodeKind.Int64ShiftRight(mapNodeId valueNodeId, mapNodeId countNodeId)
             | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.Int64CheckedAdd(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
@@ -1007,6 +1123,10 @@ module SemanticNodeShape =
                 SemanticNodeKind.Int64GreaterThanOrEqual(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.Float64Add(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Float64Min(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Float64Min(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.Float64Max(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.Float64Max(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.Float64Subtract(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId) ->
@@ -1022,6 +1142,7 @@ module SemanticNodeShape =
             | SemanticNodeKind.Float64IsInfinite valueNodeId -> SemanticNodeKind.Float64IsInfinite(mapNodeId valueNodeId)
             | SemanticNodeKind.Int64ToFloat64 valueNodeId -> SemanticNodeKind.Int64ToFloat64(mapNodeId valueNodeId)
             | SemanticNodeKind.Int64WrappingAbs valueNodeId -> SemanticNodeKind.Int64WrappingAbs(mapNodeId valueNodeId)
+            | SemanticNodeKind.Int64BitNot valueNodeId -> SemanticNodeKind.Int64BitNot(mapNodeId valueNodeId)
             | SemanticNodeKind.Bits32FromInt64 valueNodeId -> SemanticNodeKind.Bits32FromInt64(mapNodeId valueNodeId)
             | SemanticNodeKind.Bits32ToInt64 valueNodeId -> SemanticNodeKind.Bits32ToInt64(mapNodeId valueNodeId)
             | SemanticNodeKind.Bits32Not valueNodeId -> SemanticNodeKind.Bits32Not(mapNodeId valueNodeId)
@@ -1063,6 +1184,10 @@ module SemanticNodeShape =
                 SemanticNodeKind.SetIntersection(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId) ->
                 SemanticNodeKind.SetDifference(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.SetIsSubset(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.SetIsSubset(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.MapUnion(leftNodeId, rightNodeId) ->
+                SemanticNodeKind.MapUnion(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.MapContainsKey(sourceMapNodeId, keyNodeId) ->
                 SemanticNodeKind.MapContainsKey(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
             | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) ->
@@ -1077,6 +1202,12 @@ module SemanticNodeShape =
                 SemanticNodeKind.MapGetOrDefault(mapNodeId sourceMapNodeId, mapNodeId keyNodeId, mapNodeId defaultNodeId)
             | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
                 SemanticNodeKind.ListSlice(mapNodeId listNodeId, mapNodeId startNodeId, mapNodeId endNodeId)
+            | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId) ->
+                SemanticNodeKind.ListSetAt(mapNodeId listNodeId, mapNodeId indexNodeId, mapNodeId itemNodeId)
+            | SemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) ->
+                SemanticNodeKind.ListInsertAt(mapNodeId listNodeId, mapNodeId indexNodeId, mapNodeId itemNodeId)
+            | SemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) ->
+                SemanticNodeKind.ListRemoveAt(mapNodeId listNodeId, mapNodeId indexNodeId)
             | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) ->
                 SemanticNodeKind.MapInsert(mapNodeId sourceMapNodeId, mapNodeId keyNodeId, mapNodeId valueNodeId)
             | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
@@ -1114,6 +1245,10 @@ module SemanticNodeShape =
             | SemanticNodeKind.OneShotComplete(cell, value) -> SemanticNodeKind.OneShotComplete(mapNodeId cell, mapNodeId value)
             | SemanticNodeKind.OneShotWait(cell, limit) -> SemanticNodeKind.OneShotWait(mapNodeId cell, Option.map mapNodeId limit)
             | SemanticNodeKind.TaskCancel taskNodeId -> SemanticNodeKind.TaskCancel(mapNodeId taskNodeId)
+            | SemanticNodeKind.ListZipWith(leftNodeId, rightNodeId, functionId, context) ->
+                SemanticNodeKind.ListZipWith(mapNodeId leftNodeId, mapNodeId rightNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ListFlatMap(sourceListNodeId, functionId, context) ->
+                SemanticNodeKind.ListFlatMap(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListMap(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListMap(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.MapFromList(sourceListNodeId, functionId, context) ->
@@ -1124,6 +1259,18 @@ module SemanticNodeShape =
                 SemanticNodeKind.MapFilter(mapNodeId sourceMapNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListSortBy(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListSortBy(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
+                SemanticNodeKind.OptionGetOrDefault(mapNodeId optionNodeId, mapNodeId defaultNodeId)
+            | SemanticNodeKind.OptionMap(sourceNodeId, functionId, context) ->
+                SemanticNodeKind.OptionMap(mapNodeId sourceNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.OptionAndThen(sourceNodeId, functionId, context) ->
+                SemanticNodeKind.OptionAndThen(mapNodeId sourceNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ResultMap(sourceNodeId, functionId, context) ->
+                SemanticNodeKind.ResultMap(mapNodeId sourceNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ResultMapErr(sourceNodeId, functionId, context) ->
+                SemanticNodeKind.ResultMapErr(mapNodeId sourceNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ResultAndThen(sourceNodeId, functionId, context) ->
+                SemanticNodeKind.ResultAndThen(mapNodeId sourceNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.MapMapValues(sourceMapNodeId, functionId, context) ->
                 SemanticNodeKind.MapMapValues(mapNodeId sourceMapNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListMinBy(sourceListNodeId, functionId, context) ->
@@ -1235,6 +1382,10 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringJoin _
         | SemanticNodeKind.StringSplit _
         | SemanticNodeKind.StringSplitLines _
+        | SemanticNodeKind.StringReplace _
+        | SemanticNodeKind.StringTrim _
+        | SemanticNodeKind.StringTrimStart _
+        | SemanticNodeKind.StringTrimEnd _
         | SemanticNodeKind.StringEqual _
         | SemanticNodeKind.StringLessThan _
         | SemanticNodeKind.ValueEqual _
@@ -1246,6 +1397,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64FloorModulo _
         | SemanticNodeKind.Int64Min _
         | SemanticNodeKind.Int64Max _
+        | SemanticNodeKind.Int64BitAnd _
+        | SemanticNodeKind.Int64BitOr _
+        | SemanticNodeKind.Int64BitXor _
+        | SemanticNodeKind.Int64ShiftLeft _
+        | SemanticNodeKind.Int64ShiftRight _
         | SemanticNodeKind.Int64CheckedAdd _
         | SemanticNodeKind.Int64CheckedSubtract _
         | SemanticNodeKind.Int64CheckedMultiply _
@@ -1258,6 +1414,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64GreaterThan _
         | SemanticNodeKind.Int64GreaterThanOrEqual _
         | SemanticNodeKind.Float64Add _
+        | SemanticNodeKind.Float64Min _
+        | SemanticNodeKind.Float64Max _
         | SemanticNodeKind.Float64Subtract _
         | SemanticNodeKind.Float64Multiply _
         | SemanticNodeKind.Float64Divide _
@@ -1268,6 +1426,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Float64IsInfinite _
         | SemanticNodeKind.Int64ToFloat64 _
         | SemanticNodeKind.Int64WrappingAbs _
+        | SemanticNodeKind.Int64BitNot _
         | SemanticNodeKind.Bits32FromInt64 _
         | SemanticNodeKind.Bits32ToInt64 _
         | SemanticNodeKind.Bits32Xor _
@@ -1294,6 +1453,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListDropLast _
         | SemanticNodeKind.ListAppendItem _
         | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.ListSetAt _
+        | SemanticNodeKind.ListInsertAt _
+        | SemanticNodeKind.ListRemoveAt _
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListItemAt _
         | SemanticNodeKind.MapRemove _
@@ -1302,11 +1464,14 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetUnion _
         | SemanticNodeKind.SetIntersection _
         | SemanticNodeKind.SetDifference _
+        | SemanticNodeKind.SetIsSubset _
+        | SemanticNodeKind.MapUnion _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
+        | SemanticNodeKind.OptionGetOrDefault _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
@@ -1327,11 +1492,18 @@ module SemanticNodeShape =
         | SemanticNodeKind.OneShotWait _
         | SemanticNodeKind.TaskCancel _
         | SemanticNodeKind.ListEffectFold _
+        | SemanticNodeKind.ListZipWith _
+        | SemanticNodeKind.ListFlatMap _
         | SemanticNodeKind.ListMap _
         | SemanticNodeKind.MapFromList _
         | SemanticNodeKind.ListFilter _
         | SemanticNodeKind.MapFilter _
         | SemanticNodeKind.ListSortBy _
+        | SemanticNodeKind.OptionMap _
+        | SemanticNodeKind.OptionAndThen _
+        | SemanticNodeKind.ResultMap _
+        | SemanticNodeKind.ResultMapErr _
+        | SemanticNodeKind.ResultAndThen _
         | SemanticNodeKind.MapMapValues _
         | SemanticNodeKind.ListMinBy _
         | SemanticNodeKind.ListAny _
@@ -1460,6 +1632,10 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringEndsWith _
         | SemanticNodeKind.StringSplit _
         | SemanticNodeKind.StringSplitLines _
+        | SemanticNodeKind.StringReplace _
+        | SemanticNodeKind.StringTrim _
+        | SemanticNodeKind.StringTrimStart _
+        | SemanticNodeKind.StringTrimEnd _
         | SemanticNodeKind.StringJoin _
         | SemanticNodeKind.StringEqual _
         | SemanticNodeKind.StringLessThan _
@@ -1472,6 +1648,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64FloorModulo _
         | SemanticNodeKind.Int64Min _
         | SemanticNodeKind.Int64Max _
+        | SemanticNodeKind.Int64BitAnd _
+        | SemanticNodeKind.Int64BitOr _
+        | SemanticNodeKind.Int64BitXor _
+        | SemanticNodeKind.Int64ShiftLeft _
+        | SemanticNodeKind.Int64ShiftRight _
         | SemanticNodeKind.Int64CheckedAdd _
         | SemanticNodeKind.Int64CheckedSubtract _
         | SemanticNodeKind.Int64CheckedMultiply _
@@ -1484,6 +1665,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64GreaterThan _
         | SemanticNodeKind.Int64GreaterThanOrEqual _
         | SemanticNodeKind.Float64Add _
+        | SemanticNodeKind.Float64Min _
+        | SemanticNodeKind.Float64Max _
         | SemanticNodeKind.Float64Subtract _
         | SemanticNodeKind.Float64Multiply _
         | SemanticNodeKind.Float64Divide _
@@ -1494,6 +1677,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Float64IsInfinite _
         | SemanticNodeKind.Int64ToFloat64 _
         | SemanticNodeKind.Int64WrappingAbs _
+        | SemanticNodeKind.Int64BitNot _
         | SemanticNodeKind.Bits32FromInt64 _
         | SemanticNodeKind.Bits32ToInt64 _
         | SemanticNodeKind.Bits32Xor _
@@ -1522,13 +1706,19 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetUnion _
         | SemanticNodeKind.SetIntersection _
         | SemanticNodeKind.SetDifference _
+        | SemanticNodeKind.SetIsSubset _
+        | SemanticNodeKind.MapUnion _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
+        | SemanticNodeKind.OptionGetOrDefault _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.ListSetAt _
+        | SemanticNodeKind.ListInsertAt _
+        | SemanticNodeKind.ListRemoveAt _
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
@@ -1547,11 +1737,18 @@ module SemanticNodeShape =
         | SemanticNodeKind.OneShotWait _
         | SemanticNodeKind.TaskCancel _
         | SemanticNodeKind.ListEffectFold _
+        | SemanticNodeKind.ListZipWith _
+        | SemanticNodeKind.ListFlatMap _
         | SemanticNodeKind.ListMap _
         | SemanticNodeKind.MapFromList _
         | SemanticNodeKind.ListFilter _
         | SemanticNodeKind.MapFilter _
         | SemanticNodeKind.ListSortBy _
+        | SemanticNodeKind.OptionMap _
+        | SemanticNodeKind.OptionAndThen _
+        | SemanticNodeKind.ResultMap _
+        | SemanticNodeKind.ResultMapErr _
+        | SemanticNodeKind.ResultAndThen _
         | SemanticNodeKind.MapMapValues _
         | SemanticNodeKind.ListMinBy _
         | SemanticNodeKind.ListAny _
@@ -1595,11 +1792,18 @@ module SemanticNodeShape =
             [ reference FunctionReferenceRole.DirectCall arguments functionId ], []
         | SemanticNodeKind.ListFold(_, _, functionId, context)
         | SemanticNodeKind.MapFold(_, _, functionId, context)
+        | SemanticNodeKind.ListZipWith(_, _, functionId, context)
+        | SemanticNodeKind.ListFlatMap(_, functionId, context)
         | SemanticNodeKind.ListMap(_, functionId, context)
         | SemanticNodeKind.MapFromList(_, functionId, context)
         | SemanticNodeKind.ListFilter(_, functionId, context)
         | SemanticNodeKind.MapFilter(_, functionId, context)
         | SemanticNodeKind.ListSortBy(_, functionId, context)
+        | SemanticNodeKind.OptionMap(_, functionId, context)
+        | SemanticNodeKind.OptionAndThen(_, functionId, context)
+        | SemanticNodeKind.ResultMap(_, functionId, context)
+        | SemanticNodeKind.ResultMapErr(_, functionId, context)
+        | SemanticNodeKind.ResultAndThen(_, functionId, context)
         | SemanticNodeKind.MapMapValues(_, functionId, context)
         | SemanticNodeKind.ListMinBy(_, functionId, context)
         | SemanticNodeKind.ListAny(_, functionId, context)
@@ -1666,6 +1870,10 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringEndsWith _
         | SemanticNodeKind.StringSplit _
         | SemanticNodeKind.StringSplitLines _
+        | SemanticNodeKind.StringReplace _
+        | SemanticNodeKind.StringTrim _
+        | SemanticNodeKind.StringTrimStart _
+        | SemanticNodeKind.StringTrimEnd _
         | SemanticNodeKind.StringJoin _
         | SemanticNodeKind.StringEqual _
         | SemanticNodeKind.StringLessThan _
@@ -1678,6 +1886,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64FloorModulo _
         | SemanticNodeKind.Int64Min _
         | SemanticNodeKind.Int64Max _
+        | SemanticNodeKind.Int64BitAnd _
+        | SemanticNodeKind.Int64BitOr _
+        | SemanticNodeKind.Int64BitXor _
+        | SemanticNodeKind.Int64ShiftLeft _
+        | SemanticNodeKind.Int64ShiftRight _
         | SemanticNodeKind.Int64CheckedAdd _
         | SemanticNodeKind.Int64CheckedSubtract _
         | SemanticNodeKind.Int64CheckedMultiply _
@@ -1690,6 +1903,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64GreaterThan _
         | SemanticNodeKind.Int64GreaterThanOrEqual _
         | SemanticNodeKind.Float64Add _
+        | SemanticNodeKind.Float64Min _
+        | SemanticNodeKind.Float64Max _
         | SemanticNodeKind.Float64Subtract _
         | SemanticNodeKind.Float64Multiply _
         | SemanticNodeKind.Float64Divide _
@@ -1700,6 +1915,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Float64IsInfinite _
         | SemanticNodeKind.Int64ToFloat64 _
         | SemanticNodeKind.Int64WrappingAbs _
+        | SemanticNodeKind.Int64BitNot _
         | SemanticNodeKind.Bits32FromInt64 _
         | SemanticNodeKind.Bits32ToInt64 _
         | SemanticNodeKind.Bits32Xor _
@@ -1732,13 +1948,19 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetUnion _
         | SemanticNodeKind.SetIntersection _
         | SemanticNodeKind.SetDifference _
+        | SemanticNodeKind.SetIsSubset _
+        | SemanticNodeKind.MapUnion _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
+        | SemanticNodeKind.OptionGetOrDefault _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.ListSetAt _
+        | SemanticNodeKind.ListInsertAt _
+        | SemanticNodeKind.ListRemoveAt _
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.CancellationRequested
@@ -1837,6 +2059,10 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringEndsWith _
         | SemanticNodeKind.StringSplit _
         | SemanticNodeKind.StringSplitLines _
+        | SemanticNodeKind.StringReplace _
+        | SemanticNodeKind.StringTrim _
+        | SemanticNodeKind.StringTrimStart _
+        | SemanticNodeKind.StringTrimEnd _
         | SemanticNodeKind.StringJoin _
         | SemanticNodeKind.StringEqual _
         | SemanticNodeKind.StringLessThan _
@@ -1849,6 +2075,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64FloorModulo _
         | SemanticNodeKind.Int64Min _
         | SemanticNodeKind.Int64Max _
+        | SemanticNodeKind.Int64BitAnd _
+        | SemanticNodeKind.Int64BitOr _
+        | SemanticNodeKind.Int64BitXor _
+        | SemanticNodeKind.Int64ShiftLeft _
+        | SemanticNodeKind.Int64ShiftRight _
         | SemanticNodeKind.Int64CheckedAdd _
         | SemanticNodeKind.Int64CheckedSubtract _
         | SemanticNodeKind.Int64CheckedMultiply _
@@ -1861,6 +2092,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.Int64GreaterThan _
         | SemanticNodeKind.Int64GreaterThanOrEqual _
         | SemanticNodeKind.Float64Add _
+        | SemanticNodeKind.Float64Min _
+        | SemanticNodeKind.Float64Max _
         | SemanticNodeKind.Float64Subtract _
         | SemanticNodeKind.Float64Multiply _
         | SemanticNodeKind.Float64Divide _
@@ -1871,6 +2104,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.Float64IsInfinite _
         | SemanticNodeKind.Int64ToFloat64 _
         | SemanticNodeKind.Int64WrappingAbs _
+        | SemanticNodeKind.Int64BitNot _
         | SemanticNodeKind.Bits32FromInt64 _
         | SemanticNodeKind.Bits32ToInt64 _
         | SemanticNodeKind.Bits32Xor _
@@ -1903,23 +2137,36 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetUnion _
         | SemanticNodeKind.SetIntersection _
         | SemanticNodeKind.SetDifference _
+        | SemanticNodeKind.SetIsSubset _
+        | SemanticNodeKind.MapUnion _
         | SemanticNodeKind.MapContainsKey _
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
+        | SemanticNodeKind.OptionGetOrDefault _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.ListSetAt _
+        | SemanticNodeKind.ListInsertAt _
+        | SemanticNodeKind.ListRemoveAt _
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
         | SemanticNodeKind.MapFold _
         | SemanticNodeKind.ListEffectFold _
+        | SemanticNodeKind.ListZipWith _
+        | SemanticNodeKind.ListFlatMap _
         | SemanticNodeKind.ListMap _
         | SemanticNodeKind.MapFromList _
         | SemanticNodeKind.ListFilter _
         | SemanticNodeKind.MapFilter _
         | SemanticNodeKind.ListSortBy _
+        | SemanticNodeKind.OptionMap _
+        | SemanticNodeKind.OptionAndThen _
+        | SemanticNodeKind.ResultMap _
+        | SemanticNodeKind.ResultMapErr _
+        | SemanticNodeKind.ResultAndThen _
         | SemanticNodeKind.MapMapValues _
         | SemanticNodeKind.ListMinBy _
         | SemanticNodeKind.ListAny _

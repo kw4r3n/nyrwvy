@@ -4,6 +4,8 @@ namespace Nyrwvy.Core
 /// `SnapshotSchema.minimumVersions`.
 [<RequireQualifiedAccess>]
 type SnapshotSchemaFeature =
+    /// OptionGetOrDefault, OptionMap, OptionAndThen, ResultMap, ResultMapErr and ResultAndThen.
+    | OptionResultCombinators
     | ExceptionIsCancellation
     | ExceptionBoundary
     | CancellationShield
@@ -32,6 +34,17 @@ type SnapshotSchemaFeature =
     | ListLastAndDropLast
     /// ListIndexOf, ListLastIndexOf and ListFindIndex.
     | ListIndexSearch
+    /// StringReplace, StringTrim, StringTrimStart and StringTrimEnd.
+    | StringReplaceAndTrim
+    /// SetIsSubset and MapUnion.
+    | SetIsSubsetAndMapUnion
+    /// Int64BitAnd, Int64BitOr, Int64BitXor, Int64BitNot, Int64ShiftLeft, Int64ShiftRight, Float64Min and
+    /// Float64Max.
+    | Int64BitwiseAndFloat64MinMax
+    /// ListSetAt, ListInsertAt and ListRemoveAt.
+    | ListPositionalUpdate
+    /// ListZipWith and ListFlatMap.
+    | ListZipWithAndFlatMap
 
 /// One persisted snapshot schema: its JSON `schemaVersion` and its Nyason schema identifier.
 /// The two formats number their versions separately but move together.
@@ -68,6 +81,9 @@ module SnapshotSchema =
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
         [ SnapshotSchemaFeature.ExceptionIsCancellation, v17, "Exception cancellation classification"
+          SnapshotSchemaFeature.StringReplaceAndTrim, v17, "StringReplace and StringTrim"
+          SnapshotSchemaFeature.ListZipWithAndFlatMap, v17, "ListZipWith and ListFlatMap"
+          SnapshotSchemaFeature.OptionResultCombinators, v17, "Option and Result combinators"
           SnapshotSchemaFeature.ExceptionBoundary, v16, "Host exception boundary"
           SnapshotSchemaFeature.CancellationShield, v15, "Lexical cancellation shield"
           SnapshotSchemaFeature.OneShot, v14, "Scoped one-shot handoff"
@@ -82,7 +98,10 @@ module SnapshotSchema =
           SnapshotSchemaFeature.Set, v13, "Set"
           SnapshotSchemaFeature.ListMinBy, v13, "ListMinBy"
           SnapshotSchemaFeature.ListLastAndDropLast, v13, "ListLast and ListDropLast"
-          SnapshotSchemaFeature.ListIndexSearch, v13, "ListIndexOf, ListLastIndexOf and ListFindIndex" ]
+          SnapshotSchemaFeature.ListIndexSearch, v13, "ListIndexOf, ListLastIndexOf and ListFindIndex"
+          SnapshotSchemaFeature.SetIsSubsetAndMapUnion, v17, "SetIsSubset and MapUnion"
+          SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax, v17, "Int64 bitwise operations and shifts, Float64Min and Float64Max"
+          SnapshotSchemaFeature.ListPositionalUpdate, v17, "ListSetAt, ListInsertAt and ListRemoveAt" ]
 
     let private rows =
         minimumVersions |> List.map (fun (feature, minimum, name) -> feature, (minimum, name)) |> Map.ofList
@@ -98,6 +117,12 @@ module SnapshotSchema =
     /// The construct a node's own kind needs, if any; nested graphs are visited separately.
     let featureOfNodeKind (kind: SemanticNodeKind): SnapshotSchemaFeature option =
         match kind with
+        | SemanticNodeKind.OptionGetOrDefault _
+        | SemanticNodeKind.OptionMap _
+        | SemanticNodeKind.OptionAndThen _
+        | SemanticNodeKind.ResultMap _
+        | SemanticNodeKind.ResultMapErr _
+        | SemanticNodeKind.ResultAndThen _ -> Some SnapshotSchemaFeature.OptionResultCombinators
         | SemanticNodeKind.ExceptionIsCancellation _ -> Some SnapshotSchemaFeature.ExceptionIsCancellation
         | SemanticNodeKind.ExceptionCatch _
         | SemanticNodeKind.ExceptionMessage _
@@ -115,7 +140,13 @@ module SnapshotSchema =
         | SemanticNodeKind.Int64CheckedSubtract _
         | SemanticNodeKind.Int64CheckedMultiply _ -> Some SnapshotSchemaFeature.CheckedInt64Arithmetic
         | SemanticNodeKind.StringToUpper _ -> Some SnapshotSchemaFeature.StringToUpper
+        | SemanticNodeKind.StringReplace _
+        | SemanticNodeKind.StringTrim _
+        | SemanticNodeKind.StringTrimStart _
+        | SemanticNodeKind.StringTrimEnd _ -> Some SnapshotSchemaFeature.StringReplaceAndTrim
         | SemanticNodeKind.Float64Round _ -> Some SnapshotSchemaFeature.Float64Round
+        | SemanticNodeKind.SetIsSubset _
+        | SemanticNodeKind.MapUnion _ -> Some SnapshotSchemaFeature.SetIsSubsetAndMapUnion
         | SemanticNodeKind.MapEmpty _
         | SemanticNodeKind.MapValues _
         | SemanticNodeKind.MapKeys _
@@ -145,6 +176,19 @@ module SnapshotSchema =
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.ListFindIndex _ -> Some SnapshotSchemaFeature.ListIndexSearch
+        | SemanticNodeKind.Int64BitAnd _
+        | SemanticNodeKind.Int64BitOr _
+        | SemanticNodeKind.Int64BitXor _
+        | SemanticNodeKind.Int64BitNot _
+        | SemanticNodeKind.Int64ShiftLeft _
+        | SemanticNodeKind.Int64ShiftRight _
+        | SemanticNodeKind.Float64Min _
+        | SemanticNodeKind.Float64Max _ -> Some SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax
+        | SemanticNodeKind.ListSetAt _
+        | SemanticNodeKind.ListInsertAt _
+        | SemanticNodeKind.ListRemoveAt _ -> Some SnapshotSchemaFeature.ListPositionalUpdate
+        | SemanticNodeKind.ListZipWith _
+        | SemanticNodeKind.ListFlatMap _ -> Some SnapshotSchemaFeature.ListZipWithAndFlatMap
         | SemanticNodeKind.TaskWait _
         | SemanticNodeKind.MatchUnion _
         | SemanticNodeKind.ParameterReference _

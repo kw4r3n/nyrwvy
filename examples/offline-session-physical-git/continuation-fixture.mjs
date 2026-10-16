@@ -43,7 +43,7 @@ export async function suite(bundle,out){
    const row={name:d.root.split('/').at(-1),index:i,scenario,request,actions,events,outputs,code,signal,before,after:await store(state),physicalBefore,physicalAfter:await inspect(d.f.root)};rows.push(row);await writeFile(join(d.root,`row-${i}.json`),JSON.stringify(row,null,2)+'\n');return row
   }finally{clearTimeout(timeout);if(code===undefined){p.kill('SIGKILL');await ended}}
  }
- async function wrapper(d){await mkdir(join(d.root,'bin'));await writeFile(join(d.root,'bin','git'),`#!/usr/bin/node
+ async function wrapper(d){await mkdir(join(d.root,'bin'));await writeFile(join(d.root,'bin','git'),`#!${process.execPath}
 import fs from 'node:fs';import {execFileSync} from 'node:child_process';const args=process.argv.slice(2),root=process.env.NYRWVY_HELD_ROOT,input=fs.readFileSync(0);
 if(args.includes(process.env.NYRWVY_HELD_COMMAND)){fs.writeFileSync(root+'/held.json',JSON.stringify({pid:process.pid,args}));while(!fs.existsSync(root+'/child-release'))await new Promise(r=>setTimeout(r,10));}
 if(args.includes(process.env.NYRWVY_HELD_COMMAND)&&fs.existsSync(root+'/nonzero'))process.exit(7);

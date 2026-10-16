@@ -56,6 +56,10 @@ type ExpressionRecipe =
     | StringEndsWith of ExpressionRecipe * ExpressionRecipe
     | StringSplit of ExpressionRecipe * ExpressionRecipe
     | StringSplitLines of value: ExpressionRecipe * breaks: ExpressionRecipe
+    | StringReplace of value: ExpressionRecipe * pattern: ExpressionRecipe * replacement: ExpressionRecipe
+    | StringTrim of ExpressionRecipe
+    | StringTrimStart of ExpressionRecipe
+    | StringTrimEnd of ExpressionRecipe
     | StringJoin of list: ExpressionRecipe * separator: ExpressionRecipe
     | StringEqual of ExpressionRecipe * ExpressionRecipe
     | StringLessThan of ExpressionRecipe * ExpressionRecipe
@@ -68,6 +72,11 @@ type ExpressionRecipe =
     | Int64FloorModulo of ExpressionRecipe * ExpressionRecipe
     | Int64Min of ExpressionRecipe * ExpressionRecipe
     | Int64Max of ExpressionRecipe * ExpressionRecipe
+    | Int64BitAnd of ExpressionRecipe * ExpressionRecipe
+    | Int64BitOr of ExpressionRecipe * ExpressionRecipe
+    | Int64BitXor of ExpressionRecipe * ExpressionRecipe
+    | Int64ShiftLeft of value: ExpressionRecipe * count: ExpressionRecipe
+    | Int64ShiftRight of value: ExpressionRecipe * count: ExpressionRecipe
     | Int64CheckedAdd of ExpressionRecipe * ExpressionRecipe
     | Int64CheckedSubtract of ExpressionRecipe * ExpressionRecipe
     | Int64CheckedMultiply of ExpressionRecipe * ExpressionRecipe
@@ -80,6 +89,8 @@ type ExpressionRecipe =
     | Int64GreaterThan of ExpressionRecipe * ExpressionRecipe
     | Int64GreaterThanOrEqual of ExpressionRecipe * ExpressionRecipe
     | Float64Add of ExpressionRecipe * ExpressionRecipe
+    | Float64Min of ExpressionRecipe * ExpressionRecipe
+    | Float64Max of ExpressionRecipe * ExpressionRecipe
     | Float64Subtract of ExpressionRecipe * ExpressionRecipe
     | Float64Multiply of ExpressionRecipe * ExpressionRecipe
     | Float64Divide of ExpressionRecipe * ExpressionRecipe
@@ -90,6 +101,7 @@ type ExpressionRecipe =
     | Float64IsInfinite of ExpressionRecipe
     | Int64ToFloat64 of ExpressionRecipe
     | Int64WrappingAbs of ExpressionRecipe
+    | Int64BitNot of ExpressionRecipe
     | Bits32FromInt64 of ExpressionRecipe
     | Bits32ToInt64 of ExpressionRecipe
     | Bits32Not of ExpressionRecipe
@@ -126,11 +138,16 @@ type ExpressionRecipe =
     | MapGet of map: ExpressionRecipe * key: ExpressionRecipe
     | MapGetOrDefault of map: ExpressionRecipe * key: ExpressionRecipe * defaultValue: ExpressionRecipe
     | ListSlice of list: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
+    | ListSetAt of list: ExpressionRecipe * index: ExpressionRecipe * item: ExpressionRecipe
+    | ListInsertAt of list: ExpressionRecipe * index: ExpressionRecipe * item: ExpressionRecipe
+    | ListRemoveAt of list: ExpressionRecipe * index: ExpressionRecipe
     | MapInsert of map: ExpressionRecipe * key: ExpressionRecipe * ``end``: ExpressionRecipe
     | ListConcat of left: ExpressionRecipe * right: ExpressionRecipe
     | SetUnion of left: ExpressionRecipe * right: ExpressionRecipe
     | SetIntersection of left: ExpressionRecipe * right: ExpressionRecipe
     | SetDifference of left: ExpressionRecipe * right: ExpressionRecipe
+    | SetIsSubset of left: ExpressionRecipe * right: ExpressionRecipe
+    | MapUnion of left: ExpressionRecipe * right: ExpressionRecipe
     /// `context` binds callback parameters by identity; the unbound ones receive iteration values.
     | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | MapFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -154,6 +171,8 @@ type ExpressionRecipe =
     | UseResource of acquire: ExpressionRecipe * releaseCapability: ExpressionRecipe * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListEffectFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListZipWith of left: ExpressionRecipe * right: ExpressionRecipe * combinerFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListFlatMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | MapFromList of source: ExpressionRecipe * keyOfFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListFilter of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | MapFilter of source: ExpressionRecipe * keepFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -169,6 +188,12 @@ type ExpressionRecipe =
     | UnionConstruct of variantId: VariantId * fields: (FieldId * ExpressionRecipe) list
     | OptionNone of itemType: TypeRef
     | OptionSome of ExpressionRecipe
+    | OptionGetOrDefault of option: ExpressionRecipe * defaultValue: ExpressionRecipe
+    | OptionMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | OptionAndThen of source: ExpressionRecipe * binderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ResultMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ResultMapErr of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ResultAndThen of source: ExpressionRecipe * binderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ResultOk of errorType: TypeRef * value: ExpressionRecipe
     | Abort of error: ExpressionRecipe
     | ResultErr of okType: TypeRef * error: ExpressionRecipe
@@ -275,6 +300,10 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringEndsWith(left, right) -> ExpressionRecipe.StringEndsWith(go left, go right)
         | ExpressionRecipe.StringSplit(left, right) -> ExpressionRecipe.StringSplit(go left, go right)
         | ExpressionRecipe.StringSplitLines(value, breaks) -> ExpressionRecipe.StringSplitLines(go value, go breaks)
+        | ExpressionRecipe.StringReplace(value, pattern, replacement) -> ExpressionRecipe.StringReplace(go value, go pattern, go replacement)
+        | ExpressionRecipe.StringTrim value -> ExpressionRecipe.StringTrim(go value)
+        | ExpressionRecipe.StringTrimStart value -> ExpressionRecipe.StringTrimStart(go value)
+        | ExpressionRecipe.StringTrimEnd value -> ExpressionRecipe.StringTrimEnd(go value)
         | ExpressionRecipe.StringJoin(list, separator) -> ExpressionRecipe.StringJoin(go list, go separator)
         | ExpressionRecipe.StringEqual(left, right) -> ExpressionRecipe.StringEqual(go left, go right)
         | ExpressionRecipe.StringLessThan(left, right) -> ExpressionRecipe.StringLessThan(go left, go right)
@@ -287,6 +316,11 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Int64FloorModulo(left, right) -> ExpressionRecipe.Int64FloorModulo(go left, go right)
         | ExpressionRecipe.Int64Min(left, right) -> ExpressionRecipe.Int64Min(go left, go right)
         | ExpressionRecipe.Int64Max(left, right) -> ExpressionRecipe.Int64Max(go left, go right)
+        | ExpressionRecipe.Int64BitAnd(left, right) -> ExpressionRecipe.Int64BitAnd(go left, go right)
+        | ExpressionRecipe.Int64BitOr(left, right) -> ExpressionRecipe.Int64BitOr(go left, go right)
+        | ExpressionRecipe.Int64BitXor(left, right) -> ExpressionRecipe.Int64BitXor(go left, go right)
+        | ExpressionRecipe.Int64ShiftLeft(left, right) -> ExpressionRecipe.Int64ShiftLeft(go left, go right)
+        | ExpressionRecipe.Int64ShiftRight(left, right) -> ExpressionRecipe.Int64ShiftRight(go left, go right)
         | ExpressionRecipe.Int64CheckedAdd(left, right) -> ExpressionRecipe.Int64CheckedAdd(go left, go right)
         | ExpressionRecipe.Int64CheckedSubtract(left, right) -> ExpressionRecipe.Int64CheckedSubtract(go left, go right)
         | ExpressionRecipe.Int64CheckedMultiply(left, right) -> ExpressionRecipe.Int64CheckedMultiply(go left, go right)
@@ -299,6 +333,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Int64GreaterThan(left, right) -> ExpressionRecipe.Int64GreaterThan(go left, go right)
         | ExpressionRecipe.Int64GreaterThanOrEqual(left, right) -> ExpressionRecipe.Int64GreaterThanOrEqual(go left, go right)
         | ExpressionRecipe.Float64Add(left, right) -> ExpressionRecipe.Float64Add(go left, go right)
+        | ExpressionRecipe.Float64Min(left, right) -> ExpressionRecipe.Float64Min(go left, go right)
+        | ExpressionRecipe.Float64Max(left, right) -> ExpressionRecipe.Float64Max(go left, go right)
         | ExpressionRecipe.Float64Subtract(left, right) -> ExpressionRecipe.Float64Subtract(go left, go right)
         | ExpressionRecipe.Float64Multiply(left, right) -> ExpressionRecipe.Float64Multiply(go left, go right)
         | ExpressionRecipe.Float64Divide(left, right) -> ExpressionRecipe.Float64Divide(go left, go right)
@@ -309,6 +345,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Float64IsInfinite value -> ExpressionRecipe.Float64IsInfinite(go value)
         | ExpressionRecipe.Int64ToFloat64 value -> ExpressionRecipe.Int64ToFloat64(go value)
         | ExpressionRecipe.Int64WrappingAbs value -> ExpressionRecipe.Int64WrappingAbs(go value)
+        | ExpressionRecipe.Int64BitNot value -> ExpressionRecipe.Int64BitNot(go value)
         | ExpressionRecipe.Bits32FromInt64 value -> ExpressionRecipe.Bits32FromInt64(go value)
         | ExpressionRecipe.Bits32ToInt64 value -> ExpressionRecipe.Bits32ToInt64(go value)
         | ExpressionRecipe.Bits32Not value -> ExpressionRecipe.Bits32Not(go value)
@@ -345,11 +382,16 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.MapGet(map, key) -> ExpressionRecipe.MapGet(go map, go key)
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> ExpressionRecipe.MapGetOrDefault(go map, go key, go defaultValue)
         | ExpressionRecipe.ListSlice(list, start, stop) -> ExpressionRecipe.ListSlice(go list, go start, go stop)
+        | ExpressionRecipe.ListSetAt(list, index, item) -> ExpressionRecipe.ListSetAt(go list, go index, go item)
+        | ExpressionRecipe.ListInsertAt(list, index, item) -> ExpressionRecipe.ListInsertAt(go list, go index, go item)
+        | ExpressionRecipe.ListRemoveAt(list, index) -> ExpressionRecipe.ListRemoveAt(go list, go index)
         | ExpressionRecipe.MapInsert(map, key, value) -> ExpressionRecipe.MapInsert(go map, go key, go value)
         | ExpressionRecipe.ListConcat(left, right) -> ExpressionRecipe.ListConcat(go left, go right)
         | ExpressionRecipe.SetUnion(left, right) -> ExpressionRecipe.SetUnion(go left, go right)
         | ExpressionRecipe.SetIntersection(left, right) -> ExpressionRecipe.SetIntersection(go left, go right)
         | ExpressionRecipe.SetDifference(left, right) -> ExpressionRecipe.SetDifference(go left, go right)
+        | ExpressionRecipe.SetIsSubset(left, right) -> ExpressionRecipe.SetIsSubset(go left, go right)
+        | ExpressionRecipe.MapUnion(left, right) -> ExpressionRecipe.MapUnion(go left, go right)
         | ExpressionRecipe.ListFold(source, seed, folder, context) -> ExpressionRecipe.ListFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.MapFold(source, seed, folder, context) -> ExpressionRecipe.MapFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.UseResource(acquire, capability, operation, body, context) ->
@@ -370,11 +412,18 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.TaskCancel task -> ExpressionRecipe.TaskCancel(go task)
         | ExpressionRecipe.ListEffectFold(source, seed, folder, context) -> ExpressionRecipe.ListEffectFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.ListMap(source, callback, context) -> ExpressionRecipe.ListMap(go source, callback, pairs context)
+        | ExpressionRecipe.ListZipWith(left, right, callback, context) -> ExpressionRecipe.ListZipWith(go left, go right, callback, pairs context)
+        | ExpressionRecipe.ListFlatMap(source, callback, context) -> ExpressionRecipe.ListFlatMap(go source, callback, pairs context)
         | ExpressionRecipe.MapFromList(source, callback, context) -> ExpressionRecipe.MapFromList(go source, callback, pairs context)
         | ExpressionRecipe.ListFilter(source, callback, context) -> ExpressionRecipe.ListFilter(go source, callback, pairs context)
         | ExpressionRecipe.MapFilter(source, callback, context) -> ExpressionRecipe.MapFilter(go source, callback, pairs context)
         | ExpressionRecipe.ListSortBy(source, callback, context) -> ExpressionRecipe.ListSortBy(go source, callback, pairs context)
         | ExpressionRecipe.MapMapValues(source, callback, context) -> ExpressionRecipe.MapMapValues(go source, callback, pairs context)
+        | ExpressionRecipe.OptionMap(source, callback, context) -> ExpressionRecipe.OptionMap(go source, callback, pairs context)
+        | ExpressionRecipe.OptionAndThen(source, callback, context) -> ExpressionRecipe.OptionAndThen(go source, callback, pairs context)
+        | ExpressionRecipe.ResultMap(source, callback, context) -> ExpressionRecipe.ResultMap(go source, callback, pairs context)
+        | ExpressionRecipe.ResultMapErr(source, callback, context) -> ExpressionRecipe.ResultMapErr(go source, callback, pairs context)
+        | ExpressionRecipe.ResultAndThen(source, callback, context) -> ExpressionRecipe.ResultAndThen(go source, callback, pairs context)
         | ExpressionRecipe.ListMinBy(source, callback, context) -> ExpressionRecipe.ListMinBy(go source, callback, pairs context)
         | ExpressionRecipe.ListAny(source, callback, context) -> ExpressionRecipe.ListAny(go source, callback, pairs context)
         | ExpressionRecipe.ListFindIndex(source, callback, context) -> ExpressionRecipe.ListFindIndex(go source, callback, pairs context)
@@ -385,6 +434,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.UnionConstruct(variantId, fields) -> ExpressionRecipe.UnionConstruct(variantId, pairs fields)
         | ExpressionRecipe.OptionNone itemType -> ExpressionRecipe.OptionNone(mapType itemType)
         | ExpressionRecipe.OptionSome value -> ExpressionRecipe.OptionSome(go value)
+        | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> ExpressionRecipe.OptionGetOrDefault(go option, go defaultValue)
         | ExpressionRecipe.ResultOk(errorType, value) -> ExpressionRecipe.ResultOk(mapType errorType, go value)
         | ExpressionRecipe.Abort error -> ExpressionRecipe.Abort(go error)
         | ExpressionRecipe.ResultErr(okType, error) -> ExpressionRecipe.ResultErr(mapType okType, go error)
@@ -572,6 +622,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringCodePoints child
         | ExpressionRecipe.StringToLower child
         | ExpressionRecipe.StringToUpper child
+        | ExpressionRecipe.StringTrim child
+        | ExpressionRecipe.StringTrimStart child
+        | ExpressionRecipe.StringTrimEnd child
         | ExpressionRecipe.StringDecodeUtf8Lossy child
         | ExpressionRecipe.Float64RoundToInt64 child
         | ExpressionRecipe.Float64FloorToInt64 child
@@ -591,6 +644,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Float64IsInfinite child
         | ExpressionRecipe.Int64ToFloat64 child
         | ExpressionRecipe.Int64WrappingAbs child
+        | ExpressionRecipe.Int64BitNot child
         | ExpressionRecipe.Bits32FromInt64 child
         | ExpressionRecipe.Bits32ToInt64 child
         | ExpressionRecipe.Bits32Not child
@@ -611,11 +665,15 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ResultErr(_, child) -> Seq.singleton child
         | ExpressionRecipe.StringSlice(value, start, stop) -> seq { value; start; stop }
         | ExpressionRecipe.StringIndexOf(value, substring, from) -> seq { value; substring; from }
+        | ExpressionRecipe.StringReplace(value, pattern, replacement) -> seq { value; pattern; replacement }
         | ExpressionRecipe.StringSpan(value, set, bound)
         | ExpressionRecipe.StringSpanBack(value, set, bound) -> seq { value; set; bound }
         | ExpressionRecipe.ListSlice(list, start, stop) -> seq { list; start; stop }
+        | ExpressionRecipe.ListSetAt(list, index, item)
+        | ExpressionRecipe.ListInsertAt(list, index, item) -> seq { list; index; item }
         | ExpressionRecipe.MapInsert(map, key, value) -> seq { map; key; value }
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> seq { map; key; defaultValue }
+        | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> seq { option; defaultValue }
         | ExpressionRecipe.StringContains(left, right)
         | ExpressionRecipe.StringLastIndexOf(left, right)
         | ExpressionRecipe.StringStartsWith(left, right)
@@ -637,6 +695,11 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64FloorModulo(left, right)
         | ExpressionRecipe.Int64Min(left, right)
         | ExpressionRecipe.Int64Max(left, right)
+        | ExpressionRecipe.Int64BitAnd(left, right)
+        | ExpressionRecipe.Int64BitOr(left, right)
+        | ExpressionRecipe.Int64BitXor(left, right)
+        | ExpressionRecipe.Int64ShiftLeft(left, right)
+        | ExpressionRecipe.Int64ShiftRight(left, right)
         | ExpressionRecipe.Int64CheckedAdd(left, right)
         | ExpressionRecipe.Int64CheckedSubtract(left, right)
         | ExpressionRecipe.Int64CheckedMultiply(left, right)
@@ -649,6 +712,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64GreaterThan(left, right)
         | ExpressionRecipe.Int64GreaterThanOrEqual(left, right)
         | ExpressionRecipe.Float64Add(left, right)
+        | ExpressionRecipe.Float64Min(left, right)
+        | ExpressionRecipe.Float64Max(left, right)
         | ExpressionRecipe.Float64Subtract(left, right)
         | ExpressionRecipe.Float64Multiply(left, right)
         | ExpressionRecipe.Float64Divide(left, right)
@@ -663,6 +728,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Bits32ShiftLeft(left, right)
         | ExpressionRecipe.ListAppendItem(left, right)
         | ExpressionRecipe.ListItemAt(left, right)
+        | ExpressionRecipe.ListRemoveAt(left, right)
         | ExpressionRecipe.MapRemove(left, right)
         | ExpressionRecipe.SetInsert(left, right)
         | ExpressionRecipe.SetRemove(left, right)
@@ -674,7 +740,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListConcat(left, right)
         | ExpressionRecipe.SetUnion(left, right)
         | ExpressionRecipe.SetIntersection(left, right)
-        | ExpressionRecipe.SetDifference(left, right) -> seq { yield left; yield right }
+        | ExpressionRecipe.SetDifference(left, right)
+        | ExpressionRecipe.SetIsSubset(left, right)
+        | ExpressionRecipe.MapUnion(left, right) -> seq { yield left; yield right }
         | ExpressionRecipe.ListFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.MapFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListEffectFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
@@ -694,12 +762,19 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.OneShotWait(cell, limit) -> seq { yield cell; yield! Option.toList limit }
         | ExpressionRecipe.TaskWait(tasks, _, limit) -> seq { yield tasks; yield! Option.toList limit }
         | ExpressionRecipe.TaskCancel task -> Seq.singleton task
+        | ExpressionRecipe.ListZipWith(left, right, _, context) -> seq { yield left; yield right; yield! context |> Seq.map snd }
+        | ExpressionRecipe.ListFlatMap(source, _, context)
         | ExpressionRecipe.ListMap(source, _, context)
         | ExpressionRecipe.MapFromList(source, _, context)
         | ExpressionRecipe.ListFilter(source, _, context)
         | ExpressionRecipe.MapFilter(source, _, context)
         | ExpressionRecipe.ListSortBy(source, _, context)
         | ExpressionRecipe.MapMapValues(source, _, context)
+        | ExpressionRecipe.OptionMap(source, _, context)
+        | ExpressionRecipe.OptionAndThen(source, _, context)
+        | ExpressionRecipe.ResultMap(source, _, context)
+        | ExpressionRecipe.ResultMapErr(source, _, context)
+        | ExpressionRecipe.ResultAndThen(source, _, context)
         | ExpressionRecipe.ListMinBy(source, _, context)
         | ExpressionRecipe.ListAny(source, _, context)
         | ExpressionRecipe.ListFindIndex(source, _, context)
@@ -1157,6 +1232,49 @@ module AgentExpressionStructuralWorkflow =
                         )
                     | Some substitution -> Ok(callback, substitution)
 
+        /// The OptionMap, OptionAndThen, ResultMap, ResultMapErr and ResultAndThen callback: exactly one
+        /// parameter not bound by context, receiving `payloadType` (`payloadName` in messages), with no
+        /// required effects. Returns the callback and its substituted result type.
+        let validateCaseCallback role callbackFunctionId context payloadType (payloadName: string) inferValue =
+            match Map.tryFind callbackFunctionId functionsById with
+            | None ->
+                Error(diagnostic "PureExpressionCallbackNotFound" $"{role} callback function '{StableId.value callbackFunctionId}' does not exist.")
+            | Some callback ->
+                match validateCallbackContext role callback context inferValue with
+                | Error error -> Error error
+                | Ok(unbound, _) when List.length unbound <> 1 ->
+                    Error(
+                        diagnostic
+                            "PureExpressionCallbackArityMismatch"
+                            $"{role} callback function {callbackName callback} must have exactly one parameter not bound by context; it has type {callbackSignature callback} and context binds {List.length context}."
+                    )
+                | Ok(unbound, substitution) ->
+                    match TypeParameters.matchType substitution unbound.Head.Type payloadType with
+                    | None ->
+                        Error(
+                            diagnostic
+                                "PureExpressionCallbackInputTypeMismatch"
+                                $"{role} callback function {callbackName callback} input type does not match the {payloadName} type {ty payloadType}; the callback has type {callbackSignature callback}."
+                        )
+                    | Some _ when not (PureFunctions.isPure snapshot callback.Id) ->
+                        Error(
+                            diagnostic
+                                "PureExpressionCallbackEffectsNotAllowed"
+                                $"{role} callback function {callbackName callback} must be pure, including its transitive calls and ambient task or cancellation behavior."
+                        )
+                    | Some substitution -> Ok(callback, TypeParameters.substitute substitution callback.ResultType)
+
+        let optionMismatch role actual =
+            diagnostic "PureExpressionOperandTypeMismatch" $"{role} option operand requires Option<T>, but the recipe produces {ty actual}."
+
+        let resultMismatch role actual =
+            diagnostic "PureExpressionOperandTypeMismatch" $"{role} result operand requires Result<T, E>, but the recipe produces {ty actual}."
+
+        let binderResultMismatch role (callback: SemanticFunction) expected =
+            diagnostic
+                "PureExpressionCallbackResultTypeMismatch"
+                $"{role} callback function {callbackName callback} must return {expected}; it has type {callbackSignature callback}."
+
         /// The ListSortBy and ListMinBy callback: exactly two parameters not bound by context, both of the item type
         /// (left, right), returning Bool, with no required effects.
         let validateLessThanCallback role callbackFunctionId context sourceItemType inferValue =
@@ -1440,6 +1558,10 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.StringEndsWith _
             | ExpressionRecipe.StringSplit _
             | ExpressionRecipe.StringSplitLines _
+            | ExpressionRecipe.StringReplace _
+            | ExpressionRecipe.StringTrim _
+            | ExpressionRecipe.StringTrimStart _
+            | ExpressionRecipe.StringTrimEnd _
             | ExpressionRecipe.StringJoin _
             | ExpressionRecipe.StringToLower _
             | ExpressionRecipe.StringToUpper _
@@ -1461,10 +1583,16 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Int64FloorModulo _
             | ExpressionRecipe.Int64Min _
             | ExpressionRecipe.Int64Max _
+            | ExpressionRecipe.Int64BitAnd _
+            | ExpressionRecipe.Int64BitOr _
+            | ExpressionRecipe.Int64BitXor _
+            | ExpressionRecipe.Int64ShiftLeft _
+            | ExpressionRecipe.Int64ShiftRight _
             | ExpressionRecipe.Int64CheckedAdd _
             | ExpressionRecipe.Int64CheckedSubtract _
             | ExpressionRecipe.Int64CheckedMultiply _
             | ExpressionRecipe.Int64WrappingAbs _
+            | ExpressionRecipe.Int64BitNot _
             | ExpressionRecipe.Int64Equal _
             | ExpressionRecipe.Int64LessThan _
             | ExpressionRecipe.Int64LessThanOrEqual _
@@ -1472,6 +1600,8 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Int64GreaterThanOrEqual _
             | ExpressionRecipe.Int64ToFloat64 _
             | ExpressionRecipe.Float64Add _
+            | ExpressionRecipe.Float64Min _
+            | ExpressionRecipe.Float64Max _
             | ExpressionRecipe.Float64Subtract _
             | ExpressionRecipe.Float64Multiply _
             | ExpressionRecipe.Float64Divide _
@@ -1502,6 +1632,9 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.ListLength _
             | ExpressionRecipe.ListItemAt _
             | ExpressionRecipe.ListSlice _
+            | ExpressionRecipe.ListSetAt _
+            | ExpressionRecipe.ListInsertAt _
+            | ExpressionRecipe.ListRemoveAt _
             | ExpressionRecipe.ListRange _
             | ExpressionRecipe.ListReverse _
             | ExpressionRecipe.ListLast _
@@ -1526,9 +1659,12 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.SetUnion _
             | ExpressionRecipe.SetIntersection _
             | ExpressionRecipe.SetDifference _
+            | ExpressionRecipe.SetIsSubset _
+            | ExpressionRecipe.MapUnion _
             | ExpressionRecipe.SetSize _
             | ExpressionRecipe.SetToList _
-            | ExpressionRecipe.OptionSome _ -> fixedSignature ()
+            | ExpressionRecipe.OptionSome _
+            | ExpressionRecipe.OptionGetOrDefault _ -> fixedSignature ()
             | ExpressionRecipe.BoolAnd(left, right)
             | ExpressionRecipe.BoolOr(left, right) ->
                 let role =
@@ -1917,6 +2053,89 @@ module AgentExpressionStructuralWorkflow =
                         match validateListCallback "ListMap" mapperFunctionId context sourceItemType false (infer frames) with
                         | Error error -> Error error
                         | Ok(mapper, substitution) -> Ok(listType (TypeParameters.substitute substitution mapper.ResultType))
+            | ExpressionRecipe.ListZipWith(left, right, combinerFunctionId, context) ->
+                match infer frames left with
+                | Error error -> Error error
+                | Ok leftType ->
+                    match listItemType leftType with
+                    | None -> Error(listMismatch "ListZipWith" "left" leftType)
+                    | Some leftItemType ->
+                        match infer frames right with
+                        | Error error -> Error error
+                        | Ok rightType ->
+                            match listItemType rightType with
+                            | None -> Error(listMismatch "ListZipWith" "right" rightType)
+                            | Some rightItemType ->
+                                match Map.tryFind combinerFunctionId functionsById with
+                                | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"ListZipWith combiner '{StableId.value combinerFunctionId}' does not exist.")
+                                | Some combiner ->
+                                    match validateCallbackContext "ListZipWith" combiner context (infer frames) with
+                                    | Error error -> Error error
+                                    | Ok(unbound, _) when unbound.Length <> 2 ->
+                                        Error(diagnostic "PureExpressionCallbackArityMismatch" $"ListZipWith combiner {callbackName combiner} must have exactly two parameters not bound by context (left item, right item); it has type {callbackSignature combiner} and context binds {List.length context}.")
+                                    | Ok(unbound, substitution) ->
+                                        let matched =
+                                            TypeParameters.matchType substitution unbound.Head.Type leftItemType
+                                            |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type rightItemType)
+                                        match matched with
+                                        | None ->
+                                            Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ListZipWith combiner {callbackName combiner} must take (left item, right item), here ({ty leftItemType}, {ty rightItemType}); the combiner has type {callbackSignature combiner}.")
+                                        | Some _ when not (PureFunctions.isPure snapshot combiner.Id) ->
+                                            Error(diagnostic "PureExpressionCallbackEffectsNotAllowed" $"ListZipWith combiner {callbackName combiner} must be pure, including its transitive calls and ambient task or cancellation behavior.")
+                                        | Some current -> Ok(listType (TypeParameters.substitute current combiner.ResultType))
+            | ExpressionRecipe.ListFlatMap(source, mapperFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType with
+                    | None -> Error(listMismatch "ListFlatMap" "source" sourceType)
+                    | Some sourceItemType ->
+                        match validateListCallback "ListFlatMap" mapperFunctionId context sourceItemType false (infer frames) with
+                        | Error error -> Error error
+                        | Ok(mapper, substitution) ->
+                            match TypeParameters.substitute substitution mapper.ResultType with
+                            | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ]) as resultType -> Ok resultType
+                            | other ->
+                                Error(diagnostic "PureExpressionCallbackResultTypeMismatch" $"ListFlatMap mapper {callbackName mapper} must return List<R>, not {ty other}; it has type {callbackSignature mapper}. Use ListMap for a mapper that returns one item.")
+            | ExpressionRecipe.OptionMap(source, mapperFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])) ->
+                    validateCaseCallback "OptionMap" mapperFunctionId context itemType "Some value" (infer frames)
+                    |> Result.map (fun (_, mapped) -> optionType mapped)
+                | Ok sourceType -> Error(optionMismatch "OptionMap" sourceType)
+            | ExpressionRecipe.OptionAndThen(source, binderFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])) ->
+                    match validateCaseCallback "OptionAndThen" binderFunctionId context itemType "Some value" (infer frames) with
+                    | Error error -> Error error
+                    | Ok(_, (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ _ ]) as bound)) -> Ok bound
+                    | Ok(binder, _) -> Error(binderResultMismatch "OptionAndThen" binder "Option<R>")
+                | Ok sourceType -> Error(optionMismatch "OptionAndThen" sourceType)
+            | ExpressionRecipe.ResultMap(source, mapperFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])) ->
+                    validateCaseCallback "ResultMap" mapperFunctionId context okType "Ok value" (infer frames)
+                    |> Result.map (fun (_, mapped) -> resultType mapped errorType)
+                | Ok sourceType -> Error(resultMismatch "ResultMap" sourceType)
+            | ExpressionRecipe.ResultMapErr(source, mapperFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])) ->
+                    validateCaseCallback "ResultMapErr" mapperFunctionId context errorType "Err error" (infer frames)
+                    |> Result.map (fun (_, mapped) -> resultType okType mapped)
+                | Ok sourceType -> Error(resultMismatch "ResultMapErr" sourceType)
+            | ExpressionRecipe.ResultAndThen(source, binderFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])) ->
+                    match validateCaseCallback "ResultAndThen" binderFunctionId context okType "Ok value" (infer frames) with
+                    | Error error -> Error error
+                    | Ok(_, (TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; boundError ]) as bound)) when boundError = errorType -> Ok bound
+                    | Ok(binder, _) -> Error(binderResultMismatch "ResultAndThen" binder $"Result<R, {ty errorType}>")
+                | Ok sourceType -> Error(resultMismatch "ResultAndThen" sourceType)
             | ExpressionRecipe.MapFromList(source, keyOfFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -2432,6 +2651,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringCodePoints value -> unary SemanticNodeKind.StringCodePoints value
         | ExpressionRecipe.StringToLower value -> unary SemanticNodeKind.StringToLower value
         | ExpressionRecipe.StringToUpper value -> unary SemanticNodeKind.StringToUpper value
+        | ExpressionRecipe.StringTrim value -> unary SemanticNodeKind.StringTrim value
+        | ExpressionRecipe.StringTrimStart value -> unary SemanticNodeKind.StringTrimStart value
+        | ExpressionRecipe.StringTrimEnd value -> unary SemanticNodeKind.StringTrimEnd value
         | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary SemanticNodeKind.StringDecodeUtf8Lossy value
         | ExpressionRecipe.Float64RoundToInt64 value -> unary SemanticNodeKind.Float64RoundToInt64 value
         | ExpressionRecipe.Float64FloorToInt64 value -> unary SemanticNodeKind.Float64FloorToInt64 value
@@ -2479,6 +2701,14 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringEndsWith(left, right) -> binary SemanticNodeKind.StringEndsWith left right
         | ExpressionRecipe.StringSplit(left, right) -> binary SemanticNodeKind.StringSplit left right
         | ExpressionRecipe.StringSplitLines(value, breaks) -> binary SemanticNodeKind.StringSplitLines value breaks
+        | ExpressionRecipe.StringReplace(value, pattern, replacement) ->
+            let valueNodes, valueResult = materializeRecipe value
+            let patternNodes, patternResult = materializeRecipe pattern
+            let replacementNodes, replacementResult = materializeRecipe replacement
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            valueNodes @ patternNodes @ replacementNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.StringReplace(valueResult, patternResult, replacementResult) } ],
+            nodeId
         | ExpressionRecipe.StringJoin(list, separator) -> binary SemanticNodeKind.StringJoin list separator
         | ExpressionRecipe.StringEqual(left, right) -> binary SemanticNodeKind.StringEqual left right
         | ExpressionRecipe.StringLessThan(left, right) -> binary SemanticNodeKind.StringLessThan left right
@@ -2491,6 +2721,11 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64FloorModulo(left, right) -> binary SemanticNodeKind.Int64FloorModulo left right
         | ExpressionRecipe.Int64Min(left, right) -> binary SemanticNodeKind.Int64Min left right
         | ExpressionRecipe.Int64Max(left, right) -> binary SemanticNodeKind.Int64Max left right
+        | ExpressionRecipe.Int64BitAnd(left, right) -> binary SemanticNodeKind.Int64BitAnd left right
+        | ExpressionRecipe.Int64BitOr(left, right) -> binary SemanticNodeKind.Int64BitOr left right
+        | ExpressionRecipe.Int64BitXor(left, right) -> binary SemanticNodeKind.Int64BitXor left right
+        | ExpressionRecipe.Int64ShiftLeft(left, right) -> binary SemanticNodeKind.Int64ShiftLeft left right
+        | ExpressionRecipe.Int64ShiftRight(left, right) -> binary SemanticNodeKind.Int64ShiftRight left right
         | ExpressionRecipe.Int64CheckedAdd(left, right) -> binary SemanticNodeKind.Int64CheckedAdd left right
         | ExpressionRecipe.Int64CheckedSubtract(left, right) -> binary SemanticNodeKind.Int64CheckedSubtract left right
         | ExpressionRecipe.Int64CheckedMultiply(left, right) -> binary SemanticNodeKind.Int64CheckedMultiply left right
@@ -2503,6 +2738,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64GreaterThan(left, right) -> binary SemanticNodeKind.Int64GreaterThan left right
         | ExpressionRecipe.Int64GreaterThanOrEqual(left, right) -> binary SemanticNodeKind.Int64GreaterThanOrEqual left right
         | ExpressionRecipe.Float64Add(left, right) -> binary SemanticNodeKind.Float64Add left right
+        | ExpressionRecipe.Float64Min(left, right) -> binary SemanticNodeKind.Float64Min left right
+        | ExpressionRecipe.Float64Max(left, right) -> binary SemanticNodeKind.Float64Max left right
         | ExpressionRecipe.Float64Subtract(left, right) -> binary SemanticNodeKind.Float64Subtract left right
         | ExpressionRecipe.Float64Multiply(left, right) -> binary SemanticNodeKind.Float64Multiply left right
         | ExpressionRecipe.Float64Divide(left, right) -> binary SemanticNodeKind.Float64Divide left right
@@ -2513,6 +2750,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Float64IsInfinite value -> unary SemanticNodeKind.Float64IsInfinite value
         | ExpressionRecipe.Int64ToFloat64 value -> unary SemanticNodeKind.Int64ToFloat64 value
         | ExpressionRecipe.Int64WrappingAbs value -> unary SemanticNodeKind.Int64WrappingAbs value
+        | ExpressionRecipe.Int64BitNot value -> unary SemanticNodeKind.Int64BitNot value
         | ExpressionRecipe.Bits32FromInt64 value -> unary SemanticNodeKind.Bits32FromInt64 value
         | ExpressionRecipe.Bits32ToInt64 value -> unary SemanticNodeKind.Bits32ToInt64 value
         | ExpressionRecipe.Bits32Not value -> unary SemanticNodeKind.Bits32Not value
@@ -2572,6 +2810,23 @@ module AgentExpressionStructuralWorkflow =
             listNodes @ startNodes @ stopNodes
             @ [ { Id = nodeId; Kind = SemanticNodeKind.ListSlice(listResult, startResult, stopResult) } ],
             nodeId
+        | ExpressionRecipe.ListSetAt(list, index, item) ->
+            let listNodes, listResult = materializeRecipe list
+            let indexNodes, indexResult = materializeRecipe index
+            let itemNodes, itemResult = materializeRecipe item
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            listNodes @ indexNodes @ itemNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.ListSetAt(listResult, indexResult, itemResult) } ],
+            nodeId
+        | ExpressionRecipe.ListInsertAt(list, index, item) ->
+            let listNodes, listResult = materializeRecipe list
+            let indexNodes, indexResult = materializeRecipe index
+            let itemNodes, itemResult = materializeRecipe item
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            listNodes @ indexNodes @ itemNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.ListInsertAt(listResult, indexResult, itemResult) } ],
+            nodeId
+        | ExpressionRecipe.ListRemoveAt(list, index) -> binary SemanticNodeKind.ListRemoveAt list index
         | ExpressionRecipe.MapInsert(map, key, value) ->
             let listNodes, listResult = materializeRecipe map
             let startNodes, startResult = materializeRecipe key
@@ -2584,6 +2839,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.SetUnion(left, right) -> binary SemanticNodeKind.SetUnion left right
         | ExpressionRecipe.SetIntersection(left, right) -> binary SemanticNodeKind.SetIntersection left right
         | ExpressionRecipe.SetDifference(left, right) -> binary SemanticNodeKind.SetDifference left right
+        | ExpressionRecipe.SetIsSubset(left, right) -> binary SemanticNodeKind.SetIsSubset left right
+        | ExpressionRecipe.MapUnion(left, right) -> binary SemanticNodeKind.MapUnion left right
         | ExpressionRecipe.ListFold(source, seed, folderFunctionId, context) ->
             let sourceNodes, sourceResult = materializeRecipe source
             let seedNodes, seedResult = materializeRecipe seed
@@ -2653,10 +2910,22 @@ module AgentExpressionStructuralWorkflow =
             cellNodes @ limitNodes @ [ { Id = id; Kind = SemanticNodeKind.OneShotWait(cellId, limitId) } ], id
         | ExpressionRecipe.TaskCancel task -> unary SemanticNodeKind.TaskCancel task
         | ExpressionRecipe.ListMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListMap source mapperFunctionId context
+        | ExpressionRecipe.ListFlatMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ListFlatMap source mapperFunctionId context
+        | ExpressionRecipe.ListZipWith(left, right, combinerFunctionId, context) ->
+            let leftNodes, leftResult = materializeRecipe left
+            let rightNodes, rightResult = materializeRecipe right
+            let contextNodes, contextBindings = materializeContext combinerFunctionId context
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            leftNodes @ rightNodes @ contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListZipWith(leftResult, rightResult, combinerFunctionId, contextBindings) } ], nodeId
         | ExpressionRecipe.MapFromList(source, keyOfFunctionId, context) -> listCallback SemanticNodeKind.MapFromList source keyOfFunctionId context
         | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId context
         | ExpressionRecipe.MapFilter(source, keepFunctionId, context) -> listCallback SemanticNodeKind.MapFilter source keepFunctionId context
         | ExpressionRecipe.MapMapValues(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.MapMapValues source mapperFunctionId context
+        | ExpressionRecipe.OptionMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.OptionMap source mapperFunctionId context
+        | ExpressionRecipe.OptionAndThen(source, binderFunctionId, context) -> listCallback SemanticNodeKind.OptionAndThen source binderFunctionId context
+        | ExpressionRecipe.ResultMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ResultMap source mapperFunctionId context
+        | ExpressionRecipe.ResultMapErr(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ResultMapErr source mapperFunctionId context
+        | ExpressionRecipe.ResultAndThen(source, binderFunctionId, context) -> listCallback SemanticNodeKind.ResultAndThen source binderFunctionId context
         | ExpressionRecipe.ListSortBy(source, lessThanFunctionId, context) -> listCallback SemanticNodeKind.ListSortBy source lessThanFunctionId context
         | ExpressionRecipe.ListMinBy(source, lessThanFunctionId, context) -> listCallback SemanticNodeKind.ListMinBy source lessThanFunctionId context
         | ExpressionRecipe.ListAny(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId context
@@ -2699,6 +2968,7 @@ module AgentExpressionStructuralWorkflow =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.OptionNone itemType } ], nodeId
         | ExpressionRecipe.OptionSome value -> unary SemanticNodeKind.OptionSome value
+        | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> binary SemanticNodeKind.OptionGetOrDefault option defaultValue
         | ExpressionRecipe.ResultOk(errorType, value) -> unary (fun valueNodeId -> SemanticNodeKind.ResultOk(errorType, valueNodeId)) value
         | ExpressionRecipe.Abort error -> unary SemanticNodeKind.Abort error
         | ExpressionRecipe.ResultErr(okType, error) -> unary (fun errorNodeId -> SemanticNodeKind.ResultErr(okType, errorNodeId)) error

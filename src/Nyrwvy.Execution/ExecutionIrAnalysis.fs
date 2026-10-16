@@ -109,6 +109,10 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringJoin _
         | TypedSemanticNodeKind.StringSplit _
         | TypedSemanticNodeKind.StringSplitLines _
+        | TypedSemanticNodeKind.StringReplace _
+        | TypedSemanticNodeKind.StringTrim _
+        | TypedSemanticNodeKind.StringTrimStart _
+        | TypedSemanticNodeKind.StringTrimEnd _
         | TypedSemanticNodeKind.StringEqual _
         | TypedSemanticNodeKind.StringLessThan _
         | TypedSemanticNodeKind.ValueEqual _
@@ -120,6 +124,11 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64FloorModulo _
         | TypedSemanticNodeKind.Int64Min _
         | TypedSemanticNodeKind.Int64Max _
+        | TypedSemanticNodeKind.Int64BitAnd _
+        | TypedSemanticNodeKind.Int64BitOr _
+        | TypedSemanticNodeKind.Int64BitXor _
+        | TypedSemanticNodeKind.Int64ShiftLeft _
+        | TypedSemanticNodeKind.Int64ShiftRight _
         | TypedSemanticNodeKind.Int64CheckedAdd _
         | TypedSemanticNodeKind.Int64CheckedSubtract _
         | TypedSemanticNodeKind.Int64CheckedMultiply _
@@ -132,6 +141,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64GreaterThan _
         | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
         | TypedSemanticNodeKind.Float64Add _
+        | TypedSemanticNodeKind.Float64Min _
+        | TypedSemanticNodeKind.Float64Max _
         | TypedSemanticNodeKind.Float64Subtract _
         | TypedSemanticNodeKind.Float64Multiply _
         | TypedSemanticNodeKind.Float64Divide _
@@ -142,6 +153,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64IsInfinite _
         | TypedSemanticNodeKind.Int64ToFloat64 _
         | TypedSemanticNodeKind.Int64WrappingAbs _
+        | TypedSemanticNodeKind.Int64BitNot _
         | TypedSemanticNodeKind.Bits32FromInt64 _
         | TypedSemanticNodeKind.Bits32ToInt64 _
         | TypedSemanticNodeKind.Bits32Xor _
@@ -167,6 +179,9 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListLast _
         | TypedSemanticNodeKind.ListDropLast _
         | TypedSemanticNodeKind.ListSlice _
+        | TypedSemanticNodeKind.ListSetAt _
+        | TypedSemanticNodeKind.ListInsertAt _
+        | TypedSemanticNodeKind.ListRemoveAt _
         | TypedSemanticNodeKind.MapInsert _
         | TypedSemanticNodeKind.ListItemAt _
         | TypedSemanticNodeKind.MapRemove _
@@ -175,21 +190,31 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.SetUnion _
         | TypedSemanticNodeKind.SetIntersection _
         | TypedSemanticNodeKind.SetDifference _
+        | TypedSemanticNodeKind.SetIsSubset _
+        | TypedSemanticNodeKind.MapUnion _
         | TypedSemanticNodeKind.MapContainsKey _
         | TypedSemanticNodeKind.SetContains _
         | TypedSemanticNodeKind.ListIndexOf _
         | TypedSemanticNodeKind.ListLastIndexOf _
         | TypedSemanticNodeKind.MapGet _
+        | TypedSemanticNodeKind.OptionGetOrDefault _
         | TypedSemanticNodeKind.MapGetOrDefault _
         | TypedSemanticNodeKind.ListAppendItem _
         | TypedSemanticNodeKind.ListConcat _
         | TypedSemanticNodeKind.ListFold _
         | TypedSemanticNodeKind.MapFold _
+        | TypedSemanticNodeKind.ListZipWith _
+        | TypedSemanticNodeKind.ListFlatMap _
         | TypedSemanticNodeKind.ListMap _
         | TypedSemanticNodeKind.MapFromList _
         | TypedSemanticNodeKind.ListFilter _
         | TypedSemanticNodeKind.MapFilter _
         | TypedSemanticNodeKind.ListSortBy _
+        | TypedSemanticNodeKind.OptionMap _
+        | TypedSemanticNodeKind.OptionAndThen _
+        | TypedSemanticNodeKind.ResultMap _
+        | TypedSemanticNodeKind.ResultMapErr _
+        | TypedSemanticNodeKind.ResultAndThen _
         | TypedSemanticNodeKind.MapMapValues _
         | TypedSemanticNodeKind.ListMinBy _
         | TypedSemanticNodeKind.ListAny _

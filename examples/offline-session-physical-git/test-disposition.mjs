@@ -53,7 +53,7 @@ async function request(d,expectedState,id='recovery-id',storageName='state'){
 }
 async function retained(d,q){const a=await run(d,{request:q});assert.deepEqual(a.outputs,['ok:retained-unresolved:'+q.expectedState]);assert.deepEqual(a.physicalBefore,a.physicalAfter);const k=slot('physical-disposition/v1/'+q.id),copy={...a.after};delete copy[k];assert.deepEqual(copy,a.before,'only separate disposition added');assert.equal(JSON.parse(a.after[k]).originalOutcome,'not-inferred');const b=await run(d,{request:q}),c=await run(d,{request:q});untouched(b);untouched(c);assert.deepEqual(b.outputs,a.outputs);assert.deepEqual(c.outputs,a.outputs);return a}
 async function reject(d,q,settings={}){const row=await run(d,{request:q,settings});assert.deepEqual(row.outputs,['err:unresolved']);untouched(row);return row}
-async function wrapper(d){await mkdir(join(d.root,'bin'));await writeFile(join(d.root,'bin','git'),`#!/usr/bin/node
+async function wrapper(d){await mkdir(join(d.root,'bin'));await writeFile(join(d.root,'bin','git'),`#!${process.execPath}
 import fs from 'node:fs';import {execFileSync} from 'node:child_process';const args=process.argv.slice(2),root=process.env.NYRWVY_HELD_ROOT,input=fs.readFileSync(0);
 if(args.includes(process.env.NYRWVY_HELD_COMMAND)){fs.writeFileSync(root+'/held.json',JSON.stringify({pid:process.pid,args}));while(!fs.existsSync(root+'/child-release'))await new Promise(r=>setTimeout(r,10));}
 if(args.includes(process.env.NYRWVY_HELD_COMMAND)&&fs.existsSync(root+'/nonzero'))process.exit(7);

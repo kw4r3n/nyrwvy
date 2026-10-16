@@ -47,11 +47,11 @@ The snapshot JSON `schemaVersion` and the Nyason `schema` identifier name the sa
 | 10 | `nayamnyam.snapshot.v6` | `CapabilityConstruct`. |
 | 11 | `nayamnyam.snapshot.v7` | `Abort`. |
 | 12 | `nayamnyam.snapshot.v8` | `TaskWait` with a `limit` operand. |
-| 13 | `nayamnyam.snapshot.v9` | `Int64CheckedAdd`, `Int64CheckedSubtract`, `Int64CheckedMultiply`; a `MatchUnion` arm that names several variants; `StringToUpper`; `Float64Round`; the `Map<K, V>` type anywhere and every `Map*` node; the `Set<T>` type anywhere and every `Set*` node; `ListMinBy`; `ListLast`, `ListDropLast`; `ListIndexOf`, `ListLastIndexOf`, `ListFindIndex`. |
+| 13 | `nayamnyam.snapshot.v9` | `Int64CheckedAdd`, `Int64CheckedSubtract`, `Int64CheckedMultiply`; a `MatchUnion` arm that names several variants; `StringToUpper`; `Float64Round`; the `Map<K, V>` type anywhere and every `Map*` node except `MapUnion`; the `Set<T>` type anywhere and every `Set*` node except `SetIsSubset`; `ListMinBy`; `ListLast`, `ListDropLast`; `ListIndexOf`, `ListLastIndexOf`, `ListFindIndex`. |
 | 14 | `nayamnyam.snapshot.v10` | `OneShot<T>` anywhere; `OneShotCreate`, `OneShotComplete`, `OneShotWait`. |
 | 15 | `nayamnyam.snapshot.v11` | `CancellationShield`. |
 | 16 | `nayamnyam.snapshot.v12` | `Exception` anywhere; `ExceptionCatch`, `ExceptionMessage`, `ExceptionRethrow`. |
-| 17 | `nayamnyam.snapshot.v13` | `ExceptionIsCancellation`. |
+| 17 | `nayamnyam.snapshot.v13` | `ExceptionIsCancellation`; `StringReplace`, `StringTrim`, `StringTrimStart`, `StringTrimEnd`; `SetIsSubset`, `MapUnion`; `Int64BitAnd`, `Int64BitOr`, `Int64BitXor`, `Int64BitNot`, `Int64ShiftLeft`, `Int64ShiftRight`, `Float64Min`, `Float64Max`; `ListSetAt`, `ListInsertAt`, `ListRemoveAt`; `ListZipWith`, `ListFlatMap`; `OptionGetOrDefault`, `OptionMap`, `OptionAndThen`, `ResultMap`, `ResultMapErr`, `ResultAndThen`. |
 
 Versions 9 to 12 keep their earlier meaning. Version 13 collects the constructs added in orders 40 to 53, which were first written as version 9 and are now gated; a snapshot that uses none of them is unchanged. Older versions (JSON 8, Nyason v4 and before) are rejected.
 

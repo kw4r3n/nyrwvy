@@ -90,6 +90,11 @@ module internal WireGraph =
         | SemanticNodeKind.StringEndsWith(value, other) -> tagged "stringEndsWith" [ "valueNodeId", identity value; "suffixNodeId", identity other ]
         | SemanticNodeKind.StringSplit(value, other) -> tagged "stringSplit" [ "valueNodeId", identity value; "separatorNodeId", identity other ]
         | SemanticNodeKind.StringSplitLines(value, breaks) -> tagged "stringSplitLines" [ "valueNodeId", identity value; "breaksNodeId", identity breaks ]
+        | SemanticNodeKind.StringReplace(value, pattern, replacement) ->
+            tagged "stringReplace" [ "valueNodeId", identity value; "patternNodeId", identity pattern; "replacementNodeId", identity replacement ]
+        | SemanticNodeKind.StringTrim value -> unary "stringTrim" value
+        | SemanticNodeKind.StringTrimStart value -> unary "stringTrimStart" value
+        | SemanticNodeKind.StringTrimEnd value -> unary "stringTrimEnd" value
         | SemanticNodeKind.StringJoin(list, separator) -> tagged "stringJoin" [ "listNodeId", identity list; "separatorNodeId", identity separator ]
         | SemanticNodeKind.StringEqual(left, right) -> binary "stringEqual" left right
         | SemanticNodeKind.StringLessThan(left, right) -> binary "stringLessThan" left right
@@ -102,6 +107,11 @@ module internal WireGraph =
         | SemanticNodeKind.Int64FloorModulo(left, right) -> binary "int64FloorModulo" left right
         | SemanticNodeKind.Int64Min(left, right) -> binary "int64Min" left right
         | SemanticNodeKind.Int64Max(left, right) -> binary "int64Max" left right
+        | SemanticNodeKind.Int64BitAnd(left, right) -> binary "int64BitAnd" left right
+        | SemanticNodeKind.Int64BitOr(left, right) -> binary "int64BitOr" left right
+        | SemanticNodeKind.Int64BitXor(left, right) -> binary "int64BitXor" left right
+        | SemanticNodeKind.Int64ShiftLeft(value, count) -> tagged "int64ShiftLeft" [ "valueNodeId", identity value; "countNodeId", identity count ]
+        | SemanticNodeKind.Int64ShiftRight(value, count) -> tagged "int64ShiftRight" [ "valueNodeId", identity value; "countNodeId", identity count ]
         | SemanticNodeKind.Int64CheckedAdd(left, right) -> binary "int64CheckedAdd" left right
         | SemanticNodeKind.Int64CheckedSubtract(left, right) -> binary "int64CheckedSubtract" left right
         | SemanticNodeKind.Int64CheckedMultiply(left, right) -> binary "int64CheckedMultiply" left right
@@ -114,6 +124,8 @@ module internal WireGraph =
         | SemanticNodeKind.Int64GreaterThan(left, right) -> binary "int64GreaterThan" left right
         | SemanticNodeKind.Int64GreaterThanOrEqual(left, right) -> binary "int64GreaterThanOrEqual" left right
         | SemanticNodeKind.Float64Add(left, right) -> binary "float64Add" left right
+        | SemanticNodeKind.Float64Min(left, right) -> binary "float64Min" left right
+        | SemanticNodeKind.Float64Max(left, right) -> binary "float64Max" left right
         | SemanticNodeKind.Float64Subtract(left, right) -> binary "float64Subtract" left right
         | SemanticNodeKind.Float64Multiply(left, right) -> binary "float64Multiply" left right
         | SemanticNodeKind.Float64Divide(left, right) -> binary "float64Divide" left right
@@ -124,6 +136,7 @@ module internal WireGraph =
         | SemanticNodeKind.Float64IsInfinite value -> unary "float64IsInfinite" value
         | SemanticNodeKind.Int64ToFloat64 value -> unary "int64ToFloat64" value
         | SemanticNodeKind.Int64WrappingAbs value -> unary "int64WrappingAbs" value
+        | SemanticNodeKind.Int64BitNot value -> unary "int64BitNot" value
         | SemanticNodeKind.Bits32FromInt64 value -> unary "bits32FromInt64" value
         | SemanticNodeKind.Bits32ToInt64 value -> unary "bits32ToInt64" value
         | SemanticNodeKind.Bits32Not value -> unary "bits32Not" value
@@ -156,15 +169,24 @@ module internal WireGraph =
         | SemanticNodeKind.SetUnion(left, right) -> binary "setUnion" left right
         | SemanticNodeKind.SetIntersection(left, right) -> binary "setIntersection" left right
         | SemanticNodeKind.SetDifference(left, right) -> binary "setDifference" left right
+        | SemanticNodeKind.SetIsSubset(left, right) -> binary "setIsSubset" left right
+        | SemanticNodeKind.MapUnion(left, right) -> binary "mapUnion" left right
         | SemanticNodeKind.MapContainsKey(map, key) -> tagged "mapContainsKey" [ "mapNodeId", identity map; "keyNodeId", identity key ]
         | SemanticNodeKind.SetContains(map, key) -> tagged "setContains" [ "setNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.ListIndexOf(map, key) -> tagged "listIndexOf" [ "listNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.ListLastIndexOf(map, key) -> tagged "listLastIndexOf" [ "listNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.MapGet(map, key) -> tagged "mapGet" [ "mapNodeId", identity map; "keyNodeId", identity key ]
+        | SemanticNodeKind.OptionGetOrDefault(option, fallback) ->
+            tagged "optionGetOrDefault" [ "optionNodeId", identity option; "defaultNodeId", identity fallback ]
         | SemanticNodeKind.MapGetOrDefault(map, key, fallback) ->
             tagged "mapGetOrDefault" [ "mapNodeId", identity map; "keyNodeId", identity key; "defaultNodeId", identity fallback ]
         | SemanticNodeKind.ListSlice(list, start, stop) ->
             tagged "listSlice" [ "listNodeId", identity list; "startNodeId", identity start; "endNodeId", identity stop ]
+        | SemanticNodeKind.ListSetAt(list, index, item) ->
+            tagged "listSetAt" [ "listNodeId", identity list; "indexNodeId", identity index; "itemNodeId", identity item ]
+        | SemanticNodeKind.ListInsertAt(list, index, item) ->
+            tagged "listInsertAt" [ "listNodeId", identity list; "indexNodeId", identity index; "itemNodeId", identity item ]
+        | SemanticNodeKind.ListRemoveAt(list, index) -> tagged "listRemoveAt" [ "listNodeId", identity list; "indexNodeId", identity index ]
         | SemanticNodeKind.MapInsert(map, key, value) ->
             tagged "mapInsert" [ "mapNodeId", identity map; "keyNodeId", identity key; "valueNodeId", identity value ]
         | SemanticNodeKind.ListConcat(left, right) -> binary "listConcat" left right
@@ -203,12 +225,25 @@ module internal WireGraph =
         | SemanticNodeKind.OneShotWait(cell, limit) -> tagged "oneShotWait" ([ "cellNodeId", identity cell ] @ (limit |> Option.map (fun id -> "limitNodeId", identity id) |> Option.toList))
         | SemanticNodeKind.TaskCancel task -> tagged "taskCancel" [ "taskNodeId", identity task ]
         | SemanticNodeKind.ListMap(source, callback, bindings) -> traversal "listMap" source callback bindings
+        | SemanticNodeKind.ListZipWith(left, right, combiner, bindings) ->
+            tagged "listZipWith" ([ "leftListNodeId", identity left; "rightListNodeId", identity right; "combinerFunctionId", identity combiner ] @ context bindings)
+        | SemanticNodeKind.ListFlatMap(source, callback, bindings) -> traversal "listFlatMap" source callback bindings
         | SemanticNodeKind.MapFromList(source, callback, bindings) -> traversal "mapFromList" source callback bindings
         | SemanticNodeKind.ListFilter(source, callback, bindings) -> traversal "listFilter" source callback bindings
         | SemanticNodeKind.MapFilter(source, callback, bindings) ->
             tagged "mapFilter" ([ "sourceMapNodeId", identity source; "keepFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.ListSortBy(source, callback, bindings) -> traversal "listSortBy" source callback bindings
         | SemanticNodeKind.ListMinBy(source, callback, bindings) -> traversal "listMinBy" source callback bindings
+        | SemanticNodeKind.OptionMap(source, callback, bindings) ->
+            tagged "optionMap" ([ "sourceOptionNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
+        | SemanticNodeKind.OptionAndThen(source, callback, bindings) ->
+            tagged "optionAndThen" ([ "sourceOptionNodeId", identity source; "binderFunctionId", identity callback ] @ context bindings)
+        | SemanticNodeKind.ResultMap(source, callback, bindings) ->
+            tagged "resultMap" ([ "sourceResultNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
+        | SemanticNodeKind.ResultMapErr(source, callback, bindings) ->
+            tagged "resultMapErr" ([ "sourceResultNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
+        | SemanticNodeKind.ResultAndThen(source, callback, bindings) ->
+            tagged "resultAndThen" ([ "sourceResultNodeId", identity source; "binderFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.MapMapValues(source, callback, bindings) ->
             tagged "mapMapValues" ([ "sourceMapNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings

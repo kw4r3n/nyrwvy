@@ -80,7 +80,9 @@ module SnapshotSchemaTests =
 
     /// One program per gated construct (two for the types that can appear without their nodes).
     let private cases: (string * SnapshotSchemaFeature * (Create -> unit)) list =
-        [ "exception classification", SnapshotSchemaFeature.ExceptionIsCancellation, (fun create ->
+        [ "option get or default", SnapshotSchemaFeature.OptionResultCombinators, (fun create ->
+              create "getOr" [ "option", optionOf stringType; "fallback", stringType ] stringType [] (ExpressionRecipe.OptionGetOrDefault(slot 0, slot 1)) |> ignore)
+          "exception classification", SnapshotSchemaFeature.ExceptionIsCancellation, (fun create ->
               create "isCancellation" [ "exception", generic BuiltinGenericType.Exception [] ] boolType [] (ExpressionRecipe.ExceptionIsCancellation(slot 0)) |> ignore)
           "exception node", SnapshotSchemaFeature.ExceptionBoundary, (fun create ->
               let result = generic BuiltinGenericType.Result [ stringType; stringType ]
@@ -116,6 +118,11 @@ module SnapshotSchemaTests =
                   (ExpressionRecipe.MatchUnion(slot 0, [ [ circleId; squareId ], ExpressionRecipe.BoolLiteral true ])) |> ignore)
           "upper case", SnapshotSchemaFeature.StringToUpper, (fun create ->
               create "upper" [ "text", stringType ] stringType [] (ExpressionRecipe.StringToUpper(slot 0)) |> ignore)
+          "string replace", SnapshotSchemaFeature.StringReplaceAndTrim, (fun create ->
+              create "replace" [ "text", stringType ] stringType []
+                  (ExpressionRecipe.StringReplace(slot 0, ExpressionRecipe.StringLiteral "a", ExpressionRecipe.StringLiteral "b")) |> ignore)
+          "string trim", SnapshotSchemaFeature.StringReplaceAndTrim, (fun create ->
+              create "trim" [ "text", stringType ] stringType [] (ExpressionRecipe.StringTrimEnd(slot 0)) |> ignore)
           "round to digits", SnapshotSchemaFeature.Float64Round, (fun create ->
               create "round" [ "value", float64Type; "digits", int64Type ] float64Type [] (ExpressionRecipe.Float64Round(slot 0, slot 1)) |> ignore)
           "map node", SnapshotSchemaFeature.Map, (fun create ->
@@ -134,7 +141,26 @@ module SnapshotSchemaTests =
           "last item", SnapshotSchemaFeature.ListLastAndDropLast, (fun create ->
               create "last" [ "items", listOf int64Type ] (optionOf int64Type) [] (ExpressionRecipe.ListLast(slot 0)) |> ignore)
           "index of", SnapshotSchemaFeature.ListIndexSearch, (fun create ->
-              create "find" [ "items", listOf int64Type; "item", int64Type ] (optionOf int64Type) [] (ExpressionRecipe.ListIndexOf(slot 0, slot 1)) |> ignore) ]
+              create "find" [ "items", listOf int64Type; "item", int64Type ] (optionOf int64Type) [] (ExpressionRecipe.ListIndexOf(slot 0, slot 1)) |> ignore)
+          "set subset", SnapshotSchemaFeature.SetIsSubsetAndMapUnion, (fun create ->
+              let seen = generic BuiltinGenericType.Set [ int64Type ]
+              create "subset" [ "left", seen; "right", seen ] boolType [] (ExpressionRecipe.SetIsSubset(slot 0, slot 1)) |> ignore)
+          "map union", SnapshotSchemaFeature.SetIsSubsetAndMapUnion, (fun create ->
+              let counts = generic BuiltinGenericType.Map [ stringType; int64Type ]
+              create "merge" [ "left", counts; "right", counts ] counts [] (ExpressionRecipe.MapUnion(slot 0, slot 1)) |> ignore)
+          "int64 shift", SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax, (fun create ->
+              create "shift" [ "value", int64Type; "count", int64Type ] int64Type [] (ExpressionRecipe.Int64ShiftRight(slot 0, slot 1)) |> ignore)
+          "float64 minimum", SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax, (fun create ->
+              create "least" [ "a", float64Type; "b", float64Type ] float64Type [] (ExpressionRecipe.Float64Min(slot 0, slot 1)) |> ignore)
+          "positional update", SnapshotSchemaFeature.ListPositionalUpdate, (fun create ->
+              create "replace" [ "items", listOf int64Type; "index", int64Type; "item", int64Type ] (listOf int64Type) []
+                  (ExpressionRecipe.ListSetAt(slot 0, slot 1, slot 2)) |> ignore)
+          "zip with", SnapshotSchemaFeature.ListZipWithAndFlatMap, (fun create ->
+              let add = create "add" [ "a", int64Type; "b", int64Type ] int64Type [] (ExpressionRecipe.Int64WrappingAdd(slot 0, slot 1))
+              create "sums" [ "xs", listOf int64Type; "ys", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListZipWith(slot 0, slot 1, add.Id, [])) |> ignore)
+          "flat map", SnapshotSchemaFeature.ListZipWithAndFlatMap, (fun create ->
+              let twice = create "twice" [ "a", int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListConstruct(int64Type, [ slot 0; slot 0 ]))
+              create "doubled" [ "xs", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListFlatMap(slot 0, twice.Id, [])) |> ignore) ]
 
     let caseNames: obj array seq = cases |> Seq.map (fun (name, _, _) -> [| box name |])
 
@@ -164,7 +190,12 @@ module SnapshotSchemaTests =
     let ``a gated construct is written at its minimum version and rejected one version below`` (name: string) =
         let _, feature, define = cases |> List.find (fun (caseName, _, _) -> caseName = name)
         let snapshot = build define
-        let expectedFeatures = if feature = SnapshotSchemaFeature.ExceptionIsCancellation then Set.ofList [ feature; SnapshotSchemaFeature.ExceptionBoundary ] else Set.singleton feature
+        let expectedFeatures =
+            match name with
+            | "exception classification" -> Set.ofList [ feature; SnapshotSchemaFeature.ExceptionBoundary ]
+            | "set subset" -> Set.ofList [ feature; SnapshotSchemaFeature.Set ]
+            | "map union" -> Set.ofList [ feature; SnapshotSchemaFeature.Map ]
+            | _ -> Set.singleton feature
         Assert.Equal<Set<SnapshotSchemaFeature>>(expectedFeatures, SnapshotSchema.usedFeatures snapshot)
         let minimum = SnapshotSchema.minimumVersion feature
         let label = SnapshotSchema.featureName feature

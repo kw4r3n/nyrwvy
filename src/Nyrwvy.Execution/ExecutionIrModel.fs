@@ -119,6 +119,10 @@ type ExecutionInstructionKind =
     | StringSplit of valueId: ExecutionValueId * separatorId: ExecutionValueId
     /// Lines of `value` split at code points of `breaks` ("\r\n" is one break when both are members).
     | StringSplitLines of valueId: ExecutionValueId * breaksId: ExecutionValueId
+    | StringReplace of valueId: ExecutionValueId * patternId: ExecutionValueId * replacementId: ExecutionValueId
+    | StringTrim of ExecutionValueId
+    | StringTrimStart of ExecutionValueId
+    | StringTrimEnd of ExecutionValueId
     | StringJoin of listValueId: ExecutionValueId * separatorId: ExecutionValueId
     | StringEqual of leftId: ExecutionValueId * rightId: ExecutionValueId
     /// Ordinal code-point ordering of two Strings: left sorts strictly before right.
@@ -133,6 +137,11 @@ type ExecutionInstructionKind =
     | Int64FloorModulo of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64Min of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64Max of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64BitAnd of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64BitOr of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64BitXor of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Int64ShiftLeft of valueId: ExecutionValueId * countValueId: ExecutionValueId
+    | Int64ShiftRight of valueId: ExecutionValueId * countValueId: ExecutionValueId
     | Int64CheckedAdd of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64CheckedSubtract of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64CheckedMultiply of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
@@ -145,6 +154,8 @@ type ExecutionInstructionKind =
     | Int64GreaterThan of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Int64GreaterThanOrEqual of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64Add of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Float64Min of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Float64Max of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64Subtract of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64Multiply of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64Divide of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
@@ -155,6 +166,7 @@ type ExecutionInstructionKind =
     | Float64IsInfinite of valueId: ExecutionValueId
     | Int64ToFloat64 of valueId: ExecutionValueId
     | Int64WrappingAbs of valueId: ExecutionValueId
+    | Int64BitNot of valueId: ExecutionValueId
     | Bits32FromInt64 of valueId: ExecutionValueId
     | Bits32ToInt64 of valueId: ExecutionValueId
     | Bits32Not of valueId: ExecutionValueId
@@ -187,13 +199,19 @@ type ExecutionInstructionKind =
     | SetUnion of leftSetValueId: ExecutionValueId * rightSetValueId: ExecutionValueId
     | SetIntersection of leftSetValueId: ExecutionValueId * rightSetValueId: ExecutionValueId
     | SetDifference of leftSetValueId: ExecutionValueId * rightSetValueId: ExecutionValueId
+    | SetIsSubset of leftSetValueId: ExecutionValueId * rightSetValueId: ExecutionValueId
+    | MapUnion of leftMapValueId: ExecutionValueId * rightMapValueId: ExecutionValueId
     | MapContainsKey of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | SetContains of setValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListIndexOf of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListLastIndexOf of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | MapGet of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | MapGetOrDefault of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId * defaultValueId: ExecutionValueId
+    | OptionGetOrDefault of optionValueId: ExecutionValueId * defaultValueId: ExecutionValueId
     | ListSlice of listValueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
+    | ListSetAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId * itemValueId: ExecutionValueId
+    | ListInsertAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId * itemValueId: ExecutionValueId
+    | ListRemoveAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId
     | MapInsert of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId * valueValueId: ExecutionValueId
     | ListConcat of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId
     /// `context` binds callback parameters to values computed before iteration.
@@ -216,6 +234,8 @@ type ExecutionInstructionKind =
     | UseResource of acquireValueId: ExecutionValueId * releaseCapabilityValueId: ExecutionValueId * releaseOperationId: CapabilityOperationId * bodyFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListEffectFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ListZipWith of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId * combinerFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ListFlatMap of sourceListValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
     | MapFromList of sourceListValueId: ExecutionValueId * keyOfFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | MapFilter of sourceMapValueId: ExecutionValueId * keepFunctionId: FunctionId * context: ExecutionCallArgument list
@@ -224,6 +244,11 @@ type ExecutionInstructionKind =
     /// First smallest item under a pure less-than callback (see SemanticNodeKind.ListMinBy).
     | ListMinBy of sourceListValueId: ExecutionValueId * lessThanFunctionId: FunctionId * context: ExecutionCallArgument list
     | MapMapValues of sourceMapValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
+    | OptionMap of sourceOptionValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
+    | OptionAndThen of sourceOptionValueId: ExecutionValueId * binderFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ResultMap of sourceResultValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ResultMapErr of sourceResultValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ResultAndThen of sourceResultValueId: ExecutionValueId * binderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAny of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListFindIndex of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListAll of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
@@ -279,12 +304,19 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.DirectCall(functionId, _) -> [ callback FunctionReferenceRole.DirectCall functionId ]
         | ExecutionInstructionKind.ListFold(_, _, functionId, _)
         | ExecutionInstructionKind.MapFold(_, _, functionId, _)
+        | ExecutionInstructionKind.ListZipWith(_, _, functionId, _)
+        | ExecutionInstructionKind.ListFlatMap(_, functionId, _)
         | ExecutionInstructionKind.ListMap(_, functionId, _)
         | ExecutionInstructionKind.MapFromList(_, functionId, _)
         | ExecutionInstructionKind.ListFilter(_, functionId, _)
         | ExecutionInstructionKind.MapFilter(_, functionId, _)
         | ExecutionInstructionKind.ListSortBy(_, functionId, _)
         | ExecutionInstructionKind.MapMapValues(_, functionId, _)
+        | ExecutionInstructionKind.OptionMap(_, functionId, _)
+        | ExecutionInstructionKind.OptionAndThen(_, functionId, _)
+        | ExecutionInstructionKind.ResultMap(_, functionId, _)
+        | ExecutionInstructionKind.ResultMapErr(_, functionId, _)
+        | ExecutionInstructionKind.ResultAndThen(_, functionId, _)
         | ExecutionInstructionKind.ListMinBy(_, functionId, _)
         | ExecutionInstructionKind.ListAny(_, functionId, _)
         | ExecutionInstructionKind.ListFindIndex(_, functionId, _)
@@ -352,6 +384,10 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.StringEndsWith _
         | ExecutionInstructionKind.StringSplit _
         | ExecutionInstructionKind.StringSplitLines _
+        | ExecutionInstructionKind.StringReplace _
+        | ExecutionInstructionKind.StringTrim _
+        | ExecutionInstructionKind.StringTrimStart _
+        | ExecutionInstructionKind.StringTrimEnd _
         | ExecutionInstructionKind.StringJoin _
         | ExecutionInstructionKind.StringEqual _
         | ExecutionInstructionKind.StringLessThan _
@@ -364,6 +400,11 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.Int64FloorModulo _
         | ExecutionInstructionKind.Int64Min _
         | ExecutionInstructionKind.Int64Max _
+        | ExecutionInstructionKind.Int64BitAnd _
+        | ExecutionInstructionKind.Int64BitOr _
+        | ExecutionInstructionKind.Int64BitXor _
+        | ExecutionInstructionKind.Int64ShiftLeft _
+        | ExecutionInstructionKind.Int64ShiftRight _
         | ExecutionInstructionKind.Int64CheckedAdd _
         | ExecutionInstructionKind.Int64CheckedSubtract _
         | ExecutionInstructionKind.Int64CheckedMultiply _
@@ -376,6 +417,8 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.Int64GreaterThan _
         | ExecutionInstructionKind.Int64GreaterThanOrEqual _
         | ExecutionInstructionKind.Float64Add _
+        | ExecutionInstructionKind.Float64Min _
+        | ExecutionInstructionKind.Float64Max _
         | ExecutionInstructionKind.Float64Subtract _
         | ExecutionInstructionKind.Float64Multiply _
         | ExecutionInstructionKind.Float64Divide _
@@ -386,6 +429,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.Float64IsInfinite _
         | ExecutionInstructionKind.Int64ToFloat64 _
         | ExecutionInstructionKind.Int64WrappingAbs _
+        | ExecutionInstructionKind.Int64BitNot _
         | ExecutionInstructionKind.Bits32FromInt64 _
         | ExecutionInstructionKind.Bits32ToInt64 _
         | ExecutionInstructionKind.Bits32Not _
@@ -418,13 +462,19 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.SetUnion _
         | ExecutionInstructionKind.SetIntersection _
         | ExecutionInstructionKind.SetDifference _
+        | ExecutionInstructionKind.SetIsSubset _
+        | ExecutionInstructionKind.MapUnion _
         | ExecutionInstructionKind.MapContainsKey _
         | ExecutionInstructionKind.SetContains _
         | ExecutionInstructionKind.ListIndexOf _
         | ExecutionInstructionKind.ListLastIndexOf _
         | ExecutionInstructionKind.MapGet _
+        | ExecutionInstructionKind.OptionGetOrDefault _
         | ExecutionInstructionKind.MapGetOrDefault _
         | ExecutionInstructionKind.ListSlice _
+        | ExecutionInstructionKind.ListSetAt _
+        | ExecutionInstructionKind.ListInsertAt _
+        | ExecutionInstructionKind.ListRemoveAt _
         | ExecutionInstructionKind.MapInsert _
         | ExecutionInstructionKind.ListConcat _
         | ExecutionInstructionKind.FunctionInvoke _

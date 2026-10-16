@@ -119,6 +119,14 @@ module OperationSignatures =
               (SignatureType.List string)
               (Some "str.split(sep)")
           signature "stringSplitLines" [ operand "value" string; operand "breaks" string ] (SignatureType.List string) (Some "str.splitlines")
+          signature
+              "stringReplace"
+              [ operand "value" string; operand "pattern" string; operand "replacement" string ]
+              string
+              (Some "str.replace(old, new)")
+          unary "stringTrim" string string (Some "White_Space")
+          unary "stringTrimStart" string string (Some "White_Space")
+          unary "stringTrimEnd" string string (Some "White_Space")
           signature "stringJoin" [ operand "list" (SignatureType.List string); operand "separator" string ] string None
           unary "stringToLower" string string None
           unary "stringToUpper" string string None
@@ -145,10 +153,16 @@ module OperationSignatures =
           binary "int64FloorModulo" int64 int64 (Some "Python %")
           binary "int64Min" int64 int64 None
           binary "int64Max" int64 int64 None
+          binary "int64BitAnd" int64 int64 None
+          binary "int64BitOr" int64 int64 None
+          binary "int64BitXor" int64 int64 None
+          signature "int64ShiftLeft" [ operand "value" int64; operand "count" int64 ] int64 (Some "wraps; count clamped to 0..64")
+          signature "int64ShiftRight" [ operand "value" int64; operand "count" int64 ] int64 (Some "Python >>; count clamped to 0..64")
           binary "int64CheckedAdd" int64 (SignatureType.Option int64) (Some "left + right")
           binary "int64CheckedSubtract" int64 (SignatureType.Option int64) (Some "left - right")
           binary "int64CheckedMultiply" int64 (SignatureType.Option int64) (Some "left * right")
           unary "int64WrappingAbs" int64 int64 (Some "MinValue stays MinValue")
+          unary "int64BitNot" int64 int64 (Some "Python ~x")
           binary "int64Equal" int64 bool None
           binary "int64LessThan" int64 bool None
           binary "int64LessThanOrEqual" int64 bool None
@@ -157,6 +171,8 @@ module OperationSignatures =
           unary "int64ToFloat64" int64 float64 None
           // float64
           binary "float64Add" float64 float64 None
+          binary "float64Min" float64 float64 (Some "NaN if either is NaN; -0.0 < 0.0")
+          binary "float64Max" float64 float64 (Some "NaN if either is NaN; -0.0 < 0.0")
           binary "float64Subtract" float64 float64 None
           binary "float64Multiply" float64 float64 None
           binary "float64Divide" float64 float64 None
@@ -193,6 +209,21 @@ module OperationSignatures =
               [ operand "list" (SignatureType.List t); operand "start" int64; operand "end" int64 ]
               (SignatureType.List t)
               (Some "clamped")
+          signature
+              "listSetAt"
+              [ operand "list" (SignatureType.List t); operand "index" int64; operand "item" t ]
+              (SignatureType.List t)
+              (Some "unchanged when out of range")
+          signature
+              "listInsertAt"
+              [ operand "list" (SignatureType.List t); operand "index" int64; operand "item" t ]
+              (SignatureType.List t)
+              (Some "index clamped to [0, length]")
+          signature
+              "listRemoveAt"
+              [ operand "list" (SignatureType.List t); operand "index" int64 ]
+              (SignatureType.List t)
+              (Some "unchanged when out of range")
           signature "listRange" [ operand "start" int64; operand "end" int64 ] (SignatureType.List int64) (Some "list(range(start, end))")
           unary "listReverse" (SignatureType.List t) (SignatureType.List t) None
           unary "listLast" (SignatureType.List t) (SignatureType.Option t) (Some "xs[-1] if xs")
@@ -214,6 +245,7 @@ module OperationSignatures =
           signature "mapGetOrDefault" [ operand "map" (SignatureType.Map(k, v)); operand "key" k; operand "default" v ] v None
           signature "mapContainsKey" [ operand "map" (SignatureType.Map(k, v)); operand "key" k ] bool None
           signature "mapRemove" [ operand "map" (SignatureType.Map(k, v)); operand "key" k ] (SignatureType.Map(k, v)) None
+          binary "mapUnion" (SignatureType.Map(k, v)) (SignatureType.Map(k, v)) (Some "left | right: right wins, left order then right's new keys")
           unary "mapSize" (SignatureType.Map(k, v)) int64 None
           unary "mapKeys" (SignatureType.Map(k, v)) (SignatureType.List k) (Some "insertion order")
           unary "mapValues" (SignatureType.Map(k, v)) (SignatureType.List v) (Some "insertion order")
@@ -226,10 +258,12 @@ module OperationSignatures =
           binary "setUnion" (SignatureType.Set t) (SignatureType.Set t) (Some "left order, then right's new items")
           binary "setIntersection" (SignatureType.Set t) (SignatureType.Set t) (Some "left order")
           binary "setDifference" (SignatureType.Set t) (SignatureType.Set t) (Some "left order")
+          binary "setIsSubset" (SignatureType.Set t) bool (Some "left <= right")
           unary "setSize" (SignatureType.Set t) int64 None
           unary "setToList" (SignatureType.Set t) (SignatureType.List t) (Some "insertion order")
           // optionResult
-          unary "optionSome" t (SignatureType.Option t) None ]
+          unary "optionSome" t (SignatureType.Option t) None
+          signature "optionGetOrDefault" [ operand "option" (SignatureType.Option t); operand "default" t ] t (Some "unwrap_or") ]
 
     let private byKind = table |> List.map (fun entry -> entry.Kind, entry) |> Map.ofList
 

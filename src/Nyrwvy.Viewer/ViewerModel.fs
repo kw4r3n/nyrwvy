@@ -72,6 +72,10 @@ type ViewerNodeRole =
     | StringEndsWith
     | StringSplit
     | StringSplitLines
+    | StringReplace
+    | StringTrim
+    | StringTrimStart
+    | StringTrimEnd
     | StringJoin
     | StringEqual
     | StringLessThan
@@ -84,6 +88,11 @@ type ViewerNodeRole =
     | Int64FloorModulo
     | Int64Min
     | Int64Max
+    | Int64BitAnd
+    | Int64BitOr
+    | Int64BitXor
+    | Int64ShiftLeft
+    | Int64ShiftRight
     | Int64CheckedAdd
     | Int64CheckedSubtract
     | Int64CheckedMultiply
@@ -96,6 +105,8 @@ type ViewerNodeRole =
     | Int64GreaterThan
     | Int64GreaterThanOrEqual
     | Float64Add
+    | Float64Min
+    | Float64Max
     | Float64Subtract
     | Float64Multiply
     | Float64Divide
@@ -106,6 +117,7 @@ type ViewerNodeRole =
     | Float64IsInfinite
     | Int64ToFloat64
     | Int64WrappingAbs
+    | Int64BitNot
     | Bits32FromInt64
     | Bits32ToInt64
     | Bits32Xor
@@ -138,6 +150,8 @@ type ViewerNodeRole =
     | SetUnion
     | SetIntersection
     | SetDifference
+    | SetIsSubset
+    | MapUnion
     | MapContainsKey
     | SetContains
     | ListIndexOf
@@ -145,6 +159,9 @@ type ViewerNodeRole =
     | MapGet
     | MapGetOrDefault
     | ListSlice
+    | ListSetAt
+    | ListInsertAt
+    | ListRemoveAt
     | MapInsert
     | ListConcat
     | ListFold
@@ -166,12 +183,20 @@ type ViewerNodeRole =
     | OneShotComplete
     | OneShotWait
     | ListMap
+    | ListZipWith
+    | ListFlatMap
     | MapFromList
     | ListFilter
     | MapFilter
     | ListSortBy
     | ListMinBy
     | MapMapValues
+    | OptionGetOrDefault
+    | OptionMap
+    | OptionAndThen
+    | ResultMap
+    | ResultMapErr
+    | ResultAndThen
     | ListAny
     | ListFindIndex
     | ListAll
@@ -343,6 +368,10 @@ module ViewerProjection =
         | SemanticNodeKind.StringEndsWith _ -> ViewerNodeRole.StringEndsWith, []
         | SemanticNodeKind.StringSplit _ -> ViewerNodeRole.StringSplit, []
         | SemanticNodeKind.StringSplitLines _ -> ViewerNodeRole.StringSplitLines, []
+        | SemanticNodeKind.StringReplace _ -> ViewerNodeRole.StringReplace, []
+        | SemanticNodeKind.StringTrim _ -> ViewerNodeRole.StringTrim, []
+        | SemanticNodeKind.StringTrimStart _ -> ViewerNodeRole.StringTrimStart, []
+        | SemanticNodeKind.StringTrimEnd _ -> ViewerNodeRole.StringTrimEnd, []
         | SemanticNodeKind.StringJoin _ -> ViewerNodeRole.StringJoin, []
         | SemanticNodeKind.StringEqual _ -> ViewerNodeRole.StringEqual, []
         | SemanticNodeKind.StringLessThan _ -> ViewerNodeRole.StringLessThan, []
@@ -355,6 +384,11 @@ module ViewerProjection =
         | SemanticNodeKind.Int64FloorModulo _ -> ViewerNodeRole.Int64FloorModulo, []
         | SemanticNodeKind.Int64Min _ -> ViewerNodeRole.Int64Min, []
         | SemanticNodeKind.Int64Max _ -> ViewerNodeRole.Int64Max, []
+        | SemanticNodeKind.Int64BitAnd _ -> ViewerNodeRole.Int64BitAnd, []
+        | SemanticNodeKind.Int64BitOr _ -> ViewerNodeRole.Int64BitOr, []
+        | SemanticNodeKind.Int64BitXor _ -> ViewerNodeRole.Int64BitXor, []
+        | SemanticNodeKind.Int64ShiftLeft _ -> ViewerNodeRole.Int64ShiftLeft, []
+        | SemanticNodeKind.Int64ShiftRight _ -> ViewerNodeRole.Int64ShiftRight, []
         | SemanticNodeKind.Int64CheckedAdd _ -> ViewerNodeRole.Int64CheckedAdd, []
         | SemanticNodeKind.Int64CheckedSubtract _ -> ViewerNodeRole.Int64CheckedSubtract, []
         | SemanticNodeKind.Int64CheckedMultiply _ -> ViewerNodeRole.Int64CheckedMultiply, []
@@ -367,6 +401,8 @@ module ViewerProjection =
         | SemanticNodeKind.Int64GreaterThan _ -> ViewerNodeRole.Int64GreaterThan, []
         | SemanticNodeKind.Int64GreaterThanOrEqual _ -> ViewerNodeRole.Int64GreaterThanOrEqual, []
         | SemanticNodeKind.Float64Add _ -> ViewerNodeRole.Float64Add, []
+        | SemanticNodeKind.Float64Min _ -> ViewerNodeRole.Float64Min, []
+        | SemanticNodeKind.Float64Max _ -> ViewerNodeRole.Float64Max, []
         | SemanticNodeKind.Float64Subtract _ -> ViewerNodeRole.Float64Subtract, []
         | SemanticNodeKind.Float64Multiply _ -> ViewerNodeRole.Float64Multiply, []
         | SemanticNodeKind.Float64Divide _ -> ViewerNodeRole.Float64Divide, []
@@ -377,6 +413,7 @@ module ViewerProjection =
         | SemanticNodeKind.Float64IsInfinite _ -> ViewerNodeRole.Float64IsInfinite, []
         | SemanticNodeKind.Int64ToFloat64 _ -> ViewerNodeRole.Int64ToFloat64, []
         | SemanticNodeKind.Int64WrappingAbs _ -> ViewerNodeRole.Int64WrappingAbs, []
+        | SemanticNodeKind.Int64BitNot _ -> ViewerNodeRole.Int64BitNot, []
         | SemanticNodeKind.Bits32FromInt64 _ -> ViewerNodeRole.Bits32FromInt64, []
         | SemanticNodeKind.Bits32ToInt64 _ -> ViewerNodeRole.Bits32ToInt64, []
         | SemanticNodeKind.Bits32Xor _ -> ViewerNodeRole.Bits32Xor, []
@@ -409,6 +446,8 @@ module ViewerProjection =
         | SemanticNodeKind.SetUnion _ -> ViewerNodeRole.SetUnion, []
         | SemanticNodeKind.SetIntersection _ -> ViewerNodeRole.SetIntersection, []
         | SemanticNodeKind.SetDifference _ -> ViewerNodeRole.SetDifference, []
+        | SemanticNodeKind.SetIsSubset _ -> ViewerNodeRole.SetIsSubset, []
+        | SemanticNodeKind.MapUnion _ -> ViewerNodeRole.MapUnion, []
         | SemanticNodeKind.MapContainsKey _ -> ViewerNodeRole.MapContainsKey, []
         | SemanticNodeKind.SetContains _ -> ViewerNodeRole.SetContains, []
         | SemanticNodeKind.ListIndexOf _ -> ViewerNodeRole.ListIndexOf, []
@@ -416,6 +455,9 @@ module ViewerProjection =
         | SemanticNodeKind.MapGet _ -> ViewerNodeRole.MapGet, []
         | SemanticNodeKind.MapGetOrDefault _ -> ViewerNodeRole.MapGetOrDefault, []
         | SemanticNodeKind.ListSlice _ -> ViewerNodeRole.ListSlice, []
+        | SemanticNodeKind.ListSetAt _ -> ViewerNodeRole.ListSetAt, []
+        | SemanticNodeKind.ListInsertAt _ -> ViewerNodeRole.ListInsertAt, []
+        | SemanticNodeKind.ListRemoveAt _ -> ViewerNodeRole.ListRemoveAt, []
         | SemanticNodeKind.MapInsert _ -> ViewerNodeRole.MapInsert, []
         | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
         | SemanticNodeKind.ListFold _ -> ViewerNodeRole.ListFold, []
@@ -437,12 +479,20 @@ module ViewerProjection =
         | SemanticNodeKind.OneShotWait _ -> ViewerNodeRole.OneShotWait, []
         | SemanticNodeKind.TaskCancel _ -> ViewerNodeRole.TaskCancel, []
         | SemanticNodeKind.ListMap _ -> ViewerNodeRole.ListMap, []
+        | SemanticNodeKind.ListZipWith _ -> ViewerNodeRole.ListZipWith, []
+        | SemanticNodeKind.ListFlatMap _ -> ViewerNodeRole.ListFlatMap, []
         | SemanticNodeKind.MapFromList _ -> ViewerNodeRole.MapFromList, []
         | SemanticNodeKind.ListFilter _ -> ViewerNodeRole.ListFilter, []
         | SemanticNodeKind.MapFilter _ -> ViewerNodeRole.MapFilter, []
         | SemanticNodeKind.ListSortBy _ -> ViewerNodeRole.ListSortBy, []
         | SemanticNodeKind.ListMinBy _ -> ViewerNodeRole.ListMinBy, []
         | SemanticNodeKind.MapMapValues _ -> ViewerNodeRole.MapMapValues, []
+        | SemanticNodeKind.OptionGetOrDefault _ -> ViewerNodeRole.OptionGetOrDefault, []
+        | SemanticNodeKind.OptionMap _ -> ViewerNodeRole.OptionMap, []
+        | SemanticNodeKind.OptionAndThen _ -> ViewerNodeRole.OptionAndThen, []
+        | SemanticNodeKind.ResultMap _ -> ViewerNodeRole.ResultMap, []
+        | SemanticNodeKind.ResultMapErr _ -> ViewerNodeRole.ResultMapErr, []
+        | SemanticNodeKind.ResultAndThen _ -> ViewerNodeRole.ResultAndThen, []
         | SemanticNodeKind.ListAny _ -> ViewerNodeRole.ListAny, []
         | SemanticNodeKind.ListFindIndex _ -> ViewerNodeRole.ListFindIndex, []
         | SemanticNodeKind.ListAll _ -> ViewerNodeRole.ListAll, []

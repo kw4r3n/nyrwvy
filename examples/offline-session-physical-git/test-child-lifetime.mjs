@@ -53,7 +53,7 @@ async function run(d,index,{prefix=false,line=integration,crash='',wrapper='',ki
 // No arbitrary descendant-lifetime claim is inferred from this helper.
 async function wrapper(root){
  const bin=join(root,'wrapper');await mkdir(bin)
- const source=`#!/usr/bin/node
+ const source=`#!${process.execPath}
 import fs from 'node:fs';import {execFileSync} from 'node:child_process';
 const args=process.argv.slice(2),root=process.env.NYRWVY_CHILD_ROOT,mode=process.env.NYRWVY_CHILD_MODE;
 const input=mode==='stdin-hold'&&args.includes('commit-tree')?Buffer.alloc(0):fs.readFileSync(0);if(args.includes('commit-tree')){

@@ -659,6 +659,67 @@ module SnapshotValidator =
                 | Some _ -> add "MapInputTypeMismatch" $"{name} node '{StableId.value nodeId}' requires a Map<K, V> input."
                 | None -> ()
 
+            /// OptionMap, OptionAndThen, ResultMap, ResultMapErr and ResultAndThen: a pure callback with
+            /// exactly one parameter not bound by context, receiving the payload of the case it runs for.
+            /// `payloadOf` picks that payload from the source type (None for a source of another shape);
+            /// a binder also states which results it accepts for the source type.
+            let validateCaseCallback
+                (name: string)
+                (sourceShape: string)
+                (nodeId: GraphNodeId)
+                sourceNodeId
+                callbackFunctionId
+                (context: ArgumentBinding list)
+                (payloadOf: TypeRef -> TypeRef option)
+                (binderResult: ((TypeRef -> TypeRef -> bool) * string) option)
+                =
+                match nodeType sourceNodeId with
+                | Some sourceType ->
+                    match payloadOf sourceType with
+                    | None -> add "HigherOrderSourceTypeMismatch" $"{name} node '{StableId.value nodeId}' requires {sourceShape} input."
+                    | Some payloadType ->
+                        match Map.tryFind callbackFunctionId functionsById with
+                        | None -> add "UnknownCallbackFunction" $"{name} node '{StableId.value nodeId}' references unknown callback function '{StableId.value callbackFunctionId}'."
+                        | Some callback ->
+                            let unbound, contextSubstitution = validateCallbackContext nodeId callback context
+                            let mutable substitution = contextSubstitution
+                            match unbound with
+                            | [ parameter ] ->
+                                match TypeParameters.matchType substitution parameter.Type payloadType with
+                                | Some extended -> substitution <- extended
+                                | None -> add "CallbackParameterTypeMismatch" $"{name} node '{StableId.value nodeId}' callback parameter type does not match the {sourceShape} payload type."
+                            | _ ->
+                                add "CallbackArityMismatch" $"{name} node '{StableId.value nodeId}' requires callback '{StableId.value callback.Id}' to have exactly one parameter not bound by context."
+                            match binderResult with
+                            | Some(accepts, expected) when not (accepts sourceType (TypeParameters.substitute substitution callback.ResultType)) ->
+                                add "CallbackResultTypeMismatch" $"{name} node '{StableId.value nodeId}' callback must return {expected}."
+                            | _ -> ()
+                            if not (PureFunctions.isPure snapshot callback.Id) then
+                                add "CallbackEffectsNotAllowed" $"{name} node '{StableId.value nodeId}' requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls."
+                | None -> ()
+
+            let optionItem sourceType =
+                match sourceType with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]) -> Some itemType
+                | _ -> None
+
+            let resultOk sourceType =
+                match sourceType with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) -> Some okType
+                | _ -> None
+
+            let resultError sourceType =
+                match sourceType with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; errorType ]) -> Some errorType
+                | _ -> None
+
+            let returnsOption _ result = (optionItem result).IsSome
+
+            let returnsResultWithSourceError source result =
+                match resultError source, resultError result with
+                | Some sourceError, Some resultError -> sourceError = resultError
+                | _ -> false
+
             let validateFieldBindings
                 (context: string)
                 (expectedFields: SemanticField list)
@@ -981,6 +1042,26 @@ module SnapshotValidator =
                             $"{name} node '{StableId.value node.Id}' requires a String {otherRole}."
                             (TypeRef.Primitive PrimitiveType.String)
                             otherNodeId
+                    | SemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+                        for role, operandNodeId in [ "value", valueNodeId; "pattern", patternNodeId; "replacement", replacementNodeId ] do
+                            requireNodeType
+                                "StringIntrinsicTypeMismatch"
+                                $"StringReplace node '{StableId.value node.Id}' requires a String {role}."
+                                (TypeRef.Primitive PrimitiveType.String)
+                                operandNodeId
+                    | SemanticNodeKind.StringTrim valueNodeId
+                    | SemanticNodeKind.StringTrimStart valueNodeId
+                    | SemanticNodeKind.StringTrimEnd valueNodeId ->
+                        let name =
+                            match node.Kind with
+                            | SemanticNodeKind.StringTrimStart _ -> "StringTrimStart"
+                            | SemanticNodeKind.StringTrimEnd _ -> "StringTrimEnd"
+                            | _ -> "StringTrim"
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"{name} node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
                     | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
                         requireNodeType
                             "StringIntrinsicTypeMismatch"
@@ -1023,6 +1104,11 @@ module SnapshotValidator =
                     | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64ShiftLeft(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64ShiftRight(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
@@ -1034,6 +1120,8 @@ module SnapshotValidator =
                     | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
                         requireInt64Operands node.Id leftNodeId rightNodeId
                     | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Float64Min(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Float64Max(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
@@ -1054,6 +1142,12 @@ module SnapshotValidator =
                         requireNodeType
                             "Int64IntrinsicTypeMismatch"
                             $"Int64WrappingAbs node '{StableId.value node.Id}' requires an Int64 value."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            valueNodeId
+                    | SemanticNodeKind.Int64BitNot valueNodeId ->
+                        requireNodeType
+                            "Int64IntrinsicTypeMismatch"
+                            $"Int64BitNot node '{StableId.value node.Id}' requires an Int64 value."
                             (TypeRef.Primitive PrimitiveType.Int64)
                             valueNodeId
                     | SemanticNodeKind.Bits32FromInt64 valueNodeId ->
@@ -1173,7 +1267,8 @@ module SnapshotValidator =
                         | None -> ()
                     | SemanticNodeKind.SetUnion(leftSetNodeId, rightSetNodeId)
                     | SemanticNodeKind.SetIntersection(leftSetNodeId, rightSetNodeId)
-                    | SemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId) ->
+                    | SemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId)
+                    | SemanticNodeKind.SetIsSubset(leftSetNodeId, rightSetNodeId) ->
                         match requireSetInput node.Id leftSetNodeId with
                         | Some itemType ->
                             requireNodeType
@@ -1200,6 +1295,26 @@ module SnapshotValidator =
                                 $"MapInsert node '{StableId.value node.Id}' requires a value of the map's value type."
                                 valueType
                                 valueNodeId
+                        | None -> ()
+                    | SemanticNodeKind.MapUnion(leftMapNodeId, rightMapNodeId) ->
+                        match requireMapInput node.Id leftMapNodeId with
+                        | Some(keyType, valueType) ->
+                            requireNodeType
+                                "MapInputTypeMismatch"
+                                $"MapUnion node '{StableId.value node.Id}' requires two maps of the same key and value types."
+                                (TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]))
+                                rightMapNodeId
+                        | None -> ()
+                    | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
+                        match nodeType optionNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])) ->
+                            requireNodeType
+                                "OptionDefaultTypeMismatch"
+                                $"OptionGetOrDefault node '{StableId.value node.Id}' requires a default of the option's item type."
+                                itemType
+                                defaultNodeId
+                        | Some _ ->
+                            add "OptionInputTypeMismatch" $"OptionGetOrDefault node '{StableId.value node.Id}' requires an Option<T> input."
                         | None -> ()
                     | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) ->
                         match requireMapInput node.Id sourceMapNodeId with
@@ -1250,6 +1365,55 @@ module SnapshotValidator =
                             add
                                 "ListItemAtIndexTypeMismatch"
                                 $"ListItemAt node '{StableId.value node.Id}' requires an Int64 index."
+                    | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            requireNodeType
+                                "ListSetAtItemTypeMismatch"
+                                $"ListSetAt node '{StableId.value node.Id}' requires an item of the list's item type."
+                                itemType
+                                itemNodeId
+                        | Some _ ->
+                            add
+                                "ListSetAtListTypeMismatch"
+                                $"ListSetAt node '{StableId.value node.Id}' requires List<T> as its list input."
+                        | None -> ()
+                        requireNodeType
+                            "ListSetAtIndexTypeMismatch"
+                            $"ListSetAt node '{StableId.value node.Id}' requires an Int64 index."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            indexNodeId
+                    | SemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            requireNodeType
+                                "ListInsertAtItemTypeMismatch"
+                                $"ListInsertAt node '{StableId.value node.Id}' requires an item of the list's item type."
+                                itemType
+                                itemNodeId
+                        | Some _ ->
+                            add
+                                "ListInsertAtListTypeMismatch"
+                                $"ListInsertAt node '{StableId.value node.Id}' requires List<T> as its list input."
+                        | None -> ()
+                        requireNodeType
+                            "ListInsertAtIndexTypeMismatch"
+                            $"ListInsertAt node '{StableId.value node.Id}' requires an Int64 index."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            indexNodeId
+                    | SemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ]))
+                        | None -> ()
+                        | Some _ ->
+                            add
+                                "ListRemoveAtListTypeMismatch"
+                                $"ListRemoveAt node '{StableId.value node.Id}' requires List<T> as its list input."
+                        requireNodeType
+                            "ListRemoveAtIndexTypeMismatch"
+                            $"ListRemoveAt node '{StableId.value node.Id}' requires an Int64 index."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            indexNodeId
                     | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
                         match nodeType listNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ]))
@@ -1360,6 +1524,24 @@ module SnapshotValidator =
                         validateMapEntryCallback "MapFilter" true node.Id sourceMapNodeId keepFunctionId context
                     | SemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
                         validateMapEntryCallback "MapMapValues" false node.Id sourceMapNodeId mapperFunctionId context
+                    | SemanticNodeKind.OptionMap(sourceNodeId, mapperFunctionId, context) ->
+                        validateCaseCallback "OptionMap" "Option<T>" node.Id sourceNodeId mapperFunctionId context optionItem None
+                    | SemanticNodeKind.OptionAndThen(sourceNodeId, binderFunctionId, context) ->
+                        validateCaseCallback "OptionAndThen" "Option<T>" node.Id sourceNodeId binderFunctionId context optionItem (Some(returnsOption, "Option<R>"))
+                    | SemanticNodeKind.ResultMap(sourceNodeId, mapperFunctionId, context) ->
+                        validateCaseCallback "ResultMap" "Result<T, E>" node.Id sourceNodeId mapperFunctionId context resultOk None
+                    | SemanticNodeKind.ResultMapErr(sourceNodeId, mapperFunctionId, context) ->
+                        validateCaseCallback "ResultMapErr" "Result<T, E>" node.Id sourceNodeId mapperFunctionId context resultError None
+                    | SemanticNodeKind.ResultAndThen(sourceNodeId, binderFunctionId, context) ->
+                        validateCaseCallback
+                            "ResultAndThen"
+                            "Result<T, E>"
+                            node.Id
+                            sourceNodeId
+                            binderFunctionId
+                            context
+                            resultOk
+                            (Some(returnsResultWithSourceError, "Result<R, E> with the source's error type E"))
                     | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                         match nodeType sourceListNodeId, nodeType seedNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some seedType ->
@@ -1564,6 +1746,33 @@ module SnapshotValidator =
                         | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" $"ParallelAll node '{StableId.value node.Id}' requires List<T> input."
                         | _, None -> add "UnknownCallbackFunction" $"ParallelAll node '{StableId.value node.Id}' references an unknown worker."
                         | None, _ -> ()
+                    | SemanticNodeKind.ListZipWith(leftListNodeId, rightListNodeId, combinerFunctionId, context) ->
+                        match nodeType leftListNodeId, nodeType rightListNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ leftItemType ])),
+                          Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ rightItemType ])) ->
+                            match Map.tryFind combinerFunctionId functionsById with
+                            | None -> add "UnknownCallbackFunction" $"ListZipWith node '{StableId.value node.Id}' references an unknown combiner."
+                            | Some combiner ->
+                                let unbound, substitution = validateCallbackContext node.Id combiner context
+                                if unbound.Length <> 2 then
+                                    add "CallbackArityMismatch" $"ListZipWith node '{StableId.value node.Id}' combiner must have exactly two parameters not bound by context (left item, right item)."
+                                else
+                                    match
+                                        TypeParameters.matchType substitution unbound.Head.Type leftItemType
+                                        |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type rightItemType)
+                                    with
+                                    | Some _ -> ()
+                                    | None -> add "CallbackParameterTypeMismatch" $"ListZipWith node '{StableId.value node.Id}' combiner input types must match the left and right list item types."
+                                if not (PureFunctions.isPure snapshot combiner.Id) then
+                                    add "CallbackEffectsNotAllowed" $"ListZipWith node '{StableId.value node.Id}' combiner must be pure, including its transitive calls and ambient task or cancellation behavior."
+                        | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" $"ListZipWith node '{StableId.value node.Id}' requires List<T> inputs."
+                        | _ -> ()
+                    | SemanticNodeKind.ListFlatMap(sourceListNodeId, mapperFunctionId, context) ->
+                        validateListCallback node.Id sourceListNodeId mapperFunctionId context false
+                        match nodeType sourceListNodeId, Map.tryFind mapperFunctionId functionsById, nodeType node.Id with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ])), Some _, None ->
+                            add "CallbackResultTypeMismatch" $"ListFlatMap node '{StableId.value node.Id}' mapper must return List<R>."
+                        | _ -> ()
                     | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
                         validateListCallback node.Id sourceListNodeId mapperFunctionId context false
                     | SemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
@@ -2155,6 +2364,10 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringJoin _
                 | SemanticNodeKind.StringSplit _
                 | SemanticNodeKind.StringSplitLines _
+                | SemanticNodeKind.StringReplace _
+                | SemanticNodeKind.StringTrim _
+                | SemanticNodeKind.StringTrimStart _
+                | SemanticNodeKind.StringTrimEnd _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringLessThan _
                 | SemanticNodeKind.ValueEqual _
@@ -2166,6 +2379,11 @@ module SnapshotValidator =
                 | SemanticNodeKind.Int64FloorModulo _
                 | SemanticNodeKind.Int64Min _
                 | SemanticNodeKind.Int64Max _
+                | SemanticNodeKind.Int64BitAnd _
+                | SemanticNodeKind.Int64BitOr _
+                | SemanticNodeKind.Int64BitXor _
+                | SemanticNodeKind.Int64ShiftLeft _
+                | SemanticNodeKind.Int64ShiftRight _
                 | SemanticNodeKind.Int64CheckedAdd _
                 | SemanticNodeKind.Int64CheckedSubtract _
                 | SemanticNodeKind.Int64CheckedMultiply _
@@ -2178,6 +2396,8 @@ module SnapshotValidator =
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
                 | SemanticNodeKind.Float64Add _
+                | SemanticNodeKind.Float64Min _
+                | SemanticNodeKind.Float64Max _
                 | SemanticNodeKind.Float64Subtract _
                 | SemanticNodeKind.Float64Multiply _
                 | SemanticNodeKind.Float64Divide _
@@ -2188,6 +2408,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.Float64IsInfinite _
                 | SemanticNodeKind.Int64ToFloat64 _
                 | SemanticNodeKind.Int64WrappingAbs _
+                | SemanticNodeKind.Int64BitNot _
                 | SemanticNodeKind.Bits32FromInt64 _
                 | SemanticNodeKind.Bits32ToInt64 _
                 | SemanticNodeKind.Bits32Xor _
@@ -2213,6 +2434,9 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListLast _
                 | SemanticNodeKind.ListDropLast _
                 | SemanticNodeKind.ListSlice _
+                | SemanticNodeKind.ListSetAt _
+                | SemanticNodeKind.ListInsertAt _
+                | SemanticNodeKind.ListRemoveAt _
                 | SemanticNodeKind.MapInsert _
                 | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.MapRemove _
@@ -2221,11 +2445,14 @@ module SnapshotValidator =
                 | SemanticNodeKind.SetUnion _
                 | SemanticNodeKind.SetIntersection _
                 | SemanticNodeKind.SetDifference _
+                | SemanticNodeKind.SetIsSubset _
+                | SemanticNodeKind.MapUnion _
                 | SemanticNodeKind.MapContainsKey _
                 | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.ListIndexOf _
                 | SemanticNodeKind.ListLastIndexOf _
                 | SemanticNodeKind.MapGet _
+                | SemanticNodeKind.OptionGetOrDefault _
                 | SemanticNodeKind.MapGetOrDefault _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
@@ -2247,11 +2474,18 @@ module SnapshotValidator =
                 | SemanticNodeKind.OneShotComplete _
                 | SemanticNodeKind.OneShotWait _
                 | SemanticNodeKind.TaskCancel _
+                | SemanticNodeKind.ListZipWith _
+                | SemanticNodeKind.ListFlatMap _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.MapFromList _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.MapFilter _
                 | SemanticNodeKind.ListSortBy _
+                | SemanticNodeKind.OptionMap _
+                | SemanticNodeKind.OptionAndThen _
+                | SemanticNodeKind.ResultMap _
+                | SemanticNodeKind.ResultMapErr _
+                | SemanticNodeKind.ResultAndThen _
                 | SemanticNodeKind.MapMapValues _
                 | SemanticNodeKind.ListMinBy _
                 | SemanticNodeKind.ListAny _

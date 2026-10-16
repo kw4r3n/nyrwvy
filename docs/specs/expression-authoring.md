@@ -61,6 +61,10 @@ ExpressionRecipe =
   | StringEndsWith(value, suffix)
   | StringSplit(value, separator)
   | StringSplitLines(value, breaks)
+  | StringReplace(value, pattern, replacement)
+  | StringTrim(expr)
+  | StringTrimStart(expr)
+  | StringTrimEnd(expr)
   | StringJoin(list, separator)
   | StringToLower(expr)
   | StringToUpper(expr)
@@ -74,6 +78,8 @@ ExpressionRecipe =
   | Int64FloorDivide(left, right)
   | Int64FloorModulo(left, right)
   | Int64Min(left, right) | Int64Max(left, right) | Int64WrappingAbs(expr)
+  | Int64BitAnd(left, right) | Int64BitOr(left, right) | Int64BitXor(left, right) | Int64BitNot(expr)
+  | Int64ShiftLeft(value, count) | Int64ShiftRight(value, count)
   | Int64CheckedAdd(left, right) | Int64CheckedSubtract(left, right) | Int64CheckedMultiply(left, right)
   | Int64Equal(left, right)
   | Int64LessThan(left, right)
@@ -95,6 +101,7 @@ ExpressionRecipe =
   | Bits32RotateRight(value, amount) | Bits32ShiftRight(value, amount) | Bits32ShiftLeft(value, amount)
   | Float64RoundToInt64(expr) | Float64FloorToInt64(expr)
   | Float64Sqrt(expr) | Float64Abs(expr) | Float64Negate(expr)
+  | Float64Min(left, right) | Float64Max(left, right)
   | Float64Floor(expr) | Float64Ceiling(expr) | Float64Truncate(expr)
   | Float64Round(value, digits)
   | Float64ToString(expr)
@@ -108,17 +115,19 @@ ExpressionRecipe =
   | ListRange(start, end)
   | ListItemAt(list, index)
   | ListSlice(list, start, end)
+  | ListSetAt(list, index, item) | ListInsertAt(list, index, item) | ListRemoveAt(list, index)
   | ListAppendItem(list, item)
   | ListConcat(left, right)
   | MapEmpty(keyType, valueType)
   | MapInsert(map, key, value) | MapGet(map, key) | MapContainsKey(map, key) | MapRemove(map, key)
-  | MapSize(map) | MapKeys(map) | MapValues(map)
+  | MapSize(map) | MapKeys(map) | MapValues(map) | MapUnion(left, right)
   | MapFold(map, seed, folderFunctionId, context) | MapFromList(source, keyOfFunctionId, context)
   | MapFilter(map, keepFunctionId, context) | MapGetOrDefault(map, key, default)
   | MapMapValues(map, mapperFunctionId, context)
   | SetEmpty(itemType) | SetFromList(list) | SetInsert(set, item) | SetContains(set, item)
   | SetRemove(set, item) | SetSize(set) | SetToList(set)
   | SetUnion(left, right) | SetIntersection(left, right) | SetDifference(left, right)
+  | SetIsSubset(left, right)
   | ListFold(source, seed, folderFunctionId, context)
   | ListEffectFold(source, seed, folderFunctionId, context)
   | ParallelAll(source, workerFunctionId, context)
@@ -133,6 +142,8 @@ ExpressionRecipe =
   | TaskCancel(task)
   | UseResource(acquire, releaseCapability, releaseOperationId, bodyFunctionId, context)
   | ListMap(source, mapperFunctionId, context)
+  | ListZipWith(left, right, combinerFunctionId, context)
+  | ListFlatMap(source, mapperFunctionId, context)
   | ListFilter(source, predicateFunctionId, context)
   | ListSortBy(source, lessThanFunctionId, context)
   | ListMinBy(source, lessThanFunctionId, context)
@@ -149,6 +160,10 @@ ExpressionRecipe =
   | OptionSome(value)
   | ResultOk(errorType, value)
   | ResultErr(okType, error)
+  | OptionGetOrDefault(option, default)
+  | OptionMap(option, mapperFunctionId, context) | OptionAndThen(option, binderFunctionId, context)
+  | ResultMap(result, mapperFunctionId, context) | ResultMapErr(result, mapperFunctionId, context)
+  | ResultAndThen(result, binderFunctionId, context)
   | Abort(error)
   | CapabilityConstruct(CapabilityId, implementations: (CapabilityOperationId * FunctionId) list)
   | FunctionReference(FunctionId)
@@ -322,12 +337,14 @@ for purity, persistence, dependency and host-boundary contracts.
 
 ## Higher-order List callbacks
 
-`ListFold`, `ListMap`, `ListFilter`, `ListSortBy`, `ListMinBy`, `ListFindIndex`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
+`ListFold`, `ListMap`, `ListZipWith`, `ListFlatMap`, `ListFilter`, `ListSortBy`, `ListMinBy`, `ListFindIndex`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
 
 For a source `List<T>`:
 
 - `ListFold(source, seed, f)` requires a pure binary `f : (S, T) -> S` where `seed : S`; it returns `S`, traverses left to right, and returns the seed for an empty source;
 - `ListMap(source, f)` requires a pure unary `f : T -> R` and produces `List<R>`;
+- `ListZipWith(left, right, f)` takes a second list `right : List<U>` and requires a pure binary `f : (T, U) -> R` receiving `(left item, right item)`; it produces `List<R>` of `f(left[i], right[i])` for every index below the shorter length, ignoring the longer list's extra items as Python `zip` does. Wire `listZipWith` with the fields `left`, `right`, `function` (name-resolved) or `functionId`, and `context`; Nyason `list-zip-with` with `left`, `right`, `combiner`; persisted `leftListNodeId`, `rightListNodeId`, `combinerFunctionId`. A non-List operand reports `PureExpressionOperandTypeMismatch`, another number of unbound parameters `PureExpressionCallbackArityMismatch`, parameters that do not match the item types `PureExpressionCallbackInputTypeMismatch`, and an impure combiner `PureExpressionCallbackEffectsNotAllowed`; persisted graphs report `CallbackArityMismatch`, `CallbackParameterTypeMismatch` and `CallbackEffectsNotAllowed`;
+- `ListFlatMap(source, f)` requires a pure unary `f : T -> List<R>` and produces the `List<R>` concatenating `f(item)` for each item in source order, in time linear in the output length; wire `listFlatMap` (the `listMap` fields), Nyason `list-flat-map`, persisted callback field `mapperFunctionId`. A mapper that does not return a List reports `PureExpressionCallbackResultTypeMismatch` (persisted: `CallbackResultTypeMismatch`); the other diagnostics are `ListMap`'s;
 - `ListFilter(source, p)` requires a pure unary `p : T -> Bool` and produces `List<T>`;
 - `ListSortBy(source, lessThan)` requires a pure binary `lessThan : (T, T) -> Bool` receiving `(left, right)` and produces `List<T>` in stable merge-sort order (see the [language subset](../reference/language-subset.md#immutable-ordered-listt)); wire `listSortBy`, Nyason `list-sort-by`, persisted callback field `lessThanFunctionId`. A callback with another number of unbound parameters reports `PureExpressionCallbackArityMismatch`, one whose parameters do not both match the item type `PureExpressionCallbackInputTypeMismatch`, a non-Bool result `PureExpressionCallbackResultTypeMismatch`, and required effects `PureExpressionCallbackEffectsNotAllowed`; persisted graphs report `CallbackArityMismatch`, `CallbackParameterTypeMismatch`, `PredicateResultTypeMismatch` and `CallbackEffectsNotAllowed`;
 - `ListMinBy(source, lessThan)` takes the same callback as `ListSortBy` and produces `Option<T>`: `None` for the empty list, otherwise the first smallest item of a left-to-right scan that replaces the best so far only when `lessThan(item, best)` holds; wire `listMinBy`, Nyason `list-min-by`, persisted callback field `lessThanFunctionId`, with the same diagnostics as `ListSortBy`;
@@ -379,13 +396,13 @@ The node yields `Result<T, E>`. If acquisition is `Err`, it is returned; the bod
 
 ## Map
 
-`MapEmpty(keyType, valueType)` (wire `mapEmpty` with the fields `keyType` and `valueType`) produces `Map<K, V>`; a key type that is not equatable reports `MapKeyTypeNotEquatable`. `MapInsert` (wire `mapInsert`: `map`, `key`, `value`), `MapGet`, `MapContainsKey` and `MapRemove` (wire `mapGet`, `mapContainsKey`, `mapRemove`: `map`, `key`) take a map and a key of its key type (and, for insert, a value of its value type). `MapSize`, `MapKeys` and `MapValues` (wire `mapSize`, `mapKeys`, `mapValues`) take the map in the field `value`. Nyason uses the kebab-case tags (`map-empty`, `map-insert`, ...). A map operand of another type, or a key or value of the wrong type, reports `PureExpressionOperandTypeMismatch`. A persisted graph reports `MapInputTypeMismatch`, `MapKeyTypeMismatch` or `MapValueTypeMismatch`. A `Map` type anywhere reports `MapKeyTypeNotEquatable` when its key type is not equatable. `MapFold(map, seed, folderFunctionId, context)` (wire `mapFold`: `map`, `seed`, `function` or `functionId`, `context`) takes a pure folder with three parameters not bound by context, `(S, K, V) -> S`, and yields `S`. `MapFromList(source, keyOfFunctionId, context)` (wire `mapFromList`: `source`, `function` or `functionId`, `context`) takes a pure `T -> K` callback over a `List<T>` and yields `Map<K, T>`; `K` must be equatable (`MapKeyTypeNotEquatable`). `MapFilter(map, keepFunctionId, context)` (wire `mapFilter`: `map`, `function` or `functionId`, `context`) takes a pure `(K, V) -> Bool` callback with two parameters not bound by context and yields the same `Map<K, V>`. `MapMapValues(map, mapperFunctionId, context)` (wire `mapMapValues`: `map`, `function` or `functionId`, `context`; Nyason `map-map-values`) takes a pure `(K, V) -> U` callback with two parameters not bound by context and yields `Map<K, U>`. `MapGetOrDefault(map, key, default)` (wire `mapGetOrDefault`: `map`, `key`, `default`; Nyason `map-get-or-default`) takes a key of the key type and a default of the value type and yields `V`; its operands carry the `Source`, `Key` and `Value` dependency roles. Callback problems report the same `PureExpressionCallback*` codes as the List callbacks. Semantics are in the [language subset](../reference/language-subset.md#immutable-insertion-ordered-mapk-v).
+`MapEmpty(keyType, valueType)` (wire `mapEmpty` with the fields `keyType` and `valueType`) produces `Map<K, V>`; a key type that is not equatable reports `MapKeyTypeNotEquatable`. `MapInsert` (wire `mapInsert`: `map`, `key`, `value`), `MapGet`, `MapContainsKey` and `MapRemove` (wire `mapGet`, `mapContainsKey`, `mapRemove`: `map`, `key`) take a map and a key of its key type (and, for insert, a value of its value type). `MapSize`, `MapKeys` and `MapValues` (wire `mapSize`, `mapKeys`, `mapValues`) take the map in the field `value`. `MapUnion` (wire `mapUnion`: `left`, `right`; Nyason `map-union`) takes two maps of the same key and value types; a persisted graph whose right map differs reports `MapInputTypeMismatch`. Nyason uses the kebab-case tags (`map-empty`, `map-insert`, ...). A map operand of another type, or a key or value of the wrong type, reports `PureExpressionOperandTypeMismatch`. A persisted graph reports `MapInputTypeMismatch`, `MapKeyTypeMismatch` or `MapValueTypeMismatch`. A `Map` type anywhere reports `MapKeyTypeNotEquatable` when its key type is not equatable. `MapFold(map, seed, folderFunctionId, context)` (wire `mapFold`: `map`, `seed`, `function` or `functionId`, `context`) takes a pure folder with three parameters not bound by context, `(S, K, V) -> S`, and yields `S`. `MapFromList(source, keyOfFunctionId, context)` (wire `mapFromList`: `source`, `function` or `functionId`, `context`) takes a pure `T -> K` callback over a `List<T>` and yields `Map<K, T>`; `K` must be equatable (`MapKeyTypeNotEquatable`). `MapFilter(map, keepFunctionId, context)` (wire `mapFilter`: `map`, `function` or `functionId`, `context`) takes a pure `(K, V) -> Bool` callback with two parameters not bound by context and yields the same `Map<K, V>`. `MapMapValues(map, mapperFunctionId, context)` (wire `mapMapValues`: `map`, `function` or `functionId`, `context`; Nyason `map-map-values`) takes a pure `(K, V) -> U` callback with two parameters not bound by context and yields `Map<K, U>`. `MapGetOrDefault(map, key, default)` (wire `mapGetOrDefault`: `map`, `key`, `default`; Nyason `map-get-or-default`) takes a key of the key type and a default of the value type and yields `V`; its operands carry the `Source`, `Key` and `Value` dependency roles. Callback problems report the same `PureExpressionCallback*` codes as the List callbacks. Semantics are in the [language subset](../reference/language-subset.md#immutable-insertion-ordered-mapk-v).
 
 `runPure` takes and returns a map as `{"kind": "map", "keyType", "valueType", "entries": [{"key", "value"}]}` in iteration order; an input that names a key twice is a `ProtocolError`, and a map holds at most 4,096 entries.
 
 ## Set
 
-`SetEmpty(itemType)` (wire `setEmpty` with the field `itemType`) produces `Set<T>`. `SetInsert`, `SetContains` and `SetRemove` (wire `setInsert`, `setContains`, `setRemove`: `set`, `item`) take a set and an item of its item type. `SetFromList`, `SetSize` and `SetToList` (wire `setFromList`, `setSize`, `setToList`) take their operand in the field `value`. `SetUnion`, `SetIntersection` and `SetDifference` (wire `setUnion`, `setIntersection`, `setDifference`: `left`, `right`) take two sets of the same type. Nyason uses the kebab-case tags. An item type that is not equatable reports `SetItemTypeNotEquatable`; a mistyped operand reports `PureExpressionOperandTypeMismatch`, and a persisted graph reports `SetInputTypeMismatch` or `SetItemTypeMismatch`. `runPure` takes and returns `{"kind": "set", "itemType", "items": [...]}` in iteration order, with each item once. Semantics are in the [language subset](../reference/language-subset.md#immutable-insertion-ordered-sett).
+`SetEmpty(itemType)` (wire `setEmpty` with the field `itemType`) produces `Set<T>`. `SetInsert`, `SetContains` and `SetRemove` (wire `setInsert`, `setContains`, `setRemove`: `set`, `item`) take a set and an item of its item type. `SetFromList`, `SetSize` and `SetToList` (wire `setFromList`, `setSize`, `setToList`) take their operand in the field `value`. `SetUnion`, `SetIntersection`, `SetDifference` and `SetIsSubset` (wire `setUnion`, `setIntersection`, `setDifference`, `setIsSubset`: `left`, `right`) take two sets of the same type; `SetIsSubset` gives `Bool`. Nyason uses the kebab-case tags. An item type that is not equatable reports `SetItemTypeNotEquatable`; a mistyped operand reports `PureExpressionOperandTypeMismatch`, and a persisted graph reports `SetInputTypeMismatch` or `SetItemTypeMismatch`. `runPure` takes and returns `{"kind": "set", "itemType", "items": [...]}` in iteration order, with each item once. Semantics are in the [language subset](../reference/language-subset.md#immutable-insertion-ordered-sett).
 
 ## Structured declaration bindings
 
@@ -404,6 +421,10 @@ Preflight requires no duplicate fields, the exact declaration field set, and exa
 `ResultOk(E, value)` derives the success type from `value` and produces `Result<T,E>`. `ResultErr(T, error)` derives the error type from `error` and produces `Result<T,E>`.
 
 These cases add no implicit conversion and no special failure semantics; they materialize the existing semantic constructors.
+
+## Option and Result combinators
+
+`OptionGetOrDefault(option, default)` (wire `optionGetOrDefault`: `option`, `default`; Nyason `option-get-or-default`) takes an `Option<T>` and a default of type `T` and yields `T`; it is checked from the `OperationSignatures` table, both operands are evaluated, and they carry the `Source` and `Value` dependency roles. The callback combinators reference an existing pure callback by `FunctionId` with an optional context, as `ListMap` does: `OptionMap` and `OptionAndThen` (wire `optionMap`, `optionAndThen`: `option`, `function` or `functionId`, `context`; Nyason `option-map`, `option-and-then`) take an `Option<T>`, and `ResultMap`, `ResultMapErr` and `ResultAndThen` (wire `resultMap`, `resultMapErr`, `resultAndThen`: `result`, `function` or `functionId`, `context`; Nyason `result-map`, `result-map-err`, `result-and-then`) take a `Result<T, E>`. The callback has exactly one parameter not bound by context, which receives the `Some` or `Ok` value (the `Err` error for `ResultMapErr`). `OptionMap` yields `Option<U>` and `ResultMap` `Result<U, E>` for a `T -> U` mapper, and `ResultMapErr` yields `Result<T, F>` for an `E -> F` mapper. `OptionAndThen`'s binder must return an `Option`, which is the result, and `ResultAndThen`'s binder must return `Result<U, E>` with the source's `E`. The callback runs only for the case it names; the other case passes through unchanged. A source of another shape reports `PureExpressionOperandTypeMismatch`; callback problems report the shared `PureExpressionCallback*` codes, a binder of another result type `PureExpressionCallbackResultTypeMismatch`. A persisted graph reports `HigherOrderSourceTypeMismatch` and the shared callback codes, and for `OptionGetOrDefault` `OptionInputTypeMismatch` or `OptionDefaultTypeMismatch`. Semantics follow Rust's methods of the same names ([decision](../decisions/option-result-combinators.md)).
 
 ## StringLessThan
 
@@ -425,6 +446,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 
 `StringSplitLines(value, breaks)` (wire `stringSplitLines` with `value`, `breaks`; Nyason `string-split-lines`) takes two Strings and produces `List<String>`: the lines of `value` split at any code point of `breaks`, with `"\r\n"` as one break when both are members, `""` giving `[]` and no trailing empty line after a final break. It never fails; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-split-lines.md). A mistyped operand reports `PureExpressionOperandTypeMismatch` with its path (`body.value`, `body.breaks`); a persisted graph reports `StringIntrinsicTypeMismatch`.
 
+## StringReplace and the trims
+
+`StringReplace(value, pattern, replacement)` (wire `stringReplace` with `value`, `pattern`, `replacement`; Nyason `string-replace`) takes three Strings and produces a String: every non-overlapping ordinal occurrence of `pattern`, scanning left to right, replaced by `replacement`, as Python `str.replace(old, new)`, with matches on code-point boundaries only and an empty `pattern` giving `value` unchanged. `StringTrim(text)`, `StringTrimStart(text)` and `StringTrimEnd(text)` (wire `stringTrim`, `stringTrimStart`, `stringTrimEnd` with `value`; Nyason `string-trim`, `string-trim-start`, `string-trim-end`) take a String and produce a String without the Unicode White_Space code points at both ends, the start or the end; unlike Python `strip()`, U+001C–U+001F are kept. None of them fails ([decision](../decisions/string-replace-and-trim.md)). A mistyped operand reports `PureExpressionOperandTypeMismatch`; a persisted node over a non-String operand is a `StringIntrinsicTypeMismatch` validation error.
+
 ## StringToLower, StringToUpper and StringUtf8ByteCount
 
 `StringToLower(text)` (wire `stringToLower`, Nyason `string-to-lower`) takes a String and produces a String: each code point replaced by its culture-invariant Unicode simple lowercase mapping, unpaired surrogates kept. `StringToUpper(text)` (wire `stringToUpper`, Nyason `string-to-upper`) is the uppercase counterpart, with `ß` mapped to `ẞ` ([decision](../decisions/string-uppercase.md)). `StringUtf8ByteCount(text)` (wire `stringUtf8ByteCount`, Nyason `string-utf8-byte-count`) takes a String and produces the Int64 UTF-8 byte length, an unpaired surrogate counting 3 bytes. All three use the wire field `value`, run in linear time and never fail; the semantics and the Python differences are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-lowercase-and-utf8-length.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
@@ -441,6 +466,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 
 `StringJoin(list, separator)` (wire `stringJoin` with `list`, `separator`; Nyason `string-join`) takes exactly a `List<String>` and a String and produces a String, Python `separator.join(list)`. `ListSlice(list, start, end)` (wire `listSlice` with `list`, `start`, `end`; Nyason `list-slice`) is generic like `ListItemAt`: the item type is inferred from `list`, which must be some `List<T>`, and the result is that same `List<T>`; `start` and `end` are Int64 and clamp like `StringSlice` bounds. Both never fail; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-join-and-list-slice.md). A mistyped operand reports `PureExpressionOperandTypeMismatch` with its path (`body.separator`, `body.end`). A persisted graph reports `StringIntrinsicTypeMismatch` for `StringJoin`, and `ListSliceListTypeMismatch` or `ListSliceBoundTypeMismatch` for `ListSlice`.
 
+## ListSetAt, ListInsertAt and ListRemoveAt
+
+`ListSetAt(list, index, item)` (wire `listSetAt` with `list`, `index`, `item`; Nyason `list-set-at`), `ListInsertAt(list, index, item)` (wire `listInsertAt` with `list`, `index`, `item`; Nyason `list-insert-at`) and `ListRemoveAt(list, index)` (wire `listRemoveAt` with `list`, `index`; Nyason `list-remove-at`) are generic like `ListSlice`: the item type is inferred from `list`, which must be some `List<T>`, `index` is Int64, `item` must be that `T` (any type), and the result is the same `List<T>`. Set and remove return the list unchanged for an index outside `[0, length)`; insert clamps the index to `[0, length]`. All three never fail; the semantics and costs are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/list-positional-update.md). A recipe operand of the wrong type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `ListSetAtListTypeMismatch`, `ListSetAtIndexTypeMismatch` or `ListSetAtItemTypeMismatch` (likewise `ListInsertAt…`, and `ListRemoveAtListTypeMismatch` or `ListRemoveAtIndexTypeMismatch`).
+
 ## Int64ToFloat64
 
 `Int64ToFloat64(value)` (wire `int64ToFloat64`, Nyason `int64-to-float64`) takes an Int64 and produces the nearest Float64: exact for `|value| <= 2^53`, otherwise rounded to nearest with ties to even, as defined in the [language subset](../reference/language-subset.md#float64). It never fails. An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Int64IntrinsicTypeMismatch`.
@@ -454,6 +483,8 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## Float64 unary operations
 
 `Float64Sqrt`, `Float64Abs`, `Float64Negate`, `Float64Floor`, `Float64Ceiling` and `Float64Truncate` (wire `float64Sqrt`, `float64Abs`, `float64Negate`, `float64Floor`, `float64Ceiling`, `float64Truncate`; Nyason `float64-sqrt`, `float64-abs`, `float64-negate`, `float64-floor`, `float64-ceiling`, `float64-truncate`) take a Float64 in the wire field `value` and produce a Float64. They are the IEEE 754 operations described in the [language subset](../reference/language-subset.md#float64) and never fail. An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Float64OperandTypeMismatch`.
+
+`Float64Min(left, right)` and `Float64Max(left, right)` (wire `float64Min`, `float64Max` with the fields `left` and `right`; Nyason `float64-min`, `float64-max`) take two Float64 values and produce a Float64, the IEEE 754-2019 `minimum` and `maximum` ([decision](../decisions/int64-bitwise-and-float64-min-max.md)). An operand of another type reports `PureExpressionOperandTypeMismatch` from the recipe preflight; a persisted graph reports `Float64OperandTypeMismatch`.
 
 ## ListReverse
 
@@ -471,8 +502,9 @@ These operations follow the project owner's choices recorded in the [decision](.
 - `Int64ToHexString` (wire `int64ToHexString`, Nyason `int64-to-hex-string`) takes an Int64 in the field `value` and produces a String; `StringParseInt64Hex` (wire `stringParseInt64Hex`, Nyason `string-parse-int64-hex`) takes a String in the field `value` and produces `Option<Int64>`.
 - `Int64Min` and `Int64Max` (wire `int64Min`, `int64Max` with the fields `left` and `right`; Nyason `int64-min`, `int64-max`) take two Int64 values, and `Int64WrappingAbs` (wire `int64WrappingAbs` with the field `value`, Nyason `int64-wrapping-abs`) takes one; all produce an Int64.
 - `Int64CheckedAdd`, `Int64CheckedSubtract` and `Int64CheckedMultiply` (wire `int64CheckedAdd`, `int64CheckedSubtract`, `int64CheckedMultiply` with the fields `left` and `right`; Nyason `int64-checked-add`, `int64-checked-subtract`, `int64-checked-multiply`) take two Int64 values and produce `Option<Int64>`.
+- `Int64BitAnd`, `Int64BitOr` and `Int64BitXor` (wire `int64BitAnd`, `int64BitOr`, `int64BitXor` with the fields `left` and `right`; Nyason `int64-bit-and`, `int64-bit-or`, `int64-bit-xor`) take two Int64 values, `Int64BitNot` (wire `int64BitNot` with the field `value`, Nyason `int64-bit-not`) takes one, and `Int64ShiftLeft` and `Int64ShiftRight` (wire `int64ShiftLeft`, `int64ShiftRight` with the fields `value` and `count`; Nyason `int64-shift-left`, `int64-shift-right` with the fields `value` and `count`; snapshot JSON `valueNodeId` and `countNodeId`) take an Int64 value and an Int64 count; all produce an Int64 ([decision](../decisions/int64-bitwise-and-float64-min-max.md)).
 
-An operand of the wrong type reports `PureExpressionOperandTypeMismatch` from the recipe preflight. A persisted graph reports `Int64OperandTypeMismatch` for `ListRange`, `Int64Min`, `Int64Max` and the checked operations, `Int64IntrinsicTypeMismatch` for `Int64ToHexString` and `Int64WrappingAbs`, and `StringIntrinsicTypeMismatch` for `StringRepeat` and `StringParseInt64Hex`.
+An operand of the wrong type reports `PureExpressionOperandTypeMismatch` from the recipe preflight. A persisted graph reports `Int64OperandTypeMismatch` for `ListRange`, `Int64Min`, `Int64Max`, the bitwise operations, the shifts and the checked operations, `Int64IntrinsicTypeMismatch` for `Int64ToHexString`, `Int64WrappingAbs` and `Int64BitNot`, and `StringIntrinsicTypeMismatch` for `StringRepeat` and `StringParseInt64Hex`.
 
 ## Bits32
 
@@ -673,7 +705,7 @@ The canonical API is `ExpressionRecipe`, `AgentReplaceFunctionBodyWithExpression
 
 The earlier `PureExpressionRecipe` and `AgentPureExpression...` names remain thin F# source aliases and function forwarders for existing clients and evaluation tooling. There is one recipe algebra and one implementation, not separate pure and effectful engines. These historical names do **not** enforce purity; new code should use the canonical names. This is source compatibility, not a promise of binary compatibility for previously compiled clients.
 
-Existing `PureExpression...` diagnostic codes are retained as stable diagnostic identifiers. New capability diagnostics use the `Expression...` prefix. Changing API names does not require renaming historical protocol identifiers or rewriting frozen evaluation evidence. The one exception is the callback codes, which Map, Set and Task nodes share with the List callbacks: they are named for the callback, not the collection (`PureExpressionCallbackNotFound`, `PureExpressionCallbackArityMismatch`, `PureExpressionCallbackInputTypeMismatch`, `PureExpressionCallbackResultTypeMismatch`, `PureExpressionCallbackContextTypeMismatch`, `PureExpressionCallbackEffectsNotAllowed`; in persisted graphs `UnknownCallbackFunction`, `CallbackArityMismatch`, `CallbackParameterTypeMismatch`, `CallbackResultTypeMismatch`, `CallbackContextTypeMismatch`, `CallbackEffectsNotAllowed`, `PredicateResultTypeMismatch` and `HigherOrderSourceTypeMismatch`), and no code for a Map, Set or Task node starts with `List`.
+Existing `PureExpression...` diagnostic codes are retained as stable diagnostic identifiers. New capability diagnostics use the `Expression...` prefix. Changing API names does not require renaming historical protocol identifiers or rewriting frozen evaluation evidence. The one exception is the callback codes, which Map, Set and Task nodes share with the List callbacks: they are named for the callback, not the collection (`PureExpressionCallbackNotFound`, `PureExpressionCallbackArityMismatch`, `PureExpressionCallbackInputTypeMismatch`, `PureExpressionCallbackResultTypeMismatch`, `PureExpressionCallbackContextTypeMismatch`, `PureExpressionCallbackEffectsNotAllowed`; in persisted graphs `UnknownCallbackFunction`, `CallbackArityMismatch`, `CallbackParameterTypeMismatch`, `CallbackResultTypeMismatch`, `CallbackContextTypeMismatch`, `CallbackEffectsNotAllowed`, `PredicateResultTypeMismatch` and `HigherOrderSourceTypeMismatch`), and no code for a Map, Set or Task node starts with `List`. The Option and Result combinators share these callback codes too; a persisted `OptionGetOrDefault` adds `OptionInputTypeMismatch` and `OptionDefaultTypeMismatch`.
 
 The earlier `Float64ExpressionRecipe` / `AgentStructuralWorkflow` surface remains available as a narrower compatibility surface backed by the same structural interaction model.
 

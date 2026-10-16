@@ -30,6 +30,7 @@ The implemented subset includes:
 - explicit conditionals;
 - Bool negation and short-circuit Bool and/or;
 - exhaustive union, `Option`, and `Result` matching with pattern bindings;
+- `Option` and `Result` combinators (`OptionGetOrDefault`, `OptionMap`, `OptionAndThen`, `ResultMap`, `ResultMapErr`, `ResultAndThen`; [decision](../decisions/option-result-combinators.md));
 - internal direct function calls;
 - pure capture-free function types, named references, and positional invocation;
 - program-defined stateless Capability values backed by pure named functions;
@@ -57,6 +58,12 @@ Int64FloorModulo
 Int64Min
 Int64Max
 Int64WrappingAbs
+Int64BitAnd
+Int64BitOr
+Int64BitXor
+Int64BitNot
+Int64ShiftLeft
+Int64ShiftRight
 Int64CheckedAdd
 Int64CheckedSubtract
 Int64CheckedMultiply
@@ -70,6 +77,8 @@ Int64GreaterThanOrEqual
 Wrapping arithmetic uses two's-complement modulo-`2^64` behavior.
 
 `Int64Min(left, right)` and `Int64Max(left, right)` yield the smaller and the larger operand, Python `min` and `max` of two values. `Int64WrappingAbs(value)` yields the absolute value with two's-complement wrapping, so `Int64.MinValue` gives `Int64.MinValue`, where Python `abs` gives `2^63`; this is the same wrapping as `Int64.MinValue / -1` below. All three never fail ([decision](../decisions/standard-operation-choices.md)).
+
+`Int64BitAnd(left, right)`, `Int64BitOr(left, right)`, `Int64BitXor(left, right)` and `Int64BitNot(value)` are two's-complement bitwise operations, Python `&`, `|`, `^` and `~` (`Int64BitNot(x)` is `-x - 1`). `Int64ShiftLeft(value, count)` and `Int64ShiftRight(value, count)` clamp the count to `0..64`: a negative count leaves the value unchanged (Python raises), and the count is never masked to 6 bits. `Int64ShiftLeft` keeps the low 64 bits (`Int64ShiftLeft(1, 63)` is `Int64.MinValue`) and gives 0 for a count of 64 or more. `Int64ShiftRight` is arithmetic, Python `>>`: `Int64ShiftRight(-5, 1)` is -3, and a count of 64 or more gives 0 for a non-negative value and -1 for a negative one. None of them fails ([decision](../decisions/int64-bitwise-and-float64-min-max.md)).
 
 `Int64FloorDivide(left, right)` and `Int64FloorModulo(left, right)` follow Python's `//` and `%`: the quotient `q` is `floor(left / right)`, rounding toward negative infinity (`7 / 2 = 3`, `-7 / 2 = -4`, `7 / -2 = -4`, `-7 / -2 = 3`), and the remainder is `left - right * q`, so a nonzero remainder takes the divisor's sign (`7 % 2 = 1`, `-7 % 2 = 1`, `7 % -2 = -1`, `-7 % -2 = -1`). Both operands and the result are Int64 and neither operation has effects. Like the other runtime operations of this subset (compare `StringSlice` clamping), they never fail with an error; only host failures such as an allocation too large for `ListRange` or `StringRepeat`, or recursion too deep, end a run: a zero divisor yields quotient `0` and remainder `left`, which keeps `left = right * q + r`, and `Int64.MinValue / -1` wraps to `Int64.MinValue` with remainder `0`, consistent with wrapping arithmetic. Callers who must distinguish a zero divisor test it with `Int64Equal` before dividing.
 
@@ -90,6 +99,8 @@ Implicit conversion and a broader numeric tower are not part of this contract.
 `StringSpan(text, set, from)` yields the `Int64` code-point position of the first code point at or after `from` that is not a member of `set`, or `StringLength(text)` when there is none; `StringSpanBack(text, set, end)` yields the least position `p <= end` such that every code point in `[p, end)` is a member. A member is any code point of the String `set`, counted as `StringLength` counts (a surrogate pair is one code point, an unpaired surrogate its own). `from` and `end` are clamped to `[0, StringLength(text)]` like `StringSlice` bounds, and an empty set yields the clamped bound. They are Python's `lstrip(set)` and `rstrip(set)` as positions, so `text.strip(set)` is `StringSlice(text, StringSpan(text, set, 0), StringSpanBack(text, set, StringLength(text)))`. Both run in linear time and never fail ([decision](../decisions/string-spans.md)).
 
 `StringSplitLines(text, breaks)` yields the `List<String>` of the lines of `text`: scanning left to right, each code point that is a member of `breaks` (membership as for `StringSpan`'s set) ends the current line and is dropped, and when both `"\r"` and `"\n"` are members, `"\r\n"` is one break. As in Python `splitlines()`, an empty `text` yields `[]` and a break at the very end adds no trailing empty line (`"a\n"` gives `["a"]`, `"a\n\nb"` gives `["a", "", "b"]`, `"\n"` gives `[""]`); an empty `breaks` yields `[text]` for non-empty `text`. With `breaks` = `"\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029"` it equals Python `text.splitlines()`, and with `"\n\r"` it equals `bytes.splitlines` on the UTF-8 encoding. It runs in linear time and never fails ([decision](../decisions/string-split-lines.md)).
+
+`StringReplace(text, pattern, replacement)` yields `text` with every non-overlapping ordinal occurrence of `pattern`, scanning left to right, replaced by `replacement`, Python `text.replace(pattern, replacement)`: `"aaa"` with `"aa"` replaced by `"b"` is `"ba"`. A match starts and ends on code-point boundaries, as for `StringSplit`, so it never splits a surrogate pair. An empty `pattern` yields `text` unchanged, where Python inserts the replacement between every code point. `StringTrim(text)`, `StringTrimStart(text)` and `StringTrimEnd(text)` remove the code points with the Unicode White_Space property (U+0009–U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000–U+200A, U+2028, U+2029, U+202F, U+205F and U+3000, exactly .NET `char.IsWhiteSpace`) from both ends, the start or the end. Python's `strip()` also removes U+001C–U+001F, which these keep; strip an explicit set with `StringSpan`, `StringSpanBack` and `StringSlice`. All four never fail ([decision](../decisions/string-replace-and-trim.md)).
 
 `StringToLower(text)` replaces each code point of `text` with its Unicode simple (one-to-one) lowercase mapping, culture invariant: `I` becomes `i`, KELVIN SIGN `K` becomes `k`, and code points without a mapping, including an unpaired surrogate, are kept, so the code-point length never changes. It equals Python `text.lower()` except for `İ` (U+0130), which becomes `i` rather than Python's `i̇`, and a word-final `Σ`, which becomes `σ` rather than Python's `ς`. The mappings follow the Unicode data of the .NET runtime. `StringUtf8ByteCount(text)` is the `Int64` length of the UTF-8 encoding of `text`, `len(text.encode("utf-8"))`; an unpaired surrogate counts 3 bytes. Both never fail; see the [decision](../decisions/string-lowercase-and-utf8-length.md).
 
@@ -115,6 +126,9 @@ ListConstruct
 ListLength
 ListItemAt
 ListSlice
+ListSetAt
+ListInsertAt
+ListRemoveAt
 ListRange
 ListReverse
 ListLast
@@ -127,6 +141,8 @@ UseResource
 ParallelAll
 CancellationRequested
 ListMap
+ListZipWith
+ListFlatMap
 ListFilter
 ListSortBy
 ListMinBy
@@ -149,6 +165,10 @@ Higher-order operations reference callbacks by stable `FunctionId`. The accepted
 
 `ListMinBy(source, lessThan, context)` returns the smallest item as `Option<T>`, under the same kind of callback. The empty list gives `None`. Otherwise it scans left to right: the first item is the best so far, and a later item replaces it only when `lessThan(item, best)` holds. Among equal items the first wins, and any callback gives a deterministic result. The largest item is the smallest under the swapped comparison. It calls the callback at most `n - 1` times and never fails.
 
+`ListSetAt(list, index, item)` returns the list with the item at zero-based `index` replaced, `ListInsertAt(list, index, item)` the list with `item` inserted before `index`, and `ListRemoveAt(list, index)` the list without the item at `index`. `item` must have the list's item type (any type). Set and remove return the list unchanged for an index outside `[0, length)`, where Python raises `IndexError`; insert clamps the index to `[0, length]` like Python's `list.insert`, except that a negative index inserts first instead of counting from the end. None of them fails or changes its input. `ListSetAt` is O(log n); `ListInsertAt` and `ListRemoveAt` are O(log n + length − index), so appending and removing the first or last item are cheap and updating near the front copies the rest ([decision](../decisions/list-positional-update.md)).
+
+`ListZipWith(left, right, combiner, context)` gives the `List<R>` whose item i is `combiner(left[i], right[i])` for every index below the shorter length; the extra items of the longer list are ignored, as Python `zip`. There is no tuple type, so a pairing combiner builds a product. `ListFlatMap(source, mapper, context)` concatenates, in source order, the `List<R>` a pure `T -> List<R>` mapper returns for each item, as Python `[y for x in xs for y in f(x)]`; a mapper returning `[]` drops its item, and the time is linear in the output length, so it replaces a `ListFold` over `ListConcat`. Neither fails ([decision](../decisions/list-zip-with-and-flat-map.md)).
+
 `ListIndexOf(list, item)` gives the zero-based index of the first item equal to `item` (as `ValueEqual`) as `Option<Int64>`, `None` when there is none; the item type must be equatable. `ListFindIndex(source, predicate, context)` gives the index of the first item for which a pure `T -> Bool` callback is true, scanning left to right and stopping there. `ListLastIndexOf(list, item)` gives the index of the last equal item, scanning from the end, so an item near the end of a stack is found in time proportional to its distance from the end ([decision](../decisions/list-last-index-and-set-difference.md)). None of them fails ([decision](../decisions/list-index.md)).
 
 ## Immutable insertion-ordered `Map<K, V>`
@@ -164,6 +184,7 @@ MapGet(map, key)                   Option<V>
 MapGetOrDefault(map, key, default) V, the value for key, or default when absent
 MapContainsKey(map, key)           Bool
 MapRemove(map, key)                Map<K, V>, unchanged when the key is absent
+MapUnion(left, right)              Map<K, V>, both maps' entries; right's value on a shared key
 MapSize(map)                       Int64
 MapKeys(map)                       List<K>, in iteration order
 MapValues(map)                     List<V>, in iteration order
@@ -173,7 +194,7 @@ MapFilter(map, keep)               Map<K, V>, the entries where keep(key, value)
 MapMapValues(map, mapper)          Map<K, U>, the same keys in order, values mapper(key, value)
 ```
 
-Insert, get, contains and remove are O(log n), and size is O(1). None of them fails. `MapGetOrDefault` evaluates its default whether or not the key is present, as every operand is evaluated. `MapFold`, `MapFromList`, `MapFilter` and `MapMapValues` take pure named callbacks with context, like `ListFold`, `ListMap` and `ListFilter`. `MapFromList` keeps the first position and the last item for a repeated key, as repeated `MapInsert` does. See the [decision](../decisions/map.md).
+Insert, get, contains and remove are O(log n), and size is O(1). None of them fails. `MapGetOrDefault` evaluates its default whether or not the key is present, as every operand is evaluated. `MapFold`, `MapFromList`, `MapFilter` and `MapMapValues` take pure named callbacks with context, like `ListFold`, `ListMap` and `ListFilter`. `MapFromList` keeps the first position and the last item for a repeated key, as repeated `MapInsert` does. `MapUnion` is Python `left | right`: its order is that of inserting right's entries into left one by one, so left's keys keep their positions and right's other keys follow in right's order ([decision](../decisions/set-is-subset-and-map-union.md)). See the [decision](../decisions/map.md).
 
 ## Immutable insertion-ordered `Set<T>`
 
@@ -190,9 +211,10 @@ SetToList(set)               List<T>, in iteration order
 SetUnion(left, right)        Set<T>, left's items, then right's new items in right's order
 SetIntersection(left, right) Set<T>, left's items that right contains, in left's order
 SetDifference(left, right)   Set<T>, left's items that right does not contain, in left's order
+SetIsSubset(left, right)     Bool, every item of left is in right (Python left <= right)
 ```
 
-Insert, contains and remove are O(log n). None of them fails. See the [decision](../decisions/set.md).
+Insert, contains and remove are O(log n). None of them fails. An empty set is a subset of any set; `SetIsSubset` is false at once when left is larger, and otherwise O(|left| log |right|) ([decision](../decisions/set-is-subset-and-map-union.md)). See the [decision](../decisions/set.md).
 
 ## Program-defined capability values
 
@@ -243,6 +265,8 @@ Float64FloorToInt64
 Float64Sqrt
 Float64Abs
 Float64Negate
+Float64Min
+Float64Max
 Float64Floor
 Float64Ceiling
 Float64Truncate
@@ -257,6 +281,8 @@ StringParseFloat64
 `Float64Round(value, digits)` rounds to `digits` decimal places (tens, hundreds, ... for negative `digits`), half away from zero, on the shortest decimal text that reads back to the value: `Float64Round(2.675, 2)` is 2.68 and `Float64Round(1250, -2)` is 1300, where Python's `round` gives 2.67 and 1200. NaN, the infinities and zeros are returned unchanged, a result rounded to zero keeps the input's sign, and a result beyond the Float64 range is infinity. It never fails ([decision](../decisions/rounding-half-away-from-zero.md)).
 
 `Float64Sqrt`, `Float64Abs`, `Float64Negate`, `Float64Floor`, `Float64Ceiling` and `Float64Truncate` take a Float64 and yield a Float64. Each is the IEEE 754 operation, which has exactly one result, so every backend agrees bit for bit. `Float64Sqrt` is the correctly rounded square root; a negative value gives NaN, where Python's `math.sqrt` raises, and `-0.0` gives `-0.0`. `Float64Abs` clears the sign (Python `abs(x)`, so `-0.0` gives `0.0`) and `Float64Negate` flips it (Python `-x`, so `0.0` gives `-0.0`, which subtracting from `0.0` does not). `Float64Floor`, `Float64Ceiling` and `Float64Truncate` round to an integral value toward negative infinity, positive infinity and zero, as Python's `math.floor`, `math.ceil` and `math.trunc` but without leaving Float64: a zero result keeps the sign of the input (`-0.5` gives `-0.0` for ceiling and truncation), and NaN, the infinities and the zeros are returned unchanged. All six never fail ([decision](../decisions/standard-operations.md)).
+
+`Float64Min(left, right)` and `Float64Max(left, right)` are the IEEE 754-2019 `minimum` and `maximum` (.NET `Math.Min` and `Math.Max`): NaN when either operand is NaN, and -0.0 is less than 0.0, whatever the operand order. Python's `min` and `max` differ there, since they return the first operand when the comparison is false. Neither fails ([decision](../decisions/int64-bitwise-and-float64-min-max.md)).
 
 `Float64ToString(value)` yields Python `repr(value)`: the shortest decimal digits that read back to the same binary64, in exponent form `d.ddde±XX` (at least two exponent digits) when the decimal point position `decpt` of `0.ddd × 10^decpt` is `<= -4` or `> 16`, and otherwise in fixed form with at least one digit after the point: `0.1`, `100.0`, `1e+16`, `1.5e-05`, `5e-324`. NaN gives `nan`, the infinities `inf` and `-inf`, the zeros `0.0` and `-0.0`. `StringParseFloat64(text)` yields `Option<Float64>`: `Some` when the whole text is `-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?` in ASCII digits (the JSON number grammar, leading zeros accepted), rounded to the nearest binary64 with ties to even for any digit count and exponent length, with a signed infinity on overflow (`1e400`) and a signed zero on underflow (`-1e-400` gives -0.0); `+`, whitespace, `.5`, `5.`, `inf`, `nan`, underscores and empty text yield `None`. Every finite value round-trips through the two. Both never fail; see the [decision](../decisions/float64-decimal-text.md).
 
@@ -324,6 +350,8 @@ StringSpan / SpanBack
 StringStartsWith / EndsWith
 StringSplit
 StringSplitLines
+StringReplace
+StringTrim / TrimStart / TrimEnd
 StringJoin
 StringToLower
 StringToUpper
@@ -333,6 +361,8 @@ StringFromCodePoint / ToCodePoint
 Int64WrappingAdd / Subtract / Multiply
 Int64FloorDivide / FloorModulo
 Int64Min / Max / WrappingAbs
+Int64BitAnd / BitOr / BitXor / BitNot
+Int64ShiftLeft / ShiftRight
 Int64Equal / LessThan / LessThanOrEqual / GreaterThan / GreaterThanOrEqual
 Float64Add / Subtract / Multiply / Divide
 Float64Equal / LessThan
@@ -342,6 +372,7 @@ Float64ToString
 StringParseFloat64
 Float64RoundToInt64 / FloorToInt64
 Float64Sqrt / Abs / Negate
+Float64Min / Max
 Float64Floor / Ceiling / Truncate
 Bits32FromInt64 / ToInt64
 Bits32Xor / And / Or / Not / Add
@@ -351,6 +382,9 @@ ListConstruct
 ListLength
 ListItemAt
 ListSlice
+ListSetAt
+ListInsertAt
+ListRemoveAt
 ListRange
 ListReverse
 ListLast
@@ -370,6 +404,8 @@ OneShotComplete
 OneShotWait
 UseResource
 ListMap
+ListZipWith
+ListFlatMap
 ListFilter
 ListSortBy
 ListMinBy
@@ -386,6 +422,9 @@ OptionNone
 OptionSome
 ResultOk
 ResultErr
+OptionGetOrDefault
+OptionMap / OptionAndThen
+ResultMap / ResultMapErr / ResultAndThen
 Abort
 CapabilityConstruct
 FunctionReference
@@ -406,11 +445,24 @@ Before materialization the workflow checks target/base guards, the 32-depth / 25
 
 `ListEmpty`, `ListConstruct`, `OptionNone`, and one side of each `Result` constructor carry explicit type information when it cannot be inferred from a child. Named/capability references and builtin-generic arity are checked before materialization.
 
-Higher-order List cases reference existing callbacks by `FunctionId`. `ListFold` accepts a pure binary `(S, T) -> S` with seed `S`; `ListMap` accepts a pure unary `T -> R`; `ListFilter`, `ListFindIndex`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. `ListSortBy` and `ListMinBy` accept a pure binary less-than `(T, T) -> Bool`. An optional context binds further callback parameters by identity to values computed before the traversal, and these arities apply to the remaining unbound parameters (see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks)). The workflow does not construct lambdas or permit effectful traversal callbacks. Source expressions may use effects already declared by the target.
+Higher-order List cases reference existing callbacks by `FunctionId`. `ListFold` accepts a pure binary `(S, T) -> S` with seed `S`; `ListMap` accepts a pure unary `T -> R`; `ListZipWith` accepts a pure binary `(A, B) -> R` over the left and right item types; `ListFlatMap` accepts a pure unary `T -> List<R>`; `ListFilter`, `ListFindIndex`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. `ListSortBy` and `ListMinBy` accept a pure binary less-than `(T, T) -> Bool`. An optional context binds further callback parameters by identity to values computed before the traversal, and these arities apply to the remaining unbound parameters (see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks)). The workflow does not construct lambdas or permit effectful traversal callbacks. Source expressions may use effects already declared by the target.
 
 Product and union construction bind declaration fields by stable `FieldId`. Preflight requires the exact declared field set with no duplicates and exact field-value types. Caller binding order is not semantic: materialization follows declaration field order and creates ordinary persistent `FieldValueBinding` values only after child nodes receive system-owned IDs. `FieldAccess` requires the exact owning product type. `ProductUpdate` copies a source of exactly the named product type with one or more of its fields replaced, each at most once, and keeps every other field; it never fails. `UnionConstruct` derives its result type from the referenced stable `VariantId`.
 
 `OptionSome` derives its contained type from the child; `OptionNone` names the contained type explicitly. `ResultOk` derives its success type and carries the error type, while `ResultErr` derives its error type and carries the success type.
+
+`Option` and `Result` combinators follow Rust's methods of the same names ([decision](../decisions/option-result-combinators.md)):
+
+```text
+OptionGetOrDefault(option, default)       T, the Some value, or default for None
+OptionMap(option, mapper, context)        Option<U>, None, or Some(mapper(x))
+OptionAndThen(option, binder, context)    Option<U>, None, or binder(x): Option<U>
+ResultMap(result, mapper, context)        Result<U, E>, Ok(mapper(x)), or the Err unchanged
+ResultMapErr(result, mapper, context)     Result<T, F>, Err(mapper(e)), or the Ok unchanged
+ResultAndThen(result, binder, context)    Result<U, E>, binder(x): Result<U, E>, or the Err unchanged
+```
+
+`OptionGetOrDefault` evaluates its default whether or not the option holds a value, as `MapGetOrDefault` does, and the default has the item type (for `Option<Option<T>>`, `Some(None)` gives `None`, not the default). The callbacks are pure named functions with exactly one parameter not bound by the optional context, as for `ListMap`, and run only for the case they name: `Some`, `Ok`, or `Err` for `ResultMapErr`. `ResultAndThen`'s binder must return a `Result` with the source's error type. None of them fails.
 
 `DirectCall` references an existing callee by `FunctionId` and arguments by stable callee `ParameterId`. Every callee required effect must already be declared by the target, and every callee parameter must be bound exactly once with an exact-compatible child recipe. Caller binding-list order is ignored; materialization follows callee parameter declaration order and creates persistent `ArgumentBinding` values only after child nodes receive system-owned IDs. Incomplete calls do not create obligations through this surface.
 

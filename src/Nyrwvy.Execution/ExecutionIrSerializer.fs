@@ -363,6 +363,17 @@ module ExecutionIrSerializer =
             [ property "kind" (quote "stringSplitLines")
               property "valueId" (executionValueIdValue valueId)
               property "breaksId" (executionValueIdValue breaksId) ]
+        | ExecutionInstructionKind.StringReplace(valueId, patternId, replacementId) ->
+            [ property "kind" (quote "stringReplace")
+              property "valueId" (executionValueIdValue valueId)
+              property "patternId" (executionValueIdValue patternId)
+              property "replacementId" (executionValueIdValue replacementId) ]
+        | ExecutionInstructionKind.StringTrim valueId ->
+            writeUnaryInstruction "stringTrim" valueId
+        | ExecutionInstructionKind.StringTrimStart valueId ->
+            writeUnaryInstruction "stringTrimStart" valueId
+        | ExecutionInstructionKind.StringTrimEnd valueId ->
+            writeUnaryInstruction "stringTrimEnd" valueId
         | ExecutionInstructionKind.StringJoin(listValueId, separatorId) ->
             [ property "kind" (quote "stringJoin")
               property "listValueId" (executionValueIdValue listValueId)
@@ -389,6 +400,20 @@ module ExecutionIrSerializer =
             writeBinaryInstruction "int64Min" leftValueId rightValueId
         | ExecutionInstructionKind.Int64Max(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64Max" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64BitAnd(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64BitAnd" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64BitOr(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64BitOr" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64BitXor(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64BitXor" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64ShiftLeft(valueId, countValueId) ->
+            [ property "kind" (quote "int64ShiftLeft")
+              property "valueId" (executionValueIdValue valueId)
+              property "countValueId" (executionValueIdValue countValueId) ]
+        | ExecutionInstructionKind.Int64ShiftRight(valueId, countValueId) ->
+            [ property "kind" (quote "int64ShiftRight")
+              property "valueId" (executionValueIdValue valueId)
+              property "countValueId" (executionValueIdValue countValueId) ]
         | ExecutionInstructionKind.Int64CheckedAdd(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64CheckedAdd" leftValueId rightValueId
         | ExecutionInstructionKind.Int64CheckedSubtract(leftValueId, rightValueId) ->
@@ -419,6 +444,10 @@ module ExecutionIrSerializer =
             writeBinaryInstruction "int64GreaterThanOrEqual" leftValueId rightValueId
         | ExecutionInstructionKind.Float64Add(leftValueId, rightValueId) ->
             writeBinaryInstruction "float64Add" leftValueId rightValueId
+        | ExecutionInstructionKind.Float64Min(leftValueId, rightValueId) ->
+            writeBinaryInstruction "float64Min" leftValueId rightValueId
+        | ExecutionInstructionKind.Float64Max(leftValueId, rightValueId) ->
+            writeBinaryInstruction "float64Max" leftValueId rightValueId
         | ExecutionInstructionKind.Float64Subtract(leftValueId, rightValueId) ->
             writeBinaryInstruction "float64Subtract" leftValueId rightValueId
         | ExecutionInstructionKind.Float64Multiply(leftValueId, rightValueId) ->
@@ -439,6 +468,8 @@ module ExecutionIrSerializer =
             writeUnaryInstruction "int64ToFloat64" valueId
         | ExecutionInstructionKind.Int64WrappingAbs valueId ->
             writeUnaryInstruction "int64WrappingAbs" valueId
+        | ExecutionInstructionKind.Int64BitNot valueId ->
+            writeUnaryInstruction "int64BitNot" valueId
         | ExecutionInstructionKind.Bits32FromInt64 valueId -> writeUnaryInstruction "bits32FromInt64" valueId
         | ExecutionInstructionKind.Bits32ToInt64 valueId -> writeUnaryInstruction "bits32ToInt64" valueId
         | ExecutionInstructionKind.Bits32Not valueId -> writeUnaryInstruction "bits32Not" valueId
@@ -526,6 +557,14 @@ module ExecutionIrSerializer =
             [ property "kind" (quote "setDifference")
               property "leftSetValueId" (executionValueIdValue leftSetValueId)
               property "rightSetValueId" (executionValueIdValue rightSetValueId) ]
+        | ExecutionInstructionKind.SetIsSubset(leftSetValueId, rightSetValueId) ->
+            [ property "kind" (quote "setIsSubset")
+              property "leftSetValueId" (executionValueIdValue leftSetValueId)
+              property "rightSetValueId" (executionValueIdValue rightSetValueId) ]
+        | ExecutionInstructionKind.MapUnion(leftMapValueId, rightMapValueId) ->
+            [ property "kind" (quote "mapUnion")
+              property "leftMapValueId" (executionValueIdValue leftMapValueId)
+              property "rightMapValueId" (executionValueIdValue rightMapValueId) ]
         | ExecutionInstructionKind.MapContainsKey(mapValueId, keyValueId) ->
             [ property "kind" (quote "mapContainsKey")
               property "mapValueId" (executionValueIdValue mapValueId)
@@ -546,6 +585,10 @@ module ExecutionIrSerializer =
             [ property "kind" (quote "mapGet")
               property "mapValueId" (executionValueIdValue mapValueId)
               property "keyValueId" (executionValueIdValue keyValueId) ]
+        | ExecutionInstructionKind.OptionGetOrDefault(optionValueId, defaultValueId) ->
+            [ property "kind" (quote "optionGetOrDefault")
+              property "optionValueId" (executionValueIdValue optionValueId)
+              property "defaultValueId" (executionValueIdValue defaultValueId) ]
         | ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId) ->
             [ property "kind" (quote "mapGetOrDefault")
               property "mapValueId" (executionValueIdValue mapValueId)
@@ -556,6 +599,20 @@ module ExecutionIrSerializer =
               property "listValueId" (executionValueIdValue listValueId)
               property "startId" (executionValueIdValue startId)
               property "endId" (executionValueIdValue endId) ]
+        | ExecutionInstructionKind.ListSetAt(listValueId, indexValueId, itemValueId) ->
+            [ property "kind" (quote "listSetAt")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "indexValueId" (executionValueIdValue indexValueId)
+              property "itemValueId" (executionValueIdValue itemValueId) ]
+        | ExecutionInstructionKind.ListInsertAt(listValueId, indexValueId, itemValueId) ->
+            [ property "kind" (quote "listInsertAt")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "indexValueId" (executionValueIdValue indexValueId)
+              property "itemValueId" (executionValueIdValue itemValueId) ]
+        | ExecutionInstructionKind.ListRemoveAt(listValueId, indexValueId) ->
+            [ property "kind" (quote "listRemoveAt")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "indexValueId" (executionValueIdValue indexValueId) ]
         | ExecutionInstructionKind.MapInsert(mapValueId, keyValueId, valueValueId) ->
             [ property "kind" (quote "mapInsert")
               property "mapValueId" (executionValueIdValue mapValueId)
@@ -637,6 +694,14 @@ module ExecutionIrSerializer =
               property "taskValueId" (executionValueIdValue taskValueId) ]
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writeListCallbackInstruction "listMap" sourceListValueId "mapperFunctionId" mapperFunctionId context
+        | ExecutionInstructionKind.ListZipWith(leftListValueId, rightListValueId, combinerFunctionId, context) ->
+            [ property "kind" (quote "listZipWith")
+              property "leftListValueId" (executionValueIdValue leftListValueId)
+              property "rightListValueId" (executionValueIdValue rightListValueId)
+              property "combinerFunctionId" (stableIdValue combinerFunctionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.ListFlatMap(sourceListValueId, mapperFunctionId, context) ->
+            writeListCallbackInstruction "listFlatMap" sourceListValueId "mapperFunctionId" mapperFunctionId context
         | ExecutionInstructionKind.MapFromList(sourceListValueId, keyOfFunctionId, context) ->
             writeListCallbackInstruction "mapFromList" sourceListValueId "keyOfFunctionId" keyOfFunctionId context
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
@@ -650,6 +715,31 @@ module ExecutionIrSerializer =
             writeListCallbackInstruction "listSortBy" sourceListValueId "lessThanFunctionId" lessThanFunctionId context
         | ExecutionInstructionKind.ListMinBy(sourceListValueId, lessThanFunctionId, context) ->
             writeListCallbackInstruction "listMinBy" sourceListValueId "lessThanFunctionId" lessThanFunctionId context
+        | ExecutionInstructionKind.OptionMap(sourceValueId, functionId, context) ->
+            [ property "kind" (quote "optionMap")
+              property "sourceOptionValueId" (executionValueIdValue sourceValueId)
+              property "mapperFunctionId" (stableIdValue functionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.OptionAndThen(sourceValueId, functionId, context) ->
+            [ property "kind" (quote "optionAndThen")
+              property "sourceOptionValueId" (executionValueIdValue sourceValueId)
+              property "binderFunctionId" (stableIdValue functionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.ResultMap(sourceValueId, functionId, context) ->
+            [ property "kind" (quote "resultMap")
+              property "sourceResultValueId" (executionValueIdValue sourceValueId)
+              property "mapperFunctionId" (stableIdValue functionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.ResultMapErr(sourceValueId, functionId, context) ->
+            [ property "kind" (quote "resultMapErr")
+              property "sourceResultValueId" (executionValueIdValue sourceValueId)
+              property "mapperFunctionId" (stableIdValue functionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.ResultAndThen(sourceValueId, functionId, context) ->
+            [ property "kind" (quote "resultAndThen")
+              property "sourceResultValueId" (executionValueIdValue sourceValueId)
+              property "binderFunctionId" (stableIdValue functionId) ]
+            @ writeCallbackContext context
         | ExecutionInstructionKind.MapMapValues(sourceMapValueId, mapperFunctionId, context) ->
             [ property "kind" (quote "mapMapValues")
               property "sourceMapValueId" (executionValueIdValue sourceMapValueId)

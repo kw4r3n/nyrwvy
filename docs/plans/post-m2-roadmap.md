@@ -486,6 +486,19 @@ After probe 25 nothing was blocked. The owner chose three changes: a scoped hand
 
 #364 fixed confined viewer writes to return errors instead of throwing; it is a fix, not an order.
 
+### Owner choice of 2026-10-16: ordinary builtins
+
+The owner chose to add ordinary builtins ahead of probe evidence, with semantics that follow normal expectation (Python where it applies, unless stated otherwise).
+
+| Order | Gap | Evidence | Smallest change |
+| --- | --- | --- | --- |
+| 59 | **Done: `StringReplace` and the trims** (owner choice ahead of evidence) | None ranked; probe 8 wrote `str.replace` as `StringJoin(StringSplit(text, secret), "[REDACTED]")`, and several probes wrote `strip()` with `StringSpan`, `StringSpanBack` and `StringSlice` | `StringReplace(value, pattern, replacement)`, Python `str.replace(old, new)` with an empty pattern returning `value`; `StringTrim`, `StringTrimStart` and `StringTrimEnd` over Unicode White_Space ([decision](../decisions/string-replace-and-trim.md)) |
+| 60 | **Done: `SetIsSubset` and `MapUnion`** (owner choice: ordinary builtins ahead of evidence) | None counted; the [Set](../decisions/set.md) and [Map](../decisions/map.md) decisions had no subset test and no merge of two maps | `SetIsSubset(left, right)` is Python `left <= right`; `MapUnion(left, right)` is Python `left \| right`, the order of inserting right into left with `MapInsert`; snapshot JSON 17 / Nyason v13 ([decision](../decisions/set-is-subset-and-map-union.md)) |
+| 61 | **Done: Int64 bitwise operations and `Float64Min` and `Float64Max`** (owner choice: ordinary builtins ahead of probe evidence) | Bitwise work on Int64 needed `Bits32` halves or arithmetic, and a Float64 minimum or maximum needed a comparison, a NaN test and a branch | `Int64BitAnd`, `Int64BitOr`, `Int64BitXor`, `Int64BitNot`; `Int64ShiftLeft` and arithmetic `Int64ShiftRight` with the count clamped to 0..64; IEEE 754-2019 `Float64Min` and `Float64Max`. Snapshot JSON 17 ([decision](../decisions/int64-bitwise-and-float64-min-max.md)) |
+| 62 | **Done: `ListSetAt`, `ListInsertAt` and `ListRemoveAt`** (owner choice: ordinary builtins ahead of probe evidence) | Replacing, inserting or removing one list item took a slice, an append and a concat, or a fold | Three pure positional updates returning `List<T>`: set and remove return the list unchanged for an index outside `[0, length)`, insert clamps the index to `[0, length]`; set O(log n), insert and remove O(log n + length − index); snapshot JSON 17 / Nyason v13 ([decision](../decisions/list-positional-update.md)) |
+| 63 | **Done: `ListZipWith` and `ListFlatMap`** (owner choice: ordinary builtins ahead of probe evidence) | No probe; the owner added common List callbacks whose semantics follow normal expectation | `ListZipWith(left, right, combiner, context): List<R>`, `combiner(left[i], right[i])` to the shorter length as Python `zip` (no tuple type, so zip-with); `ListFlatMap(source, mapper, context): List<R>`, the mapper's lists concatenated in order in linear time ([decision](../decisions/list-zip-with-and-flat-map.md)) |
+| 64 | **Done: Option and Result combinators** (owner choice: ordinary builtins ahead of probe evidence) | None counted; transforming an `Option` or `Result` took a match whose other arm rebuilt the value | `OptionGetOrDefault`, `OptionMap`, `OptionAndThen`, `ResultMap`, `ResultMapErr` and `ResultAndThen` with Rust's semantics; [decision](../decisions/option-result-combinators.md) |
+
 ## Bounded Member integration evidence — 2026-10-12
 
 The [offline integration composition](../verification/member-integration-20261012.md)

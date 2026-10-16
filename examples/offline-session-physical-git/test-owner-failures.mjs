@@ -10,11 +10,11 @@ const rows=[],sleep=ms=>new Promise(r=>setTimeout(r,ms)),alive=async pid=>{try{r
 for(const mode of ['stdout-overflow','stderr-overflow','failed-start','held-descriptor','feed-failure','stdout-invalid-utf8','stderr-invalid-utf8','released-descriptor']){
  const root=join(out,mode);await mkdir(join(root,'state'),{recursive:true});await mkdir(join(root,'bin'));const f=await fixture(join(root,'git'))
  if(mode!=='failed-start'){
-  const script=`#!/usr/bin/node
+  const script=`#!${process.execPath}
 import fs from 'node:fs';import {spawn} from 'node:child_process';fs.readFileSync(0);
-${mode.includes('descriptor')?`const h=spawn('/usr/bin/node',['-e',${JSON.stringify(mode==='released-descriptor'?'setTimeout(()=>{},1000)':'setInterval(()=>{},1000)')}],{stdio:['ignore',1,2]});h.unref();fs.writeFileSync(${JSON.stringify(join(root,'helper.json'))},JSON.stringify({pid:h.pid,rootPid:process.pid}));process.exit(0);`:mode.includes('invalid-utf8')?`const stream=${mode.startsWith('stdout')?'process.stdout':'process.stderr'};stream.write(Buffer.from([255]));`:mode==='feed-failure'?'process.exit(0);':`const stream=${mode==='stdout-overflow'?'process.stdout':'process.stderr'};stream.write('X'.repeat(1048577));setInterval(()=>{},1000);`}
+${mode.includes('descriptor')?`const h=spawn(process.execPath,['-e',${JSON.stringify(mode==='released-descriptor'?'setTimeout(()=>{},1000)':'setInterval(()=>{},1000)')}],{stdio:['ignore',1,2]});h.unref();fs.writeFileSync(${JSON.stringify(join(root,'helper.json'))},JSON.stringify({pid:h.pid,rootPid:process.pid}));process.exit(0);`:mode.includes('invalid-utf8')?`const stream=${mode.startsWith('stdout')?'process.stdout':'process.stderr'};stream.write(Buffer.from([255]));`:mode==='feed-failure'?'process.exit(0);':`const stream=${mode==='stdout-overflow'?'process.stdout':'process.stderr'};stream.write('X'.repeat(1048577));setInterval(()=>{},1000);`}
 `
-  await writeFile(join(root,'bin/git'),mode==='feed-failure'?'#!/usr/bin/node\nprocess.exit(0);\n':script);await chmod(join(root,'bin/git'),0o755)
+  await writeFile(join(root,'bin/git'),mode==='feed-failure'?`#!${process.execPath}\nprocess.exit(0);\n`:script);await chmod(join(root,'bin/git'),0o755)
  }
  const before=await inspect(f.root),outputs=[],errors=[],started=Date.now(),p=spawn(process.execPath,[owner],{stdio:['pipe','pipe','pipe'],env:{...process.env,PATH:join(root,'bin')}})
  const ended=new Promise(r=>p.once('close',(code,signal)=>r({code,signal})));p.stdout.on('data',x=>outputs.push(x));p.stderr.on('data',x=>errors.push(x))

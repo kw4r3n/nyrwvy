@@ -419,6 +419,16 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "value" element),
                 recipe declarations parameterContext (property "breaks" element)
             )
+        | "stringReplace" ->
+            ensureFields "string-replace recipe" [ "kind"; "value"; "pattern"; "replacement" ] [ "kind"; "value"; "pattern"; "replacement" ] element
+            ExpressionRecipe.StringReplace(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "pattern" element),
+                recipe declarations parameterContext (property "replacement" element)
+            )
+        | "stringTrim" -> unary "string-trim recipe" ExpressionRecipe.StringTrim
+        | "stringTrimStart" -> unary "string-trim-start recipe" ExpressionRecipe.StringTrimStart
+        | "stringTrimEnd" -> unary "string-trim-end recipe" ExpressionRecipe.StringTrimEnd
         | "stringJoin" ->
             ensureFields "string-join recipe" [ "kind"; "list"; "separator" ] [ "kind"; "list"; "separator" ] element
             ExpressionRecipe.StringJoin(
@@ -436,6 +446,21 @@ module internal WireSymbolic =
         | "int64FloorModulo" -> binary "int64-floor-modulo recipe" ExpressionRecipe.Int64FloorModulo
         | "int64Min" -> binary "int64-min recipe" ExpressionRecipe.Int64Min
         | "int64Max" -> binary "int64-max recipe" ExpressionRecipe.Int64Max
+        | "int64BitAnd" -> binary "int64-bit-and recipe" ExpressionRecipe.Int64BitAnd
+        | "int64BitOr" -> binary "int64-bit-or recipe" ExpressionRecipe.Int64BitOr
+        | "int64BitXor" -> binary "int64-bit-xor recipe" ExpressionRecipe.Int64BitXor
+        | "int64ShiftLeft" ->
+            ensureFields "int64-shift-left recipe" [ "kind"; "value"; "count" ] [ "kind"; "value"; "count" ] element
+            ExpressionRecipe.Int64ShiftLeft(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "count" element)
+            )
+        | "int64ShiftRight" ->
+            ensureFields "int64-shift-right recipe" [ "kind"; "value"; "count" ] [ "kind"; "value"; "count" ] element
+            ExpressionRecipe.Int64ShiftRight(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "count" element)
+            )
         | "int64CheckedAdd" -> binary "int64-checked-add recipe" ExpressionRecipe.Int64CheckedAdd
         | "int64CheckedSubtract" -> binary "int64-checked-subtract recipe" ExpressionRecipe.Int64CheckedSubtract
         | "int64CheckedMultiply" -> binary "int64-checked-multiply recipe" ExpressionRecipe.Int64CheckedMultiply
@@ -463,6 +488,8 @@ module internal WireSymbolic =
         | "int64GreaterThan" -> binary "int64-greater-than recipe" ExpressionRecipe.Int64GreaterThan
         | "int64GreaterThanOrEqual" -> binary "int64-greater-than-or-equal recipe" ExpressionRecipe.Int64GreaterThanOrEqual
         | "float64Add" -> binary "float64-add recipe" ExpressionRecipe.Float64Add
+        | "float64Min" -> binary "float64-min recipe" ExpressionRecipe.Float64Min
+        | "float64Max" -> binary "float64-max recipe" ExpressionRecipe.Float64Max
         | "float64Subtract" -> binary "float64-subtract recipe" ExpressionRecipe.Float64Subtract
         | "float64Multiply" -> binary "float64-multiply recipe" ExpressionRecipe.Float64Multiply
         | "float64Divide" -> binary "float64-divide recipe" ExpressionRecipe.Float64Divide
@@ -473,6 +500,7 @@ module internal WireSymbolic =
         | "float64IsInfinite" -> unary "float64-is-infinite recipe" ExpressionRecipe.Float64IsInfinite
         | "int64ToFloat64" -> unary "int64-to-float64 recipe" ExpressionRecipe.Int64ToFloat64
         | "int64WrappingAbs" -> unary "int64-wrapping-abs recipe" ExpressionRecipe.Int64WrappingAbs
+        | "int64BitNot" -> unary "int64-bit-not recipe" ExpressionRecipe.Int64BitNot
         | "bits32FromInt64" -> unary "bits32-from-int64 recipe" ExpressionRecipe.Bits32FromInt64
         | "bits32ToInt64" -> unary "bits32-to-int64 recipe" ExpressionRecipe.Bits32ToInt64
         | "bits32Not" -> unary "bits32-not recipe" ExpressionRecipe.Bits32Not
@@ -568,6 +596,9 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "map" element),
                 recipe declarations parameterContext (property "key" element)
             )
+        | "optionGetOrDefault" ->
+            ensureFields "option-get-or-default recipe" [ "kind"; "option"; "default" ] [ "kind"; "option"; "default" ] element
+            ExpressionRecipe.OptionGetOrDefault(recipe declarations parameterContext (property "option" element), recipe declarations parameterContext (property "default" element))
         | "mapGetOrDefault" ->
             ensureFields "map-get-or-default recipe" [ "kind"; "map"; "key"; "default" ] [ "kind"; "map"; "key"; "default" ] element
             ExpressionRecipe.MapGetOrDefault(
@@ -581,6 +612,26 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "list" element),
                 recipe declarations parameterContext (property "start" element),
                 recipe declarations parameterContext (property "end" element)
+            )
+        | "listSetAt" ->
+            ensureFields "list-set-at recipe" [ "kind"; "list"; "index"; "item" ] [ "kind"; "list"; "index"; "item" ] element
+            ExpressionRecipe.ListSetAt(
+                recipe declarations parameterContext (property "list" element),
+                recipe declarations parameterContext (property "index" element),
+                recipe declarations parameterContext (property "item" element)
+            )
+        | "listInsertAt" ->
+            ensureFields "list-insert-at recipe" [ "kind"; "list"; "index"; "item" ] [ "kind"; "list"; "index"; "item" ] element
+            ExpressionRecipe.ListInsertAt(
+                recipe declarations parameterContext (property "list" element),
+                recipe declarations parameterContext (property "index" element),
+                recipe declarations parameterContext (property "item" element)
+            )
+        | "listRemoveAt" ->
+            ensureFields "list-remove-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
+            ExpressionRecipe.ListRemoveAt(
+                recipe declarations parameterContext (property "list" element),
+                recipe declarations parameterContext (property "index" element)
             )
         | "mapInsert" ->
             ensureFields "map-insert recipe" [ "kind"; "map"; "key"; "value" ] [ "kind"; "map"; "key"; "value" ] element
@@ -599,6 +650,8 @@ module internal WireSymbolic =
         | "setUnion" -> binary "set-union recipe" ExpressionRecipe.SetUnion
         | "setIntersection" -> binary "set-intersection recipe" ExpressionRecipe.SetIntersection
         | "setDifference" -> binary "set-difference recipe" ExpressionRecipe.SetDifference
+        | "setIsSubset" -> binary "set-is-subset recipe" ExpressionRecipe.SetIsSubset
+        | "mapUnion" -> binary "map-union recipe" ExpressionRecipe.MapUnion
         | "listFold" ->
             ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
@@ -696,10 +749,40 @@ module internal WireSymbolic =
             ensureFields "map-filter recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
             ExpressionRecipe.MapFilter(recipe declarations parameterContext (property "map" element), callback.Id, callbackContext callback)
+        | "optionMap" ->
+            ensureFields "option-map recipe" [ "kind"; "option"; "function"; "context" ] [ "kind"; "option"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.OptionMap(recipe declarations parameterContext (property "option" element), callback.Id, callbackContext callback)
+        | "optionAndThen" ->
+            ensureFields "option-and-then recipe" [ "kind"; "option"; "function"; "context" ] [ "kind"; "option"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.OptionAndThen(recipe declarations parameterContext (property "option" element), callback.Id, callbackContext callback)
+        | "resultMap" ->
+            ensureFields "result-map recipe" [ "kind"; "result"; "function"; "context" ] [ "kind"; "result"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.ResultMap(recipe declarations parameterContext (property "result" element), callback.Id, callbackContext callback)
+        | "resultMapErr" ->
+            ensureFields "result-map-err recipe" [ "kind"; "result"; "function"; "context" ] [ "kind"; "result"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.ResultMapErr(recipe declarations parameterContext (property "result" element), callback.Id, callbackContext callback)
+        | "resultAndThen" ->
+            ensureFields "result-and-then recipe" [ "kind"; "result"; "function"; "context" ] [ "kind"; "result"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.ResultAndThen(recipe declarations parameterContext (property "result" element), callback.Id, callbackContext callback)
         | "mapMapValues" ->
             ensureFields "map-map-values recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
             ExpressionRecipe.MapMapValues(recipe declarations parameterContext (property "map" element), callback.Id, callbackContext callback)
+        | "listZipWith" ->
+            ensureFields "list-zip-with recipe" [ "kind"; "left"; "right"; "function"; "context" ] [ "kind"; "left"; "right"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.ListZipWith(
+                recipe declarations parameterContext (property "left" element),
+                recipe declarations parameterContext (property "right" element),
+                callback.Id,
+                callbackContext callback
+            )
+        | "listFlatMap"
         | "listMap"
         | "mapFromList"
         | "listSortBy"
@@ -714,6 +797,7 @@ module internal WireSymbolic =
             let context = callbackContext callback
             match kind with
             | "listMap" -> ExpressionRecipe.ListMap(source, callback.Id, context)
+            | "listFlatMap" -> ExpressionRecipe.ListFlatMap(source, callback.Id, context)
             | "mapFromList" -> ExpressionRecipe.MapFromList(source, callback.Id, context)
             | "listFilter" -> ExpressionRecipe.ListFilter(source, callback.Id, context)
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, callback.Id, context)

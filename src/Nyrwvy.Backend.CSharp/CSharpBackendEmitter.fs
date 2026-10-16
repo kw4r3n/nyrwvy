@@ -233,6 +233,51 @@ module CSharpBackend =
           "        if (from > _start && (to - from) * 2L < to) return FromOwnedArray(CopyRange(from, to));"
           "        return Take(from, to);"
           "    }"
+          "    // SetAt copies the one leaf, or the tail, holding the index and the trie nodes on its path, so it is"
+          "    // O(log32 n); an index outside [0, Length) returns the list itself."
+          "    public NyList<T> SetAt(long index, T item)"
+          "    {"
+          "        if (index < 0L || index >= Count) return this;"
+          "        var at = _start + (int)index;"
+          "        var trieCount = TrieCount;"
+          "        if (at >= trieCount)"
+          "        {"
+          "            var tailCount = TailCount;"
+          "            var next = new T[Width];"
+          "            Array.Copy(_tail.Items, next, tailCount);"
+          "            next[at - trieCount] = item;"
+          "            return new(_start, _count, _shift, _root, new Store(next, tailCount));"
+          "        }"
+          "        var leaf = (T[])LeafFor(at).Items.Clone();"
+          "        leaf[at & Mask] = item;"
+          "        return new(_start, _count, _shift, SetLeaf(_root!, _shift, at, new Store(leaf, Width)), _tail);"
+          "    }"
+          "    // InsertAt clamps the index to [0, Length]; it shares the items before the index (a Slice) and"
+          "    // appends the item and then the items from the index, so it is O(log32 n + Length - index)."
+          "    public NyList<T> InsertAt(long index, T item)"
+          "    {"
+          "        var split = (int)System.Math.Clamp(index, 0L, (long)Count);"
+          "        return Slice(0L, split).AppendItem(item).AppendFrom(this, _start + split);"
+          "    }"
+          "    // RemoveAt shares the items before the index and appends the items after it, so it is"
+          "    // O(log32 n + Length - index); removing the first or last item is a Slice or DropLast. An index"
+          "    // outside [0, Length) returns the list itself."
+          "    public NyList<T> RemoveAt(long index)"
+          "    {"
+          "        if (index < 0L || index >= Count) return this;"
+          "        var split = (int)index;"
+          "        if (split == Count - 1) return DropLast();"
+          "        if (split == 0) return Slice(1L, Count);"
+          "        return Slice(0L, split).AppendFrom(this, _start + split + 1);"
+          "    }"
+          "    // AppendFrom appends the source's items at trie positions [from, source._count) in order."
+          "    private NyList<T> AppendFrom(NyList<T> source, int from)"
+          "    {"
+          "        var result = this;"
+          "        for (var at = from; at < source._count; at = Next(at))"
+          "            foreach (var item in source.Segment(at)) result = result.AppendItem(item);"
+          "        return result;"
+          "    }"
           "    // Reverse copies the items into a new list in the opposite order; 0 or 1 items return the list itself."
           "    public NyList<T> Reverse()"
           "    {"
@@ -299,6 +344,40 @@ module CSharpBackend =
           "            var segment = Segment(at);"
           "            for (var i = 0; i < segment.Length; i++) next[at - _start + i] = mapper(segment[i]);"
           "        }"
+          "        return NyList<U>.FromOwnedArray(next);"
+          "    }"
+          "    // ListZipWith: item i is combiner(this[i], other[i]) for every i below the shorter length, as"
+          "    // Python zip; the extra items of the longer list are not visited."
+          "    public NyList<V> ZipWith<U, V>(NyList<U> other, Func<T, U, V> combiner)"
+          "    {"
+          "        var count = System.Math.Min(Count, other.Count);"
+          "        var next = new V[count];"
+          "        for (var i = 0; i < count; i++) next[i] = combiner(Get(_start + i), other.Get(other._start + i));"
+          "        return NyList<V>.FromOwnedArray(next);"
+          "    }"
+          "    // ListFlatMap: the mapper's lists concatenated in source order. Each part is copied once into"
+          "    // one buffer, so the time is linear in the output length rather than quadratic as repeated Concat."
+          "    public NyList<U> FlatMap<U>(Func<T, NyList<U>> mapper)"
+          "    {"
+          "        var parts = new NyList<U>[Count];"
+          "        var total = 0;"
+          "        var index = 0;"
+          "        for (var at = _start; at < _count; at = Next(at))"
+          "            foreach (var item in Segment(at))"
+          "            {"
+          "                var part = mapper(item);"
+          "                parts[index++] = part;"
+          "                total = checked(total + part.Count);"
+          "            }"
+          "        var next = new U[total];"
+          "        var offset = 0;"
+          "        foreach (var part in parts)"
+          "            for (var at = part._start; at < part._count; at = Next(at))"
+          "            {"
+          "                var segment = part.Segment(at);"
+          "                segment.CopyTo(next.AsSpan(offset));"
+          "                offset += segment.Length;"
+          "            }"
           "        return NyList<U>.FromOwnedArray(next);"
           "    }"
           "    // ListSortBy: top-down merge sort, left half = length / 2, taking the right head only when"
@@ -655,6 +734,46 @@ module CSharpBackend =
         writer.Line("}")
         writer.Line("Array.Resize(ref lines, count);")
         writer.Line("return NyList<NyStr>.FromOwnedArray(lines);")
+        writer.Pop()
+        writer.Line("}")
+        // Replace takes the matches Split would cut at, so a match never splits a surrogate pair; an
+        // empty pattern returns the text unchanged.
+        writer.Line("public static string Replace(string text, string pattern, string replacement)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (pattern.Length == 0) return text;")
+        writer.Line("var found = Find(text, pattern, 0);")
+        writer.Line("if (found < 0) return text;")
+        writer.Line("var builder = new System.Text.StringBuilder(text.Length);")
+        writer.Line("var start = 0;")
+        writer.Line("for (; found >= 0; found = Find(text, pattern, start))")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("builder.Append(text, start, found - start).Append(replacement);")
+        writer.Line("start = found + pattern.Length;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("return builder.Append(text, start, text.Length - start).ToString();")
+        writer.Pop()
+        writer.Line("}")
+        // Trim removes code points with the Unicode White_Space property, which is char.IsWhiteSpace.
+        // Every White_Space code point is in the BMP and no surrogate unit is white space, so the
+        // walk by code unit never splits a pair.
+        writer.Line("public static string Trim(string text) => TrimEnd(TrimStart(text));")
+        writer.Line("public static string TrimStart(string text)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var start = 0;")
+        writer.Line("while (start < text.Length && char.IsWhiteSpace(text[start])) start++;")
+        writer.Line("return start == 0 ? text : text.Substring(start);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public static string TrimEnd(string text)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var end = text.Length;")
+        writer.Line("while (end > 0 && char.IsWhiteSpace(text[end - 1])) end--;")
+        writer.Line("return end == text.Length ? text : text.Substring(0, end);")
         writer.Pop()
         writer.Line("}")
         // ToLower applies the Unicode simple (one-to-one) lowercase mapping per code point, culture
@@ -1073,6 +1192,12 @@ module CSharpBackend =
         writer.Line("entries.TryGetValue(key, out var entry)")
         writer.Line("? new(entries.SetItem(key, (entry.Order, value)), order, next)")
         writer.Line(": new(entries.SetItem(key, (next, value)), order.Add(next, key), next + 1L);")
+        // Union inserts the other map's entries one by one in its order: shared keys keep this map's
+        // positions and take the other value, new keys follow. An empty side returns the other map
+        // unchanged, which has the same entries in the same visible order; inserting this map into a
+        // larger other map instead would put the other map's keys first, so it is not done.
+        writer.Line("public NyMap<K, V> Union(NyMap<K, V> other) =>")
+        writer.Line("other.entries.Count == 0 ? this : entries.Count == 0 ? other : other.Fold(this, (map, key, value) => map.Insert(key, value));")
         writer.Line("public NyMap<K, V> Remove(K key) =>")
         writer.Line("entries.TryGetValue(key, out var entry) ? new(entries.Remove(key), order.Remove(entry.Order), next) : this;")
         writer.Line("public S Fold<S>(S seed, System.Func<S, K, V, S> folder)")
@@ -1155,6 +1280,16 @@ module CSharpBackend =
         // Difference removes the other set's items one by one when the other set is smaller; Remove keeps
         // the remaining items' insertion numbers, so either way gives the same set in the same order.
         writer.Line("public NySet<T> Difference(NySet<T> other) => other.Size < Size ? other.Fold(this, (set, item) => set.Remove(item)) : Fold(this, (set, item) => other.Contains(item) ? set.Remove(item) : set);")
+        // IsSubsetOf looks up each of this set's items in the other set and stops at the first miss;
+        // a larger set is never a subset, so that case answers without lookups.
+        writer.Line("public bool IsSubsetOf(NySet<T> other)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (items.Count > other.items.Count) return false;")
+        writer.Line("foreach (var item in items.Keys) if (!other.items.ContainsKey(item)) return false;")
+        writer.Line("return true;")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("public S Fold<S>(S seed, System.Func<S, T, S> folder)")
         writer.Line("{")
         writer.Push()
@@ -1900,6 +2035,14 @@ module CSharpBackend =
             writer.Line(target + " = NyText.Split(" + valueName sourceValueId + ", " + valueName otherId + ");")
         | ExecutionInstructionKind.StringSplitLines(sourceValueId, breaksId) ->
             writer.Line(target + " = NyText.SplitLines(" + valueName sourceValueId + ", " + valueName breaksId + ");")
+        | ExecutionInstructionKind.StringReplace(sourceValueId, patternId, replacementId) ->
+            writer.Line(target + " = NyText.Replace(" + valueName sourceValueId + ", " + valueName patternId + ", " + valueName replacementId + ");")
+        | ExecutionInstructionKind.StringTrim sourceValueId ->
+            writer.Line(target + " = NyText.Trim(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.StringTrimStart sourceValueId ->
+            writer.Line(target + " = NyText.TrimStart(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.StringTrimEnd sourceValueId ->
+            writer.Line(target + " = NyText.TrimEnd(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringJoin(listValueId, separatorId) ->
             writer.Line(target + " = NyText.Join(" + valueName listValueId + ", " + valueName separatorId + ");")
         | ExecutionInstructionKind.StringEqual(leftValueId, rightValueId) ->
@@ -1956,6 +2099,21 @@ module CSharpBackend =
             writer.Line(target + " = System.Math.Min(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.Int64Max(leftValueId, rightValueId) ->
             writer.Line(target + " = System.Math.Max(" + valueName leftValueId + ", " + valueName rightValueId + ");")
+        | ExecutionInstructionKind.Int64BitAnd(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "&" rightValueId false
+        | ExecutionInstructionKind.Int64BitOr(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "|" rightValueId false
+        | ExecutionInstructionKind.Int64BitXor(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "^" rightValueId false
+        | ExecutionInstructionKind.Int64ShiftLeft(valueId, countValueId) ->
+            // The count is clamped explicitly instead of relying on C#'s 6-bit masking of long shift counts.
+            let count = valueName countValueId
+            writer.Line(target + " = " + count + " <= 0L ? " + valueName valueId + " : " + count + " >= 64L ? 0L : " + valueName valueId + " << (int)" + count + ";")
+        | ExecutionInstructionKind.Int64ShiftRight(valueId, countValueId) ->
+            // Arithmetic shift with the count clamped explicitly: 64 or more leaves only the sign.
+            let count = valueName countValueId
+            let value = valueName valueId
+            writer.Line(target + " = " + count + " <= 0L ? " + value + " : " + count + " >= 64L ? (" + value + " < 0L ? -1L : 0L) : " + value + " >> (int)" + count + ";")
         | ExecutionInstructionKind.Int64CheckedAdd(leftValueId, rightValueId) ->
             writer.Line(target + " = NyNumber.CheckedAdd(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.Int64CheckedSubtract(leftValueId, rightValueId) ->
@@ -2007,6 +2165,12 @@ module CSharpBackend =
             emitBinaryExpression writer target leftValueId ">=" rightValueId false
         | ExecutionInstructionKind.Float64Add(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId "+" rightValueId false
+        | ExecutionInstructionKind.Float64Min(leftValueId, rightValueId) ->
+            // .NET Math.Min on double is IEEE 754-2019 minimum: NaN propagates and -0.0 < 0.0.
+            writer.Line(target + " = System.Math.Min(" + valueName leftValueId + ", " + valueName rightValueId + ");")
+        | ExecutionInstructionKind.Float64Max(leftValueId, rightValueId) ->
+            // .NET Math.Max on double is IEEE 754-2019 maximum: NaN propagates and -0.0 < 0.0.
+            writer.Line(target + " = System.Math.Max(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.Float64Subtract(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId "-" rightValueId false
         | ExecutionInstructionKind.Float64Multiply(leftValueId, rightValueId) ->
@@ -2029,6 +2193,8 @@ module CSharpBackend =
         | ExecutionInstructionKind.Int64WrappingAbs valueId ->
             // Two's-complement negation wraps, so Int64.MinValue stays Int64.MinValue.
             writer.Line(target + " = " + valueName valueId + " < 0L ? unchecked(-" + valueName valueId + ") : " + valueName valueId + ";")
+        | ExecutionInstructionKind.Int64BitNot valueId ->
+            writer.Line(target + " = ~" + valueName valueId + ";")
         | ExecutionInstructionKind.Float64Sqrt valueId ->
             writer.Line(target + " = System.Math.Sqrt(" + valueName valueId + ");")
         | ExecutionInstructionKind.Float64Abs valueId ->
@@ -2110,6 +2276,10 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName leftSetValueId + ".Intersection(" + valueName rightSetValueId + ");")
         | ExecutionInstructionKind.SetDifference(leftSetValueId, rightSetValueId) ->
             writer.Line(target + " = " + valueName leftSetValueId + ".Difference(" + valueName rightSetValueId + ");")
+        | ExecutionInstructionKind.SetIsSubset(leftSetValueId, rightSetValueId) ->
+            writer.Line(target + " = " + valueName leftSetValueId + ".IsSubsetOf(" + valueName rightSetValueId + ");")
+        | ExecutionInstructionKind.MapUnion(leftMapValueId, rightMapValueId) ->
+            writer.Line(target + " = " + valueName leftMapValueId + ".Union(" + valueName rightMapValueId + ");")
         | ExecutionInstructionKind.MapContainsKey(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".ContainsKey(" + valueName keyValueId + ");")
         | ExecutionInstructionKind.SetContains(setValueId, itemValueId) ->
@@ -2120,10 +2290,19 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName listValueId + ".LastIndexOf(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".Get(" + valueName keyValueId + ");")
+        | ExecutionInstructionKind.OptionGetOrDefault(optionValueId, defaultValueId) ->
+            let option = valueName optionValueId
+            writer.Line(target + " = " + option + ".HasValue ? " + option + ".Value : " + valueName defaultValueId + ";")
         | ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".GetOrDefault(" + valueName keyValueId + ", " + valueName defaultValueId + ");")
         | ExecutionInstructionKind.ListSlice(listValueId, startId, endId) ->
             writer.Line(target + " = " + valueName listValueId + ".Slice(" + valueName startId + ", " + valueName endId + ");")
+        | ExecutionInstructionKind.ListSetAt(listValueId, indexValueId, itemValueId) ->
+            writer.Line(target + " = " + valueName listValueId + ".SetAt(" + valueName indexValueId + ", " + valueName itemValueId + ");")
+        | ExecutionInstructionKind.ListInsertAt(listValueId, indexValueId, itemValueId) ->
+            writer.Line(target + " = " + valueName listValueId + ".InsertAt(" + valueName indexValueId + ", " + valueName itemValueId + ");")
+        | ExecutionInstructionKind.ListRemoveAt(listValueId, indexValueId) ->
+            writer.Line(target + " = " + valueName listValueId + ".RemoveAt(" + valueName indexValueId + ");")
         | ExecutionInstructionKind.MapInsert(mapValueId, keyId, valueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".Insert(" + valueName keyId + ", " + valueName valueId + ");")
         | ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId) ->
@@ -2292,6 +2471,10 @@ module CSharpBackend =
             writer.Line("}")
         | ExecutionInstructionKind.ListMap(sourceListValueId, mapperFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Map(" + callback mapperFunctionId context + ");")
+        | ExecutionInstructionKind.ListZipWith(leftListValueId, rightListValueId, combinerFunctionId, context) ->
+            writer.Line(target + " = " + valueName leftListValueId + ".ZipWith(" + valueName rightListValueId + ", " + callback combinerFunctionId context + ");")
+        | ExecutionInstructionKind.ListFlatMap(sourceListValueId, mapperFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".FlatMap(" + callback mapperFunctionId context + ");")
         | ExecutionInstructionKind.MapFromList(sourceListValueId, keyOfFunctionId, context) ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".FromList(" + valueName sourceListValueId + ", " + callback keyOfFunctionId context + ");")
         | ExecutionInstructionKind.ListFilter(sourceListValueId, predicateFunctionId, context) ->
@@ -2300,6 +2483,26 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceMapValueId + ".Filter(" + callback keepFunctionId context + ");")
         | ExecutionInstructionKind.MapMapValues(sourceMapValueId, mapperFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceMapValueId + ".MapValues(" + callback mapperFunctionId context + ");")
+        // Option and Result combinators use the same HasValue/Value and IsOk/OkValue/ErrorValue members
+        // as MatchOption and MatchResult; the callback is invoked only in the matching case.
+        | ExecutionInstructionKind.OptionMap(sourceValueId, mapperFunctionId, context) ->
+            let source = valueName sourceValueId
+            let resultType = formatType instruction.Result.Type
+            writer.Line(target + " = " + source + ".HasValue ? " + resultType + ".Some(" + renderInvocation parametersOf mapperFunctionId context [ source + ".Value" ] + ") : " + resultType + ".None();")
+        | ExecutionInstructionKind.OptionAndThen(sourceValueId, binderFunctionId, context) ->
+            let source = valueName sourceValueId
+            writer.Line(target + " = " + source + ".HasValue ? " + renderInvocation parametersOf binderFunctionId context [ source + ".Value" ] + " : " + formatType instruction.Result.Type + ".None();")
+        | ExecutionInstructionKind.ResultMap(sourceValueId, mapperFunctionId, context) ->
+            let source = valueName sourceValueId
+            let resultType = formatType instruction.Result.Type
+            writer.Line(target + " = " + source + ".IsOk ? " + resultType + ".Ok(" + renderInvocation parametersOf mapperFunctionId context [ source + ".OkValue" ] + ") : " + resultType + ".Err(" + source + ".ErrorValue);")
+        | ExecutionInstructionKind.ResultMapErr(sourceValueId, mapperFunctionId, context) ->
+            let source = valueName sourceValueId
+            let resultType = formatType instruction.Result.Type
+            writer.Line(target + " = " + source + ".IsOk ? " + resultType + ".Ok(" + source + ".OkValue) : " + resultType + ".Err(" + renderInvocation parametersOf mapperFunctionId context [ source + ".ErrorValue" ] + ");")
+        | ExecutionInstructionKind.ResultAndThen(sourceValueId, binderFunctionId, context) ->
+            let source = valueName sourceValueId
+            writer.Line(target + " = " + source + ".IsOk ? " + renderInvocation parametersOf binderFunctionId context [ source + ".OkValue" ] + " : " + formatType instruction.Result.Type + ".Err(" + source + ".ErrorValue);")
         | ExecutionInstructionKind.ListSortBy(sourceListValueId, lessThanFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".SortBy(" + callback lessThanFunctionId context + ");")
         | ExecutionInstructionKind.ListMinBy(sourceListValueId, lessThanFunctionId, context) ->

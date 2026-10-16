@@ -14,6 +14,14 @@ module internal OneShotPayloadRequirements =
                     match nodeType source with
                     | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])) -> [ item ]
                     | _ -> []
+                let optionItem source =
+                    match nodeType source with
+                    | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ])) -> [ item ]
+                    | _ -> []
+                let resultCase pick source =
+                    match nodeType source with
+                    | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ ok; error ])) -> [ pick (ok, error) ]
+                    | _ -> []
                 let mapItems source =
                     match nodeType source with
                     | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ key; value ])) -> [ key; value ]
@@ -33,6 +41,8 @@ module internal OneShotPayloadRequirements =
                         | SemanticNodeKind.MapFold(source, seed, _, _) -> (nodeType seed |> Option.toList) @ mapItems source
                         | SemanticNodeKind.ListSortBy(source, _, _)
                         | SemanticNodeKind.ListMinBy(source, _, _) -> let items = listItem source in items @ items
+                        | SemanticNodeKind.ListZipWith(left, right, _, _) -> listItem left @ listItem right
+                        | SemanticNodeKind.ListFlatMap(source, _, _)
                         | SemanticNodeKind.ListMap(source, _, _)
                         | SemanticNodeKind.MapFromList(source, _, _)
                         | SemanticNodeKind.ListFilter(source, _, _)
@@ -42,6 +52,11 @@ module internal OneShotPayloadRequirements =
                         | SemanticNodeKind.ParallelAll(source, _, _) -> listItem source
                         | SemanticNodeKind.MapFilter(source, _, _)
                         | SemanticNodeKind.MapMapValues(source, _, _) -> mapItems source
+                        | SemanticNodeKind.OptionMap(source, _, _)
+                        | SemanticNodeKind.OptionAndThen(source, _, _) -> optionItem source
+                        | SemanticNodeKind.ResultMap(source, _, _)
+                        | SemanticNodeKind.ResultAndThen(source, _, _) -> resultCase fst source
+                        | SemanticNodeKind.ResultMapErr(source, _, _) -> resultCase snd source
                         | _ -> []
                     SemanticNodeShape.functionReferences node |> List.choose (fun reference ->
                         Map.tryFind reference.FunctionId functions |> Option.bind (fun callee ->

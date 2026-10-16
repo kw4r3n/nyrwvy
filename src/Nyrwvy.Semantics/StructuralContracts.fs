@@ -12,6 +12,8 @@ type ValueDependencyRole =
     | Prefix
     | Suffix
     | Separator
+    /// The text StringReplace puts in place of each match.
+    | Replacement
     | LeftOperand
     | RightOperand
     | Source
@@ -55,6 +57,7 @@ module ValueDependency =
         | SemanticNodeKind.Int64ToHexString sourceNodeId
         | SemanticNodeKind.Int64ToFloat64 sourceNodeId
         | SemanticNodeKind.Int64WrappingAbs sourceNodeId
+        | SemanticNodeKind.Int64BitNot sourceNodeId
         | SemanticNodeKind.Bits32FromInt64 sourceNodeId
         | SemanticNodeKind.Bits32ToInt64 sourceNodeId
         | SemanticNodeKind.Bits32Not sourceNodeId
@@ -65,6 +68,9 @@ module ValueDependency =
         | SemanticNodeKind.StringCodePoints sourceNodeId
         | SemanticNodeKind.StringToLower sourceNodeId
         | SemanticNodeKind.StringToUpper sourceNodeId
+        | SemanticNodeKind.StringTrim sourceNodeId
+        | SemanticNodeKind.StringTrimStart sourceNodeId
+        | SemanticNodeKind.StringTrimEnd sourceNodeId
         | SemanticNodeKind.StringDecodeUtf8Lossy sourceNodeId
         | SemanticNodeKind.Float64RoundToInt64 sourceNodeId
         | SemanticNodeKind.Float64FloorToInt64 sourceNodeId
@@ -89,7 +95,9 @@ module ValueDependency =
               create ValueDependencyRole.Substring substringNodeId ]
         | SemanticNodeKind.Bits32RotateRight(sourceNodeId, amountNodeId)
         | SemanticNodeKind.Bits32ShiftRight(sourceNodeId, amountNodeId)
-        | SemanticNodeKind.Bits32ShiftLeft(sourceNodeId, amountNodeId) ->
+        | SemanticNodeKind.Bits32ShiftLeft(sourceNodeId, amountNodeId)
+        | SemanticNodeKind.Int64ShiftLeft(sourceNodeId, amountNodeId)
+        | SemanticNodeKind.Int64ShiftRight(sourceNodeId, amountNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Amount amountNodeId ]
         | SemanticNodeKind.StringIndexOf(sourceNodeId, substringNodeId, fromNodeId) ->
@@ -119,6 +127,10 @@ module ValueDependency =
         | SemanticNodeKind.StringSplitLines(sourceNodeId, breaksNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.CharacterSet breaksNodeId ]
+        | SemanticNodeKind.StringReplace(sourceNodeId, patternNodeId, replacementNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Substring patternNodeId
+              create ValueDependencyRole.Replacement replacementNodeId ]
         | SemanticNodeKind.StringJoin(sourceNodeId, separatorNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Separator separatorNodeId ]
@@ -133,6 +145,9 @@ module ValueDependency =
         | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
@@ -145,6 +160,8 @@ module ValueDependency =
         | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Min(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Max(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
@@ -157,7 +174,9 @@ module ValueDependency =
         | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId)
         | SemanticNodeKind.SetUnion(leftNodeId, rightNodeId)
         | SemanticNodeKind.SetIntersection(leftNodeId, rightNodeId)
-        | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId) ->
+        | SemanticNodeKind.SetDifference(leftNodeId, rightNodeId)
+        | SemanticNodeKind.SetIsSubset(leftNodeId, rightNodeId)
+        | SemanticNodeKind.MapUnion(leftNodeId, rightNodeId) ->
             [ create ValueDependencyRole.LeftOperand leftNodeId
               create ValueDependencyRole.RightOperand rightNodeId ]
         | SemanticNodeKind.Float64IsNaN valueNodeId
@@ -179,12 +198,22 @@ module ValueDependency =
         | SemanticNodeKind.ListDropLast sourceNodeId
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) ->
             [ create ValueDependencyRole.Source sourceNodeId ]
+        | SemanticNodeKind.ListZipWith(leftNodeId, rightNodeId, _, context) ->
+            [ create ValueDependencyRole.LeftOperand leftNodeId
+              create ValueDependencyRole.RightOperand rightNodeId ]
+            @ contextDependencies context
+        | SemanticNodeKind.ListFlatMap(sourceNodeId, _, context)
         | SemanticNodeKind.ListMap(sourceNodeId, _, context)
         | SemanticNodeKind.MapFromList(sourceNodeId, _, context)
         | SemanticNodeKind.ListFilter(sourceNodeId, _, context)
         | SemanticNodeKind.MapFilter(sourceNodeId, _, context)
         | SemanticNodeKind.ListSortBy(sourceNodeId, _, context)
         | SemanticNodeKind.MapMapValues(sourceNodeId, _, context)
+        | SemanticNodeKind.OptionMap(sourceNodeId, _, context)
+        | SemanticNodeKind.OptionAndThen(sourceNodeId, _, context)
+        | SemanticNodeKind.ResultMap(sourceNodeId, _, context)
+        | SemanticNodeKind.ResultMapErr(sourceNodeId, _, context)
+        | SemanticNodeKind.ResultAndThen(sourceNodeId, _, context)
         | SemanticNodeKind.ListMinBy(sourceNodeId, _, context)
         | SemanticNodeKind.ListAny(sourceNodeId, _, context)
         | SemanticNodeKind.ListFindIndex(sourceNodeId, _, context)
@@ -253,6 +282,9 @@ module ValueDependency =
         | SemanticNodeKind.MapGet(sourceNodeId, keyNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId ]
+        | SemanticNodeKind.OptionGetOrDefault(sourceNodeId, defaultNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Value defaultNodeId ]
         | SemanticNodeKind.MapGetOrDefault(sourceNodeId, keyNodeId, defaultNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId
@@ -261,6 +293,14 @@ module ValueDependency =
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.SliceStart startNodeId
               create ValueDependencyRole.SliceEnd endNodeId ]
+        | SemanticNodeKind.ListSetAt(sourceNodeId, indexNodeId, itemNodeId)
+        | SemanticNodeKind.ListInsertAt(sourceNodeId, indexNodeId, itemNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Index indexNodeId
+              create ValueDependencyRole.Item itemNodeId ]
+        | SemanticNodeKind.ListRemoveAt(sourceNodeId, indexNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Index indexNodeId ]
         | SemanticNodeKind.MapInsert(sourceNodeId, keyNodeId, valueNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId

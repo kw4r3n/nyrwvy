@@ -329,6 +329,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Float64IsInfinite value -> one ExpressionRecipe.Float64IsInfinite value
             | ExpressionRecipe.Int64ToFloat64 value -> one ExpressionRecipe.Int64ToFloat64 value
             | ExpressionRecipe.Int64WrappingAbs value -> one ExpressionRecipe.Int64WrappingAbs value
+            | ExpressionRecipe.Int64BitNot value -> one ExpressionRecipe.Int64BitNot value
             | ExpressionRecipe.Bits32FromInt64 value -> one ExpressionRecipe.Bits32FromInt64 value
             | ExpressionRecipe.Bits32ToInt64 value -> one ExpressionRecipe.Bits32ToInt64 value
             | ExpressionRecipe.Bits32Not value -> one ExpressionRecipe.Bits32Not value
@@ -352,6 +353,10 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.StringEndsWith(left, right) -> two ExpressionRecipe.StringEndsWith left right
             | ExpressionRecipe.StringSplit(left, right) -> two ExpressionRecipe.StringSplit left right
             | ExpressionRecipe.StringSplitLines(value, breaks) -> two ExpressionRecipe.StringSplitLines value breaks
+            | ExpressionRecipe.StringReplace(value, pattern, replacement) -> three ExpressionRecipe.StringReplace value pattern replacement
+            | ExpressionRecipe.StringTrim value -> one ExpressionRecipe.StringTrim value
+            | ExpressionRecipe.StringTrimStart value -> one ExpressionRecipe.StringTrimStart value
+            | ExpressionRecipe.StringTrimEnd value -> one ExpressionRecipe.StringTrimEnd value
             | ExpressionRecipe.StringJoin(list, separator) -> two ExpressionRecipe.StringJoin list separator
             | ExpressionRecipe.StringEqual(left, right) -> two ExpressionRecipe.StringEqual left right
             | ExpressionRecipe.StringLessThan(left, right) -> two ExpressionRecipe.StringLessThan left right
@@ -364,6 +369,11 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Int64FloorModulo(left, right) -> two ExpressionRecipe.Int64FloorModulo left right
             | ExpressionRecipe.Int64Min(left, right) -> two ExpressionRecipe.Int64Min left right
             | ExpressionRecipe.Int64Max(left, right) -> two ExpressionRecipe.Int64Max left right
+            | ExpressionRecipe.Int64BitAnd(left, right) -> two ExpressionRecipe.Int64BitAnd left right
+            | ExpressionRecipe.Int64BitOr(left, right) -> two ExpressionRecipe.Int64BitOr left right
+            | ExpressionRecipe.Int64BitXor(left, right) -> two ExpressionRecipe.Int64BitXor left right
+            | ExpressionRecipe.Int64ShiftLeft(left, right) -> two ExpressionRecipe.Int64ShiftLeft left right
+            | ExpressionRecipe.Int64ShiftRight(left, right) -> two ExpressionRecipe.Int64ShiftRight left right
             | ExpressionRecipe.Int64CheckedAdd(left, right) -> two ExpressionRecipe.Int64CheckedAdd left right
             | ExpressionRecipe.Int64CheckedSubtract(left, right) -> two ExpressionRecipe.Int64CheckedSubtract left right
             | ExpressionRecipe.Int64CheckedMultiply(left, right) -> two ExpressionRecipe.Int64CheckedMultiply left right
@@ -383,6 +393,8 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Int64GreaterThan(left, right) -> two ExpressionRecipe.Int64GreaterThan left right
             | ExpressionRecipe.Int64GreaterThanOrEqual(left, right) -> two ExpressionRecipe.Int64GreaterThanOrEqual left right
             | ExpressionRecipe.Float64Add(left, right) -> two ExpressionRecipe.Float64Add left right
+            | ExpressionRecipe.Float64Min(left, right) -> two ExpressionRecipe.Float64Min left right
+            | ExpressionRecipe.Float64Max(left, right) -> two ExpressionRecipe.Float64Max left right
             | ExpressionRecipe.Float64Subtract(left, right) -> two ExpressionRecipe.Float64Subtract left right
             | ExpressionRecipe.Float64Multiply(left, right) -> two ExpressionRecipe.Float64Multiply left right
             | ExpressionRecipe.Float64Divide(left, right) -> two ExpressionRecipe.Float64Divide left right
@@ -399,12 +411,18 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.ListLastIndexOf(map, key) -> two ExpressionRecipe.ListLastIndexOf map key
             | ExpressionRecipe.MapGet(map, key) -> two ExpressionRecipe.MapGet map key
             | ExpressionRecipe.ListSlice(list, start, stop) -> three ExpressionRecipe.ListSlice list start stop
+            | ExpressionRecipe.ListSetAt(list, index, item) -> three ExpressionRecipe.ListSetAt list index item
+            | ExpressionRecipe.ListInsertAt(list, index, item) -> three ExpressionRecipe.ListInsertAt list index item
+            | ExpressionRecipe.ListRemoveAt(list, index) -> two ExpressionRecipe.ListRemoveAt list index
             | ExpressionRecipe.MapInsert(map, key, value) -> three ExpressionRecipe.MapInsert map key value
             | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> three ExpressionRecipe.MapGetOrDefault map key defaultValue
+            | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> two ExpressionRecipe.OptionGetOrDefault option defaultValue
             | ExpressionRecipe.ListConcat(left, right) -> two ExpressionRecipe.ListConcat left right
             | ExpressionRecipe.SetUnion(left, right) -> two ExpressionRecipe.SetUnion left right
             | ExpressionRecipe.SetIntersection(left, right) -> two ExpressionRecipe.SetIntersection left right
             | ExpressionRecipe.SetDifference(left, right) -> two ExpressionRecipe.SetDifference left right
+            | ExpressionRecipe.SetIsSubset(left, right) -> two ExpressionRecipe.SetIsSubset left right
+            | ExpressionRecipe.MapUnion(left, right) -> two ExpressionRecipe.MapUnion left right
             | ExpressionRecipe.Bind(value, body) -> two ExpressionRecipe.Bind value body
             | ExpressionRecipe.ListConstruct(itemType, items) ->
                 rewriteAll items |> Result.map (fun items -> ExpressionRecipe.ListConstruct(itemType, items))
@@ -459,11 +477,22 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.OneShotWait(cell, Some limit) -> two (fun (cell, limit) -> ExpressionRecipe.OneShotWait(cell, Some limit)) cell limit
             | ExpressionRecipe.TaskCancel task -> one ExpressionRecipe.TaskCancel task
             | ExpressionRecipe.ListMap(source, functionId, context) -> callback ExpressionRecipe.ListMap source functionId context
+            | ExpressionRecipe.ListFlatMap(source, functionId, context) -> callback ExpressionRecipe.ListFlatMap source functionId context
+            | ExpressionRecipe.ListZipWith(left, right, combiner, context) ->
+                nonCallTargetUse combiner
+                |> Result.bind (fun () -> two (fun (left, right) -> left, right) left right)
+                |> Result.bind (fun (left, right) ->
+                    rewritePairs context |> Result.map (fun context -> ExpressionRecipe.ListZipWith(left, right, combiner, context)))
             | ExpressionRecipe.MapFromList(source, functionId, context) -> callback ExpressionRecipe.MapFromList source functionId context
             | ExpressionRecipe.ListFilter(source, functionId, context) -> callback ExpressionRecipe.ListFilter source functionId context
             | ExpressionRecipe.MapFilter(source, functionId, context) -> callback ExpressionRecipe.MapFilter source functionId context
             | ExpressionRecipe.ListSortBy(source, functionId, context) -> callback ExpressionRecipe.ListSortBy source functionId context
             | ExpressionRecipe.MapMapValues(source, functionId, context) -> callback ExpressionRecipe.MapMapValues source functionId context
+            | ExpressionRecipe.OptionMap(source, functionId, context) -> callback ExpressionRecipe.OptionMap source functionId context
+            | ExpressionRecipe.OptionAndThen(source, functionId, context) -> callback ExpressionRecipe.OptionAndThen source functionId context
+            | ExpressionRecipe.ResultMap(source, functionId, context) -> callback ExpressionRecipe.ResultMap source functionId context
+            | ExpressionRecipe.ResultMapErr(source, functionId, context) -> callback ExpressionRecipe.ResultMapErr source functionId context
+            | ExpressionRecipe.ResultAndThen(source, functionId, context) -> callback ExpressionRecipe.ResultAndThen source functionId context
             | ExpressionRecipe.ListMinBy(source, functionId, context) -> callback ExpressionRecipe.ListMinBy source functionId context
             | ExpressionRecipe.ListAny(source, functionId, context) -> callback ExpressionRecipe.ListAny source functionId context
             | ExpressionRecipe.ListFindIndex(source, functionId, context) -> callback ExpressionRecipe.ListFindIndex source functionId context

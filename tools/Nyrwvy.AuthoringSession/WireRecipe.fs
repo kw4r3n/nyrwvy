@@ -127,6 +127,12 @@ module internal WireRecipe =
         | "stringSplitLines" ->
             ensureFields "string-split-lines recipe" [ "kind"; "value"; "breaks" ] [ "kind"; "value"; "breaks" ] element
             ExpressionRecipe.StringSplitLines(recipe (property "value" element), recipe (property "breaks" element))
+        | "stringReplace" ->
+            ensureFields "string-replace recipe" [ "kind"; "value"; "pattern"; "replacement" ] [ "kind"; "value"; "pattern"; "replacement" ] element
+            ExpressionRecipe.StringReplace(recipe (property "value" element), recipe (property "pattern" element), recipe (property "replacement" element))
+        | "stringTrim" -> unary "string-trim recipe" ExpressionRecipe.StringTrim
+        | "stringTrimStart" -> unary "string-trim-start recipe" ExpressionRecipe.StringTrimStart
+        | "stringTrimEnd" -> unary "string-trim-end recipe" ExpressionRecipe.StringTrimEnd
         | "stringJoin" ->
             ensureFields "string-join recipe" [ "kind"; "list"; "separator" ] [ "kind"; "list"; "separator" ] element
             ExpressionRecipe.StringJoin(recipe (property "list" element), recipe (property "separator" element))
@@ -141,6 +147,15 @@ module internal WireRecipe =
         | "int64FloorModulo" -> binary "int64-floor-modulo recipe" ExpressionRecipe.Int64FloorModulo
         | "int64Min" -> binary "int64-min recipe" ExpressionRecipe.Int64Min
         | "int64Max" -> binary "int64-max recipe" ExpressionRecipe.Int64Max
+        | "int64BitAnd" -> binary "int64-bit-and recipe" ExpressionRecipe.Int64BitAnd
+        | "int64BitOr" -> binary "int64-bit-or recipe" ExpressionRecipe.Int64BitOr
+        | "int64BitXor" -> binary "int64-bit-xor recipe" ExpressionRecipe.Int64BitXor
+        | "int64ShiftLeft" ->
+            ensureFields "int64-shift-left recipe" [ "kind"; "value"; "count" ] [ "kind"; "value"; "count" ] element
+            ExpressionRecipe.Int64ShiftLeft(recipe (property "value" element), recipe (property "count" element))
+        | "int64ShiftRight" ->
+            ensureFields "int64-shift-right recipe" [ "kind"; "value"; "count" ] [ "kind"; "value"; "count" ] element
+            ExpressionRecipe.Int64ShiftRight(recipe (property "value" element), recipe (property "count" element))
         | "int64CheckedAdd" -> binary "int64-checked-add recipe" ExpressionRecipe.Int64CheckedAdd
         | "int64CheckedSubtract" -> binary "int64-checked-subtract recipe" ExpressionRecipe.Int64CheckedSubtract
         | "int64CheckedMultiply" -> binary "int64-checked-multiply recipe" ExpressionRecipe.Int64CheckedMultiply
@@ -159,6 +174,8 @@ module internal WireRecipe =
         | "int64GreaterThan" -> binary "int64-greater-than recipe" ExpressionRecipe.Int64GreaterThan
         | "int64GreaterThanOrEqual" -> binary "int64-greater-than-or-equal recipe" ExpressionRecipe.Int64GreaterThanOrEqual
         | "float64Add" -> binary "float64-add recipe" ExpressionRecipe.Float64Add
+        | "float64Min" -> binary "float64-min recipe" ExpressionRecipe.Float64Min
+        | "float64Max" -> binary "float64-max recipe" ExpressionRecipe.Float64Max
         | "float64Subtract" -> binary "float64-subtract recipe" ExpressionRecipe.Float64Subtract
         | "float64Multiply" -> binary "float64-multiply recipe" ExpressionRecipe.Float64Multiply
         | "float64Divide" -> binary "float64-divide recipe" ExpressionRecipe.Float64Divide
@@ -169,6 +186,7 @@ module internal WireRecipe =
         | "float64IsInfinite" -> unary "float64-is-infinite recipe" ExpressionRecipe.Float64IsInfinite
         | "int64ToFloat64" -> unary "int64-to-float64 recipe" ExpressionRecipe.Int64ToFloat64
         | "int64WrappingAbs" -> unary "int64-wrapping-abs recipe" ExpressionRecipe.Int64WrappingAbs
+        | "int64BitNot" -> unary "int64-bit-not recipe" ExpressionRecipe.Int64BitNot
         | "bits32FromInt64" -> unary "bits32-from-int64 recipe" ExpressionRecipe.Bits32FromInt64
         | "bits32ToInt64" -> unary "bits32-to-int64 recipe" ExpressionRecipe.Bits32ToInt64
         | "bits32Not" -> unary "bits32-not recipe" ExpressionRecipe.Bits32Not
@@ -214,6 +232,8 @@ module internal WireRecipe =
         | "setUnion" -> binary "set-union recipe" ExpressionRecipe.SetUnion
         | "setIntersection" -> binary "set-intersection recipe" ExpressionRecipe.SetIntersection
         | "setDifference" -> binary "set-difference recipe" ExpressionRecipe.SetDifference
+        | "setIsSubset" -> binary "set-is-subset recipe" ExpressionRecipe.SetIsSubset
+        | "mapUnion" -> binary "map-union recipe" ExpressionRecipe.MapUnion
         | "listItemAt" ->
             ensureFields "list-item-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
             ExpressionRecipe.ListItemAt(recipe (property "list" element), recipe (property "index" element))
@@ -241,12 +261,24 @@ module internal WireRecipe =
         | "mapGet" ->
             ensureFields "map-get recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
             ExpressionRecipe.MapGet(recipe (property "map" element), recipe (property "key" element))
+        | "optionGetOrDefault" ->
+            ensureFields "option-get-or-default recipe" [ "kind"; "option"; "default" ] [ "kind"; "option"; "default" ] element
+            ExpressionRecipe.OptionGetOrDefault(recipe (property "option" element), recipe (property "default" element))
         | "mapGetOrDefault" ->
             ensureFields "map-get-or-default recipe" [ "kind"; "map"; "key"; "default" ] [ "kind"; "map"; "key"; "default" ] element
             ExpressionRecipe.MapGetOrDefault(recipe (property "map" element), recipe (property "key" element), recipe (property "default" element))
         | "listSlice" ->
             ensureFields "list-slice recipe" [ "kind"; "list"; "start"; "end" ] [ "kind"; "list"; "start"; "end" ] element
             ExpressionRecipe.ListSlice(recipe (property "list" element), recipe (property "start" element), recipe (property "end" element))
+        | "listSetAt" ->
+            ensureFields "list-set-at recipe" [ "kind"; "list"; "index"; "item" ] [ "kind"; "list"; "index"; "item" ] element
+            ExpressionRecipe.ListSetAt(recipe (property "list" element), recipe (property "index" element), recipe (property "item" element))
+        | "listInsertAt" ->
+            ensureFields "list-insert-at recipe" [ "kind"; "list"; "index"; "item" ] [ "kind"; "list"; "index"; "item" ] element
+            ExpressionRecipe.ListInsertAt(recipe (property "list" element), recipe (property "index" element), recipe (property "item" element))
+        | "listRemoveAt" ->
+            ensureFields "list-remove-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
+            ExpressionRecipe.ListRemoveAt(recipe (property "list" element), recipe (property "index" element))
         | "mapInsert" ->
             ensureFields "map-insert recipe" [ "kind"; "map"; "key"; "value" ] [ "kind"; "map"; "key"; "value" ] element
             ExpressionRecipe.MapInsert(recipe (property "map" element), recipe (property "key" element), recipe (property "value" element))
@@ -308,9 +340,28 @@ module internal WireRecipe =
         | "mapFilter" ->
             ensureFields "map-filter recipe" [ "kind"; "map"; "functionId"; "context" ] [ "kind"; "map"; "functionId" ] element
             ExpressionRecipe.MapFilter(recipe (property "map" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "optionMap" ->
+            ensureFields "option-map recipe" [ "kind"; "option"; "functionId"; "context" ] [ "kind"; "option"; "functionId" ] element
+            ExpressionRecipe.OptionMap(recipe (property "option" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "optionAndThen" ->
+            ensureFields "option-and-then recipe" [ "kind"; "option"; "functionId"; "context" ] [ "kind"; "option"; "functionId" ] element
+            ExpressionRecipe.OptionAndThen(recipe (property "option" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "resultMap" ->
+            ensureFields "result-map recipe" [ "kind"; "result"; "functionId"; "context" ] [ "kind"; "result"; "functionId" ] element
+            ExpressionRecipe.ResultMap(recipe (property "result" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "resultMapErr" ->
+            ensureFields "result-map-err recipe" [ "kind"; "result"; "functionId"; "context" ] [ "kind"; "result"; "functionId" ] element
+            ExpressionRecipe.ResultMapErr(recipe (property "result" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "resultAndThen" ->
+            ensureFields "result-and-then recipe" [ "kind"; "result"; "functionId"; "context" ] [ "kind"; "result"; "functionId" ] element
+            ExpressionRecipe.ResultAndThen(recipe (property "result" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "mapMapValues" ->
             ensureFields "map-map-values recipe" [ "kind"; "map"; "functionId"; "context" ] [ "kind"; "map"; "functionId" ] element
             ExpressionRecipe.MapMapValues(recipe (property "map" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "listZipWith" ->
+            ensureFields "list-zip-with recipe" [ "kind"; "left"; "right"; "functionId"; "context" ] [ "kind"; "left"; "right"; "functionId" ] element
+            ExpressionRecipe.ListZipWith(recipe (property "left" element), recipe (property "right" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "listFlatMap"
         | "listMap"
         | "mapFromList"
         | "listSortBy"
@@ -325,6 +376,7 @@ module internal WireRecipe =
             let context = callbackContext ()
             match kind with
             | "listMap" -> ExpressionRecipe.ListMap(source, functionId, context)
+            | "listFlatMap" -> ExpressionRecipe.ListFlatMap(source, functionId, context)
             | "mapFromList" -> ExpressionRecipe.MapFromList(source, functionId, context)
             | "listFilter" -> ExpressionRecipe.ListFilter(source, functionId, context)
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, functionId, context)

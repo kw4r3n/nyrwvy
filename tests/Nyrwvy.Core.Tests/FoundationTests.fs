@@ -71,6 +71,10 @@ module FoundationTests =
                 | SemanticNodeKind.StringJoin _
                 | SemanticNodeKind.StringSplit _
                 | SemanticNodeKind.StringSplitLines _
+                | SemanticNodeKind.StringReplace _
+                | SemanticNodeKind.StringTrim _
+                | SemanticNodeKind.StringTrimStart _
+                | SemanticNodeKind.StringTrimEnd _
                 | SemanticNodeKind.StringEqual _
                 | SemanticNodeKind.StringLessThan _
                 | SemanticNodeKind.ValueEqual _
@@ -82,6 +86,11 @@ module FoundationTests =
                 | SemanticNodeKind.Int64FloorModulo _
                 | SemanticNodeKind.Int64Min _
                 | SemanticNodeKind.Int64Max _
+                | SemanticNodeKind.Int64BitAnd _
+                | SemanticNodeKind.Int64BitOr _
+                | SemanticNodeKind.Int64BitXor _
+                | SemanticNodeKind.Int64ShiftLeft _
+                | SemanticNodeKind.Int64ShiftRight _
                 | SemanticNodeKind.Int64CheckedAdd _
                 | SemanticNodeKind.Int64CheckedSubtract _
                 | SemanticNodeKind.Int64CheckedMultiply _
@@ -94,6 +103,8 @@ module FoundationTests =
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
                 | SemanticNodeKind.Float64Add _
+                | SemanticNodeKind.Float64Min _
+                | SemanticNodeKind.Float64Max _
                 | SemanticNodeKind.Float64Subtract _
                 | SemanticNodeKind.Float64Multiply _
                 | SemanticNodeKind.Float64Divide _
@@ -104,6 +115,7 @@ module FoundationTests =
                 | SemanticNodeKind.Float64IsInfinite _
                 | SemanticNodeKind.Int64ToFloat64 _
                 | SemanticNodeKind.Int64WrappingAbs _
+                | SemanticNodeKind.Int64BitNot _
                 | SemanticNodeKind.Bits32FromInt64 _
                 | SemanticNodeKind.Bits32ToInt64 _
                 | SemanticNodeKind.Bits32Xor _
@@ -129,6 +141,9 @@ module FoundationTests =
                 | SemanticNodeKind.ListLast _
                 | SemanticNodeKind.ListDropLast _
                 | SemanticNodeKind.ListSlice _
+                | SemanticNodeKind.ListSetAt _
+                | SemanticNodeKind.ListInsertAt _
+                | SemanticNodeKind.ListRemoveAt _
                 | SemanticNodeKind.MapInsert _
                 | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.MapRemove _
@@ -137,11 +152,14 @@ module FoundationTests =
                 | SemanticNodeKind.SetUnion _
                 | SemanticNodeKind.SetIntersection _
                 | SemanticNodeKind.SetDifference _
+                | SemanticNodeKind.SetIsSubset _
+                | SemanticNodeKind.MapUnion _
                 | SemanticNodeKind.MapContainsKey _
                 | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.ListIndexOf _
                 | SemanticNodeKind.ListLastIndexOf _
                 | SemanticNodeKind.MapGet _
+                | SemanticNodeKind.OptionGetOrDefault _
                 | SemanticNodeKind.MapGetOrDefault _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
@@ -163,11 +181,18 @@ module FoundationTests =
                 | SemanticNodeKind.OneShotComplete _
                 | SemanticNodeKind.OneShotWait _
                 | SemanticNodeKind.TaskCancel _
+                | SemanticNodeKind.ListZipWith _
+                | SemanticNodeKind.ListFlatMap _
                 | SemanticNodeKind.ListMap _
                 | SemanticNodeKind.MapFromList _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.MapFilter _
                 | SemanticNodeKind.ListSortBy _
+                | SemanticNodeKind.OptionMap _
+                | SemanticNodeKind.OptionAndThen _
+                | SemanticNodeKind.ResultMap _
+                | SemanticNodeKind.ResultMapErr _
+                | SemanticNodeKind.ResultAndThen _
                 | SemanticNodeKind.MapMapValues _
                 | SemanticNodeKind.ListMinBy _
                 | SemanticNodeKind.ListAny _

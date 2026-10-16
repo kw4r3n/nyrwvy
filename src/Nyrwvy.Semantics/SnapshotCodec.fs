@@ -520,6 +520,20 @@ module SnapshotCodec =
             writer.WriteString("kind", "stringSplitLines")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("breaksNodeId", StableId.value breaksNodeId)
+        | SemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+            writer.WriteString("kind", "stringReplace")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("patternNodeId", StableId.value patternNodeId)
+            writer.WriteString("replacementNodeId", StableId.value replacementNodeId)
+        | SemanticNodeKind.StringTrim valueNodeId ->
+            writer.WriteString("kind", "stringTrim")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringTrimStart valueNodeId ->
+            writer.WriteString("kind", "stringTrimStart")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringTrimEnd valueNodeId ->
+            writer.WriteString("kind", "stringTrimEnd")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
             writer.WriteString("kind", "stringJoin")
             writer.WriteString("listNodeId", StableId.value listNodeId)
@@ -546,6 +560,20 @@ module SnapshotCodec =
             writeBinaryNode writer "int64Min" leftNodeId rightNodeId
         | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64Max" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64BitAnd" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64BitOr" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64BitXor" leftNodeId rightNodeId
+        | SemanticNodeKind.Int64ShiftLeft(valueNodeId, countNodeId) ->
+            writer.WriteString("kind", "int64ShiftLeft")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("countNodeId", StableId.value countNodeId)
+        | SemanticNodeKind.Int64ShiftRight(valueNodeId, countNodeId) ->
+            writer.WriteString("kind", "int64ShiftRight")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("countNodeId", StableId.value countNodeId)
         | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64CheckedAdd" leftNodeId rightNodeId
         | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
@@ -576,6 +604,10 @@ module SnapshotCodec =
             writeBinaryNode writer "int64GreaterThanOrEqual" leftNodeId rightNodeId
         | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "float64Add" leftNodeId rightNodeId
+        | SemanticNodeKind.Float64Min(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64Min" leftNodeId rightNodeId
+        | SemanticNodeKind.Float64Max(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64Max" leftNodeId rightNodeId
         | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "float64Subtract" leftNodeId rightNodeId
         | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId) ->
@@ -596,6 +628,8 @@ module SnapshotCodec =
             writeUnaryNode writer "int64ToFloat64" valueNodeId
         | SemanticNodeKind.Int64WrappingAbs valueNodeId ->
             writeUnaryNode writer "int64WrappingAbs" valueNodeId
+        | SemanticNodeKind.Int64BitNot valueNodeId ->
+            writeUnaryNode writer "int64BitNot" valueNodeId
         | SemanticNodeKind.Bits32FromInt64 valueNodeId -> writeUnaryNode writer "bits32FromInt64" valueNodeId
         | SemanticNodeKind.Bits32ToInt64 valueNodeId -> writeUnaryNode writer "bits32ToInt64" valueNodeId
         | SemanticNodeKind.Bits32Not valueNodeId -> writeUnaryNode writer "bits32Not" valueNodeId
@@ -696,6 +730,14 @@ module SnapshotCodec =
             writer.WriteString("kind", "setDifference")
             writer.WriteString("leftSetNodeId", StableId.value leftSetNodeId)
             writer.WriteString("rightSetNodeId", StableId.value rightSetNodeId)
+        | SemanticNodeKind.SetIsSubset(leftSetNodeId, rightSetNodeId) ->
+            writer.WriteString("kind", "setIsSubset")
+            writer.WriteString("leftSetNodeId", StableId.value leftSetNodeId)
+            writer.WriteString("rightSetNodeId", StableId.value rightSetNodeId)
+        | SemanticNodeKind.MapUnion(leftMapNodeId, rightMapNodeId) ->
+            writer.WriteString("kind", "mapUnion")
+            writer.WriteString("leftMapNodeId", StableId.value leftMapNodeId)
+            writer.WriteString("rightMapNodeId", StableId.value rightMapNodeId)
         | SemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapContainsKey")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -726,6 +768,20 @@ module SnapshotCodec =
             writer.WriteString("listNodeId", StableId.value listNodeId)
             writer.WriteString("startNodeId", StableId.value startNodeId)
             writer.WriteString("endNodeId", StableId.value endNodeId)
+        | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listSetAt")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | SemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listInsertAt")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | SemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) ->
+            writer.WriteString("kind", "listRemoveAt")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
         | SemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId) ->
             writer.WriteString("kind", "mapInsert")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -830,6 +886,14 @@ module SnapshotCodec =
             writer.WriteString("taskNodeId", StableId.value taskNodeId)
         | SemanticNodeKind.ListMap(sourceListNodeId, mapperFunctionId, context) ->
             writeListCallbackNode writer "listMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
+        | SemanticNodeKind.ListZipWith(leftListNodeId, rightListNodeId, combinerFunctionId, context) ->
+            writer.WriteString("kind", "listZipWith")
+            writer.WriteString("leftListNodeId", StableId.value leftListNodeId)
+            writer.WriteString("rightListNodeId", StableId.value rightListNodeId)
+            writer.WriteString("combinerFunctionId", StableId.value combinerFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.ListFlatMap(sourceListNodeId, mapperFunctionId, context) ->
+            writeListCallbackNode writer "listFlatMap" sourceListNodeId "mapperFunctionId" mapperFunctionId context
         | SemanticNodeKind.MapFromList(sourceListNodeId, keyOfFunctionId, context) ->
             writeListCallbackNode writer "mapFromList" sourceListNodeId "keyOfFunctionId" keyOfFunctionId context
         | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context) ->
@@ -838,6 +902,35 @@ module SnapshotCodec =
             writer.WriteString("kind", "mapFilter")
             writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
             writer.WriteString("keepFunctionId", StableId.value keepFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
+            writer.WriteString("kind", "optionGetOrDefault")
+            writer.WriteString("optionNodeId", StableId.value optionNodeId)
+            writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
+        | SemanticNodeKind.OptionMap(sourceOptionNodeId, mapperFunctionId, context) ->
+            writer.WriteString("kind", "optionMap")
+            writer.WriteString("sourceOptionNodeId", StableId.value sourceOptionNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value mapperFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.OptionAndThen(sourceOptionNodeId, binderFunctionId, context) ->
+            writer.WriteString("kind", "optionAndThen")
+            writer.WriteString("sourceOptionNodeId", StableId.value sourceOptionNodeId)
+            writer.WriteString("binderFunctionId", StableId.value binderFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.ResultMap(sourceResultNodeId, mapperFunctionId, context) ->
+            writer.WriteString("kind", "resultMap")
+            writer.WriteString("sourceResultNodeId", StableId.value sourceResultNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value mapperFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.ResultMapErr(sourceResultNodeId, mapperFunctionId, context) ->
+            writer.WriteString("kind", "resultMapErr")
+            writer.WriteString("sourceResultNodeId", StableId.value sourceResultNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value mapperFunctionId)
+            writeCallbackContext writer context
+        | SemanticNodeKind.ResultAndThen(sourceResultNodeId, binderFunctionId, context) ->
+            writer.WriteString("kind", "resultAndThen")
+            writer.WriteString("sourceResultNodeId", StableId.value sourceResultNodeId)
+            writer.WriteString("binderFunctionId", StableId.value binderFunctionId)
             writeCallbackContext writer context
         | SemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
             writer.WriteString("kind", "mapMapValues")
@@ -1521,6 +1614,27 @@ module SnapshotCodec =
                     | _ -> "StringSplit node", "separatorNodeId", (fun v o -> SemanticNodeKind.StringSplit(v, o))
                 ensureProperties label (set [ "id"; "kind"; "valueNodeId"; other ]) (set [ "id"; "kind"; "valueNodeId"; other ]) element
                 build (readId<GraphNodeTag> "valueNodeId" element) (readId<GraphNodeTag> other element)
+            | "stringReplace" ->
+                ensureProperties
+                    "StringReplace node"
+                    (set [ "id"; "kind"; "valueNodeId"; "patternNodeId"; "replacementNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "patternNodeId"; "replacementNodeId" ])
+                    element
+                SemanticNodeKind.StringReplace(
+                    readId<GraphNodeTag> "valueNodeId" element,
+                    readId<GraphNodeTag> "patternNodeId" element,
+                    readId<GraphNodeTag> "replacementNodeId" element
+                )
+            | "stringTrim"
+            | "stringTrimStart"
+            | "stringTrimEnd" as kindName ->
+                let label, build =
+                    match kindName with
+                    | "stringTrimStart" -> "StringTrimStart node", SemanticNodeKind.StringTrimStart
+                    | "stringTrimEnd" -> "StringTrimEnd node", SemanticNodeKind.StringTrimEnd
+                    | _ -> "StringTrim node", SemanticNodeKind.StringTrim
+                ensureProperties label (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                build (readId<GraphNodeTag> "valueNodeId" element)
             | "stringEqual" ->
                 readBinaryNode "StringEqual node" element (fun left right -> SemanticNodeKind.StringEqual(left, right))
             | "stringLessThan" ->
@@ -1543,6 +1657,26 @@ module SnapshotCodec =
                 readBinaryNode "Int64Min node" element (fun left right -> SemanticNodeKind.Int64Min(left, right))
             | "int64Max" ->
                 readBinaryNode "Int64Max node" element (fun left right -> SemanticNodeKind.Int64Max(left, right))
+            | "int64BitAnd" ->
+                readBinaryNode "Int64BitAnd node" element (fun left right -> SemanticNodeKind.Int64BitAnd(left, right))
+            | "int64BitOr" ->
+                readBinaryNode "Int64BitOr node" element (fun left right -> SemanticNodeKind.Int64BitOr(left, right))
+            | "int64BitXor" ->
+                readBinaryNode "Int64BitXor node" element (fun left right -> SemanticNodeKind.Int64BitXor(left, right))
+            | "int64ShiftLeft" ->
+                ensureProperties
+                    "Int64ShiftLeft node"
+                    (set [ "id"; "kind"; "valueNodeId"; "countNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "countNodeId" ])
+                    element
+                SemanticNodeKind.Int64ShiftLeft(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "countNodeId" element)
+            | "int64ShiftRight" ->
+                ensureProperties
+                    "Int64ShiftRight node"
+                    (set [ "id"; "kind"; "valueNodeId"; "countNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "countNodeId" ])
+                    element
+                SemanticNodeKind.Int64ShiftRight(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "countNodeId" element)
             | "int64CheckedAdd" ->
                 readBinaryNode "Int64CheckedAdd node" element (fun left right -> SemanticNodeKind.Int64CheckedAdd(left, right))
             | "int64CheckedSubtract" ->
@@ -1582,6 +1716,10 @@ module SnapshotCodec =
                 readBinaryNode "Int64GreaterThanOrEqual node" element (fun left right -> SemanticNodeKind.Int64GreaterThanOrEqual(left, right))
             | "float64Add" ->
                 readBinaryNode "Float64Add node" element (fun left right -> SemanticNodeKind.Float64Add(left, right))
+            | "float64Min" ->
+                readBinaryNode "Float64Min node" element (fun left right -> SemanticNodeKind.Float64Min(left, right))
+            | "float64Max" ->
+                readBinaryNode "Float64Max node" element (fun left right -> SemanticNodeKind.Float64Max(left, right))
             | "float64Subtract" ->
                 readBinaryNode "Float64Subtract node" element (fun left right -> SemanticNodeKind.Float64Subtract(left, right))
             | "float64Multiply" ->
@@ -1602,6 +1740,8 @@ module SnapshotCodec =
                 readUnaryNode "Int64ToFloat64 node" element SemanticNodeKind.Int64ToFloat64
             | "int64WrappingAbs" ->
                 readUnaryNode "Int64WrappingAbs node" element SemanticNodeKind.Int64WrappingAbs
+            | "int64BitNot" ->
+                readUnaryNode "Int64BitNot node" element SemanticNodeKind.Int64BitNot
             | "bits32FromInt64" -> readUnaryNode "Bits32FromInt64 node" element SemanticNodeKind.Bits32FromInt64
             | "bits32ToInt64" -> readUnaryNode "Bits32ToInt64 node" element SemanticNodeKind.Bits32ToInt64
             | "bits32Not" -> readUnaryNode "Bits32Not node" element SemanticNodeKind.Bits32Not
@@ -1728,6 +1868,12 @@ module SnapshotCodec =
             | "setDifference" ->
                 ensureProperties "SetDifference node" (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) element
                 SemanticNodeKind.SetDifference(readId<GraphNodeTag> "leftSetNodeId" element, readId<GraphNodeTag> "rightSetNodeId" element)
+            | "setIsSubset" ->
+                ensureProperties "SetIsSubset node" (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) (set [ "id"; "kind"; "leftSetNodeId"; "rightSetNodeId" ]) element
+                SemanticNodeKind.SetIsSubset(readId<GraphNodeTag> "leftSetNodeId" element, readId<GraphNodeTag> "rightSetNodeId" element)
+            | "mapUnion" ->
+                ensureProperties "MapUnion node" (set [ "id"; "kind"; "leftMapNodeId"; "rightMapNodeId" ]) (set [ "id"; "kind"; "leftMapNodeId"; "rightMapNodeId" ]) element
+                SemanticNodeKind.MapUnion(readId<GraphNodeTag> "leftMapNodeId" element, readId<GraphNodeTag> "rightMapNodeId" element)
             | "mapContainsKey" ->
                 ensureProperties
                     "MapContainsKey node"
@@ -1799,6 +1945,38 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "listNodeId" element,
                     readId<GraphNodeTag> "startNodeId" element,
                     readId<GraphNodeTag> "endNodeId" element
+                )
+            | "listSetAt" ->
+                ensureProperties
+                    "ListSetAt node"
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId"; "itemNodeId" ])
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId"; "itemNodeId" ])
+                    element
+                SemanticNodeKind.ListSetAt(
+                    readId<GraphNodeTag> "listNodeId" element,
+                    readId<GraphNodeTag> "indexNodeId" element,
+                    readId<GraphNodeTag> "itemNodeId" element
+                )
+            | "listInsertAt" ->
+                ensureProperties
+                    "ListInsertAt node"
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId"; "itemNodeId" ])
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId"; "itemNodeId" ])
+                    element
+                SemanticNodeKind.ListInsertAt(
+                    readId<GraphNodeTag> "listNodeId" element,
+                    readId<GraphNodeTag> "indexNodeId" element,
+                    readId<GraphNodeTag> "itemNodeId" element
+                )
+            | "listRemoveAt" ->
+                ensureProperties
+                    "ListRemoveAt node"
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId" ])
+                    (set [ "id"; "kind"; "listNodeId"; "indexNodeId" ])
+                    element
+                SemanticNodeKind.ListRemoveAt(
+                    readId<GraphNodeTag> "listNodeId" element,
+                    readId<GraphNodeTag> "indexNodeId" element
                 )
             | "mapInsert" ->
                 ensureProperties
@@ -1914,6 +2092,12 @@ module SnapshotCodec =
             | "listMap" ->
                 readListCallbackNode "ListMap node" "mapperFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListMap(source, callback, context))
+            | "listZipWith" ->
+                ensureProperties "ListZipWith node" (set [ "id"; "kind"; "leftListNodeId"; "rightListNodeId"; "combinerFunctionId" ]) (set [ "id"; "kind"; "leftListNodeId"; "rightListNodeId"; "combinerFunctionId"; "context" ]) element
+                SemanticNodeKind.ListZipWith(readId<GraphNodeTag> "leftListNodeId" element, readId<GraphNodeTag> "rightListNodeId" element, readId<FunctionTag> "combinerFunctionId" element, readCallbackContext element)
+            | "listFlatMap" ->
+                readListCallbackNode "ListFlatMap node" "mapperFunctionId" element (fun source callback context ->
+                    SemanticNodeKind.ListFlatMap(source, callback, context))
             | "mapFromList" ->
                 readListCallbackNode "MapFromList node" "keyOfFunctionId" element (fun source callback context ->
                     SemanticNodeKind.MapFromList(source, callback, context))
@@ -1932,6 +2116,28 @@ module SnapshotCodec =
             | "mapMapValues" ->
                 ensureProperties "MapMapValues node" (set [ "id"; "kind"; "sourceMapNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceMapNodeId"; "mapperFunctionId"; "context" ]) element
                 SemanticNodeKind.MapMapValues(readId<GraphNodeTag> "sourceMapNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)
+            | "optionGetOrDefault" ->
+                ensureProperties
+                    "OptionGetOrDefault node"
+                    (set [ "id"; "kind"; "optionNodeId"; "defaultNodeId" ])
+                    (set [ "id"; "kind"; "optionNodeId"; "defaultNodeId" ])
+                    element
+                SemanticNodeKind.OptionGetOrDefault(readId<GraphNodeTag> "optionNodeId" element, readId<GraphNodeTag> "defaultNodeId" element)
+            | "optionMap" ->
+                ensureProperties "OptionMap node" (set [ "id"; "kind"; "sourceOptionNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceOptionNodeId"; "mapperFunctionId"; "context" ]) element
+                SemanticNodeKind.OptionMap(readId<GraphNodeTag> "sourceOptionNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)
+            | "optionAndThen" ->
+                ensureProperties "OptionAndThen node" (set [ "id"; "kind"; "sourceOptionNodeId"; "binderFunctionId" ]) (set [ "id"; "kind"; "sourceOptionNodeId"; "binderFunctionId"; "context" ]) element
+                SemanticNodeKind.OptionAndThen(readId<GraphNodeTag> "sourceOptionNodeId" element, readId<FunctionTag> "binderFunctionId" element, readCallbackContext element)
+            | "resultMap" ->
+                ensureProperties "ResultMap node" (set [ "id"; "kind"; "sourceResultNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceResultNodeId"; "mapperFunctionId"; "context" ]) element
+                SemanticNodeKind.ResultMap(readId<GraphNodeTag> "sourceResultNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)
+            | "resultMapErr" ->
+                ensureProperties "ResultMapErr node" (set [ "id"; "kind"; "sourceResultNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceResultNodeId"; "mapperFunctionId"; "context" ]) element
+                SemanticNodeKind.ResultMapErr(readId<GraphNodeTag> "sourceResultNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)
+            | "resultAndThen" ->
+                ensureProperties "ResultAndThen node" (set [ "id"; "kind"; "sourceResultNodeId"; "binderFunctionId" ]) (set [ "id"; "kind"; "sourceResultNodeId"; "binderFunctionId"; "context" ]) element
+                SemanticNodeKind.ResultAndThen(readId<GraphNodeTag> "sourceResultNodeId" element, readId<FunctionTag> "binderFunctionId" element, readCallbackContext element)
             | "listAny" ->
                 readListCallbackNode "ListAny node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListAny(source, callback, context))
