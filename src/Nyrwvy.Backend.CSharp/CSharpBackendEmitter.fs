@@ -233,6 +233,51 @@ module CSharpBackend =
           "        if (from > _start && (to - from) * 2L < to) return FromOwnedArray(CopyRange(from, to));"
           "        return Take(from, to);"
           "    }"
+          "    // SetAt copies the one leaf, or the tail, holding the index and the trie nodes on its path, so it is"
+          "    // O(log32 n); an index outside [0, Length) returns the list itself."
+          "    public NyList<T> SetAt(long index, T item)"
+          "    {"
+          "        if (index < 0L || index >= Count) return this;"
+          "        var at = _start + (int)index;"
+          "        var trieCount = TrieCount;"
+          "        if (at >= trieCount)"
+          "        {"
+          "            var tailCount = TailCount;"
+          "            var next = new T[Width];"
+          "            Array.Copy(_tail.Items, next, tailCount);"
+          "            next[at - trieCount] = item;"
+          "            return new(_start, _count, _shift, _root, new Store(next, tailCount));"
+          "        }"
+          "        var leaf = (T[])LeafFor(at).Items.Clone();"
+          "        leaf[at & Mask] = item;"
+          "        return new(_start, _count, _shift, SetLeaf(_root!, _shift, at, new Store(leaf, Width)), _tail);"
+          "    }"
+          "    // InsertAt clamps the index to [0, Length]; it shares the items before the index (a Slice) and"
+          "    // appends the item and then the items from the index, so it is O(log32 n + Length - index)."
+          "    public NyList<T> InsertAt(long index, T item)"
+          "    {"
+          "        var split = (int)System.Math.Clamp(index, 0L, (long)Count);"
+          "        return Slice(0L, split).AppendItem(item).AppendFrom(this, _start + split);"
+          "    }"
+          "    // RemoveAt shares the items before the index and appends the items after it, so it is"
+          "    // O(log32 n + Length - index); removing the first or last item is a Slice or DropLast. An index"
+          "    // outside [0, Length) returns the list itself."
+          "    public NyList<T> RemoveAt(long index)"
+          "    {"
+          "        if (index < 0L || index >= Count) return this;"
+          "        var split = (int)index;"
+          "        if (split == Count - 1) return DropLast();"
+          "        if (split == 0) return Slice(1L, Count);"
+          "        return Slice(0L, split).AppendFrom(this, _start + split + 1);"
+          "    }"
+          "    // AppendFrom appends the source's items at trie positions [from, source._count) in order."
+          "    private NyList<T> AppendFrom(NyList<T> source, int from)"
+          "    {"
+          "        var result = this;"
+          "        for (var at = from; at < source._count; at = Next(at))"
+          "            foreach (var item in source.Segment(at)) result = result.AppendItem(item);"
+          "        return result;"
+          "    }"
           "    // Reverse copies the items into a new list in the opposite order; 0 or 1 items return the list itself."
           "    public NyList<T> Reverse()"
           "    {"
@@ -2215,6 +2260,12 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName mapValueId + ".GetOrDefault(" + valueName keyValueId + ", " + valueName defaultValueId + ");")
         | ExecutionInstructionKind.ListSlice(listValueId, startId, endId) ->
             writer.Line(target + " = " + valueName listValueId + ".Slice(" + valueName startId + ", " + valueName endId + ");")
+        | ExecutionInstructionKind.ListSetAt(listValueId, indexValueId, itemValueId) ->
+            writer.Line(target + " = " + valueName listValueId + ".SetAt(" + valueName indexValueId + ", " + valueName itemValueId + ");")
+        | ExecutionInstructionKind.ListInsertAt(listValueId, indexValueId, itemValueId) ->
+            writer.Line(target + " = " + valueName listValueId + ".InsertAt(" + valueName indexValueId + ", " + valueName itemValueId + ");")
+        | ExecutionInstructionKind.ListRemoveAt(listValueId, indexValueId) ->
+            writer.Line(target + " = " + valueName listValueId + ".RemoveAt(" + valueName indexValueId + ");")
         | ExecutionInstructionKind.MapInsert(mapValueId, keyId, valueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".Insert(" + valueName keyId + ", " + valueName valueId + ");")
         | ExecutionInstructionKind.ListAppendItem(listValueId, itemValueId) ->

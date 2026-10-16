@@ -545,6 +545,15 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
                             lowerTernaryNode node listNodeId startNodeId endNodeId (fun listValueId startId endId ->
                                 ExecutionInstructionKind.ListSlice(listValueId, startId, endId))
+                        | TypedSemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId) ->
+                            lowerTernaryNode node listNodeId indexNodeId itemNodeId (fun listValueId indexValueId itemValueId ->
+                                ExecutionInstructionKind.ListSetAt(listValueId, indexValueId, itemValueId))
+                        | TypedSemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) ->
+                            lowerTernaryNode node listNodeId indexNodeId itemNodeId (fun listValueId indexValueId itemValueId ->
+                                ExecutionInstructionKind.ListInsertAt(listValueId, indexValueId, itemValueId))
+                        | TypedSemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) ->
+                            lowerBinaryNode node listNodeId indexNodeId (fun listValueId indexValueId ->
+                                ExecutionInstructionKind.ListRemoveAt(listValueId, indexValueId))
                         | TypedSemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId) ->
                             lowerTernaryNode node mapNodeId keyNodeId valueNodeId (fun mapValueId startId endId ->
                                 ExecutionInstructionKind.MapInsert(mapValueId, startId, endId))

@@ -1293,6 +1293,55 @@ module SnapshotValidator =
                             add
                                 "ListItemAtIndexTypeMismatch"
                                 $"ListItemAt node '{StableId.value node.Id}' requires an Int64 index."
+                    | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            requireNodeType
+                                "ListSetAtItemTypeMismatch"
+                                $"ListSetAt node '{StableId.value node.Id}' requires an item of the list's item type."
+                                itemType
+                                itemNodeId
+                        | Some _ ->
+                            add
+                                "ListSetAtListTypeMismatch"
+                                $"ListSetAt node '{StableId.value node.Id}' requires List<T> as its list input."
+                        | None -> ()
+                        requireNodeType
+                            "ListSetAtIndexTypeMismatch"
+                            $"ListSetAt node '{StableId.value node.Id}' requires an Int64 index."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            indexNodeId
+                    | SemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            requireNodeType
+                                "ListInsertAtItemTypeMismatch"
+                                $"ListInsertAt node '{StableId.value node.Id}' requires an item of the list's item type."
+                                itemType
+                                itemNodeId
+                        | Some _ ->
+                            add
+                                "ListInsertAtListTypeMismatch"
+                                $"ListInsertAt node '{StableId.value node.Id}' requires List<T> as its list input."
+                        | None -> ()
+                        requireNodeType
+                            "ListInsertAtIndexTypeMismatch"
+                            $"ListInsertAt node '{StableId.value node.Id}' requires an Int64 index."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            indexNodeId
+                    | SemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ]))
+                        | None -> ()
+                        | Some _ ->
+                            add
+                                "ListRemoveAtListTypeMismatch"
+                                $"ListRemoveAt node '{StableId.value node.Id}' requires List<T> as its list input."
+                        requireNodeType
+                            "ListRemoveAtIndexTypeMismatch"
+                            $"ListRemoveAt node '{StableId.value node.Id}' requires an Int64 index."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            indexNodeId
                     | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
                         match nodeType listNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ]))
@@ -2268,6 +2317,9 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListLast _
                 | SemanticNodeKind.ListDropLast _
                 | SemanticNodeKind.ListSlice _
+                | SemanticNodeKind.ListSetAt _
+                | SemanticNodeKind.ListInsertAt _
+                | SemanticNodeKind.ListRemoveAt _
                 | SemanticNodeKind.MapInsert _
                 | SemanticNodeKind.ListItemAt _
                 | SemanticNodeKind.MapRemove _

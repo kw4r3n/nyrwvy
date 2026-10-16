@@ -200,6 +200,9 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | MapGetOrDefault of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * defaultNodeId: GraphNodeId
     | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
+    | ListSetAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    | ListInsertAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    | ListRemoveAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
     | MapInsert of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * valueNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -410,6 +413,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapGet _
         | TypedSemanticNodeKind.MapGetOrDefault _
         | TypedSemanticNodeKind.ListSlice _
+        | TypedSemanticNodeKind.ListSetAt _
+        | TypedSemanticNodeKind.ListInsertAt _
+        | TypedSemanticNodeKind.ListRemoveAt _
         | TypedSemanticNodeKind.MapInsert _
         | TypedSemanticNodeKind.ListConcat _
         | TypedSemanticNodeKind.ListFold _
@@ -625,6 +631,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) -> [ mapNodeId; keyNodeId ]
         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) -> [ mapNodeId; keyNodeId; defaultNodeId ]
         | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
+        | TypedSemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId)
+        | TypedSemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) -> [ listNodeId; indexNodeId; itemNodeId ]
+        | TypedSemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
         | TypedSemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId) -> [ mapNodeId; keyNodeId; valueNodeId ]
         | TypedSemanticNodeKind.CapabilityConstruct _
         | TypedSemanticNodeKind.FunctionReference _ -> []
@@ -988,6 +997,12 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId))
                     | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
                         Ok(TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId))
+                    | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId) ->
+                        Ok(TypedSemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId))
+                    | SemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) ->
+                        Ok(TypedSemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId))
+                    | SemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) ->
+                        Ok(TypedSemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId))
                     | SemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId) ->
                         Ok(TypedSemanticNodeKind.MapInsert(mapNodeId, keyNodeId, valueNodeId))
                     | SemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->

@@ -595,6 +595,20 @@ module ExecutionIrSerializer =
               property "listValueId" (executionValueIdValue listValueId)
               property "startId" (executionValueIdValue startId)
               property "endId" (executionValueIdValue endId) ]
+        | ExecutionInstructionKind.ListSetAt(listValueId, indexValueId, itemValueId) ->
+            [ property "kind" (quote "listSetAt")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "indexValueId" (executionValueIdValue indexValueId)
+              property "itemValueId" (executionValueIdValue itemValueId) ]
+        | ExecutionInstructionKind.ListInsertAt(listValueId, indexValueId, itemValueId) ->
+            [ property "kind" (quote "listInsertAt")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "indexValueId" (executionValueIdValue indexValueId)
+              property "itemValueId" (executionValueIdValue itemValueId) ]
+        | ExecutionInstructionKind.ListRemoveAt(listValueId, indexValueId) ->
+            [ property "kind" (quote "listRemoveAt")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "indexValueId" (executionValueIdValue indexValueId) ]
         | ExecutionInstructionKind.MapInsert(mapValueId, keyValueId, valueValueId) ->
             [ property "kind" (quote "mapInsert")
               property "mapValueId" (executionValueIdValue mapValueId)

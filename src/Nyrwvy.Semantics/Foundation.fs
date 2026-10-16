@@ -506,6 +506,15 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// like StringSlice (negative bounds are not counted from the end; end <= start gives the
     /// empty list). Same List<T> type as the input; never fails.
     | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
+    /// The List<T> with the item at zero-based Int64 `index` replaced; an index outside
+    /// [0, length) returns the list unchanged. O(log n) path copy. Never fails.
+    | ListSetAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    /// The List<T> with the item inserted before position `index`, clamped to [0, length]
+    /// (negative inserts first, length or more appends; not counted from the end). Never fails.
+    | ListInsertAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    /// The List<T> without the item at zero-based `index`; an index outside [0, length) returns the
+    /// list unchanged. Never fails.
+    | ListRemoveAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId
     /// The Map<K, V> with the key set to the value: a present key keeps its position, an absent key
     /// goes last, as Python map[key] = value on a copy. Never fails.
     | MapInsert of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * valueNodeId: GraphNodeId
@@ -892,6 +901,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) -> [ sourceMapNodeId; keyNodeId; defaultNodeId ]
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
+        | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId)
+        | SemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) -> [ listNodeId; indexNodeId; itemNodeId ]
+        | SemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
         | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) -> [ sourceMapNodeId; keyNodeId; valueNodeId ]
         | SemanticNodeKind.ListFold(sourceNodeId, seedNodeId, _, context)
         | SemanticNodeKind.MapFold(sourceNodeId, seedNodeId, _, context)
@@ -1155,6 +1167,12 @@ module SemanticNodeShape =
                 SemanticNodeKind.MapGetOrDefault(mapNodeId sourceMapNodeId, mapNodeId keyNodeId, mapNodeId defaultNodeId)
             | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
                 SemanticNodeKind.ListSlice(mapNodeId listNodeId, mapNodeId startNodeId, mapNodeId endNodeId)
+            | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId) ->
+                SemanticNodeKind.ListSetAt(mapNodeId listNodeId, mapNodeId indexNodeId, mapNodeId itemNodeId)
+            | SemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) ->
+                SemanticNodeKind.ListInsertAt(mapNodeId listNodeId, mapNodeId indexNodeId, mapNodeId itemNodeId)
+            | SemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) ->
+                SemanticNodeKind.ListRemoveAt(mapNodeId listNodeId, mapNodeId indexNodeId)
             | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) ->
                 SemanticNodeKind.MapInsert(mapNodeId sourceMapNodeId, mapNodeId keyNodeId, mapNodeId valueNodeId)
             | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
@@ -1384,6 +1402,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListDropLast _
         | SemanticNodeKind.ListAppendItem _
         | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.ListSetAt _
+        | SemanticNodeKind.ListInsertAt _
+        | SemanticNodeKind.ListRemoveAt _
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListItemAt _
         | SemanticNodeKind.MapRemove _
@@ -1635,6 +1656,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.ListSetAt _
+        | SemanticNodeKind.ListInsertAt _
+        | SemanticNodeKind.ListRemoveAt _
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
@@ -1859,6 +1883,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.ListSetAt _
+        | SemanticNodeKind.ListInsertAt _
+        | SemanticNodeKind.ListRemoveAt _
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.CancellationRequested
@@ -2044,6 +2071,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
+        | SemanticNodeKind.ListSetAt _
+        | SemanticNodeKind.ListInsertAt _
+        | SemanticNodeKind.ListRemoveAt _
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _

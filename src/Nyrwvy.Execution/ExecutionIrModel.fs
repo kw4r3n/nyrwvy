@@ -208,6 +208,9 @@ type ExecutionInstructionKind =
     | MapGet of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | MapGetOrDefault of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId * defaultValueId: ExecutionValueId
     | ListSlice of listValueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
+    | ListSetAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId * itemValueId: ExecutionValueId
+    | ListInsertAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId * itemValueId: ExecutionValueId
+    | ListRemoveAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId
     | MapInsert of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId * valueValueId: ExecutionValueId
     | ListConcat of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId
     /// `context` binds callback parameters to values computed before iteration.
@@ -453,6 +456,9 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.MapGet _
         | ExecutionInstructionKind.MapGetOrDefault _
         | ExecutionInstructionKind.ListSlice _
+        | ExecutionInstructionKind.ListSetAt _
+        | ExecutionInstructionKind.ListInsertAt _
+        | ExecutionInstructionKind.ListRemoveAt _
         | ExecutionInstructionKind.MapInsert _
         | ExecutionInstructionKind.ListConcat _
         | ExecutionInstructionKind.FunctionInvoke _

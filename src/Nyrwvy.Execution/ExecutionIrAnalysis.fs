@@ -179,6 +179,9 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListLast _
         | TypedSemanticNodeKind.ListDropLast _
         | TypedSemanticNodeKind.ListSlice _
+        | TypedSemanticNodeKind.ListSetAt _
+        | TypedSemanticNodeKind.ListInsertAt _
+        | TypedSemanticNodeKind.ListRemoveAt _
         | TypedSemanticNodeKind.MapInsert _
         | TypedSemanticNodeKind.ListItemAt _
         | TypedSemanticNodeKind.MapRemove _

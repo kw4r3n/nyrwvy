@@ -39,6 +39,8 @@ type SnapshotSchemaFeature =
     /// Int64BitAnd, Int64BitOr, Int64BitXor, Int64BitNot, Int64ShiftLeft, Int64ShiftRight, Float64Min and
     /// Float64Max.
     | Int64BitwiseAndFloat64MinMax
+    /// ListSetAt, ListInsertAt and ListRemoveAt.
+    | ListPositionalUpdate
 
 /// One persisted snapshot schema: its JSON `schemaVersion` and its Nyason schema identifier.
 /// The two formats number their versions separately but move together.
@@ -92,7 +94,8 @@ module SnapshotSchema =
           SnapshotSchemaFeature.ListLastAndDropLast, v13, "ListLast and ListDropLast"
           SnapshotSchemaFeature.ListIndexSearch, v13, "ListIndexOf, ListLastIndexOf and ListFindIndex"
           SnapshotSchemaFeature.SetIsSubsetAndMapUnion, v17, "SetIsSubset and MapUnion"
-          SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax, v17, "Int64 bitwise operations and shifts, Float64Min and Float64Max" ]
+          SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax, v17, "Int64 bitwise operations and shifts, Float64Min and Float64Max"
+          SnapshotSchemaFeature.ListPositionalUpdate, v17, "ListSetAt, ListInsertAt and ListRemoveAt" ]
 
     let private rows =
         minimumVersions |> List.map (fun (feature, minimum, name) -> feature, (minimum, name)) |> Map.ofList
@@ -169,6 +172,9 @@ module SnapshotSchema =
         | SemanticNodeKind.Int64ShiftRight _
         | SemanticNodeKind.Float64Min _
         | SemanticNodeKind.Float64Max _ -> Some SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax
+        | SemanticNodeKind.ListSetAt _
+        | SemanticNodeKind.ListInsertAt _
+        | SemanticNodeKind.ListRemoveAt _ -> Some SnapshotSchemaFeature.ListPositionalUpdate
         | SemanticNodeKind.TaskWait _
         | SemanticNodeKind.MatchUnion _
         | SemanticNodeKind.ParameterReference _

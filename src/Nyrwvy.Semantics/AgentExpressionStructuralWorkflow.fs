@@ -138,6 +138,9 @@ type ExpressionRecipe =
     | MapGet of map: ExpressionRecipe * key: ExpressionRecipe
     | MapGetOrDefault of map: ExpressionRecipe * key: ExpressionRecipe * defaultValue: ExpressionRecipe
     | ListSlice of list: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
+    | ListSetAt of list: ExpressionRecipe * index: ExpressionRecipe * item: ExpressionRecipe
+    | ListInsertAt of list: ExpressionRecipe * index: ExpressionRecipe * item: ExpressionRecipe
+    | ListRemoveAt of list: ExpressionRecipe * index: ExpressionRecipe
     | MapInsert of map: ExpressionRecipe * key: ExpressionRecipe * ``end``: ExpressionRecipe
     | ListConcat of left: ExpressionRecipe * right: ExpressionRecipe
     | SetUnion of left: ExpressionRecipe * right: ExpressionRecipe
@@ -371,6 +374,9 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.MapGet(map, key) -> ExpressionRecipe.MapGet(go map, go key)
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> ExpressionRecipe.MapGetOrDefault(go map, go key, go defaultValue)
         | ExpressionRecipe.ListSlice(list, start, stop) -> ExpressionRecipe.ListSlice(go list, go start, go stop)
+        | ExpressionRecipe.ListSetAt(list, index, item) -> ExpressionRecipe.ListSetAt(go list, go index, go item)
+        | ExpressionRecipe.ListInsertAt(list, index, item) -> ExpressionRecipe.ListInsertAt(go list, go index, go item)
+        | ExpressionRecipe.ListRemoveAt(list, index) -> ExpressionRecipe.ListRemoveAt(go list, go index)
         | ExpressionRecipe.MapInsert(map, key, value) -> ExpressionRecipe.MapInsert(go map, go key, go value)
         | ExpressionRecipe.ListConcat(left, right) -> ExpressionRecipe.ListConcat(go left, go right)
         | ExpressionRecipe.SetUnion(left, right) -> ExpressionRecipe.SetUnion(go left, go right)
@@ -647,6 +653,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringSpan(value, set, bound)
         | ExpressionRecipe.StringSpanBack(value, set, bound) -> seq { value; set; bound }
         | ExpressionRecipe.ListSlice(list, start, stop) -> seq { list; start; stop }
+        | ExpressionRecipe.ListSetAt(list, index, item)
+        | ExpressionRecipe.ListInsertAt(list, index, item) -> seq { list; index; item }
         | ExpressionRecipe.MapInsert(map, key, value) -> seq { map; key; value }
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> seq { map; key; defaultValue }
         | ExpressionRecipe.StringContains(left, right)
@@ -703,6 +711,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Bits32ShiftLeft(left, right)
         | ExpressionRecipe.ListAppendItem(left, right)
         | ExpressionRecipe.ListItemAt(left, right)
+        | ExpressionRecipe.ListRemoveAt(left, right)
         | ExpressionRecipe.MapRemove(left, right)
         | ExpressionRecipe.SetInsert(left, right)
         | ExpressionRecipe.SetRemove(left, right)
@@ -1556,6 +1565,9 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.ListLength _
             | ExpressionRecipe.ListItemAt _
             | ExpressionRecipe.ListSlice _
+            | ExpressionRecipe.ListSetAt _
+            | ExpressionRecipe.ListInsertAt _
+            | ExpressionRecipe.ListRemoveAt _
             | ExpressionRecipe.ListRange _
             | ExpressionRecipe.ListReverse _
             | ExpressionRecipe.ListLast _
@@ -2647,6 +2659,23 @@ module AgentExpressionStructuralWorkflow =
             listNodes @ startNodes @ stopNodes
             @ [ { Id = nodeId; Kind = SemanticNodeKind.ListSlice(listResult, startResult, stopResult) } ],
             nodeId
+        | ExpressionRecipe.ListSetAt(list, index, item) ->
+            let listNodes, listResult = materializeRecipe list
+            let indexNodes, indexResult = materializeRecipe index
+            let itemNodes, itemResult = materializeRecipe item
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            listNodes @ indexNodes @ itemNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.ListSetAt(listResult, indexResult, itemResult) } ],
+            nodeId
+        | ExpressionRecipe.ListInsertAt(list, index, item) ->
+            let listNodes, listResult = materializeRecipe list
+            let indexNodes, indexResult = materializeRecipe index
+            let itemNodes, itemResult = materializeRecipe item
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            listNodes @ indexNodes @ itemNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.ListInsertAt(listResult, indexResult, itemResult) } ],
+            nodeId
+        | ExpressionRecipe.ListRemoveAt(list, index) -> binary SemanticNodeKind.ListRemoveAt list index
         | ExpressionRecipe.MapInsert(map, key, value) ->
             let listNodes, listResult = materializeRecipe map
             let startNodes, startResult = materializeRecipe key
