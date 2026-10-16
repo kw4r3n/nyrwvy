@@ -474,6 +474,20 @@ module TypedSemanticIrSerializer =
             writeBinaryNode writer "int64Min" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64Max(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64Max" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64BitAnd" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64BitOr" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "int64BitXor" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Int64ShiftLeft(valueNodeId, countNodeId) ->
+            writer.WriteString("kind", "int64ShiftLeft")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("countNodeId", StableId.value countNodeId)
+        | TypedSemanticNodeKind.Int64ShiftRight(valueNodeId, countNodeId) ->
+            writer.WriteString("kind", "int64ShiftRight")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("countNodeId", StableId.value countNodeId)
         | TypedSemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "int64CheckedAdd" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId) ->
@@ -504,6 +518,10 @@ module TypedSemanticIrSerializer =
             writeBinaryNode writer "int64GreaterThanOrEqual" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Float64Add(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "float64Add" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Float64Min(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64Min" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Float64Max(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64Max" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "float64Subtract" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId) ->
@@ -524,6 +542,8 @@ module TypedSemanticIrSerializer =
             writeUnaryNode writer "int64ToFloat64" valueNodeId
         | TypedSemanticNodeKind.Int64WrappingAbs valueNodeId ->
             writeUnaryNode writer "int64WrappingAbs" valueNodeId
+        | TypedSemanticNodeKind.Int64BitNot valueNodeId ->
+            writeUnaryNode writer "int64BitNot" valueNodeId
         | TypedSemanticNodeKind.Bits32FromInt64 valueNodeId -> writeUnaryNode writer "bits32FromInt64" valueNodeId
         | TypedSemanticNodeKind.Bits32ToInt64 valueNodeId -> writeUnaryNode writer "bits32ToInt64" valueNodeId
         | TypedSemanticNodeKind.Bits32Not valueNodeId -> writeUnaryNode writer "bits32Not" valueNodeId

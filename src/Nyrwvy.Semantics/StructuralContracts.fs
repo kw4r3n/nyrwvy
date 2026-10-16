@@ -57,6 +57,7 @@ module ValueDependency =
         | SemanticNodeKind.Int64ToHexString sourceNodeId
         | SemanticNodeKind.Int64ToFloat64 sourceNodeId
         | SemanticNodeKind.Int64WrappingAbs sourceNodeId
+        | SemanticNodeKind.Int64BitNot sourceNodeId
         | SemanticNodeKind.Bits32FromInt64 sourceNodeId
         | SemanticNodeKind.Bits32ToInt64 sourceNodeId
         | SemanticNodeKind.Bits32Not sourceNodeId
@@ -94,7 +95,9 @@ module ValueDependency =
               create ValueDependencyRole.Substring substringNodeId ]
         | SemanticNodeKind.Bits32RotateRight(sourceNodeId, amountNodeId)
         | SemanticNodeKind.Bits32ShiftRight(sourceNodeId, amountNodeId)
-        | SemanticNodeKind.Bits32ShiftLeft(sourceNodeId, amountNodeId) ->
+        | SemanticNodeKind.Bits32ShiftLeft(sourceNodeId, amountNodeId)
+        | SemanticNodeKind.Int64ShiftLeft(sourceNodeId, amountNodeId)
+        | SemanticNodeKind.Int64ShiftRight(sourceNodeId, amountNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Amount amountNodeId ]
         | SemanticNodeKind.StringIndexOf(sourceNodeId, substringNodeId, fromNodeId) ->
@@ -142,6 +145,9 @@ module ValueDependency =
         | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
@@ -154,6 +160,8 @@ module ValueDependency =
         | SemanticNodeKind.Int64GreaterThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Min(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64Max(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)

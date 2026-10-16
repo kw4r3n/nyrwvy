@@ -72,6 +72,11 @@ type ExpressionRecipe =
     | Int64FloorModulo of ExpressionRecipe * ExpressionRecipe
     | Int64Min of ExpressionRecipe * ExpressionRecipe
     | Int64Max of ExpressionRecipe * ExpressionRecipe
+    | Int64BitAnd of ExpressionRecipe * ExpressionRecipe
+    | Int64BitOr of ExpressionRecipe * ExpressionRecipe
+    | Int64BitXor of ExpressionRecipe * ExpressionRecipe
+    | Int64ShiftLeft of value: ExpressionRecipe * count: ExpressionRecipe
+    | Int64ShiftRight of value: ExpressionRecipe * count: ExpressionRecipe
     | Int64CheckedAdd of ExpressionRecipe * ExpressionRecipe
     | Int64CheckedSubtract of ExpressionRecipe * ExpressionRecipe
     | Int64CheckedMultiply of ExpressionRecipe * ExpressionRecipe
@@ -84,6 +89,8 @@ type ExpressionRecipe =
     | Int64GreaterThan of ExpressionRecipe * ExpressionRecipe
     | Int64GreaterThanOrEqual of ExpressionRecipe * ExpressionRecipe
     | Float64Add of ExpressionRecipe * ExpressionRecipe
+    | Float64Min of ExpressionRecipe * ExpressionRecipe
+    | Float64Max of ExpressionRecipe * ExpressionRecipe
     | Float64Subtract of ExpressionRecipe * ExpressionRecipe
     | Float64Multiply of ExpressionRecipe * ExpressionRecipe
     | Float64Divide of ExpressionRecipe * ExpressionRecipe
@@ -94,6 +101,7 @@ type ExpressionRecipe =
     | Float64IsInfinite of ExpressionRecipe
     | Int64ToFloat64 of ExpressionRecipe
     | Int64WrappingAbs of ExpressionRecipe
+    | Int64BitNot of ExpressionRecipe
     | Bits32FromInt64 of ExpressionRecipe
     | Bits32ToInt64 of ExpressionRecipe
     | Bits32Not of ExpressionRecipe
@@ -297,6 +305,11 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Int64FloorModulo(left, right) -> ExpressionRecipe.Int64FloorModulo(go left, go right)
         | ExpressionRecipe.Int64Min(left, right) -> ExpressionRecipe.Int64Min(go left, go right)
         | ExpressionRecipe.Int64Max(left, right) -> ExpressionRecipe.Int64Max(go left, go right)
+        | ExpressionRecipe.Int64BitAnd(left, right) -> ExpressionRecipe.Int64BitAnd(go left, go right)
+        | ExpressionRecipe.Int64BitOr(left, right) -> ExpressionRecipe.Int64BitOr(go left, go right)
+        | ExpressionRecipe.Int64BitXor(left, right) -> ExpressionRecipe.Int64BitXor(go left, go right)
+        | ExpressionRecipe.Int64ShiftLeft(left, right) -> ExpressionRecipe.Int64ShiftLeft(go left, go right)
+        | ExpressionRecipe.Int64ShiftRight(left, right) -> ExpressionRecipe.Int64ShiftRight(go left, go right)
         | ExpressionRecipe.Int64CheckedAdd(left, right) -> ExpressionRecipe.Int64CheckedAdd(go left, go right)
         | ExpressionRecipe.Int64CheckedSubtract(left, right) -> ExpressionRecipe.Int64CheckedSubtract(go left, go right)
         | ExpressionRecipe.Int64CheckedMultiply(left, right) -> ExpressionRecipe.Int64CheckedMultiply(go left, go right)
@@ -309,6 +322,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Int64GreaterThan(left, right) -> ExpressionRecipe.Int64GreaterThan(go left, go right)
         | ExpressionRecipe.Int64GreaterThanOrEqual(left, right) -> ExpressionRecipe.Int64GreaterThanOrEqual(go left, go right)
         | ExpressionRecipe.Float64Add(left, right) -> ExpressionRecipe.Float64Add(go left, go right)
+        | ExpressionRecipe.Float64Min(left, right) -> ExpressionRecipe.Float64Min(go left, go right)
+        | ExpressionRecipe.Float64Max(left, right) -> ExpressionRecipe.Float64Max(go left, go right)
         | ExpressionRecipe.Float64Subtract(left, right) -> ExpressionRecipe.Float64Subtract(go left, go right)
         | ExpressionRecipe.Float64Multiply(left, right) -> ExpressionRecipe.Float64Multiply(go left, go right)
         | ExpressionRecipe.Float64Divide(left, right) -> ExpressionRecipe.Float64Divide(go left, go right)
@@ -319,6 +334,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Float64IsInfinite value -> ExpressionRecipe.Float64IsInfinite(go value)
         | ExpressionRecipe.Int64ToFloat64 value -> ExpressionRecipe.Int64ToFloat64(go value)
         | ExpressionRecipe.Int64WrappingAbs value -> ExpressionRecipe.Int64WrappingAbs(go value)
+        | ExpressionRecipe.Int64BitNot value -> ExpressionRecipe.Int64BitNot(go value)
         | ExpressionRecipe.Bits32FromInt64 value -> ExpressionRecipe.Bits32FromInt64(go value)
         | ExpressionRecipe.Bits32ToInt64 value -> ExpressionRecipe.Bits32ToInt64(go value)
         | ExpressionRecipe.Bits32Not value -> ExpressionRecipe.Bits32Not(go value)
@@ -606,6 +622,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Float64IsInfinite child
         | ExpressionRecipe.Int64ToFloat64 child
         | ExpressionRecipe.Int64WrappingAbs child
+        | ExpressionRecipe.Int64BitNot child
         | ExpressionRecipe.Bits32FromInt64 child
         | ExpressionRecipe.Bits32ToInt64 child
         | ExpressionRecipe.Bits32Not child
@@ -653,6 +670,11 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64FloorModulo(left, right)
         | ExpressionRecipe.Int64Min(left, right)
         | ExpressionRecipe.Int64Max(left, right)
+        | ExpressionRecipe.Int64BitAnd(left, right)
+        | ExpressionRecipe.Int64BitOr(left, right)
+        | ExpressionRecipe.Int64BitXor(left, right)
+        | ExpressionRecipe.Int64ShiftLeft(left, right)
+        | ExpressionRecipe.Int64ShiftRight(left, right)
         | ExpressionRecipe.Int64CheckedAdd(left, right)
         | ExpressionRecipe.Int64CheckedSubtract(left, right)
         | ExpressionRecipe.Int64CheckedMultiply(left, right)
@@ -665,6 +687,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64GreaterThan(left, right)
         | ExpressionRecipe.Int64GreaterThanOrEqual(left, right)
         | ExpressionRecipe.Float64Add(left, right)
+        | ExpressionRecipe.Float64Min(left, right)
+        | ExpressionRecipe.Float64Max(left, right)
         | ExpressionRecipe.Float64Subtract(left, right)
         | ExpressionRecipe.Float64Multiply(left, right)
         | ExpressionRecipe.Float64Divide(left, right)
@@ -1483,10 +1507,16 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Int64FloorModulo _
             | ExpressionRecipe.Int64Min _
             | ExpressionRecipe.Int64Max _
+            | ExpressionRecipe.Int64BitAnd _
+            | ExpressionRecipe.Int64BitOr _
+            | ExpressionRecipe.Int64BitXor _
+            | ExpressionRecipe.Int64ShiftLeft _
+            | ExpressionRecipe.Int64ShiftRight _
             | ExpressionRecipe.Int64CheckedAdd _
             | ExpressionRecipe.Int64CheckedSubtract _
             | ExpressionRecipe.Int64CheckedMultiply _
             | ExpressionRecipe.Int64WrappingAbs _
+            | ExpressionRecipe.Int64BitNot _
             | ExpressionRecipe.Int64Equal _
             | ExpressionRecipe.Int64LessThan _
             | ExpressionRecipe.Int64LessThanOrEqual _
@@ -1494,6 +1524,8 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.Int64GreaterThanOrEqual _
             | ExpressionRecipe.Int64ToFloat64 _
             | ExpressionRecipe.Float64Add _
+            | ExpressionRecipe.Float64Min _
+            | ExpressionRecipe.Float64Max _
             | ExpressionRecipe.Float64Subtract _
             | ExpressionRecipe.Float64Multiply _
             | ExpressionRecipe.Float64Divide _
@@ -2526,6 +2558,11 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64FloorModulo(left, right) -> binary SemanticNodeKind.Int64FloorModulo left right
         | ExpressionRecipe.Int64Min(left, right) -> binary SemanticNodeKind.Int64Min left right
         | ExpressionRecipe.Int64Max(left, right) -> binary SemanticNodeKind.Int64Max left right
+        | ExpressionRecipe.Int64BitAnd(left, right) -> binary SemanticNodeKind.Int64BitAnd left right
+        | ExpressionRecipe.Int64BitOr(left, right) -> binary SemanticNodeKind.Int64BitOr left right
+        | ExpressionRecipe.Int64BitXor(left, right) -> binary SemanticNodeKind.Int64BitXor left right
+        | ExpressionRecipe.Int64ShiftLeft(left, right) -> binary SemanticNodeKind.Int64ShiftLeft left right
+        | ExpressionRecipe.Int64ShiftRight(left, right) -> binary SemanticNodeKind.Int64ShiftRight left right
         | ExpressionRecipe.Int64CheckedAdd(left, right) -> binary SemanticNodeKind.Int64CheckedAdd left right
         | ExpressionRecipe.Int64CheckedSubtract(left, right) -> binary SemanticNodeKind.Int64CheckedSubtract left right
         | ExpressionRecipe.Int64CheckedMultiply(left, right) -> binary SemanticNodeKind.Int64CheckedMultiply left right
@@ -2538,6 +2575,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Int64GreaterThan(left, right) -> binary SemanticNodeKind.Int64GreaterThan left right
         | ExpressionRecipe.Int64GreaterThanOrEqual(left, right) -> binary SemanticNodeKind.Int64GreaterThanOrEqual left right
         | ExpressionRecipe.Float64Add(left, right) -> binary SemanticNodeKind.Float64Add left right
+        | ExpressionRecipe.Float64Min(left, right) -> binary SemanticNodeKind.Float64Min left right
+        | ExpressionRecipe.Float64Max(left, right) -> binary SemanticNodeKind.Float64Max left right
         | ExpressionRecipe.Float64Subtract(left, right) -> binary SemanticNodeKind.Float64Subtract left right
         | ExpressionRecipe.Float64Multiply(left, right) -> binary SemanticNodeKind.Float64Multiply left right
         | ExpressionRecipe.Float64Divide(left, right) -> binary SemanticNodeKind.Float64Divide left right
@@ -2548,6 +2587,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.Float64IsInfinite value -> unary SemanticNodeKind.Float64IsInfinite value
         | ExpressionRecipe.Int64ToFloat64 value -> unary SemanticNodeKind.Int64ToFloat64 value
         | ExpressionRecipe.Int64WrappingAbs value -> unary SemanticNodeKind.Int64WrappingAbs value
+        | ExpressionRecipe.Int64BitNot value -> unary SemanticNodeKind.Int64BitNot value
         | ExpressionRecipe.Bits32FromInt64 value -> unary SemanticNodeKind.Bits32FromInt64 value
         | ExpressionRecipe.Bits32ToInt64 value -> unary SemanticNodeKind.Bits32ToInt64 value
         | ExpressionRecipe.Bits32Not value -> unary SemanticNodeKind.Bits32Not value

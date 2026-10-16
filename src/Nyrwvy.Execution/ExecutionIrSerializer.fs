@@ -400,6 +400,20 @@ module ExecutionIrSerializer =
             writeBinaryInstruction "int64Min" leftValueId rightValueId
         | ExecutionInstructionKind.Int64Max(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64Max" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64BitAnd(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64BitAnd" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64BitOr(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64BitOr" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64BitXor(leftValueId, rightValueId) ->
+            writeBinaryInstruction "int64BitXor" leftValueId rightValueId
+        | ExecutionInstructionKind.Int64ShiftLeft(valueId, countValueId) ->
+            [ property "kind" (quote "int64ShiftLeft")
+              property "valueId" (executionValueIdValue valueId)
+              property "countValueId" (executionValueIdValue countValueId) ]
+        | ExecutionInstructionKind.Int64ShiftRight(valueId, countValueId) ->
+            [ property "kind" (quote "int64ShiftRight")
+              property "valueId" (executionValueIdValue valueId)
+              property "countValueId" (executionValueIdValue countValueId) ]
         | ExecutionInstructionKind.Int64CheckedAdd(leftValueId, rightValueId) ->
             writeBinaryInstruction "int64CheckedAdd" leftValueId rightValueId
         | ExecutionInstructionKind.Int64CheckedSubtract(leftValueId, rightValueId) ->
@@ -430,6 +444,10 @@ module ExecutionIrSerializer =
             writeBinaryInstruction "int64GreaterThanOrEqual" leftValueId rightValueId
         | ExecutionInstructionKind.Float64Add(leftValueId, rightValueId) ->
             writeBinaryInstruction "float64Add" leftValueId rightValueId
+        | ExecutionInstructionKind.Float64Min(leftValueId, rightValueId) ->
+            writeBinaryInstruction "float64Min" leftValueId rightValueId
+        | ExecutionInstructionKind.Float64Max(leftValueId, rightValueId) ->
+            writeBinaryInstruction "float64Max" leftValueId rightValueId
         | ExecutionInstructionKind.Float64Subtract(leftValueId, rightValueId) ->
             writeBinaryInstruction "float64Subtract" leftValueId rightValueId
         | ExecutionInstructionKind.Float64Multiply(leftValueId, rightValueId) ->
@@ -450,6 +468,8 @@ module ExecutionIrSerializer =
             writeUnaryInstruction "int64ToFloat64" valueId
         | ExecutionInstructionKind.Int64WrappingAbs valueId ->
             writeUnaryInstruction "int64WrappingAbs" valueId
+        | ExecutionInstructionKind.Int64BitNot valueId ->
+            writeUnaryInstruction "int64BitNot" valueId
         | ExecutionInstructionKind.Bits32FromInt64 valueId -> writeUnaryInstruction "bits32FromInt64" valueId
         | ExecutionInstructionKind.Bits32ToInt64 valueId -> writeUnaryInstruction "bits32ToInt64" valueId
         | ExecutionInstructionKind.Bits32Not valueId -> writeUnaryInstruction "bits32Not" valueId

@@ -107,6 +107,11 @@ module internal WireGraph =
         | SemanticNodeKind.Int64FloorModulo(left, right) -> binary "int64FloorModulo" left right
         | SemanticNodeKind.Int64Min(left, right) -> binary "int64Min" left right
         | SemanticNodeKind.Int64Max(left, right) -> binary "int64Max" left right
+        | SemanticNodeKind.Int64BitAnd(left, right) -> binary "int64BitAnd" left right
+        | SemanticNodeKind.Int64BitOr(left, right) -> binary "int64BitOr" left right
+        | SemanticNodeKind.Int64BitXor(left, right) -> binary "int64BitXor" left right
+        | SemanticNodeKind.Int64ShiftLeft(value, count) -> tagged "int64ShiftLeft" [ "valueNodeId", identity value; "countNodeId", identity count ]
+        | SemanticNodeKind.Int64ShiftRight(value, count) -> tagged "int64ShiftRight" [ "valueNodeId", identity value; "countNodeId", identity count ]
         | SemanticNodeKind.Int64CheckedAdd(left, right) -> binary "int64CheckedAdd" left right
         | SemanticNodeKind.Int64CheckedSubtract(left, right) -> binary "int64CheckedSubtract" left right
         | SemanticNodeKind.Int64CheckedMultiply(left, right) -> binary "int64CheckedMultiply" left right
@@ -119,6 +124,8 @@ module internal WireGraph =
         | SemanticNodeKind.Int64GreaterThan(left, right) -> binary "int64GreaterThan" left right
         | SemanticNodeKind.Int64GreaterThanOrEqual(left, right) -> binary "int64GreaterThanOrEqual" left right
         | SemanticNodeKind.Float64Add(left, right) -> binary "float64Add" left right
+        | SemanticNodeKind.Float64Min(left, right) -> binary "float64Min" left right
+        | SemanticNodeKind.Float64Max(left, right) -> binary "float64Max" left right
         | SemanticNodeKind.Float64Subtract(left, right) -> binary "float64Subtract" left right
         | SemanticNodeKind.Float64Multiply(left, right) -> binary "float64Multiply" left right
         | SemanticNodeKind.Float64Divide(left, right) -> binary "float64Divide" left right
@@ -129,6 +136,7 @@ module internal WireGraph =
         | SemanticNodeKind.Float64IsInfinite value -> unary "float64IsInfinite" value
         | SemanticNodeKind.Int64ToFloat64 value -> unary "int64ToFloat64" value
         | SemanticNodeKind.Int64WrappingAbs value -> unary "int64WrappingAbs" value
+        | SemanticNodeKind.Int64BitNot value -> unary "int64BitNot" value
         | SemanticNodeKind.Bits32FromInt64 value -> unary "bits32FromInt64" value
         | SemanticNodeKind.Bits32ToInt64 value -> unary "bits32ToInt64" value
         | SemanticNodeKind.Bits32Not value -> unary "bits32Not" value

@@ -1043,6 +1043,11 @@ module SnapshotValidator =
                     | SemanticNodeKind.Int64FloorModulo(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64Min(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64Max(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64BitAnd(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64BitOr(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64BitXor(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64ShiftLeft(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Int64ShiftRight(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64CheckedAdd(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
@@ -1054,6 +1059,8 @@ module SnapshotValidator =
                     | SemanticNodeKind.Int64GreaterThanOrEqual(leftNodeId, rightNodeId) ->
                         requireInt64Operands node.Id leftNodeId rightNodeId
                     | SemanticNodeKind.Float64Add(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Float64Min(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Float64Max(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
@@ -1074,6 +1081,12 @@ module SnapshotValidator =
                         requireNodeType
                             "Int64IntrinsicTypeMismatch"
                             $"Int64WrappingAbs node '{StableId.value node.Id}' requires an Int64 value."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            valueNodeId
+                    | SemanticNodeKind.Int64BitNot valueNodeId ->
+                        requireNodeType
+                            "Int64IntrinsicTypeMismatch"
+                            $"Int64BitNot node '{StableId.value node.Id}' requires an Int64 value."
                             (TypeRef.Primitive PrimitiveType.Int64)
                             valueNodeId
                     | SemanticNodeKind.Bits32FromInt64 valueNodeId ->
@@ -2200,6 +2213,11 @@ module SnapshotValidator =
                 | SemanticNodeKind.Int64FloorModulo _
                 | SemanticNodeKind.Int64Min _
                 | SemanticNodeKind.Int64Max _
+                | SemanticNodeKind.Int64BitAnd _
+                | SemanticNodeKind.Int64BitOr _
+                | SemanticNodeKind.Int64BitXor _
+                | SemanticNodeKind.Int64ShiftLeft _
+                | SemanticNodeKind.Int64ShiftRight _
                 | SemanticNodeKind.Int64CheckedAdd _
                 | SemanticNodeKind.Int64CheckedSubtract _
                 | SemanticNodeKind.Int64CheckedMultiply _
@@ -2212,6 +2230,8 @@ module SnapshotValidator =
                 | SemanticNodeKind.Int64GreaterThan _
                 | SemanticNodeKind.Int64GreaterThanOrEqual _
                 | SemanticNodeKind.Float64Add _
+                | SemanticNodeKind.Float64Min _
+                | SemanticNodeKind.Float64Max _
                 | SemanticNodeKind.Float64Subtract _
                 | SemanticNodeKind.Float64Multiply _
                 | SemanticNodeKind.Float64Divide _
@@ -2222,6 +2242,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.Float64IsInfinite _
                 | SemanticNodeKind.Int64ToFloat64 _
                 | SemanticNodeKind.Int64WrappingAbs _
+                | SemanticNodeKind.Int64BitNot _
                 | SemanticNodeKind.Bits32FromInt64 _
                 | SemanticNodeKind.Bits32ToInt64 _
                 | SemanticNodeKind.Bits32Xor _

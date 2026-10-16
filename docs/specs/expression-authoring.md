@@ -78,6 +78,8 @@ ExpressionRecipe =
   | Int64FloorDivide(left, right)
   | Int64FloorModulo(left, right)
   | Int64Min(left, right) | Int64Max(left, right) | Int64WrappingAbs(expr)
+  | Int64BitAnd(left, right) | Int64BitOr(left, right) | Int64BitXor(left, right) | Int64BitNot(expr)
+  | Int64ShiftLeft(value, count) | Int64ShiftRight(value, count)
   | Int64CheckedAdd(left, right) | Int64CheckedSubtract(left, right) | Int64CheckedMultiply(left, right)
   | Int64Equal(left, right)
   | Int64LessThan(left, right)
@@ -99,6 +101,7 @@ ExpressionRecipe =
   | Bits32RotateRight(value, amount) | Bits32ShiftRight(value, amount) | Bits32ShiftLeft(value, amount)
   | Float64RoundToInt64(expr) | Float64FloorToInt64(expr)
   | Float64Sqrt(expr) | Float64Abs(expr) | Float64Negate(expr)
+  | Float64Min(left, right) | Float64Max(left, right)
   | Float64Floor(expr) | Float64Ceiling(expr) | Float64Truncate(expr)
   | Float64Round(value, digits)
   | Float64ToString(expr)
@@ -464,6 +467,8 @@ These cases add no implicit conversion and no special failure semantics; they ma
 
 `Float64Sqrt`, `Float64Abs`, `Float64Negate`, `Float64Floor`, `Float64Ceiling` and `Float64Truncate` (wire `float64Sqrt`, `float64Abs`, `float64Negate`, `float64Floor`, `float64Ceiling`, `float64Truncate`; Nyason `float64-sqrt`, `float64-abs`, `float64-negate`, `float64-floor`, `float64-ceiling`, `float64-truncate`) take a Float64 in the wire field `value` and produce a Float64. They are the IEEE 754 operations described in the [language subset](../reference/language-subset.md#float64) and never fail. An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Float64OperandTypeMismatch`.
 
+`Float64Min(left, right)` and `Float64Max(left, right)` (wire `float64Min`, `float64Max` with the fields `left` and `right`; Nyason `float64-min`, `float64-max`) take two Float64 values and produce a Float64, the IEEE 754-2019 `minimum` and `maximum` ([decision](../decisions/int64-bitwise-and-float64-min-max.md)). An operand of another type reports `PureExpressionOperandTypeMismatch` from the recipe preflight; a persisted graph reports `Float64OperandTypeMismatch`.
+
 ## ListReverse
 
 `ListReverse(list)` (wire `listReverse` with the field `value`, Nyason `list-reverse`) takes any `List<T>` and produces the same `List<T>` with its items in reverse order. It never fails. A source that is not a List reports `PureExpressionOperandTypeMismatch` from the recipe preflight; a persisted graph reports `ListReverseInputTypeMismatch`.
@@ -480,8 +485,9 @@ These operations follow the project owner's choices recorded in the [decision](.
 - `Int64ToHexString` (wire `int64ToHexString`, Nyason `int64-to-hex-string`) takes an Int64 in the field `value` and produces a String; `StringParseInt64Hex` (wire `stringParseInt64Hex`, Nyason `string-parse-int64-hex`) takes a String in the field `value` and produces `Option<Int64>`.
 - `Int64Min` and `Int64Max` (wire `int64Min`, `int64Max` with the fields `left` and `right`; Nyason `int64-min`, `int64-max`) take two Int64 values, and `Int64WrappingAbs` (wire `int64WrappingAbs` with the field `value`, Nyason `int64-wrapping-abs`) takes one; all produce an Int64.
 - `Int64CheckedAdd`, `Int64CheckedSubtract` and `Int64CheckedMultiply` (wire `int64CheckedAdd`, `int64CheckedSubtract`, `int64CheckedMultiply` with the fields `left` and `right`; Nyason `int64-checked-add`, `int64-checked-subtract`, `int64-checked-multiply`) take two Int64 values and produce `Option<Int64>`.
+- `Int64BitAnd`, `Int64BitOr` and `Int64BitXor` (wire `int64BitAnd`, `int64BitOr`, `int64BitXor` with the fields `left` and `right`; Nyason `int64-bit-and`, `int64-bit-or`, `int64-bit-xor`) take two Int64 values, `Int64BitNot` (wire `int64BitNot` with the field `value`, Nyason `int64-bit-not`) takes one, and `Int64ShiftLeft` and `Int64ShiftRight` (wire `int64ShiftLeft`, `int64ShiftRight` with the fields `value` and `count`; Nyason `int64-shift-left`, `int64-shift-right` with the fields `value` and `count`; snapshot JSON `valueNodeId` and `countNodeId`) take an Int64 value and an Int64 count; all produce an Int64 ([decision](../decisions/int64-bitwise-and-float64-min-max.md)).
 
-An operand of the wrong type reports `PureExpressionOperandTypeMismatch` from the recipe preflight. A persisted graph reports `Int64OperandTypeMismatch` for `ListRange`, `Int64Min`, `Int64Max` and the checked operations, `Int64IntrinsicTypeMismatch` for `Int64ToHexString` and `Int64WrappingAbs`, and `StringIntrinsicTypeMismatch` for `StringRepeat` and `StringParseInt64Hex`.
+An operand of the wrong type reports `PureExpressionOperandTypeMismatch` from the recipe preflight. A persisted graph reports `Int64OperandTypeMismatch` for `ListRange`, `Int64Min`, `Int64Max`, the bitwise operations, the shifts and the checked operations, `Int64IntrinsicTypeMismatch` for `Int64ToHexString`, `Int64WrappingAbs` and `Int64BitNot`, and `StringIntrinsicTypeMismatch` for `StringRepeat` and `StringParseInt64Hex`.
 
 ## Bits32
 

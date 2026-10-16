@@ -124,6 +124,11 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64FloorModulo _
         | TypedSemanticNodeKind.Int64Min _
         | TypedSemanticNodeKind.Int64Max _
+        | TypedSemanticNodeKind.Int64BitAnd _
+        | TypedSemanticNodeKind.Int64BitOr _
+        | TypedSemanticNodeKind.Int64BitXor _
+        | TypedSemanticNodeKind.Int64ShiftLeft _
+        | TypedSemanticNodeKind.Int64ShiftRight _
         | TypedSemanticNodeKind.Int64CheckedAdd _
         | TypedSemanticNodeKind.Int64CheckedSubtract _
         | TypedSemanticNodeKind.Int64CheckedMultiply _
@@ -136,6 +141,8 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Int64GreaterThan _
         | TypedSemanticNodeKind.Int64GreaterThanOrEqual _
         | TypedSemanticNodeKind.Float64Add _
+        | TypedSemanticNodeKind.Float64Min _
+        | TypedSemanticNodeKind.Float64Max _
         | TypedSemanticNodeKind.Float64Subtract _
         | TypedSemanticNodeKind.Float64Multiply _
         | TypedSemanticNodeKind.Float64Divide _
@@ -146,6 +153,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64IsInfinite _
         | TypedSemanticNodeKind.Int64ToFloat64 _
         | TypedSemanticNodeKind.Int64WrappingAbs _
+        | TypedSemanticNodeKind.Int64BitNot _
         | TypedSemanticNodeKind.Bits32FromInt64 _
         | TypedSemanticNodeKind.Bits32ToInt64 _
         | TypedSemanticNodeKind.Bits32Xor _

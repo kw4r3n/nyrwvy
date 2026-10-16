@@ -147,6 +147,15 @@ module internal WireRecipe =
         | "int64FloorModulo" -> binary "int64-floor-modulo recipe" ExpressionRecipe.Int64FloorModulo
         | "int64Min" -> binary "int64-min recipe" ExpressionRecipe.Int64Min
         | "int64Max" -> binary "int64-max recipe" ExpressionRecipe.Int64Max
+        | "int64BitAnd" -> binary "int64-bit-and recipe" ExpressionRecipe.Int64BitAnd
+        | "int64BitOr" -> binary "int64-bit-or recipe" ExpressionRecipe.Int64BitOr
+        | "int64BitXor" -> binary "int64-bit-xor recipe" ExpressionRecipe.Int64BitXor
+        | "int64ShiftLeft" ->
+            ensureFields "int64-shift-left recipe" [ "kind"; "value"; "count" ] [ "kind"; "value"; "count" ] element
+            ExpressionRecipe.Int64ShiftLeft(recipe (property "value" element), recipe (property "count" element))
+        | "int64ShiftRight" ->
+            ensureFields "int64-shift-right recipe" [ "kind"; "value"; "count" ] [ "kind"; "value"; "count" ] element
+            ExpressionRecipe.Int64ShiftRight(recipe (property "value" element), recipe (property "count" element))
         | "int64CheckedAdd" -> binary "int64-checked-add recipe" ExpressionRecipe.Int64CheckedAdd
         | "int64CheckedSubtract" -> binary "int64-checked-subtract recipe" ExpressionRecipe.Int64CheckedSubtract
         | "int64CheckedMultiply" -> binary "int64-checked-multiply recipe" ExpressionRecipe.Int64CheckedMultiply
@@ -165,6 +174,8 @@ module internal WireRecipe =
         | "int64GreaterThan" -> binary "int64-greater-than recipe" ExpressionRecipe.Int64GreaterThan
         | "int64GreaterThanOrEqual" -> binary "int64-greater-than-or-equal recipe" ExpressionRecipe.Int64GreaterThanOrEqual
         | "float64Add" -> binary "float64-add recipe" ExpressionRecipe.Float64Add
+        | "float64Min" -> binary "float64-min recipe" ExpressionRecipe.Float64Min
+        | "float64Max" -> binary "float64-max recipe" ExpressionRecipe.Float64Max
         | "float64Subtract" -> binary "float64-subtract recipe" ExpressionRecipe.Float64Subtract
         | "float64Multiply" -> binary "float64-multiply recipe" ExpressionRecipe.Float64Multiply
         | "float64Divide" -> binary "float64-divide recipe" ExpressionRecipe.Float64Divide
@@ -175,6 +186,7 @@ module internal WireRecipe =
         | "float64IsInfinite" -> unary "float64-is-infinite recipe" ExpressionRecipe.Float64IsInfinite
         | "int64ToFloat64" -> unary "int64-to-float64 recipe" ExpressionRecipe.Int64ToFloat64
         | "int64WrappingAbs" -> unary "int64-wrapping-abs recipe" ExpressionRecipe.Int64WrappingAbs
+        | "int64BitNot" -> unary "int64-bit-not recipe" ExpressionRecipe.Int64BitNot
         | "bits32FromInt64" -> unary "bits32-from-int64 recipe" ExpressionRecipe.Bits32FromInt64
         | "bits32ToInt64" -> unary "bits32-to-int64 recipe" ExpressionRecipe.Bits32ToInt64
         | "bits32Not" -> unary "bits32-not recipe" ExpressionRecipe.Bits32Not

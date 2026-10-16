@@ -329,6 +329,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Float64IsInfinite value -> one ExpressionRecipe.Float64IsInfinite value
             | ExpressionRecipe.Int64ToFloat64 value -> one ExpressionRecipe.Int64ToFloat64 value
             | ExpressionRecipe.Int64WrappingAbs value -> one ExpressionRecipe.Int64WrappingAbs value
+            | ExpressionRecipe.Int64BitNot value -> one ExpressionRecipe.Int64BitNot value
             | ExpressionRecipe.Bits32FromInt64 value -> one ExpressionRecipe.Bits32FromInt64 value
             | ExpressionRecipe.Bits32ToInt64 value -> one ExpressionRecipe.Bits32ToInt64 value
             | ExpressionRecipe.Bits32Not value -> one ExpressionRecipe.Bits32Not value
@@ -368,6 +369,11 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Int64FloorModulo(left, right) -> two ExpressionRecipe.Int64FloorModulo left right
             | ExpressionRecipe.Int64Min(left, right) -> two ExpressionRecipe.Int64Min left right
             | ExpressionRecipe.Int64Max(left, right) -> two ExpressionRecipe.Int64Max left right
+            | ExpressionRecipe.Int64BitAnd(left, right) -> two ExpressionRecipe.Int64BitAnd left right
+            | ExpressionRecipe.Int64BitOr(left, right) -> two ExpressionRecipe.Int64BitOr left right
+            | ExpressionRecipe.Int64BitXor(left, right) -> two ExpressionRecipe.Int64BitXor left right
+            | ExpressionRecipe.Int64ShiftLeft(left, right) -> two ExpressionRecipe.Int64ShiftLeft left right
+            | ExpressionRecipe.Int64ShiftRight(left, right) -> two ExpressionRecipe.Int64ShiftRight left right
             | ExpressionRecipe.Int64CheckedAdd(left, right) -> two ExpressionRecipe.Int64CheckedAdd left right
             | ExpressionRecipe.Int64CheckedSubtract(left, right) -> two ExpressionRecipe.Int64CheckedSubtract left right
             | ExpressionRecipe.Int64CheckedMultiply(left, right) -> two ExpressionRecipe.Int64CheckedMultiply left right
@@ -387,6 +393,8 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Int64GreaterThan(left, right) -> two ExpressionRecipe.Int64GreaterThan left right
             | ExpressionRecipe.Int64GreaterThanOrEqual(left, right) -> two ExpressionRecipe.Int64GreaterThanOrEqual left right
             | ExpressionRecipe.Float64Add(left, right) -> two ExpressionRecipe.Float64Add left right
+            | ExpressionRecipe.Float64Min(left, right) -> two ExpressionRecipe.Float64Min left right
+            | ExpressionRecipe.Float64Max(left, right) -> two ExpressionRecipe.Float64Max left right
             | ExpressionRecipe.Float64Subtract(left, right) -> two ExpressionRecipe.Float64Subtract left right
             | ExpressionRecipe.Float64Multiply(left, right) -> two ExpressionRecipe.Float64Multiply left right
             | ExpressionRecipe.Float64Divide(left, right) -> two ExpressionRecipe.Float64Divide left right

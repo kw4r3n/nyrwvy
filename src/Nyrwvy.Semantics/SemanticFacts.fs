@@ -171,7 +171,13 @@ module SemanticFacts =
                     | SemanticNodeKind.Int64FloorModulo _
                     | SemanticNodeKind.Int64Min _
                     | SemanticNodeKind.Int64Max _
+                    | SemanticNodeKind.Int64BitAnd _
+                    | SemanticNodeKind.Int64BitOr _
+                    | SemanticNodeKind.Int64BitXor _
+                    | SemanticNodeKind.Int64ShiftLeft _
+                    | SemanticNodeKind.Int64ShiftRight _
                     | SemanticNodeKind.Int64WrappingAbs _
+                    | SemanticNodeKind.Int64BitNot _
                     | SemanticNodeKind.StringLength _
                     | SemanticNodeKind.StringUtf8ByteCount _
                     | SemanticNodeKind.StringSpan _
@@ -185,6 +191,8 @@ module SemanticFacts =
                     | SemanticNodeKind.Float64Literal _
                     | SemanticNodeKind.Float64Round _
                     | SemanticNodeKind.Float64Add _
+                    | SemanticNodeKind.Float64Min _
+                    | SemanticNodeKind.Float64Max _
                     | SemanticNodeKind.Float64Subtract _
                     | SemanticNodeKind.Float64Multiply _
                     | SemanticNodeKind.Float64Divide _

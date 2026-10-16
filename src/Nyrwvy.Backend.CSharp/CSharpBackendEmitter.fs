@@ -2020,6 +2020,21 @@ module CSharpBackend =
             writer.Line(target + " = System.Math.Min(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.Int64Max(leftValueId, rightValueId) ->
             writer.Line(target + " = System.Math.Max(" + valueName leftValueId + ", " + valueName rightValueId + ");")
+        | ExecutionInstructionKind.Int64BitAnd(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "&" rightValueId false
+        | ExecutionInstructionKind.Int64BitOr(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "|" rightValueId false
+        | ExecutionInstructionKind.Int64BitXor(leftValueId, rightValueId) ->
+            emitBinaryExpression writer target leftValueId "^" rightValueId false
+        | ExecutionInstructionKind.Int64ShiftLeft(valueId, countValueId) ->
+            // The count is clamped explicitly instead of relying on C#'s 6-bit masking of long shift counts.
+            let count = valueName countValueId
+            writer.Line(target + " = " + count + " <= 0L ? " + valueName valueId + " : " + count + " >= 64L ? 0L : " + valueName valueId + " << (int)" + count + ";")
+        | ExecutionInstructionKind.Int64ShiftRight(valueId, countValueId) ->
+            // Arithmetic shift with the count clamped explicitly: 64 or more leaves only the sign.
+            let count = valueName countValueId
+            let value = valueName valueId
+            writer.Line(target + " = " + count + " <= 0L ? " + value + " : " + count + " >= 64L ? (" + value + " < 0L ? -1L : 0L) : " + value + " >> (int)" + count + ";")
         | ExecutionInstructionKind.Int64CheckedAdd(leftValueId, rightValueId) ->
             writer.Line(target + " = NyNumber.CheckedAdd(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.Int64CheckedSubtract(leftValueId, rightValueId) ->
@@ -2071,6 +2086,12 @@ module CSharpBackend =
             emitBinaryExpression writer target leftValueId ">=" rightValueId false
         | ExecutionInstructionKind.Float64Add(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId "+" rightValueId false
+        | ExecutionInstructionKind.Float64Min(leftValueId, rightValueId) ->
+            // .NET Math.Min on double is IEEE 754-2019 minimum: NaN propagates and -0.0 < 0.0.
+            writer.Line(target + " = System.Math.Min(" + valueName leftValueId + ", " + valueName rightValueId + ");")
+        | ExecutionInstructionKind.Float64Max(leftValueId, rightValueId) ->
+            // .NET Math.Max on double is IEEE 754-2019 maximum: NaN propagates and -0.0 < 0.0.
+            writer.Line(target + " = System.Math.Max(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.Float64Subtract(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId "-" rightValueId false
         | ExecutionInstructionKind.Float64Multiply(leftValueId, rightValueId) ->
@@ -2093,6 +2114,8 @@ module CSharpBackend =
         | ExecutionInstructionKind.Int64WrappingAbs valueId ->
             // Two's-complement negation wraps, so Int64.MinValue stays Int64.MinValue.
             writer.Line(target + " = " + valueName valueId + " < 0L ? unchecked(-" + valueName valueId + ") : " + valueName valueId + ";")
+        | ExecutionInstructionKind.Int64BitNot valueId ->
+            writer.Line(target + " = ~" + valueName valueId + ";")
         | ExecutionInstructionKind.Float64Sqrt valueId ->
             writer.Line(target + " = System.Math.Sqrt(" + valueName valueId + ");")
         | ExecutionInstructionKind.Float64Abs valueId ->
