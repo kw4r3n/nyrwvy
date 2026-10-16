@@ -20,10 +20,11 @@ verify the build/tests with that version when updating the pin.
 framework and warnings-as-errors policy; project-specific executable/test flags
 remain in their projects. Generated C# projects do not inherit this F# policy.
 
-GitHub Actions minutes are billed, so neither workflow runs on push or pull
-request: [`ci.yml`](../../.github/workflows/ci.yml) and
-[`extended.yml`](../../.github/workflows/extended.yml) run only on demand
-(`workflow_dispatch`), at major milestones (owner decision, 2026-10-05). Before
+GitHub Actions minutes are billed, so the only workflow,
+[`ci.yml`](../../.github/workflows/ci.yml), does not run on push or pull request: it
+runs only on demand (`workflow_dispatch`), at major milestones (owner decision,
+2026-10-05). The extended suite runs locally only; its GitHub workflow was removed
+on 2026-10-17 (owner decision). Before
 opening a pull request, run the fast suite and the tests related to the change
 in a local or cloud session; a PR does not wait on GitHub Actions.
 
@@ -46,11 +47,11 @@ npm --prefix tools/nyrwvy-mcp test
 
 The `test-fast.fish` wrapper includes ordinary authoring, authoring and evaluation transport, and script contracts through the shared Node discovery runner. Root `npm test` runs only fast groups, adding the adapter and MCP contracts.
 
-The `test-extended.fish` wrapper is separate. It runs xUnit extended and then the heavy Node pipelines in `.opencode/tests-extended/`, passing extra arguments only to dotnet and stopping on either stage's failure. `npm run test:node:extended` runs those Node pipelines alone, with Node's default file concurrency and their per-test timeouts. `extended.yml` runs the same two stages as parallel jobs, each after its own Release solution build: one job runs the suite partition audit (`node scripts/check-test-suite-partition.mjs`) and xUnit extended (20-minute timeout), and a matrix of Node jobs (25-minute timeout each, `fail-fast` off) runs `node scripts/run-node-tests.mjs extended --shard <index>/<total>`. The private 2-vCPU runner runs Node test files one at a time, so a single job took about 19 minutes for the Node stage; sharding assigns the sorted extended files round-robin across runners, keeping one file at a time per runner instead of raising `--test-concurrency` there, which would make the timing-sensitive Member and concurrency pipelines compete for the same two cores. Change the shard count only in the workflow matrix; a fast contract checks that it is contiguous and no larger than the file count. Tests that compile and run
+The `test-extended.fish` wrapper is separate. It runs xUnit extended and then the heavy Node pipelines in `.opencode/tests-extended/`, passing extra arguments only to dotnet and stopping on either stage's failure. `npm run test:node:extended` runs those Node pipelines alone, with Node's default file concurrency and their per-test timeouts. Before the Node stage the wrapper runs the suite partition audit (`node scripts/check-test-suite-partition.mjs`), which lists the built test assemblies. To spread the Node stage over several terminals or machines, run `node scripts/run-node-tests.mjs extended --shard <index>/<total>` once per index: shards assign the sorted extended files round-robin and together cover every file once. Keep one test file at a time per shard rather than raising `--test-concurrency`, since the timing-sensitive Member and concurrency pipelines would otherwise compete for the same cores. Tests that compile and run
 generated C# many times for a finished feature (the `runPure` behaviour tests
 of Map, Set, shared `MatchUnion` arms, `ListMinBy`, the List random sequences)
 are Extended; the fast suite keeps their checking and persistence tests and one
-compiled smoke test per runtime path. Run the extended suite (locally, or the Extended workflow at a milestone) when
+compiled smoke test per runtime path. Run the extended suite locally when
 a change touches the C# backend runtime. The CI job has a 20-minute timeout, so a hung transport
 test cannot hold a runner for the default six hours. Exploratory/live runner and preflight
 scripts, freeze-ref materialization, and historical evaluation helpers are
