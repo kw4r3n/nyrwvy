@@ -409,6 +409,8 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.SetUnion(left, right) -> two ExpressionRecipe.SetUnion left right
             | ExpressionRecipe.SetIntersection(left, right) -> two ExpressionRecipe.SetIntersection left right
             | ExpressionRecipe.SetDifference(left, right) -> two ExpressionRecipe.SetDifference left right
+            | ExpressionRecipe.SetIsSubset(left, right) -> two ExpressionRecipe.SetIsSubset left right
+            | ExpressionRecipe.MapUnion(left, right) -> two ExpressionRecipe.MapUnion left right
             | ExpressionRecipe.Bind(value, body) -> two ExpressionRecipe.Bind value body
             | ExpressionRecipe.ListConstruct(itemType, items) ->
                 rewriteAll items |> Result.map (fun items -> ExpressionRecipe.ListConstruct(itemType, items))

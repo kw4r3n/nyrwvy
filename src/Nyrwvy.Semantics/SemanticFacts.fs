@@ -252,7 +252,8 @@ module SemanticFacts =
                     | SemanticNodeKind.ListAll _
                     | SemanticNodeKind.MapContainsKey _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)
-                    | SemanticNodeKind.SetContains _ ->
+                    | SemanticNodeKind.SetContains _
+                    | SemanticNodeKind.SetIsSubset _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)
                     | SemanticNodeKind.ListFindIndex _
                     | SemanticNodeKind.ListIndexOf _ ->
@@ -262,7 +263,8 @@ module SemanticFacts =
                     | SemanticNodeKind.MapEmpty(keyType, valueType) ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]))
                     | SemanticNodeKind.MapInsert(sourceMapNodeId, _, _)
-                    | SemanticNodeKind.MapRemove(sourceMapNodeId, _) ->
+                    | SemanticNodeKind.MapRemove(sourceMapNodeId, _)
+                    | SemanticNodeKind.MapUnion(sourceMapNodeId, _) ->
                         match tryNodeType nextVisiting sourceMapNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ _; _ ]) as mapType) -> Some mapType
                         | Some _

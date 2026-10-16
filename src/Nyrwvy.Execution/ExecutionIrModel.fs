@@ -191,6 +191,8 @@ type ExecutionInstructionKind =
     | SetUnion of leftSetValueId: ExecutionValueId * rightSetValueId: ExecutionValueId
     | SetIntersection of leftSetValueId: ExecutionValueId * rightSetValueId: ExecutionValueId
     | SetDifference of leftSetValueId: ExecutionValueId * rightSetValueId: ExecutionValueId
+    | SetIsSubset of leftSetValueId: ExecutionValueId * rightSetValueId: ExecutionValueId
+    | MapUnion of leftMapValueId: ExecutionValueId * rightMapValueId: ExecutionValueId
     | MapContainsKey of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | SetContains of setValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListIndexOf of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
@@ -426,6 +428,8 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.SetUnion _
         | ExecutionInstructionKind.SetIntersection _
         | ExecutionInstructionKind.SetDifference _
+        | ExecutionInstructionKind.SetIsSubset _
+        | ExecutionInstructionKind.MapUnion _
         | ExecutionInstructionKind.MapContainsKey _
         | ExecutionInstructionKind.SetContains _
         | ExecutionInstructionKind.ListIndexOf _

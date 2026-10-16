@@ -1113,6 +1113,12 @@ module CSharpBackend =
         writer.Line("entries.TryGetValue(key, out var entry)")
         writer.Line("? new(entries.SetItem(key, (entry.Order, value)), order, next)")
         writer.Line(": new(entries.SetItem(key, (next, value)), order.Add(next, key), next + 1L);")
+        // Union inserts the other map's entries one by one in its order: shared keys keep this map's
+        // positions and take the other value, new keys follow. An empty side returns the other map
+        // unchanged, which has the same entries in the same visible order; inserting this map into a
+        // larger other map instead would put the other map's keys first, so it is not done.
+        writer.Line("public NyMap<K, V> Union(NyMap<K, V> other) =>")
+        writer.Line("other.entries.Count == 0 ? this : entries.Count == 0 ? other : other.Fold(this, (map, key, value) => map.Insert(key, value));")
         writer.Line("public NyMap<K, V> Remove(K key) =>")
         writer.Line("entries.TryGetValue(key, out var entry) ? new(entries.Remove(key), order.Remove(entry.Order), next) : this;")
         writer.Line("public S Fold<S>(S seed, System.Func<S, K, V, S> folder)")
@@ -1195,6 +1201,16 @@ module CSharpBackend =
         // Difference removes the other set's items one by one when the other set is smaller; Remove keeps
         // the remaining items' insertion numbers, so either way gives the same set in the same order.
         writer.Line("public NySet<T> Difference(NySet<T> other) => other.Size < Size ? other.Fold(this, (set, item) => set.Remove(item)) : Fold(this, (set, item) => other.Contains(item) ? set.Remove(item) : set);")
+        // IsSubsetOf looks up each of this set's items in the other set and stops at the first miss;
+        // a larger set is never a subset, so that case answers without lookups.
+        writer.Line("public bool IsSubsetOf(NySet<T> other)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (items.Count > other.items.Count) return false;")
+        writer.Line("foreach (var item in items.Keys) if (!other.items.ContainsKey(item)) return false;")
+        writer.Line("return true;")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("public S Fold<S>(S seed, System.Func<S, T, S> folder)")
         writer.Line("{")
         writer.Push()
@@ -2158,6 +2174,10 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName leftSetValueId + ".Intersection(" + valueName rightSetValueId + ");")
         | ExecutionInstructionKind.SetDifference(leftSetValueId, rightSetValueId) ->
             writer.Line(target + " = " + valueName leftSetValueId + ".Difference(" + valueName rightSetValueId + ");")
+        | ExecutionInstructionKind.SetIsSubset(leftSetValueId, rightSetValueId) ->
+            writer.Line(target + " = " + valueName leftSetValueId + ".IsSubsetOf(" + valueName rightSetValueId + ");")
+        | ExecutionInstructionKind.MapUnion(leftMapValueId, rightMapValueId) ->
+            writer.Line(target + " = " + valueName leftMapValueId + ".Union(" + valueName rightMapValueId + ");")
         | ExecutionInstructionKind.MapContainsKey(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".ContainsKey(" + valueName keyValueId + ");")
         | ExecutionInstructionKind.SetContains(setValueId, itemValueId) ->

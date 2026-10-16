@@ -222,6 +222,7 @@ module OperationSignatures =
           signature "mapGetOrDefault" [ operand "map" (SignatureType.Map(k, v)); operand "key" k; operand "default" v ] v None
           signature "mapContainsKey" [ operand "map" (SignatureType.Map(k, v)); operand "key" k ] bool None
           signature "mapRemove" [ operand "map" (SignatureType.Map(k, v)); operand "key" k ] (SignatureType.Map(k, v)) None
+          binary "mapUnion" (SignatureType.Map(k, v)) (SignatureType.Map(k, v)) (Some "left | right: right wins, left order then right's new keys")
           unary "mapSize" (SignatureType.Map(k, v)) int64 None
           unary "mapKeys" (SignatureType.Map(k, v)) (SignatureType.List k) (Some "insertion order")
           unary "mapValues" (SignatureType.Map(k, v)) (SignatureType.List v) (Some "insertion order")
@@ -234,6 +235,7 @@ module OperationSignatures =
           binary "setUnion" (SignatureType.Set t) (SignatureType.Set t) (Some "left order, then right's new items")
           binary "setIntersection" (SignatureType.Set t) (SignatureType.Set t) (Some "left order")
           binary "setDifference" (SignatureType.Set t) (SignatureType.Set t) (Some "left order")
+          binary "setIsSubset" (SignatureType.Set t) bool (Some "left <= right")
           unary "setSize" (SignatureType.Set t) int64 None
           unary "setToList" (SignatureType.Set t) (SignatureType.List t) (Some "insertion order")
           // optionResult

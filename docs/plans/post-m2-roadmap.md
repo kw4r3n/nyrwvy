@@ -486,13 +486,14 @@ After probe 25 nothing was blocked. The owner chose three changes: a scoped hand
 
 #364 fixed confined viewer writes to return errors instead of throwing; it is a fix, not an order.
 
-### Owner choice of 2026-10-16: ordinary string builtins
+### Owner choice of 2026-10-16: ordinary builtins
 
 The owner chose to add ordinary builtins ahead of probe evidence, with semantics that follow normal expectation (Python where it applies, unless stated otherwise).
 
 | Order | Gap | Evidence | Smallest change |
 | --- | --- | --- | --- |
 | 59 | **Done: `StringReplace` and the trims** (owner choice ahead of evidence) | None ranked; probe 8 wrote `str.replace` as `StringJoin(StringSplit(text, secret), "[REDACTED]")`, and several probes wrote `strip()` with `StringSpan`, `StringSpanBack` and `StringSlice` | `StringReplace(value, pattern, replacement)`, Python `str.replace(old, new)` with an empty pattern returning `value`; `StringTrim`, `StringTrimStart` and `StringTrimEnd` over Unicode White_Space ([decision](../decisions/string-replace-and-trim.md)) |
+| 60 | **Done: `SetIsSubset` and `MapUnion`** (owner choice: ordinary builtins ahead of evidence) | None counted; the [Set](../decisions/set.md) and [Map](../decisions/map.md) decisions had no subset test and no merge of two maps | `SetIsSubset(left, right)` is Python `left <= right`; `MapUnion(left, right)` is Python `left \| right`, the order of inserting right into left with `MapInsert`; snapshot JSON 17 / Nyason v13 ([decision](../decisions/set-is-subset-and-map-union.md)) |
 
 ## Bounded Member integration evidence — 2026-10-12
 

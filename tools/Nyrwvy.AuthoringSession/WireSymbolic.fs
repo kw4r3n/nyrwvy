@@ -609,6 +609,8 @@ module internal WireSymbolic =
         | "setUnion" -> binary "set-union recipe" ExpressionRecipe.SetUnion
         | "setIntersection" -> binary "set-intersection recipe" ExpressionRecipe.SetIntersection
         | "setDifference" -> binary "set-difference recipe" ExpressionRecipe.SetDifference
+        | "setIsSubset" -> binary "set-is-subset recipe" ExpressionRecipe.SetIsSubset
+        | "mapUnion" -> binary "map-union recipe" ExpressionRecipe.MapUnion
         | "listFold" ->
             ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)

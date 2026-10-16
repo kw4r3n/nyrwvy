@@ -161,6 +161,8 @@ module internal WireGraph =
         | SemanticNodeKind.SetUnion(left, right) -> binary "setUnion" left right
         | SemanticNodeKind.SetIntersection(left, right) -> binary "setIntersection" left right
         | SemanticNodeKind.SetDifference(left, right) -> binary "setDifference" left right
+        | SemanticNodeKind.SetIsSubset(left, right) -> binary "setIsSubset" left right
+        | SemanticNodeKind.MapUnion(left, right) -> binary "mapUnion" left right
         | SemanticNodeKind.MapContainsKey(map, key) -> tagged "mapContainsKey" [ "mapNodeId", identity map; "keyNodeId", identity key ]
         | SemanticNodeKind.SetContains(map, key) -> tagged "setContains" [ "setNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.ListIndexOf(map, key) -> tagged "listIndexOf" [ "listNodeId", identity map; "itemNodeId", identity key ]

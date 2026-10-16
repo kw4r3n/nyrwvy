@@ -544,6 +544,12 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId) ->
                             lowerBinaryNode node leftSetNodeId rightSetNodeId (fun leftValueId rightValueId ->
                                 ExecutionInstructionKind.SetDifference(leftValueId, rightValueId))
+                        | TypedSemanticNodeKind.SetIsSubset(leftSetNodeId, rightSetNodeId) ->
+                            lowerBinaryNode node leftSetNodeId rightSetNodeId (fun leftValueId rightValueId ->
+                                ExecutionInstructionKind.SetIsSubset(leftValueId, rightValueId))
+                        | TypedSemanticNodeKind.MapUnion(leftMapNodeId, rightMapNodeId) ->
+                            lowerBinaryNode node leftMapNodeId rightMapNodeId (fun leftValueId rightValueId ->
+                                ExecutionInstructionKind.MapUnion(leftValueId, rightValueId))
                         | TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId) ->
                             lowerBinaryNode node leftListNodeId rightListNodeId (fun leftValueId rightValueId ->
                                 ExecutionInstructionKind.ListConcat(leftValueId, rightValueId))

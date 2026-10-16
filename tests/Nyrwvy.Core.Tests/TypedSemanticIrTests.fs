@@ -136,6 +136,8 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.SetUnion _
                 | TypedSemanticNodeKind.SetIntersection _
                 | TypedSemanticNodeKind.SetDifference _
+                | TypedSemanticNodeKind.SetIsSubset _
+                | TypedSemanticNodeKind.MapUnion _
                 | TypedSemanticNodeKind.MapContainsKey _
                 | TypedSemanticNodeKind.SetContains _
                 | TypedSemanticNodeKind.ListIndexOf _

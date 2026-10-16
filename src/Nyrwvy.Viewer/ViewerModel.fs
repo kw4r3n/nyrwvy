@@ -142,6 +142,8 @@ type ViewerNodeRole =
     | SetUnion
     | SetIntersection
     | SetDifference
+    | SetIsSubset
+    | MapUnion
     | MapContainsKey
     | SetContains
     | ListIndexOf
@@ -417,6 +419,8 @@ module ViewerProjection =
         | SemanticNodeKind.SetUnion _ -> ViewerNodeRole.SetUnion, []
         | SemanticNodeKind.SetIntersection _ -> ViewerNodeRole.SetIntersection, []
         | SemanticNodeKind.SetDifference _ -> ViewerNodeRole.SetDifference, []
+        | SemanticNodeKind.SetIsSubset _ -> ViewerNodeRole.SetIsSubset, []
+        | SemanticNodeKind.MapUnion _ -> ViewerNodeRole.MapUnion, []
         | SemanticNodeKind.MapContainsKey _ -> ViewerNodeRole.MapContainsKey, []
         | SemanticNodeKind.SetContains _ -> ViewerNodeRole.SetContains, []
         | SemanticNodeKind.ListIndexOf _ -> ViewerNodeRole.ListIndexOf, []

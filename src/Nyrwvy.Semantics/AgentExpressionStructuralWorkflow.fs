@@ -135,6 +135,8 @@ type ExpressionRecipe =
     | SetUnion of left: ExpressionRecipe * right: ExpressionRecipe
     | SetIntersection of left: ExpressionRecipe * right: ExpressionRecipe
     | SetDifference of left: ExpressionRecipe * right: ExpressionRecipe
+    | SetIsSubset of left: ExpressionRecipe * right: ExpressionRecipe
+    | MapUnion of left: ExpressionRecipe * right: ExpressionRecipe
     /// `context` binds callback parameters by identity; the unbound ones receive iteration values.
     | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | MapFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -358,6 +360,8 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.SetUnion(left, right) -> ExpressionRecipe.SetUnion(go left, go right)
         | ExpressionRecipe.SetIntersection(left, right) -> ExpressionRecipe.SetIntersection(go left, go right)
         | ExpressionRecipe.SetDifference(left, right) -> ExpressionRecipe.SetDifference(go left, go right)
+        | ExpressionRecipe.SetIsSubset(left, right) -> ExpressionRecipe.SetIsSubset(go left, go right)
+        | ExpressionRecipe.MapUnion(left, right) -> ExpressionRecipe.MapUnion(go left, go right)
         | ExpressionRecipe.ListFold(source, seed, folder, context) -> ExpressionRecipe.ListFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.MapFold(source, seed, folder, context) -> ExpressionRecipe.MapFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.UseResource(acquire, capability, operation, body, context) ->
@@ -686,7 +690,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListConcat(left, right)
         | ExpressionRecipe.SetUnion(left, right)
         | ExpressionRecipe.SetIntersection(left, right)
-        | ExpressionRecipe.SetDifference(left, right) -> seq { yield left; yield right }
+        | ExpressionRecipe.SetDifference(left, right)
+        | ExpressionRecipe.SetIsSubset(left, right)
+        | ExpressionRecipe.MapUnion(left, right) -> seq { yield left; yield right }
         | ExpressionRecipe.ListFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.MapFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListEffectFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
@@ -1542,6 +1548,8 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.SetUnion _
             | ExpressionRecipe.SetIntersection _
             | ExpressionRecipe.SetDifference _
+            | ExpressionRecipe.SetIsSubset _
+            | ExpressionRecipe.MapUnion _
             | ExpressionRecipe.SetSize _
             | ExpressionRecipe.SetToList _
             | ExpressionRecipe.OptionSome _ -> fixedSignature ()
@@ -2611,6 +2619,8 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.SetUnion(left, right) -> binary SemanticNodeKind.SetUnion left right
         | ExpressionRecipe.SetIntersection(left, right) -> binary SemanticNodeKind.SetIntersection left right
         | ExpressionRecipe.SetDifference(left, right) -> binary SemanticNodeKind.SetDifference left right
+        | ExpressionRecipe.SetIsSubset(left, right) -> binary SemanticNodeKind.SetIsSubset left right
+        | ExpressionRecipe.MapUnion(left, right) -> binary SemanticNodeKind.MapUnion left right
         | ExpressionRecipe.ListFold(source, seed, folderFunctionId, context) ->
             let sourceNodes, sourceResult = materializeRecipe source
             let seedNodes, seedResult = materializeRecipe seed

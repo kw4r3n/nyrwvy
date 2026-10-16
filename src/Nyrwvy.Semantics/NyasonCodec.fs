@@ -775,6 +775,10 @@ module NyasonCodec =
             record "set-intersection" [ nodeId; "left", encodeId "node" leftSetNodeId; "right", encodeId "node" rightSetNodeId ]
         | SemanticNodeKind.SetDifference(leftSetNodeId, rightSetNodeId) ->
             record "set-difference" [ nodeId; "left", encodeId "node" leftSetNodeId; "right", encodeId "node" rightSetNodeId ]
+        | SemanticNodeKind.SetIsSubset(leftSetNodeId, rightSetNodeId) ->
+            record "set-is-subset" [ nodeId; "left", encodeId "node" leftSetNodeId; "right", encodeId "node" rightSetNodeId ]
+        | SemanticNodeKind.MapUnion(leftMapNodeId, rightMapNodeId) ->
+            record "map-union" [ nodeId; "left", encodeId "node" leftMapNodeId; "right", encodeId "node" rightMapNodeId ]
         | SemanticNodeKind.MapContainsKey(mapNodeId, keyNodeId) ->
             record
                 "map-contains-key"
@@ -1515,6 +1519,14 @@ module NyasonCodec =
             let fields = recordFields "set-difference" [ "id"; "left"; "right" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.SetDifference(decodeId<GraphNodeTag> "node" (require "left" fields), decodeId<GraphNodeTag> "node" (require "right" fields)) }
+        | NyasonValue.Record("set-is-subset", _) ->
+            let fields = recordFields "set-is-subset" [ "id"; "left"; "right" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.SetIsSubset(decodeId<GraphNodeTag> "node" (require "left" fields), decodeId<GraphNodeTag> "node" (require "right" fields)) }
+        | NyasonValue.Record("map-union", _) ->
+            let fields = recordFields "map-union" [ "id"; "left"; "right" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.MapUnion(decodeId<GraphNodeTag> "node" (require "left" fields), decodeId<GraphNodeTag> "node" (require "right" fields)) }
         | NyasonValue.Record("map-contains-key", _) ->
             let fields = recordFields "map-contains-key" [ "id"; "map"; "key" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
