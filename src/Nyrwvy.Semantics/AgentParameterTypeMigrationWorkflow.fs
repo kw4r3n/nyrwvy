@@ -556,10 +556,7 @@ module internal SignatureMigrationCore =
         let requested = request.ResultType :: (request.Parameters |> List.map (fun parameter -> parameter.Type))
         let materialized = created.ResultType :: (created.Parameters |> List.map (fun parameter -> parameter.Type))
         List.zip materialized requested
-        |> List.fold
-            (fun substitution (fresh, original) ->
-                substitution |> Option.bind (fun current -> TypeParameters.matchType current fresh original))
-            (Some Map.empty)
+        |> TypeParameters.matchAll
         |> Option.defaultValue Map.empty
 
     let materializeTemporaryTarget

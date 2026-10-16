@@ -611,8 +611,7 @@ module SnapshotValidator =
                         match sourceItemType with
                         | Some itemType ->
                             match
-                                TypeParameters.matchType substitution unbound.Head.Type itemType
-                                |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
+                                TypeParameters.matchFrom substitution [ unbound.Head.Type, itemType; unbound.Tail.Head.Type, itemType ]
                             with
                             | Some extended -> substitution <- extended
                             | None ->
@@ -645,8 +644,7 @@ module SnapshotValidator =
                         match unbound with
                         | [ key; value ] ->
                             match
-                                TypeParameters.matchType substitution key.Type keyType
-                                |> Option.bind (fun current -> TypeParameters.matchType current value.Type valueType)
+                                TypeParameters.matchFrom substitution [ key.Type, keyType; value.Type, valueType ]
                             with
                             | Some extended -> substitution <- extended
                             | None -> add "CallbackParameterTypeMismatch" $"{name} node '{StableId.value nodeId}' callback input types must match the key and value types."
@@ -1484,8 +1482,7 @@ module SnapshotValidator =
                                     add "CallbackArityMismatch" $"ListFold node '{StableId.value node.Id}' folder must have exactly two parameters not bound by context (accumulator, item)."
                                 else
                                     match
-                                        TypeParameters.matchType substitution unbound.Head.Type seedType
-                                        |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
+                                        TypeParameters.matchFrom substitution [ unbound.Head.Type, seedType; unbound.Tail.Head.Type, itemType ]
                                     with
                                     | Some extended -> substitution <- extended
                                     | None -> add "CallbackParameterTypeMismatch" $"ListFold node '{StableId.value node.Id}' folder input types must match seed and list item types."
@@ -1506,9 +1503,7 @@ module SnapshotValidator =
                                 match unbound with
                                 | [ accumulator; key; value ] ->
                                     match
-                                        TypeParameters.matchType substitution accumulator.Type seedType
-                                        |> Option.bind (fun current -> TypeParameters.matchType current key.Type keyType)
-                                        |> Option.bind (fun current -> TypeParameters.matchType current value.Type valueType)
+                                        TypeParameters.matchFrom substitution [ accumulator.Type, seedType; key.Type, keyType; value.Type, valueType ]
                                     with
                                     | Some extended -> substitution <- extended
                                     | None -> add "CallbackParameterTypeMismatch" $"MapFold node '{StableId.value node.Id}' folder input types must match the seed, key and value types."
@@ -1554,8 +1549,7 @@ module SnapshotValidator =
                                     add "CallbackArityMismatch" $"ListEffectFold node '{StableId.value node.Id}' folder must have exactly two parameters not bound by context (accumulator, item)."
                                 else
                                     match
-                                        TypeParameters.matchType substitution unbound.Head.Type seedType
-                                        |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
+                                        TypeParameters.matchFrom substitution [ unbound.Head.Type, seedType; unbound.Tail.Head.Type, itemType ]
                                     with
                                     | Some extended -> substitution <- extended
                                     | None -> add "CallbackParameterTypeMismatch" $"ListEffectFold node '{StableId.value node.Id}' folder input types must match seed and list item types."
@@ -1758,8 +1752,7 @@ module SnapshotValidator =
                                     add "CallbackArityMismatch" $"ListZipWith node '{StableId.value node.Id}' combiner must have exactly two parameters not bound by context (left item, right item)."
                                 else
                                     match
-                                        TypeParameters.matchType substitution unbound.Head.Type leftItemType
-                                        |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type rightItemType)
+                                        TypeParameters.matchFrom substitution [ unbound.Head.Type, leftItemType; unbound.Tail.Head.Type, rightItemType ]
                                     with
                                     | Some _ -> ()
                                     | None -> add "CallbackParameterTypeMismatch" $"ListZipWith node '{StableId.value node.Id}' combiner input types must match the left and right list item types."

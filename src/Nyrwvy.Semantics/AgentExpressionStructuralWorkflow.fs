@@ -1296,8 +1296,7 @@ module AgentExpressionStructuralWorkflow =
                     )
                 | Ok(unbound, substitution) ->
                     match
-                        TypeParameters.matchType substitution unbound.Head.Type sourceItemType
-                        |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type sourceItemType)
+                        TypeParameters.matchFrom substitution [ unbound.Head.Type, sourceItemType; unbound.Tail.Head.Type, sourceItemType ]
                     with
                     | None ->
                         Error(
@@ -1740,8 +1739,7 @@ module AgentExpressionStructuralWorkflow =
                                     Error(diagnostic "PureExpressionCallbackArityMismatch" $"ListFold folder {callbackName folder} must have exactly two parameters not bound by context (accumulator, item); it has type {callbackSignature folder} and context binds {List.length context}.")
                                 | Ok(unbound, substitution) ->
                                     let matched =
-                                        TypeParameters.matchType substitution unbound.Head.Type seedType
-                                        |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
+                                        TypeParameters.matchFrom substitution [ unbound.Head.Type, seedType; unbound.Tail.Head.Type, itemType ]
                                     match matched with
                                     | Some current when TypeParameters.substitute current folder.ResultType = seedType ->
                                         if PureFunctions.isPure snapshot folder.Id then Ok seedType
@@ -1772,9 +1770,7 @@ module AgentExpressionStructuralWorkflow =
                                     Error(diagnostic "PureExpressionCallbackArityMismatch" $"MapFold folder {callbackName folder} must have exactly three parameters not bound by context (accumulator, key, value); it has type {callbackSignature folder} and context binds {List.length context}.")
                                 | Ok(unbound, substitution) ->
                                     let matched =
-                                        TypeParameters.matchType substitution unbound[0].Type seedType
-                                        |> Option.bind (fun current -> TypeParameters.matchType current unbound[1].Type keyType)
-                                        |> Option.bind (fun current -> TypeParameters.matchType current unbound[2].Type valueType)
+                                        TypeParameters.matchFrom substitution [ unbound[0].Type, seedType; unbound[1].Type, keyType; unbound[2].Type, valueType ]
                                     match matched with
                                     | Some current when TypeParameters.substitute current folder.ResultType = seedType ->
                                         if PureFunctions.isPure snapshot folder.Id then Ok seedType
@@ -1796,8 +1792,7 @@ module AgentExpressionStructuralWorkflow =
                                 Error(diagnostic "PureExpressionCallbackArityMismatch" $"MapFilter callback {callbackName keep} must have exactly two parameters not bound by context (key, value); it has type {callbackSignature keep} and context binds {List.length context}.")
                             | Ok(unbound, substitution) ->
                                 let matched =
-                                    TypeParameters.matchType substitution unbound[0].Type keyType
-                                    |> Option.bind (fun current -> TypeParameters.matchType current unbound[1].Type valueType)
+                                    TypeParameters.matchFrom substitution [ unbound[0].Type, keyType; unbound[1].Type, valueType ]
                                 match matched with
                                 | Some current when TypeParameters.substitute current keep.ResultType = boolType ->
                                     if PureFunctions.isPure snapshot keep.Id then Ok sourceType
@@ -1819,8 +1814,7 @@ module AgentExpressionStructuralWorkflow =
                                 Error(diagnostic "PureExpressionCallbackArityMismatch" $"MapMapValues callback {callbackName mapper} must have exactly two parameters not bound by context (key, value); it has type {callbackSignature mapper} and context binds {List.length context}.")
                             | Ok(unbound, substitution) ->
                                 let matched =
-                                    TypeParameters.matchType substitution unbound[0].Type keyType
-                                    |> Option.bind (fun current -> TypeParameters.matchType current unbound[1].Type valueType)
+                                    TypeParameters.matchFrom substitution [ unbound[0].Type, keyType; unbound[1].Type, valueType ]
                                 match matched with
                                 | Some current ->
                                     if PureFunctions.isPure snapshot mapper.Id then Ok(mapOf keyType (TypeParameters.substitute current mapper.ResultType))
@@ -1845,8 +1839,7 @@ module AgentExpressionStructuralWorkflow =
                                     Error(diagnostic "PureExpressionCallbackArityMismatch" $"ListEffectFold folder {callbackName folder} must have exactly two parameters not bound by context (accumulator, item); it has type {callbackSignature folder} and context binds {List.length context}.")
                                 | Ok(unbound, substitution) ->
                                   match
-                                      TypeParameters.matchType substitution unbound.Head.Type seedType
-                                      |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type itemType)
+                                      TypeParameters.matchFrom substitution [ unbound.Head.Type, seedType; unbound.Tail.Head.Type, itemType ]
                                   with
                                   | None -> Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ListEffectFold folder {callbackName folder} must take (accumulator, item), here ({ty seedType}, {ty itemType}); the folder has type {callbackSignature folder}.")
                                   | Some current ->
@@ -2075,8 +2068,7 @@ module AgentExpressionStructuralWorkflow =
                                         Error(diagnostic "PureExpressionCallbackArityMismatch" $"ListZipWith combiner {callbackName combiner} must have exactly two parameters not bound by context (left item, right item); it has type {callbackSignature combiner} and context binds {List.length context}.")
                                     | Ok(unbound, substitution) ->
                                         let matched =
-                                            TypeParameters.matchType substitution unbound.Head.Type leftItemType
-                                            |> Option.bind (fun current -> TypeParameters.matchType current unbound.Tail.Head.Type rightItemType)
+                                            TypeParameters.matchFrom substitution [ unbound.Head.Type, leftItemType; unbound.Tail.Head.Type, rightItemType ]
                                         match matched with
                                         | None ->
                                             Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ListZipWith combiner {callbackName combiner} must take (left item, right item), here ({ty leftItemType}, {ty rightItemType}); the combiner has type {callbackSignature combiner}.")
