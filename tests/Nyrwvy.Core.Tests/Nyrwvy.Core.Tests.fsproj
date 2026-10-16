@@ -98,6 +98,7 @@
     <Compile Include="StringCodePointConversionTests.fs" />
     <Compile Include="Float64TextConversionTests.fs" />
     <Compile Include="StringSplitLinesTests.fs" />
+    <Compile Include="StringReplaceTrimTests.fs" />
     <Compile Include="StringJoinListSliceTests.fs" />
     <Compile Include="BoolOperatorTests.fs" />
     <Compile Include="Int64DivisionTests.fs" />

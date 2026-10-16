@@ -61,6 +61,10 @@ ExpressionRecipe =
   | StringEndsWith(value, suffix)
   | StringSplit(value, separator)
   | StringSplitLines(value, breaks)
+  | StringReplace(value, pattern, replacement)
+  | StringTrim(expr)
+  | StringTrimStart(expr)
+  | StringTrimEnd(expr)
   | StringJoin(list, separator)
   | StringToLower(expr)
   | StringToUpper(expr)
@@ -424,6 +428,10 @@ These cases add no implicit conversion and no special failure semantics; they ma
 ## StringSplitLines
 
 `StringSplitLines(value, breaks)` (wire `stringSplitLines` with `value`, `breaks`; Nyason `string-split-lines`) takes two Strings and produces `List<String>`: the lines of `value` split at any code point of `breaks`, with `"\r\n"` as one break when both are members, `""` giving `[]` and no trailing empty line after a final break. It never fails; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-split-lines.md). A mistyped operand reports `PureExpressionOperandTypeMismatch` with its path (`body.value`, `body.breaks`); a persisted graph reports `StringIntrinsicTypeMismatch`.
+
+## StringReplace and the trims
+
+`StringReplace(value, pattern, replacement)` (wire `stringReplace` with `value`, `pattern`, `replacement`; Nyason `string-replace`) takes three Strings and produces a String: every non-overlapping ordinal occurrence of `pattern`, scanning left to right, replaced by `replacement`, as Python `str.replace(old, new)`, with matches on code-point boundaries only and an empty `pattern` giving `value` unchanged. `StringTrim(text)`, `StringTrimStart(text)` and `StringTrimEnd(text)` (wire `stringTrim`, `stringTrimStart`, `stringTrimEnd` with `value`; Nyason `string-trim`, `string-trim-start`, `string-trim-end`) take a String and produce a String without the Unicode White_Space code points at both ends, the start or the end; unlike Python `strip()`, U+001C–U+001F are kept. None of them fails ([decision](../decisions/string-replace-and-trim.md)). A mistyped operand reports `PureExpressionOperandTypeMismatch`; a persisted node over a non-String operand is a `StringIntrinsicTypeMismatch` validation error.
 
 ## StringToLower, StringToUpper and StringUtf8ByteCount
 

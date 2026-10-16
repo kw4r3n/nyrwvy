@@ -520,6 +520,20 @@ module SnapshotCodec =
             writer.WriteString("kind", "stringSplitLines")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("breaksNodeId", StableId.value breaksNodeId)
+        | SemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+            writer.WriteString("kind", "stringReplace")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("patternNodeId", StableId.value patternNodeId)
+            writer.WriteString("replacementNodeId", StableId.value replacementNodeId)
+        | SemanticNodeKind.StringTrim valueNodeId ->
+            writer.WriteString("kind", "stringTrim")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringTrimStart valueNodeId ->
+            writer.WriteString("kind", "stringTrimStart")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringTrimEnd valueNodeId ->
+            writer.WriteString("kind", "stringTrimEnd")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
             writer.WriteString("kind", "stringJoin")
             writer.WriteString("listNodeId", StableId.value listNodeId)
@@ -1521,6 +1535,27 @@ module SnapshotCodec =
                     | _ -> "StringSplit node", "separatorNodeId", (fun v o -> SemanticNodeKind.StringSplit(v, o))
                 ensureProperties label (set [ "id"; "kind"; "valueNodeId"; other ]) (set [ "id"; "kind"; "valueNodeId"; other ]) element
                 build (readId<GraphNodeTag> "valueNodeId" element) (readId<GraphNodeTag> other element)
+            | "stringReplace" ->
+                ensureProperties
+                    "StringReplace node"
+                    (set [ "id"; "kind"; "valueNodeId"; "patternNodeId"; "replacementNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "patternNodeId"; "replacementNodeId" ])
+                    element
+                SemanticNodeKind.StringReplace(
+                    readId<GraphNodeTag> "valueNodeId" element,
+                    readId<GraphNodeTag> "patternNodeId" element,
+                    readId<GraphNodeTag> "replacementNodeId" element
+                )
+            | "stringTrim"
+            | "stringTrimStart"
+            | "stringTrimEnd" as kindName ->
+                let label, build =
+                    match kindName with
+                    | "stringTrimStart" -> "StringTrimStart node", SemanticNodeKind.StringTrimStart
+                    | "stringTrimEnd" -> "StringTrimEnd node", SemanticNodeKind.StringTrimEnd
+                    | _ -> "StringTrim node", SemanticNodeKind.StringTrim
+                ensureProperties label (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                build (readId<GraphNodeTag> "valueNodeId" element)
             | "stringEqual" ->
                 readBinaryNode "StringEqual node" element (fun left right -> SemanticNodeKind.StringEqual(left, right))
             | "stringLessThan" ->

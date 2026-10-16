@@ -600,6 +600,19 @@ module NyasonCodec =
                 [ nodeId
                   "value", encodeId "node" valueNodeId
                   "breaks", encodeId "node" breaksNodeId ]
+        | SemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+            record
+                "string-replace"
+                [ nodeId
+                  "value", encodeId "node" valueNodeId
+                  "pattern", encodeId "node" patternNodeId
+                  "replacement", encodeId "node" replacementNodeId ]
+        | SemanticNodeKind.StringTrim valueNodeId ->
+            record "string-trim" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringTrimStart valueNodeId ->
+            record "string-trim-start" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringTrimEnd valueNodeId ->
+            record "string-trim-end" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringEqual(leftNodeId, rightNodeId) ->
             encodeBinaryNode "string-equal" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.StringLessThan(leftNodeId, rightNodeId) ->
@@ -1221,6 +1234,24 @@ module NyasonCodec =
                     (decodeId<GraphNodeTag> "node" (require "value" fields))
                     (decodeId<GraphNodeTag> "node" (require "set" fields))
                     (decodeId<GraphNodeTag> "node" (require bound fields)) }
+        | NyasonValue.Record("string-replace", _) ->
+            let fields = recordFields "string-replace" [ "id"; "value"; "pattern"; "replacement" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.StringReplace(
+                    decodeId<GraphNodeTag> "node" (require "value" fields),
+                    decodeId<GraphNodeTag> "node" (require "pattern" fields),
+                    decodeId<GraphNodeTag> "node" (require "replacement" fields)
+                ) }
+        | NyasonValue.Record(("string-trim" | "string-trim-start" | "string-trim-end") as tag, _) ->
+            let build =
+                match tag with
+                | "string-trim-start" -> SemanticNodeKind.StringTrimStart
+                | "string-trim-end" -> SemanticNodeKind.StringTrimEnd
+                | _ -> SemanticNodeKind.StringTrim
+            let fields = recordFields tag [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = build (decodeId<GraphNodeTag> "node" (require "value" fields)) }
         | NyasonValue.Record(("string-last-index-of" | "string-starts-with" | "string-ends-with" | "string-split" | "string-split-lines") as tag, _) ->
             let other, build =
                 match tag with

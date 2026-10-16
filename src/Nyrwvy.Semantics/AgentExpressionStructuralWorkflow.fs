@@ -56,6 +56,10 @@ type ExpressionRecipe =
     | StringEndsWith of ExpressionRecipe * ExpressionRecipe
     | StringSplit of ExpressionRecipe * ExpressionRecipe
     | StringSplitLines of value: ExpressionRecipe * breaks: ExpressionRecipe
+    | StringReplace of value: ExpressionRecipe * pattern: ExpressionRecipe * replacement: ExpressionRecipe
+    | StringTrim of ExpressionRecipe
+    | StringTrimStart of ExpressionRecipe
+    | StringTrimEnd of ExpressionRecipe
     | StringJoin of list: ExpressionRecipe * separator: ExpressionRecipe
     | StringEqual of ExpressionRecipe * ExpressionRecipe
     | StringLessThan of ExpressionRecipe * ExpressionRecipe
@@ -275,6 +279,10 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringEndsWith(left, right) -> ExpressionRecipe.StringEndsWith(go left, go right)
         | ExpressionRecipe.StringSplit(left, right) -> ExpressionRecipe.StringSplit(go left, go right)
         | ExpressionRecipe.StringSplitLines(value, breaks) -> ExpressionRecipe.StringSplitLines(go value, go breaks)
+        | ExpressionRecipe.StringReplace(value, pattern, replacement) -> ExpressionRecipe.StringReplace(go value, go pattern, go replacement)
+        | ExpressionRecipe.StringTrim value -> ExpressionRecipe.StringTrim(go value)
+        | ExpressionRecipe.StringTrimStart value -> ExpressionRecipe.StringTrimStart(go value)
+        | ExpressionRecipe.StringTrimEnd value -> ExpressionRecipe.StringTrimEnd(go value)
         | ExpressionRecipe.StringJoin(list, separator) -> ExpressionRecipe.StringJoin(go list, go separator)
         | ExpressionRecipe.StringEqual(left, right) -> ExpressionRecipe.StringEqual(go left, go right)
         | ExpressionRecipe.StringLessThan(left, right) -> ExpressionRecipe.StringLessThan(go left, go right)
@@ -572,6 +580,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringCodePoints child
         | ExpressionRecipe.StringToLower child
         | ExpressionRecipe.StringToUpper child
+        | ExpressionRecipe.StringTrim child
+        | ExpressionRecipe.StringTrimStart child
+        | ExpressionRecipe.StringTrimEnd child
         | ExpressionRecipe.StringDecodeUtf8Lossy child
         | ExpressionRecipe.Float64RoundToInt64 child
         | ExpressionRecipe.Float64FloorToInt64 child
@@ -611,6 +622,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ResultErr(_, child) -> Seq.singleton child
         | ExpressionRecipe.StringSlice(value, start, stop) -> seq { value; start; stop }
         | ExpressionRecipe.StringIndexOf(value, substring, from) -> seq { value; substring; from }
+        | ExpressionRecipe.StringReplace(value, pattern, replacement) -> seq { value; pattern; replacement }
         | ExpressionRecipe.StringSpan(value, set, bound)
         | ExpressionRecipe.StringSpanBack(value, set, bound) -> seq { value; set; bound }
         | ExpressionRecipe.ListSlice(list, start, stop) -> seq { list; start; stop }
@@ -1440,6 +1452,10 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.StringEndsWith _
             | ExpressionRecipe.StringSplit _
             | ExpressionRecipe.StringSplitLines _
+            | ExpressionRecipe.StringReplace _
+            | ExpressionRecipe.StringTrim _
+            | ExpressionRecipe.StringTrimStart _
+            | ExpressionRecipe.StringTrimEnd _
             | ExpressionRecipe.StringJoin _
             | ExpressionRecipe.StringToLower _
             | ExpressionRecipe.StringToUpper _
@@ -2432,6 +2448,9 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringCodePoints value -> unary SemanticNodeKind.StringCodePoints value
         | ExpressionRecipe.StringToLower value -> unary SemanticNodeKind.StringToLower value
         | ExpressionRecipe.StringToUpper value -> unary SemanticNodeKind.StringToUpper value
+        | ExpressionRecipe.StringTrim value -> unary SemanticNodeKind.StringTrim value
+        | ExpressionRecipe.StringTrimStart value -> unary SemanticNodeKind.StringTrimStart value
+        | ExpressionRecipe.StringTrimEnd value -> unary SemanticNodeKind.StringTrimEnd value
         | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary SemanticNodeKind.StringDecodeUtf8Lossy value
         | ExpressionRecipe.Float64RoundToInt64 value -> unary SemanticNodeKind.Float64RoundToInt64 value
         | ExpressionRecipe.Float64FloorToInt64 value -> unary SemanticNodeKind.Float64FloorToInt64 value
@@ -2479,6 +2498,14 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.StringEndsWith(left, right) -> binary SemanticNodeKind.StringEndsWith left right
         | ExpressionRecipe.StringSplit(left, right) -> binary SemanticNodeKind.StringSplit left right
         | ExpressionRecipe.StringSplitLines(value, breaks) -> binary SemanticNodeKind.StringSplitLines value breaks
+        | ExpressionRecipe.StringReplace(value, pattern, replacement) ->
+            let valueNodes, valueResult = materializeRecipe value
+            let patternNodes, patternResult = materializeRecipe pattern
+            let replacementNodes, replacementResult = materializeRecipe replacement
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            valueNodes @ patternNodes @ replacementNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.StringReplace(valueResult, patternResult, replacementResult) } ],
+            nodeId
         | ExpressionRecipe.StringJoin(list, separator) -> binary SemanticNodeKind.StringJoin list separator
         | ExpressionRecipe.StringEqual(left, right) -> binary SemanticNodeKind.StringEqual left right
         | ExpressionRecipe.StringLessThan(left, right) -> binary SemanticNodeKind.StringLessThan left right

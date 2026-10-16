@@ -437,6 +437,17 @@ module TypedSemanticIrSerializer =
             writer.WriteString("kind", "stringSplitLines")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("breaksNodeId", StableId.value breaksNodeId)
+        | TypedSemanticNodeKind.StringReplace(valueNodeId, patternNodeId, replacementNodeId) ->
+            writer.WriteString("kind", "stringReplace")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("patternNodeId", StableId.value patternNodeId)
+            writer.WriteString("replacementNodeId", StableId.value replacementNodeId)
+        | TypedSemanticNodeKind.StringTrim valueNodeId ->
+            writeUnaryNode writer "stringTrim" valueNodeId
+        | TypedSemanticNodeKind.StringTrimStart valueNodeId ->
+            writeUnaryNode writer "stringTrimStart" valueNodeId
+        | TypedSemanticNodeKind.StringTrimEnd valueNodeId ->
+            writeUnaryNode writer "stringTrimEnd" valueNodeId
         | TypedSemanticNodeKind.StringJoin(listNodeId, separatorNodeId) ->
             writer.WriteString("kind", "stringJoin")
             writer.WriteString("listNodeId", StableId.value listNodeId)

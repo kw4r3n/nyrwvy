@@ -91,6 +91,8 @@ Implicit conversion and a broader numeric tower are not part of this contract.
 
 `StringSplitLines(text, breaks)` yields the `List<String>` of the lines of `text`: scanning left to right, each code point that is a member of `breaks` (membership as for `StringSpan`'s set) ends the current line and is dropped, and when both `"\r"` and `"\n"` are members, `"\r\n"` is one break. As in Python `splitlines()`, an empty `text` yields `[]` and a break at the very end adds no trailing empty line (`"a\n"` gives `["a"]`, `"a\n\nb"` gives `["a", "", "b"]`, `"\n"` gives `[""]`); an empty `breaks` yields `[text]` for non-empty `text`. With `breaks` = `"\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029"` it equals Python `text.splitlines()`, and with `"\n\r"` it equals `bytes.splitlines` on the UTF-8 encoding. It runs in linear time and never fails ([decision](../decisions/string-split-lines.md)).
 
+`StringReplace(text, pattern, replacement)` yields `text` with every non-overlapping ordinal occurrence of `pattern`, scanning left to right, replaced by `replacement`, Python `text.replace(pattern, replacement)`: `"aaa"` with `"aa"` replaced by `"b"` is `"ba"`. A match starts and ends on code-point boundaries, as for `StringSplit`, so it never splits a surrogate pair. An empty `pattern` yields `text` unchanged, where Python inserts the replacement between every code point. `StringTrim(text)`, `StringTrimStart(text)` and `StringTrimEnd(text)` remove the code points with the Unicode White_Space property (U+0009–U+000D, U+0020, U+0085, U+00A0, U+1680, U+2000–U+200A, U+2028, U+2029, U+202F, U+205F and U+3000, exactly .NET `char.IsWhiteSpace`) from both ends, the start or the end. Python's `strip()` also removes U+001C–U+001F, which these keep; strip an explicit set with `StringSpan`, `StringSpanBack` and `StringSlice`. All four never fail ([decision](../decisions/string-replace-and-trim.md)).
+
 `StringToLower(text)` replaces each code point of `text` with its Unicode simple (one-to-one) lowercase mapping, culture invariant: `I` becomes `i`, KELVIN SIGN `K` becomes `k`, and code points without a mapping, including an unpaired surrogate, are kept, so the code-point length never changes. It equals Python `text.lower()` except for `İ` (U+0130), which becomes `i` rather than Python's `i̇`, and a word-final `Σ`, which becomes `σ` rather than Python's `ς`. The mappings follow the Unicode data of the .NET runtime. `StringUtf8ByteCount(text)` is the `Int64` length of the UTF-8 encoding of `text`, `len(text.encode("utf-8"))`; an unpaired surrogate counts 3 bytes. Both never fail; see the [decision](../decisions/string-lowercase-and-utf8-length.md).
 
 `StringToUpper(text)` replaces each code point with its Unicode simple (one-to-one) uppercase mapping, culture invariant: `i` and DOTLESS I `ı` become `I`, LONG S `ſ` becomes `S`, and `ß`, which has no simple uppercase mapping, becomes CAPITAL SHARP S `ẞ`, so `StringToLower` undoes it. Code points without a mapping are kept, so the code-point length never changes. It differs from Python `text.upper()`, which applies the full mapping (`ß` to `SS`, `ŉ` to `ʼN`) ([decision](../decisions/string-uppercase.md)).
@@ -324,6 +326,8 @@ StringSpan / SpanBack
 StringStartsWith / EndsWith
 StringSplit
 StringSplitLines
+StringReplace
+StringTrim / TrimStart / TrimEnd
 StringJoin
 StringToLower
 StringToUpper

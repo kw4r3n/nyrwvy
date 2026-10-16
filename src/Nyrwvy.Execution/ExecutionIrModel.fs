@@ -119,6 +119,10 @@ type ExecutionInstructionKind =
     | StringSplit of valueId: ExecutionValueId * separatorId: ExecutionValueId
     /// Lines of `value` split at code points of `breaks` ("\r\n" is one break when both are members).
     | StringSplitLines of valueId: ExecutionValueId * breaksId: ExecutionValueId
+    | StringReplace of valueId: ExecutionValueId * patternId: ExecutionValueId * replacementId: ExecutionValueId
+    | StringTrim of ExecutionValueId
+    | StringTrimStart of ExecutionValueId
+    | StringTrimEnd of ExecutionValueId
     | StringJoin of listValueId: ExecutionValueId * separatorId: ExecutionValueId
     | StringEqual of leftId: ExecutionValueId * rightId: ExecutionValueId
     /// Ordinal code-point ordering of two Strings: left sorts strictly before right.
@@ -352,6 +356,10 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.StringEndsWith _
         | ExecutionInstructionKind.StringSplit _
         | ExecutionInstructionKind.StringSplitLines _
+        | ExecutionInstructionKind.StringReplace _
+        | ExecutionInstructionKind.StringTrim _
+        | ExecutionInstructionKind.StringTrimStart _
+        | ExecutionInstructionKind.StringTrimEnd _
         | ExecutionInstructionKind.StringJoin _
         | ExecutionInstructionKind.StringEqual _
         | ExecutionInstructionKind.StringLessThan _

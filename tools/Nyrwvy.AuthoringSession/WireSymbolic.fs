@@ -419,6 +419,16 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "value" element),
                 recipe declarations parameterContext (property "breaks" element)
             )
+        | "stringReplace" ->
+            ensureFields "string-replace recipe" [ "kind"; "value"; "pattern"; "replacement" ] [ "kind"; "value"; "pattern"; "replacement" ] element
+            ExpressionRecipe.StringReplace(
+                recipe declarations parameterContext (property "value" element),
+                recipe declarations parameterContext (property "pattern" element),
+                recipe declarations parameterContext (property "replacement" element)
+            )
+        | "stringTrim" -> unary "string-trim recipe" ExpressionRecipe.StringTrim
+        | "stringTrimStart" -> unary "string-trim-start recipe" ExpressionRecipe.StringTrimStart
+        | "stringTrimEnd" -> unary "string-trim-end recipe" ExpressionRecipe.StringTrimEnd
         | "stringJoin" ->
             ensureFields "string-join recipe" [ "kind"; "list"; "separator" ] [ "kind"; "list"; "separator" ] element
             ExpressionRecipe.StringJoin(

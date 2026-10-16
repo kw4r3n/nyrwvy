@@ -143,6 +143,10 @@ module SemanticFacts =
                     | SemanticNodeKind.StringConcat _
                     | SemanticNodeKind.StringToLower _
                     | SemanticNodeKind.StringToUpper _
+                    | SemanticNodeKind.StringReplace _
+                    | SemanticNodeKind.StringTrim _
+                    | SemanticNodeKind.StringTrimStart _
+                    | SemanticNodeKind.StringTrimEnd _
                     | SemanticNodeKind.StringDecodeUtf8Lossy _
                     | SemanticNodeKind.StringJoin _
                     | SemanticNodeKind.StringRepeat _

@@ -32,6 +32,8 @@ type SnapshotSchemaFeature =
     | ListLastAndDropLast
     /// ListIndexOf, ListLastIndexOf and ListFindIndex.
     | ListIndexSearch
+    /// StringReplace, StringTrim, StringTrimStart and StringTrimEnd.
+    | StringReplaceAndTrim
 
 /// One persisted snapshot schema: its JSON `schemaVersion` and its Nyason schema identifier.
 /// The two formats number their versions separately but move together.
@@ -68,6 +70,7 @@ module SnapshotSchema =
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
         [ SnapshotSchemaFeature.ExceptionIsCancellation, v17, "Exception cancellation classification"
+          SnapshotSchemaFeature.StringReplaceAndTrim, v17, "StringReplace and StringTrim"
           SnapshotSchemaFeature.ExceptionBoundary, v16, "Host exception boundary"
           SnapshotSchemaFeature.CancellationShield, v15, "Lexical cancellation shield"
           SnapshotSchemaFeature.OneShot, v14, "Scoped one-shot handoff"
@@ -115,6 +118,10 @@ module SnapshotSchema =
         | SemanticNodeKind.Int64CheckedSubtract _
         | SemanticNodeKind.Int64CheckedMultiply _ -> Some SnapshotSchemaFeature.CheckedInt64Arithmetic
         | SemanticNodeKind.StringToUpper _ -> Some SnapshotSchemaFeature.StringToUpper
+        | SemanticNodeKind.StringReplace _
+        | SemanticNodeKind.StringTrim _
+        | SemanticNodeKind.StringTrimStart _
+        | SemanticNodeKind.StringTrimEnd _ -> Some SnapshotSchemaFeature.StringReplaceAndTrim
         | SemanticNodeKind.Float64Round _ -> Some SnapshotSchemaFeature.Float64Round
         | SemanticNodeKind.MapEmpty _
         | SemanticNodeKind.MapValues _

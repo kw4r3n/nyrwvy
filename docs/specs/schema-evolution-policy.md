@@ -51,7 +51,7 @@ The snapshot JSON `schemaVersion` and the Nyason `schema` identifier name the sa
 | 14 | `nayamnyam.snapshot.v10` | `OneShot<T>` anywhere; `OneShotCreate`, `OneShotComplete`, `OneShotWait`. |
 | 15 | `nayamnyam.snapshot.v11` | `CancellationShield`. |
 | 16 | `nayamnyam.snapshot.v12` | `Exception` anywhere; `ExceptionCatch`, `ExceptionMessage`, `ExceptionRethrow`. |
-| 17 | `nayamnyam.snapshot.v13` | `ExceptionIsCancellation`. |
+| 17 | `nayamnyam.snapshot.v13` | `ExceptionIsCancellation`; `StringReplace`, `StringTrim`, `StringTrimStart`, `StringTrimEnd`. |
 
 Versions 9 to 12 keep their earlier meaning. Version 13 collects the constructs added in orders 40 to 53, which were first written as version 9 and are now gated; a snapshot that uses none of them is unchanged. Older versions (JSON 8, Nyason v4 and before) are rejected.
 

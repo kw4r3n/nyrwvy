@@ -90,6 +90,11 @@ module internal WireGraph =
         | SemanticNodeKind.StringEndsWith(value, other) -> tagged "stringEndsWith" [ "valueNodeId", identity value; "suffixNodeId", identity other ]
         | SemanticNodeKind.StringSplit(value, other) -> tagged "stringSplit" [ "valueNodeId", identity value; "separatorNodeId", identity other ]
         | SemanticNodeKind.StringSplitLines(value, breaks) -> tagged "stringSplitLines" [ "valueNodeId", identity value; "breaksNodeId", identity breaks ]
+        | SemanticNodeKind.StringReplace(value, pattern, replacement) ->
+            tagged "stringReplace" [ "valueNodeId", identity value; "patternNodeId", identity pattern; "replacementNodeId", identity replacement ]
+        | SemanticNodeKind.StringTrim value -> unary "stringTrim" value
+        | SemanticNodeKind.StringTrimStart value -> unary "stringTrimStart" value
+        | SemanticNodeKind.StringTrimEnd value -> unary "stringTrimEnd" value
         | SemanticNodeKind.StringJoin(list, separator) -> tagged "stringJoin" [ "listNodeId", identity list; "separatorNodeId", identity separator ]
         | SemanticNodeKind.StringEqual(left, right) -> binary "stringEqual" left right
         | SemanticNodeKind.StringLessThan(left, right) -> binary "stringLessThan" left right

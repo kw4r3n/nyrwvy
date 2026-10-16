@@ -12,6 +12,8 @@ type ValueDependencyRole =
     | Prefix
     | Suffix
     | Separator
+    /// The text StringReplace puts in place of each match.
+    | Replacement
     | LeftOperand
     | RightOperand
     | Source
@@ -65,6 +67,9 @@ module ValueDependency =
         | SemanticNodeKind.StringCodePoints sourceNodeId
         | SemanticNodeKind.StringToLower sourceNodeId
         | SemanticNodeKind.StringToUpper sourceNodeId
+        | SemanticNodeKind.StringTrim sourceNodeId
+        | SemanticNodeKind.StringTrimStart sourceNodeId
+        | SemanticNodeKind.StringTrimEnd sourceNodeId
         | SemanticNodeKind.StringDecodeUtf8Lossy sourceNodeId
         | SemanticNodeKind.Float64RoundToInt64 sourceNodeId
         | SemanticNodeKind.Float64FloorToInt64 sourceNodeId
@@ -119,6 +124,10 @@ module ValueDependency =
         | SemanticNodeKind.StringSplitLines(sourceNodeId, breaksNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.CharacterSet breaksNodeId ]
+        | SemanticNodeKind.StringReplace(sourceNodeId, patternNodeId, replacementNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Substring patternNodeId
+              create ValueDependencyRole.Replacement replacementNodeId ]
         | SemanticNodeKind.StringJoin(sourceNodeId, separatorNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Separator separatorNodeId ]
