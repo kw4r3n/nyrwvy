@@ -80,3 +80,7 @@ always happens inside the window, however the threads are scheduled:
 The fast and extended suites were run with the change. The virtual clock steps
 one logical thread at a time, so no start can observe a partly propagated
 cancellation there, and the new check is a no-op.
+
+Recorded `Generated.cs` hashes in earlier example fixtures (for example
+`examples/task-cancellation-outcome/fixtures/`) describe the runtime before
+this change. The maintained suites regenerate their sources and still pass.
