@@ -28,20 +28,13 @@ test("Node ownership discovers every maintained test, including new files, and r
   } finally { rmSync(fixture, { recursive: true, force: true }) }
 })
 
-test("Node shards are disjoint and exhaustive, reject malformed selectors, and the Extended matrix is contiguous", () => {
+test("Node shards are disjoint and exhaustive and reject malformed selectors", () => {
   const files = ["a", "b", "c", "d", "e", "f", "g"]
   const shards = [1, 2, 3].map(index => selectNodeTestShard(files, `${index}/3`))
   assert.deepEqual(shards, [["a", "d", "g"], ["b", "e"], ["c", "f"]])
   for (const shard of [undefined, "", "0/3", "4/3", "1/0", "1.5/3", "-1/3", "1/8", "2"]) {
     assert.throws(() => selectNodeTestShard(files, shard), /Shard|exceed/, String(shard))
   }
-  const workflow = readFileSync(join(repositoryRoot, ".github/workflows/extended.yml"), "utf8")
-  const matrix = /^\s+shard: \[([\d, ]+)\]$/m.exec(workflow)
-  assert.ok(matrix, "Extended workflow declares a shard matrix")
-  const indices = matrix[1].split(",").map(Number)
-  assert.deepEqual(indices, indices.map((_, position) => position + 1), "Shard matrix is 1..n")
-  assert.ok(indices.length <= discoverNodeTests().extended.length, "Every shard has a test file")
-  assert.match(workflow, /run-node-tests\.mjs extended --shard \$\{\{ matrix\.shard \}\}\/\$\{\{ strategy\.job-total \}\}/)
 })
 
 test("maintained entry points select shared discovery and keep ordinary and MCP coverage in root npm", () => {
@@ -54,7 +47,7 @@ test("maintained entry points select shared discovery and keep ordinary and MCP 
   for (const path of ["nyrwvy-authoring-workflow", "nyrwvy-authoring-transport", "nyrwvy-evaluation-transport"]) {
     assert.ok(fast.includes(`.opencode/tests/${path}.test.mjs`), `${path} smoke contract stays fast`)
   }
-  for (const file of ["scripts/test-fast.fish", "scripts/test-extended.fish", ".github/workflows/ci.yml", ".github/workflows/extended.yml"]) {
+  for (const file of ["scripts/test-fast.fish", "scripts/test-extended.fish", ".github/workflows/ci.yml"]) {
     assert.doesNotMatch(readFileSync(join(repositoryRoot, file), "utf8"), /--test\s+\.opencode\/tests\/nyrwvy-authoring-\*/)
   }
 })

@@ -11,4 +11,7 @@ or exit $status
 
 cd "$repo_root"
 or exit $status
+# The suite partition audit reads the built test assemblies, so it runs after the dotnet stage.
+node "$script_dir/check-test-suite-partition.mjs"
+or exit $status
 exec node "$script_dir/run-node-tests.mjs" extended
