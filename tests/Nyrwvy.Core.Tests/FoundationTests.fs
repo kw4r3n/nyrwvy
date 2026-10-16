@@ -159,6 +159,7 @@ module FoundationTests =
                 | SemanticNodeKind.ListIndexOf _
                 | SemanticNodeKind.ListLastIndexOf _
                 | SemanticNodeKind.MapGet _
+                | SemanticNodeKind.OptionGetOrDefault _
                 | SemanticNodeKind.MapGetOrDefault _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
@@ -187,6 +188,11 @@ module FoundationTests =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.MapFilter _
                 | SemanticNodeKind.ListSortBy _
+                | SemanticNodeKind.OptionMap _
+                | SemanticNodeKind.OptionAndThen _
+                | SemanticNodeKind.ResultMap _
+                | SemanticNodeKind.ResultMapErr _
+                | SemanticNodeKind.ResultAndThen _
                 | SemanticNodeKind.MapMapValues _
                 | SemanticNodeKind.ListMinBy _
                 | SemanticNodeKind.ListAny _

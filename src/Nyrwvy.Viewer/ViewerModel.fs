@@ -191,6 +191,12 @@ type ViewerNodeRole =
     | ListSortBy
     | ListMinBy
     | MapMapValues
+    | OptionGetOrDefault
+    | OptionMap
+    | OptionAndThen
+    | ResultMap
+    | ResultMapErr
+    | ResultAndThen
     | ListAny
     | ListFindIndex
     | ListAll
@@ -481,6 +487,12 @@ module ViewerProjection =
         | SemanticNodeKind.ListSortBy _ -> ViewerNodeRole.ListSortBy, []
         | SemanticNodeKind.ListMinBy _ -> ViewerNodeRole.ListMinBy, []
         | SemanticNodeKind.MapMapValues _ -> ViewerNodeRole.MapMapValues, []
+        | SemanticNodeKind.OptionGetOrDefault _ -> ViewerNodeRole.OptionGetOrDefault, []
+        | SemanticNodeKind.OptionMap _ -> ViewerNodeRole.OptionMap, []
+        | SemanticNodeKind.OptionAndThen _ -> ViewerNodeRole.OptionAndThen, []
+        | SemanticNodeKind.ResultMap _ -> ViewerNodeRole.ResultMap, []
+        | SemanticNodeKind.ResultMapErr _ -> ViewerNodeRole.ResultMapErr, []
+        | SemanticNodeKind.ResultAndThen _ -> ViewerNodeRole.ResultAndThen, []
         | SemanticNodeKind.ListAny _ -> ViewerNodeRole.ListAny, []
         | SemanticNodeKind.ListFindIndex _ -> ViewerNodeRole.ListFindIndex, []
         | SemanticNodeKind.ListAll _ -> ViewerNodeRole.ListAll, []

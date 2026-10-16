@@ -596,6 +596,9 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "map" element),
                 recipe declarations parameterContext (property "key" element)
             )
+        | "optionGetOrDefault" ->
+            ensureFields "option-get-or-default recipe" [ "kind"; "option"; "default" ] [ "kind"; "option"; "default" ] element
+            ExpressionRecipe.OptionGetOrDefault(recipe declarations parameterContext (property "option" element), recipe declarations parameterContext (property "default" element))
         | "mapGetOrDefault" ->
             ensureFields "map-get-or-default recipe" [ "kind"; "map"; "key"; "default" ] [ "kind"; "map"; "key"; "default" ] element
             ExpressionRecipe.MapGetOrDefault(
@@ -746,6 +749,26 @@ module internal WireSymbolic =
             ensureFields "map-filter recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
             ExpressionRecipe.MapFilter(recipe declarations parameterContext (property "map" element), callback.Id, callbackContext callback)
+        | "optionMap" ->
+            ensureFields "option-map recipe" [ "kind"; "option"; "function"; "context" ] [ "kind"; "option"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.OptionMap(recipe declarations parameterContext (property "option" element), callback.Id, callbackContext callback)
+        | "optionAndThen" ->
+            ensureFields "option-and-then recipe" [ "kind"; "option"; "function"; "context" ] [ "kind"; "option"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.OptionAndThen(recipe declarations parameterContext (property "option" element), callback.Id, callbackContext callback)
+        | "resultMap" ->
+            ensureFields "result-map recipe" [ "kind"; "result"; "function"; "context" ] [ "kind"; "result"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.ResultMap(recipe declarations parameterContext (property "result" element), callback.Id, callbackContext callback)
+        | "resultMapErr" ->
+            ensureFields "result-map-err recipe" [ "kind"; "result"; "function"; "context" ] [ "kind"; "result"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.ResultMapErr(recipe declarations parameterContext (property "result" element), callback.Id, callbackContext callback)
+        | "resultAndThen" ->
+            ensureFields "result-and-then recipe" [ "kind"; "result"; "function"; "context" ] [ "kind"; "result"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.ResultAndThen(recipe declarations parameterContext (property "result" element), callback.Id, callbackContext callback)
         | "mapMapValues" ->
             ensureFields "map-map-values recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)

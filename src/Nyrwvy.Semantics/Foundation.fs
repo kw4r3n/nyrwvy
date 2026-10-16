@@ -613,6 +613,24 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | ResultOk of errorType: TypeRef * valueNodeId: GraphNodeId
     | Abort of errorNodeId: GraphNodeId
     | ResultErr of okType: TypeRef * errorNodeId: GraphNodeId
+    /// The Some value, or the default (of the option's item type) for None, as Rust's
+    /// Option::unwrap_or. Both operands are evaluated. Never fails.
+    | OptionGetOrDefault of optionNodeId: GraphNodeId * defaultNodeId: GraphNodeId
+    /// Option<T> to Option<R>: None stays None and Some x becomes Some of a pure `T -> R` callback's
+    /// result, as Rust's Option::map. The callback runs only for Some. Never fails.
+    | OptionMap of sourceOptionNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    /// Option<T> to Option<R>: None stays None and Some x becomes a pure `T -> Option<R>` callback's
+    /// result, as Rust's Option::and_then. The callback runs only for Some. Never fails.
+    | OptionAndThen of sourceOptionNodeId: GraphNodeId * binderFunctionId: FunctionId * context: ArgumentBinding list
+    /// Result<T, E> to Result<R, E>: Ok x becomes Ok of a pure `T -> R` callback's result and Err
+    /// stays unchanged, as Rust's Result::map. The callback runs only for Ok. Never fails.
+    | ResultMap of sourceResultNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    /// Result<T, E> to Result<T, F>: Err e becomes Err of a pure `E -> F` callback's result and Ok
+    /// stays unchanged, as Rust's Result::map_err. The callback runs only for Err. Never fails.
+    | ResultMapErr of sourceResultNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    /// Result<T, E> to Result<R, E>: Ok x becomes a pure `T -> Result<R, E>` callback's result and
+    /// Err stays unchanged, as Rust's Result::and_then. The callback runs only for Ok. Never fails.
+    | ResultAndThen of sourceResultNodeId: GraphNodeId * binderFunctionId: FunctionId * context: ArgumentBinding list
     /// Logical negation of a Bool operand; the dedicated form of Conditional(operand, false, true).
     | BoolNot of operandNodeId: GraphNodeId
     /// True when both operands are true. The nested right graph follows Conditional branch rules and
@@ -676,6 +694,8 @@ type FunctionReferenceRole =
     /// ListFold, ListMap, ListFilter, ListSortBy, ListMinBy, ListFindIndex, ListAny, ListAll, MapFold,
     /// MapFromList, MapFilter or MapMapValues: a callback validation requires to be pure.
     /// ListZipWith and ListFlatMap callbacks are pure in the same way.
+    /// MapFromList, MapFilter, MapMapValues, OptionMap, OptionAndThen, ResultMap, ResultMapErr or
+    /// ResultAndThen: a callback validation requires to be pure.
     | PureListCallback
     /// ListEffectFold: a folder that may require effects.
     | EffectListCallback
@@ -888,6 +908,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListFilter(sourceNodeId, _, context)
         | SemanticNodeKind.MapFilter(sourceNodeId, _, context)
         | SemanticNodeKind.ListSortBy(sourceNodeId, _, context)
+        | SemanticNodeKind.OptionMap(sourceNodeId, _, context)
+        | SemanticNodeKind.OptionAndThen(sourceNodeId, _, context)
+        | SemanticNodeKind.ResultMap(sourceNodeId, _, context)
+        | SemanticNodeKind.ResultMapErr(sourceNodeId, _, context)
+        | SemanticNodeKind.ResultAndThen(sourceNodeId, _, context)
         | SemanticNodeKind.MapMapValues(sourceNodeId, _, context)
         | SemanticNodeKind.ListMinBy(sourceNodeId, _, context)
         | SemanticNodeKind.ListAny(sourceNodeId, _, context)
@@ -908,6 +933,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListIndexOf(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.ListLastIndexOf(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
+        | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) -> [ optionNodeId; defaultNodeId ]
         | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) -> [ sourceMapNodeId; keyNodeId; defaultNodeId ]
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId)
@@ -1233,6 +1259,18 @@ module SemanticNodeShape =
                 SemanticNodeKind.MapFilter(mapNodeId sourceMapNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListSortBy(sourceListNodeId, functionId, context) ->
                 SemanticNodeKind.ListSortBy(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
+                SemanticNodeKind.OptionGetOrDefault(mapNodeId optionNodeId, mapNodeId defaultNodeId)
+            | SemanticNodeKind.OptionMap(sourceNodeId, functionId, context) ->
+                SemanticNodeKind.OptionMap(mapNodeId sourceNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.OptionAndThen(sourceNodeId, functionId, context) ->
+                SemanticNodeKind.OptionAndThen(mapNodeId sourceNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ResultMap(sourceNodeId, functionId, context) ->
+                SemanticNodeKind.ResultMap(mapNodeId sourceNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ResultMapErr(sourceNodeId, functionId, context) ->
+                SemanticNodeKind.ResultMapErr(mapNodeId sourceNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ResultAndThen(sourceNodeId, functionId, context) ->
+                SemanticNodeKind.ResultAndThen(mapNodeId sourceNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.MapMapValues(sourceMapNodeId, functionId, context) ->
                 SemanticNodeKind.MapMapValues(mapNodeId sourceMapNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.ListMinBy(sourceListNodeId, functionId, context) ->
@@ -1433,6 +1471,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
+        | SemanticNodeKind.OptionGetOrDefault _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
@@ -1460,6 +1499,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListFilter _
         | SemanticNodeKind.MapFilter _
         | SemanticNodeKind.ListSortBy _
+        | SemanticNodeKind.OptionMap _
+        | SemanticNodeKind.OptionAndThen _
+        | SemanticNodeKind.ResultMap _
+        | SemanticNodeKind.ResultMapErr _
+        | SemanticNodeKind.ResultAndThen _
         | SemanticNodeKind.MapMapValues _
         | SemanticNodeKind.ListMinBy _
         | SemanticNodeKind.ListAny _
@@ -1669,6 +1713,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
+        | SemanticNodeKind.OptionGetOrDefault _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.ListSetAt _
@@ -1699,6 +1744,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListFilter _
         | SemanticNodeKind.MapFilter _
         | SemanticNodeKind.ListSortBy _
+        | SemanticNodeKind.OptionMap _
+        | SemanticNodeKind.OptionAndThen _
+        | SemanticNodeKind.ResultMap _
+        | SemanticNodeKind.ResultMapErr _
+        | SemanticNodeKind.ResultAndThen _
         | SemanticNodeKind.MapMapValues _
         | SemanticNodeKind.ListMinBy _
         | SemanticNodeKind.ListAny _
@@ -1749,6 +1799,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListFilter(_, functionId, context)
         | SemanticNodeKind.MapFilter(_, functionId, context)
         | SemanticNodeKind.ListSortBy(_, functionId, context)
+        | SemanticNodeKind.OptionMap(_, functionId, context)
+        | SemanticNodeKind.OptionAndThen(_, functionId, context)
+        | SemanticNodeKind.ResultMap(_, functionId, context)
+        | SemanticNodeKind.ResultMapErr(_, functionId, context)
+        | SemanticNodeKind.ResultAndThen(_, functionId, context)
         | SemanticNodeKind.MapMapValues(_, functionId, context)
         | SemanticNodeKind.ListMinBy(_, functionId, context)
         | SemanticNodeKind.ListAny(_, functionId, context)
@@ -1900,6 +1955,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
+        | SemanticNodeKind.OptionGetOrDefault _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.ListSetAt _
@@ -2088,6 +2144,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
+        | SemanticNodeKind.OptionGetOrDefault _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.ListSetAt _
@@ -2105,6 +2162,11 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListFilter _
         | SemanticNodeKind.MapFilter _
         | SemanticNodeKind.ListSortBy _
+        | SemanticNodeKind.OptionMap _
+        | SemanticNodeKind.OptionAndThen _
+        | SemanticNodeKind.ResultMap _
+        | SemanticNodeKind.ResultMapErr _
+        | SemanticNodeKind.ResultAndThen _
         | SemanticNodeKind.MapMapValues _
         | SemanticNodeKind.ListMinBy _
         | SemanticNodeKind.ListAny _

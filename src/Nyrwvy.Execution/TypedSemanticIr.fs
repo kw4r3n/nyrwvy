@@ -199,6 +199,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListLastIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | MapGetOrDefault of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * defaultNodeId: GraphNodeId
+    | OptionGetOrDefault of optionNodeId: GraphNodeId * defaultNodeId: GraphNodeId
     | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | ListSetAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListInsertAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId * itemNodeId: GraphNodeId
@@ -230,6 +231,11 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | ListFilter of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
     | MapFilter of sourceMapNodeId: GraphNodeId * keepFunctionId: FunctionId * context: TypedSemanticArgument list
     | MapMapValues of sourceMapNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
+    | OptionMap of sourceOptionNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
+    | OptionAndThen of sourceOptionNodeId: GraphNodeId * binderFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ResultMap of sourceResultNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ResultMapErr of sourceResultNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ResultAndThen of sourceResultNodeId: GraphNodeId * binderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListSortBy of sourceListNodeId: GraphNodeId * lessThanFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListMinBy of sourceListNodeId: GraphNodeId * lessThanFunctionId: FunctionId * context: TypedSemanticArgument list
     | ListAny of sourceListNodeId: GraphNodeId * predicateFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -413,6 +419,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.ListIndexOf _
         | TypedSemanticNodeKind.ListLastIndexOf _
         | TypedSemanticNodeKind.MapGet _
+        | TypedSemanticNodeKind.OptionGetOrDefault _
         | TypedSemanticNodeKind.MapGetOrDefault _
         | TypedSemanticNodeKind.ListSlice _
         | TypedSemanticNodeKind.ListSetAt _
@@ -445,6 +452,11 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.ListFilter _
         | TypedSemanticNodeKind.MapFilter _
         | TypedSemanticNodeKind.ListSortBy _
+        | TypedSemanticNodeKind.OptionMap _
+        | TypedSemanticNodeKind.OptionAndThen _
+        | TypedSemanticNodeKind.ResultMap _
+        | TypedSemanticNodeKind.ResultMapErr _
+        | TypedSemanticNodeKind.ResultAndThen _
         | TypedSemanticNodeKind.MapMapValues _
         | TypedSemanticNodeKind.ListMinBy _
         | TypedSemanticNodeKind.ListAny _
@@ -598,6 +610,11 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapFilter(listNodeId, _, context)
         | TypedSemanticNodeKind.ListSortBy(listNodeId, _, context)
         | TypedSemanticNodeKind.MapMapValues(listNodeId, _, context)
+        | TypedSemanticNodeKind.OptionMap(listNodeId, _, context)
+        | TypedSemanticNodeKind.OptionAndThen(listNodeId, _, context)
+        | TypedSemanticNodeKind.ResultMap(listNodeId, _, context)
+        | TypedSemanticNodeKind.ResultMapErr(listNodeId, _, context)
+        | TypedSemanticNodeKind.ResultAndThen(listNodeId, _, context)
         | TypedSemanticNodeKind.ListMinBy(listNodeId, _, context)
         | TypedSemanticNodeKind.ListAny(listNodeId, _, context)
         | TypedSemanticNodeKind.ListFindIndex(listNodeId, _, context)
@@ -637,6 +654,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId) -> [ mapNodeId; itemNodeId ]
         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) -> [ mapNodeId; keyNodeId ]
         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) -> [ mapNodeId; keyNodeId; defaultNodeId ]
+        | TypedSemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) -> [ optionNodeId; defaultNodeId ]
         | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
         | TypedSemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId)
         | TypedSemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) -> [ listNodeId; indexNodeId; itemNodeId ]
@@ -1000,6 +1018,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId))
                     | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
                         Ok(TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId))
+                    | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
+                        Ok(TypedSemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId))
                     | SemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
                         Ok(TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId))
                     | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->
@@ -1055,6 +1075,16 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, projectContext context))
                     | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, projectContext context))
+                    | SemanticNodeKind.OptionMap(sourceNodeId, functionId, context) ->
+                        Ok(TypedSemanticNodeKind.OptionMap(sourceNodeId, functionId, projectContext context))
+                    | SemanticNodeKind.OptionAndThen(sourceNodeId, functionId, context) ->
+                        Ok(TypedSemanticNodeKind.OptionAndThen(sourceNodeId, functionId, projectContext context))
+                    | SemanticNodeKind.ResultMap(sourceNodeId, functionId, context) ->
+                        Ok(TypedSemanticNodeKind.ResultMap(sourceNodeId, functionId, projectContext context))
+                    | SemanticNodeKind.ResultMapErr(sourceNodeId, functionId, context) ->
+                        Ok(TypedSemanticNodeKind.ResultMapErr(sourceNodeId, functionId, projectContext context))
+                    | SemanticNodeKind.ResultAndThen(sourceNodeId, functionId, context) ->
+                        Ok(TypedSemanticNodeKind.ResultAndThen(sourceNodeId, functionId, projectContext context))
                     | SemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, projectContext context))
                     | SemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->

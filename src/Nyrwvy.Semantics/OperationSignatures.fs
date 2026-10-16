@@ -262,7 +262,8 @@ module OperationSignatures =
           unary "setSize" (SignatureType.Set t) int64 None
           unary "setToList" (SignatureType.Set t) (SignatureType.List t) (Some "insertion order")
           // optionResult
-          unary "optionSome" t (SignatureType.Option t) None ]
+          unary "optionSome" t (SignatureType.Option t) None
+          signature "optionGetOrDefault" [ operand "option" (SignatureType.Option t); operand "default" t ] t (Some "unwrap_or") ]
 
     let private byKind = table |> List.map (fun entry -> entry.Kind, entry) |> Map.ofList
 

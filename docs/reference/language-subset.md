@@ -30,6 +30,7 @@ The implemented subset includes:
 - explicit conditionals;
 - Bool negation and short-circuit Bool and/or;
 - exhaustive union, `Option`, and `Result` matching with pattern bindings;
+- `Option` and `Result` combinators (`OptionGetOrDefault`, `OptionMap`, `OptionAndThen`, `ResultMap`, `ResultMapErr`, `ResultAndThen`; [decision](../decisions/option-result-combinators.md));
 - internal direct function calls;
 - pure capture-free function types, named references, and positional invocation;
 - program-defined stateless Capability values backed by pure named functions;
@@ -421,6 +422,9 @@ OptionNone
 OptionSome
 ResultOk
 ResultErr
+OptionGetOrDefault
+OptionMap / OptionAndThen
+ResultMap / ResultMapErr / ResultAndThen
 Abort
 CapabilityConstruct
 FunctionReference
@@ -446,6 +450,19 @@ Higher-order List cases reference existing callbacks by `FunctionId`. `ListFold`
 Product and union construction bind declaration fields by stable `FieldId`. Preflight requires the exact declared field set with no duplicates and exact field-value types. Caller binding order is not semantic: materialization follows declaration field order and creates ordinary persistent `FieldValueBinding` values only after child nodes receive system-owned IDs. `FieldAccess` requires the exact owning product type. `ProductUpdate` copies a source of exactly the named product type with one or more of its fields replaced, each at most once, and keeps every other field; it never fails. `UnionConstruct` derives its result type from the referenced stable `VariantId`.
 
 `OptionSome` derives its contained type from the child; `OptionNone` names the contained type explicitly. `ResultOk` derives its success type and carries the error type, while `ResultErr` derives its error type and carries the success type.
+
+`Option` and `Result` combinators follow Rust's methods of the same names ([decision](../decisions/option-result-combinators.md)):
+
+```text
+OptionGetOrDefault(option, default)       T, the Some value, or default for None
+OptionMap(option, mapper, context)        Option<U>, None, or Some(mapper(x))
+OptionAndThen(option, binder, context)    Option<U>, None, or binder(x): Option<U>
+ResultMap(result, mapper, context)        Result<U, E>, Ok(mapper(x)), or the Err unchanged
+ResultMapErr(result, mapper, context)     Result<T, F>, Err(mapper(e)), or the Ok unchanged
+ResultAndThen(result, binder, context)    Result<U, E>, binder(x): Result<U, E>, or the Err unchanged
+```
+
+`OptionGetOrDefault` evaluates its default whether or not the option holds a value, as `MapGetOrDefault` does, and the default has the item type (for `Option<Option<T>>`, `Some(None)` gives `None`, not the default). The callbacks are pure named functions with exactly one parameter not bound by the optional context, as for `ListMap`, and run only for the case they name: `Some`, `Ok`, or `Err` for `ResultMapErr`. `ResultAndThen`'s binder must return a `Result` with the source's error type. None of them fails.
 
 `DirectCall` references an existing callee by `FunctionId` and arguments by stable callee `ParameterId`. Every callee required effect must already be declared by the target, and every callee parameter must be bound exactly once with an exact-compatible child recipe. Caller binding-list order is ignored; materialization follows callee parameter declaration order and creates persistent `ArgumentBinding` values only after child nodes receive system-owned IDs. Incomplete calls do not create obligations through this surface.
 

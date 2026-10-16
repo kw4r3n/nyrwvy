@@ -261,6 +261,9 @@ module internal WireRecipe =
         | "mapGet" ->
             ensureFields "map-get recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
             ExpressionRecipe.MapGet(recipe (property "map" element), recipe (property "key" element))
+        | "optionGetOrDefault" ->
+            ensureFields "option-get-or-default recipe" [ "kind"; "option"; "default" ] [ "kind"; "option"; "default" ] element
+            ExpressionRecipe.OptionGetOrDefault(recipe (property "option" element), recipe (property "default" element))
         | "mapGetOrDefault" ->
             ensureFields "map-get-or-default recipe" [ "kind"; "map"; "key"; "default" ] [ "kind"; "map"; "key"; "default" ] element
             ExpressionRecipe.MapGetOrDefault(recipe (property "map" element), recipe (property "key" element), recipe (property "default" element))
@@ -337,6 +340,21 @@ module internal WireRecipe =
         | "mapFilter" ->
             ensureFields "map-filter recipe" [ "kind"; "map"; "functionId"; "context" ] [ "kind"; "map"; "functionId" ] element
             ExpressionRecipe.MapFilter(recipe (property "map" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "optionMap" ->
+            ensureFields "option-map recipe" [ "kind"; "option"; "functionId"; "context" ] [ "kind"; "option"; "functionId" ] element
+            ExpressionRecipe.OptionMap(recipe (property "option" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "optionAndThen" ->
+            ensureFields "option-and-then recipe" [ "kind"; "option"; "functionId"; "context" ] [ "kind"; "option"; "functionId" ] element
+            ExpressionRecipe.OptionAndThen(recipe (property "option" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "resultMap" ->
+            ensureFields "result-map recipe" [ "kind"; "result"; "functionId"; "context" ] [ "kind"; "result"; "functionId" ] element
+            ExpressionRecipe.ResultMap(recipe (property "result" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "resultMapErr" ->
+            ensureFields "result-map-err recipe" [ "kind"; "result"; "functionId"; "context" ] [ "kind"; "result"; "functionId" ] element
+            ExpressionRecipe.ResultMapErr(recipe (property "result" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "resultAndThen" ->
+            ensureFields "result-and-then recipe" [ "kind"; "result"; "functionId"; "context" ] [ "kind"; "result"; "functionId" ] element
+            ExpressionRecipe.ResultAndThen(recipe (property "result" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "mapMapValues" ->
             ensureFields "map-map-values recipe" [ "kind"; "map"; "functionId"; "context" ] [ "kind"; "map"; "functionId" ] element
             ExpressionRecipe.MapMapValues(recipe (property "map" element), id<FunctionTag> "functionId" element, callbackContext ())

@@ -188,6 +188,12 @@ type ExpressionRecipe =
     | UnionConstruct of variantId: VariantId * fields: (FieldId * ExpressionRecipe) list
     | OptionNone of itemType: TypeRef
     | OptionSome of ExpressionRecipe
+    | OptionGetOrDefault of option: ExpressionRecipe * defaultValue: ExpressionRecipe
+    | OptionMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | OptionAndThen of source: ExpressionRecipe * binderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ResultMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ResultMapErr of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ResultAndThen of source: ExpressionRecipe * binderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ResultOk of errorType: TypeRef * value: ExpressionRecipe
     | Abort of error: ExpressionRecipe
     | ResultErr of okType: TypeRef * error: ExpressionRecipe
@@ -413,6 +419,11 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.MapFilter(source, callback, context) -> ExpressionRecipe.MapFilter(go source, callback, pairs context)
         | ExpressionRecipe.ListSortBy(source, callback, context) -> ExpressionRecipe.ListSortBy(go source, callback, pairs context)
         | ExpressionRecipe.MapMapValues(source, callback, context) -> ExpressionRecipe.MapMapValues(go source, callback, pairs context)
+        | ExpressionRecipe.OptionMap(source, callback, context) -> ExpressionRecipe.OptionMap(go source, callback, pairs context)
+        | ExpressionRecipe.OptionAndThen(source, callback, context) -> ExpressionRecipe.OptionAndThen(go source, callback, pairs context)
+        | ExpressionRecipe.ResultMap(source, callback, context) -> ExpressionRecipe.ResultMap(go source, callback, pairs context)
+        | ExpressionRecipe.ResultMapErr(source, callback, context) -> ExpressionRecipe.ResultMapErr(go source, callback, pairs context)
+        | ExpressionRecipe.ResultAndThen(source, callback, context) -> ExpressionRecipe.ResultAndThen(go source, callback, pairs context)
         | ExpressionRecipe.ListMinBy(source, callback, context) -> ExpressionRecipe.ListMinBy(go source, callback, pairs context)
         | ExpressionRecipe.ListAny(source, callback, context) -> ExpressionRecipe.ListAny(go source, callback, pairs context)
         | ExpressionRecipe.ListFindIndex(source, callback, context) -> ExpressionRecipe.ListFindIndex(go source, callback, pairs context)
@@ -423,6 +434,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.UnionConstruct(variantId, fields) -> ExpressionRecipe.UnionConstruct(variantId, pairs fields)
         | ExpressionRecipe.OptionNone itemType -> ExpressionRecipe.OptionNone(mapType itemType)
         | ExpressionRecipe.OptionSome value -> ExpressionRecipe.OptionSome(go value)
+        | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> ExpressionRecipe.OptionGetOrDefault(go option, go defaultValue)
         | ExpressionRecipe.ResultOk(errorType, value) -> ExpressionRecipe.ResultOk(mapType errorType, go value)
         | ExpressionRecipe.Abort error -> ExpressionRecipe.Abort(go error)
         | ExpressionRecipe.ResultErr(okType, error) -> ExpressionRecipe.ResultErr(mapType okType, go error)
@@ -661,6 +673,7 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListInsertAt(list, index, item) -> seq { list; index; item }
         | ExpressionRecipe.MapInsert(map, key, value) -> seq { map; key; value }
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> seq { map; key; defaultValue }
+        | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> seq { option; defaultValue }
         | ExpressionRecipe.StringContains(left, right)
         | ExpressionRecipe.StringLastIndexOf(left, right)
         | ExpressionRecipe.StringStartsWith(left, right)
@@ -757,6 +770,11 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.MapFilter(source, _, context)
         | ExpressionRecipe.ListSortBy(source, _, context)
         | ExpressionRecipe.MapMapValues(source, _, context)
+        | ExpressionRecipe.OptionMap(source, _, context)
+        | ExpressionRecipe.OptionAndThen(source, _, context)
+        | ExpressionRecipe.ResultMap(source, _, context)
+        | ExpressionRecipe.ResultMapErr(source, _, context)
+        | ExpressionRecipe.ResultAndThen(source, _, context)
         | ExpressionRecipe.ListMinBy(source, _, context)
         | ExpressionRecipe.ListAny(source, _, context)
         | ExpressionRecipe.ListFindIndex(source, _, context)
@@ -1214,6 +1232,49 @@ module AgentExpressionStructuralWorkflow =
                         )
                     | Some substitution -> Ok(callback, substitution)
 
+        /// The OptionMap, OptionAndThen, ResultMap, ResultMapErr and ResultAndThen callback: exactly one
+        /// parameter not bound by context, receiving `payloadType` (`payloadName` in messages), with no
+        /// required effects. Returns the callback and its substituted result type.
+        let validateCaseCallback role callbackFunctionId context payloadType (payloadName: string) inferValue =
+            match Map.tryFind callbackFunctionId functionsById with
+            | None ->
+                Error(diagnostic "PureExpressionCallbackNotFound" $"{role} callback function '{StableId.value callbackFunctionId}' does not exist.")
+            | Some callback ->
+                match validateCallbackContext role callback context inferValue with
+                | Error error -> Error error
+                | Ok(unbound, _) when List.length unbound <> 1 ->
+                    Error(
+                        diagnostic
+                            "PureExpressionCallbackArityMismatch"
+                            $"{role} callback function {callbackName callback} must have exactly one parameter not bound by context; it has type {callbackSignature callback} and context binds {List.length context}."
+                    )
+                | Ok(unbound, substitution) ->
+                    match TypeParameters.matchType substitution unbound.Head.Type payloadType with
+                    | None ->
+                        Error(
+                            diagnostic
+                                "PureExpressionCallbackInputTypeMismatch"
+                                $"{role} callback function {callbackName callback} input type does not match the {payloadName} type {ty payloadType}; the callback has type {callbackSignature callback}."
+                        )
+                    | Some _ when not (PureFunctions.isPure snapshot callback.Id) ->
+                        Error(
+                            diagnostic
+                                "PureExpressionCallbackEffectsNotAllowed"
+                                $"{role} callback function {callbackName callback} must be pure, including its transitive calls and ambient task or cancellation behavior."
+                        )
+                    | Some substitution -> Ok(callback, TypeParameters.substitute substitution callback.ResultType)
+
+        let optionMismatch role actual =
+            diagnostic "PureExpressionOperandTypeMismatch" $"{role} option operand requires Option<T>, but the recipe produces {ty actual}."
+
+        let resultMismatch role actual =
+            diagnostic "PureExpressionOperandTypeMismatch" $"{role} result operand requires Result<T, E>, but the recipe produces {ty actual}."
+
+        let binderResultMismatch role (callback: SemanticFunction) expected =
+            diagnostic
+                "PureExpressionCallbackResultTypeMismatch"
+                $"{role} callback function {callbackName callback} must return {expected}; it has type {callbackSignature callback}."
+
         /// The ListSortBy and ListMinBy callback: exactly two parameters not bound by context, both of the item type
         /// (left, right), returning Bool, with no required effects.
         let validateLessThanCallback role callbackFunctionId context sourceItemType inferValue =
@@ -1602,7 +1663,8 @@ module AgentExpressionStructuralWorkflow =
             | ExpressionRecipe.MapUnion _
             | ExpressionRecipe.SetSize _
             | ExpressionRecipe.SetToList _
-            | ExpressionRecipe.OptionSome _ -> fixedSignature ()
+            | ExpressionRecipe.OptionSome _
+            | ExpressionRecipe.OptionGetOrDefault _ -> fixedSignature ()
             | ExpressionRecipe.BoolAnd(left, right)
             | ExpressionRecipe.BoolOr(left, right) ->
                 let role =
@@ -2035,6 +2097,45 @@ module AgentExpressionStructuralWorkflow =
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ _ ]) as resultType -> Ok resultType
                             | other ->
                                 Error(diagnostic "PureExpressionCallbackResultTypeMismatch" $"ListFlatMap mapper {callbackName mapper} must return List<R>, not {ty other}; it has type {callbackSignature mapper}. Use ListMap for a mapper that returns one item.")
+            | ExpressionRecipe.OptionMap(source, mapperFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])) ->
+                    validateCaseCallback "OptionMap" mapperFunctionId context itemType "Some value" (infer frames)
+                    |> Result.map (fun (_, mapped) -> optionType mapped)
+                | Ok sourceType -> Error(optionMismatch "OptionMap" sourceType)
+            | ExpressionRecipe.OptionAndThen(source, binderFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])) ->
+                    match validateCaseCallback "OptionAndThen" binderFunctionId context itemType "Some value" (infer frames) with
+                    | Error error -> Error error
+                    | Ok(_, (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ _ ]) as bound)) -> Ok bound
+                    | Ok(binder, _) -> Error(binderResultMismatch "OptionAndThen" binder "Option<R>")
+                | Ok sourceType -> Error(optionMismatch "OptionAndThen" sourceType)
+            | ExpressionRecipe.ResultMap(source, mapperFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])) ->
+                    validateCaseCallback "ResultMap" mapperFunctionId context okType "Ok value" (infer frames)
+                    |> Result.map (fun (_, mapped) -> resultType mapped errorType)
+                | Ok sourceType -> Error(resultMismatch "ResultMap" sourceType)
+            | ExpressionRecipe.ResultMapErr(source, mapperFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])) ->
+                    validateCaseCallback "ResultMapErr" mapperFunctionId context errorType "Err error" (infer frames)
+                    |> Result.map (fun (_, mapped) -> resultType okType mapped)
+                | Ok sourceType -> Error(resultMismatch "ResultMapErr" sourceType)
+            | ExpressionRecipe.ResultAndThen(source, binderFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ])) ->
+                    match validateCaseCallback "ResultAndThen" binderFunctionId context okType "Ok value" (infer frames) with
+                    | Error error -> Error error
+                    | Ok(_, (TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; boundError ]) as bound)) when boundError = errorType -> Ok bound
+                    | Ok(binder, _) -> Error(binderResultMismatch "ResultAndThen" binder $"Result<R, {ty errorType}>")
+                | Ok sourceType -> Error(resultMismatch "ResultAndThen" sourceType)
             | ExpressionRecipe.MapFromList(source, keyOfFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error
@@ -2820,6 +2921,11 @@ module AgentExpressionStructuralWorkflow =
         | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId context
         | ExpressionRecipe.MapFilter(source, keepFunctionId, context) -> listCallback SemanticNodeKind.MapFilter source keepFunctionId context
         | ExpressionRecipe.MapMapValues(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.MapMapValues source mapperFunctionId context
+        | ExpressionRecipe.OptionMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.OptionMap source mapperFunctionId context
+        | ExpressionRecipe.OptionAndThen(source, binderFunctionId, context) -> listCallback SemanticNodeKind.OptionAndThen source binderFunctionId context
+        | ExpressionRecipe.ResultMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ResultMap source mapperFunctionId context
+        | ExpressionRecipe.ResultMapErr(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ResultMapErr source mapperFunctionId context
+        | ExpressionRecipe.ResultAndThen(source, binderFunctionId, context) -> listCallback SemanticNodeKind.ResultAndThen source binderFunctionId context
         | ExpressionRecipe.ListSortBy(source, lessThanFunctionId, context) -> listCallback SemanticNodeKind.ListSortBy source lessThanFunctionId context
         | ExpressionRecipe.ListMinBy(source, lessThanFunctionId, context) -> listCallback SemanticNodeKind.ListMinBy source lessThanFunctionId context
         | ExpressionRecipe.ListAny(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId context
@@ -2862,6 +2968,7 @@ module AgentExpressionStructuralWorkflow =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.OptionNone itemType } ], nodeId
         | ExpressionRecipe.OptionSome value -> unary SemanticNodeKind.OptionSome value
+        | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> binary SemanticNodeKind.OptionGetOrDefault option defaultValue
         | ExpressionRecipe.ResultOk(errorType, value) -> unary (fun valueNodeId -> SemanticNodeKind.ResultOk(errorType, valueNodeId)) value
         | ExpressionRecipe.Abort error -> unary SemanticNodeKind.Abort error
         | ExpressionRecipe.ResultErr(okType, error) -> unary (fun errorNodeId -> SemanticNodeKind.ResultErr(okType, errorNodeId)) error

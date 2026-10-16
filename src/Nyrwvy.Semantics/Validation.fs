@@ -659,6 +659,67 @@ module SnapshotValidator =
                 | Some _ -> add "MapInputTypeMismatch" $"{name} node '{StableId.value nodeId}' requires a Map<K, V> input."
                 | None -> ()
 
+            /// OptionMap, OptionAndThen, ResultMap, ResultMapErr and ResultAndThen: a pure callback with
+            /// exactly one parameter not bound by context, receiving the payload of the case it runs for.
+            /// `payloadOf` picks that payload from the source type (None for a source of another shape);
+            /// a binder also states which results it accepts for the source type.
+            let validateCaseCallback
+                (name: string)
+                (sourceShape: string)
+                (nodeId: GraphNodeId)
+                sourceNodeId
+                callbackFunctionId
+                (context: ArgumentBinding list)
+                (payloadOf: TypeRef -> TypeRef option)
+                (binderResult: ((TypeRef -> TypeRef -> bool) * string) option)
+                =
+                match nodeType sourceNodeId with
+                | Some sourceType ->
+                    match payloadOf sourceType with
+                    | None -> add "HigherOrderSourceTypeMismatch" $"{name} node '{StableId.value nodeId}' requires {sourceShape} input."
+                    | Some payloadType ->
+                        match Map.tryFind callbackFunctionId functionsById with
+                        | None -> add "UnknownCallbackFunction" $"{name} node '{StableId.value nodeId}' references unknown callback function '{StableId.value callbackFunctionId}'."
+                        | Some callback ->
+                            let unbound, contextSubstitution = validateCallbackContext nodeId callback context
+                            let mutable substitution = contextSubstitution
+                            match unbound with
+                            | [ parameter ] ->
+                                match TypeParameters.matchType substitution parameter.Type payloadType with
+                                | Some extended -> substitution <- extended
+                                | None -> add "CallbackParameterTypeMismatch" $"{name} node '{StableId.value nodeId}' callback parameter type does not match the {sourceShape} payload type."
+                            | _ ->
+                                add "CallbackArityMismatch" $"{name} node '{StableId.value nodeId}' requires callback '{StableId.value callback.Id}' to have exactly one parameter not bound by context."
+                            match binderResult with
+                            | Some(accepts, expected) when not (accepts sourceType (TypeParameters.substitute substitution callback.ResultType)) ->
+                                add "CallbackResultTypeMismatch" $"{name} node '{StableId.value nodeId}' callback must return {expected}."
+                            | _ -> ()
+                            if not (PureFunctions.isPure snapshot callback.Id) then
+                                add "CallbackEffectsNotAllowed" $"{name} node '{StableId.value nodeId}' requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls."
+                | None -> ()
+
+            let optionItem sourceType =
+                match sourceType with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]) -> Some itemType
+                | _ -> None
+
+            let resultOk sourceType =
+                match sourceType with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ]) -> Some okType
+                | _ -> None
+
+            let resultError sourceType =
+                match sourceType with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; errorType ]) -> Some errorType
+                | _ -> None
+
+            let returnsOption _ result = (optionItem result).IsSome
+
+            let returnsResultWithSourceError source result =
+                match resultError source, resultError result with
+                | Some sourceError, Some resultError -> sourceError = resultError
+                | _ -> false
+
             let validateFieldBindings
                 (context: string)
                 (expectedFields: SemanticField list)
@@ -1244,6 +1305,17 @@ module SnapshotValidator =
                                 (TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]))
                                 rightMapNodeId
                         | None -> ()
+                    | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
+                        match nodeType optionNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])) ->
+                            requireNodeType
+                                "OptionDefaultTypeMismatch"
+                                $"OptionGetOrDefault node '{StableId.value node.Id}' requires a default of the option's item type."
+                                itemType
+                                defaultNodeId
+                        | Some _ ->
+                            add "OptionInputTypeMismatch" $"OptionGetOrDefault node '{StableId.value node.Id}' requires an Option<T> input."
+                        | None -> ()
                     | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) ->
                         match requireMapInput node.Id sourceMapNodeId with
                         | Some(keyType, valueType) ->
@@ -1452,6 +1524,24 @@ module SnapshotValidator =
                         validateMapEntryCallback "MapFilter" true node.Id sourceMapNodeId keepFunctionId context
                     | SemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
                         validateMapEntryCallback "MapMapValues" false node.Id sourceMapNodeId mapperFunctionId context
+                    | SemanticNodeKind.OptionMap(sourceNodeId, mapperFunctionId, context) ->
+                        validateCaseCallback "OptionMap" "Option<T>" node.Id sourceNodeId mapperFunctionId context optionItem None
+                    | SemanticNodeKind.OptionAndThen(sourceNodeId, binderFunctionId, context) ->
+                        validateCaseCallback "OptionAndThen" "Option<T>" node.Id sourceNodeId binderFunctionId context optionItem (Some(returnsOption, "Option<R>"))
+                    | SemanticNodeKind.ResultMap(sourceNodeId, mapperFunctionId, context) ->
+                        validateCaseCallback "ResultMap" "Result<T, E>" node.Id sourceNodeId mapperFunctionId context resultOk None
+                    | SemanticNodeKind.ResultMapErr(sourceNodeId, mapperFunctionId, context) ->
+                        validateCaseCallback "ResultMapErr" "Result<T, E>" node.Id sourceNodeId mapperFunctionId context resultError None
+                    | SemanticNodeKind.ResultAndThen(sourceNodeId, binderFunctionId, context) ->
+                        validateCaseCallback
+                            "ResultAndThen"
+                            "Result<T, E>"
+                            node.Id
+                            sourceNodeId
+                            binderFunctionId
+                            context
+                            resultOk
+                            (Some(returnsResultWithSourceError, "Result<R, E> with the source's error type E"))
                     | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                         match nodeType sourceListNodeId, nodeType seedNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some seedType ->
@@ -2362,6 +2452,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListIndexOf _
                 | SemanticNodeKind.ListLastIndexOf _
                 | SemanticNodeKind.MapGet _
+                | SemanticNodeKind.OptionGetOrDefault _
                 | SemanticNodeKind.MapGetOrDefault _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
@@ -2390,6 +2481,11 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.MapFilter _
                 | SemanticNodeKind.ListSortBy _
+                | SemanticNodeKind.OptionMap _
+                | SemanticNodeKind.OptionAndThen _
+                | SemanticNodeKind.ResultMap _
+                | SemanticNodeKind.ResultMapErr _
+                | SemanticNodeKind.ResultAndThen _
                 | SemanticNodeKind.MapMapValues _
                 | SemanticNodeKind.ListMinBy _
                 | SemanticNodeKind.ListAny _

@@ -154,6 +154,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ListIndexOf _
                 | TypedSemanticNodeKind.ListLastIndexOf _
                 | TypedSemanticNodeKind.MapGet _
+                | TypedSemanticNodeKind.OptionGetOrDefault _
                 | TypedSemanticNodeKind.MapGetOrDefault _
                 | TypedSemanticNodeKind.ListAppendItem _
                 | TypedSemanticNodeKind.ListConcat _
@@ -182,6 +183,11 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ListFilter _
                 | TypedSemanticNodeKind.MapFilter _
                 | TypedSemanticNodeKind.ListSortBy _
+                | TypedSemanticNodeKind.OptionMap _
+                | TypedSemanticNodeKind.OptionAndThen _
+                | TypedSemanticNodeKind.ResultMap _
+                | TypedSemanticNodeKind.ResultMapErr _
+                | TypedSemanticNodeKind.ResultAndThen _
                 | TypedSemanticNodeKind.MapMapValues _
                 | TypedSemanticNodeKind.ListMinBy _
                 | TypedSemanticNodeKind.ListAny _
