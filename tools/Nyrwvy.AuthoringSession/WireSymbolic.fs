@@ -259,17 +259,6 @@ module internal WireSymbolic =
         (parameterContext: ParameterContext)
         (element: JsonElement)
         : ExpressionRecipe =
-        let unary context constructor =
-            ensureFields context [ "kind"; "value" ] [ "kind"; "value" ] element
-            constructor(recipe declarations parameterContext (property "value" element))
-
-        let binary context constructor =
-            ensureFields context [ "kind"; "left"; "right" ] [ "kind"; "left"; "right" ] element
-            constructor(
-                recipe declarations parameterContext (property "left" element),
-                recipe declarations parameterContext (property "right" element)
-            )
-
         /// Optional callback context: `[{ "parameter": <callback parameter display name>, "value" }]`.
         let namedCallbackContext name (callback: SemanticFunction) =
             match tryProperty name element with
@@ -315,208 +304,6 @@ module internal WireSymbolic =
                     { ScopeDepth = requiredInt "scopeDepth" element
                       Slot = RecipePatternSlot.Field field.Id }
             | value -> fail $"Unsupported pattern slot '{value}'."
-        | "stringLiteral" ->
-            ensureFields "string literal recipe" [ "kind"; "value" ] [ "kind"; "value" ] element
-            ExpressionRecipe.StringLiteral(requiredRunText "value" element)
-        | "boolLiteral" ->
-            ensureFields "bool literal recipe" [ "kind"; "value" ] [ "kind"; "value" ] element
-            ExpressionRecipe.BoolLiteral(requiredBool "value" element)
-        | "unitLiteral" ->
-            ensureFields "unit literal recipe" [ "kind" ] [ "kind" ] element
-            ExpressionRecipe.UnitLiteral
-        | "int64Literal" ->
-            ensureFields "int64 literal recipe" [ "kind"; "value" ] [ "kind"; "value" ] element
-            ExpressionRecipe.Int64Literal(requiredInt64 "value" element)
-        | "float64Literal" ->
-            ensureFields "float64 literal recipe" [ "kind"; "bits" ] [ "kind"; "bits" ] element
-            match Float64Bits.tryParseHex (requiredString "bits" element) with
-            | Ok bits -> ExpressionRecipe.Float64Literal bits
-            | Error error -> fail $"Invalid Float64 bits: {error}."
-        | "stringIsEmpty" -> unary "string-is-empty recipe" ExpressionRecipe.StringIsEmpty
-        | "int64ToString" -> unary "int64-to-string recipe" ExpressionRecipe.Int64ToString
-        | "int64ToHexString" -> unary "int64-to-hex-string recipe" ExpressionRecipe.Int64ToHexString
-        | "stringParseInt64" -> unary "string-parse-int64 recipe" ExpressionRecipe.StringParseInt64
-        | "stringParseInt64Hex" -> unary "string-parse-int64-hex recipe" ExpressionRecipe.StringParseInt64Hex
-        | "float64ToString" -> unary "float64-to-string recipe" ExpressionRecipe.Float64ToString
-        | "stringParseFloat64" -> unary "string-parse-float64 recipe" ExpressionRecipe.StringParseFloat64
-        | "stringCodePoints" -> unary "string-code-points recipe" ExpressionRecipe.StringCodePoints
-        | "stringToLower" -> unary "string-to-lower recipe" ExpressionRecipe.StringToLower
-        | "stringToUpper" -> unary "string-to-upper recipe" ExpressionRecipe.StringToUpper
-        | "stringDecodeUtf8Lossy" -> unary "string-decode-utf8-lossy recipe" ExpressionRecipe.StringDecodeUtf8Lossy
-        | "float64RoundToInt64" -> unary "float64-round-to-int64 recipe" ExpressionRecipe.Float64RoundToInt64
-        | "float64FloorToInt64" -> unary "float64-floor-to-int64 recipe" ExpressionRecipe.Float64FloorToInt64
-        | "float64Sqrt" -> unary "float64-sqrt recipe" ExpressionRecipe.Float64Sqrt
-        | "float64Abs" -> unary "float64-abs recipe" ExpressionRecipe.Float64Abs
-        | "float64Negate" -> unary "float64-negate recipe" ExpressionRecipe.Float64Negate
-        | "float64Floor" -> unary "float64-floor recipe" ExpressionRecipe.Float64Floor
-        | "float64Ceiling" -> unary "float64-ceiling recipe" ExpressionRecipe.Float64Ceiling
-        | "float64Truncate" -> unary "float64-truncate recipe" ExpressionRecipe.Float64Truncate
-        | "stringUtf8ByteCount" -> unary "string-utf8-byte-count recipe" ExpressionRecipe.StringUtf8ByteCount
-        | "stringFromCodePoint" -> unary "string-from-code-point recipe" ExpressionRecipe.StringFromCodePoint
-        | "stringToCodePoint" -> unary "string-to-code-point recipe" ExpressionRecipe.StringToCodePoint
-        | "stringLength" -> unary "string-length recipe" ExpressionRecipe.StringLength
-        | "stringSlice" ->
-            ensureFields "string-slice recipe" [ "kind"; "value"; "start"; "end" ] [ "kind"; "value"; "start"; "end" ] element
-            ExpressionRecipe.StringSlice(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "start" element),
-                recipe declarations parameterContext (property "end" element)
-            )
-        | "stringContains" ->
-            ensureFields "string-contains recipe" [ "kind"; "value"; "substring" ] [ "kind"; "value"; "substring" ] element
-            ExpressionRecipe.StringContains(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "substring" element)
-            )
-        | "stringIndexOf" ->
-            ensureFields "string-index-of recipe" [ "kind"; "value"; "substring"; "from" ] [ "kind"; "value"; "substring"; "from" ] element
-            ExpressionRecipe.StringIndexOf(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "substring" element),
-                recipe declarations parameterContext (property "from" element)
-            )
-        | "stringSpan" ->
-            ensureFields "string-span recipe" [ "kind"; "value"; "set"; "from" ] [ "kind"; "value"; "set"; "from" ] element
-            ExpressionRecipe.StringSpan(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "set" element),
-                recipe declarations parameterContext (property "from" element)
-            )
-        | "stringSpanBack" ->
-            ensureFields "string-span-back recipe" [ "kind"; "value"; "set"; "end" ] [ "kind"; "value"; "set"; "end" ] element
-            ExpressionRecipe.StringSpanBack(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "set" element),
-                recipe declarations parameterContext (property "end" element)
-            )
-        | "stringLastIndexOf" ->
-            ensureFields "string-last-index-of recipe" [ "kind"; "value"; "substring" ] [ "kind"; "value"; "substring" ] element
-            ExpressionRecipe.StringLastIndexOf(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "substring" element)
-            )
-        | "stringStartsWith" ->
-            ensureFields "string-starts-with recipe" [ "kind"; "value"; "prefix" ] [ "kind"; "value"; "prefix" ] element
-            ExpressionRecipe.StringStartsWith(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "prefix" element)
-            )
-        | "stringEndsWith" ->
-            ensureFields "string-ends-with recipe" [ "kind"; "value"; "suffix" ] [ "kind"; "value"; "suffix" ] element
-            ExpressionRecipe.StringEndsWith(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "suffix" element)
-            )
-        | "stringSplit" ->
-            ensureFields "string-split recipe" [ "kind"; "value"; "separator" ] [ "kind"; "value"; "separator" ] element
-            ExpressionRecipe.StringSplit(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "separator" element)
-            )
-        | "stringSplitLines" ->
-            ensureFields "string-split-lines recipe" [ "kind"; "value"; "breaks" ] [ "kind"; "value"; "breaks" ] element
-            ExpressionRecipe.StringSplitLines(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "breaks" element)
-            )
-        | "stringReplace" ->
-            ensureFields "string-replace recipe" [ "kind"; "value"; "pattern"; "replacement" ] [ "kind"; "value"; "pattern"; "replacement" ] element
-            ExpressionRecipe.StringReplace(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "pattern" element),
-                recipe declarations parameterContext (property "replacement" element)
-            )
-        | "stringTrim" -> unary "string-trim recipe" ExpressionRecipe.StringTrim
-        | "stringTrimStart" -> unary "string-trim-start recipe" ExpressionRecipe.StringTrimStart
-        | "stringTrimEnd" -> unary "string-trim-end recipe" ExpressionRecipe.StringTrimEnd
-        | "stringJoin" ->
-            ensureFields "string-join recipe" [ "kind"; "list"; "separator" ] [ "kind"; "list"; "separator" ] element
-            ExpressionRecipe.StringJoin(
-                recipe declarations parameterContext (property "list" element),
-                recipe declarations parameterContext (property "separator" element)
-            )
-        | "stringEqual" -> binary "string-equal recipe" ExpressionRecipe.StringEqual
-        | "stringLessThan" -> binary "string-less-than recipe" ExpressionRecipe.StringLessThan
-        | "valueEqual" -> binary "value-equal recipe" ExpressionRecipe.ValueEqual
-        | "stringConcat" -> binary "string-concat recipe" ExpressionRecipe.StringConcat
-        | "int64WrappingAdd" -> binary "int64-wrapping-add recipe" ExpressionRecipe.Int64WrappingAdd
-        | "int64WrappingSubtract" -> binary "int64-wrapping-subtract recipe" ExpressionRecipe.Int64WrappingSubtract
-        | "int64WrappingMultiply" -> binary "int64-wrapping-multiply recipe" ExpressionRecipe.Int64WrappingMultiply
-        | "int64FloorDivide" -> binary "int64-floor-divide recipe" ExpressionRecipe.Int64FloorDivide
-        | "int64FloorModulo" -> binary "int64-floor-modulo recipe" ExpressionRecipe.Int64FloorModulo
-        | "int64Min" -> binary "int64-min recipe" ExpressionRecipe.Int64Min
-        | "int64Max" -> binary "int64-max recipe" ExpressionRecipe.Int64Max
-        | "int64BitAnd" -> binary "int64-bit-and recipe" ExpressionRecipe.Int64BitAnd
-        | "int64BitOr" -> binary "int64-bit-or recipe" ExpressionRecipe.Int64BitOr
-        | "int64BitXor" -> binary "int64-bit-xor recipe" ExpressionRecipe.Int64BitXor
-        | "int64ShiftLeft" ->
-            ensureFields "int64-shift-left recipe" [ "kind"; "value"; "count" ] [ "kind"; "value"; "count" ] element
-            ExpressionRecipe.Int64ShiftLeft(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "count" element)
-            )
-        | "int64ShiftRight" ->
-            ensureFields "int64-shift-right recipe" [ "kind"; "value"; "count" ] [ "kind"; "value"; "count" ] element
-            ExpressionRecipe.Int64ShiftRight(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "count" element)
-            )
-        | "int64CheckedAdd" -> binary "int64-checked-add recipe" ExpressionRecipe.Int64CheckedAdd
-        | "int64CheckedSubtract" -> binary "int64-checked-subtract recipe" ExpressionRecipe.Int64CheckedSubtract
-        | "int64CheckedMultiply" -> binary "int64-checked-multiply recipe" ExpressionRecipe.Int64CheckedMultiply
-        | "listRange" ->
-            ensureFields "list-range recipe" [ "kind"; "start"; "end" ] [ "kind"; "start"; "end" ] element
-            ExpressionRecipe.ListRange(
-                recipe declarations parameterContext (property "start" element),
-                recipe declarations parameterContext (property "end" element)
-            )
-        | "stringRepeat" ->
-            ensureFields "string-repeat recipe" [ "kind"; "text"; "count" ] [ "kind"; "text"; "count" ] element
-            ExpressionRecipe.StringRepeat(
-                recipe declarations parameterContext (property "text" element),
-                recipe declarations parameterContext (property "count" element)
-            )
-        | "float64Round" ->
-            ensureFields "float64-round recipe" [ "kind"; "value"; "digits" ] [ "kind"; "value"; "digits" ] element
-            ExpressionRecipe.Float64Round(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "digits" element)
-            )
-        | "int64Equal" -> binary "int64-equal recipe" ExpressionRecipe.Int64Equal
-        | "int64LessThan" -> binary "int64-less-than recipe" ExpressionRecipe.Int64LessThan
-        | "int64LessThanOrEqual" -> binary "int64-less-than-or-equal recipe" ExpressionRecipe.Int64LessThanOrEqual
-        | "int64GreaterThan" -> binary "int64-greater-than recipe" ExpressionRecipe.Int64GreaterThan
-        | "int64GreaterThanOrEqual" -> binary "int64-greater-than-or-equal recipe" ExpressionRecipe.Int64GreaterThanOrEqual
-        | "float64Add" -> binary "float64-add recipe" ExpressionRecipe.Float64Add
-        | "float64Min" -> binary "float64-min recipe" ExpressionRecipe.Float64Min
-        | "float64Max" -> binary "float64-max recipe" ExpressionRecipe.Float64Max
-        | "float64Subtract" -> binary "float64-subtract recipe" ExpressionRecipe.Float64Subtract
-        | "float64Multiply" -> binary "float64-multiply recipe" ExpressionRecipe.Float64Multiply
-        | "float64Divide" -> binary "float64-divide recipe" ExpressionRecipe.Float64Divide
-        | "float64Equal" -> binary "float64-equal recipe" ExpressionRecipe.Float64Equal
-        | "float64LessThan" -> binary "float64-less-than recipe" ExpressionRecipe.Float64LessThan
-        | "float64IsNaN" -> unary "float64-is-nan recipe" ExpressionRecipe.Float64IsNaN
-        | "float64IsFinite" -> unary "float64-is-finite recipe" ExpressionRecipe.Float64IsFinite
-        | "float64IsInfinite" -> unary "float64-is-infinite recipe" ExpressionRecipe.Float64IsInfinite
-        | "int64ToFloat64" -> unary "int64-to-float64 recipe" ExpressionRecipe.Int64ToFloat64
-        | "int64WrappingAbs" -> unary "int64-wrapping-abs recipe" ExpressionRecipe.Int64WrappingAbs
-        | "int64BitNot" -> unary "int64-bit-not recipe" ExpressionRecipe.Int64BitNot
-        | "bits32FromInt64" -> unary "bits32-from-int64 recipe" ExpressionRecipe.Bits32FromInt64
-        | "bits32ToInt64" -> unary "bits32-to-int64 recipe" ExpressionRecipe.Bits32ToInt64
-        | "bits32Not" -> unary "bits32-not recipe" ExpressionRecipe.Bits32Not
-        | "bits32Xor" -> binary "bits32-xor recipe" ExpressionRecipe.Bits32Xor
-        | "bits32And" -> binary "bits32-and recipe" ExpressionRecipe.Bits32And
-        | "bits32Or" -> binary "bits32-or recipe" ExpressionRecipe.Bits32Or
-        | "bits32Add" -> binary "bits32-add recipe" ExpressionRecipe.Bits32Add
-        | "bits32RotateRight" ->
-            ensureFields "bits32-rotate-right recipe" [ "kind"; "value"; "amount" ] [ "kind"; "value"; "amount" ] element
-            ExpressionRecipe.Bits32RotateRight(recipe declarations parameterContext (property "value" element), recipe declarations parameterContext (property "amount" element))
-        | "bits32ShiftRight" ->
-            ensureFields "bits32-shift-right recipe" [ "kind"; "value"; "amount" ] [ "kind"; "value"; "amount" ] element
-            ExpressionRecipe.Bits32ShiftRight(recipe declarations parameterContext (property "value" element), recipe declarations parameterContext (property "amount" element))
-        | "bits32ShiftLeft" ->
-            ensureFields "bits32-shift-left recipe" [ "kind"; "value"; "amount" ] [ "kind"; "value"; "amount" ] element
-            ExpressionRecipe.Bits32ShiftLeft(recipe declarations parameterContext (property "value" element), recipe declarations parameterContext (property "amount" element))
         | "listEmpty" ->
             ensureFields "list-empty recipe" [ "kind"; "itemType" ] [ "kind"; "itemType" ] element
             ExpressionRecipe.ListEmpty(typeRef declarations (property "itemType" element))
@@ -532,126 +319,6 @@ module internal WireSymbolic =
                 typeRef declarations (property "itemType" element),
                 array "items" element |> List.map (recipe declarations parameterContext)
             )
-        | "listLength" -> unary "list-length recipe" ExpressionRecipe.ListLength
-        | "mapValues" -> unary "map-values recipe" ExpressionRecipe.MapValues
-        | "mapKeys" -> unary "map-keys recipe" ExpressionRecipe.MapKeys
-        | "setToList" -> unary "set-to-list recipe" ExpressionRecipe.SetToList
-        | "mapSize" -> unary "map-size recipe" ExpressionRecipe.MapSize
-        | "setFromList" -> unary "set-from-list recipe" ExpressionRecipe.SetFromList
-        | "setSize" -> unary "set-size recipe" ExpressionRecipe.SetSize
-        | "listReverse" -> unary "list-reverse recipe" ExpressionRecipe.ListReverse
-        | "listLast" -> unary "list-last recipe" ExpressionRecipe.ListLast
-        | "listDropLast" -> unary "list-drop-last recipe" ExpressionRecipe.ListDropLast
-        | "listItemAt" ->
-            ensureFields "list-item-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
-            ExpressionRecipe.ListItemAt(
-                recipe declarations parameterContext (property "list" element),
-                recipe declarations parameterContext (property "index" element)
-            )
-        | "mapRemove" ->
-            ensureFields "map-remove recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
-            ExpressionRecipe.MapRemove(
-                recipe declarations parameterContext (property "map" element),
-                recipe declarations parameterContext (property "key" element)
-            )
-        | "setInsert" ->
-            ensureFields "set-insert recipe" [ "kind"; "set"; "item" ] [ "kind"; "set"; "item" ] element
-            ExpressionRecipe.SetInsert(
-                recipe declarations parameterContext (property "set" element),
-                recipe declarations parameterContext (property "item" element)
-            )
-        | "setRemove" ->
-            ensureFields "set-remove recipe" [ "kind"; "set"; "item" ] [ "kind"; "set"; "item" ] element
-            ExpressionRecipe.SetRemove(
-                recipe declarations parameterContext (property "set" element),
-                recipe declarations parameterContext (property "item" element)
-            )
-        | "mapContainsKey" ->
-            ensureFields "map-contains-key recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
-            ExpressionRecipe.MapContainsKey(
-                recipe declarations parameterContext (property "map" element),
-                recipe declarations parameterContext (property "key" element)
-            )
-        | "setContains" ->
-            ensureFields "set-contains recipe" [ "kind"; "set"; "item" ] [ "kind"; "set"; "item" ] element
-            ExpressionRecipe.SetContains(
-                recipe declarations parameterContext (property "set" element),
-                recipe declarations parameterContext (property "item" element)
-            )
-        | "listIndexOf" ->
-            ensureFields "set-contains recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
-            ExpressionRecipe.ListIndexOf(
-                recipe declarations parameterContext (property "list" element),
-                recipe declarations parameterContext (property "item" element)
-            )
-        | "listLastIndexOf" ->
-            ensureFields "set-contains recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
-            ExpressionRecipe.ListLastIndexOf(
-                recipe declarations parameterContext (property "list" element),
-                recipe declarations parameterContext (property "item" element)
-            )
-        | "mapGet" ->
-            ensureFields "map-get recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
-            ExpressionRecipe.MapGet(
-                recipe declarations parameterContext (property "map" element),
-                recipe declarations parameterContext (property "key" element)
-            )
-        | "optionGetOrDefault" ->
-            ensureFields "option-get-or-default recipe" [ "kind"; "option"; "default" ] [ "kind"; "option"; "default" ] element
-            ExpressionRecipe.OptionGetOrDefault(recipe declarations parameterContext (property "option" element), recipe declarations parameterContext (property "default" element))
-        | "mapGetOrDefault" ->
-            ensureFields "map-get-or-default recipe" [ "kind"; "map"; "key"; "default" ] [ "kind"; "map"; "key"; "default" ] element
-            ExpressionRecipe.MapGetOrDefault(
-                recipe declarations parameterContext (property "map" element),
-                recipe declarations parameterContext (property "key" element),
-                recipe declarations parameterContext (property "default" element)
-            )
-        | "listSlice" ->
-            ensureFields "list-slice recipe" [ "kind"; "list"; "start"; "end" ] [ "kind"; "list"; "start"; "end" ] element
-            ExpressionRecipe.ListSlice(
-                recipe declarations parameterContext (property "list" element),
-                recipe declarations parameterContext (property "start" element),
-                recipe declarations parameterContext (property "end" element)
-            )
-        | "listSetAt" ->
-            ensureFields "list-set-at recipe" [ "kind"; "list"; "index"; "item" ] [ "kind"; "list"; "index"; "item" ] element
-            ExpressionRecipe.ListSetAt(
-                recipe declarations parameterContext (property "list" element),
-                recipe declarations parameterContext (property "index" element),
-                recipe declarations parameterContext (property "item" element)
-            )
-        | "listInsertAt" ->
-            ensureFields "list-insert-at recipe" [ "kind"; "list"; "index"; "item" ] [ "kind"; "list"; "index"; "item" ] element
-            ExpressionRecipe.ListInsertAt(
-                recipe declarations parameterContext (property "list" element),
-                recipe declarations parameterContext (property "index" element),
-                recipe declarations parameterContext (property "item" element)
-            )
-        | "listRemoveAt" ->
-            ensureFields "list-remove-at recipe" [ "kind"; "list"; "index" ] [ "kind"; "list"; "index" ] element
-            ExpressionRecipe.ListRemoveAt(
-                recipe declarations parameterContext (property "list" element),
-                recipe declarations parameterContext (property "index" element)
-            )
-        | "mapInsert" ->
-            ensureFields "map-insert recipe" [ "kind"; "map"; "key"; "value" ] [ "kind"; "map"; "key"; "value" ] element
-            ExpressionRecipe.MapInsert(
-                recipe declarations parameterContext (property "map" element),
-                recipe declarations parameterContext (property "key" element),
-                recipe declarations parameterContext (property "value" element)
-            )
-        | "listAppendItem" ->
-            ensureFields "list-append-item recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
-            ExpressionRecipe.ListAppendItem(
-                recipe declarations parameterContext (property "list" element),
-                recipe declarations parameterContext (property "item" element)
-            )
-        | "listConcat" -> binary "list-concat recipe" ExpressionRecipe.ListConcat
-        | "setUnion" -> binary "set-union recipe" ExpressionRecipe.SetUnion
-        | "setIntersection" -> binary "set-intersection recipe" ExpressionRecipe.SetIntersection
-        | "setDifference" -> binary "set-difference recipe" ExpressionRecipe.SetDifference
-        | "setIsSubset" -> binary "set-is-subset recipe" ExpressionRecipe.SetIsSubset
-        | "mapUnion" -> binary "map-union recipe" ExpressionRecipe.MapUnion
         | "listFold" ->
             ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
@@ -698,16 +365,11 @@ module internal WireSymbolic =
             ensureFields "parallel-all recipe" [ "kind"; "source"; "worker"; "context" ] [ "kind"; "source"; "worker" ] element
             let worker = resolveReferencedFunction declarations parameterContext (property "worker" element)
             ExpressionRecipe.ParallelAll(recipe declarations parameterContext (property "source" element), worker.Id, callbackContext worker)
-        | "cancellationRequested" ->
-            ensureFields "cancellation-requested recipe" [ "kind" ] [ "kind" ] element
-            ExpressionRecipe.CancellationRequested
         | "exceptionCatch" ->
             ensureFields "exception-catch recipe" [ "kind"; "body"; "handler"; "bodyContext"; "handlerContext" ] [ "kind"; "body"; "handler" ] element
             let body = resolveReferencedFunction declarations parameterContext (property "body" element)
             let handler = resolveReferencedFunction declarations parameterContext (property "handler" element)
             ExpressionRecipe.ExceptionCatch(body.Id, namedCallbackContext "bodyContext" body, handler.Id, namedCallbackContext "handlerContext" handler)
-        | "exceptionIsCancellation" -> unary "exception-is-cancellation recipe" ExpressionRecipe.ExceptionIsCancellation
-        | "exceptionMessage" -> unary "exception-message recipe" ExpressionRecipe.ExceptionMessage
         | "exceptionRethrow" ->
             ensureFields "exception-rethrow recipe" [ "kind"; "value"; "resultType" ] [ "kind"; "value"; "resultType" ] element
             ExpressionRecipe.ExceptionRethrow(recipe declarations parameterContext (property "value" element), typeRef declarations (property "resultType" element))
@@ -736,15 +398,6 @@ module internal WireSymbolic =
         | "oneShotCreate" ->
             ensureFields "one-shot-create recipe" [ "kind"; "scope"; "valueType" ] [ "kind"; "scope"; "valueType" ] element
             ExpressionRecipe.OneShotCreate(recipe declarations parameterContext (property "scope" element), typeRef declarations (property "valueType" element))
-        | "oneShotComplete" ->
-            ensureFields "one-shot-complete recipe" [ "kind"; "cell"; "value" ] [ "kind"; "cell"; "value" ] element
-            ExpressionRecipe.OneShotComplete(recipe declarations parameterContext (property "cell" element), recipe declarations parameterContext (property "value" element))
-        | "oneShotWait" ->
-            ensureFields "one-shot-wait recipe" [ "kind"; "cell"; "limit" ] [ "kind"; "cell" ] element
-            ExpressionRecipe.OneShotWait(recipe declarations parameterContext (property "cell" element), tryProperty "limit" element |> Option.map (recipe declarations parameterContext))
-        | "taskCancel" ->
-            ensureFields "task-cancel recipe" [ "kind"; "task" ] [ "kind"; "task" ] element
-            ExpressionRecipe.TaskCancel(recipe declarations parameterContext (property "task" element))
         | "mapFilter" ->
             ensureFields "map-filter recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
@@ -859,16 +512,12 @@ module internal WireSymbolic =
         | "optionNone" ->
             ensureFields "option-none recipe" [ "kind"; "itemType" ] [ "kind"; "itemType" ] element
             ExpressionRecipe.OptionNone(typeRef declarations (property "itemType" element))
-        | "optionSome" -> unary "option-some recipe" ExpressionRecipe.OptionSome
         | "resultOk" ->
             ensureFields "result-ok recipe" [ "kind"; "errorType"; "value" ] [ "kind"; "errorType"; "value" ] element
             ExpressionRecipe.ResultOk(
                 typeRef declarations (property "errorType" element),
                 recipe declarations parameterContext (property "value" element)
             )
-        | "abort" ->
-            ensureFields "abort recipe" [ "kind"; "error" ] [ "kind"; "error" ] element
-            ExpressionRecipe.Abort(recipe declarations parameterContext (property "error" element))
         | "resultErr" ->
             ensureFields "result-err recipe" [ "kind"; "okType"; "error" ] [ "kind"; "okType"; "error" ] element
             ExpressionRecipe.ResultErr(
@@ -886,9 +535,6 @@ module internal WireSymbolic =
         | "functionReference" ->
             ensureFields "Function reference recipe" [ "kind"; "function" ] [ "kind"; "function" ] element
             ExpressionRecipe.FunctionReference((resolveReferencedFunction declarations parameterContext (property "function" element)).Id)
-        | "functionInvoke" ->
-            ensureFields "Function invocation recipe" [ "kind"; "functionValue"; "arguments" ] [ "kind"; "functionValue"; "arguments" ] element
-            ExpressionRecipe.FunctionInvoke(recipe declarations parameterContext (property "functionValue" element), array "arguments" element |> List.map (recipe declarations parameterContext))
         | "directCall" ->
             ensureFields
                 "direct-call recipe"
@@ -978,20 +624,6 @@ module internal WireSymbolic =
                 operation.Id,
                 arguments
             )
-        | "boolNot" -> unary "bool-not recipe" ExpressionRecipe.BoolNot
-        | "boolAnd" -> binary "bool-and recipe" ExpressionRecipe.BoolAnd
-        | "boolOr" -> binary "bool-or recipe" ExpressionRecipe.BoolOr
-        | "conditional" ->
-            ensureFields
-                "conditional recipe"
-                [ "kind"; "condition"; "whenTrue"; "whenFalse" ]
-                [ "kind"; "condition"; "whenTrue"; "whenFalse" ]
-                element
-            ExpressionRecipe.Conditional(
-                recipe declarations parameterContext (property "condition" element),
-                recipe declarations parameterContext (property "whenTrue" element),
-                recipe declarations parameterContext (property "whenFalse" element)
-            )
         | "matchUnion" ->
             ensureFields "match-union recipe" [ "kind"; "type"; "input"; "arms"; "otherwise" ] [ "kind"; "type"; "input"; "arms" ] element
             let owner = resolveTypeAt declarations "type" element
@@ -1001,35 +633,10 @@ module internal WireSymbolic =
                 recipe declarations parameterContext (property "input" element),
                 arms
             )
-        | "bind" ->
-            ensureFields "bind recipe" [ "kind"; "value"; "body" ] [ "kind"; "value"; "body" ] element
-            ExpressionRecipe.Bind(
-                recipe declarations parameterContext (property "value" element),
-                recipe declarations parameterContext (property "body" element)
-            )
-        | "matchOption" ->
-            ensureFields
-                "match-option recipe"
-                [ "kind"; "input"; "someBody"; "noneBody" ]
-                [ "kind"; "input"; "someBody"; "noneBody" ]
-                element
-            ExpressionRecipe.MatchOption(
-                recipe declarations parameterContext (property "input" element),
-                recipe declarations parameterContext (property "someBody" element),
-                recipe declarations parameterContext (property "noneBody" element)
-            )
-        | "matchResult" ->
-            ensureFields
-                "match-result recipe"
-                [ "kind"; "input"; "okBody"; "errBody" ]
-                [ "kind"; "input"; "okBody"; "errBody" ]
-                element
-            ExpressionRecipe.MatchResult(
-                recipe declarations parameterContext (property "input" element),
-                recipe declarations parameterContext (property "okBody" element),
-                recipe declarations parameterContext (property "errBody" element)
-            )
-        | value -> fail $"Unsupported symbolic expression recipe kind '{value}'."
+        | value ->
+            match WireRecipeCommon.tryReferenceFree (recipe declarations parameterContext) element value with
+            | Some decoded -> decoded
+            | None -> fail $"Unsupported symbolic expression recipe kind '{value}'."
 
     /// Bind explicit symbolic type parameters to the existing owner, for both signatures and
     /// expression recipes. Unknown names must not introduce fresh parameters during maintenance.

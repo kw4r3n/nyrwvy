@@ -9,8 +9,9 @@ open Nyrwvy.Core
 open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
-/// Expression recipe kinds are listed three times by hand: the ID-form wire reader (`WireRecipe`),
-/// the display-name wire reader (`WireSymbolic`) and the agent-facing reference
+/// Expression recipe kinds are listed by hand in the ID-form wire reader (`WireRecipe`), the
+/// display-name wire reader (`WireSymbolic`), the reference-free kinds both share
+/// (`WireRecipeCommon`) and the agent-facing reference
 /// (`tools/nyrwvy-agent/recipe-reference.mjs`). The readers are probed by behaviour: a kind is
 /// supported when the reader does not reject it as an unknown kind. The reference signatures of
 /// fixed-signature kinds are generated from `OperationSignatures` and checked here as well.
@@ -48,6 +49,7 @@ module RecipeKindConsistencyTests =
         Seq.concat
             [ literals "tools/Nyrwvy.AuthoringSession/WireRecipe.fs"
               literals "tools/Nyrwvy.AuthoringSession/WireSymbolic.fs"
+              literals "tools/Nyrwvy.AuthoringSession/WireRecipeCommon.fs"
               cases
               Set.toSeq documented ]
         |> Set.ofSeq
