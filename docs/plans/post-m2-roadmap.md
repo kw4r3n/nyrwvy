@@ -133,14 +133,14 @@ M6 remains intentionally conditional. Choose at most one workstream when a real 
 
 **What it removes.**
 
-- The recipe kinds and node kinds [retired from the agent reference](../decisions/retired-authoring-kinds.md): `StringEqual`, `Int64Equal` and `MapGetOrDefault`.
+- The recipe kinds and node kinds [retired from the agent reference](../decisions/retired-authoring-kinds.md): `StringEqual`, `Int64Equal`, `MapGetOrDefault`, `Int64GreaterThan`, `Int64LessThanOrEqual` and `Int64GreaterThanOrEqual`, and whatever is retired later under that record.
 - `mode: "pin"` and legacy source-only dependency manifests ([pinned dependencies](../specs/agent-authoring-session.md#pinned-snapshot-dependencies)).
 - Reading snapshot JSON schemas below the version current at the cutover (today 9–18; see [snapshot schema versions](../specs/schema-evolution-policy.md#snapshot-schema-versions)); an older document gets a diagnostic that names the migration command.
 - Code kept only for the removed surfaces, such as `AgentFieldlessUnionVariantEvolutionWorkflow.simulate`.
 
 **Steps,** following the [deprecation policy](../specs/schema-evolution-policy.md#deprecation-policy):
 
-1. **Migration command.** `Nyrwvy.AuthoringSession migrate --snapshot <path>` rewrites a snapshot to the current schema: retired nodes become their replacements (`ValueEqual`, `OptionGetOrDefault` of `MapGet`), legacy pins become retained content, and the version is raised. It keeps every stable ID, validates the result and records the fingerprints before and after, under the rules for [migration](../specs/schema-evolution-policy.md#migration-is-not-an-ordinary-semantic-edit).
+1. **Migration command.** `Nyrwvy.AuthoringSession migrate --snapshot <path>` rewrites a snapshot to the current schema: retired nodes become their replacements (`ValueEqual`, `OptionGetOrDefault` of `MapGet`, `Int64LessThan` with swapped operands or under `BoolNot`), legacy pins become retained content, and the version is raised. It keeps every stable ID, validates the result and records the fingerprints before and after, under the rules for [migration](../specs/schema-evolution-policy.md#migration-is-not-an-ordinary-semantic-edit).
 2. **Examples.** The examples whose fixtures authenticate graph hashes or retained binaries of the old forms (the `member-*` and `offline-session-*` series and `offline-session-replay`) are frozen under an archive tag and removed from `main`, as the evaluation runners were; an example that is still useful as a current example is re-authored and its fixtures re-recorded instead.
 3. **Removal.** One change removes the retired kinds, `pin` and the old schema readers, with a decision record.
 4. **Afterwards.** Anything retired later is removed at the next cutover, so retired constructs do not accumulate.

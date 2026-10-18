@@ -285,7 +285,10 @@ module OperationSignatures =
         Map.ofList
             [ "stringEqual", "valueEqual"
               "int64Equal", "valueEqual"
-              "mapGetOrDefault", "optionGetOrDefault of mapGet" ]
+              "mapGetOrDefault", "optionGetOrDefault of mapGet"
+              "int64GreaterThan", "int64LessThan with swapped operands"
+              "int64LessThanOrEqual", "boolNot of int64LessThan with swapped operands"
+              "int64GreaterThanOrEqual", "boolNot of int64LessThan" ]
 
     let tryFind kind = Map.tryFind kind byKind
 
