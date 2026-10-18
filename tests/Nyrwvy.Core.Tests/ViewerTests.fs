@@ -76,11 +76,11 @@ module ViewerTests =
         let roles = nodes |> List.map (fun node -> node.Role)
         let branches = collectBranchRoles model.Graph
 
-        if not (List.contains ViewerNodeRole.Conditional roles) then
+        if not (List.contains (ViewerNodeRole.Operation "Conditional") roles) then
             failwith "Validation focus omitted conditional nodes."
-        if not (List.contains ViewerNodeRole.ResultOk roles) then
+        if not (List.contains (ViewerNodeRole.Operation "ResultOk") roles) then
             failwith "Validation focus omitted Result.Ok construction."
-        if not (List.contains ViewerNodeRole.ResultErr roles) then
+        if not (List.contains (ViewerNodeRole.Operation "ResultErr") roles) then
             failwith "Validation focus omitted Result.Err construction."
         if not (List.contains ViewerBranchRole.WhenTrue branches) then
             failwith "Validation focus omitted the true branch label."
@@ -243,15 +243,15 @@ module ViewerTests =
         let capabilityParameterId = StableId.createForTesting<CapabilityParameterTag> ("capability-parameter-" + suffix)
         let fieldId = StableId.createForTesting<FieldTag> ("field-" + suffix)
         let cases =
-            [ ViewerNodeRole.DirectCall,
+            [ ViewerNodeRole.Operation "DirectCall",
               [ ValueDependencyRole.CallArgument parameterId, "call argument parameter:parameter-" + escapedSuffix ]
-              ViewerNodeRole.CapabilityInvoke,
+              ViewerNodeRole.Operation "CapabilityInvoke",
               [ ValueDependencyRole.CapabilityValue, "capability value"
                 ValueDependencyRole.CapabilityArgument capabilityParameterId,
                 "capability argument capability-parameter:capability-parameter-" + escapedSuffix ]
-              ViewerNodeRole.ProductConstruct,
+              ViewerNodeRole.Operation "ProductConstruct",
               [ ValueDependencyRole.FieldValue fieldId, "field value field:field-" + escapedSuffix ]
-              ViewerNodeRole.UnionConstruct,
+              ViewerNodeRole.Operation "UnionConstruct",
               [ ValueDependencyRole.FieldValue fieldId, "field value field:field-" + escapedSuffix ] ]
 
         for role, dependencies in cases do
@@ -408,3 +408,32 @@ module ViewerTests =
               "Blocking obligations" ] do
             if not (document.Contains(expected, StringComparison.Ordinal)) then
                 failwithf "Change Review document omitted expected evidence: %s" expected
+
+    [<Fact>]
+    let ``every node kind is labelled from its name, established wordings kept`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let model = focus fixture fixture.ValidateFunctionId
+        let render name =
+            let node: ViewerNode =
+                { Id = StableId.createForTesting<GraphNodeTag> "node-label-check"
+                  Type = None
+                  Role = ViewerNodeRole.Operation name
+                  Relations = []
+                  ValueDependencies = []
+                  Branches = [] }
+            ViewerHtml.renderFocusDocument { model with Graph = { Nodes = [ node ]; ResultNodeId = node.Id } }
+        // A builtin added to SemanticNodeKind needs no viewer entry: its label derives from the kind name.
+        for case in Microsoft.FSharp.Reflection.FSharpType.GetUnionCases(typeof<SemanticNodeKind>) do
+            let label = Text.RegularExpressions.Regex.Match(render case.Name, "<h4>([^<]*)</h4>").Groups[1].Value
+            Assert.False(String.IsNullOrEmpty label, case.Name + " has no viewer label.")
+            if label = case.Name && case.Name |> Seq.skip 1 |> Seq.exists Char.IsUpper then
+                failwithf "%s is shown as its raw kind name." case.Name
+        for name, label in
+            [ "StringIsEmpty", "string is empty"
+              "Int64WrappingAdd", "Int64 wrapping add"
+              "Float64IsNaN", "Float64 is NaN"
+              "ListMinBy", "List min by"
+              "StringEncodeUtf8", "UTF-8 encode"
+              "OptionNone", "Option.None"
+              "ListFooBarBaz", "List foo bar baz" ] do
+            Assert.Contains("<h4>" + label + "</h4>", render name)

@@ -804,6 +804,19 @@ module NestedBinding =
         | NestedBinding.Value pattern
         | NestedBinding.Error pattern -> pattern
 
+[<RequireQualifiedAccess>]
+module SemanticNodeKind =
+    let private tagReader =
+        Microsoft.FSharp.Reflection.FSharpValue.PreComputeUnionTagReader(typeof<SemanticNodeKind>)
+
+    let private caseNames =
+        Microsoft.FSharp.Reflection.FSharpType.GetUnionCases(typeof<SemanticNodeKind>)
+        |> Array.map (fun case -> case.Name)
+
+    /// The kind's case name, such as "ListContains": the one name a node kind has, used where a
+    /// surface (the viewer, the structural wire summary) names kinds without a case per builtin.
+    let name (kind: SemanticNodeKind): string = caseNames[tagReader (box kind)]
+
 /// The one definition of how a node refers to other nodes, which graphs it owns, which types it
 /// states and which functions and capability operations it names. Every structural traversal in
 /// the Semantics layer (dependency order, cycle detection, pruning, cloning, migration, review and

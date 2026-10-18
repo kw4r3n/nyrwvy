@@ -188,11 +188,11 @@ module BoolOperatorTests =
             let xor = find session "xor"
             let viewer = session.FocusFunction xor.Id |> unwrap |> ViewerProjection.focus
             let andNode = viewer.Graph.Nodes |> List.find (fun node -> node.Id = xor.Body.ResultNodeId)
-            Assert.Equal(ViewerNodeRole.BoolAnd, andNode.Role)
+            Assert.Equal(ViewerNodeRole.Operation "BoolAnd", andNode.Role)
             Assert.Equal(ViewerBranchRole.RightOperand, (List.exactlyOne andNode.Branches).Role)
             Assert.Equal(ValueDependencyRole.LeftOperand, (List.exactlyOne andNode.ValueDependencies).Role)
-            Assert.Contains((List.exactlyOne andNode.Branches).Graph.Nodes, fun node -> node.Role = ViewerNodeRole.BoolNot)
-            Assert.Contains(viewer.Graph.Nodes, fun node -> node.Role = ViewerNodeRole.BoolOr)
+            Assert.Contains((List.exactlyOne andNode.Branches).Graph.Nodes, fun node -> node.Role = ViewerNodeRole.Operation "BoolNot")
+            Assert.Contains(viewer.Graph.Nodes, fun node -> node.Role = ViewerNodeRole.Operation "BoolOr")
             let html = ViewerHtml.renderFocusDocument viewer
             Assert.Contains("bool and", html)
             Assert.Contains("right operand", html)

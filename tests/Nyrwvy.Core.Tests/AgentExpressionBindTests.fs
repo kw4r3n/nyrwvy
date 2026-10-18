@@ -212,7 +212,7 @@ module AgentExpressionBindTests =
         let viewer = review.ProposedFocus |> ViewerProjection.focus
         let projectedBind = viewer.Graph.Nodes |> List.find (fun node -> node.Id = bindNode.Id)
         let branch = List.exactlyOne projectedBind.Branches
-        Assert.Equal(ViewerNodeRole.Bind, projectedBind.Role)
+        Assert.Equal(ViewerNodeRole.Operation "Bind", projectedBind.Role)
         Assert.Equal(ViewerBranchRole.BindBody, branch.Role)
         Assert.Equal(body.ValueBinding.Id, (List.exactlyOne branch.Bindings).Id)
         Assert.Equal(stringType, (List.exactlyOne branch.Bindings).Type)

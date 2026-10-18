@@ -183,12 +183,12 @@ module ListSortByTests =
             let named = find session "sortByName"
             let viewer = session.FocusFunction named.Id |> unwrap |> ViewerProjection.focus
             let node = viewer.Graph.Nodes |> List.find (fun item -> item.Id = named.Body.ResultNodeId)
-            Assert.Equal(ViewerNodeRole.ListSortBy, node.Role)
+            Assert.Equal(ViewerNodeRole.Operation "ListSortBy", node.Role)
             Assert.Contains("List sort by", ViewerHtml.renderFocusDocument viewer)
             let lessFn = find session "lessByName"
             let lessViewer = session.FocusFunction lessFn.Id |> unwrap |> ViewerProjection.focus
             let lessNode = lessViewer.Graph.Nodes |> List.find (fun item -> item.Id = lessFn.Body.ResultNodeId)
-            Assert.Equal(ViewerNodeRole.StringLessThan, lessNode.Role)
+            Assert.Equal(ViewerNodeRole.Operation "StringLessThan", lessNode.Role)
             Assert.Equal<ValueDependencyRole list>([ ValueDependencyRole.LeftOperand; ValueDependencyRole.RightOperand ], lessNode.ValueDependencies |> List.map (fun item -> item.Role))
             session.Close()
             let encoded = File.ReadAllText path
@@ -307,7 +307,7 @@ module ListSortByTests =
             // The persisted node keeps its kind through every codec and projection.
             let viewer = session.FocusFunction named.Id |> unwrap |> ViewerProjection.focus
             let node = viewer.Graph.Nodes |> List.find (fun item -> item.Id = named.Body.ResultNodeId)
-            Assert.Equal(ViewerNodeRole.ListMinBy, node.Role)
+            Assert.Equal(ViewerNodeRole.Operation "ListMinBy", node.Role)
             Assert.Contains("List min by", ViewerHtml.renderFocusDocument viewer)
             session.Close()
             let encoded = File.ReadAllText path

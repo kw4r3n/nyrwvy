@@ -151,10 +151,6 @@ module internal StructuralTransactionInternals =
     let validateRecipeBounds children recipe =
         validateRecipeBoundsWith expressionAuthoringBounds children recipe
 
-    let private unionCaseName (kind: SemanticNodeKind) =
-        let case, _ = FSharpValue.GetUnionFields(box kind, typeof<SemanticNodeKind>)
-        case.Name
-
     let private summaryExtra (node: SemanticNode) =
         match node.Kind with
         | SemanticNodeKind.ParameterReference parameterId -> Some parameterId, None, None
@@ -233,7 +229,7 @@ module internal StructuralTransactionInternals =
             let parameterId, functionId, bitsHex = summaryExtra node
             let valueDependencies = ValueDependency.ofNode node
             { NodeId = node.Id
-              Role = unionCaseName node.Kind
+              Role = SemanticNodeKind.name node.Kind
               Type = Map.tryFind node.Id nodeTypes |> Option.defaultValue None
               Dependencies = valueDependencies |> List.map (fun dependency -> dependency.NodeId)
               ValueDependencies = valueDependencies

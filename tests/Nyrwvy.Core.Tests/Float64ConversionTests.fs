@@ -94,7 +94,7 @@ module Float64ConversionTests =
             let fn = find session "named"
             let viewer = session.FocusFunction fn.Id |> unwrap |> ViewerProjection.focus
             let node = viewer.Graph.Nodes |> List.find (fun item -> item.Id = fn.Body.ResultNodeId)
-            Assert.Equal(ViewerNodeRole.Int64ToFloat64, node.Role)
+            Assert.Equal(ViewerNodeRole.Operation "Int64ToFloat64", node.Role)
             Assert.Equal<ValueDependencyRole list>([ ValueDependencyRole.Source ], node.ValueDependencies |> List.map (fun item -> item.Role))
             Assert.Contains("int64 to float64", ViewerHtml.renderFocusDocument viewer)
             session.Close()
