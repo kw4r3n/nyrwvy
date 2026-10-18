@@ -1,8 +1,10 @@
 # Bounded structural editing — Float64 body replacement
 
-**Status:** Current
+**Status:** Historical
 
-This specification defines the maintained Float64 structural body-replacement contract. The original Milestone 2 rationale is recorded in the [Milestone 2 decisions](../decisions/milestone-2.md), implementation evidence is recorded in [M2 Float64 structural-edit verification](../verification/m2-float64-structural-editing-20260830.md), and the completed controlled evaluation remains documented by the [Milestone 2 record](../plans/milestone-2.md).
+> The implementation of this contract (`AgentStructuralWorkflow` in `tools/Nyrwvy.AgentEval.Structural`) was removed from `main` on 2026-10-18 together with the other evaluation-only runners. It remains reproducible from the [evaluation freeze tags](../operations/evaluation-freeze-tags.md) and from commit `b3a958a`. Maintained Float64 body replacement uses the general [expression structural authoring](expression-authoring.md) recipe.
+
+This specification defined the Float64 structural body-replacement contract. The original Milestone 2 rationale is recorded in the [Milestone 2 decisions](../decisions/milestone-2.md), implementation evidence is recorded in [M2 Float64 structural-edit verification](../verification/m2-float64-structural-editing-20260830.md), and the completed controlled evaluation remains documented by the [Milestone 2 record](../plans/milestone-2.md).
 
 The initial M2 experiment exposed only `Parameter` / `Literal` / `Add`. The maintained recipe now also exposes the already-implemented Float64 `Subtract`, `Multiply`, and `Divide` semantic roles through the same typed interaction model.
 

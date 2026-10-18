@@ -136,21 +136,7 @@ A controlled evaluation may reveal that an interaction model is confusing, unrel
 
 When historical replay requires preserving such behavior, keep compatibility in the evaluation or adapter layer. If a protocol is deliberately promoted from evaluation machinery to a maintained product contract, record that as a separate design decision rather than inheriting the status implicitly from a frozen run.
 
-The Float64-only `AgentStructuralWorkflow` implementation lives in
-`tools/Nyrwvy.AgentEval.Structural`; the frozen ListMap workflow lives in
-`tools/Nyrwvy.AgentEval.ListMapStructural`. Their existing `Nyrwvy.Core` type/module
-names are retained for evaluation source compatibility, but the types now belong
-to those downstream tool assemblies. Consumers of those evaluation-only APIs
-must reference/rebuild against the respective tool project; no upstream type
-forwarder or binary-compatibility promise is introduced. The two trusted
-compatibility assemblies have friend access to existing internal structural
-helpers, not a new public raw-snapshot publication API. Production assemblies do
-not reference them; ordinary authoring uses `AgentExpressionStructuralWorkflow`.
-
-Historical frozen input-path lists remain tied to their recorded revisions.
-They are not rewritten to treat this moved implementation as identical frozen
-evidence. Current protocol/corpus regression suites still exercise the relocated
-implementations, without generating a new live-model evaluation record.
+The evaluation-only runners, including the Float64-only `AgentStructuralWorkflow` and the frozen ListMap `AgentListMapStructuralWorkflow`, were removed from `main` on 2026-10-18. They lived in downstream tool assemblies with friend access to internal structural helpers; production assemblies never referenced them, and ordinary authoring uses `AgentExpressionStructuralWorkflow`. Replay them from the [evaluation freeze tags](../operations/evaluation-freeze-tags.md) or from commit `b3a958a`, the last `main` commit that contained them.
 
 Evidence produced by an expensive experiment remains useful while its assumptions hold. See [Verification philosophy](verification.md) for the distinction between regression validation, milestone validation, and experimental evidence generation.
 

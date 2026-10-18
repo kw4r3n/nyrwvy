@@ -29,8 +29,8 @@ opening a pull request, run the fast suite and the tests related to the change
 in a local or cloud session; a PR does not wait on GitHub Actions.
 
 The verification entry points require Node 22.6+ (22.22.2 recommended, see
-`.node-version`); fish 3.4+ is needed only for the `.fish` wrapper scripts and
-the one fish script test, and the README gives the direct `dotnet test` and
+`.node-version`); fish 3.4+ is needed only for the `.fish` wrapper scripts,
+and the README gives the direct `dotnet test` and
 `node --test` equivalents. The CI job runs, and a local pre-PR check mirrors,
 these steps after building the fast test graph and installing the locked Node
 dependencies (`npm ci`):
@@ -40,12 +40,11 @@ npm run typecheck
 npm run test:adapters
 npm run test:bun
 git ls-files -z '*.fish' | xargs -0 -r -n 1 fish --no-execute
-fish scripts/tests/m2-listmap-evaluation-summary.test.fish
 fish scripts/test-fast.fish
 npm --prefix tools/nyrwvy-mcp test
 ```
 
-The `test-fast.fish` wrapper includes ordinary authoring, authoring and evaluation transport, and script contracts through the shared Node discovery runner. Root `npm test` runs only fast groups, adding the adapter and MCP contracts.
+The `test-fast.fish` wrapper includes ordinary authoring, authoring transport, and script contracts through the shared Node discovery runner. Root `npm test` runs only fast groups, adding the adapter and MCP contracts.
 
 The `test-extended.fish` wrapper is separate. It runs xUnit extended and then the heavy Node pipelines in `.opencode/tests-extended/`, passing extra arguments only to dotnet and stopping on either stage's failure. `npm run test:node:extended` runs those Node pipelines alone, with Node's default file concurrency and their per-test timeouts. Before the Node stage the wrapper runs the suite partition audit (`node scripts/check-test-suite-partition.mjs`), which lists the built test assemblies. To spread the Node stage over several terminals or machines, run `node scripts/run-node-tests.mjs extended --shard <index>/<total>` once per index: shards assign the sorted extended files round-robin and together cover every file once. Keep one test file at a time per shard rather than raising `--test-concurrency`, since the timing-sensitive Member and concurrency pipelines would otherwise compete for the same cores. Tests that compile and run
 generated C# many times for a finished feature (the `runPure` behaviour tests
@@ -53,9 +52,8 @@ of Map, Set, shared `MatchUnion` arms, `ListMinBy`, the List random sequences)
 are Extended; the fast suite keeps their checking and persistence tests and one
 compiled smoke test per runtime path. Run the extended suite locally when
 a change touches the C# backend runtime. The CI job has a 20-minute timeout, so a hung transport
-test cannot hold a runner for the default six hours. Exploratory/live runner and preflight
-scripts, freeze-ref materialization, and historical evaluation helpers are
-syntax-checked only; discovering a `.fish` file does not authorize executing a
+test cannot hold a runner for the default six hours. The freeze-ref materialization
+helper is syntax-checked only; discovering a `.fish` file does not authorize executing a
 model, changing Git refs, or running frozen workloads in routine CI.
 
 Node runner and audit share directory-based ownership in `scripts/node-test-suites.mjs`. The audit discovers all Git-visible `*.test.mjs`, including new untracked tests and excluding ignored generated outputs, and rejects unassigned files or overlapping rules. Example-local tests retain explicit manual ownership and their documented commands; the latest offline recovery matrices remain opt-in manual reproduction. Observed suite sizes belong in verification evidence, not a maintained count gate. `--node-only` audits Node ownership without building .NET.
@@ -173,6 +171,8 @@ These levels can overlap at a major milestone, but they should not collapse into
 A frozen evaluation revision is an immutable record of what was tested. Preserve enough tooling and metadata to interpret or replay that record when useful.
 
 It is not automatically the maintained product protocol.
+
+The evaluation-only runners, their OpenCode bridges, preflight/runner scripts and frozen corpora were removed from `main` on 2026-10-18. Commands in historical records that name them run from the [evaluation freeze tags](../operations/evaluation-freeze-tags.md) or from commit `b3a958a`, the last `main` commit that contained them.
 
 Historical quirks discovered after a run may remain exactly as recorded without forcing current production behavior to preserve them. If a later maintained interface improves proposal cleanup, transport, ergonomics, or another orchestration detail without changing the underlying evidenced interaction model, focused regression plus milestone verification is normally sufficient.
 

@@ -29,7 +29,6 @@
     <Compile Include="AgentTypeDeclarationTests.fs" />
     <Compile Include="AgentEffectDeclarationTests.fs" />
     <Compile Include="AgentCapabilityDeclarationTests.fs" />
-    <Compile Include="AgentStructuralWorkflowTests.fs" />
     <Compile Include="AgentPureExpressionStructuralWorkflowTests.fs" />
     <Compile Include="AgentPureExpressionControlFlowTests.fs" />
     <Compile Include="ExpressionAuthoritySurfaceTests.fs" />
@@ -41,11 +40,6 @@
     <Compile Include="AgentTargetedExpressionReplacementTests.fs" />
     <Compile Include="AgentFunctionCreationTests.fs" />
     <Compile Include="AgentParameterTypeMigrationTests.fs" />
-    <Compile Include="AgentListMapStructuralWorkflowTests.fs" />
-    <Compile Include="AgentStructuralContractTests.fs" />
-    <Compile Include="AgentEvalProtocolTests.fs" />
-    <Compile Include="StructuralAgentEvalProtocolTests.fs" />
-    <Compile Include="ListMapStructuralAgentEvalProtocolTests.fs" />
     <Compile Include="AuthoringSessionTests.fs" />
     <Compile Include="AuthoringDependencyTests.fs" />
     <Compile Include="AuthoringDependencySetTests.fs" />
@@ -174,9 +168,6 @@
     <ProjectReference Include="../../src/Nyrwvy.Backend.CSharp/Nyrwvy.Backend.CSharp.fsproj" />
     <ProjectReference Include="../../src/Nyrwvy.Viewer/Nyrwvy.Viewer.fsproj" />
     <ProjectReference Include="../../tools/Nyrwvy.ViewerExport/Nyrwvy.ViewerExport.fsproj" ReferenceOutputAssembly="false" />
-    <ProjectReference Include="../../tools/Nyrwvy.AgentEval/Nyrwvy.AgentEval.fsproj" />
-    <ProjectReference Include="../../tools/Nyrwvy.AgentEval.Structural/Nyrwvy.AgentEval.Structural.fsproj" />
-    <ProjectReference Include="../../tools/Nyrwvy.AgentEval.ListMapStructural/Nyrwvy.AgentEval.ListMapStructural.fsproj" />
     <ProjectReference Include="../../tools/Nyrwvy.AuthoringSession/Nyrwvy.AuthoringSession.fsproj" />
   </ItemGroup>
 </Project>

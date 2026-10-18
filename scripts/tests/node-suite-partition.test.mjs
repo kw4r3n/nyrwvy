@@ -44,7 +44,7 @@ test("maintained entry points select shared discovery and keep ordinary and MCP 
   assert.equal(pkg.scripts["test:node"], "node scripts/run-node-tests.mjs fast-contracts fast-mcp")
   assert.equal(pkg.scripts["test:node:extended"], "node scripts/run-node-tests.mjs extended")
   const fast = discoverNodeTests()["fast-contracts"]
-  for (const path of ["nyrwvy-authoring-workflow", "nyrwvy-authoring-transport", "nyrwvy-evaluation-transport"]) {
+  for (const path of ["nyrwvy-authoring-workflow", "nyrwvy-authoring-transport"]) {
     assert.ok(fast.includes(`.opencode/tests/${path}.test.mjs`), `${path} smoke contract stays fast`)
   }
   for (const file of ["scripts/test-fast.fish", "scripts/test-extended.fish", ".github/workflows/ci.yml"]) {

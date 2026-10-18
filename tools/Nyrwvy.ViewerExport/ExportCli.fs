@@ -1,5 +1,4 @@
-/// Option parsing and output writing shared by the export tools (ViewerExport and
-/// EvaluationFixtureExport, which links this file).
+/// Option parsing and output writing for the ViewerExport tool.
 [<RequireQualifiedAccess>]
 module internal ExportCli
 

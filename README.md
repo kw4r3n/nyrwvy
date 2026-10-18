@@ -49,7 +49,7 @@ Important boundaries include:
 
 ## AI graph authoring
 
-The host-neutral tool handlers live in `tools/nyrwvy-agent`; the stdio MCP server in `tools/nyrwvy-mcp` and the OpenCode tools in `.opencode/tools/nyrwvy.ts` expose the same handlers ([`tools/README.md`](tools/README.md) says which directories under `tools/` are maintained tools and which are evaluation runners). They let an AI open/create a snapshot, inspect scoped graphs, create types/functions, edit a chosen expression, review and commit/reject, then reopen the same identities. Start with `nyrwvy_open`, then use `nyrwvy_inspect`, `nyrwvy_create_type`, `nyrwvy_create_function` and `nyrwvy_replace`. `nyrwvy_view` writes a human-readable HTML page for a person to open: a function, or a pending proposal's Change Review before commit; the page is written beside the snapshot (under `nyrwvy-views/` by default) and never elsewhere. `nyrwvy_request` retains direct access to the complete maintained protocol, including exact stable-ID operations and `runPure`, which compiles the committed program and runs one function with fake capability responses. See the [tool contract and reference guide](docs/specs/agent-graph-tools.md).
+The host-neutral tool handlers live in `tools/nyrwvy-agent`; the stdio MCP server in `tools/nyrwvy-mcp` and the OpenCode tools in `.opencode/tools/nyrwvy.ts` expose the same handlers ([`tools/README.md`](tools/README.md) lists the maintained tools under `tools/` and where the removed evaluation runners can be replayed from). They let an AI open/create a snapshot, inspect scoped graphs, create types/functions, edit a chosen expression, review and commit/reject, then reopen the same identities. Start with `nyrwvy_open`, then use `nyrwvy_inspect`, `nyrwvy_create_type`, `nyrwvy_create_function` and `nyrwvy_replace`. `nyrwvy_view` writes a human-readable HTML page for a person to open: a function, or a pending proposal's Change Review before commit; the page is written beside the snapshot (under `nyrwvy-views/` by default) and never elsewhere. `nyrwvy_request` retains direct access to the complete maintained protocol, including exact stable-ID operations and `runPure`, which compiles the committed program and runs one function with fake capability responses. See the [tool contract and reference guide](docs/specs/agent-graph-tools.md).
 
 `runPure` runs the compiled program in a child process bounded in wall time (5 s) and output size, with the permissions of the user who started the tool host. It is not a sandbox and has no memory bound, and its optional `hostSources` (off by default) compile and run arbitrary C#; see [SECURITY.md](SECURITY.md) and the [session protocol](docs/specs/agent-authoring-session.md).
 
@@ -79,7 +79,7 @@ dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Rel
 node scripts/run-node-tests.mjs fast-contracts
 ```
 
-`./scripts/test-fast.fish` wraps the same two commands. The Node group includes ordinary authoring workflow, transport, evaluation transport, and script contracts. Example pipelines that repeatedly generate and execute C# live under `.opencode/tests-extended/` and run only through the extended entry point.
+`./scripts/test-fast.fish` wraps the same two commands. The Node group includes ordinary authoring workflow, transport, and script contracts. Example pipelines that repeatedly generate and execute C# live under `.opencode/tests-extended/` and run only through the extended entry point.
 
 The maintained Node/Bun adapters also have a repository-owned, locked TypeScript toolchain. From a clean checkout, no global `tsc`, OpenCode installation, or .NET build is needed to typecheck them:
 
@@ -91,7 +91,7 @@ npm test
 
 `npm test` is the fast root entry point for the adapter contracts plus the Node transport and MCP contracts (`test:adapters` and `test:node`; the latter needs the Release AuthoringSession built). `npm run test:node:extended` selects only the heavy Node example pipelines; `fish scripts/test-extended.fish` runs both xUnit extended and those pipelines. These are deterministic checks, not live model evaluations. Node runs the Node adapters with native type stripping; Bun 1.4.2 is optional and runs only the Bun unit tests (`npm run test:bun`). See [adapter setup and test suites](tests/README.md#adapter-toolchain-and-typechecking) for the dependency ownership, configuration boundaries, and runtime test prerequisites.
 
-Tests run locally before a change is merged. The two GitHub Actions workflows (`CI` with the checks above plus the MCP, evaluation-transport and Bun contracts; `Extended` with the broader suite) are started manually by the maintainer at milestones rather than on every push or pull request; see the [verification philosophy](docs/developer/verification.md#reproducible-tooling-and-shell-checks). External pull requests are not accepted at this stage.
+Tests run locally before a change is merged. The two GitHub Actions workflows (`CI` with the checks above plus the MCP and Bun contracts; `Extended` with the broader suite) are started manually by the maintainer at milestones rather than on every push or pull request; see the [verification philosophy](docs/developer/verification.md#reproducible-tooling-and-shell-checks). External pull requests are not accepted at this stage.
 
 Use `./scripts/test-extended.fish` only when the changed boundary needs broader milestone/integration verification. For an opt-in clean full-solution build and test run with a shareable log:
 
@@ -114,7 +114,7 @@ Useful entry points:
 - [Decisions](docs/decisions/README.md) — accepted rationale and bounded open questions.
 - [Milestone 1 record](docs/plans/milestone-1.md) — completed bounded-operation milestone and the exact claim boundary.
 - [Milestone 2 record](docs/plans/milestone-2.md) — completed bounded structural-editing milestone and controlled evaluation evidence.
-- [Bounded structural editing spec](docs/specs/bounded-structural-editing.md) — exact current Float64 body-replacement contract.
+- [Bounded structural editing spec](docs/specs/bounded-structural-editing.md) — historical Float64 body-replacement contract (implementation removed from `main`; see the evaluation freeze tags).
 - [Expression structural authoring](docs/specs/expression-authoring.md) — maintained cross-domain recipe, scoped control flow, and calls/capability invocations within predeclared effects.
 - [Contributor/reviewer entry point](docs/developer/README.md) — implementation-oriented navigation.
 

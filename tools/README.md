@@ -1,6 +1,6 @@
 # Tools
 
-Two kinds of programs live here. A user of Nyrwvy needs only the first group.
+These are the maintained tools for using Nyrwvy.
 
 ## Maintained tools
 
@@ -11,14 +11,6 @@ Two kinds of programs live here. A user of Nyrwvy needs only the first group.
 | [`nyrwvy-mcp`](nyrwvy-mcp/) | The MCP stdio server for Codex CLI, Claude Code, Claude Desktop, Zed and other `mcpServers` clients. Guide: [MCP graph-editing tools](../docs/specs/mcp-graph-tools.md). |
 | [`Nyrwvy.ViewerExport`](Nyrwvy.ViewerExport/) | Command-line export of the human-readable Function Focus HTML from a snapshot ([viewer](../docs/developer/architecture.md#human-review-and-projections)). |
 
-## Evaluation runners (not needed to use Nyrwvy)
+## Evaluation runners
 
-| Directory | Purpose |
-| --- | --- |
-| `Nyrwvy.AgentEval` | M1/M2 controlled-evaluation protocol runner (`evaluation/m2-agent-corpus-v1`). |
-| `Nyrwvy.AgentEval.Structural` | M2 structural-editing evaluation runner. |
-| `Nyrwvy.AgentEval.ListMapStructural` | M2 List/Map structural evaluation runner (`evaluation/m2-listmap-agent-corpus-v1`). |
-| `Nyrwvy.AgentEval.PureExpression` | Exploratory scoped pure control-flow runner (`evaluation/pure-control-flow-exploratory-v1`); driven by `scripts/run-pure-control-flow-exploratory.fish` and `scripts/validate-scoped-pure-control-flow.fish`. |
-| `Nyrwvy.EvaluationFixtureExport` | Exports evaluation fixtures from the semantic model. |
-
-All of them are in `Nyrwvy.slnx`, so the solution build compiles them, but their fixtures and model runs are replayed from the [evaluation freeze tags](../docs/operations/evaluation-freeze-tags.md), not from `main`. See the [experiment index](../docs/experiments/README.md) for what is exploratory.
+The evaluation-only runners (`Nyrwvy.AgentEval`, `Nyrwvy.AgentEval.Structural`, `Nyrwvy.AgentEval.ListMapStructural`, `Nyrwvy.AgentEval.PureExpression` and `Nyrwvy.EvaluationFixtureExport`) were removed from `main` on 2026-10-18; they remain reproducible from the [evaluation freeze tags](../docs/operations/evaluation-freeze-tags.md) and from commit `b3a958a`, the last `main` commit that contained them. See the [experiment index](../docs/experiments/README.md) for what is exploratory.
