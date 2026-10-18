@@ -1059,22 +1059,6 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Ok proposal ->
                 register (AgentTypeDeclarationGroupProposal.transactionId proposal) (PendingProposal.CreateTypeGroup proposal) (AuthoringProposalReview.CreateTypeGroup(AgentTypeDeclarationGroupProposal.review proposal))
 
-    member _.SimulateAddFieldlessUnionVariantLike(request: AgentAddFieldlessUnionVariantLikeRequest): Result<AuthoringProposal, AuthoringSessionError> =
-        use _scope = SnapshotComputationScope.Start()
-        match ensureUsable () with
-        | Error error -> Error error
-        | Ok() ->
-            match AgentFieldlessUnionVariantEvolutionWorkflow.simulate workspace request with
-            | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
-            | Ok proposal ->
-                registerWith
-                    (AgentFieldlessUnionVariantEvolutionProposal.proposedFunctions proposal)
-                    (AgentFieldlessUnionVariantEvolutionProposal.transactionId proposal)
-                    (PendingProposal.FieldlessUnionVariantEvolution proposal)
-                    (AuthoringProposalReview.FieldlessUnionVariantEvolution(
-                        AgentFieldlessUnionVariantEvolutionProposal.review proposal
-                    ))
-
     member _.SimulateAddUnionVariantLike(request: AgentAddFieldlessUnionVariantLikeRequest, additionalFields: AgentTypeFieldIntent list): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with

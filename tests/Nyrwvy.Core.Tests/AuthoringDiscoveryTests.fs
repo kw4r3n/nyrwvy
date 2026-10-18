@@ -65,7 +65,7 @@ module AuthoringDiscoveryTests =
             Assert.False(discovered.TryGetProperty("body", &discoveredBody))
 
             let focusRequest =
-                sprintf """{"id":"f","op":"focusFunction","functionId":"%s"}""" (StableId.value functionId)
+                sprintf """{"id":"f","op":"readFunction","functionId":"%s"}""" (StableId.value functionId)
             use focused = AuthoringProtocol.executeLine session focusRequest |> JsonDocument.Parse
             let focusedFunction = focused.RootElement.GetProperty("result").GetProperty("function")
             let mutable focusedBody = Unchecked.defaultof<JsonElement>

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { randomUUID } from "node:crypto"
-import { openAuthoring, requestAuthoring, closeAuthoring } from "../lib/nyrwvy-authoring.ts"
+import { openAuthoring, requestAuthoring, closeAuthoring } from "../../tools/nyrwvy-agent/authoring.ts"
 
 // Deterministic tool-client tests, not a second authoring path or live-model evaluation.
 const primitive = primitive => ({ kind: "primitive", primitive })
@@ -210,8 +210,6 @@ test("structured reads preserve exact literals and duplicate display names are r
     const exact = await request(context, { op: "readFunction", functionId: firstId })
     assert.equal(resultNode(exact.function.body).kind.value, "9223372036854775807")
     assert.deepEqual(await request(context, { op: "status" }), before)
-    const legacy = await request(context, { op: "focusFunction", functionId: firstId })
-    assert.equal(typeof legacy.function.body.nodes[0].kind, "string")
   })
 })
 

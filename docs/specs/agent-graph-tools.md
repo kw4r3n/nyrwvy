@@ -77,7 +77,7 @@ The additive JSONL operation `readFunction` takes exactly one of `function` (exa
 
 The result keeps the focused query's snapshot ID, declaration, inferred node types, callers, callees and open obligations. Its `function.body` is a scoped graph containing `resultNodeId` and `nodes`. Each node has an `id` and a structured `kind` object. Literals expose their values; operands reference node IDs; conditional/match/Bind nodes retain their child graphs and lexical binding identities. Branch identity, value dependencies and lexical scopes are not flattened into F# debug strings.
 
-This is a read projection, not a new accepted snapshot encoding or a raw graph-editing payload. Non-semantic node/arm/binding order is rendered by stable ID for consistent reads across reopen; parameter and List item order are retained. `focusFunction` retains its existing response format.
+This is a read projection, not a new accepted snapshot encoding or a raw graph-editing payload. Non-semantic node/arm/binding order is rendered by stable ID for consistent reads across reopen; parameter and List item order are retained. The earlier `focusFunction` operation, whose response kept an older format, was retired on 2026-10-18; use `readFunction`.
 
 `Int64` literal values in this projection are decimal strings so JavaScript tool hosts do not round values above their safe-integer range. Recipe input accepts exact decimal strings as well as existing JSON integer tokens; `Float64` retains its explicit hexadecimal bits representation. These are transport encodings, not numeric conversions.
 

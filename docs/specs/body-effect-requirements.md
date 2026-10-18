@@ -26,7 +26,7 @@ The deterministic report contains:
 not invent a nominal effect in this report. Existing validation still decides
 validity and requires derived nominal effects to be covered by the declaration.
 
-`focusFunction`, structured `readFunction`/ordinary `nyrwvy_inspect`, and focus
+Structured `readFunction`/ordinary `nyrwvy_inspect` and focus
 payloads in change review expose the report. Creation and whole-body replacement
 reviews include the resulting body's report; targeted replacement includes base
 and proposed focus. Parameter/result/Product-field type migration reviews include

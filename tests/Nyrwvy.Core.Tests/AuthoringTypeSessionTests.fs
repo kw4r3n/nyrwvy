@@ -168,7 +168,7 @@ module AuthoringTypeSessionTests =
                     AuthoringProtocol.executeLine
                         session
                         (sprintf
-                            """{"id":"evolve","op":"simulateAddFieldlessUnionVariantLike","typeId":"%s","sourceVariantId":"%s","displayName":"TimedOut"}"""
+                            """{"id":"evolve","op":"simulateAddUnionVariantLike","typeId":"%s","sourceVariantId":"%s","displayName":"TimedOut"}"""
                             typeId
                             failedVariantId)
                     |> requireOk
@@ -185,7 +185,7 @@ module AuthoringTypeSessionTests =
                     AuthoringProtocol.executeLine
                         session
                         (sprintf
-                            """{"id":"evolve-full","op":"simulateAddFieldlessUnionVariantLike","typeId":"%s","sourceVariantId":"%s","displayName":"TimedOut","detail":"full"}"""
+                            """{"id":"evolve-full","op":"simulateAddUnionVariantLike","typeId":"%s","sourceVariantId":"%s","displayName":"TimedOut","detail":"full"}"""
                             typeId
                             failedVariantId)
                     |> requireOk

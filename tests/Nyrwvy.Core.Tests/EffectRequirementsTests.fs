@@ -47,7 +47,7 @@ module EffectRequirementsTests =
             let before = SnapshotCodec.serialize fixture.Snapshot |> unwrap
             File.WriteAllText(path, before)
             use session = AuthoringSession.openExisting path |> unwrap
-            for op in [ "focusFunction"; "readFunction" ] do
+            for op in [ "readFunction" ] do
                 use response = AuthoringProtocol.executeLine session ($"""{{"id":"read","op":"{op}","functionId":"{StableId.value fixture.ReportFunctionId}"}}""") |> JsonDocument.Parse
                 Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
                 let body = response.RootElement.GetProperty("result").GetProperty("bodyEffectRequirements")

@@ -189,11 +189,12 @@ module AuthoringDependencyTests =
                                 Replacement = ExpressionRecipe.DirectCall(fixture.ValidateFunctionId,
                                     [ fixture.ValidateInputParameterId, ExpressionRecipe.Parameter fixture.RunPolicyParameterId ]) } ] }
                 | "evolve-union" ->
-                    session.SimulateAddFieldlessUnionVariantLike
+                    session.SimulateAddUnionVariantLike(
                         { ExpectedBaseSnapshotId = before.SnapshotId
                           TargetTypeId = unionId
                           SourceVariantId = variantId
-                          NewVariantDisplayName = "Second" }
+                          NewVariantDisplayName = "Second" },
+                        [])
                 | _ -> failwith "Unknown test operation"
             match proposed with
             | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidSnapshot issues)) ->

@@ -855,15 +855,6 @@ module AuthoringProtocol =
             | "declarations" ->
                 ensureFields "declarations request" [ "id"; "op" ] [ "id"; "op" ] root
                 success requestId (WireEncode.declarations (session.Declarations()))
-            | "focusFunction" ->
-                ensureFields
-                    "focusFunction request"
-                    [ "id"; "op"; "functionId" ]
-                    [ "id"; "op"; "functionId" ]
-                    root
-                match session.FocusFunction(id<FunctionTag> "functionId" root) with
-                | Ok focus -> success requestId (WireEncode.focus focus)
-                | Error error -> semanticQueryFailure requestId error
             | "readFunction" ->
                 ensureFields
                     "readFunction request"
@@ -1178,18 +1169,6 @@ module AuthoringProtocol =
                             items
                             references }
                 proposalResponse (session.SimulateCreateTypeGroup request)
-            | "simulateAddFieldlessUnionVariantLike" ->
-                ensureFields
-                    "simulateAddFieldlessUnionVariantLike request"
-                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
-                    root
-                let request: AgentAddFieldlessUnionVariantLikeRequest =
-                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
-                      TargetTypeId = id<TypeTag> "typeId" root
-                      SourceVariantId = id<VariantTag> "sourceVariantId" root
-                      NewVariantDisplayName = requiredString "displayName" root }
-                proposalResponse (session.SimulateAddFieldlessUnionVariantLike request)
             | "simulateAddUnionVariantLike" ->
                 ensureFields
                     "simulateAddUnionVariantLike request"

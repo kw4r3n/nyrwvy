@@ -390,7 +390,6 @@ module internal WireEncode =
                       "capabilityAdapters", csharpSymbols symbols.CapabilityAdapters ] ]
 
     let declarations = WireEncodeCommon.declarations
-    let focus = WireEncodeCommon.focus
 
     let status (value: AuthoringSessionStatus) =
         objectValue

@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { AuthoringClient, openAuthoring, closeAuthoring, requestAuthoring } from "../lib/nyrwvy-authoring.ts"
+import { AuthoringClient, openAuthoring, closeAuthoring, requestAuthoring } from "../../tools/nyrwvy-agent/authoring.ts"
 
 function child(source) {
   return spawn(process.execPath, ["-e", source], { stdio: ["pipe", "pipe", "pipe"] })
