@@ -283,7 +283,9 @@ module AuthoringProtocol =
             // The exact-ID form also accepts the display names that run output reports next to IDs, so an
             // `actual` value can be passed back as `expected` or a fake response; IDs stay the identity.
             let echoedNames = if names.IsNone then [ "type" ] @ (if kind = "union" then [ "variant" ] else []) else []
-            ensureFields "Named run value" (properties @ echoedNames) properties item
+            // A value of a generic type names its type arguments, as a construct recipe does.
+            ensureFields "Named run value" (properties @ echoedNames @ [ "typeArguments" ]) properties item
+            let typeArguments = optionalTypeArguments "typeArguments" typeRef item
             let fields = array "fields" item
             if fields.Length > 256 then fail "Named run values may contain at most 256 fields."
             // Name form: fields resolve within the named type (Product) or the named variant (Union).
@@ -305,8 +307,8 @@ module AuthoringProtocol =
                     ensureFields "Named run field" ([ fieldKey; "value" ] @ (if names.IsNone then [ "field" ] else [])) [ fieldKey; "value" ] field
                     fieldId field, pureValueAt names remaining (depth + 1) $"{location}.fields[{index}].value" (property "value" field)))
             match variantId with
-            | Some variantId -> PureRunValue.Union(typeId, variantId, fields)
-            | None -> PureRunValue.Product(typeId, fields)
+            | Some variantId -> PureRunValue.Union(typeId, typeArguments, variantId, fields)
+            | None -> PureRunValue.Product(typeId, typeArguments, fields)
         | "result" when tryProperty "okType" item |> Option.isSome ->
             let fields = [ "kind"; "okType"; "errorType"; "isOk"; "value" ]
             ensureFields "Nested Result run value" fields fields item
@@ -440,6 +442,10 @@ module AuthoringProtocol =
          | _ -> [])
         @ named names "operation" operationId
 
+    /// Type arguments of a generic Product or Union run value; absent for a monomorphic one.
+    let private encodeTypeArguments (typeArguments: TypeRef list) =
+        if List.isEmpty typeArguments then [] else [ "typeArguments", typeArguments |> List.map WireEncodeCommon.typeRef |> arrayValue ]
+
     let rec private encodePureValue (names: RunNames) value =
         let encodePureValue = encodePureValue names
         let listValue kind items =
@@ -509,17 +515,19 @@ module AuthoringProtocol =
             objectValue
                 ([ "kind", box "option"; "itemType", WireEncodeCommon.typeRef itemType; "hasValue", box (Option.isSome item) ]
                  @ (item |> Option.map (fun value -> [ "value", encodePureValue value ]) |> Option.defaultValue []))
-        | PureRunValue.Union(typeId, variantId, fields) ->
+        | PureRunValue.Union(typeId, typeArguments, variantId, fields) ->
             objectValue
                 ([ "kind", box "union"; "typeId", box (StableId.value typeId) ]
                  @ named names "type" typeId
+                 @ encodeTypeArguments typeArguments
                  @ [ "variantId", box (StableId.value variantId) ]
                  @ named names "variant" variantId
                  @ [ "fields", encodeFields fields ])
-        | PureRunValue.Product(typeId, fields) ->
+        | PureRunValue.Product(typeId, typeArguments, fields) ->
             objectValue
                 ([ "kind", box "product"; "typeId", box (StableId.value typeId) ]
                  @ named names "type" typeId
+                 @ encodeTypeArguments typeArguments
                  @ [ "fields", encodeFields fields ])
         | PureRunValue.ResultValue(okType, errorType, isOk, payload) ->
             objectValue
@@ -855,15 +863,6 @@ module AuthoringProtocol =
             | "declarations" ->
                 ensureFields "declarations request" [ "id"; "op" ] [ "id"; "op" ] root
                 success requestId (WireEncode.declarations (session.Declarations()))
-            | "focusFunction" ->
-                ensureFields
-                    "focusFunction request"
-                    [ "id"; "op"; "functionId" ]
-                    [ "id"; "op"; "functionId" ]
-                    root
-                match session.FocusFunction(id<FunctionTag> "functionId" root) with
-                | Ok focus -> success requestId (WireEncode.focus focus)
-                | Error error -> semanticQueryFailure requestId error
             | "readFunction" ->
                 ensureFields
                     "readFunction request"
@@ -1122,22 +1121,24 @@ module AuthoringProtocol =
             | "simulateCreateType" ->
                 ensureFields
                     "simulateCreateType request"
-                    [ "id"; "op"; "displayName"; "typeKind"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "typeParameters"; "typeKind"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "typeKind" ]
                     root
                 let request: AgentCreateTypeDeclarationRequest =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = requiredString "displayName" root
+                      TypeParameters = typeParameterNames root
                       Kind = typeKindIntent (property "typeKind" root) }
                 proposalResponse (session.SimulateCreateType request)
             | "simulateCreateTypeByName" ->
                 ensureFields
                     "simulateCreateTypeByName request"
-                    [ "id"; "op"; "displayName"; "typeKind"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "typeParameters"; "typeKind"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "typeKind" ]
                     root
                 let declarations = session.Declarations()
                 let displayName = requiredString "displayName" root
+                let typeParameters = typeParameterNames root
                 // A declaration that names itself is a recursive type: it is created as a group of one.
                 let self = StableIdAllocator.newTypeId ()
                 let kind = WireSymbolic.typeKindIntentIn (Map.ofList [ displayName, self ]) declarations (property "typeKind" root)
@@ -1145,11 +1146,12 @@ module AuthoringProtocol =
                     if WireSymbolic.kindReferences self kind then
                         session.SimulateCreateTypeGroup
                             { ExpectedBaseSnapshotId = expectedSnapshotId ()
-                              Declarations = [ { Reference = self; DisplayName = displayName; Kind = kind } ] }
+                              Declarations = [ { Reference = self; DisplayName = displayName; TypeParameters = typeParameters; Kind = kind } ] }
                     else
                         session.SimulateCreateType
                             { ExpectedBaseSnapshotId = expectedSnapshotId ()
                               DisplayName = displayName
+                              TypeParameters = typeParameters
                               Kind = kind }
                 proposalResponse simulated
             | "simulateCreateTypesByName" ->
@@ -1162,8 +1164,8 @@ module AuthoringProtocol =
                 let items =
                     array "types" root
                     |> List.map (fun item ->
-                        ensureFields "type declaration" [ "displayName"; "typeKind" ] [ "displayName"; "typeKind" ] item
-                        requiredString "displayName" item, property "typeKind" item)
+                        ensureFields "type declaration" [ "displayName"; "typeParameters"; "typeKind" ] [ "displayName"; "typeKind" ] item
+                        requiredString "displayName" item, (typeParameterNames item, property "typeKind" item))
                 let references = items |> List.map (fun (name, _) -> name, StableIdAllocator.newTypeId ())
                 // A name declared twice keeps its first reference; the workflow rejects the duplicate.
                 let group = references |> List.rev |> Map.ofList
@@ -1171,25 +1173,14 @@ module AuthoringProtocol =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       Declarations =
                         List.map2
-                            (fun (name, kind) (_, reference) ->
+                            (fun (name, (typeParameters, kind)) (_, reference) ->
                                 { Reference = reference
                                   DisplayName = name
+                                  TypeParameters = typeParameters
                                   Kind = WireSymbolic.typeKindIntentIn group declarations kind })
                             items
                             references }
                 proposalResponse (session.SimulateCreateTypeGroup request)
-            | "simulateAddFieldlessUnionVariantLike" ->
-                ensureFields
-                    "simulateAddFieldlessUnionVariantLike request"
-                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
-                    root
-                let request: AgentAddFieldlessUnionVariantLikeRequest =
-                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
-                      TargetTypeId = id<TypeTag> "typeId" root
-                      SourceVariantId = id<VariantTag> "sourceVariantId" root
-                      NewVariantDisplayName = requiredString "displayName" root }
-                proposalResponse (session.SimulateAddFieldlessUnionVariantLike request)
             | "simulateAddUnionVariantLike" ->
                 ensureFields
                     "simulateAddUnionVariantLike request"

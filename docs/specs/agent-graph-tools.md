@@ -8,7 +8,7 @@ OpenCode and [stdio MCP clients](mcp-graph-tools.md) share the tool definitions 
 
 ## Completion boundary
 
-An agent can create/open a snapshot, discover declarations, inspect typed graph structure, create Product/Union types and functions, replace a chosen expression or an intentional whole body, review the proposal, commit/reject it, and reopen committed identities. Existing exact-ID operations remain available for rename, effect/capability declarations, supported migrations, readiness and backend emission.
+An agent can create/open a snapshot, discover declarations, inspect typed graph structure, create Product/Union types and functions, replace a chosen expression or an intentional whole body, review the proposal, commit/reject it, and reopen committed identities. Existing exact-ID operations remain available for renames (functions, types, fields, variants, parameters, effects, capabilities and their operations and operation parameters), removal of a function parameter or a Union variant, effect/capability declarations, supported migrations, readiness and backend emission.
 
 The minimum does not mean every imaginable graph transformation. Unsupported semantic constructs and arbitrary node/edge mutation are not added merely to fill an operation matrix. Add the next operation when a concrete task cannot be expressed through the maintained tools.
 
@@ -24,13 +24,14 @@ OpenCode discovers `.opencode/tools/nyrwvy.ts`. These ordinary tools are not res
 
 | Tool | Role |
 | --- | --- |
-| `nyrwvy_open` | `create`, `open`, or same-content `pin`; optional `dependency` selects a complete source for creation or supplies the exact original version for pin recovery. Relative paths use the selected workspace/worktree. |
+| `nyrwvy_open` | `create`, `open`, same-content `pin`, or reviewed `upgrade`; optional `dependency` selects a complete source for creation, supplies the exact original version for pin recovery, or names the new version for an upgrade previewed as compatible. Relative paths use the selected workspace/worktree. |
 | `nyrwvy_inspect` | Status, compact declarations, or a structured function graph with impact facts. |
 | `nyrwvy_view` | Write a human-readable HTML page and return its path, for a person to open in a browser: Function Focus of one committed function, or Change Review of a pending proposal (`proposalId`). See [human-readable view](#human-readable-view). |
 | `nyrwvy_recipe_reference` | Read the maintained name-resolved `ExpressionRecipe` wire shapes without opening a snapshot: no argument for the categorized index of kind names, `category` for its one-line signatures, `kind` or `kinds` for exact shapes. |
 | `nyrwvy_create_type` | Propose a Product/Union with name-resolved type references. |
 | `nyrwvy_create_function` | Propose a function with named references; reject an existing local/imported function's exact display name. |
 | `nyrwvy_replace` | Propose a targeted replacement using an inspected node ID; omit the target only for whole-body replacement. |
+| `nyrwvy_upgrade_dependencies` | Propose a dependency selection update together with explicit local field, function and Capability operation repairs (`simulateDependencyUpgradeByName`); review and commit it like any other proposal. |
 | `nyrwvy_commit` / `nyrwvy_reject` | Publish or discard exactly the reviewed proposal handle. |
 | `nyrwvy_request` | Direct structured access to every maintained protocol operation, including exact-ID operations. |
 | `nyrwvy_close` | Release the session; committed state remains on disk. |
@@ -64,7 +65,7 @@ After reviewing the returned `createdFunction` summary (IDs, display names, sign
 
 Sending a signal is not proof of exit. Open-failure cleanup and close retain the session slot until the child is reaped and its pipes close. If even the SIGKILL window expires (for example, termination was denied by the OS), close reports that ownership is retained rather than claiming success or allowing a replacement child. After resolving the external process problem, close again to release the reaped slot. A sent mutation with a missing response has **unknown outcome**: inspect committed state after reopening; never automatically replay it. Normal shutdown still drains responses and releases the actual snapshot lock, removing the `<snapshot>.lock` file; a killed process leaves the file behind, and the next open simply reuses it. A child that exits before answering its first request (a missing snapshot, a snapshot open elsewhere, a file that is not a snapshot) is reported with the session's own startup diagnostic and no replay advice, since nothing was sent.
 
-The evaluation-only OpenCode bridges that duplicated this transport (the M4 authoring bridge, the scoped pure-control bridge and the M0/M1 `nyrwvy-eval` plugin) were removed from main; replay them from commit `800f364`. The frozen structural and ListMap bridges share `.opencode/lib/evaluation-jsonl-runtime.ts` and replay only from their freeze tags.
+The evaluation-only OpenCode bridges that duplicated this transport (the M4 authoring bridge, the scoped pure-control bridge and the M0/M1 `nyrwvy-eval` plugin) were removed from main; replay them from commit `800f364`. The frozen structural and ListMap bridges and their shared `.opencode/lib/evaluation-jsonl-runtime.ts` were removed from main on 2026-10-18; replay them from their [evaluation freeze tags](../operations/evaluation-freeze-tags.md) or from commit `b3a958a`.
 
 ## Structured graph reading
 
@@ -76,7 +77,7 @@ The additive JSONL operation `readFunction` takes exactly one of `function` (exa
 
 The result keeps the focused query's snapshot ID, declaration, inferred node types, callers, callees and open obligations. Its `function.body` is a scoped graph containing `resultNodeId` and `nodes`. Each node has an `id` and a structured `kind` object. Literals expose their values; operands reference node IDs; conditional/match/Bind nodes retain their child graphs and lexical binding identities. Branch identity, value dependencies and lexical scopes are not flattened into F# debug strings.
 
-This is a read projection, not a new accepted snapshot encoding or a raw graph-editing payload. Non-semantic node/arm/binding order is rendered by stable ID for consistent reads across reopen; parameter and List item order are retained. `focusFunction` retains its existing response format.
+This is a read projection, not a new accepted snapshot encoding or a raw graph-editing payload. Non-semantic node/arm/binding order is rendered by stable ID for consistent reads across reopen; parameter and List item order are retained. The earlier `focusFunction` operation, whose response kept an older format, was retired on 2026-10-18; use `readFunction`.
 
 `Int64` literal values in this projection are decimal strings so JavaScript tool hosts do not round values above their safe-integer range. Recipe input accepts exact decimal strings as well as existing JSON integer tokens; `Float64` retains its explicit hexadecimal bits representation. These are transport encodings, not numeric conversions.
 

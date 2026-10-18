@@ -20,7 +20,7 @@ Today's subset cannot meet that, for reasons in the current [language subset](..
 
 - Products and Union variants are emitted as `sealed record` classes, and `List<T>` and `String` are heap objects (`NyList<T>`, `NyStr`). Building any of them allocates.
 - There is no mutable buffer. A delay line written as a `List<Float64>` is copied or re-appended on every write.
-- There is no loop construct. Iteration is `ListFold` over a list that must first exist, or self-recursion, which is bounded only by the stack.
+- There is no loop construct. Iteration is `ListFold` over a list that must first exist, or self-recursion. A self call in tail position runs as a jump without a new stack frame ([tail self calls](../decisions/tail-self-calls.md), order 49), so it is an unbounded loop; any other self-recursion is bounded only by the stack.
 - There is no `Float32`, and no transcendental Float64 function: probe 20 wrote `log2` and `exp2` by hand (192 nodes).
 
 ## Idea
@@ -81,13 +81,13 @@ Bit-exact reproducibility across backends does not hold for a platform math libr
 
 A processor needs a loop over the samples of a block and over the taps of a filter. The candidates already recorded are different:
 
-- probe 15's **tail self-call as a loop**: unbounded iteration in ordinary code, for an event loop;
+- probe 15's **tail self-call as a loop**: unbounded iteration in ordinary code, for an event loop (now done as [tail self calls](../decisions/tail-self-calls.md), order 49);
 - probe 13's **missing `while`**, written as `ListEffectFold` over a bound list;
 - probes 5, 7 and 12's counted loop, now `ListFold` over `ListRange` (order 37, done), which builds the whole list first.
 
 An index fold, `IndexFold(count, seed, step)` that calls a pure `step(state, index)` for `index` in `0 .. count - 1`, would serve all of them without building a list. Outside processors `count` is any Int64 (`<= 0` returns the seed), and it is a total, bounded loop that the C# backend emits as a `for` loop. Inside processors `count` must be derived from `maxBlockSize`, a buffer length or a literal, so the validator can bound the work.
 
-They share the lowering. Execution IR already has blocks with `Jump` arguments, and the C# emitter already emits blocks as labels and `goto`, so a back edge needs no new backend structure. Today's lowering does not produce back edges. They do not share semantics: an index fold is bounded by its count, while a tail-call loop is not. **Recommended:** design `IndexFold` once, for both, and treat the tail-call loop as a separate candidate. Adding `IndexFold` for ordinary code needs its own evidence or owner choice; the probe 13 and `ListRange` observations may already be enough.
+They share the lowering. Execution IR already has blocks with `Jump` arguments, and the C# emitter already emits blocks as labels and `goto`, so a back edge needs no new backend structure. Tail self calls already lower to one: a jump back to the function's entry block. They do not share semantics: an index fold is bounded by its count, while a tail-call loop is not. **Recommended:** design `IndexFold` once, for both; the tail-call loop already exists for unbounded ordinary loops and is not allowed inside a processor. Adding `IndexFold` for ordinary code needs its own evidence or owner choice; the probe 13 and `ListRange` observations may already be enough.
 
 ### 4. Validation
 

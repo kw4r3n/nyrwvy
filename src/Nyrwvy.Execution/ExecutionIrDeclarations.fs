@@ -30,6 +30,7 @@ module internal ExecutionIrDeclarations =
                 )
 
         { Id = typeEntity.Id
+          TypeParameters = typeEntity.TypeParameters
           Kind = kind }
 
     let projectCapability (capability: TypedSemanticCapability): ExecutionCapability =

@@ -11,10 +11,10 @@ module ImportProvenanceSelectorTests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("selector-" + name)
     let private intType = TypeRef.Primitive PrimitiveType.Int64
     let private unwrap = function Ok v -> v | Error e -> failwithf "%A" e
-    let private sharedType = { Id = id<TypeTag> "shared"; DisplayName = "Shared"; Kind = SemanticTypeKind.Product [] }
+    let private sharedType = { TypeParameters = []; Id = id<TypeTag> "shared"; DisplayName = "Shared"; Kind = SemanticTypeKind.Product [] }
     let private library version name number =
         let node = id<GraphNodeTag> name
-        let measure = { Id = id<TypeTag> name; DisplayName = "Measure"; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> name; DisplayName = "value"; Type = intType } ] }
+        let measure = { TypeParameters = []; Id = id<TypeTag> name; DisplayName = "Measure"; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> name; DisplayName = "value"; Type = intType } ] }
         let effect = { Id = id<EffectTag> name; DisplayName = "Io" }
         let capability = { Id = id<CapabilityTag> name; DisplayName = "Clock"
                            Operations = [ { Id = id<CapabilityOperationTag> name; DisplayName = "read"; Parameters = []; ResultType = intType; FailureType = None; EffectId = effect.Id } ] }
@@ -200,7 +200,7 @@ module ImportProvenanceSelectorTests =
             Assert.Equal<TypeRef>(TypeRef.Capability a.Capabilities.Head.Id, fn.Parameters.Head.Type)
             Assert.Equal<EffectId list>([ a.Effects.Head.Id ], fn.RequiredEffects)
             let request = json {| kind = "named"; name = selector "Measure" |} |> element
-            Assert.Equal<TypeRef>(TypeRef.Named a.Types.Tail.Head.Id, WireSymbolic.typeRef (session.Declarations()) request))
+            Assert.Equal<TypeRef>(TypeRef.Named(a.Types.Tail.Head.Id, []), WireSymbolic.typeRef (session.Declarations()) request))
 
     [<Fact>]
     let ``updated candidate provenance and moved source-free reopen retain explicit selection`` () =

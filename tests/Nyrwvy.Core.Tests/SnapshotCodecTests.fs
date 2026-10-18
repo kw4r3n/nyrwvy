@@ -118,7 +118,7 @@ module SnapshotCodecTests =
                     { TargetFunctionId = fixture.ValidateFunctionId
                       NewParameterId = parameterId
                       NewParameterDisplayName = "policy"
-                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                       CallSitePlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
 
         let proposed =

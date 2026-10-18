@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import {mkdir,readFile,writeFile} from 'node:fs/promises'
 import {resolve,join} from 'node:path'
 import {randomUUID,createHash} from 'node:crypto'
-import {openAuthoring,requestAuthoring,closeAuthoring} from '../../.opencode/lib/nyrwvy-authoring.ts'
+import {openAuthoring,requestAuthoring,closeAuthoring} from '../../tools/nyrwvy-agent/authoring.ts'
 import {define} from './author.mjs'
 import {cases,argsFor,normalize} from './cases.mjs'
 const dir=resolve(process.argv[2]),replay=process.argv.includes('--replay'),snapshot=join(dir,'shield.json'),hash=x=>createHash('sha256').update(x).digest('hex')

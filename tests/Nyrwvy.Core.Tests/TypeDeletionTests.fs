@@ -18,11 +18,11 @@ module TypeDeletionTests =
 
     let private fixture () =
         let obsolete: SemanticType =
-            { Id = removedTypeId
+            { TypeParameters = []; Id = removedTypeId
               DisplayName = "Obsolete"
               Kind = SemanticTypeKind.Product [ { Id = fieldId; DisplayName = "value"; Type = stringType } ] }
         let retained: SemanticType =
-            { Id = retainedTypeId
+            { TypeParameters = []; Id = retainedTypeId
               DisplayName = "Retained"
               Kind = SemanticTypeKind.Product [] }
         let parameter: SemanticParameter =
@@ -33,13 +33,13 @@ module TypeDeletionTests =
             { Id = obsoleteFunctionId
               DisplayName = "createObsolete"
               Parameters = [ parameter ]
-              ResultType = TypeRef.Named removedTypeId
+              ResultType = TypeRef.Named(removedTypeId, [])
               RequiredEffects = []
               Body =
                 { Nodes =
                     [ { Id = inputId; Kind = SemanticNodeKind.ParameterReference parameter.Id }
                       { Id = constructId
-                        Kind = SemanticNodeKind.ProductConstruct(removedTypeId,
+                        Kind = SemanticNodeKind.ProductConstruct(removedTypeId, [],
                             [ { TargetFieldId = fieldId; ValueNodeId = inputId } ]) } ]
                   ResultNodeId = constructId } }
         let retainedFn: SemanticFunction =
@@ -114,7 +114,7 @@ module TypeDeletionTests =
                           Kind = SemanticTypeKind.Product
                             [ { Id = id<FieldTag> "nested-reference"
                                 DisplayName = "nested"
-                                Type = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Named removedTypeId ]) } ] } ] }
+                                Type = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Named(removedTypeId, []) ]) } ] } ] }
         reject referencing [ AgentOperationIntent.DeleteType removedTypeId ] "TypeStillReferenced"
         let unused =
             { initial with Functions = initial.Functions |> List.filter (fun fn -> fn.Id <> obsoleteFunctionId) }
@@ -130,7 +130,7 @@ module TypeDeletionTests =
         let variantId = id<VariantTag> "unused-variant"
         let unionFieldId = id<FieldTag> "unused-union-field"
         let union: SemanticType =
-            { Id = unionId
+            { TypeParameters = []; Id = unionId
               DisplayName = "UnusedUnion"
               Kind = SemanticTypeKind.Union
                 [ { Id = variantId

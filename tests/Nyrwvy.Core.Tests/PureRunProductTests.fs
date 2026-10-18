@@ -26,18 +26,18 @@ module PureRunProductTests =
 
     let private withSession run =
         let types: SemanticType list =
-            [ { Id = productId; DisplayName = "Record"
+            [ { TypeParameters = []; Id = productId; DisplayName = "Record"
                 Kind = SemanticTypeKind.Product
                     [ { Id = textId; DisplayName = "value"; Type = stringType }
                       { Id = flagId; DisplayName = "value"; Type = boolType }
                       { Id = numberId; DisplayName = "value"; Type = intType } ] }
-              { Id = otherId; DisplayName = "Record"
+              { TypeParameters = []; Id = otherId; DisplayName = "Record"
                 Kind = SemanticTypeKind.Product
                     [ { Id = id<FieldTag> "other-left"; DisplayName = "text"; Type = stringType }
                       { Id = id<FieldTag> "other-right"; DisplayName = "text"; Type = stringType } ] }
-              { Id = emptyId; DisplayName = "Empty"; Kind = SemanticTypeKind.Product [] }
-              { Id = nestedId; DisplayName = "Nested"
-                Kind = SemanticTypeKind.Product [ { Id = nestedFieldId; DisplayName = "inner"; Type = TypeRef.Named emptyId } ] } ]
+              { TypeParameters = []; Id = emptyId; DisplayName = "Empty"; Kind = SemanticTypeKind.Product [] }
+              { TypeParameters = []; Id = nestedId; DisplayName = "Nested"
+                Kind = SemanticTypeKind.Product [ { Id = nestedFieldId; DisplayName = "inner"; Type = TypeRef.Named(emptyId, []) } ] } ]
         let initial = { Snapshot.empty (id<SnapshotTag> "initial") with Types = types }
         let create ws name parameters resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
@@ -50,18 +50,18 @@ module PureRunProductTests =
             | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> next
             | other -> failwithf "Commit failed: %A" other
         let ws = AgentWorkspace.create initial |> unwrap
-        let ws = create ws "identity" [ TypeRef.Named productId ] (TypeRef.Named productId) (ExpressionRecipe.ParameterSlot 0)
+        let ws = create ws "identity" [ TypeRef.Named(productId, []) ] (TypeRef.Named(productId, [])) (ExpressionRecipe.ParameterSlot 0)
         let field fieldId = ExpressionRecipe.FieldAccess(ExpressionRecipe.ParameterSlot 0, fieldId)
-        let ws = create ws "update" [ TypeRef.Named productId ] (TypeRef.Named productId)
-                    (ExpressionRecipe.ProductConstruct(productId,
+        let ws = create ws "update" [ TypeRef.Named(productId, []) ] (TypeRef.Named(productId, []))
+                    (ExpressionRecipe.ProductConstruct(productId, [],
                         [ textId, ExpressionRecipe.StringConcat(field textId, ExpressionRecipe.StringLiteral "!")
                           numberId, ExpressionRecipe.Int64WrappingAdd(field numberId, ExpressionRecipe.Int64Literal 1L)
                           flagId, field flagId ]))
-        let ws = create ws "extract" [ TypeRef.Named productId ] stringType (field textId)
-        let ws = create ws "empty" [ TypeRef.Named emptyId ] (TypeRef.Named emptyId) (ExpressionRecipe.ParameterSlot 0)
-        let ws = create ws "textPair" [ TypeRef.Named otherId ] (TypeRef.Named otherId) (ExpressionRecipe.ParameterSlot 0)
-        let ws = create ws "nested" [] (TypeRef.Named nestedId)
-                    (ExpressionRecipe.ProductConstruct(nestedId, [ nestedFieldId, ExpressionRecipe.ProductConstruct(emptyId, []) ]))
+        let ws = create ws "extract" [ TypeRef.Named(productId, []) ] stringType (field textId)
+        let ws = create ws "empty" [ TypeRef.Named(emptyId, []) ] (TypeRef.Named(emptyId, [])) (ExpressionRecipe.ParameterSlot 0)
+        let ws = create ws "textPair" [ TypeRef.Named(otherId, []) ] (TypeRef.Named(otherId, [])) (ExpressionRecipe.ParameterSlot 0)
+        let ws = create ws "nested" [] (TypeRef.Named(nestedId, []))
+                    (ExpressionRecipe.ProductConstruct(nestedId, [], [ nestedFieldId, ExpressionRecipe.ProductConstruct(emptyId, [], []) ]))
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-product-run-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory root |> ignore
         let path = Path.Combine(root, "workspace.json")
@@ -85,28 +85,28 @@ module PureRunProductTests =
                 match PureRun.run session (functionId "identity") [ value ] None with
                 | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal(expectedCode, code)
                 | other -> failwithf "Invalid Product accepted: %A" other
-            reject (PureRunValue.Product(otherId, [])) "RunArgumentTypeMismatch"
-            reject (PureRunValue.Product(productId, List.tail fields)) "RunProductShapeMismatch"
-            reject (PureRunValue.Product(productId, fields @ [ List.head fields ])) "RunProductShapeMismatch"
-            reject (PureRunValue.Product(productId, [ fields[0]; fields[0]; fields[2] ])) "RunProductShapeMismatch"
-            reject (PureRunValue.Product(productId, fields |> List.map (fun (fieldId, value) ->
+            reject (PureRunValue.Product(otherId, [], [])) "RunArgumentTypeMismatch"
+            reject (PureRunValue.Product(productId, [], List.tail fields)) "RunProductShapeMismatch"
+            reject (PureRunValue.Product(productId, [], fields @ [ List.head fields ])) "RunProductShapeMismatch"
+            reject (PureRunValue.Product(productId, [], [ fields[0]; fields[0]; fields[2] ])) "RunProductShapeMismatch"
+            reject (PureRunValue.Product(productId, [], fields |> List.map (fun (fieldId, value) ->
                 (if fieldId = textId then id<FieldTag> "foreign" else fieldId), value))) "RunProductShapeMismatch"
-            reject (PureRunValue.Product(productId, fields |> List.map (fun (fieldId, value) ->
+            reject (PureRunValue.Product(productId, [], fields |> List.map (fun (fieldId, value) ->
                 fieldId, (if fieldId = numberId then PureRunValue.Bool true else value)))) "RunProductShapeMismatch"
             for text, expected in [ String('x', 65537), "RunArgumentTooLarge" ] do
-                reject (PureRunValue.Product(productId, fields |> List.map (fun (fieldId, value) ->
+                reject (PureRunValue.Product(productId, [], fields |> List.map (fun (fieldId, value) ->
                     fieldId, (if fieldId = textId then PureRunValue.String text else value)))) expected
-            let value = PureRunValue.Product(productId, fields)
-            match PureRun.run session (functionId "identity") [ value ] (Some(PureRunValue.Product(productId, []))) with
+            let value = PureRunValue.Product(productId, [], fields)
+            match PureRun.run session (functionId "identity") [ value ] (Some(PureRunValue.Product(productId, [], []))) with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunProductShapeMismatch", code)
             | other -> failwithf "Invalid expectation accepted: %A" other
-            match PureRun.run session (functionId "nested") [] (Some(PureRunValue.Product(nestedId, [ nestedFieldId, PureRunValue.Int64 1L ]))) with
+            match PureRun.run session (functionId "nested") [] (Some(PureRunValue.Product(nestedId, [], [ nestedFieldId, PureRunValue.Int64 1L ]))) with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunProductShapeMismatch", code)
             | other -> failwithf "Mistyped nested field expectation accepted: %A" other
-            match PureRun.run session (functionId "nested") [] (Some(PureRunValue.Product(nestedId, [ nestedFieldId, PureRunValue.Product(emptyId, [ numberId, PureRunValue.Int64 1L ]) ]))) with
+            match PureRun.run session (functionId "nested") [] (Some(PureRunValue.Product(nestedId, [], [ nestedFieldId, PureRunValue.Product(emptyId, [], [ numberId, PureRunValue.Int64 1L ]) ]))) with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunProductShapeMismatch", code)
             | other -> failwithf "Invalid inner Product expectation accepted: %A" other
-            let large = PureRunValue.Product(otherId,
+            let large = PureRunValue.Product(otherId, [],
                 [ id<FieldTag> "other-left", PureRunValue.String(String('x', 32768))
                   id<FieldTag> "other-right", PureRunValue.String(String('y', 32769)) ])
             match PureRun.run session (functionId "textPair") [ large ] None with
@@ -141,14 +141,14 @@ module PureRunProductTests =
     let ``runPure executes Product construction access and canonical identity based comparisons`` () =
         withSession (fun session path functionId ->
             let before = File.ReadAllText path
-            let value = PureRunValue.Product(productId, fields)
-            let reversed = PureRunValue.Product(productId, List.rev fields)
+            let value = PureRunValue.Product(productId, [], fields)
+            let reversed = PureRunValue.Product(productId, [], List.rev fields)
             let identity = PureRun.run session (functionId "identity") [ value ] (Some reversed) |> unwrap
             Assert.Equal(Some true, identity.Matches)
-            let canonical = PureRunValue.Product(productId, fields |> List.sortBy (fst >> StableId.value))
+            let canonical = PureRunValue.Product(productId, [], fields |> List.sortBy (fst >> StableId.value))
             Assert.Equal(canonical, identity.Actual)
             Assert.Equal(Some canonical, identity.Expected)
-            let expected = PureRunValue.Product(productId,
+            let expected = PureRunValue.Product(productId, [],
                 [ flagId, PureRunValue.Bool false
                   numberId, PureRunValue.Int64 Int64.MinValue
                   textId, PureRunValue.String "雪\n\"\\!" ])
@@ -158,7 +158,7 @@ module PureRunProductTests =
             Assert.Equal(Some false, mismatch.Matches)
             let extracted = PureRun.run session (functionId "extract") [ value ] None |> unwrap
             Assert.Equal(PureRunValue.String "雪\n\"\\", extracted.Actual)
-            let empty = PureRunValue.Product(emptyId, [])
+            let empty = PureRunValue.Product(emptyId, [], [])
             let emptyResult = PureRun.run session (functionId "empty") [ empty ] (Some empty) |> unwrap
             Assert.Equal(Some true, emptyResult.Matches)
             let wire =

@@ -24,11 +24,11 @@ module ProductFieldEvolutionTests =
 
     let private fixture () =
         let product: SemanticType =
-            { Id = productId
+            { TypeParameters = []; Id = productId
               DisplayName = "Record"
               Kind = SemanticTypeKind.Product
                 [ { Id = originalFieldId; DisplayName = "original"; Type = stringType } ] }
-        let resultType = TypeRef.Named product.Id
+        let resultType = TypeRef.Named(product.Id, [])
         let directParameter: SemanticParameter =
             { Id = stable<ParameterTag> "direct-parameter"; DisplayName = "input"; Type = stringType }
         let direct: SemanticFunction =
@@ -41,7 +41,7 @@ module ProductFieldEvolutionTests =
                 { Nodes =
                     [ { Id = directValueId; Kind = SemanticNodeKind.ParameterReference directParameter.Id }
                       { Id = directProductId
-                        Kind = SemanticNodeKind.ProductConstruct(productId,
+                        Kind = SemanticNodeKind.ProductConstruct(productId, [],
                             [ { TargetFieldId = originalFieldId; ValueNodeId = directValueId } ]) } ]
                   ResultNodeId = directProductId } }
         let nestedParameter: SemanticParameter =
@@ -50,14 +50,14 @@ module ProductFieldEvolutionTests =
             { Nodes =
                 [ { Id = trueValueId; Kind = SemanticNodeKind.ParameterReference nestedParameter.Id }
                   { Id = trueProductId
-                    Kind = SemanticNodeKind.ProductConstruct(productId,
+                    Kind = SemanticNodeKind.ProductConstruct(productId, [],
                         [ { TargetFieldId = originalFieldId; ValueNodeId = trueValueId } ]) } ]
               ResultNodeId = trueProductId }
         let falseBranch: ValueGraph =
             { Nodes =
                 [ { Id = falseValueId; Kind = SemanticNodeKind.StringLiteral "other" }
                   { Id = falseProductId
-                    Kind = SemanticNodeKind.ProductConstruct(productId,
+                    Kind = SemanticNodeKind.ProductConstruct(productId, [],
                         [ { TargetFieldId = originalFieldId; ValueNodeId = falseValueId } ]) } ]
               ResultNodeId = falseProductId }
         let conditionId = stable<GraphNodeTag> "condition"
@@ -131,7 +131,7 @@ module ProductFieldEvolutionTests =
                 |> List.collect (fun fn -> ValueGraph.collectNodes fn.Body)
                 |> List.find (fun node -> node.Id = expectedNodeId)
             match node.Kind with
-            | SemanticNodeKind.ProductConstruct(typeId, fields) ->
+            | SemanticNodeKind.ProductConstruct(typeId, _, fields) ->
                 Assert.Equal(productId, typeId)
                 Assert.Equal<Set<FieldId>>(Set.ofList [ originalFieldId; added.AddedFieldId ], fields |> List.map (fun field -> field.TargetFieldId) |> Set.ofList)
             | _ -> failwith "Product construct identity changed."
@@ -192,7 +192,7 @@ module ProductFieldEvolutionTests =
     let ``Product field deletion rejects live accesses and invalid field identities`` () =
         let initial = fixture ()
         let productInput: SemanticParameter =
-            { Id = stable<ParameterTag> "access-parameter"; DisplayName = "value"; Type = TypeRef.Named productId }
+            { Id = stable<ParameterTag> "access-parameter"; DisplayName = "value"; Type = TypeRef.Named(productId, []) }
         let sourceId = stable<GraphNodeTag> "access-source"
         let accessId = stable<GraphNodeTag> "access"
         let accessor: SemanticFunction =

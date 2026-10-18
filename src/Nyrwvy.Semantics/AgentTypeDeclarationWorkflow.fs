@@ -18,6 +18,9 @@ type AgentTypeDeclarationKindIntent =
 type AgentCreateTypeDeclarationRequest =
     { ExpectedBaseSnapshotId: SnapshotId
       DisplayName: string
+      /// Request-local type parameters, in declaration order; field types name them with
+      /// `TypeRef.TypeParameter`. Simulation gives each a fresh system-owned identity.
+      TypeParameters: (TypeParameterId * string) list
       Kind: AgentTypeDeclarationKindIntent }
 
 /// One member of a type group. `Reference` is a request-local TypeId that fields anywhere in the
@@ -26,6 +29,8 @@ type AgentCreateTypeDeclarationRequest =
 type AgentTypeDeclarationGroupMember =
     { Reference: TypeId
       DisplayName: string
+      /// Request-local type parameters, as for a single declaration.
+      TypeParameters: (TypeParameterId * string) list
       Kind: AgentTypeDeclarationKindIntent }
 
 /// Creates one or more types together, so they may refer to themselves and to each other.
@@ -118,11 +123,23 @@ module AgentTypeDeclarationWorkflow =
 
     /// Validates declared type references against the snapshot's types plus `groupReferences`
     /// (the IDs a type group is declaring together).
-    let private typeRefValidator (snapshot: Snapshot) (groupReferences: Set<TypeId>) =
-        StructuralTransactionInternals.validateDeclaredTypeRef
+    let private typeRefValidator (snapshot: Snapshot) (groupReferences: Set<TypeId>) (typeParameters: (TypeParameterId * string) list) =
+        StructuralTransactionInternals.validateDeclaredTypeRefWith
             "TypeDeclaration"
             (snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList |> Set.union groupReferences)
             (snapshot.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList)
+            (typeParameters |> List.map fst |> Set.ofList)
+
+    /// Type parameter names must be nonblank and distinct; one identity names one parameter.
+    let private validateTypeParameters (typeParameters: (TypeParameterId * string) list) =
+        match typeParameters |> List.tryFind (fun (_, name) -> String.IsNullOrWhiteSpace name) with
+        | Some _ -> Error(diagnostic "TypeDeclarationTypeParameterNameBlank" "Type parameter names must not be blank.")
+        | None ->
+            match typeParameters |> List.countBy snd |> List.tryFind (fun (_, count) -> count > 1) with
+            | Some(name, _) -> Error(diagnostic "TypeDeclarationDuplicateTypeParameter" $"Type parameter '{name}' is declared more than once.")
+            | None when (typeParameters |> List.map fst |> List.distinct).Length <> typeParameters.Length ->
+                Error(diagnostic "TypeDeclarationDuplicateTypeParameter" "One type parameter identity is declared more than once.")
+            | None -> Ok()
 
     let private validateFields validateTypeRef context (fields: AgentTypeFieldIntent list) =
         let rec loop index (remaining: AgentTypeFieldIntent list) =
@@ -189,7 +206,8 @@ module AgentTypeDeclarationWorkflow =
     let private validatePreflight (snapshot: Snapshot) (request: AgentCreateTypeDeclarationRequest) =
         validateBase snapshot request.ExpectedBaseSnapshotId
         |> Result.bind (fun () -> validateDisplayName snapshot request.DisplayName)
-        |> Result.bind (fun () -> validateKind (typeRefValidator snapshot Set.empty) request.Kind)
+        |> Result.bind (fun () -> validateTypeParameters request.TypeParameters)
+        |> Result.bind (fun () -> validateKind (typeRefValidator snapshot Set.empty request.TypeParameters) request.Kind)
 
     /// A group member must have a finite value: otherwise it could never be constructed. Existing
     /// types, primitives, List/Option (empty) and function/capability/task values count as inhabited;
@@ -199,7 +217,7 @@ module AgentTypeDeclarationWorkflow =
 
         let rec inhabited (known: Set<TypeId>) typeRef =
             match typeRef with
-            | TypeRef.Named id -> not (Set.contains id references) || Set.contains id known
+            | TypeRef.Named(id, _) -> not (Set.contains id references) || Set.contains id known
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) -> List.exists (inhabited known) arguments
             | _ -> true
 
@@ -247,7 +265,7 @@ module AgentTypeDeclarationWorkflow =
                             $"The type group declares '{item.DisplayName}' more than once; type display names must be unique."
                     )
                 | Ok() ->
-                    match validateKind validateTypeRef item.Kind with
+                    match validateTypeParameters item.TypeParameters |> Result.bind (fun () -> validateKind (validateTypeRef item.TypeParameters) item.Kind) with
                     | Error error -> Error { error with Message = $"Type '{item.DisplayName}': {error.Message}" }
                     | Ok() -> members (Set.add item.DisplayName seen) rest
 
@@ -286,10 +304,18 @@ module AgentTypeDeclarationWorkflow =
                       Fields = variant.Fields |> List.map (materializeField rewrite) })
             )
 
+    /// Fresh system-owned identities for request-local type parameters, keeping their names.
+    let private freshTypeParameters (typeParameters: (TypeParameterId * string) list) =
+        let fresh = typeParameters |> List.map (fun (_, name) -> StableIdAllocator.newTypeParameterId (), name)
+        let substitution = List.zip typeParameters fresh |> List.map (fun ((old, _), parameter) -> old, TypeRef.TypeParameter parameter) |> Map.ofList
+        fresh, TypeParameters.substitute substitution
+
     let private materialize (request: AgentCreateTypeDeclarationRequest): SemanticType =
+        let typeParameters, renameParameters = freshTypeParameters request.TypeParameters
         { Id = StableIdAllocator.newTypeId ()
           DisplayName = request.DisplayName
-          Kind = materializeKind id request.Kind }
+          TypeParameters = typeParameters
+          Kind = materializeKind renameParameters request.Kind }
 
     /// Allocates every member's TypeId first, then rewrites the request-local references to them.
     let private materializeGroup (request: AgentCreateTypeDeclarationGroupRequest): SemanticType list =
@@ -300,16 +326,19 @@ module AgentTypeDeclarationWorkflow =
 
         let rec rewrite typeRef =
             match typeRef with
-            | TypeRef.Named reference when Map.containsKey reference allocated -> TypeRef.Named allocated[reference]
+            | TypeRef.Named(reference, arguments) when Map.containsKey reference allocated -> TypeRef.Named(allocated[reference], List.map rewrite arguments)
+            | TypeRef.Named(typeId, arguments) -> TypeRef.Named(typeId, List.map rewrite arguments)
             | TypeRef.Function(arguments, result) -> TypeRef.Function(List.map rewrite arguments, rewrite result)
             | TypeRef.BuiltinGeneric(kind, arguments) -> TypeRef.BuiltinGeneric(kind, List.map rewrite arguments)
             | other -> other
 
         request.Declarations
         |> List.map (fun item ->
+            let typeParameters, renameParameters = freshTypeParameters item.TypeParameters
             { Id = allocated[item.Reference]
               DisplayName = item.DisplayName
-              Kind = materializeKind rewrite item.Kind })
+              TypeParameters = typeParameters
+              Kind = materializeKind (rewrite >> renameParameters) item.Kind })
 
     /// Validates the base, runs the declaration-specific preflight, appends the created types and
     /// reviews the candidate snapshot.

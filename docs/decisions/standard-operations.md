@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-01
 - **Roadmap:** [post-M2 queue from the 2026-10-01 standard-operations review](../plans/post-m2-roadmap.md#queue-from-the-2026-10-01-standard-operations-review), orders 35 and 36
+- **Superseded in part (2026-10-18):** the exception below was replaced by the rule that [language operations must be warranted](../plans/post-m2-roadmap.md#selection-rule-from-here). The operations it added stay as decided.
 
 The [selection rule](../plans/post-m2-roadmap.md#selection-rule-from-here) adds language work only for an observed failure, blocker or cost. Its reason is that defining an operation before anyone uses it means guessing its meaning. The [Float64 conversion decision](float64-conversion-and-run-values.md) says this directly: without a consumer, the rounding choice "would be a guess". A review of the builtin surface against ordinary language libraries found operations that programs commonly need but that no probe had reported as a cost, because each hand-written version was small. Some of them have no meaning to guess. The implemented surface is described by the [language subset](../reference/language-subset.md), the [expression authoring specification](../specs/expression-authoring.md) and the [C# backend](../specs/csharp-backend.md), which remain the authority.
 

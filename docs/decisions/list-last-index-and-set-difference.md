@@ -4,7 +4,7 @@
 - **Date:** 2026-10-05
 - **Roadmap:** [post-M2 queue from the 2026-10-05 probe 23 owner choice](../plans/post-m2-roadmap.md#queue-from-the-2026-10-05-probe-23-owner-choice), order 53
 
-After [order 52](persistent-vector-list.md), [probe 23](../verification/map-set-probe23-20261005.md)'s Tarjan components still exceeded the 5 s run limit on a comb of 20,000 nodes. Each leaf there closes a one-name component at the top of the component stack, and two steps of closing it were linear in the stack's depth: `ListIndexOf(scc, top)` scans from the front, and `SetDifference(onStack, component)` folds over the whole on-stack set. The owner queued both fixes on 2026-10-05, as the order 52 decision's revisit condition proposed.
+After [order 52](persistent-vector-list.md), [probe 23](../verification/map-set-probes-summary.md#probe-23)'s Tarjan components still exceeded the 5 s run limit on a comb of 20,000 nodes. Each leaf there closes a one-name component at the top of the component stack, and two steps of closing it were linear in the stack's depth: `ListIndexOf(scc, top)` scans from the front, and `SetDifference(onStack, component)` folds over the whole on-stack set. The owner queued both fixes on 2026-10-05, as the order 52 decision's revisit condition proposed.
 
 ## Decision
 

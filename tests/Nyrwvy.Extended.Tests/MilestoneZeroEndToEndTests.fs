@@ -227,7 +227,7 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
                     { TargetFunctionId = fixture.ValidateFunctionId
                       NewParameterId = newParameterId
                       NewParameterDisplayName = "policy"
-                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                       CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ] }
 
         let incompletePreview =

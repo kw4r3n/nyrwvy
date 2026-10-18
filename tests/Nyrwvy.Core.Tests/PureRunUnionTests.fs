@@ -31,7 +31,7 @@ module PureRunUnionTests =
 
     let private withSession run =
         let types: SemanticType list =
-            [ { Id = unionId; DisplayName = "Choice"
+            [ { TypeParameters = []; Id = unionId; DisplayName = "Choice"
                 Kind = SemanticTypeKind.Union
                     [ { Id = payloadId; DisplayName = "Choice"
                         Fields =
@@ -41,13 +41,13 @@ module PureRunUnionTests =
                               { Id = numberId; DisplayName = "value"; Type = TypeRef.Primitive PrimitiveType.Int64 } ] }
                       { Id = emptyId; DisplayName = "Choice"; Fields = [] }
                       { Id = otherEmptyId; DisplayName = "Choice"; Fields = [] } ] }
-              { Id = foreignId; DisplayName = "Choice"
+              { TypeParameters = []; Id = foreignId; DisplayName = "Choice"
                 Kind = SemanticTypeKind.Union [ { Id = foreignVariantId; DisplayName = "Choice"; Fields = [] } ] }
-              { Id = nestedId; DisplayName = "Nested"
+              { TypeParameters = []; Id = nestedId; DisplayName = "Nested"
                 Kind = SemanticTypeKind.Union
                     [ { Id = id<VariantTag> "nested-empty"; DisplayName = "Empty"; Fields = [] }
                       { Id = id<VariantTag> "nested-data"; DisplayName = "Data"
-                        Fields = [ { Id = id<FieldTag> "nested-data"; DisplayName = "inner"; Type = TypeRef.Named unionId } ] } ] } ]
+                        Fields = [ { Id = id<FieldTag> "nested-data"; DisplayName = "inner"; Type = TypeRef.Named(unionId, []) } ] } ] } ]
         let create ws name parameters resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
@@ -59,19 +59,19 @@ module PureRunUnionTests =
             | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> next
             | other -> failwithf "Commit failed: %A" other
         let ws = AgentWorkspace.create { Snapshot.empty (id<SnapshotTag> "initial") with Types = types } |> unwrap
-        let ws = create ws "identity" [ TypeRef.Named unionId ] (TypeRef.Named unionId) (ExpressionRecipe.ParameterSlot 0)
-        let ws = create ws "make" [ TypeRef.Primitive PrimitiveType.String ] (TypeRef.Named unionId)
-                    (ExpressionRecipe.UnionConstruct(payloadId,
+        let ws = create ws "identity" [ TypeRef.Named(unionId, []) ] (TypeRef.Named(unionId, [])) (ExpressionRecipe.ParameterSlot 0)
+        let ws = create ws "make" [ TypeRef.Primitive PrimitiveType.String ] (TypeRef.Named(unionId, []))
+                    (ExpressionRecipe.UnionConstruct(payloadId, [],
                         [ textId, ExpressionRecipe.ParameterSlot 0
                           extraId, ExpressionRecipe.StringLiteral ""
                           numberId, ExpressionRecipe.Int64Literal Int64.MinValue
                           flagId, ExpressionRecipe.BoolLiteral false ]))
-        let ws = create ws "classify" [ TypeRef.Named unionId ] (TypeRef.Primitive PrimitiveType.Bool)
+        let ws = create ws "classify" [ TypeRef.Named(unionId, []) ] (TypeRef.Primitive PrimitiveType.Bool)
                     (ExpressionRecipe.MatchUnion(ExpressionRecipe.ParameterSlot 0,
                         [ [ payloadId ], ExpressionRecipe.BoolLiteral true
                           [ emptyId ], ExpressionRecipe.BoolLiteral false
                           [ otherEmptyId ], ExpressionRecipe.BoolLiteral false ]))
-        let ws = create ws "nested" [] (TypeRef.Named nestedId) (ExpressionRecipe.UnionConstruct(id<VariantTag> "nested-empty", []))
+        let ws = create ws "nested" [] (TypeRef.Named(nestedId, [])) (ExpressionRecipe.UnionConstruct(id<VariantTag> "nested-empty", [], []))
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-union-run-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory root |> ignore
         let path = Path.Combine(root, "workspace.json")
@@ -90,8 +90,8 @@ module PureRunUnionTests =
                 match PureRun.run session (functionId "identity") [ value ] None with
                 | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal(expected, code)
                 | other -> failwithf "Invalid Union accepted: %A" other
-            reject (PureRunValue.Union(foreignId, foreignVariantId, [])) "RunArgumentTypeMismatch"
-            reject (PureRunValue.Product(unionId, [])) "RunProductShapeMismatch"
+            reject (PureRunValue.Union(foreignId, [], foreignVariantId, [])) "RunArgumentTypeMismatch"
+            reject (PureRunValue.Product(unionId, [], [])) "RunProductShapeMismatch"
             for variant, values in
                 [ foreignVariantId, []
                   id<VariantTag> "unknown", []
@@ -101,19 +101,19 @@ module PureRunUnionTests =
                   emptyId, [ List.head fields ]
                   payloadId, fields |> List.map (fun (fieldId, value) -> (if fieldId = textId then id<FieldTag> "foreign" else fieldId), value)
                   payloadId, fields |> List.map (fun (fieldId, value) -> fieldId, (if fieldId = flagId then PureRunValue.Int64 0L else value)) ] do
-                reject (PureRunValue.Union(unionId, variant, values)) "RunUnionShapeMismatch"
-            let valid = PureRunValue.Union(unionId, payloadId, fields)
-            match PureRun.run session (functionId "identity") [ valid ] (Some(PureRunValue.Union(unionId, foreignVariantId, []))) with
+                reject (PureRunValue.Union(unionId, [], variant, values)) "RunUnionShapeMismatch"
+            let valid = PureRunValue.Union(unionId, [], payloadId, fields)
+            match PureRun.run session (functionId "identity") [ valid ] (Some(PureRunValue.Union(unionId, [], foreignVariantId, []))) with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunUnionShapeMismatch", code)
             | other -> failwithf "Foreign expectation accepted: %A" other
             for text, expected in [ String('x', 65537), "RunArgumentTooLarge" ] do
                 let values = fields |> List.map (fun (fieldId, value) -> fieldId, (if fieldId = textId then PureRunValue.String text else value))
-                reject (PureRunValue.Union(unionId, payloadId, values)) expected
+                reject (PureRunValue.Union(unionId, [], payloadId, values)) expected
             let large = fields |> List.map (fun (fieldId, value) ->
                 fieldId, (if fieldId = textId || fieldId = extraId then PureRunValue.String(String('x', 32769)) else value))
-            reject (PureRunValue.Union(unionId, payloadId, large)) "RunArgumentTooLarge"
-            let nestedData = PureRunValue.Union(nestedId, id<VariantTag> "nested-data",
-                                [ id<FieldTag> "nested-data", PureRunValue.Union(unionId, payloadId, []) ])
+            reject (PureRunValue.Union(unionId, [], payloadId, large)) "RunArgumentTooLarge"
+            let nestedData = PureRunValue.Union(nestedId, [], id<VariantTag> "nested-data",
+                                [ id<FieldTag> "nested-data", PureRunValue.Union(unionId, [], payloadId, []) ])
             match PureRun.run session (functionId "nested") [] (Some nestedData) with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunUnionShapeMismatch", code)
             | other -> failwithf "Invalid inner Union expectation accepted: %A" other
@@ -143,15 +143,15 @@ module PureRunUnionTests =
     let ``runPure roundtrips Union payloads constructs variants and compares tags`` () =
         withSession (fun session path functionId ->
             let before = File.ReadAllText path
-            let value = PureRunValue.Union(unionId, payloadId, fields)
-            let reversed = PureRunValue.Union(unionId, payloadId, List.rev fields)
+            let value = PureRunValue.Union(unionId, [], payloadId, fields)
+            let reversed = PureRunValue.Union(unionId, [], payloadId, List.rev fields)
             let identity = PureRun.run session (functionId "identity") [ value ] (Some reversed) |> unwrap
             Assert.Equal(Some true, identity.Matches)
-            Assert.Equal(PureRunValue.Union(unionId, payloadId, fields |> List.sortBy (fst >> StableId.value)), identity.Actual)
+            Assert.Equal(PureRunValue.Union(unionId, [], payloadId, fields |> List.sortBy (fst >> StableId.value)), identity.Actual)
             let constructed = PureRun.run session (functionId "make") [ PureRunValue.String "雪\n\"\\" ] (Some value) |> unwrap
             Assert.Equal(Some true, constructed.Matches)
-            let empty = PureRunValue.Union(unionId, emptyId, [])
-            let other = PureRunValue.Union(unionId, otherEmptyId, [])
+            let empty = PureRunValue.Union(unionId, [], emptyId, [])
+            let other = PureRunValue.Union(unionId, [], otherEmptyId, [])
             let mismatch = PureRun.run session (functionId "identity") [ empty ] (Some other) |> unwrap
             Assert.Equal(Some false, mismatch.Matches)
             for input, expected in [ value, true; empty, false; other, false ] do

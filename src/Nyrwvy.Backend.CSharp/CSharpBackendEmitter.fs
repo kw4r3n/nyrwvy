@@ -54,7 +54,7 @@ module CSharpBackend =
         | TypeRef.Primitive PrimitiveType.Int64 -> "long"
         | TypeRef.Primitive PrimitiveType.Float64 -> "double"
         | TypeRef.Primitive PrimitiveType.Bits32 -> "uint"
-        | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
+        | TypeRef.Named(typeId, arguments) -> CSharpBackendNames.typeName typeId + typeArgumentList arguments
         | TypeRef.Capability capabilityId -> CSharpBackendNames.capabilityName capabilityId
         | TypeRef.Function(arguments, result) ->
             "NyFunction" + string arguments.Length + "<" + (arguments @ [ result ] |> List.map formatType |> String.concat ", ") + ">"
@@ -94,6 +94,15 @@ module CSharpBackend =
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
             invalidOp $"C# backend received List with {arguments.Length} type arguments."
 
+
+    /// `<A, B>` for the type arguments of a generic Product or Union; empty for a monomorphic one.
+    and private typeArgumentList (arguments: TypeRef list) =
+        if List.isEmpty arguments then "" else "<" + (arguments |> List.map formatType |> String.concat ", ") + ">"
+
+    let private namedTypeArguments (typeRef: TypeRef) =
+        match typeRef with
+        | TypeRef.Named(_, arguments) -> arguments
+        | _ -> []
     let private emitRuntime (writer: SourceWriter) =
         writer.Line("public readonly record struct NyUnit")
         writer.Line("{")
@@ -121,7 +130,8 @@ module CSharpBackend =
         // ValueEqual is structural through every emitted value type: records and record structs
         // compare their fields with EqualityComparer<T>.Default (and records their runtime type,
         // i.e. the union variant), and NyList compares length and items in order. String uses
-        // ordinal equality. Validation keeps Float64, delegates and tasks out of ValueEqual.
+        // ordinal equality, and NyMap and NySet compare their entries regardless of order. Validation
+        // keeps Float64, delegates and tasks out of ValueEqual.
         writer.Line("public static class NyEquality")
         writer.Line("{")
         writer.Push()
@@ -771,7 +781,9 @@ module CSharpBackend =
         // NyMap is persistent: Insert and Remove return new maps and leave the old ones valid. Lookup
         // uses the structural EqualityComparer<K>.Default that ValueEqual relies on; the visible order is
         // insertion order, kept as insertion numbers in a sorted map, so hash codes never affect it.
-        writer.Line("public sealed class NyMap<K, V> where K : notnull")
+        // Two maps are equal when they hold equal values under the same keys, whatever their order,
+        // as Python dict equality; the hash code is therefore an order-independent sum.
+        writer.Line("public sealed class NyMap<K, V> : IEquatable<NyMap<K, V>> where K : notnull")
         writer.Line("{")
         writer.Push()
         writer.Line("private readonly System.Collections.Immutable.ImmutableDictionary<K, (long Order, V Value)> entries;")
@@ -801,6 +813,26 @@ module CSharpBackend =
         // larger other map instead would put the other map's keys first, so it is not done.
         writer.Line("public NyMap<K, V> Union(NyMap<K, V> other) =>")
         writer.Line("other.entries.Count == 0 ? this : entries.Count == 0 ? other : other.Fold(this, (map, key, value) => map.Insert(key, value));")
+        writer.Line("public bool Equals(NyMap<K, V>? other)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (other is null) return false;")
+        writer.Line("if (ReferenceEquals(this, other)) return true;")
+        writer.Line("if (entries.Count != other.entries.Count) return false;")
+        writer.Line("var values = System.Collections.Generic.EqualityComparer<V>.Default;")
+        writer.Line("foreach (var pair in entries) if (!other.entries.TryGetValue(pair.Key, out var entry) || !values.Equals(pair.Value.Value, entry.Value)) return false;")
+        writer.Line("return true;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public override bool Equals(object? obj) => obj is NyMap<K, V> other && Equals(other);")
+        writer.Line("public override int GetHashCode()")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var hash = 0;")
+        writer.Line("foreach (var pair in entries) unchecked { hash += System.HashCode.Combine(pair.Key, pair.Value.Value); }")
+        writer.Line("return hash;")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("public NyMap<K, V> Remove(K key) =>")
         writer.Line("entries.TryGetValue(key, out var entry) ? new(entries.Remove(key), order.Remove(entry.Order), next) : this;")
         writer.Line("public S Fold<S>(S seed, System.Func<S, K, V, S> folder)")
@@ -855,7 +887,8 @@ module CSharpBackend =
         writer.Line("")
         // NySet is NyMap's counterpart without values: persistent, structural item equality, and
         // insertion order kept as insertion numbers so hash codes never affect the visible order.
-        writer.Line("public sealed class NySet<T> where T : notnull")
+        // Two sets are equal when they hold the same items, whatever their order, as Python set equality.
+        writer.Line("public sealed class NySet<T> : IEquatable<NySet<T>> where T : notnull")
         writer.Line("{")
         writer.Push()
         writer.Line("private readonly System.Collections.Immutable.ImmutableDictionary<T, long> items;")
@@ -891,6 +924,16 @@ module CSharpBackend =
         writer.Line("if (items.Count > other.items.Count) return false;")
         writer.Line("foreach (var item in items.Keys) if (!other.items.ContainsKey(item)) return false;")
         writer.Line("return true;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("public bool Equals(NySet<T>? other) => other is not null && (ReferenceEquals(this, other) || (items.Count == other.items.Count && IsSubsetOf(other)));")
+        writer.Line("public override bool Equals(object? obj) => obj is NySet<T> other && Equals(other);")
+        writer.Line("public override int GetHashCode()")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var hash = 0;")
+        writer.Line("foreach (var item in items.Keys) unchecked { hash += System.Collections.Generic.EqualityComparer<T>.Default.GetHashCode(item); }")
+        writer.Line("return hash;")
         writer.Pop()
         writer.Line("}")
         writer.Line("public S Fold<S>(S seed, System.Func<S, T, S> folder)")
@@ -966,9 +1009,9 @@ module CSharpBackend =
     let private emitFunctionTypes (writer: SourceWriter) (program: ExecutionProgram) =
         let rec arities = function
             | TypeRef.Function(arguments, result) -> arguments.Length :: List.collect arities (arguments @ [ result ])
-            | TypeRef.BuiltinGeneric(_, arguments) -> List.collect arities arguments
+            | TypeRef.BuiltinGeneric(_, arguments)
+            | TypeRef.Named(_, arguments) -> List.collect arities arguments
             | TypeRef.Primitive _
-            | TypeRef.Named _
             | TypeRef.Capability _
             | TypeRef.TypeParameter _ -> []
         let declaredTypes = program.Types |> List.collect (fun t ->
@@ -989,7 +1032,11 @@ module CSharpBackend =
 
     let private emitTypes (writer: SourceWriter) (program: ExecutionProgram) =
         for typeEntity in program.Types |> List.sortBy (fun item -> StableId.value item.Id) do
-            let typeName = CSharpBackendNames.typeName typeEntity.Id
+            // A generic Product or Union is a generic record; its variants share its type parameters.
+            let parameterList =
+                if List.isEmpty typeEntity.TypeParameters then ""
+                else "<" + (typeEntity.TypeParameters |> List.map (fst >> CSharpBackendNames.typeParameterName) |> String.concat ", ") + ">"
+            let typeName = CSharpBackendNames.typeName typeEntity.Id + parameterList
             match typeEntity.Kind with
             | ExecutionTypeKind.Product fields ->
                 let parameters =
@@ -1006,7 +1053,7 @@ module CSharpBackend =
                         |> List.sortBy (fun field -> StableId.value field.Id)
                         |> List.map fieldParameter
                         |> String.concat ", "
-                    let variantName = CSharpBackendNames.variantName variant.Id
+                    let variantName = CSharpBackendNames.variantName variant.Id + parameterList
                     writer.Line("public sealed record " + variantName + "(" + parameters + ") : " + typeName + ";")
             writer.Line("")
 
@@ -1796,8 +1843,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName capabilityValueId + "." + methodName + "(" + renderCapabilityArguments arguments + ");")
         | ExecutionInstructionKind.ProductConstruct fields ->
             match instruction.Result.Type with
-            | TypeRef.Named typeId ->
-                writer.Line(target + " = new " + CSharpBackendNames.typeName typeId + "(" + renderFieldArguments fields + ");")
+            | TypeRef.Named _ as productType ->
+                writer.Line(target + " = new " + formatType productType + "(" + renderFieldArguments fields + ");")
             | _ -> invalidOp "ProductConstruct result does not carry a named product type."
         | ExecutionInstructionKind.FieldAccess(sourceValueId, fieldId) ->
             writer.Line(target + " = " + valueName sourceValueId + "." + CSharpBackendNames.fieldName fieldId + ";")
@@ -1809,7 +1856,7 @@ module CSharpBackend =
                 |> String.concat ", "
             writer.Line(target + " = " + valueName sourceValueId + " with { " + assignments + " };")
         | ExecutionInstructionKind.UnionConstruct(variantId, fields) ->
-            writer.Line(target + " = new " + CSharpBackendNames.variantName variantId + "(" + renderFieldArguments fields + ");")
+            writer.Line(target + " = new " + CSharpBackendNames.variantName variantId + typeArgumentList (namedTypeArguments instruction.Result.Type) + "(" + renderFieldArguments fields + ");")
         | ExecutionInstructionKind.OptionNone ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".None();")
         | ExecutionInstructionKind.OptionSome sourceValueId ->
@@ -1819,7 +1866,7 @@ module CSharpBackend =
         | ExecutionInstructionKind.ResultErr errorValueId ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".Err(" + valueName errorValueId + ");")
         | ExecutionInstructionKind.ExtractUnionField(inputValueId, variantId, fieldId) ->
-            writer.Line(target + " = ((" + CSharpBackendNames.variantName variantId + ")" + valueName inputValueId + ")." + CSharpBackendNames.fieldName fieldId + ";")
+            writer.Line(target + " = ((" + CSharpBackendNames.variantName variantId + typeArgumentList (namedTypeArguments (valueTypeOf inputValueId)) + ")" + valueName inputValueId + ")." + CSharpBackendNames.fieldName fieldId + ";")
         | ExecutionInstructionKind.ExtractOptionSome inputValueId ->
             writer.Line(target + " = " + valueName inputValueId + ".Value;")
         | ExecutionInstructionKind.ExtractResultOk inputValueId ->
@@ -1847,6 +1894,7 @@ module CSharpBackend =
 
     let private emitTerminator
         (functionEntity: ExecutionFunction)
+        (valueTypeOf: ExecutionValueId -> TypeRef)
         (writer: SourceWriter)
         (block: ExecutionBlock)
         (terminator: ExecutionTerminator) =
@@ -1877,7 +1925,7 @@ module CSharpBackend =
             | orderedTargets ->
                 for index, target in orderedTargets |> List.indexed do
                     let prefix = if index = 0 then "if" else "else if"
-                    writer.Line(prefix + " (" + valueName inputValueId + " is " + CSharpBackendNames.variantName target.VariantId + ") goto " + CSharpBackendNames.executionBlockLabel target.BlockId + ";")
+                    writer.Line(prefix + " (" + valueName inputValueId + " is " + CSharpBackendNames.variantName target.VariantId + typeArgumentList (namedTypeArguments (valueTypeOf inputValueId)) + ") goto " + CSharpBackendNames.executionBlockLabel target.BlockId + ";")
                 writer.Line("else throw new InvalidOperationException(\"Execution IR union value did not match a declared variant.\");")
         | ExecutionTerminator.MatchOption(inputValueId, someBlock, noneBlock) ->
             writer.Line("if (" + valueName inputValueId + ".HasValue) goto " + CSharpBackendNames.executionBlockLabel someBlock + ";")
@@ -1984,7 +2032,7 @@ module CSharpBackend =
             writer.Push()
             for instruction in block.Instructions do
                 emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf instruction
-            emitTerminator functionEntity writer block block.Terminator
+            emitTerminator functionEntity (fun valueId -> Map.find valueId valueTypes) writer block block.Terminator
             writer.Line("")
 
         writer.Pop()

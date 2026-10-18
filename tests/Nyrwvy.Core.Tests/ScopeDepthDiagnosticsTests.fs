@@ -29,7 +29,7 @@ module ScopeDepthDiagnosticsTests =
 
     let private snapshot =
         let action: SemanticType =
-            { Id = actionTypeId
+            { TypeParameters = []; Id = actionTypeId
               DisplayName = "Action"
               Kind =
                 SemanticTypeKind.Union
@@ -45,7 +45,7 @@ module ScopeDepthDiagnosticsTests =
             { Id = targetId
               DisplayName = "target"
               Parameters =
-                [ { Id = actionParameterId; DisplayName = "action"; Type = TypeRef.Named actionTypeId }
+                [ { Id = actionParameterId; DisplayName = "action"; Type = TypeRef.Named(actionTypeId, []) }
                   { Id = maybeParameterId; DisplayName = "maybe"; Type = optionType int64Type } ]
               ResultType = stringType
               RequiredEffects = []

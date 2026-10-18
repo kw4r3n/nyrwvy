@@ -172,9 +172,10 @@ module SnapshotCodec =
             writer.WriteEndArray()
             writer.WritePropertyName("resultType")
             writeTypeRef writer result
-        | TypeRef.Named typeId ->
+        | TypeRef.Named(typeId, arguments) ->
             writer.WriteString("kind", "named")
             writer.WriteString("typeId", StableId.value typeId)
+            writeTypeArguments writer "arguments" arguments
         | TypeRef.TypeParameter(typeParameterId, displayName) ->
             writer.WriteString("kind", "typeParameter")
             writer.WriteString("typeParameterId", StableId.value typeParameterId)
@@ -203,6 +204,15 @@ module SnapshotCodec =
             writer.WriteEndArray()
         writer.WriteEndObject()
 
+    /// Type arguments of a named type or a construct node; absent when empty, so a monomorphic
+    /// graph keeps its bytes.
+    and private writeTypeArguments (writer: Utf8JsonWriter) (name: string) (arguments: TypeRef list) =
+        if not (List.isEmpty arguments) then
+            writer.WritePropertyName(name)
+            writer.WriteStartArray()
+            arguments |> List.iter (writeTypeRef writer)
+            writer.WriteEndArray()
+
     let private writeField (writer: Utf8JsonWriter) (field: SemanticField) =
         writer.WriteStartObject()
         writer.WriteString("id", StableId.value field.Id)
@@ -227,6 +237,16 @@ module SnapshotCodec =
         writer.WriteStartObject()
         writer.WriteString("id", StableId.value item.Id)
         writer.WriteString("displayName", item.DisplayName)
+        // Declaration order is semantic (it is the order of type arguments); absent when empty.
+        if not (List.isEmpty item.TypeParameters) then
+            writer.WritePropertyName("typeParameters")
+            writer.WriteStartArray()
+            for typeParameterId, displayName in item.TypeParameters do
+                writer.WriteStartObject()
+                writer.WriteString("typeParameterId", StableId.value typeParameterId)
+                writer.WriteString("displayName", displayName)
+                writer.WriteEndObject()
+            writer.WriteEndArray()
         match item.Kind with
         | SemanticTypeKind.Product fields ->
             writer.WriteString("kind", "product")
@@ -986,9 +1006,10 @@ module SnapshotCodec =
             |> List.sortBy (fun argument -> StableId.value argument.TargetCapabilityParameterId, StableId.value argument.ValueNodeId)
             |> List.iter (writeCapabilityArgument writer)
             writer.WriteEndArray()
-        | SemanticNodeKind.ProductConstruct(typeId, fields) ->
+        | SemanticNodeKind.ProductConstruct(typeId, typeArguments, fields) ->
             writer.WriteString("kind", "productConstruct")
             writer.WriteString("typeId", StableId.value typeId)
+            writeTypeArguments writer "typeArguments" typeArguments
             writer.WritePropertyName("fields")
             writer.WriteStartArray()
             fields
@@ -1009,9 +1030,10 @@ module SnapshotCodec =
             |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
             |> List.iter (writeFieldValue writer)
             writer.WriteEndArray()
-        | SemanticNodeKind.UnionConstruct(variantId, fields) ->
+        | SemanticNodeKind.UnionConstruct(variantId, typeArguments, fields) ->
             writer.WriteString("kind", "unionConstruct")
             writer.WriteString("variantId", StableId.value variantId)
+            writeTypeArguments writer "typeArguments" typeArguments
             writer.WritePropertyName("fields")
             writer.WriteStartArray()
             fields
@@ -1284,8 +1306,8 @@ module SnapshotCodec =
                 | value -> invalidShape $"Unsupported primitive type '{value}'."
             TypeRef.Primitive primitive
         | "named" ->
-            ensureProperties "Named type reference" (set [ "kind"; "typeId" ]) (set [ "kind"; "typeId" ]) element
-            TypeRef.Named(readId<TypeTag> "typeId" element)
+            ensureProperties "Named type reference" (set [ "kind"; "typeId" ]) (set [ "kind"; "typeId"; "arguments" ]) element
+            TypeRef.Named(readId<TypeTag> "typeId" element, readTypeArguments "arguments" element)
         | "function" ->
             ensureProperties "Function type" (set [ "kind"; "parameters"; "resultType" ]) (set [ "kind"; "parameters"; "resultType" ]) element
             TypeRef.Function(readArray "parameters" readTypeRef element, readTypeRef (requireProperty "resultType" element))
@@ -1312,6 +1334,15 @@ module SnapshotCodec =
             TypeRef.BuiltinGeneric(genericType, readArray "arguments" readTypeRef element)
         | value -> invalidShape $"Unsupported type reference kind '{value}'."
 
+    /// Optional type arguments; an empty array is not canonical, since the writer omits it.
+    and private readTypeArguments (name: string) (element: JsonElement) =
+        match tryProperty name element with
+        | None -> []
+        | Some _ ->
+            match readArray name readTypeRef element with
+            | [] -> invalidShape $"Property '{name}' must be omitted rather than empty."
+            | arguments -> arguments
+
     let private readField (element: JsonElement): SemanticField =
         ensureProperties "Field" (set [ "id"; "displayName"; "type" ]) (set [ "id"; "displayName"; "type" ]) element
         { Id = readId<FieldTag> "id" element
@@ -1324,18 +1355,31 @@ module SnapshotCodec =
           DisplayName = readString "displayName" element
           Fields = readArray "fields" readField element }
 
+    let private readTypeParameters (element: JsonElement) =
+        match tryProperty "typeParameters" element with
+        | None -> []
+        | Some _ ->
+            let readOne (item: JsonElement) =
+                ensureProperties "Type parameter declaration" (set [ "typeParameterId"; "displayName" ]) (set [ "typeParameterId"; "displayName" ]) item
+                readId<TypeParameterTag> "typeParameterId" item, readString "displayName" item
+            match readArray "typeParameters" readOne element with
+            | [] -> invalidShape "Property 'typeParameters' must be omitted rather than empty."
+            | parameters -> parameters
+
     let private readType (element: JsonElement): SemanticType =
         let kind = readString "kind" element
         match kind with
         | "product" ->
-            ensureProperties "Product type" (set [ "id"; "displayName"; "kind"; "fields" ]) (set [ "id"; "displayName"; "kind"; "fields" ]) element
+            ensureProperties "Product type" (set [ "id"; "displayName"; "kind"; "fields" ]) (set [ "id"; "displayName"; "kind"; "fields"; "typeParameters" ]) element
             { Id = readId<TypeTag> "id" element
               DisplayName = readString "displayName" element
+              TypeParameters = readTypeParameters element
               Kind = SemanticTypeKind.Product(readArray "fields" readField element) }
         | "union" ->
-            ensureProperties "Union type" (set [ "id"; "displayName"; "kind"; "variants" ]) (set [ "id"; "displayName"; "kind"; "variants" ]) element
+            ensureProperties "Union type" (set [ "id"; "displayName"; "kind"; "variants" ]) (set [ "id"; "displayName"; "kind"; "variants"; "typeParameters" ]) element
             { Id = readId<TypeTag> "id" element
               DisplayName = readString "displayName" element
+              TypeParameters = readTypeParameters element
               Kind = SemanticTypeKind.Union(readArray "variants" readVariant element) }
         | value -> invalidShape $"Unsupported semantic type kind '{value}'."
 
@@ -2178,8 +2222,8 @@ module SnapshotCodec =
                     readArray "arguments" readCapabilityArgument element
                 )
             | "productConstruct" ->
-                ensureProperties "Product construct node" (set [ "id"; "kind"; "typeId"; "fields" ]) (set [ "id"; "kind"; "typeId"; "fields" ]) element
-                SemanticNodeKind.ProductConstruct(readId<TypeTag> "typeId" element, readArray "fields" readFieldValue element)
+                ensureProperties "Product construct node" (set [ "id"; "kind"; "typeId"; "fields" ]) (set [ "id"; "kind"; "typeId"; "typeArguments"; "fields" ]) element
+                SemanticNodeKind.ProductConstruct(readId<TypeTag> "typeId" element, readTypeArguments "typeArguments" element, readArray "fields" readFieldValue element)
             | "fieldAccess" ->
                 ensureProperties "Field access node" (set [ "id"; "kind"; "sourceNodeId"; "fieldId" ]) (set [ "id"; "kind"; "sourceNodeId"; "fieldId" ]) element
                 SemanticNodeKind.FieldAccess(readId<GraphNodeTag> "sourceNodeId" element, readId<FieldTag> "fieldId" element)
@@ -2195,8 +2239,8 @@ module SnapshotCodec =
                     readArray "fields" readFieldValue element
                 )
             | "unionConstruct" ->
-                ensureProperties "Union construct node" (set [ "id"; "kind"; "variantId"; "fields" ]) (set [ "id"; "kind"; "variantId"; "fields" ]) element
-                SemanticNodeKind.UnionConstruct(readId<VariantTag> "variantId" element, readArray "fields" readFieldValue element)
+                ensureProperties "Union construct node" (set [ "id"; "kind"; "variantId"; "fields" ]) (set [ "id"; "kind"; "variantId"; "typeArguments"; "fields" ]) element
+                SemanticNodeKind.UnionConstruct(readId<VariantTag> "variantId" element, readTypeArguments "typeArguments" element, readArray "fields" readFieldValue element)
             | "optionNone" ->
                 ensureProperties "Option.None node" (set [ "id"; "kind"; "itemType" ]) (set [ "id"; "kind"; "itemType" ]) element
                 SemanticNodeKind.OptionNone(readTypeRef (requireProperty "itemType" element))

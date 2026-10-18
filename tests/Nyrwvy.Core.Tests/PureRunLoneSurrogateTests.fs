@@ -182,7 +182,7 @@ module PureRunLoneSurrogateTests =
             use session = AuthoringSession.createNew (Path.Combine(root, "workspace.json")) |> unwrap "session"
             let field name itemType: AgentTypeFieldIntent = { DisplayName = name; Type = itemType }
             let holderRequest: AgentCreateTypeDeclarationRequest =
-                { ExpectedBaseSnapshotId = current session
+                { TypeParameters = []; ExpectedBaseSnapshotId = current session
                   DisplayName = "Holder"
                   Kind =
                     AgentTypeDeclarationKindIntent.Product
@@ -196,7 +196,7 @@ module PureRunLoneSurrogateTests =
                 match holder.Kind with
                 | SemanticTypeKind.Product fields -> (fields |> List.find (fun item -> item.DisplayName = name)).Id
                 | _ -> failwith "Expected a Product."
-            let holders = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Named holder.Id ])
+            let holders = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Named(holder.Id, []) ])
             let echo = createFunction session "echo" [ "text", stringType ] stringType [] (ExpressionRecipe.ParameterSlot 0)
             let join = createFunction session "join" [ "left", stringType; "right", stringType ] stringType [] (ExpressionRecipe.StringConcat(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1))
             let echoAll = createFunction session "echoAll" [ "holders", holders ] holders [] (ExpressionRecipe.ParameterSlot 0)
@@ -216,13 +216,13 @@ module PureRunLoneSurrogateTests =
             Assert.Equal(PureRunValue.String (utf16 "x{D83D}"), (run join [ PureRunValue.String "x"; PureRunValue.String (utf16 "{D83D}") ] None).Actual)
             // Nested containers: List, Option and Result payloads and Product fields.
             let holderValue (text: string) =
-                PureRunValue.Product(holder.Id,
+                PureRunValue.Product(holder.Id, [],
                     [ fieldId "text", PureRunValue.String text
                       fieldId "texts", PureRunValue.StringList [ text; "ok"; text + text ]
                       fieldId "maybe", PureRunValue.StringOption(Some text)
                       fieldId "outcome", PureRunValue.ResultOk(PureRunScalarKind.Int64, PureRunScalar.String text) ]
                     |> List.sortBy (fst >> StableId.value))
-            let all = PureRunValue.ListValue(TypeRef.Named holder.Id, texts |> List.map holderValue)
+            let all = PureRunValue.ListValue(TypeRef.Named(holder.Id, []), texts |> List.map holderValue)
             let echoed = run echoAll [ all ] (Some all)
             Assert.Equal(all, echoed.Actual)
             Assert.Equal(Some true, echoed.Matches)

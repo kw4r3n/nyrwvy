@@ -52,17 +52,14 @@ module AssemblyBoundaryTests =
             [ "Nyrwvy.Execution"
               "Nyrwvy.Backend.CSharp"
               "Nyrwvy.Viewer"
-              "Nyrwvy.AgentEval.Structural"
-              "Nyrwvy.AgentEval.ListMapStructural" ]
+              "Nyrwvy.AuthoringSession" ]
 
     [<Fact>]
-    let ``evaluation compatibility stays downstream while shared structural contracts stay in semantics`` () =
+    let ``shared structural contracts stay in semantics`` () =
         let semantics = typeof<Snapshot>.Assembly
         Assert.Equal("Nyrwvy.Semantics", assemblyName typeof<FunctionBodyReplacementDiff>.Assembly)
         Assert.Equal("Nyrwvy.Semantics", assemblyName typeof<AgentStructuralWorkflowError>.Assembly)
         Assert.Equal("Nyrwvy.Semantics", assemblyName typeof<ExpressionRecipe>.Assembly)
-        Assert.Equal("Nyrwvy.AgentEval.Structural", assemblyName typeof<Float64ExpressionRecipe>.Assembly)
-        Assert.Equal("Nyrwvy.AgentEval.ListMapStructural", assemblyName typeof<AgentReplaceFunctionBodyWithListMap>.Assembly)
         Assert.Null(semantics.GetType("Nyrwvy.Core.AgentStructuralWorkflow"))
         Assert.Null(semantics.GetType("Nyrwvy.Core.AgentListMapStructuralWorkflow"))
 

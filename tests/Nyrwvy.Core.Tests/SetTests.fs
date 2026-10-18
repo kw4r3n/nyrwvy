@@ -133,8 +133,8 @@ module SetTests =
                 simulateCode session [ "l", listOf str ] (primitive "int64") $"""{{"kind":"setSize","value":{parameter "l"}}}"""
             )
             Assert.Equal(
-                "ValueEqualTypeNotEquatable",
-                simulateCode session [ "s", words ] (primitive "bool") $"""{{"kind":"valueEqual","left":{parameter "s"},"right":{parameter "s"}}}"""
+                "PureExpressionOperandTypeMismatch",
+                simulateCode session [ "s", words; "l", listOf str ] (primitive "bool") $"""{{"kind":"valueEqual","left":{parameter "s"},"right":{parameter "l"}}}"""
             )
             define session "size" [ "s", words ] (primitive "int64") $"""{{"kind":"setSize","value":{parameter "s"}}}"""
             Assert.Equal("RunContainerTypeMismatch", rejectionCode session $"""{{"id":"run","op":"runPureByName","function":"size","arguments":[{set [ "a"; "a" ]}]}}"""))

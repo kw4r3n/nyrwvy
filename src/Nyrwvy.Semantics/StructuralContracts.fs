@@ -322,8 +322,8 @@ module ValueDependency =
                     create
                         (ValueDependencyRole.CapabilityArgument argument.TargetCapabilityParameterId)
                         argument.ValueNodeId))
-        | SemanticNodeKind.ProductConstruct(_, fields)
-        | SemanticNodeKind.UnionConstruct(_, fields) ->
+        | SemanticNodeKind.ProductConstruct(_, _, fields)
+        | SemanticNodeKind.UnionConstruct(_, _, fields) ->
             fields
             |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
             |> List.map (fun field ->

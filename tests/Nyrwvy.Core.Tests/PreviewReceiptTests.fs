@@ -275,7 +275,7 @@ module PreviewReceiptTests =
                     { TargetFunctionId = fixture.ValidateFunctionId
                       NewParameterId = parameterId
                       NewParameterDisplayName = "policy"
-                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                       CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ] }
         let reviewed = preview workspace request
 

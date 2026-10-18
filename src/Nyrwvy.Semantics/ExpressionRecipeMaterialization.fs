@@ -430,14 +430,19 @@ module internal ExpressionRecipeMaterialization =
         | ExpressionRecipe.ListAny(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId context
         | ExpressionRecipe.ListFindIndex(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFindIndex source predicateFunctionId context
         | ExpressionRecipe.ListAll(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAll source predicateFunctionId context
-        | ExpressionRecipe.ProductConstruct(typeId, fields) ->
+        | ExpressionRecipe.ProductConstruct(typeId, _, fields) ->
             let expectedFields =
                 match snapshot.Types |> List.find (fun typeEntity -> typeEntity.Id = typeId) with
                 | { Kind = SemanticTypeKind.Product expectedFields } -> expectedFields
                 | _ -> failwith "Product recipe passed preflight with a non-product type."
             let fieldNodes, fieldBindings = materializeFieldBindings expectedFields fields
             let nodeId = StableIdAllocator.newGraphNodeId ()
-            fieldNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ProductConstruct(typeId, fieldBindings) } ], nodeId
+            // Preflight derived or checked the type arguments; the node stores them explicitly.
+            let typeArguments =
+                match inferHere recipe with
+                | TypeRef.Named(_, arguments) -> arguments
+                | _ -> failwith "Product recipe passed preflight with a non-named result type."
+            fieldNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ProductConstruct(typeId, typeArguments, fieldBindings) } ], nodeId
         | ExpressionRecipe.FieldAccess(source, fieldId) ->
             let sourceNodes, sourceResult = materializeRecipe source
             let nodeId = StableIdAllocator.newGraphNodeId ()
@@ -452,7 +457,7 @@ module internal ExpressionRecipeMaterialization =
             let fieldNodes, fieldBindings = materializeFieldBindings updatedFields fields
             let nodeId = StableIdAllocator.newGraphNodeId ()
             sourceNodes @ fieldNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ProductUpdate(typeId, sourceResult, fieldBindings) } ], nodeId
-        | ExpressionRecipe.UnionConstruct(variantId, fields) ->
+        | ExpressionRecipe.UnionConstruct(variantId, _, fields) ->
             let variant =
                 snapshot.Types
                 |> List.collect (fun typeEntity ->
@@ -462,7 +467,11 @@ module internal ExpressionRecipeMaterialization =
                 |> List.find (fun variant -> variant.Id = variantId)
             let fieldNodes, fieldBindings = materializeFieldBindings variant.Fields fields
             let nodeId = StableIdAllocator.newGraphNodeId ()
-            fieldNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.UnionConstruct(variantId, fieldBindings) } ], nodeId
+            let typeArguments =
+                match inferHere recipe with
+                | TypeRef.Named(_, arguments) -> arguments
+                | _ -> failwith "Union recipe passed preflight with a non-named result type."
+            fieldNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.UnionConstruct(variantId, typeArguments, fieldBindings) } ], nodeId
         | ExpressionRecipe.OptionNone itemType ->
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.OptionNone itemType } ], nodeId
@@ -538,9 +547,14 @@ module internal ExpressionRecipeMaterialization =
             let inputType = inferHere input
             let variants =
                 match inputType with
-                | TypeRef.Named typeId ->
+                | TypeRef.Named(typeId, arguments) ->
                     match snapshot.Types |> List.find (fun typeEntity -> typeEntity.Id = typeId) with
-                    | { Kind = SemanticTypeKind.Union variants } -> variants
+                    | { Kind = SemanticTypeKind.Union variants } as inputType ->
+                        // Pattern bindings record the field types at the input's type arguments.
+                        variants
+                        |> List.map (fun variant ->
+                            { variant with
+                                Fields = variant.Fields |> List.map (fun field -> { field with Type = TypeParameters.instantiate inputType arguments field.Type }) })
                     | _ -> failwith "MatchUnion recipe passed preflight with a non-union type."
                 | _ -> failwith "MatchUnion recipe passed preflight with a non-named input type."
 

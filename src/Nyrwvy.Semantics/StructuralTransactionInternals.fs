@@ -17,22 +17,26 @@ module internal StructuralTransactionInternals =
     let rejected code message =
         Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic code message ])
 
-    /// Checks a type reference in a declaration (monomorphic, so no type parameters) against the
-    /// known type and capability IDs. Diagnostic codes are `codePrefix` plus the failure name.
-    let validateDeclaredTypeRef
+    /// Checks a type reference in a declaration against the known type and capability IDs. Only
+    /// the declaring type's own type parameters (`typeParameters`) may occur; a capability
+    /// signature passes none. Diagnostic codes are `codePrefix` plus the failure name.
+    let validateDeclaredTypeRefWith
         (codePrefix: string)
         (typeIds: Set<TypeId>)
         (capabilityIds: Set<CapabilityId>)
+        (typeParameters: Set<TypeParameterId>)
         (context: string)
         (typeRef: TypeRef)
         =
         let rec validate current =
             match current with
             | TypeRef.Primitive _ -> Ok()
-            | TypeRef.TypeParameter _ ->
-                Error(diagnostic $"{codePrefix}TypeParameterNotAllowed" $"{context} cannot use a function type parameter; declared types are monomorphic.")
-            | TypeRef.Named typeId when Set.contains typeId typeIds -> Ok()
-            | TypeRef.Named typeId ->
+            | TypeRef.TypeParameter(id, _) when Set.contains id typeParameters -> Ok()
+            | TypeRef.TypeParameter(_, name) ->
+                Error(diagnostic $"{codePrefix}TypeParameterNotAllowed" $"{context} cannot use type parameter '{name}'; only the declaring type's own type parameters may occur.")
+            | TypeRef.Named(typeId, arguments) when Set.contains typeId typeIds ->
+                arguments |> List.fold (fun state arg -> state |> Result.bind (fun () -> validate arg)) (Ok())
+            | TypeRef.Named(typeId, _) ->
                 Error(
                     diagnostic
                         $"{codePrefix}UnknownNamedType"
@@ -79,10 +83,11 @@ module internal StructuralTransactionInternals =
 
     type RecipeBounds = { MaxDepth: int; MaxNodes: int }
 
-    /// The frozen Milestone 2 bounded Float64 replacement contract.
-    let boundedFloat64Bounds = { MaxDepth = 32; MaxNodes = 64 }
-
     /// Ordinary expression authoring: function creation, body replacement and targeted replacement.
+
+    /// `validateDeclaredTypeRefWith` for a declaration that has no type parameters.
+    let validateDeclaredTypeRef codePrefix typeIds capabilityIds context typeRef =
+        validateDeclaredTypeRefWith codePrefix typeIds capabilityIds Set.empty context typeRef
     let expressionAuthoringBounds = { MaxDepth = ExpressionRecipeBounds.maxDepth; MaxNodes = ExpressionRecipeBounds.maxNodes }
 
     let private recipeCaseName (recipe: 'Recipe) =
@@ -206,9 +211,9 @@ module internal StructuralTransactionInternals =
                 functionEntity.Parameters |> List.tryFind (fun item -> item.Id = parameterId) |> Option.map (fun item -> item.DisplayName)
             | SemanticNodeKind.FieldAccess(_, fieldId) ->
                 Map.tryFind fieldId fieldNames.Value
-            | SemanticNodeKind.UnionConstruct(variantId, _) ->
+            | SemanticNodeKind.UnionConstruct(variantId, _, _) ->
                 Map.tryFind variantId variantNames.Value
-            | SemanticNodeKind.ProductConstruct(typeId, _)
+            | SemanticNodeKind.ProductConstruct(typeId, _, _)
             | SemanticNodeKind.ProductUpdate(typeId, _, _) ->
                 snapshot.Types |> List.tryFind (fun item -> item.Id = typeId) |> Option.map (fun item -> item.DisplayName)
             | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->

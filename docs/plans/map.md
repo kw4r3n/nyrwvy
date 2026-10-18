@@ -8,11 +8,11 @@ Nyrwvy has no keyed collection. Programs look keys up with a fold over a `List`,
 
 | Probe | What it cost |
 | --- | --- |
-| [3](../verification/rrawrlet-slice-probe3-20260928.md) | Replace-or-append in 3 places; settled for that size by `ValueEqual` and a generic `upsert` (27 nodes) |
-| [7](../verification/rrawrlet-slice-probe7-20260929.md) | Five dicts and sets keyed by message ID or `(messageID, partID)`. Map emulation 17 nodes in 150; linear lookups were about 3.4 s of 3.7 s at 19,200 events |
-| [13](../verification/rrawrlet-slice-probe13-20261001.md) | `dict` with its duplicate-key rule, and `set`: 10 functions and 159 nodes for a sorted index with binary search. The naive fold hit the 5 s limit at about 40,000 refs |
-| [14](../verification/rrawrlet-slice-probe14-20261001.md) | Constant sets written as literal lists, about 90 nodes, 36 comparisons per tree node |
-| [16](../verification/rrawrlet-slice-probe16-20261001.md) | Comparing two file trees by name is quadratic: over the 5 s limit at 16,000 files. The Map-free rewrite (sort both, then merge-join) took 7 requests and 327 nodes, and is an algorithm the Python does not contain |
+| [3](../verification/rrawrlet-slice-probes-summary.md#probe-3) | Replace-or-append in 3 places; settled for that size by `ValueEqual` and a generic `upsert` (27 nodes) |
+| [7](../verification/rrawrlet-slice-probes-summary.md#probe-7) | Five dicts and sets keyed by message ID or `(messageID, partID)`. Map emulation 17 nodes in 150; linear lookups were about 3.4 s of 3.7 s at 19,200 events |
+| [13](../verification/rrawrlet-slice-probes-summary.md#probe-13) | `dict` with its duplicate-key rule, and `set`: 10 functions and 159 nodes for a sorted index with binary search. The naive fold hit the 5 s limit at about 40,000 refs |
+| [14](../verification/rrawrlet-slice-probes-summary.md#probe-14) | Constant sets written as literal lists, about 90 nodes, 36 comparisons per tree node |
+| [16](../verification/rrawrlet-slice-probes-summary.md#probe-16) | Comparing two file trees by name is quadratic: over the 5 s limit at 16,000 files. The Map-free rewrite (sort both, then merge-join) took 7 requests and 327 nodes, and is an algorithm the Python does not contain |
 
 Earlier decisions deferred Map for two reasons. There was no key-equality contract, and [`ValueEqual`](../decisions/value-equality-and-map.md) has since supplied one. The evidence was also thin. That evidence now stands at five probes. A map is something a general-purpose language is expected to have.
 

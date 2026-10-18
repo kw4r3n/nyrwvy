@@ -220,11 +220,11 @@ module ListSortByTests =
             let fns = callbacks session
             let row =
                 session.SimulateCreateType
-                    { ExpectedBaseSnapshotId = current session; DisplayName = "Row"
+                    { TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = "Row"
                       Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "role"; Type = textType }; { DisplayName = "count"; Type = intType } ] }
                 |> unwrap |> publish session
                 session.Declarations().Types |> List.find (fun item -> item.DisplayName = "Row")
-            let rowType = TypeRef.Named row.Id
+            let rowType = TypeRef.Named(row.Id, [])
             let roleOf value = ExpressionRecipe.FieldAccess(value, fieldOf row "role")
             let countOf value = ExpressionRecipe.FieldAccess(value, fieldOf row "count")
             // Python: rows.sort(key=lambda r: (r.role, -r.count)).
@@ -265,7 +265,7 @@ module ListSortByTests =
             Assert.Equal(PureRunValue.Int64List [ 5L; 4L; 3L; 2L; 1L ], run sortAlwaysTrue [ PureRunValue.Int64List [ 1L; 2L; 3L; 4L; 5L ] ])
             Assert.Equal(PureRunValue.Int64List [ 3L; 1L; 2L ], run sortAlwaysFalse [ PureRunValue.Int64List [ 3L; 1L; 2L ] ])
             let rowValue (role: string) (count: int64) =
-                PureRunValue.Product(row.Id, [ fieldOf row "role", PureRunValue.String role; fieldOf row "count", PureRunValue.Int64 count ])
+                PureRunValue.Product(row.Id, [], [ fieldOf row "role", PureRunValue.String role; fieldOf row "count", PureRunValue.Int64 count ])
             let rows items = PureRunValue.ListValue(rowType, items |> List.map (fun (role, count) -> rowValue role count))
             let input = [ "worker", 2L; "leader", 1L; "worker", 5L; "reviewer", 3L; "leader", 4L; "worker", 2L; "auditor", 1L ]
             let expected = input |> List.sortBy (fun (role, count) -> role, -count)
@@ -273,7 +273,7 @@ module ListSortByTests =
                 match value with
                 | PureRunValue.ListValue(_, items) ->
                     items |> List.map (function
-                        | PureRunValue.Product(_, fields) ->
+                        | PureRunValue.Product(_, _, fields) ->
                             let fieldValue name = fields |> List.find (fun (fieldId, _) -> fieldId = fieldOf row name) |> snd
                             (match fieldValue "role" with PureRunValue.String role -> role | other -> failwithf "%A" other),
                             (match fieldValue "count" with PureRunValue.Int64 count -> count | other -> failwithf "%A" other)

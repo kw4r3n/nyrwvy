@@ -97,10 +97,10 @@ module ChangeVerificationTests =
             let libraryPath = Path.Combine(Path.GetDirectoryName rootSession.Path, "library.json")
             use library = AuthoringSession.createNew libraryPath |> unwrap
             let publish proposal = library.Commit((unwrap proposal).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
-            library.SimulateCreateType { ExpectedBaseSnapshotId = library.SnapshotId; DisplayName = "Box"; Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "amount"; Type = TypeRef.Primitive PrimitiveType.Int64 } ] } |> publish
+            library.SimulateCreateType { TypeParameters = []; ExpectedBaseSnapshotId = library.SnapshotId; DisplayName = "Box"; Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "amount"; Type = TypeRef.Primitive PrimitiveType.Int64 } ] } |> publish
             let box = library.Declarations().Types.Head
             let field = match box.Kind with SemanticTypeKind.Product fields -> fields.Head | _ -> failwith "fixture"
-            library.SimulateCreateFunction { ExpectedBaseSnapshotId = library.SnapshotId; DisplayName = "echo"; Parameters = [ { DisplayName = "input"; Type = TypeRef.Named box.Id } ]; ResultType = TypeRef.Named box.Id; RequiredEffects = []; Body = ExpressionRecipe.ParameterSlot 0 } |> publish
+            library.SimulateCreateFunction { ExpectedBaseSnapshotId = library.SnapshotId; DisplayName = "echo"; Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(box.Id, []) } ]; ResultType = TypeRef.Named(box.Id, []); RequiredEffects = []; Body = ExpressionRecipe.ParameterSlot 0 } |> publish
             let fn, oldPin = library.Declarations().Functions.Head, library.SnapshotId
             use session = AuthoringSession.createNewWithDependencies (Path.Combine(Path.GetDirectoryName rootSession.Path, "consumer.json")) [ libraryPath ] |> unwrap
             library.SimulateOperations [ AgentOperationIntent.RenameDisplayName(AgentRenameTarget.Type box.Id, "RenamedBox") ] |> publish
@@ -376,13 +376,13 @@ module ChangeVerificationTests =
             let integer = TypeRef.Primitive PrimitiveType.Int64
             let field name itemType: AgentTypeFieldIntent = { DisplayName = name; Type = itemType }
             let createType name kind =
-                session.SimulateCreateType { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name; Kind = kind } |> unwrap |> publish
+                session.SimulateCreateType { TypeParameters = []; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name; Kind = kind } |> unwrap |> publish
                 session.Declarations().Types |> List.find (fun item -> item.DisplayName = name)
             let pair = createType "Pair" (AgentTypeDeclarationKindIntent.Product [ field "a" integer; field "b" integer ])
             let answer = createType "Answer" (AgentTypeDeclarationKindIntent.Union
-                             [ { DisplayName = "Found"; Fields = [ field "pair" (TypeRef.Named pair.Id); field "count" integer ] } ])
+                             [ { DisplayName = "Found"; Fields = [ field "pair" (TypeRef.Named(pair.Id, [])); field "count" integer ] } ])
             let envelope = createType "Envelope" (AgentTypeDeclarationKindIntent.Product
-                               [ field "answer" (TypeRef.Named answer.Id); field "pairs" (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Named pair.Id ])) ])
+                               [ field "answer" (TypeRef.Named(answer.Id, [])); field "pairs" (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Named(pair.Id, []) ])) ])
             let productFields (t: SemanticType) = match t.Kind with SemanticTypeKind.Product fields -> fields | _ -> failwith "product"
             let variant = match answer.Kind with SemanticTypeKind.Union variants -> List.exactlyOne variants | _ -> failwith "union"
             let intValue n = sprintf "{\"kind\":\"int64\",\"value\":\"%d\"}" n
@@ -397,7 +397,7 @@ module ChangeVerificationTests =
             for t, value in [ pair, pairValue; answer, unionValue; envelope, envelopeValue ] do
                 session.SimulateCreateFunction
                     { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "identity" + t.DisplayName
-                      Parameters = [ { DisplayName = "value"; Type = TypeRef.Named t.Id } ]; ResultType = TypeRef.Named t.Id
+                      Parameters = [ { DisplayName = "value"; Type = TypeRef.Named(t.Id, []) } ]; ResultType = TypeRef.Named(t.Id, [])
                       RequiredEffects = []; Body = ExpressionRecipe.ParameterSlot 0 } |> unwrap |> publish
                 let fn = session.Declarations().Functions |> List.find (fun item -> item.DisplayName = "identity" + t.DisplayName)
                 let proposal = session.SimulateReplaceBody

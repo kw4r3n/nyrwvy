@@ -266,11 +266,15 @@ module internal WireGraph =
                   "operationId", identity operationId
                   "arguments", arguments |> List.sortBy (fun argument -> StableId.value argument.TargetCapabilityParameterId) |> List.map (fun argument ->
                     objectValue [ "capabilityParameterId", identity argument.TargetCapabilityParameterId; "valueNodeId", identity argument.ValueNodeId ]) |> arrayValue ]
-        | SemanticNodeKind.ProductConstruct(typeId, values) -> tagged "productConstruct" [ "typeId", identity typeId; "fields", fields values ]
+        | SemanticNodeKind.ProductConstruct(typeId, [], values) -> tagged "productConstruct" [ "typeId", identity typeId; "fields", fields values ]
+        | SemanticNodeKind.ProductConstruct(typeId, typeArguments, values) ->
+            tagged "productConstruct" [ "typeId", identity typeId; "typeArguments", typeArguments |> List.map typeRef |> arrayValue; "fields", fields values ]
         | SemanticNodeKind.FieldAccess(source, fieldId) -> tagged "fieldAccess" [ "sourceNodeId", identity source; "fieldId", identity fieldId ]
         | SemanticNodeKind.ProductUpdate(typeId, source, values) ->
             tagged "productUpdate" [ "typeId", identity typeId; "sourceNodeId", identity source; "fields", fields values ]
-        | SemanticNodeKind.UnionConstruct(variantId, values) -> tagged "unionConstruct" [ "variantId", identity variantId; "fields", fields values ]
+        | SemanticNodeKind.UnionConstruct(variantId, [], values) -> tagged "unionConstruct" [ "variantId", identity variantId; "fields", fields values ]
+        | SemanticNodeKind.UnionConstruct(variantId, typeArguments, values) ->
+            tagged "unionConstruct" [ "variantId", identity variantId; "typeArguments", typeArguments |> List.map typeRef |> arrayValue; "fields", fields values ]
         | SemanticNodeKind.OptionNone itemType -> tagged "optionNone" [ "itemType", typeRef itemType ]
         | SemanticNodeKind.OptionSome value -> unary "optionSome" value
         | SemanticNodeKind.ResultOk(errorType, value) -> tagged "resultOk" [ "errorType", typeRef errorType; "valueNodeId", identity value ]

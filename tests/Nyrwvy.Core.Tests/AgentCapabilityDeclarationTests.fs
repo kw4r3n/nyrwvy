@@ -175,7 +175,7 @@ module AgentCapabilityDeclarationTests =
 
         { ExpectedBaseSnapshotId = snapshot.Id
           DisplayName = "Cap"
-          Operations = [ operation "op" [ parameter "value" (TypeRef.Named unknownType) ] unitType None knownEffect.Id ] }
+          Operations = [ operation "op" [ parameter "value" (TypeRef.Named(unknownType, [])) ] unitType None knownEffect.Id ] }
         |> assertRejected "CapabilityDeclarationUnknownNamedType"
 
         Assert.Equal(snapshot.Id, AgentWorkspace.currentSnapshotId ws)

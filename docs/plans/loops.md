@@ -8,9 +8,9 @@ Nyrwvy has no loop construct. Programs loop in three ways today, and each has a 
 
 | Form | Where it was needed | Cost |
 | --- | --- | --- |
-| `ListFold` over `ListRange(0, bound)` | [Probe 21](../verification/map-set-probe21-20261004.md): reachability and a topological order | The bound is the worst case, so the fold keeps running after the work is done. Each loop needs a state Product (`Walk`, `Topo`) and a step function that passes the state through unchanged once it is finished |
-| `ListEffectFold` whose folder returns `Result`, stopping at the first `Err` | [Probe 13](../verification/rrawrlet-slice-probe13-20261001.md): three `while` loops of a process supervisor | It does stop early, but needs a pre-built bound list (1,024 items built by doubling), `Err` to mean "done", and an arm for "bound reached". 11 functions and 199 nodes, and the bound diverges from Python's unbounded loop by construction |
-| Self-recursion | [Probe 15](../verification/rrawrlet-slice-probe15-20261001.md): an event loop | Natural to write, but each turn is a stack frame. Probe 15's loop overflowed at 12,000–14,000 turns; the workaround was nested `Result` folds over invented lists, 3 functions and 104 nodes |
+| `ListFold` over `ListRange(0, bound)` | [Probe 21](../verification/map-set-probes-summary.md#probe-21): reachability and a topological order | The bound is the worst case, so the fold keeps running after the work is done. Each loop needs a state Product (`Walk`, `Topo`) and a step function that passes the state through unchanged once it is finished |
+| `ListEffectFold` whose folder returns `Result`, stopping at the first `Err` | [Probe 13](../verification/rrawrlet-slice-probes-summary.md#probe-13): three `while` loops of a process supervisor | It does stop early, but needs a pre-built bound list (1,024 items built by doubling), `Err` to mean "done", and an arm for "bound reached". 11 functions and 199 nodes, and the bound diverges from Python's unbounded loop by construction |
+| Self-recursion | [Probe 15](../verification/rrawrlet-slice-probes-summary.md#probe-15): an event loop | Natural to write, but each turn is a stack frame. Probe 15's loop overflowed at 12,000–14,000 turns; the workaround was nested `Result` folds over invented lists, 3 functions and 104 nodes |
 
 Self-recursion is already the shortest form. Probe 21's loops rewritten as self-recursive functions, with the loop variables as parameters, matched the same cases:
 

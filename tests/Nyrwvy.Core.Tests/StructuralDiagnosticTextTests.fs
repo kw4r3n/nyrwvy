@@ -44,7 +44,7 @@ module StructuralDiagnosticTextTests =
 
     let private snapshot =
         let product typeId name fieldId: SemanticType =
-            { Id = typeId
+            { TypeParameters = []; Id = typeId
               DisplayName = name
               Kind = SemanticTypeKind.Product [ { Id = fieldId; DisplayName = "line"; Type = int64Type } ] }
         let int64Function functionId name (parameters: (string * TypeRef) list): SemanticFunction =
@@ -243,11 +243,11 @@ module StructuralDiagnosticTextTests =
     let ``type references render as display names in wire notation`` () =
         let render = DiagnosticText.typeRef snapshot
         Assert.Equal("Option<String>", render (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ stringType ])))
-        Assert.Equal("List<Tail>", render (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Named tailTypeId ])))
-        Assert.Equal("Result<Int64, Finding>", render (TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ int64Type; TypeRef.Named findingTypeId ])))
+        Assert.Equal("List<Tail>", render (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Named(tailTypeId, []) ])))
+        Assert.Equal("Result<Int64, Finding>", render (TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ int64Type; TypeRef.Named(findingTypeId, []) ])))
         Assert.Equal("(String, Int64) -> Bool", render (TypeRef.Function([ stringType; int64Type ], TypeRef.Primitive PrimitiveType.Bool)))
         let unknown = id<TypeTag> "unknown"
-        Assert.Equal($"type '{StableId.value unknown}'", render (TypeRef.Named unknown))
+        Assert.Equal($"type '{StableId.value unknown}'", render (TypeRef.Named(unknown, [])))
 
     /// Operations checked from `OperationSignatures` keep the texts of their former hand-written checks:
     /// a fixed operand type, a generic shape before its variables are bound, a type fixed by an earlier

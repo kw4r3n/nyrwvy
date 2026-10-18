@@ -4,7 +4,7 @@
 
 ## Context
 
-[Probe 25](../verification/rrawrlet-slice-probe25-20261005.md#costs-ranked-by-impact) ported rrawrlet's `codex.py` and recorded three concurrency costs. Each was a first observation, and nothing was blocked:
+[Probe 25](../verification/rrawrlet-slice-probes-summary.md#probe-25-costs) ported rrawrlet's `codex.py` and recorded three concurrency costs. Each was a first observation, and nothing was blocked:
 
 | # | Cost | Probe 25 evidence |
 | --- | --- | --- |

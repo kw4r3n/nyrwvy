@@ -5,7 +5,7 @@ import {join,resolve} from 'node:path'
 import {tmpdir} from 'node:os'
 import {execFileSync} from 'node:child_process'
 import {randomUUID} from 'node:crypto'
-import {openAuthoring,requestAuthoring,closeAuthoring} from '../lib/nyrwvy-authoring.ts'
+import {openAuthoring,requestAuthoring,closeAuthoring} from '../../tools/nyrwvy-agent/authoring.ts'
 
 test('cleanup shield preserves parent cancellation, errors, replay and ownership', {timeout:180000}, async()=>{
   const root=await mkdtemp(join(tmpdir(),'nyrwvy-shield-')),bundle=join(root,'bundle')

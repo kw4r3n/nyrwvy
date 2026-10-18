@@ -30,10 +30,11 @@ AgentTypeDeclarationKindIntent =
 AgentCreateTypeDeclarationRequest =
   ExpectedBaseSnapshotId: SnapshotId
   DisplayName: string
+  TypeParameters: (TypeParameterId * string) list
   Kind: AgentTypeDeclarationKindIntent
 ```
 
-The request never contains a production `TypeId`, `VariantId`, or `FieldId`.
+The request never contains a production `TypeId`, `VariantId`, `FieldId` or `TypeParameterId`. `TypeParameters` are request-local (the wire form is `"typeParameters": ["T"]`, and field types name them as `{"kind":"typeParameter","name":"T"}`); materialization gives each a fresh identity in declaration order, which is the order of a reference's type arguments. Field types may use only the declaring type's own type parameters (`TypeDeclarationTypeParameterNotAllowed`), names must be nonblank and distinct (`TypeDeclarationTypeParameterNameBlank`, `TypeDeclarationDuplicateTypeParameter`). See [generic types](../decisions/generic-types.md).
 
 Field order and variant order are carried as ordinary request structure; identity and all later references are by allocated stable ID. This operation does not add name-based uniqueness or name-based identity semantics.
 

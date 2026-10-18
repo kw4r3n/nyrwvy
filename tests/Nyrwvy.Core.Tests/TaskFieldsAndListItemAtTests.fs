@@ -56,7 +56,7 @@ module TaskFieldsAndListItemAtTests =
         session.Commit(response.RootElement.GetProperty("result").GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
 
     let private createType (session: AuthoringSession) name kind =
-        session.SimulateCreateType { ExpectedBaseSnapshotId = current session; DisplayName = name; Kind = kind }
+        session.SimulateCreateType { TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = name; Kind = kind }
     let private product fields =
         AgentTypeDeclarationKindIntent.Product(fields |> List.map (fun (name, t) -> ({ DisplayName = name; Type = t }: AgentTypeFieldIntent)))
     let private declaredType (session: AuthoringSession) name = session.Declarations().Types |> List.find (fun item -> item.DisplayName = name)
@@ -86,7 +86,7 @@ module TaskFieldsAndListItemAtTests =
             let agent = session.Declarations().Capabilities |> List.exactlyOne
             createType session "Member" (product [ "name", textType; "task", taskType ]) |> unwrap |> publish session
             let memberEntity = declaredType session "Member"
-            let memberType = TypeRef.Named memberEntity.Id
+            let memberType = TypeRef.Named(memberEntity.Id, [])
             let nameField, taskField = fieldOf memberEntity "name", fieldOf memberEntity "task"
             let agentType = TypeRef.Capability agent.Id
             let work =
@@ -95,7 +95,7 @@ module TaskFieldsAndListItemAtTests =
             let start =
                 create session "start" [ "scope", scopeType; "agent", agentType; "name", textType ] memberType [ team ]
                     (ExpressionRecipe.ProductConstruct(
-                        memberEntity.Id,
+                        memberEntity.Id, [],
                         [ nameField, slot 2
                           taskField, ExpressionRecipe.TaskStart(slot 0, work.Id, [ parameter "agent" work, slot 1 ], slot 2) ]))
             // First match wins: a found member is kept; otherwise the item is taken when its name matches.
@@ -204,9 +204,9 @@ module TaskFieldsAndListItemAtTests =
     [<Fact>]
     let ``task-bearing types never cross a capability or runPure boundary`` () =
         withTeam (fun session path team _ memberEntity stopOne _ ->
-            let memberType = TypeRef.Named memberEntity.Id
+            let memberType = TypeRef.Named(memberEntity.Id, [])
             createType session "Crew" (product [ "members", listOf memberType ]) |> unwrap |> publish session
-            let crewType = TypeRef.Named (declaredType session "Crew").Id
+            let crewType = TypeRef.Named((declaredType session "Crew").Id, [])
             // Direct, through a List, through a named type holding a List, and as a failure type.
             let boundaryCases =
                 [ [ "take", [ "member", memberType ], textType, None ]
@@ -221,21 +221,21 @@ module TaskFieldsAndListItemAtTests =
             let committed = snapshot path
             let recursiveId = StableId.createForTesting<TypeTag> "type-chain"
             let chain fieldType: SemanticType =
-                { Id = recursiveId; DisplayName = "Chain"
+                { TypeParameters = []; Id = recursiveId; DisplayName = "Chain"
                   Kind =
                     SemanticTypeKind.Product
-                        [ { Id = StableId.createForTesting<FieldTag> "field-next"; DisplayName = "next"; Type = optionOf (TypeRef.Named recursiveId) }
+                        [ { Id = StableId.createForTesting<FieldTag> "field-next"; DisplayName = "next"; Type = optionOf (TypeRef.Named(recursiveId, [])) }
                           { Id = StableId.createForTesting<FieldTag> "field-payload"; DisplayName = "payload"; Type = fieldType } ] }
             let withChain fieldType =
                 { committed with
                     Types = chain fieldType :: committed.Types
                     Capabilities =
                         committed.Capabilities |> List.map (fun capability ->
-                            { capability with Operations = capability.Operations |> List.map (fun operation -> { operation with ResultType = TypeRef.Named recursiveId }) }) }
+                            { capability with Operations = capability.Operations |> List.map (fun operation -> { operation with ResultType = TypeRef.Named(recursiveId, []) }) }) }
             Assert.Contains(SnapshotValidator.validate (withChain crewType), fun issue -> issue.Code = "TaskTypeAtCapabilityBoundary")
             Assert.DoesNotContain(SnapshotValidator.validate (withChain textType), fun issue -> issue.Code = "TaskTypeAtCapabilityBoundary")
-            Assert.True(TaskTypes.bearing (chain crewType :: committed.Types) (TypeRef.Named recursiveId))
-            Assert.False(TaskTypes.bearing (chain textType :: committed.Types) (TypeRef.Named recursiveId))
+            Assert.True(TaskTypes.bearing (chain crewType :: committed.Types) (TypeRef.Named(recursiveId, [])))
+            Assert.False(TaskTypes.bearing (chain textType :: committed.Types) (TypeRef.Named(recursiveId, [])))
             // runPure entries take and return plain values only.
             let echo = create session "echo" [ "member", memberType ] memberType [] (slot 0)
             let noMembers = create session "noMembers" [] (listOf memberType) [] (ExpressionRecipe.ListEmpty memberType)

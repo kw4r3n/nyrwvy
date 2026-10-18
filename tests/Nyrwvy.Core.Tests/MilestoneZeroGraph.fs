@@ -41,7 +41,7 @@ module MilestoneZeroGraph =
         let policyTypeId = StableId.createForTesting<TypeTag> "type-validation-policy"
 
         let rawUserInputType: SemanticType =
-            { Id = rawUserInputTypeId
+            { TypeParameters = []; Id = rawUserInputTypeId
               DisplayName = "RawUserInput"
               Kind =
                 SemanticTypeKind.Product
@@ -56,7 +56,7 @@ module MilestoneZeroGraph =
                         Type = optionStringType } ] }
 
         let validUserType: SemanticType =
-            { Id = validUserTypeId
+            { TypeParameters = []; Id = validUserTypeId
               DisplayName = "ValidUser"
               Kind =
                 SemanticTypeKind.Product
@@ -71,7 +71,7 @@ module MilestoneZeroGraph =
                         Type = optionStringType } ] }
 
         let validationErrorType: SemanticType =
-            { Id = validationErrorTypeId
+            { TypeParameters = []; Id = validationErrorTypeId
               DisplayName = "ValidationError"
               Kind =
                 SemanticTypeKind.Union
@@ -83,12 +83,12 @@ module MilestoneZeroGraph =
                         Fields = [] } ] }
 
         let policyType: SemanticType =
-            { Id = policyTypeId
+            { TypeParameters = []; Id = policyTypeId
               DisplayName = "ValidationPolicy"
               Kind = SemanticTypeKind.Product [] }
 
-        let validUserRef = TypeRef.Named validUserTypeId
-        let validationErrorRef = TypeRef.Named validationErrorTypeId
+        let validUserRef = TypeRef.Named(validUserTypeId, [])
+        let validationErrorRef = TypeRef.Named(validationErrorTypeId, [])
         let validationResultType =
             TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ validUserRef; validationErrorRef ])
 
@@ -142,7 +142,7 @@ module MilestoneZeroGraph =
         let validateInputParameter: SemanticParameter =
             { Id = validateInputParameterId
               DisplayName = "input"
-              Type = TypeRef.Named rawUserInputTypeId }
+              Type = TypeRef.Named(rawUserInputTypeId, []) }
 
         let validateInputNode: SemanticNode =
             { Id = validateInputNodeId
@@ -174,7 +174,7 @@ module MilestoneZeroGraph =
 
         let emptyNameErrorNode: SemanticNode =
             { Id = emptyNameErrorNodeId
-              Kind = SemanticNodeKind.UnionConstruct(emptyNameVariantId, []) }
+              Kind = SemanticNodeKind.UnionConstruct(emptyNameVariantId, [], []) }
 
         let emptyNameResultNode: SemanticNode =
             { Id = emptyNameResultNodeId
@@ -188,7 +188,7 @@ module MilestoneZeroGraph =
             { Id = validUserNodeId
               Kind =
                 SemanticNodeKind.ProductConstruct(
-                    validUserTypeId,
+                    validUserTypeId, [],
                     [ { TargetFieldId = validNameFieldId
                         ValueNodeId = validateNameNodeId }
                       { TargetFieldId = validEmailFieldId
@@ -207,7 +207,7 @@ module MilestoneZeroGraph =
 
         let invalidEmailErrorNode: SemanticNode =
             { Id = invalidEmailErrorNodeId
-              Kind = SemanticNodeKind.UnionConstruct(invalidEmailVariantId, []) }
+              Kind = SemanticNodeKind.UnionConstruct(invalidEmailVariantId, [], []) }
 
         let invalidEmailResultNode: SemanticNode =
             { Id = invalidEmailResultNodeId
@@ -409,12 +409,12 @@ module MilestoneZeroGraph =
         let mainInputParameter: SemanticParameter =
             { Id = mainInputParameterId
               DisplayName = "input"
-              Type = TypeRef.Named rawUserInputTypeId }
+              Type = TypeRef.Named(rawUserInputTypeId, []) }
 
         let mainPolicyParameter: SemanticParameter =
             { Id = mainPolicyParameterId
               DisplayName = "policy"
-              Type = TypeRef.Named policyTypeId }
+              Type = TypeRef.Named(policyTypeId, []) }
 
         let mainConsoleParameter: SemanticParameter =
             { Id = mainConsoleParameterId

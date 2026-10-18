@@ -122,7 +122,8 @@ module NyasonCodec =
         | TypeRef.Primitive PrimitiveType.Bits32 -> record "primitive-bits32" []
         | TypeRef.Function(arguments, result) ->
             record "function-type" [ "parameters", NyasonValue.List(List.map encodeTypeRef arguments); "result", encodeTypeRef result ]
-        | TypeRef.Named typeId -> record "named-type" [ "id", encodeId "type" typeId ]
+        | TypeRef.Named(typeId, arguments) ->
+            record "named-type" ([ "id", encodeId "type" typeId ] @ encodeTypeArguments "arguments" arguments)
         | TypeRef.TypeParameter(typeParameterId, displayName) ->
             record "type-parameter" [ "id", encodeId "type-parameter" typeParameterId; "name", text displayName ]
         | TypeRef.Capability capabilityId ->
@@ -161,6 +162,11 @@ module NyasonCodec =
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) ->
             invalidOp $"Validated TaskScope type unexpectedly has {arguments.Length} type arguments."
 
+
+    /// Type arguments of a named type or a construct node; absent when empty, so a monomorphic
+    /// graph keeps its bytes.
+    and private encodeTypeArguments name (arguments: TypeRef list) =
+        if List.isEmpty arguments then [] else [ name, NyasonValue.List(List.map encodeTypeRef arguments) ]
     let rec private decodeTypeRef value =
         match value with
         | NyasonValue.Record("primitive-string", _) ->
@@ -189,8 +195,8 @@ module NyasonCodec =
             let fields = recordFields "type-parameter" [ "id"; "name" ] [] value
             TypeRef.TypeParameter(decodeId<TypeParameterTag> "type-parameter" (require "id" fields), decodeText (require "name" fields))
         | NyasonValue.Record("named-type", _) ->
-            let fields = recordFields "named-type" [ "id" ] [] value
-            TypeRef.Named(decodeId<TypeTag> "type" (require "id" fields))
+            let fields = recordFields "named-type" [ "id" ] [ "arguments" ] value
+            TypeRef.Named(decodeId<TypeTag> "type" (require "id" fields), decodeTypeArguments "arguments" fields)
         | NyasonValue.Record("capability-type", _) ->
             let fields = recordFields "capability-type" [ "capability" ] [] value
             TypeRef.Capability(decodeId<CapabilityTag> "capability" (require "capability" fields))
@@ -230,6 +236,15 @@ module NyasonCodec =
         | NyasonValue.Record(tag, _) -> shape $"Unsupported type reference tag '{tag}'."
         | _ -> shape "Expected tagged type reference."
 
+
+    /// Optional type arguments; an empty list is not canonical, since the encoder omits it.
+    and private decodeTypeArguments name (fields: Map<string, NyasonValue>) =
+        match optional name fields with
+        | None -> []
+        | Some value ->
+            match decodeList decodeTypeRef value with
+            | [] -> shape $"Field '{name}' must be omitted rather than empty."
+            | arguments -> arguments
     let private encodeField (field: SemanticField) =
         record
             "field"
@@ -257,31 +272,55 @@ module NyasonCodec =
           Fields = decodeList decodeField (require "fields" fields) }
 
     let private encodeType (item: SemanticType) =
+        // Declaration order is semantic (it is the order of type arguments); absent when empty.
+        let typeParameters =
+            if List.isEmpty item.TypeParameters then []
+            else
+                [ "type-parameters",
+                  item.TypeParameters
+                  |> List.map (fun (typeParameterId, displayName) ->
+                      record "type-parameter-declaration" [ "id", encodeId "type-parameter" typeParameterId; "name", text displayName ])
+                  |> list ]
         match item.Kind with
         | SemanticTypeKind.Product fields ->
             record
                 "product-type"
-                [ "id", encodeId "type" item.Id
-                  "display-name", text item.DisplayName
-                  "fields", fields |> List.sortBy (fun field -> StableId.value field.Id) |> List.map encodeField |> list ]
+                ([ "id", encodeId "type" item.Id
+                   "display-name", text item.DisplayName
+                   "fields", fields |> List.sortBy (fun field -> StableId.value field.Id) |> List.map encodeField |> list ]
+                 @ typeParameters)
         | SemanticTypeKind.Union variants ->
             record
                 "union-type"
-                [ "id", encodeId "type" item.Id
-                  "display-name", text item.DisplayName
-                  "variants", variants |> List.sortBy (fun variant -> StableId.value variant.Id) |> List.map encodeVariant |> list ]
+                ([ "id", encodeId "type" item.Id
+                   "display-name", text item.DisplayName
+                   "variants", variants |> List.sortBy (fun variant -> StableId.value variant.Id) |> List.map encodeVariant |> list ]
+                 @ typeParameters)
+
+    let private decodeTypeParameters (fields: Map<string, NyasonValue>) =
+        match optional "type-parameters" fields with
+        | None -> []
+        | Some value ->
+            let decodeOne item =
+                let parameter = recordFields "type-parameter-declaration" [ "id"; "name" ] [] item
+                decodeId<TypeParameterTag> "type-parameter" (require "id" parameter), decodeText (require "name" parameter)
+            match decodeList decodeOne value with
+            | [] -> shape "Field 'type-parameters' must be omitted rather than empty."
+            | parameters -> parameters
 
     let private decodeType value: SemanticType =
         match value with
         | NyasonValue.Record("product-type", _) ->
-            let fields = recordFields "product-type" [ "id"; "display-name"; "fields" ] [] value
+            let fields = recordFields "product-type" [ "id"; "display-name"; "fields" ] [ "type-parameters" ] value
             { Id = decodeId<TypeTag> "type" (require "id" fields)
               DisplayName = decodeText (require "display-name" fields)
+              TypeParameters = decodeTypeParameters fields
               Kind = SemanticTypeKind.Product(decodeList decodeField (require "fields" fields)) }
         | NyasonValue.Record("union-type", _) ->
-            let fields = recordFields "union-type" [ "id"; "display-name"; "variants" ] [] value
+            let fields = recordFields "union-type" [ "id"; "display-name"; "variants" ] [ "type-parameters" ] value
             { Id = decodeId<TypeTag> "type" (require "id" fields)
               DisplayName = decodeText (require "display-name" fields)
+              TypeParameters = decodeTypeParameters fields
               Kind = SemanticTypeKind.Union(decodeList decodeVariant (require "variants" fields)) }
         | NyasonValue.Record(tag, _) -> shape $"Unsupported semantic type tag '{tag}'."
         | _ -> shape "Expected semantic type record."
@@ -977,16 +1016,17 @@ module NyasonCodec =
                   |> List.sortBy (fun argument -> StableId.value argument.TargetCapabilityParameterId)
                   |> List.map encodeCapabilityArgument
                   |> list ]
-        | SemanticNodeKind.ProductConstruct(typeId, fields) ->
+        | SemanticNodeKind.ProductConstruct(typeId, typeArguments, fields) ->
             record
                 "product-construct"
-                [ nodeId
-                  "type", encodeId "type" typeId
-                  "fields",
-                  fields
-                  |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
-                  |> List.map encodeFieldValue
-                  |> list ]
+                ([ nodeId
+                   "type", encodeId "type" typeId
+                   "fields",
+                   fields
+                   |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
+                   |> List.map encodeFieldValue
+                   |> list ]
+                 @ encodeTypeArguments "type-arguments" typeArguments)
         | SemanticNodeKind.FieldAccess(sourceNodeId, fieldId) ->
             record
                 "field-access"
@@ -1002,16 +1042,17 @@ module NyasonCodec =
                   |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
                   |> List.map encodeFieldValue
                   |> list ]
-        | SemanticNodeKind.UnionConstruct(variantId, fields) ->
+        | SemanticNodeKind.UnionConstruct(variantId, typeArguments, fields) ->
             record
                 "union-construct"
-                [ nodeId
-                  "variant", encodeId "variant" variantId
-                  "fields",
-                  fields
-                  |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
-                  |> List.map encodeFieldValue
-                  |> list ]
+                ([ nodeId
+                   "variant", encodeId "variant" variantId
+                   "fields",
+                   fields
+                   |> List.sortBy (fun field -> StableId.value field.TargetFieldId)
+                   |> List.map encodeFieldValue
+                   |> list ]
+                 @ encodeTypeArguments "type-arguments" typeArguments)
         | SemanticNodeKind.OptionNone itemType ->
             record "option-none" [ nodeId; "item-type", encodeTypeRef itemType ]
         | SemanticNodeKind.OptionSome valueNodeId ->
@@ -1866,11 +1907,12 @@ module NyasonCodec =
                     decodeList decodeCapabilityArgument (require "arguments" fields)
                 ) }
         | NyasonValue.Record("product-construct", _) ->
-            let fields = recordFields "product-construct" [ "id"; "type"; "fields" ] [] value
+            let fields = recordFields "product-construct" [ "id"; "type"; "fields" ] [ "type-arguments" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind =
                 SemanticNodeKind.ProductConstruct(
                     decodeId<TypeTag> "type" (require "type" fields),
+                    decodeTypeArguments "type-arguments" fields,
                     decodeList decodeFieldValue (require "fields" fields)
                 ) }
         | NyasonValue.Record("field-access", _) ->
@@ -1891,11 +1933,12 @@ module NyasonCodec =
                     decodeList decodeFieldValue (require "fields" fields)
                 ) }
         | NyasonValue.Record("union-construct", _) ->
-            let fields = recordFields "union-construct" [ "id"; "variant"; "fields" ] [] value
+            let fields = recordFields "union-construct" [ "id"; "variant"; "fields" ] [ "type-arguments" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind =
                 SemanticNodeKind.UnionConstruct(
                     decodeId<VariantTag> "variant" (require "variant" fields),
+                    decodeTypeArguments "type-arguments" fields,
                     decodeList decodeFieldValue (require "fields" fields)
                 ) }
         | NyasonValue.Record("option-none", _) ->

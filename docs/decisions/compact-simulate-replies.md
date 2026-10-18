@@ -4,7 +4,7 @@
 - **Date:** 2026-09-28
 - **Roadmap:** [post-M2 queue from the 2026-09-28 probe 3](../plans/post-m2-roadmap.md#queue-from-the-2026-09-28-probe-3), order 14
 
-This decision settles order 14 of the post-M2 queue: how much of a proposal an AuthoringSession `simulate*` reply returns. [Probe 3](../verification/rrawrlet-slice-probe3-20260928.md) (friction 4) measured about 1.7 KB of reply per recipe node. A 16 KB `teamLoop` creation request (206 nodes) got a 352 KB reply, and the simulate replies of the three probe parts came to 165, 460 and 216 KB against 12, 32 and 32 KB of requests. For a live agent that is the dominant context cost. The [session specification](../specs/agent-authoring-session.md#simulate-review-detail) is the authority for the wire shape.
+This decision settles order 14 of the post-M2 queue: how much of a proposal an AuthoringSession `simulate*` reply returns. [Probe 3](../verification/rrawrlet-slice-probes-summary.md#probe-3) (friction 4) measured about 1.7 KB of reply per recipe node. A 16 KB `teamLoop` creation request (206 nodes) got a 352 KB reply, and the simulate replies of the three probe parts came to 165, 460 and 216 KB against 12, 32 and 32 KB of requests. For a live agent that is the dominant context cost. The [session specification](../specs/agent-authoring-session.md#simulate-review-detail) is the authority for the wire shape.
 
 ## What a reply contained
 

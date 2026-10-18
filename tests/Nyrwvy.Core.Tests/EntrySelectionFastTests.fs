@@ -94,7 +94,7 @@ module EntrySelectionFastTests =
             let value = block.Instructions.Head.Result
             { lowered with Blocks = [ { block with Instructions = [ { Result = value; OriginNodeId = nodeId; Kind = instruction } ] } ] }
         let taskType: ExecutionType =
-            { Id = id "unused-task-type"; Kind = ExecutionTypeKind.Product [ { Id = id "unused-field"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ unitType ]) } ] }
+            { TypeParameters = []; Id = id "unused-task-type"; Kind = ExecutionTypeKind.Product [ { Id = id "unused-field"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ unitType ]) } ] }
         let program: ExecutionProgram =
             { SourceSnapshotId = id "snapshot"; Types = [ taskType ]; Effects = []; Capabilities = []
               Functions = [ functionOf "pure" ExecutionInstructionKind.UnitLiteral

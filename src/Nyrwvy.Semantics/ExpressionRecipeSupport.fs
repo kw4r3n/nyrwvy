@@ -320,8 +320,8 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.ListFindIndex(source, _, context)
         | ExpressionRecipe.ListAll(source, _, context) -> seq { yield source; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListConstruct(_, items) -> items |> Seq.ofList
-        | ExpressionRecipe.ProductConstruct(_, fields)
-        | ExpressionRecipe.UnionConstruct(_, fields) -> fields |> Seq.map snd
+        | ExpressionRecipe.ProductConstruct(_, _, fields)
+        | ExpressionRecipe.UnionConstruct(_, _, fields) -> fields |> Seq.map snd
         | ExpressionRecipe.ProductUpdate(_, source, fields) -> seq { yield source; yield! fields |> Seq.map snd }
         | ExpressionRecipe.CapabilityConstruct _
         | ExpressionRecipe.FunctionReference _ -> Seq.empty
@@ -459,8 +459,17 @@ module internal ExpressionRecipeSupport =
             | TypeRef.Primitive _
             // Scope (a parameter type must declare it) is checked on the resulting snapshot.
             | TypeRef.TypeParameter _ -> Ok()
-            | TypeRef.Named typeId when Set.contains typeId index.TypeIds -> Ok()
-            | TypeRef.Named typeId -> Error(invalid $"Type reference names unknown type '{StableId.value typeId}'.")
+            | TypeRef.Named(typeId, arguments) when Set.contains typeId index.TypeIds ->
+                let declared = index.TypesById[typeId]
+                if declared.TypeParameters.Length <> arguments.Length then
+                    Error(
+                        diagnostic
+                            "NamedTypeArityMismatch"
+                            $"{declared.DisplayName} takes {declared.TypeParameters.Length} type arguments, but the type reference gives {arguments.Length}."
+                    )
+                else
+                    arguments |> List.fold (fun state arg -> state |> Result.bind (fun () -> validate arg)) (Ok())
+            | TypeRef.Named(typeId, _) -> Error(invalid $"Type reference names unknown type '{StableId.value typeId}'.")
             | TypeRef.Capability capabilityId when Set.contains capabilityId index.CapabilityIds -> Ok()
             | TypeRef.Capability capabilityId ->
                 Error(invalid $"Type reference names unknown capability '{StableId.value capabilityId}'.")

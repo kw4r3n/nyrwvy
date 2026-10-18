@@ -45,6 +45,9 @@ type SnapshotSchemaFeature =
     | ListPositionalUpdate
     /// ListZipWith and ListFlatMap.
     | ListZipWithAndFlatMap
+    /// A Product or Union with type parameters, a named type with type arguments, or a construct
+    /// node with type arguments.
+    | GenericTypes
 
 /// One persisted snapshot schema: its JSON `schemaVersion` and its Nyason schema identifier.
 /// The two formats number their versions separately but move together.
@@ -75,12 +78,15 @@ module SnapshotSchema =
 
     let private v17 = version 17 "nayamnyam.snapshot.v13"
 
+    let private v18 = version 18 "nayamnyam.snapshot.v14"
+
     /// Every version the codecs read, oldest first.
-    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17 ]
+    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18 ]
 
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
-        [ SnapshotSchemaFeature.ExceptionIsCancellation, v17, "Exception cancellation classification"
+        [ SnapshotSchemaFeature.GenericTypes, v18, "Generic Product and Union types"
+          SnapshotSchemaFeature.ExceptionIsCancellation, v17, "Exception cancellation classification"
           SnapshotSchemaFeature.StringReplaceAndTrim, v17, "StringReplace and StringTrim"
           SnapshotSchemaFeature.ListZipWithAndFlatMap, v17, "ListZipWith and ListFlatMap"
           SnapshotSchemaFeature.OptionResultCombinators, v17, "Option and Result combinators"
@@ -189,6 +195,8 @@ module SnapshotSchema =
         | SemanticNodeKind.ListRemoveAt _ -> Some SnapshotSchemaFeature.ListPositionalUpdate
         | SemanticNodeKind.ListZipWith _
         | SemanticNodeKind.ListFlatMap _ -> Some SnapshotSchemaFeature.ListZipWithAndFlatMap
+        | SemanticNodeKind.ProductConstruct(_, _ :: _, _)
+        | SemanticNodeKind.UnionConstruct(_, _ :: _, _) -> Some SnapshotSchemaFeature.GenericTypes
         | SemanticNodeKind.TaskWait _
         | SemanticNodeKind.MatchUnion _
         | SemanticNodeKind.ParameterReference _
@@ -314,9 +322,10 @@ module SnapshotSchema =
     let rec private typeFeatures (typeRef: TypeRef): SnapshotSchemaFeature list =
         match typeRef with
         | TypeRef.Primitive _
-        | TypeRef.Named _
+        | TypeRef.Named(_, [])
         | TypeRef.Capability _
         | TypeRef.TypeParameter _ -> []
+        | TypeRef.Named(_, arguments) -> SnapshotSchemaFeature.GenericTypes :: (arguments |> List.collect typeFeatures)
         | TypeRef.Function(parameters, result) -> (result :: parameters) |> List.collect typeFeatures
         | TypeRef.BuiltinGeneric(generic, arguments) ->
             let own =
@@ -357,6 +366,8 @@ module SnapshotSchema =
             Option.toList (featureOfNodeKind node.Kind)
             @ ((SemanticNodeShape.payloadTypeRefs node @ bindingTypes) |> List.collect typeFeatures)
         [ yield! declarationTypes |> List.collect typeFeatures
+          if snapshot.Types |> List.exists (fun semanticType -> not (List.isEmpty semanticType.TypeParameters)) then
+              yield SnapshotSchemaFeature.GenericTypes
           for fn in snapshot.Functions do
               yield! ValueGraph.collectNodes fn.Body |> List.collect nodeFeatures ]
         |> Set.ofList

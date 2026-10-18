@@ -12,7 +12,7 @@ open System.Text.Json
 /// is informational only. Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrSerializer =
-    let schemaVersion = 12
+    let schemaVersion = 13
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
@@ -37,9 +37,15 @@ module TypedSemanticIrSerializer =
             writer.WriteEndArray()
             writer.WritePropertyName("resultType")
             writeTypeRef writer result
-        | TypeRef.Named typeId ->
+        | TypeRef.Named(typeId, arguments) ->
             writer.WriteString("kind", "named")
             writer.WriteString("typeId", StableId.value typeId)
+            // Absent for a monomorphic type, so its IR keeps its bytes.
+            if not (List.isEmpty arguments) then
+                writer.WritePropertyName("arguments")
+                writer.WriteStartArray()
+                arguments |> List.iter (writeTypeRef writer)
+                writer.WriteEndArray()
         | TypeRef.TypeParameter(typeParameterId, displayName) ->
             writer.WriteString("kind", "typeParameter")
             writer.WriteString("typeParameterId", StableId.value typeParameterId)
@@ -121,6 +127,16 @@ module TypedSemanticIrSerializer =
     let private writeType (writer: Utf8JsonWriter) (typeEntity: TypedSemanticType) =
         writer.WriteStartObject()
         writer.WriteString("id", StableId.value typeEntity.Id)
+        // Declaration order is the order of type arguments; absent for a monomorphic type.
+        if not (List.isEmpty typeEntity.TypeParameters) then
+            writer.WritePropertyName("typeParameters")
+            writer.WriteStartArray()
+            for id, name in typeEntity.TypeParameters do
+                writer.WriteStartObject()
+                writer.WriteString("typeParameterId", StableId.value id)
+                writer.WriteString("displayName", name)
+                writer.WriteEndObject()
+            writer.WriteEndArray()
         match typeEntity.Kind with
         | TypedSemanticTypeKind.Product fields ->
             writer.WriteString("kind", "product")
@@ -1041,7 +1057,8 @@ module TypedSemanticIrSerializer =
             || program.Functions |> List.exists (fun fn -> hasTypeValue TaskTypes.mentionsException fn.Body)
 
         let version =
-            if uses (function | TypedSemanticNodeKind.ExceptionIsCancellation _ -> true | _ -> false) then schemaVersion
+            if program.Types |> List.exists (fun ty -> not (List.isEmpty ty.TypeParameters)) then schemaVersion
+            elif uses (function | TypedSemanticNodeKind.ExceptionIsCancellation _ -> true | _ -> false) then 12
             elif hasException then 11
             elif hasOneShotSignature || hasOneShotField
                || program.Functions |> List.exists (fun fn -> hasTypeValue TaskTypes.mentionsOneShot fn.Body) then 10

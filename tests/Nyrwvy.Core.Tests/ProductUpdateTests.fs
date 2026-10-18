@@ -97,7 +97,7 @@ module ProductUpdateTests =
     let ``ProductUpdate checks its source, field set and value types in recipes and persisted graphs`` () =
         withSession (fun session _ ->
             let state, stateFields, other, otherFields = declareTypes session
-            let stateType = TypeRef.Named state.Id
+            let stateType = TypeRef.Named(state.Id, [])
             let updateIds fields = ExpressionRecipe.ProductUpdate(state.Id, slot 0, fields)
             let accepted = request session "rename" [ "st", stateType; "name", textType ] stateType (updateIds [ stateFields["name"], slot 1 ])
             session.SimulateCreateFunction accepted |> unwrap |> ignore
@@ -109,7 +109,7 @@ module ProductUpdateTests =
             Assert.Contains("PureExpressionProductUpdateSourceMismatch", reject (ExpressionRecipe.ProductUpdate(state.Id, slot 1, [ stateFields["name"], slot 1 ])))
             Assert.Contains(
                 "PureExpressionProductUpdateSourceMismatch",
-                rejects session [ "st", stateType ] (TypeRef.Named other.Id) (ExpressionRecipe.ProductUpdate(other.Id, slot 0, [ otherFields["name"], ExpressionRecipe.StringLiteral "x" ])))
+                rejects session [ "st", stateType ] (TypeRef.Named(other.Id, [])) (ExpressionRecipe.ProductUpdate(other.Id, slot 0, [ otherFields["name"], ExpressionRecipe.StringLiteral "x" ])))
             // The result has the product type, never a field type.
             Assert.NotEqual<string>("", rejects session [ "st", stateType; "name", textType ] textType (updateIds [ stateFields["name"], slot 1 ]))
             // By name, the fields resolve within the named type; another type's field is unknown there.
@@ -126,10 +126,10 @@ module ProductUpdateTests =
         let foreignId = StableId.createForTesting<FieldTag> "field-update-foreign"
         let nodeId name = StableId.createForTesting<GraphNodeTag> ("node-update-" + name)
         let stateType: SemanticType =
-            { Id = stateId; DisplayName = "State"
+            { TypeParameters = []; Id = stateId; DisplayName = "State"
               Kind = SemanticTypeKind.Product [ { Id = nameId; DisplayName = "name"; Type = textType }; { Id = countId; DisplayName = "count"; Type = intType } ] }
         let foreignType: SemanticType =
-            { Id = StableId.createForTesting<TypeTag> "type-update-foreign"; DisplayName = "Foreign"
+            { TypeParameters = []; Id = StableId.createForTesting<TypeTag> "type-update-foreign"; DisplayName = "Foreign"
               Kind = SemanticTypeKind.Product [ { Id = foreignId; DisplayName = "x"; Type = textType } ] }
         let parameterId = StableId.createForTesting<ParameterTag> "parameter-update-st"
         let validate (source: SemanticNodeKind) (bindings: (FieldId * SemanticNodeKind) list) =
@@ -140,8 +140,8 @@ module ProductUpdateTests =
                   Kind = SemanticNodeKind.ProductUpdate(stateId, sourceNode.Id, List.map2 (fun (fieldId, _) (value: SemanticNode) -> { TargetFieldId = fieldId; ValueNodeId = value.Id }) bindings values) }
             let fn: SemanticFunction =
                 { Id = StableId.createForTesting<FunctionTag> "function-update-entry"; DisplayName = "entry"
-                  Parameters = [ { Id = parameterId; DisplayName = "st"; Type = TypeRef.Named stateId } ]
-                  ResultType = TypeRef.Named stateId; RequiredEffects = []
+                  Parameters = [ { Id = parameterId; DisplayName = "st"; Type = TypeRef.Named(stateId, []) } ]
+                  ResultType = TypeRef.Named(stateId, []); RequiredEffects = []
                   Body = { Nodes = sourceNode :: values @ [ updateNode ]; ResultNodeId = updateNode.Id } }
             SnapshotValidator.validate { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-update") with Types = [ stateType; foreignType ]; Functions = [ fn ] }
             |> List.map (fun issue -> issue.Code)

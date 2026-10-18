@@ -2,6 +2,8 @@
 
 **Status:** Frozen historical condition at `6cbf13695fa90b1311ae7ece7da403f7cbeafe05`, but **invalid for recorded model evaluation** after the first real OpenCode Stage A attempt exposed a tool-discovery failure. See [local condition verification](../verification/m2-controlled-evaluation-condition-v1-20260830.md), [runtime failure record](../verification/m2-controlled-evaluation-condition-v1-runtime-failure-20260830.md), and the [v1.1 remediation](m2-agent-evaluation-condition-v1.1.md).
 
+> The evaluation runners, OpenCode bridges, scripts and corpora this document names were removed from `main` on 2026-10-18. Replay them from the [evaluation freeze tags](../operations/evaluation-freeze-tags.md) or from commit `b3a958a`, the last `main` commit that contained them.
+
 This document defines the original controlled execution condition for the already frozen `m2-agent-corpus-v1`. It does not modify the corpus, its task oracles, or the agent-visible `m2-structural-v1` protocol.
 
 Condition v1 passed repository-local .NET/Bun verification, but that verification did not prove that plugin-registered custom tools appeared in a real OpenCode `run` model tool list. In the first corrected Stage A collection, all ten OpenCode sessions loaded this agent's instructions but none exposed a callable `nyrwvy_structural_eval_*` tool; no harness run directory was created. Those attempts are retained as invalid-condition evidence and are not semantic task results.

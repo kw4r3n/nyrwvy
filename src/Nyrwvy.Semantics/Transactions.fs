@@ -6,6 +6,14 @@ open System
 type RenameTarget =
     | TypeTarget of TypeId
     | FunctionTarget of FunctionId
+    /// A Product field or a Union variant field.
+    | FieldTarget of FieldId
+    | VariantTarget of VariantId
+    | ParameterTarget of ParameterId
+    | EffectTarget of EffectId
+    | CapabilityTarget of CapabilityId
+    | CapabilityOperationTarget of CapabilityOperationId
+    | CapabilityParameterTarget of CapabilityParameterId
 
 type CallPlan =
     | BindExistingValue of CallNodeId: GraphNodeId * ValueNodeId: GraphNodeId
@@ -50,6 +58,8 @@ type SemanticOperation =
     | ResolveMissingArgument of ResolveMissingArgumentRequest
     | AddFunctionRequiredEffect of FunctionRequiredEffectRequest
     | RemoveFunctionRequiredEffect of FunctionRequiredEffectRequest
+    | RemoveFunctionParameter of ParameterId
+    | RemoveUnionVariant of VariantId
 
 type TransactionRequest =
     { Id: TransactionId
@@ -60,12 +70,45 @@ type TransactionRequest =
 type SymbolRename =
     | TypeRenamed of TypeId * oldDisplayName: string * newDisplayName: string
     | FunctionRenamed of FunctionId * oldDisplayName: string * newDisplayName: string
+    /// A Product field (no owner variant) or a Union variant field.
+    | FieldRenamed of
+        ownerTypeId: TypeId * ownerVariantId: VariantId option * FieldId * oldDisplayName: string * newDisplayName: string
+    | VariantRenamed of ownerTypeId: TypeId * VariantId * oldDisplayName: string * newDisplayName: string
+    | ParameterRenamed of ownerFunctionId: FunctionId * ParameterId * oldDisplayName: string * newDisplayName: string
+    | EffectRenamed of EffectId * oldDisplayName: string * newDisplayName: string
+    | CapabilityRenamed of CapabilityId * oldDisplayName: string * newDisplayName: string
+    | CapabilityOperationRenamed of
+        ownerCapabilityId: CapabilityId * CapabilityOperationId * oldDisplayName: string * newDisplayName: string
+    | CapabilityParameterRenamed of
+        ownerCapabilityId: CapabilityId
+        * ownerOperationId: CapabilityOperationId
+        * CapabilityParameterId
+        * oldDisplayName: string
+        * newDisplayName: string
 
 type ParameterAdded =
     { OwnerFunctionId: FunctionId
       AddedParameterId: ParameterId
       AddedDisplayName: string
       AddedType: TypeRef }
+
+/// One removed function parameter. Every DirectCall to the function lost its binding for it (the
+/// bound value node stays in the caller graph); every obligation for it was retired, open or resolved.
+type ParameterRemoved =
+    { OwnerFunctionId: FunctionId
+      RemovedParameterId: ParameterId
+      DisplayName: string
+      AffectedCallNodeIds: GraphNodeId list
+      RetiredObligations: MissingArgumentObligation list }
+
+/// One removed Union variant. Every MatchUnion arm naming it dropped it; an arm left with no
+/// variant was removed with its body.
+type UnionVariantRemoved =
+    { OwnerTypeId: TypeId
+      RemovedVariantId: VariantId
+      DisplayName: string
+      RemovedFieldIds: FieldId list
+      AffectedMatchNodeIds: GraphNodeId list }
 
 type ProductFieldRemoved =
     { OwnerTypeId: TypeId
@@ -150,7 +193,9 @@ type SemanticDiff =
       ArgumentsAttached: ArgumentAttached list
       ObligationsCreated: MissingArgumentCreated list
       ObligationsResolved: MissingArgumentResolved list
-      FunctionRequiredEffectsChanged: FunctionRequiredEffectChange list }
+      FunctionRequiredEffectsChanged: FunctionRequiredEffectChange list
+      ParametersRemoved: ParameterRemoved list
+      UnionVariantsRemoved: UnionVariantRemoved list }
 
 [<Struct>]
 type TransactionDiagnostic =
@@ -180,7 +225,9 @@ type private ChangeAccumulator =
       ArgumentsAttached: ArgumentAttached list
       ObligationsCreated: MissingArgumentCreated list
       ObligationsResolved: MissingArgumentResolved list
-      FunctionRequiredEffectsChanged: FunctionRequiredEffectChange list }
+      FunctionRequiredEffectsChanged: FunctionRequiredEffectChange list
+      ParametersRemoved: ParameterRemoved list
+      UnionVariantsRemoved: UnionVariantRemoved list }
 
 [<RequireQualifiedAccess>]
 module Transaction =
@@ -200,7 +247,9 @@ module Transaction =
           ArgumentsAttached = []
           ObligationsCreated = []
           ObligationsResolved = []
-          FunctionRequiredEffectsChanged = [] }
+          FunctionRequiredEffectsChanged = []
+          ParametersRemoved = []
+          UnionVariantsRemoved = [] }
 
     let private renameType id newDisplayName (snapshot: Snapshot) =
         match snapshot.Types |> List.tryFind (fun item -> item.Id = id) with
@@ -221,6 +270,116 @@ module Transaction =
                 |> List.map (fun item ->
                     if item.Id = id then { item with DisplayName = newDisplayName } else item)
             Ok { snapshot with Functions = functions }
+
+    /// The renamed snapshot, or TargetNotFound when no member has the ID. A rename changes only
+    /// the display name: every stable ID and every reference stays as it is.
+    let private renameMember label (id: StableId<'Kind>) (renamed: Snapshot option) =
+        match renamed with
+        | Some snapshot -> Ok snapshot
+        | None -> Error("TargetNotFound", $"{label} '{StableId.value id}' was not found.")
+
+    let private renameField (id: FieldId) newDisplayName (snapshot: Snapshot) =
+        let mutable found = false
+        let rename (field: SemanticField) =
+            if field.Id = id then
+                found <- true
+                { field with DisplayName = newDisplayName }
+            else field
+        let types =
+            snapshot.Types
+            |> List.map (fun item ->
+                match item.Kind with
+                | SemanticTypeKind.Product fields -> { item with Kind = SemanticTypeKind.Product(List.map rename fields) }
+                | SemanticTypeKind.Union variants ->
+                    { item with
+                        Kind =
+                            SemanticTypeKind.Union(
+                                variants |> List.map (fun variant -> { variant with Fields = List.map rename variant.Fields })
+                            ) })
+        renameMember "Field" id (if found then Some { snapshot with Types = types } else None)
+
+    let private renameVariant (id: VariantId) newDisplayName (snapshot: Snapshot) =
+        let mutable found = false
+        let types =
+            snapshot.Types
+            |> List.map (fun item ->
+                match item.Kind with
+                | SemanticTypeKind.Product _ -> item
+                | SemanticTypeKind.Union variants ->
+                    { item with
+                        Kind =
+                            SemanticTypeKind.Union(
+                                variants
+                                |> List.map (fun variant ->
+                                    if variant.Id = id then
+                                        found <- true
+                                        { variant with DisplayName = newDisplayName }
+                                    else variant)
+                            ) })
+        renameMember "Union variant" id (if found then Some { snapshot with Types = types } else None)
+
+    let private renameParameter (id: ParameterId) newDisplayName (snapshot: Snapshot) =
+        let mutable found = false
+        let functions =
+            snapshot.Functions
+            |> List.map (fun item ->
+                { item with
+                    Parameters =
+                        item.Parameters
+                        |> List.map (fun parameter ->
+                            if parameter.Id = id then
+                                found <- true
+                                { parameter with DisplayName = newDisplayName }
+                            else parameter) })
+        renameMember "Parameter" id (if found then Some { snapshot with Functions = functions } else None)
+
+    let private renameEffect (id: EffectId) newDisplayName (snapshot: Snapshot) =
+        let found = snapshot.Effects |> List.exists (fun item -> item.Id = id)
+        let effects =
+            snapshot.Effects
+            |> List.map (fun item -> if item.Id = id then { item with DisplayName = newDisplayName } else item)
+        renameMember "Effect" id (if found then Some { snapshot with Effects = effects } else None)
+
+    let private renameCapability (id: CapabilityId) newDisplayName (snapshot: Snapshot) =
+        let found = snapshot.Capabilities |> List.exists (fun item -> item.Id = id)
+        let capabilities =
+            snapshot.Capabilities
+            |> List.map (fun item -> if item.Id = id then { item with DisplayName = newDisplayName } else item)
+        renameMember "Capability" id (if found then Some { snapshot with Capabilities = capabilities } else None)
+
+    let private renameCapabilityOperation (id: CapabilityOperationId) newDisplayName (snapshot: Snapshot) =
+        let mutable found = false
+        let capabilities =
+            snapshot.Capabilities
+            |> List.map (fun capability ->
+                { capability with
+                    Operations =
+                        capability.Operations
+                        |> List.map (fun operation ->
+                            if operation.Id = id then
+                                found <- true
+                                { operation with DisplayName = newDisplayName }
+                            else operation) })
+        renameMember "Capability operation" id (if found then Some { snapshot with Capabilities = capabilities } else None)
+
+    let private renameCapabilityParameter (id: CapabilityParameterId) newDisplayName (snapshot: Snapshot) =
+        let mutable found = false
+        let capabilities =
+            snapshot.Capabilities
+            |> List.map (fun capability ->
+                { capability with
+                    Operations =
+                        capability.Operations
+                        |> List.map (fun operation ->
+                            { operation with
+                                Parameters =
+                                    operation.Parameters
+                                    |> List.map (fun parameter ->
+                                        if parameter.Id = id then
+                                            found <- true
+                                            { parameter with DisplayName = newDisplayName }
+                                        else parameter) }) })
+        renameMember "Capability parameter" id (if found then Some { snapshot with Capabilities = capabilities } else None)
 
     let private callPlanNodeId = function
         | BindExistingValue(callNodeId, _) -> callNodeId
@@ -422,7 +581,7 @@ module Transaction =
                     ValueGraph.collectNodes owner.Body
                     |> List.choose (fun node ->
                         match node.Kind with
-                        | SemanticNodeKind.ProductConstruct(typeId, _) when typeId = target.Id -> Some(owner, node.Id)
+                        | SemanticNodeKind.ProductConstruct(typeId, _, _) when typeId = target.Id -> Some(owner, node.Id)
                         | _ -> None))
             let affectedIds = affected |> List.map snd |> Set.ofList
             let plannedIds = request.ConstructionPlans |> List.map (fun plan -> plan.ConstructNodeId)
@@ -463,9 +622,9 @@ module Transaction =
                         |> List.map (fun owner ->
                             let mapNode (node: SemanticNode) =
                                 match node.Kind, Map.tryFind node.Id plansById with
-                                | SemanticNodeKind.ProductConstruct(typeId, bindings), Some valueNodeId ->
+                                | SemanticNodeKind.ProductConstruct(typeId, typeArguments, bindings), Some valueNodeId ->
                                     { node with
-                                        Kind = SemanticNodeKind.ProductConstruct(typeId, bindings @
+                                        Kind = SemanticNodeKind.ProductConstruct(typeId, typeArguments, bindings @
                                             [ { TargetFieldId = newField.Id; ValueNodeId = valueNodeId } ]) }
                                 | _ -> node
                             { owner with Body = ValueGraph.mapNodes mapNode owner.Body })
@@ -513,7 +672,7 @@ module Transaction =
                 | _ -> false)
             let affected = nodes |> List.choose (fun (fn, node) ->
                 match node.Kind with
-                | SemanticNodeKind.ProductConstruct(typeId, bindings)
+                | SemanticNodeKind.ProductConstruct(typeId, _, bindings)
                     when typeId = owner.Id && bindings |> List.exists (fun binding -> binding.TargetFieldId = fieldId) ->
                     Some(fn, node.Id)
                 | _ -> None)
@@ -533,9 +692,9 @@ module Transaction =
                 let updatedFunctions = snapshot.Functions |> List.map (fun fn ->
                     let mapNode (node: SemanticNode) =
                         match node.Kind with
-                        | SemanticNodeKind.ProductConstruct(typeId, bindings) when typeId = owner.Id ->
+                        | SemanticNodeKind.ProductConstruct(typeId, typeArguments, bindings) when typeId = owner.Id ->
                             let kept = bindings |> List.filter (fun binding -> binding.TargetFieldId <> fieldId)
-                            { node with Kind = SemanticNodeKind.ProductConstruct(typeId, kept) }
+                            { node with Kind = SemanticNodeKind.ProductConstruct(typeId, typeArguments, kept) }
                         | _ -> node
                     { fn with Body = ValueGraph.mapNodes mapNode fn.Body })
                 let removed: ProductFieldRemoved =
@@ -580,7 +739,8 @@ module Transaction =
         | None -> Error("TargetNotFound", "The type to delete was not found.")
         | Some target ->
             if changes.ProductFieldsAdded |> List.exists (fun item -> item.OwnerTypeId = typeId)
-               || changes.ProductFieldsRemoved |> List.exists (fun item -> item.OwnerTypeId = typeId) then
+               || changes.ProductFieldsRemoved |> List.exists (fun item -> item.OwnerTypeId = typeId)
+               || changes.UnionVariantsRemoved |> List.exists (fun item -> item.OwnerTypeId = typeId) then
                 Error("TypeModifiedInTransaction", "Delete a type in a separate reviewed change from its field edits.")
             else
                 let candidate = { snapshot with Types = snapshot.Types |> List.filter (fun item -> item.Id <> typeId) }
@@ -712,6 +872,216 @@ module Transaction =
                     { changes with FunctionsRemoved = removed :: changes.FunctionsRemoved }
                 )
 
+    let private removeFunctionParameter
+        (parameterId: ParameterId)
+        (snapshot: Snapshot)
+        (changes: ChangeAccumulator)
+        : Result<Snapshot * ChangeAccumulator, string * string> =
+        let target =
+            snapshot.Functions
+            |> List.tryPick (fun fn ->
+                fn.Parameters
+                |> List.tryFind (fun parameter -> parameter.Id = parameterId)
+                |> Option.map (fun parameter -> fn, parameter))
+        match target with
+        | None -> Error("TargetNotFound", "The function parameter to remove was not found.")
+        | Some(owner, parameter) ->
+            let describe = describeFunction snapshot
+            let subject = $"Parameter {StableId.describe parameter.DisplayName parameterId} of function {describe owner.Id}"
+            let referenced =
+                ValueGraph.collectNodes owner.Body
+                |> List.exists (fun node ->
+                    match node.Kind with
+                    | SemanticNodeKind.ParameterReference id -> id = parameterId
+                    | _ -> false)
+            let bindsParameter (fn: SemanticFunction) =
+                ValueGraph.collectNodes fn.Body
+                |> List.exists (fun node ->
+                    match SemanticNodeShape.tryDirectCall node with
+                    | Some(calleeId, arguments) when calleeId = owner.Id ->
+                        arguments |> List.exists (fun argument -> argument.TargetParameterId = parameterId)
+                    | Some _
+                    | None -> false)
+            if changes.ParametersAdded |> List.exists (fun item -> item.AddedParameterId = parameterId) then
+                Error("ParameterCreatedInTransaction", "Remove a newly added parameter in a separate reviewed change.")
+            elif referenced then
+                Error(
+                    "ParameterStillReferenced",
+                    $"{subject} is still referenced by the function body; replace those references before removing it."
+                )
+            else
+                match nonCallUses owner.Id snapshot with
+                | _ :: _ as uses ->
+                    let users =
+                        uses
+                        |> List.map (fun (ownerId, labels) ->
+                            let kinds = labels |> String.concat ", "
+                            $"{describe ownerId} ({kinds})")
+                        |> String.concat "; "
+                    Error(
+                        "ParameterRemovalNonCallUse",
+                        $"Function {describe owner.Id} is used other than as a direct call by {users}. Those uses fix its signature, so only direct calls can drop an argument; replace those uses before removing a parameter of this function."
+                    )
+                | [] ->
+                    match
+                        snapshot.Functions
+                        |> List.filter (fun fn -> bindsParameter fn && not (List.isEmpty fn.RequiredEffects))
+                        |> List.sortBy (fun fn -> StableId.value fn.Id)
+                    with
+                    | effectful :: _ ->
+                        Error(
+                            "ParameterRemovalMayDiscardEffects",
+                            $"Function {describe effectful.Id} declares effects and binds an argument to {subject}; preserve evaluation explicitly before removing the argument binding."
+                        )
+                    | [] ->
+                        let dropBinding (node: SemanticNode) =
+                            match node.Kind with
+                            | SemanticNodeKind.DirectCall(calleeId, arguments) when calleeId = owner.Id ->
+                                let kept = arguments |> List.filter (fun argument -> argument.TargetParameterId <> parameterId)
+                                { node with Kind = SemanticNodeKind.DirectCall(calleeId, kept) }
+                            | _ -> node
+                        let updatedFunctions =
+                            snapshot.Functions
+                            |> List.map (fun fn ->
+                                let parameters =
+                                    if fn.Id = owner.Id then
+                                        fn.Parameters |> List.filter (fun item -> item.Id <> parameterId)
+                                    else fn.Parameters
+                                { fn with Parameters = parameters; Body = ValueGraph.mapNodes dropBinding fn.Body })
+                        let retired, kept = snapshot.Obligations |> List.partition (fun item -> item.ParameterId = parameterId)
+                        let removed: ParameterRemoved =
+                            { OwnerFunctionId = owner.Id
+                              RemovedParameterId = parameterId
+                              DisplayName = parameter.DisplayName
+                              AffectedCallNodeIds = affectedCalls owner.Id snapshot |> List.map snd |> List.sortBy StableId.value
+                              RetiredObligations = retired |> List.sortBy (fun item -> StableId.value item.Id) }
+                        Ok(
+                            { snapshot with Functions = updatedFunctions; Obligations = kept },
+                            { changes with ParametersRemoved = removed :: changes.ParametersRemoved }
+                        )
+
+    /// A pattern-binding ID for a field a narrowed arm must now bind, derived from the transaction,
+    /// the match node and the field so that re-simulating the same request yields the same snapshot.
+    let private derivedPatternBindingId (transactionId: TransactionId) (matchNodeId: GraphNodeId) (fieldId: FieldId) =
+        let text = $"{StableId.value transactionId}|{StableId.value matchNodeId}|{StableId.value fieldId}"
+        let hash = Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes text)
+        StableId.createForTesting<PatternBindingTag> (Guid(ReadOnlySpan(hash, 0, 16)).ToString("D"))
+
+    let private removeUnionVariant
+        (transactionId: TransactionId)
+        (variantId: VariantId)
+        (snapshot: Snapshot)
+        (changes: ChangeAccumulator)
+        : Result<Snapshot * ChangeAccumulator, string * string> =
+        let target =
+            snapshot.Types
+            |> List.tryPick (fun item ->
+                match item.Kind with
+                | SemanticTypeKind.Union variants ->
+                    variants
+                    |> List.tryFind (fun variant -> variant.Id = variantId)
+                    |> Option.map (fun variant -> item, variants, variant)
+                | SemanticTypeKind.Product _ -> None)
+        match target with
+        | None -> Error("TargetNotFound", "The Union variant to remove was not found.")
+        | Some(owner, variants, variant) ->
+            let describe = describeFunction snapshot
+            let subject = $"Variant {StableId.describe variant.DisplayName variantId} of Union {StableId.describe owner.DisplayName owner.Id}"
+            let nodes =
+                snapshot.Functions
+                |> List.collect (fun fn -> ValueGraph.collectNodes fn.Body |> List.map (fun node -> fn, node))
+            let constructors =
+                nodes
+                |> List.choose (fun (fn, node) ->
+                    match node.Kind with
+                    | SemanticNodeKind.UnionConstruct(id, _, _) when id = variantId -> Some fn.Id
+                    | _ -> None)
+                |> List.distinct
+                |> List.sortBy StableId.value
+            let matches =
+                nodes
+                |> List.choose (fun (fn, node) ->
+                    match node.Kind with
+                    | SemanticNodeKind.MatchUnion(_, arms) when arms |> List.exists (fun arm -> List.contains variantId arm.VariantIds) ->
+                        Some(fn, node.Id, arms)
+                    | _ -> None)
+            let dropsArm (arms: UnionMatchArm list) = arms |> List.exists (fun arm -> arm.VariantIds = [ variantId ])
+            if List.length variants = 1 then
+                Error("UnionVariantLast", $"{subject} is the Union's only variant; delete the type instead.")
+            elif not (List.isEmpty constructors) then
+                let users = constructors |> List.map describe |> String.concat ", "
+                Error(
+                    "UnionVariantStillConstructed",
+                    $"{subject} is still constructed by {users}; replace those constructions before removing the variant."
+                )
+            else
+                match
+                    matches
+                    |> List.filter (fun (fn, _, arms) -> dropsArm arms && not (List.isEmpty fn.RequiredEffects))
+                    |> List.sortBy (fun (fn, nodeId, _) -> StableId.value fn.Id, StableId.value nodeId)
+                with
+                | (fn, nodeId, _) :: _ ->
+                    Error(
+                        "UnionVariantRemovalMayDiscardEffects",
+                        $"Function {describe fn.Id} declares effects and its match '{StableId.value nodeId}' has an arm for {subject} alone; preserve evaluation explicitly before removing that arm."
+                    )
+                | [] ->
+                    let remaining = variants |> List.filter (fun item -> item.Id <> variantId)
+                    // A generic Union's narrowed arm binds the fields at the match input's type arguments.
+                    let narrow (inputArguments: TypeRef list) (matchNodeId: GraphNodeId) (arm: UnionMatchArm): UnionMatchArm option =
+                        if not (List.contains variantId arm.VariantIds) then Some arm
+                        else
+                            match arm.VariantIds |> List.filter (fun id -> id <> variantId) with
+                            | [] -> None
+                            | [ single ] ->
+                                // An arm naming several variants binds no fields; one naming one variant
+                                // binds each of its fields exactly once, so the narrowed arm binds them unused.
+                                let fields =
+                                    remaining
+                                    |> List.tryFind (fun item -> item.Id = single)
+                                    |> Option.map (fun item -> item.Fields)
+                                    |> Option.defaultValue []
+                                let bindings: PatternFieldBinding list =
+                                    fields
+                                    |> List.map (fun field ->
+                                        { SourceFieldId = field.Id
+                                          Binding =
+                                            { Id = derivedPatternBindingId transactionId matchNodeId field.Id
+                                              DisplayName = None
+                                              Type = TypeParameters.instantiate owner inputArguments field.Type } })
+                                Some { arm with VariantIds = [ single ]; FieldBindings = bindings }
+                            | several -> Some { arm with VariantIds = several }
+                    let pruneMatch (inputType: GraphNodeId -> TypeRef option) (node: SemanticNode) =
+                        match node.Kind with
+                        | SemanticNodeKind.MatchUnion(inputNodeId, arms) when arms |> List.exists (fun arm -> List.contains variantId arm.VariantIds) ->
+                            let inputArguments =
+                                match inputType inputNodeId with
+                                | Some(TypeRef.Named(_, arguments)) -> arguments
+                                | _ -> []
+                            { node with Kind = SemanticNodeKind.MatchUnion(inputNodeId, arms |> List.choose (narrow inputArguments node.Id)) }
+                        | _ -> node
+                    let candidate =
+                        { snapshot with
+                            Types =
+                                snapshot.Types
+                                |> List.map (fun item ->
+                                    if item.Id = owner.Id then { item with Kind = SemanticTypeKind.Union remaining } else item)
+                            Functions =
+                                snapshot.Functions
+                                |> List.map (fun fn ->
+                                    let inputType = SemanticFacts.createNodeTypeResolver snapshot fn
+                                    { fn with Body = ValueGraph.mapNodes (pruneMatch inputType) fn.Body }) }
+                    ensureDeletionSafe "UnionVariantStillReferenced" "Union variant" snapshot candidate
+                    |> Result.map (fun safe ->
+                        let removed: UnionVariantRemoved =
+                            { OwnerTypeId = owner.Id
+                              RemovedVariantId = variantId
+                              DisplayName = variant.DisplayName
+                              RemovedFieldIds = variant.Fields |> List.map (fun field -> field.Id) |> List.sortBy StableId.value
+                              AffectedMatchNodeIds =
+                                matches |> List.map (fun (_, nodeId, _) -> nodeId) |> List.sortBy StableId.value }
+                        safe, { changes with UnionVariantsRemoved = removed :: changes.UnionVariantsRemoved })
+
     let private resolveMissingArgument
         (transactionId: TransactionId)
         (request: ResolveMissingArgumentRequest)
@@ -837,6 +1207,20 @@ module Transaction =
             renameType id newDisplayName snapshot |> Result.map (fun next -> next, changes)
         | RenameDisplayName(RenameTarget.FunctionTarget id, newDisplayName) ->
             renameFunction id newDisplayName snapshot |> Result.map (fun next -> next, changes)
+        | RenameDisplayName(RenameTarget.FieldTarget id, newDisplayName) ->
+            renameField id newDisplayName snapshot |> Result.map (fun next -> next, changes)
+        | RenameDisplayName(RenameTarget.VariantTarget id, newDisplayName) ->
+            renameVariant id newDisplayName snapshot |> Result.map (fun next -> next, changes)
+        | RenameDisplayName(RenameTarget.ParameterTarget id, newDisplayName) ->
+            renameParameter id newDisplayName snapshot |> Result.map (fun next -> next, changes)
+        | RenameDisplayName(RenameTarget.EffectTarget id, newDisplayName) ->
+            renameEffect id newDisplayName snapshot |> Result.map (fun next -> next, changes)
+        | RenameDisplayName(RenameTarget.CapabilityTarget id, newDisplayName) ->
+            renameCapability id newDisplayName snapshot |> Result.map (fun next -> next, changes)
+        | RenameDisplayName(RenameTarget.CapabilityOperationTarget id, newDisplayName) ->
+            renameCapabilityOperation id newDisplayName snapshot |> Result.map (fun next -> next, changes)
+        | RenameDisplayName(RenameTarget.CapabilityParameterTarget id, newDisplayName) ->
+            renameCapabilityParameter id newDisplayName snapshot |> Result.map (fun next -> next, changes)
         | AddFunctionParameter request -> addFunctionParameter transactionId request snapshot changes
         | AddProductField request -> addProductField request snapshot changes
         | RemoveProductField fieldId -> removeProductField fieldId snapshot changes
@@ -848,31 +1232,177 @@ module Transaction =
         | ResolveMissingArgument request -> resolveMissingArgument transactionId request snapshot changes
         | AddFunctionRequiredEffect request -> changeFunctionRequiredEffect true request snapshot changes
         | RemoveFunctionRequiredEffect request -> changeFunctionRequiredEffect false request snapshot changes
+        | RemoveFunctionParameter parameterId -> removeFunctionParameter parameterId snapshot changes
+        | RemoveUnionVariant variantId -> removeUnionVariant transactionId variantId snapshot changes
 
     let private netRenames (baseSnapshot: Snapshot) (proposedSnapshot: Snapshot) =
+        let changed (before: Map<StableId<'Kind>, string>) id name rename =
+            match Map.tryFind id before with
+            | Some oldName when oldName <> name -> Some(rename oldName)
+            | Some _
+            | None -> None
+        let fieldsOf (item: SemanticType) =
+            match item.Kind with
+            | SemanticTypeKind.Product fields -> fields |> List.map (fun field -> None, field)
+            | SemanticTypeKind.Union variants ->
+                variants |> List.collect (fun variant -> variant.Fields |> List.map (fun field -> Some variant.Id, field))
+        let variantsOf (item: SemanticType) =
+            match item.Kind with
+            | SemanticTypeKind.Product _ -> []
+            | SemanticTypeKind.Union variants -> variants
         let typeNames = baseSnapshot.Types |> List.map (fun item -> item.Id, item.DisplayName) |> Map.ofList
         let functionNames = baseSnapshot.Functions |> List.map (fun item -> item.Id, item.DisplayName) |> Map.ofList
+        let fieldNames =
+            baseSnapshot.Types |> List.collect fieldsOf |> List.map (fun (_, field) -> field.Id, field.DisplayName) |> Map.ofList
+        let variantNames =
+            baseSnapshot.Types |> List.collect variantsOf |> List.map (fun variant -> variant.Id, variant.DisplayName) |> Map.ofList
+        let parameterNames =
+            baseSnapshot.Functions
+            |> List.collect (fun item -> item.Parameters |> List.map (fun parameter -> parameter.Id, parameter.DisplayName))
+            |> Map.ofList
+        let effectNames = baseSnapshot.Effects |> List.map (fun item -> item.Id, item.DisplayName) |> Map.ofList
+        let capabilityNames = baseSnapshot.Capabilities |> List.map (fun item -> item.Id, item.DisplayName) |> Map.ofList
+        let operationNames =
+            baseSnapshot.Capabilities
+            |> List.collect (fun item -> item.Operations |> List.map (fun operation -> operation.Id, operation.DisplayName))
+            |> Map.ofList
+        let capabilityParameterNames =
+            baseSnapshot.Capabilities
+            |> List.collect (fun item -> item.Operations |> List.collect (fun operation -> operation.Parameters))
+            |> List.map (fun parameter -> parameter.Id, parameter.DisplayName)
+            |> Map.ofList
 
         let typeRenames =
             proposedSnapshot.Types
             |> List.choose (fun item ->
-                match Map.tryFind item.Id typeNames with
-                | Some oldName when oldName <> item.DisplayName -> Some(TypeRenamed(item.Id, oldName, item.DisplayName))
-                | Some _
-                | None -> None)
+                changed typeNames item.Id item.DisplayName (fun oldName -> TypeRenamed(item.Id, oldName, item.DisplayName)))
 
         let functionRenames =
             proposedSnapshot.Functions
             |> List.choose (fun item ->
-                match Map.tryFind item.Id functionNames with
-                | Some oldName when oldName <> item.DisplayName -> Some(FunctionRenamed(item.Id, oldName, item.DisplayName))
-                | Some _
-                | None -> None)
+                changed functionNames item.Id item.DisplayName (fun oldName -> FunctionRenamed(item.Id, oldName, item.DisplayName)))
 
-        typeRenames @ functionRenames
+        let typeMemberRenames =
+            proposedSnapshot.Types
+            |> List.collect (fun item ->
+                (fieldsOf item
+                 |> List.choose (fun (variantId, field) ->
+                     changed fieldNames field.Id field.DisplayName (fun oldName ->
+                         FieldRenamed(item.Id, variantId, field.Id, oldName, field.DisplayName))))
+                @ (variantsOf item
+                   |> List.choose (fun variant ->
+                       changed variantNames variant.Id variant.DisplayName (fun oldName ->
+                           VariantRenamed(item.Id, variant.Id, oldName, variant.DisplayName)))))
+
+        let parameterRenames =
+            proposedSnapshot.Functions
+            |> List.collect (fun item ->
+                item.Parameters
+                |> List.choose (fun parameter ->
+                    changed parameterNames parameter.Id parameter.DisplayName (fun oldName ->
+                        ParameterRenamed(item.Id, parameter.Id, oldName, parameter.DisplayName))))
+
+        let effectRenames =
+            proposedSnapshot.Effects
+            |> List.choose (fun item ->
+                changed effectNames item.Id item.DisplayName (fun oldName -> EffectRenamed(item.Id, oldName, item.DisplayName)))
+
+        let capabilityRenames =
+            proposedSnapshot.Capabilities
+            |> List.collect (fun item ->
+                let operationRenames =
+                    item.Operations
+                    |> List.collect (fun operation ->
+                        let renamedOperation =
+                            changed operationNames operation.Id operation.DisplayName (fun oldName ->
+                                CapabilityOperationRenamed(item.Id, operation.Id, oldName, operation.DisplayName))
+                        let renamedParameters =
+                            operation.Parameters
+                            |> List.choose (fun parameter ->
+                                changed capabilityParameterNames parameter.Id parameter.DisplayName (fun oldName ->
+                                    CapabilityParameterRenamed(item.Id, operation.Id, parameter.Id, oldName, parameter.DisplayName)))
+                        Option.toList renamedOperation @ renamedParameters)
+                let renamedCapability =
+                    changed capabilityNames item.Id item.DisplayName (fun oldName ->
+                        CapabilityRenamed(item.Id, oldName, item.DisplayName))
+                Option.toList renamedCapability @ operationRenames)
+
+        // Type and function entries keep their established keys, so their relative order is unchanged.
+        typeRenames @ functionRenames @ typeMemberRenames @ parameterRenames @ effectRenames @ capabilityRenames
         |> List.sortBy (function
             | TypeRenamed(id, _, _) -> "type:" + StableId.value id
-            | FunctionRenamed(id, _, _) -> "function:" + StableId.value id)
+            | FunctionRenamed(id, _, _) -> "function:" + StableId.value id
+            | FieldRenamed(_, _, id, _, _) -> "field:" + StableId.value id
+            | VariantRenamed(_, id, _, _) -> "variant:" + StableId.value id
+            | ParameterRenamed(_, id, _, _) -> "parameter:" + StableId.value id
+            | EffectRenamed(id, _, _) -> "effect:" + StableId.value id
+            | CapabilityRenamed(id, _, _) -> "capability:" + StableId.value id
+            | CapabilityOperationRenamed(_, id, _, _) -> "capabilityOperation:" + StableId.value id
+            | CapabilityParameterRenamed(_, _, id, _, _) -> "capabilityParameter:" + StableId.value id)
+
+    /// The rejection message when a rename takes a name another declaration already has in its
+    /// scope. Display names resolve by-name requests; pre-existing duplicates are left alone.
+    let private duplicateRename (proposed: Snapshot) (rename: SymbolRename): string option =
+        let taken kind scope rule (name: string) (others: string list) =
+            if List.contains name others then
+                Some $"Another {kind} {scope}is already named '{name}'; {kind} display names must be unique{rule}."
+            else None
+        let fieldRule = " within their Product or Union variant"
+        let typeOf id = proposed.Types |> List.tryFind (fun item -> item.Id = id)
+        let functionOf id = proposed.Functions |> List.tryFind (fun item -> item.Id = id)
+        let capabilityOf id = proposed.Capabilities |> List.tryFind (fun item -> item.Id = id)
+        match rename with
+        | TypeRenamed(id, _, name) ->
+            proposed.Types |> List.filter (fun item -> item.Id <> id) |> List.map (fun item -> item.DisplayName)
+            |> taken "type" "" "" name
+        | FunctionRenamed(id, _, name) ->
+            proposed.Functions |> List.filter (fun item -> item.Id <> id) |> List.map (fun item -> item.DisplayName)
+            |> taken "function" "" "" name
+        | EffectRenamed(id, _, name) ->
+            proposed.Effects |> List.filter (fun item -> item.Id <> id) |> List.map (fun item -> item.DisplayName)
+            |> taken "effect" "" "" name
+        | CapabilityRenamed(id, _, name) ->
+            proposed.Capabilities |> List.filter (fun item -> item.Id <> id) |> List.map (fun item -> item.DisplayName)
+            |> taken "capability" "" "" name
+        | FieldRenamed(typeId, variantId, id, _, name) ->
+            let siblings (fields: SemanticField list) =
+                fields |> List.filter (fun field -> field.Id <> id) |> List.map (fun field -> field.DisplayName)
+            typeOf typeId
+            |> Option.bind (fun owner ->
+                match owner.Kind, variantId with
+                | SemanticTypeKind.Product fields, _ ->
+                    siblings fields |> taken "field" $"of Product '{owner.DisplayName}' " fieldRule name
+                | SemanticTypeKind.Union variants, Some selected ->
+                    variants
+                    |> List.tryFind (fun variant -> variant.Id = selected)
+                    |> Option.bind (fun variant ->
+                        siblings variant.Fields
+                        |> taken "field" $"of variant '{variant.DisplayName}' of Union '{owner.DisplayName}' " fieldRule name)
+                | SemanticTypeKind.Union _, None -> None)
+        | VariantRenamed(typeId, id, _, name) ->
+            typeOf typeId
+            |> Option.bind (fun owner ->
+                match owner.Kind with
+                | SemanticTypeKind.Union variants ->
+                    variants |> List.filter (fun variant -> variant.Id <> id) |> List.map (fun variant -> variant.DisplayName)
+                    |> taken "variant" $"of Union '{owner.DisplayName}' " " within their Union" name
+                | SemanticTypeKind.Product _ -> None)
+        | ParameterRenamed(functionId, id, _, name) ->
+            functionOf functionId
+            |> Option.bind (fun owner ->
+                owner.Parameters |> List.filter (fun item -> item.Id <> id) |> List.map (fun item -> item.DisplayName)
+                |> taken "parameter" $"of function '{owner.DisplayName}' " " within their function" name)
+        | CapabilityOperationRenamed(capabilityId, id, _, name) ->
+            capabilityOf capabilityId
+            |> Option.bind (fun owner ->
+                owner.Operations |> List.filter (fun item -> item.Id <> id) |> List.map (fun item -> item.DisplayName)
+                |> taken "operation" $"of Capability '{owner.DisplayName}' " " within their Capability" name)
+        | CapabilityParameterRenamed(capabilityId, operationId, id, _, name) ->
+            capabilityOf capabilityId
+            |> Option.bind (fun owner -> owner.Operations |> List.tryFind (fun item -> item.Id = operationId))
+            |> Option.bind (fun operation ->
+                operation.Parameters |> List.filter (fun item -> item.Id <> id) |> List.map (fun item -> item.DisplayName)
+                |> taken "parameter" $"of operation '{operation.DisplayName}' " " within their operation" name)
 
     let private sortChanges (changes: ChangeAccumulator): ChangeAccumulator =
         { changes with
@@ -893,6 +1423,12 @@ module Transaction =
             EffectsRemoved = changes.EffectsRemoved |> List.sortBy (fun item -> StableId.value item.EffectId)
             CapabilitiesRemoved = changes.CapabilitiesRemoved |> List.sortBy (fun item -> StableId.value item.CapabilityId)
             CapabilityOperationsRemoved = changes.CapabilityOperationsRemoved |> List.sortBy (fun item -> StableId.value item.OperationId)
+            ParametersRemoved =
+                changes.ParametersRemoved
+                |> List.sortBy (fun item -> StableId.value item.OwnerFunctionId, StableId.value item.RemovedParameterId)
+            UnionVariantsRemoved =
+                changes.UnionVariantsRemoved
+                |> List.sortBy (fun item -> StableId.value item.OwnerTypeId, StableId.value item.RemovedVariantId)
             ArgumentsAttached =
                 changes.ArgumentsAttached
                 |> List.sortBy (fun item -> StableId.value item.CallNodeId, StableId.value item.TargetParameterId)
@@ -957,20 +1493,12 @@ module Transaction =
 
                 let renames = netRenames baseSnapshot proposed
                 // Display names resolve by-name requests, so a rename may not take another
-                // declaration's name. Pre-existing duplicates are left alone.
-                let duplicate =
-                    renames
-                    |> List.tryPick (function
-                        | TypeRenamed(id, _, name) when proposed.Types |> List.exists (fun item -> item.Id <> id && item.DisplayName = name) ->
-                            Some("type", name)
-                        | FunctionRenamed(id, _, name) when proposed.Functions |> List.exists (fun item -> item.Id <> id && item.DisplayName = name) ->
-                            Some("function", name)
-                        | _ -> None)
+                // declaration's name in its scope. Pre-existing duplicates are left alone.
+                let duplicate = renames |> List.tryPick (duplicateRename proposed)
 
                 match SnapshotValidator.validate proposed, duplicate with
                 | issue :: _, _ -> reject "InvalidProposedSnapshot" $"{issue.Code}: {issue.Message}"
-                | [], Some(kind, name) ->
-                    reject "DuplicateDisplayName" $"Another {kind} is already named '{name}'; {kind} display names must be unique."
+                | [], Some message -> reject "DuplicateDisplayName" message
                 | [], None ->
                     let changes = sortChanges accumulatedChanges
                     let diff: SemanticDiff =
@@ -993,7 +1521,9 @@ module Transaction =
                           ArgumentsAttached = changes.ArgumentsAttached
                           ObligationsCreated = changes.ObligationsCreated
                           ObligationsResolved = changes.ObligationsResolved
-                          FunctionRequiredEffectsChanged = netRequiredEffectChanges baseSnapshot proposed changes }
+                          FunctionRequiredEffectsChanged = netRequiredEffectChanges baseSnapshot proposed changes
+                          ParametersRemoved = changes.ParametersRemoved
+                          UnionVariantsRemoved = changes.UnionVariantsRemoved }
 
                     let hasChanges =
                         not (List.isEmpty diff.Renames)
@@ -1010,6 +1540,8 @@ module Transaction =
                         || not (List.isEmpty diff.ObligationsCreated)
                         || not (List.isEmpty diff.ObligationsResolved)
                         || not (List.isEmpty diff.FunctionRequiredEffectsChanged)
+                        || not (List.isEmpty diff.ParametersRemoved)
+                        || not (List.isEmpty diff.UnionVariantsRemoved)
 
                     if not hasChanges then
                         reject "NoChange" "The transaction has no net semantic change."

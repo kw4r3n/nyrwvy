@@ -212,7 +212,7 @@ module MatchUnionSharedArmTests =
             let typeId = before.Types |> List.pick (fun typeEntity -> if typeEntity.DisplayName = "Json" then Some typeEntity.Id else None)
             publish
                 session
-                $"""{{"id":"variant","op":"simulateAddFieldlessUnionVariantLike","typeId":"{StableId.value typeId}","sourceVariantId":"{StableId.value (variantIdOf before "Arr")}","displayName":"Set"}}"""
+                $"""{{"id":"variant","op":"simulateAddUnionVariantLike","typeId":"{StableId.value typeId}","sourceVariantId":"{StableId.value (variantIdOf before "Arr")}","displayName":"Set"}}"""
             |> ignore
             let after = readSnapshot path
             Assert.Empty(SnapshotValidator.validate after)

@@ -18,7 +18,7 @@ module DisplayNameUniquenessTests =
     let ``creating a declaration with a taken display name is rejected per kind`` () =
         let fixture, workspace = workspace ()
         let baseId = AgentWorkspace.currentSnapshotId workspace
-        match AgentTypeDeclarationWorkflow.simulate workspace { ExpectedBaseSnapshotId = baseId; DisplayName = "ValidUser"; Kind = AgentTypeDeclarationKindIntent.Product [] } with
+        match AgentTypeDeclarationWorkflow.simulate workspace { TypeParameters = []; ExpectedBaseSnapshotId = baseId; DisplayName = "ValidUser"; Kind = AgentTypeDeclarationKindIntent.Product [] } with
         | Error(AgentTypeDeclarationWorkflowError.SimulationRejected diagnostics) ->
             Assert.Equal<string list>([ "TypeDeclarationDuplicateDisplayName" ], codes diagnostics)
         | other -> failwithf "Duplicate type name was accepted: %A" other

@@ -25,7 +25,7 @@ module ExternalCapabilityBindingTests =
 
     let private createType session name fieldName =
         let request: AgentCreateTypeDeclarationRequest =
-            { ExpectedBaseSnapshotId = current session
+            { TypeParameters = []; ExpectedBaseSnapshotId = current session
               DisplayName = name
               Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = fieldName; Type = stringType } ] }
         session.SimulateCreateType request |> unwrap "create type" |> publish session
@@ -41,13 +41,13 @@ module ExternalCapabilityBindingTests =
             { ExpectedBaseSnapshotId = current session; DisplayName = "ExternalRead" }
         session.SimulateCreateEffect effectRequest |> unwrap "create effect" |> publish session
         let effect = session.Declarations().Effects |> List.exactlyOne
-        let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.Named responseType.Id; stringType ])
+        let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.Named(responseType.Id, []); stringType ])
         let capabilityRequest: AgentCreateCapabilityDeclarationRequest =
             { ExpectedBaseSnapshotId = current session
               DisplayName = "LookupProvider"
               Operations =
                 [ { DisplayName = "lookup"
-                    Parameters = [ { DisplayName = "request"; Type = TypeRef.Named requestType.Id } ]
+                    Parameters = [ { DisplayName = "request"; Type = TypeRef.Named(requestType.Id, []) } ]
                     ResultType = resultType
                     FailureType = None
                     EffectId = effect.Id }
@@ -75,7 +75,7 @@ module ExternalCapabilityBindingTests =
             { ExpectedBaseSnapshotId = current session
               DisplayName = "query"
               Parameters =
-                [ { DisplayName = "request"; Type = TypeRef.Named requestType.Id }
+                [ { DisplayName = "request"; Type = TypeRef.Named(requestType.Id, []) }
                   { DisplayName = "provider"; Type = TypeRef.Capability capability.Id } ]
               ResultType = stringType
               RequiredEffects = [ effect.Id ]

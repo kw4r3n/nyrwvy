@@ -4,7 +4,7 @@
 - **Date:** 2026-09-30
 - **Roadmap:** [candidates from the 2026-09-30 probe 5](../plans/post-m2-roadmap.md#candidates-from-the-2026-09-30-probe-5), order 24
 
-This decision settles order 24 of the post-M2 queue. [Probe 5](../verification/rrawrlet-slice-probe5-20260930.md) ranked line splitting as its second remaining cost (#2): `str.splitlines` (10 break characters, `\r\n` as one break) and `bytes.splitlines` (`\n`, `\r`, `\r\n`) were a `SplitAcc` accumulator type and the `splitStep` and `splitLines` functions, 1 type, 2 functions and 55 nodes of `ListFold` over `StringCodePoints`, because `StringSplit` takes one separator.
+This decision settles order 24 of the post-M2 queue. [Probe 5](../verification/rrawrlet-slice-probes-summary.md#probe-5) ranked line splitting as its second remaining cost (#2): `str.splitlines` (10 break characters, `\r\n` as one break) and `bytes.splitlines` (`\n`, `\r`, `\r\n`) were a `SplitAcc` accumulator type and the `splitStep` and `splitLines` functions, 1 type, 2 functions and 55 nodes of `ListFold` over `StringCodePoints`, because `StringSplit` takes one separator.
 
 ## Decision
 

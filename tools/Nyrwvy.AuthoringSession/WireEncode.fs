@@ -11,12 +11,32 @@ module internal WireEncode =
                       "parameters", op.Parameters |> List.map (fun p -> objectValue [ "id", box (StableId.value p.Id); "displayName", box p.DisplayName; "type", typeRef p.Type ]) |> arrayValue
                       "resultType", typeRef op.ResultType ]
 
+    /// A rename entry: its kind, the renamed ID, the owners of a scoped name, and both names.
     let private rename (value: SymbolRename) =
-        let kind, id, oldName, newName =
+        let owner key id = [ key, box (StableId.value id) ]
+        let kind, id, owners, oldName, newName =
             match value with
-            | SymbolRename.TypeRenamed(typeId, oldName, newName) -> "type", StableId.value typeId, oldName, newName
-            | SymbolRename.FunctionRenamed(functionId, oldName, newName) -> "function", StableId.value functionId, oldName, newName
-        objectValue [ "kind", box kind; "id", box id; "oldDisplayName", box oldName; "newDisplayName", box newName ]
+            | SymbolRename.TypeRenamed(typeId, oldName, newName) -> "type", StableId.value typeId, [], oldName, newName
+            | SymbolRename.FunctionRenamed(functionId, oldName, newName) -> "function", StableId.value functionId, [], oldName, newName
+            | SymbolRename.FieldRenamed(typeId, variantId, fieldId, oldName, newName) ->
+                let variant = variantId |> Option.map (owner "ownerVariantId") |> Option.defaultValue []
+                "field", StableId.value fieldId, owner "ownerTypeId" typeId @ variant, oldName, newName
+            | SymbolRename.VariantRenamed(typeId, variantId, oldName, newName) ->
+                "variant", StableId.value variantId, owner "ownerTypeId" typeId, oldName, newName
+            | SymbolRename.ParameterRenamed(functionId, parameterId, oldName, newName) ->
+                "parameter", StableId.value parameterId, owner "ownerFunctionId" functionId, oldName, newName
+            | SymbolRename.EffectRenamed(effectId, oldName, newName) -> "effect", StableId.value effectId, [], oldName, newName
+            | SymbolRename.CapabilityRenamed(capabilityId, oldName, newName) ->
+                "capability", StableId.value capabilityId, [], oldName, newName
+            | SymbolRename.CapabilityOperationRenamed(capabilityId, operationId, oldName, newName) ->
+                "capabilityOperation", StableId.value operationId, owner "ownerCapabilityId" capabilityId, oldName, newName
+            | SymbolRename.CapabilityParameterRenamed(capabilityId, operationId, parameterId, oldName, newName) ->
+                "capabilityParameter",
+                StableId.value parameterId,
+                owner "ownerCapabilityId" capabilityId @ owner "ownerOperationId" operationId,
+                oldName,
+                newName
+        objectValue ([ "kind", box kind; "id", box id ] @ owners @ [ "oldDisplayName", box oldName; "newDisplayName", box newName ])
 
     let private requiredEffectChange (value: FunctionRequiredEffectChange) =
         let kind, functionId, effectId =
@@ -43,8 +63,33 @@ module internal WireEncode =
         | AgentExpressionStructuralWorkflow.Targeted.Use.GraphResult ownerNodeId ->
             objectValue [ "kind", box "graphResult"; "ownerNodeId", ownerNodeId |> Option.map (StableId.value >> box) |> Option.defaultValue null ]
 
-    let private semanticDiff (value: SemanticDiff) =
-        objectValue
+    /// Lists only reviews of the corresponding operations contain, appended only when non-empty so
+    /// that every review without them keeps its exact earlier shape.
+    let private removals (value: SemanticDiff) =
+        (if List.isEmpty value.ParametersRemoved then [] else
+            [ "parametersRemoved",
+              value.ParametersRemoved
+              |> List.map (fun item ->
+                  objectValue
+                      [ "ownerFunctionId", box (StableId.value item.OwnerFunctionId)
+                        "parameterId", box (StableId.value item.RemovedParameterId)
+                        "displayName", box item.DisplayName
+                        "affectedCallNodeIds", item.AffectedCallNodeIds |> List.map (StableId.value >> box) |> arrayValue
+                        "retiredObligations", item.RetiredObligations |> List.map obligationRecord |> arrayValue ])
+              |> arrayValue ])
+        @ (if List.isEmpty value.UnionVariantsRemoved then [] else
+            [ "unionVariantsRemoved",
+              value.UnionVariantsRemoved
+              |> List.map (fun item ->
+                  objectValue
+                      [ "ownerTypeId", box (StableId.value item.OwnerTypeId)
+                        "variantId", box (StableId.value item.RemovedVariantId)
+                        "displayName", box item.DisplayName
+                        "removedFieldIds", item.RemovedFieldIds |> List.map (StableId.value >> box) |> arrayValue
+                        "affectedMatchNodeIds", item.AffectedMatchNodeIds |> List.map (StableId.value >> box) |> arrayValue ])
+              |> arrayValue ])
+
+    let private semanticDiffFields (value: SemanticDiff) =
             [ "renames", value.Renames |> List.map rename |> arrayValue
               "parametersAdded",
                 value.ParametersAdded
@@ -153,6 +198,8 @@ module internal WireEncode =
                 |> arrayValue
               "requiredEffectsChanged",
                 value.FunctionRequiredEffectsChanged |> List.map requiredEffectChange |> arrayValue ]
+
+    let private semanticDiff (value: SemanticDiff) = objectValue (semanticDiffFields value @ removals value)
 
     let private bodyDiff (value: FunctionBodyReplacementDiff) =
         objectValue
@@ -390,7 +437,6 @@ module internal WireEncode =
                       "capabilityAdapters", csharpSymbols symbols.CapabilityAdapters ] ]
 
     let declarations = WireEncodeCommon.declarations
-    let focus = WireEncodeCommon.focus
 
     let status (value: AuthoringSessionStatus) =
         objectValue

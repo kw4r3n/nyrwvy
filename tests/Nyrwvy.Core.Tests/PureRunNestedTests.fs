@@ -27,11 +27,11 @@ module PureRunNestedTests =
         let snapshot =
             { Snapshot.empty (id<SnapshotTag> "initial") with
                 Types =
-                    [ { Id = productId; DisplayName = "Entry"
+                    [ { TypeParameters = []; Id = productId; DisplayName = "Entry"
                         Kind = SemanticTypeKind.Product
                             [ { Id = textId; DisplayName = "text"; Type = stringType }
                               { Id = numberId; DisplayName = "number"; Type = intType } ] }
-                      { Id = unionId; DisplayName = "Choice"
+                      { TypeParameters = []; Id = unionId; DisplayName = "Choice"
                         Kind = SemanticTypeKind.Union [ { Id = variantId; DisplayName = "Empty"; Fields = [] } ] } ] }
         let create ws name itemType resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
@@ -46,8 +46,8 @@ module PureRunNestedTests =
         let ws =
             [ "listOptions", listType (optionType intType)
               "optionLists", optionType (listType (optionType stringType))
-              "products", listType (TypeRef.Named productId)
-              "union", optionType (TypeRef.Named unionId)
+              "products", listType (TypeRef.Named(productId, []))
+              "union", optionType (TypeRef.Named(unionId, []))
               "results", listType resultType
               "matrix", listType (listType intType)
               "strings", listType (listType stringType)
@@ -77,8 +77,8 @@ module PureRunNestedTests =
                 | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal(expected, code)
                 | other -> failwithf "Invalid nested value accepted: %A" other
             reject "listOptions" (PureRunValue.ListValue(optionType intType, [ PureRunValue.StringOption None ])) "RunContainerTypeMismatch"
-            reject "products" (PureRunValue.ListValue(TypeRef.Named productId, [ PureRunValue.Product(productId, []) ])) "RunProductShapeMismatch"
-            reject "union" (PureRunValue.OptionValue(TypeRef.Named unionId, Some(PureRunValue.Union(unionId, id<VariantTag> "foreign", [])))) "RunUnionShapeMismatch"
+            reject "products" (PureRunValue.ListValue(TypeRef.Named(productId, []), [ PureRunValue.Product(productId, [], []) ])) "RunProductShapeMismatch"
+            reject "union" (PureRunValue.OptionValue(TypeRef.Named(unionId, []), Some(PureRunValue.Union(unionId, [], id<VariantTag> "foreign", [])))) "RunUnionShapeMismatch"
             reject "matrix" (PureRunValue.ListValue(listType intType, List.replicate 4097 (PureRunValue.Int64List []))) "RunArgumentTooLarge"
             reject "matrix" (PureRunValue.ListValue(listType intType, List.replicate 4096 (PureRunValue.Int64List [ 1L ]))) "RunArgumentTooLarge"
             reject "strings" (PureRunValue.ListValue(listType stringType,
@@ -130,12 +130,12 @@ module PureRunNestedTests =
                 Some(PureRunValue.ListValue(optionType stringType, [ PureRunValue.StringOption(Some "雪\n"); PureRunValue.StringOption None ])))
             roundtrip "optionLists" optional |> ignore
             roundtrip "optionLists" (PureRunValue.OptionValue(listType (optionType stringType), None)) |> ignore
-            let products = PureRunValue.ListValue(TypeRef.Named productId,
-                [ PureRunValue.Product(productId, [ textId, PureRunValue.String "entry"; numberId, PureRunValue.Int64 Int64.MaxValue ]) ])
+            let products = PureRunValue.ListValue(TypeRef.Named(productId, []),
+                [ PureRunValue.Product(productId, [], [ textId, PureRunValue.String "entry"; numberId, PureRunValue.Int64 Int64.MaxValue ]) ])
             let actual = roundtrip "products" products
-            Assert.Equal(PureRunValue.ListValue(TypeRef.Named productId,
-                [ PureRunValue.Product(productId, [ numberId, PureRunValue.Int64 Int64.MaxValue; textId, PureRunValue.String "entry" ]) ]), actual.Actual)
-            roundtrip "union" (PureRunValue.OptionValue(TypeRef.Named unionId, Some(PureRunValue.Union(unionId, variantId, [])))) |> ignore
+            Assert.Equal(PureRunValue.ListValue(TypeRef.Named(productId, []),
+                [ PureRunValue.Product(productId, [], [ numberId, PureRunValue.Int64 Int64.MaxValue; textId, PureRunValue.String "entry" ]) ]), actual.Actual)
+            roundtrip "union" (PureRunValue.OptionValue(TypeRef.Named(unionId, []), Some(PureRunValue.Union(unionId, [], variantId, [])))) |> ignore
             roundtrip "results" (PureRunValue.ListValue(resultType,
                 [ PureRunValue.ResultOk(PureRunScalarKind.String, PureRunScalar.Int64 7L)
                   PureRunValue.ResultErr(PureRunScalarKind.Int64, PureRunScalar.String "error") ])) |> ignore

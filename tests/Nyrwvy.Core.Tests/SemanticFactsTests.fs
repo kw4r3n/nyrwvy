@@ -122,16 +122,16 @@ module SemanticFactsTests =
                 [ { Id = nodeId 0; Kind = SemanticNodeKind.DirectCall(targetId, []) }
                   { Id = nodeId 1; Kind = SemanticNodeKind.CapabilityInvoke(nodeId 99, operationId, []) }
                   { Id = nodeId 2; Kind = SemanticNodeKind.FieldAccess(nodeId 99, fieldId) }
-                  { Id = nodeId 3; Kind = SemanticNodeKind.UnionConstruct(variantId, []) } ]
+                  { Id = nodeId 3; Kind = SemanticNodeKind.UnionConstruct(variantId, [], []) } ]
         // These are type-fact fixtures, not valid executable bodies: referenced
         // operand values are deliberately absent, as they do not determine types.
         let revision suffix resultType =
             { snapshotWith [ { probe with Id = targetId; ResultType = resultType } ] with
                 Types =
-                    [ { Id = StableId.createForTesting<TypeTag> "type-product"
+                    [ { TypeParameters = []; Id = StableId.createForTesting<TypeTag> "type-product"
                         DisplayName = "Product"
                         Kind = SemanticTypeKind.Product [ { Id = fieldId; DisplayName = "field"; Type = resultType } ] }
-                      { Id = ownerId suffix
+                      { TypeParameters = []; Id = ownerId suffix
                         DisplayName = "Union"
                         Kind = SemanticTypeKind.Union [ { Id = variantId; DisplayName = "Case"; Fields = [] } ] } ]
                 Capabilities =
@@ -153,8 +153,8 @@ module SemanticFactsTests =
             for index in 0 .. 2 do
                 Assert.Equal<TypeRef option>(Some intType, resolveFirst (nodeId index))
                 Assert.Equal<TypeRef option>(Some listType, resolveSecond (nodeId index))
-            Assert.Equal<TypeRef option>(Some(TypeRef.Named(ownerId "first")), resolveFirst (nodeId 3))
-            Assert.Equal<TypeRef option>(Some(TypeRef.Named(ownerId "second")), resolveSecond (nodeId 3))
+            Assert.Equal<TypeRef option>(Some(TypeRef.Named(ownerId "first", [])), resolveFirst (nodeId 3))
+            Assert.Equal<TypeRef option>(Some(TypeRef.Named(ownerId "second", [])), resolveSecond (nodeId 3))
 
     [<Theory>]
     [<InlineData("validate")>]

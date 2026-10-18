@@ -111,8 +111,9 @@ module GenericFunctionTests =
         Assert.Contains(SnapshotValidator.validate shared, fun issue -> issue.Code = "TypeParameterSharedAcrossFunctions")
         let declared =
             { snapshot with
-                Types = [ { Id = id<TypeTag> "box"; DisplayName = "Box"; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "content"; DisplayName = "content"; Type = countParameter } ] } ] }
-        Assert.Contains(SnapshotValidator.validate declared, fun issue -> issue.Code = "TypeParameterOutsideFunction")
+                Types = [ { TypeParameters = []; Id = id<TypeTag> "box"; DisplayName = "Box"; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "content"; DisplayName = "content"; Type = countParameter } ] } ] }
+        // A type's fields may use only the type's own type parameters, not a function's.
+        Assert.Contains(SnapshotValidator.validate declared, fun issue -> issue.Code = "TypeParameterNotDeclared")
         // A result type may only use a type parameter that the function's own parameter types introduce.
         let undeclared =
             { snapshot with

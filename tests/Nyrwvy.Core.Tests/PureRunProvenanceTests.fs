@@ -21,15 +21,15 @@ module PureRunProvenanceTests =
     let private itemsId = id<FieldTag> "items"
     let private dotId = id<VariantTag> "dot"
     let private groupId = id<VariantTag> "group"
-    let private itemType = TypeRef.Named itemId
+    let private itemType = TypeRef.Named(itemId, [])
     let private unwrap = function
         | Ok value -> value
         | Error error -> failwithf "Unexpected error: %A" error
 
     let private item label tags =
-        PureRunValue.Product(itemId, [ labelId, PureRunValue.String label; tagsId, PureRunValue.StringList tags ])
+        PureRunValue.Product(itemId, [], [ labelId, PureRunValue.String label; tagsId, PureRunValue.StringList tags ])
 
-    let private group items = PureRunValue.Union(shapeId, groupId, [ itemsId, PureRunValue.ListValue(itemType, items) ])
+    let private group items = PureRunValue.Union(shapeId, [], groupId, [ itemsId, PureRunValue.ListValue(itemType, items) ])
 
     [<Fact>]
     let ``mismatch paths name fields items and payloads by semantic identity`` () =
@@ -46,7 +46,7 @@ module PureRunProvenanceTests =
         let shorter = PureRun.mismatch (PureRunValue.StringList [ "a" ]) (PureRunValue.StringList [ "a"; "b" ]) |> Option.get
         Assert.Empty(shorter.Path)
         // Different variants or tags stop at the Union or Result.
-        let dot = PureRunValue.Union(shapeId, dotId, [ sizeId, PureRunValue.Int64 1L ])
+        let dot = PureRunValue.Union(shapeId, [], dotId, [ sizeId, PureRunValue.Int64 1L ])
         Assert.Empty((PureRun.mismatch dot (group []) |> Option.get).Path)
         let ok = PureRunValue.ResultValue(itemType, stringType, true, item "a" [])
         let err = PureRunValue.ResultValue(itemType, stringType, false, PureRunValue.String "a")
@@ -63,11 +63,11 @@ module PureRunProvenanceTests =
 
     let private withSession run =
         let types: SemanticType list =
-            [ { Id = itemId; DisplayName = "Item"
+            [ { TypeParameters = []; Id = itemId; DisplayName = "Item"
                 Kind = SemanticTypeKind.Product
                     [ { Id = labelId; DisplayName = "label"; Type = stringType }
                       { Id = tagsId; DisplayName = "tags"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ]) } ] }
-              { Id = shapeId; DisplayName = "Shape"
+              { TypeParameters = []; Id = shapeId; DisplayName = "Shape"
                 Kind = SemanticTypeKind.Union
                     [ { Id = dotId; DisplayName = "Dot"; Fields = [ { Id = sizeId; DisplayName = "size"; Type = intType } ] }
                       { Id = groupId; DisplayName = "Group"; Fields = [ { Id = itemsId; DisplayName = "items"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) } ] } ] } ]
@@ -101,9 +101,9 @@ module PureRunProvenanceTests =
         let input = ExpressionRecipe.ParameterSlot 0
         let next value = ExpressionRecipe.Int64WrappingAdd(value, ExpressionRecipe.Int64Literal 1L)
         let ws = AgentWorkspace.create { Snapshot.empty (id<SnapshotTag> "initial") with Types = types } |> unwrap
-        let ws = create ws "shape" (TypeRef.Named shapeId) (TypeRef.Named shapeId) input
+        let ws = create ws "shape" (TypeRef.Named(shapeId, [])) (TypeRef.Named(shapeId, [])) input
         let ws = create ws "check" intType (resultType itemType stringType)
-                    (ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.ProductConstruct(itemId, [ labelId, ExpressionRecipe.StringLiteral "ok"; tagsId, ExpressionRecipe.ListEmpty stringType ])))
+                    (ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.ProductConstruct(itemId, [], [ labelId, ExpressionRecipe.StringLiteral "ok"; tagsId, ExpressionRecipe.ListEmpty stringType ])))
         // Unbounded self and mutual recursion are valid programs that fail only at run time. The self
         // call is an operand (loop(x + 1) + 1), not a tail call, which would run as a loop instead.
         let ws = create ws "loop" intType intType input

@@ -59,8 +59,8 @@ module SemanticFingerprint =
         | TypeRef.TypeParameter(id, _) -> TypeRef.TypeParameter(id, displayPlaceholder)
         | TypeRef.BuiltinGeneric(generic, arguments) ->
             TypeRef.BuiltinGeneric(generic, arguments |> List.map normalizeTypeRef)
+        | TypeRef.Named(typeId, arguments) -> TypeRef.Named(typeId, arguments |> List.map normalizeTypeRef)
         | TypeRef.Primitive _
-        | TypeRef.Named _
         | TypeRef.Capability _ -> typeRef
 
     let private normalizeField (field: SemanticField) =
@@ -83,6 +83,7 @@ module SemanticFingerprint =
 
         { semanticType with
             DisplayName = displayPlaceholder
+            TypeParameters = semanticType.TypeParameters |> List.map (fun (id, _) -> id, displayPlaceholder)
             Kind = kind }
 
     let private normalizeEffect (effect: SemanticEffect) =

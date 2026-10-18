@@ -173,7 +173,7 @@ module Float64ConversionTests =
         withSession (fun session path ->
             let stats =
                 session.SimulateCreateType
-                    { ExpectedBaseSnapshotId = current session; DisplayName = "Stats"
+                    { TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = "Stats"
                       Kind = AgentTypeDeclarationKindIntent.Product
                         [ { DisplayName = "median"; Type = floatType }; { DisplayName = "values"; Type = listOf floatType }; { DisplayName = "first"; Type = optionOf floatType } ] }
                 |> unwrap |> publish session
@@ -186,8 +186,8 @@ module Float64ConversionTests =
             let median =
                 ExpressionRecipe.Float64Divide(
                     ExpressionRecipe.Float64Add(toFloat (slot 0), toFloat (slot 1)), ExpressionRecipe.Float64Literal(Float64Bits.ofFloat 2.0))
-            create session "stats" [ "a", intType; "b", intType ] (TypeRef.Named stats.Id)
-                (ExpressionRecipe.ProductConstruct(stats.Id,
+            create session "stats" [ "a", intType; "b", intType ] (TypeRef.Named(stats.Id, []))
+                (ExpressionRecipe.ProductConstruct(stats.Id, [],
                     [ field "median", median
                       field "values", ExpressionRecipe.ListConstruct(floatType, [ toFloat (slot 0); toFloat (slot 1) ])
                       field "first", ExpressionRecipe.OptionSome(toFloat (slot 0)) ])) |> ignore

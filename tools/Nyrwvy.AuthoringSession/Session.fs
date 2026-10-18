@@ -757,7 +757,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
 
     let registerWith (proposedFunctions: SemanticFunction list) transactionId pending review =
         let functions, types = ProposalReview.touched review
-        let removesImportedDeclaration =
+        let changesImportedDeclaration =
             match review, dependency with
             | AuthoringProposalReview.Operations item, Some imported ->
                 (item.ResultingChange.Diff.EffectsRemoved |> List.exists (fun removed ->
@@ -766,12 +766,20 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     imported.Capabilities |> List.exists (fun capability -> capability.Id = removed.CapabilityId)))
                 || (item.ResultingChange.Diff.CapabilityOperationsRemoved |> List.exists (fun removed ->
                     imported.Capabilities |> List.exists (fun capability -> capability.Id = removed.OwnerCapabilityId)))
+                // Renamed type members and parameters are covered by the touched types and functions.
+                || (item.ResultingChange.Diff.Renames |> List.exists (function
+                    | SymbolRename.EffectRenamed(effectId, _, _) -> imported.Effects |> List.exists (fun effect -> effect.Id = effectId)
+                    | SymbolRename.CapabilityRenamed(capabilityId, _, _)
+                    | SymbolRename.CapabilityOperationRenamed(capabilityId, _, _, _)
+                    | SymbolRename.CapabilityParameterRenamed(capabilityId, _, _, _, _) ->
+                        imported.Capabilities |> List.exists (fun capability -> capability.Id = capabilityId)
+                    | _ -> false))
             | AuthoringProposalReview.CapabilityOperationSignatureMigration item, Some imported ->
                 imported.Capabilities |> List.exists (fun c -> c.Id = item.ResultingChange.CapabilityId)
             | _ -> false
         if functions |> List.exists (fun id -> Set.contains id importedFunctionIds)
            || types |> List.exists (fun id -> Set.contains id importedTypeIds)
-           || removesImportedDeclaration then
+           || changesImportedDeclaration then
             Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidSnapshot
                 [ { Code = "ImportedDeclarationModified"; Message = "Dependency declarations are read-only; no proposal was registered." } ]))
         else
@@ -1058,22 +1066,6 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Error error -> Error(AuthoringSessionError.TypeDeclarationSimulationFailure error)
             | Ok proposal ->
                 register (AgentTypeDeclarationGroupProposal.transactionId proposal) (PendingProposal.CreateTypeGroup proposal) (AuthoringProposalReview.CreateTypeGroup(AgentTypeDeclarationGroupProposal.review proposal))
-
-    member _.SimulateAddFieldlessUnionVariantLike(request: AgentAddFieldlessUnionVariantLikeRequest): Result<AuthoringProposal, AuthoringSessionError> =
-        use _scope = SnapshotComputationScope.Start()
-        match ensureUsable () with
-        | Error error -> Error error
-        | Ok() ->
-            match AgentFieldlessUnionVariantEvolutionWorkflow.simulate workspace request with
-            | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
-            | Ok proposal ->
-                registerWith
-                    (AgentFieldlessUnionVariantEvolutionProposal.proposedFunctions proposal)
-                    (AgentFieldlessUnionVariantEvolutionProposal.transactionId proposal)
-                    (PendingProposal.FieldlessUnionVariantEvolution proposal)
-                    (AuthoringProposalReview.FieldlessUnionVariantEvolution(
-                        AgentFieldlessUnionVariantEvolutionProposal.review proposal
-                    ))
 
     member _.SimulateAddUnionVariantLike(request: AgentAddFieldlessUnionVariantLikeRequest, additionalFields: AgentTypeFieldIntent list): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()

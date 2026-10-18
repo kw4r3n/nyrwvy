@@ -33,7 +33,7 @@ module SnapshotSchemaTests =
     let private initial: Snapshot =
         { Snapshot.empty (id<SnapshotTag> "snapshot-schema") with
             Types =
-                [ { Id = shapeTypeId
+                [ { TypeParameters = []; Id = shapeTypeId
                     DisplayName = "Shape"
                     Kind =
                       SemanticTypeKind.Union
@@ -114,7 +114,7 @@ module SnapshotSchemaTests =
           "checked add", SnapshotSchemaFeature.CheckedInt64Arithmetic, (fun create ->
               create "add" [ "a", int64Type; "b", int64Type ] (optionOf int64Type) [] (ExpressionRecipe.Int64CheckedAdd(slot 0, slot 1)) |> ignore)
           "shared match arm", SnapshotSchemaFeature.SharedUnionMatchArm, (fun create ->
-              create "isShape" [ "shape", TypeRef.Named shapeTypeId ] boolType []
+              create "isShape" [ "shape", TypeRef.Named(shapeTypeId, []) ] boolType []
                   (ExpressionRecipe.MatchUnion(slot 0, [ [ circleId; squareId ], ExpressionRecipe.BoolLiteral true ])) |> ignore)
           "upper case", SnapshotSchemaFeature.StringToUpper, (fun create ->
               create "upper" [ "text", stringType ] stringType [] (ExpressionRecipe.StringToUpper(slot 0)) |> ignore)
@@ -170,7 +170,10 @@ module SnapshotSchemaTests =
         let rows = SnapshotSchema.minimumVersions |> List.map (fun (feature, _, _) -> string feature)
         Assert.Equal<Set<string>>(features, Set.ofList rows)
         Assert.Equal(rows.Length, (Set.ofList rows).Count)
-        Assert.Equal<Set<string>>(features, cases |> List.map (fun (_, feature, _) -> string feature) |> Set.ofList)
+        // Generic types need a generic declaration, which `initial` cannot hold without gating every
+        // case; GenericTypeTests checks their version and the rejection one version below.
+        let testedElsewhere = Set.ofList [ string SnapshotSchemaFeature.GenericTypes ]
+        Assert.Equal<Set<string>>(features - testedElsewhere, cases |> List.map (fun (_, feature, _) -> string feature) |> Set.ofList)
         for _, minimum, _ in SnapshotSchema.minimumVersions do
             Assert.Contains(minimum, SnapshotSchema.supported)
             Assert.True(minimum.Json > SnapshotSchema.baseline.Json)

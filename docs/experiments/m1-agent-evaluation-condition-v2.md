@@ -2,7 +2,7 @@
 
 **Status:** A condition-v2.1 pre-integration sample is recorded. The post-main-integration condition remains pending. This document does not change `m1-agent-corpus-v1`.
 
-The OpenCode operator this condition describes (`.opencode/plugins/nyrwvy-eval.ts`, `.opencode/lib/nyrwvy-eval-plugin.ts` and `.opencode/agent/nyrwvy-eval.md`) was removed from main because it duplicated the JSONL transport of the maintained tools. Replay the condition from commit `800f364`; the runner `tools/Nyrwvy.AgentEval` remains on main.
+The OpenCode operator this condition describes (`.opencode/plugins/nyrwvy-eval.ts`, `.opencode/lib/nyrwvy-eval-plugin.ts` and `.opencode/agent/nyrwvy-eval.md`) was removed from main because it duplicated the JSONL transport of the maintained tools. Replay the condition from commit `800f364`. The runner `tools/Nyrwvy.AgentEval` was removed from main on 2026-10-18; it remains reproducible from the [evaluation freeze tags](../operations/evaluation-freeze-tags.md) and from commit `b3a958a`.
 
 Condition v2 replaces the shell-managed JSON Lines client used in the initial trials with the project-local OpenCode `nyrwvy-eval` agent and its persistent custom tools. The condition exists to remove client lifecycle errors from Mode A semantic reasoning measurements.
 

@@ -3,8 +3,8 @@
 This continuation composes PR396's graph parser and command fold with actual
 child-process stdin/stdout pipes. It starts at reviewed commit
 `9171508041350969a8d41e0408d9e6b4cba55dd5`, tree
-`93a914f2f36bb922fb0c1f3e2aed8b9b42b175ed`. **It depends on draft PR396 and
-its unmerged dependency PR395.** Neither dependency is merged or replaced.
+`93a914f2f36bb922fb0c1f3e2aed8b9b42b175ed`. It was written on top of
+PR396 and its dependency PR395, both since merged.
 
 `Transport.readLine: Option<String>` is an ordinary application capability.
 The authored `transportLoop` retains `AdmissionOwner`, passes every line through
@@ -17,7 +17,7 @@ original regressions. No runtime, core, schema or domain primitive changes.
 
 The framing follows repository JSON-lines transports (`AuthoringClient` and
 `AuthoringSession`'s `ReadLine`) and the recorded Rrawrlet reader convention in
-[probe 25](../../docs/verification/rrawrlet-slice-probe25-20261005.md).
+[probe 25](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-25).
 The host uses .NET's `StreamReader` with strict UTF-8 and BOM detection disabled.
 JSON syntax, envelope, keyword, notification and ID policy remain in the graph;
 the [bounded application vocabulary](../offline-leader-jsonrpc/README.md) is

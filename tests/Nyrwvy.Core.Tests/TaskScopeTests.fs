@@ -64,7 +64,7 @@ module TaskScopeTests =
         let variant variantId name fields: SemanticVariant = { Id = variantId; DisplayName = name; Fields = fields }
         { Snapshot.empty (id<SnapshotTag> "initial") with
             Types =
-                [ { Id = actionId
+                [ { TypeParameters = []; Id = actionId
                     DisplayName = "Action"
                     Kind =
                       SemanticTypeKind.Union
@@ -79,7 +79,7 @@ module TaskScopeTests =
                             variant finishId "Finish" [] ] } ]
             Effects = [ { Id = effectId; DisplayName = "Team" } ]
             Capabilities =
-                [ { Id = leaderId; DisplayName = "Leader"; Operations = [ operation nextId "next" reportId "report" (TypeRef.Named actionId) ] }
+                [ { Id = leaderId; DisplayName = "Leader"; Operations = [ operation nextId "next" reportId "report" (TypeRef.Named(actionId, [])) ] }
                   { Id = agentId; DisplayName = "Agent"; Operations = [ operation workId "work" workNameId "name" outcomeType ] }
                   { Id = workspacesId
                     DisplayName = "Workspaces"
@@ -303,7 +303,7 @@ module TaskScopeTests =
 
     let private okText value = PureRunValue.ResultOk(PureRunScalarKind.String, PureRunScalar.String value)
     let private errText value = PureRunValue.ResultErr(PureRunScalarKind.String, PureRunScalar.String value)
-    let private action variantId fields = PureRunValue.Union(actionId, variantId, fields)
+    let private action variantId fields = PureRunValue.Union(actionId, [], variantId, fields)
     let private spawn name = action spawnId [ nameFieldId, PureRunValue.String name ]
     let private awaitMember index = action awaitId [ awaitIndexId, PureRunValue.Int64 index ]
     let private stopMember index = action stopId [ stopIndexId, PureRunValue.Int64 index ]

@@ -3,8 +3,6 @@
     <InternalsVisibleTo Include="Nyrwvy.Execution" />
     <InternalsVisibleTo Include="Nyrwvy.Core.Tests" />
     <InternalsVisibleTo Include="Nyrwvy.Extended.Tests" />
-    <InternalsVisibleTo Include="Nyrwvy.AgentEval.Structural" />
-    <InternalsVisibleTo Include="Nyrwvy.AgentEval.ListMapStructural" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="StableId.fs" />

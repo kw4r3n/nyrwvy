@@ -143,7 +143,7 @@ module AuthoringDependencyTests =
             let variantId = StableId.createForTesting<VariantTag> "variant-imported-case"
             let imported =
                 { fixture.Snapshot with
-                    Types = { Id = unionId; DisplayName = "Choice"
+                    Types = { TypeParameters = []; Id = unionId; DisplayName = "Choice"
                               Kind = SemanticTypeKind.Union [ { Id = variantId; DisplayName = "First"; Fields = [] } ] }
                             :: fixture.Snapshot.Types }
             let sourcePath = Path.Combine(root, "source.json")
@@ -182,18 +182,19 @@ module AuthoringDependencyTests =
                         { ExpectedBaseSnapshotId = before.SnapshotId
                           TargetFunctionId = fixture.ValidateFunctionId
                           TargetParameterId = fixture.ValidateInputParameterId
-                          NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                          NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                           TargetReplacement = ExpressionRecipe.StringLiteral "changed"
                           CallerRewrites =
                             [ { CallerFunctionId = fixture.RunFunctionId
                                 Replacement = ExpressionRecipe.DirectCall(fixture.ValidateFunctionId,
                                     [ fixture.ValidateInputParameterId, ExpressionRecipe.Parameter fixture.RunPolicyParameterId ]) } ] }
                 | "evolve-union" ->
-                    session.SimulateAddFieldlessUnionVariantLike
+                    session.SimulateAddUnionVariantLike(
                         { ExpectedBaseSnapshotId = before.SnapshotId
                           TargetTypeId = unionId
                           SourceVariantId = variantId
-                          NewVariantDisplayName = "Second" }
+                          NewVariantDisplayName = "Second" },
+                        [])
                 | _ -> failwith "Unknown test operation"
             match proposed with
             | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidSnapshot issues)) ->

@@ -74,7 +74,8 @@ module internal OneShotPayloadRequirements =
             match current with
             | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) ->
                 arguments |> List.collect TypeParameters.occurring |> List.map fst |> Set.ofList
-            | TypeRef.BuiltinGeneric(_, arguments) -> arguments |> List.map visit |> Set.unionMany
+            | TypeRef.BuiltinGeneric(_, arguments)
+            | TypeRef.Named(_, arguments) -> arguments |> List.map visit |> Set.unionMany
             | TypeRef.Function(arguments, result) -> (result :: arguments) |> List.map visit |> Set.unionMany
             | _ -> Set.empty
         visit typeRef
