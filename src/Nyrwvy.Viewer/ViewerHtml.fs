@@ -650,7 +650,72 @@ module ViewerHtml =
                 writer.Line(
                     "<li>function " + code (StableId.value id) + ": "
                     + html oldName + " → " + html newName + "</li>")
+            | _ ->
+                let label, id, owners, oldName, newName =
+                    match rename with
+                    | FieldRenamed(typeId, variantId, fieldId, oldName, newName) ->
+                        let variant = variantId |> Option.map (fun id -> [ stableText "variant:" id ]) |> Option.defaultValue []
+                        "field", stableText "field:" fieldId, stableText "type:" typeId :: variant, oldName, newName
+                    | VariantRenamed(typeId, variantId, oldName, newName) ->
+                        "variant", stableText "variant:" variantId, [ stableText "type:" typeId ], oldName, newName
+                    | ParameterRenamed(functionId, parameterId, oldName, newName) ->
+                        "parameter", stableText "parameter:" parameterId, [ stableText "function:" functionId ], oldName, newName
+                    | EffectRenamed(effectId, oldName, newName) -> "effect", stableText "effect:" effectId, [], oldName, newName
+                    | CapabilityRenamed(capabilityId, oldName, newName) ->
+                        "capability", stableText "capability:" capabilityId, [], oldName, newName
+                    | CapabilityOperationRenamed(capabilityId, operationId, oldName, newName) ->
+                        "capability operation", stableText "operation:" operationId, [ stableText "capability:" capabilityId ], oldName, newName
+                    | CapabilityParameterRenamed(capabilityId, operationId, parameterId, oldName, newName) ->
+                        "capability parameter",
+                        stableText "capabilityParameter:" parameterId,
+                        [ stableText "capability:" capabilityId; stableText "operation:" operationId ],
+                        oldName,
+                        newName
+                    | TypeRenamed(id, oldName, newName) -> "type", StableId.value id, [], oldName, newName
+                    | FunctionRenamed(id, oldName, newName) -> "function", StableId.value id, [], oldName, newName
+                let scope = if List.isEmpty owners then "" else " of " + (owners |> List.map code |> String.concat " / ")
+                writer.Line(
+                    "<li>" + label + " " + code id + scope + ": "
+                    + html oldName + " → " + html newName + "</li>")
         writer.Line("</ul>")
+
+        // Shown only when present, so reviews of other operations keep their exact earlier page.
+        if not (List.isEmpty diff.ParametersRemoved) then
+            writer.Line("<h3>Parameters removed</h3><ul>")
+            for item in diff.ParametersRemoved do
+                writer.Line(
+                    "<li>" + code (stableText "function:" item.OwnerFunctionId)
+                    + " removed " + html item.DisplayName + " — "
+                    + code (stableText "parameter:" item.RemovedParameterId))
+                for callNodeId in item.AffectedCallNodeIds do
+                    writer.Line("; call " + code (stableText "node:" callNodeId) + " lost its argument")
+                if not (List.isEmpty item.RetiredObligations) then
+                    writer.Line("<ul>")
+                    for obligation in item.RetiredObligations do
+                        let status =
+                            match obligation.Status with
+                            | ObligationStatus.Open -> "open"
+                            | ObligationStatus.Resolved _ -> "resolved"
+                        writer.Line(
+                            "<li>Retired " + status + " obligation " + code (stableText "obligation:" obligation.Id)
+                            + "; call " + code (stableText "node:" obligation.CallNodeId) + "</li>")
+                    writer.Line("</ul>")
+                writer.Line("</li>")
+            writer.Line("</ul>")
+
+        if not (List.isEmpty diff.UnionVariantsRemoved) then
+            writer.Line("<h3>Union variants removed</h3><ul>")
+            for item in diff.UnionVariantsRemoved do
+                writer.Line(
+                    "<li>" + code (stableText "type:" item.OwnerTypeId)
+                    + " removed " + html item.DisplayName + " — "
+                    + code (stableText "variant:" item.RemovedVariantId))
+                for fieldId in item.RemovedFieldIds do
+                    writer.Line("; removed " + code (stableText "field:" fieldId))
+                for matchNodeId in item.AffectedMatchNodeIds do
+                    writer.Line("; match " + code (stableText "node:" matchNodeId) + " pruned")
+                writer.Line("</li>")
+            writer.Line("</ul>")
 
         writer.Line("<h3>Parameters added</h3><ul>")
         for item in diff.ParametersAdded do

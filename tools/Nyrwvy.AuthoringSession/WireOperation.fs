@@ -20,6 +20,48 @@ module internal WireOperation =
                 AgentRenameTarget.Type(id<TypeTag> "typeId" element),
                 requiredString "displayName" element
             )
+        | "renameField" ->
+            ensureFields "rename-field operation" [ "kind"; "fieldId"; "displayName" ] [ "kind"; "fieldId"; "displayName" ] element
+            AgentOperationIntent.RenameDisplayName(
+                AgentRenameTarget.Field(id<FieldTag> "fieldId" element),
+                requiredString "displayName" element
+            )
+        | "renameVariant" ->
+            ensureFields "rename-variant operation" [ "kind"; "variantId"; "displayName" ] [ "kind"; "variantId"; "displayName" ] element
+            AgentOperationIntent.RenameDisplayName(
+                AgentRenameTarget.Variant(id<VariantTag> "variantId" element),
+                requiredString "displayName" element
+            )
+        | "renameParameter" ->
+            ensureFields "rename-parameter operation" [ "kind"; "parameterId"; "displayName" ] [ "kind"; "parameterId"; "displayName" ] element
+            AgentOperationIntent.RenameDisplayName(
+                AgentRenameTarget.Parameter(id<ParameterTag> "parameterId" element),
+                requiredString "displayName" element
+            )
+        | "renameEffect" ->
+            ensureFields "rename-effect operation" [ "kind"; "effectId"; "displayName" ] [ "kind"; "effectId"; "displayName" ] element
+            AgentOperationIntent.RenameDisplayName(
+                AgentRenameTarget.Effect(id<EffectTag> "effectId" element),
+                requiredString "displayName" element
+            )
+        | "renameCapability" ->
+            ensureFields "rename-capability operation" [ "kind"; "capabilityId"; "displayName" ] [ "kind"; "capabilityId"; "displayName" ] element
+            AgentOperationIntent.RenameDisplayName(
+                AgentRenameTarget.Capability(id<CapabilityTag> "capabilityId" element),
+                requiredString "displayName" element
+            )
+        | "renameCapabilityOperation" ->
+            ensureFields "rename-capability-operation operation" [ "kind"; "operationId"; "displayName" ] [ "kind"; "operationId"; "displayName" ] element
+            AgentOperationIntent.RenameDisplayName(
+                AgentRenameTarget.CapabilityOperation(id<CapabilityOperationTag> "operationId" element),
+                requiredString "displayName" element
+            )
+        | "renameCapabilityParameter" ->
+            ensureFields "rename-capability-parameter operation" [ "kind"; "parameterId"; "displayName" ] [ "kind"; "parameterId"; "displayName" ] element
+            AgentOperationIntent.RenameDisplayName(
+                AgentRenameTarget.CapabilityParameter(id<CapabilityParameterTag> "parameterId" element),
+                requiredString "displayName" element
+            )
         | "addFunctionParameter" ->
             ensureFields
                 "add-function-parameter operation"
@@ -65,6 +107,12 @@ module internal WireOperation =
         | "removeProductField" ->
             ensureFields "remove-product-field operation" [ "kind"; "fieldId" ] [ "kind"; "fieldId" ] element
             AgentOperationIntent.RemoveProductField(id<FieldTag> "fieldId" element)
+        | "removeFunctionParameter" ->
+            ensureFields "remove-function-parameter operation" [ "kind"; "parameterId" ] [ "kind"; "parameterId" ] element
+            AgentOperationIntent.RemoveFunctionParameter(id<ParameterTag> "parameterId" element)
+        | "removeUnionVariant" ->
+            ensureFields "remove-union-variant operation" [ "kind"; "variantId" ] [ "kind"; "variantId" ] element
+            AgentOperationIntent.RemoveUnionVariant(id<VariantTag> "variantId" element)
         | "deleteFunction" ->
             ensureFields "delete-function operation" [ "kind"; "functionId" ] [ "kind"; "functionId" ] element
             AgentOperationIntent.DeleteFunction(id<FunctionTag> "functionId" element)
@@ -95,7 +143,7 @@ module internal WireOperation =
             else AgentOperationIntent.RemoveFunctionRequiredEffect intent
         | value -> fail $"Unsupported operation kind '{value}'."
 
-    /// Name-resolved deletion operations (`simulateOperationsByName`). Every name is resolved against
+    /// Name-resolved deletion and removal operations (`simulateOperationsByName`). Every name is resolved against
     /// the current snapshot before the batch is simulated, with the same unknown/ambiguous rejection
     /// as the other `…ByName` requests; the result is the ordinary exact-ID operation.
     let operationByName (declarations: AuthoringDeclarations) (element: JsonElement): AgentOperationIntent =
@@ -116,5 +164,13 @@ module internal WireOperation =
             ensureFields "delete-capability-operation operation" [ "kind"; "capability"; "operation" ] [ "kind"; "capability"; "operation" ] element
             let owner = WireSymbolic.resolveCapability declarations (requiredString "capability" element)
             AgentOperationIntent.DeleteCapabilityOperation((WireSymbolic.capabilityOperation owner (requiredString "operation" element)).Id)
+        | "removeFunctionParameter" ->
+            ensureFields "remove-function-parameter operation" [ "kind"; "function"; "parameter" ] [ "kind"; "function"; "parameter" ] element
+            let owner = WireSymbolic.resolveFunction declarations (requiredString "function" element)
+            AgentOperationIntent.RemoveFunctionParameter((WireSymbolic.functionParameter owner (requiredString "parameter" element)).Id)
+        | "removeUnionVariant" ->
+            ensureFields "remove-union-variant operation" [ "kind"; "type"; "variant" ] [ "kind"; "type"; "variant" ] element
+            let owner = WireSymbolic.resolveType declarations (requiredString "type" element)
+            AgentOperationIntent.RemoveUnionVariant((WireSymbolic.unionVariant owner (requiredString "variant" element)).Id)
         | value ->
-            fail $"Unsupported name-resolved operation kind '{value}'. simulateOperationsByName accepts deleteFunction, deleteType, deleteEffect, deleteCapability and deleteCapabilityOperation; use simulateOperations with exact IDs for the others."
+            fail $"Unsupported name-resolved operation kind '{value}'. simulateOperationsByName accepts deleteFunction, deleteType, deleteEffect, deleteCapability, deleteCapabilityOperation, removeFunctionParameter and removeUnionVariant; use simulateOperations with exact IDs for the others."

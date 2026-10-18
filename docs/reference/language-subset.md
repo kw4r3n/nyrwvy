@@ -509,12 +509,14 @@ See [Expression structural authoring](../specs/expression-authoring.md). The old
 
 `AgentWorkflow` / `AgentOperationIntent` supports:
 
-- display-name rename for types and functions;
+- display-name rename for types, functions, fields, Union variants, function parameters, Effects, Capabilities, Capability operations and their parameters, unique within the renamed member's scope; IDs and references are unchanged;
 - adding a function parameter with an explicit plan for every affected direct call;
 - resolving a generated missing-argument obligation with an existing compatible value;
 - explicitly adding or removing an existing `EffectId` from a function's `RequiredEffects`;
 - adding a Product field with an explicit existing typed value for **every** affected `ProductConstruct`, including nested branches; the new `FieldId` is allocated by the system while existing type, function and node IDs remain stable;
 - removing a Product field and its constructor bindings when all field accesses and `ProductUpdate` bindings of it have already been repaired; adding a field needs no plan for a `ProductUpdate`, which keeps it; affected functions must declare no required effects, so removal cannot silently drop effectful evaluation;
+- removing a function parameter when its body no longer references it and every use of the function is a direct call: each call loses its argument binding and every obligation for the parameter is retired; callers that would lose a binding must declare no required effects;
+- removing a Union variant that nothing constructs and that is not the last one: match arms drop it, an arm left with no variant is removed with its body, and functions whose arm would be removed must declare no required effects;
 - deleting an unused function only after all direct calls, function-value references and List callbacks from other functions are gone, and when no obligation targets its body; the function's references to itself (self-recursion) are removed with it and do not count;
 - deleting an unreferenced Product or Union declaration, including its field/variant identities; dependent functions can be removed in the **same** reviewed transaction, but any surviving references (including nested type references) prevent publication;
 - deleting an unreferenced Capability and Effect declaration after consumers have been repaired or removed; one reviewed batch may remove the dependent function, Capability, then Effect in that order, and the diff retains removed operation/parameter identities;

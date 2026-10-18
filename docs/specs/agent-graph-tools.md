@@ -8,7 +8,7 @@ OpenCode and [stdio MCP clients](mcp-graph-tools.md) share the tool definitions 
 
 ## Completion boundary
 
-An agent can create/open a snapshot, discover declarations, inspect typed graph structure, create Product/Union types and functions, replace a chosen expression or an intentional whole body, review the proposal, commit/reject it, and reopen committed identities. Existing exact-ID operations remain available for rename, effect/capability declarations, supported migrations, readiness and backend emission.
+An agent can create/open a snapshot, discover declarations, inspect typed graph structure, create Product/Union types and functions, replace a chosen expression or an intentional whole body, review the proposal, commit/reject it, and reopen committed identities. Existing exact-ID operations remain available for renames (functions, types, fields, variants, parameters, effects, capabilities and their operations and operation parameters), removal of a function parameter or a Union variant, effect/capability declarations, supported migrations, readiness and backend emission.
 
 The minimum does not mean every imaginable graph transformation. Unsupported semantic constructs and arbitrary node/edge mutation are not added merely to fill an operation matrix. Add the next operation when a concrete task cannot be expressed through the maintained tools.
 

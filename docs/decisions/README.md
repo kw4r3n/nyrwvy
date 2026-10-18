@@ -61,6 +61,7 @@ This area records durable rationale for Nyrwvy's current direction. Decision rec
 - [Generic Product and Union types](generic-types.md) — accepted type parameters on Products and Unions, type arguments on named types, derived or explicit type arguments on construction, regular recursion and no constraints; snapshot JSON 18.
 - [Map and Set equality](map-set-equality.md) — accepted `Set<T>` and `Map<K, V>` with equatable values as equatable, compared by content regardless of insertion order (Python `set`/`dict` `==`).
 - [Recipe kinds retired from the agent reference](retired-authoring-kinds.md) — accepted leaving `stringEqual`, `int64Equal` and `mapGetOrDefault` out of the recipe reference in favour of `valueEqual` and `optionGetOrDefault` of `mapGet`, while readers, codecs and the backend keep supporting existing graphs.
+- [Structural renames and removals](structural-renames-and-removals.md) — accepted exact-ID renames of fields, variants, parameters, effects, capabilities and capability operations and their parameters (display name only, unique within the owning scope), and `removeFunctionParameter` and `removeUnionVariant`, which repair direct calls and match arms and reject what would need a choice.
 - [Open questions](open-questions.md) — bounded uncertainties that remain open, partial, or intentionally deferred.
 
 Where a later accepted decision explicitly refines an earlier one, use the later decision for the refined scope rather than treating both texts as competing current rules.

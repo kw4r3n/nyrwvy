@@ -37,12 +37,19 @@ module ChangeReviewQuery =
         let renamed =
             simulation.Diff.Renames
             |> List.choose (function
-                | FunctionRenamed(functionId, _, _) -> Some functionId
-                | TypeRenamed _ -> None)
+                | FunctionRenamed(functionId, _, _)
+                | ParameterRenamed(functionId, _, _, _) -> Some functionId
+                | TypeRenamed _
+                | FieldRenamed _
+                | VariantRenamed _
+                | EffectRenamed _
+                | CapabilityRenamed _
+                | CapabilityOperationRenamed _
+                | CapabilityParameterRenamed _ -> None)
 
         let parameterOwners =
-            simulation.Diff.ParametersAdded
-            |> List.map (fun item -> item.OwnerFunctionId)
+            (simulation.Diff.ParametersAdded |> List.map (fun item -> item.OwnerFunctionId))
+            @ (simulation.Diff.ParametersRemoved |> List.map (fun item -> item.OwnerFunctionId))
 
         let effectOwners =
             simulation.Diff.FunctionRequiredEffectsChanged
@@ -57,6 +64,8 @@ module ChangeReviewQuery =
                |> List.map (fun item -> item.CallNodeId))
             @ (simulation.Diff.ObligationsResolved
                |> List.map (fun item -> item.CallNodeId))
+            @ (simulation.Diff.ParametersRemoved |> List.collect (fun item -> item.AffectedCallNodeIds))
+            @ (simulation.Diff.UnionVariantsRemoved |> List.collect (fun item -> item.AffectedMatchNodeIds))
             |> List.choose (fun nodeId -> Map.tryFind nodeId ownersByNode)
 
         let changedProductOwners =
@@ -74,10 +83,18 @@ module ChangeReviewQuery =
     let private affectedTypeIds (simulation: TransactionSimulation): TypeId list =
         (simulation.Diff.Renames
          |> List.choose (function
-             | TypeRenamed(typeId, _, _) -> Some typeId
-             | FunctionRenamed _ -> None))
+             | TypeRenamed(typeId, _, _)
+             | FieldRenamed(typeId, _, _, _, _)
+             | VariantRenamed(typeId, _, _, _) -> Some typeId
+             | FunctionRenamed _
+             | ParameterRenamed _
+             | EffectRenamed _
+             | CapabilityRenamed _
+             | CapabilityOperationRenamed _
+             | CapabilityParameterRenamed _ -> None))
         @ (simulation.Diff.ProductFieldsAdded |> List.map (fun item -> item.OwnerTypeId))
         @ (simulation.Diff.ProductFieldsRemoved |> List.map (fun item -> item.OwnerTypeId))
+        @ (simulation.Diff.UnionVariantsRemoved |> List.map (fun item -> item.OwnerTypeId))
         |> List.distinct
         |> List.filter (fun id -> simulation.ProposedSnapshot.Types |> List.exists (fun item -> item.Id = id))
         |> List.sortBy StableId.value
