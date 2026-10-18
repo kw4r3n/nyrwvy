@@ -65,7 +65,7 @@ module internal WireEncode =
 
     /// Lists only reviews of the corresponding operations contain, appended only when non-empty so
     /// that every review without them keeps its exact earlier shape.
-    let private removals (value: SemanticDiff) =
+    let private conditionalDiffFields (value: SemanticDiff) =
         (if List.isEmpty value.ParametersRemoved then [] else
             [ "parametersRemoved",
               value.ParametersRemoved
@@ -87,6 +87,24 @@ module internal WireEncode =
                         "displayName", box item.DisplayName
                         "removedFieldIds", item.RemovedFieldIds |> List.map (StableId.value >> box) |> arrayValue
                         "affectedMatchNodeIds", item.AffectedMatchNodeIds |> List.map (StableId.value >> box) |> arrayValue ])
+              |> arrayValue ])
+        @ (if List.isEmpty value.CapabilityOperationsAdded then [] else
+            [ "capabilityOperationsAdded",
+              value.CapabilityOperationsAdded
+              |> List.map (fun item ->
+                  objectValue
+                      [ "ownerCapabilityId", box (StableId.value item.OwnerCapabilityId)
+                        "operation", WireEncodeCommon.capabilityOperation item.Operation ])
+              |> arrayValue ])
+        @ (if List.isEmpty value.CapabilityImplementationsBound then [] else
+            [ "capabilityImplementationsBound",
+              value.CapabilityImplementationsBound
+              |> List.map (fun item ->
+                  objectValue
+                      [ "ownerFunctionId", box (StableId.value item.OwnerFunctionId)
+                        "constructNodeId", box (StableId.value item.ConstructNodeId)
+                        "operationId", box (StableId.value item.OperationId)
+                        "functionId", box (StableId.value item.ImplementationFunctionId) ])
               |> arrayValue ])
 
     let private semanticDiffFields (value: SemanticDiff) =
@@ -199,7 +217,7 @@ module internal WireEncode =
               "requiredEffectsChanged",
                 value.FunctionRequiredEffectsChanged |> List.map requiredEffectChange |> arrayValue ]
 
-    let private semanticDiff (value: SemanticDiff) = objectValue (semanticDiffFields value @ removals value)
+    let private semanticDiff (value: SemanticDiff) = objectValue (semanticDiffFields value @ conditionalDiffFields value)
 
     let private bodyDiff (value: FunctionBodyReplacementDiff) =
         objectValue
@@ -378,7 +396,7 @@ module internal WireEncode =
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "createdTypes", item.CreatedTypes |> List.map semanticType |> arrayValue ]
-            | AuthoringProposalReview.FieldlessUnionVariantEvolution item ->
+            | AuthoringProposalReview.UnionVariantEvolution item ->
                 withRewritten
                     [ "kind", box "fieldlessUnionVariantEvolution"
                       "receipt", receipt item.Receipt
@@ -442,7 +460,94 @@ module internal WireEncode =
         objectValue
             [ "snapshotId", box (StableId.value value.SnapshotId)
               "snapshotFingerprint", box (SnapshotFingerprint.value value.SnapshotFingerprint)
-              "semanticFingerprint", box (SemanticFingerprint.value value.SemanticFingerprint) ]
+              "semanticFingerprint", box (SemanticFingerprint.value value.SemanticFingerprint)
+              "pendingProposalCount", box value.PendingProposalCount ]
+
+    /// The `proposals` listing: every pending proposal with its kind, base and one-line summary.
+    let pendingProposals (items: AuthoringPendingProposalSummary list) =
+        objectValue
+            [ "count", box items.Length
+              "proposals",
+                items
+                |> List.map (fun item ->
+                    objectValue
+                        [ "proposalId", box item.ProposalId
+                          "kind", box item.Kind
+                          "baseSnapshotId", box (StableId.value item.BaseSnapshotId)
+                          "baseIsCurrent", box item.BaseIsCurrent
+                          "summary", runString item.Summary ])
+                |> arrayValue ]
+
+    /// The `references` reply: the subject (kind, exact ID and display name, with its owner for a
+    /// member) and every referencing site with its owner's kind, ID and display name.
+    let references (declarations: AuthoringDeclarations) (subject: ReferenceSubject) (items: DeclarationReference list) =
+        let displayName kind (id: string) =
+            match kind with
+            | "function" -> declarations.Functions |> List.tryFind (fun item -> StableId.value item.Id = id) |> Option.map (fun item -> item.DisplayName)
+            | "type" -> declarations.Types |> List.tryFind (fun item -> StableId.value item.Id = id) |> Option.map (fun item -> item.DisplayName)
+            | "effect" -> declarations.Effects |> List.tryFind (fun item -> StableId.value item.Id = id) |> Option.map (fun item -> item.DisplayName)
+            | "capability" -> declarations.Capabilities |> List.tryFind (fun item -> StableId.value item.Id = id) |> Option.map (fun item -> item.DisplayName)
+            | _ -> None
+        let named kind (id: string) =
+            match displayName kind id with
+            | Some name -> [ "displayName", runString name ]
+            | None -> []
+        let subjectFields =
+            match subject with
+            | ReferenceSubject.Function id -> [ "kind", box "function"; "id", box (StableId.value id) ] @ named "function" (StableId.value id)
+            | ReferenceSubject.Type id -> [ "kind", box "type"; "id", box (StableId.value id) ] @ named "type" (StableId.value id)
+            | ReferenceSubject.Effect id -> [ "kind", box "effect"; "id", box (StableId.value id) ] @ named "effect" (StableId.value id)
+            | ReferenceSubject.Capability id -> [ "kind", box "capability"; "id", box (StableId.value id) ] @ named "capability" (StableId.value id)
+            | ReferenceSubject.Variant id ->
+                let owner =
+                    declarations.Types |> List.tryPick (fun item ->
+                        match item.Kind with
+                        | SemanticTypeKind.Union variants -> variants |> List.tryFind (fun v -> v.Id = id) |> Option.map (fun v -> item, v)
+                        | SemanticTypeKind.Product _ -> None)
+                [ "kind", box "variant"; "id", box (StableId.value id) ]
+                @ (owner |> Option.map (fun (item, variant) -> [ "displayName", runString variant.DisplayName; "ownerTypeId", box (StableId.value item.Id); "ownerDisplayName", runString item.DisplayName ]) |> Option.defaultValue [])
+            | ReferenceSubject.Field id ->
+                let owner =
+                    declarations.Types |> List.tryPick (fun item ->
+                        match item.Kind with
+                        | SemanticTypeKind.Product fields -> fields |> List.tryFind (fun f -> f.Id = id) |> Option.map (fun f -> item, None, f)
+                        | SemanticTypeKind.Union variants ->
+                            variants |> List.tryPick (fun v -> v.Fields |> List.tryFind (fun f -> f.Id = id) |> Option.map (fun f -> item, Some v, f)))
+                [ "kind", box "field"; "id", box (StableId.value id) ]
+                @ (owner |> Option.map (fun (item, variant, field) ->
+                    [ "displayName", runString field.DisplayName; "ownerTypeId", box (StableId.value item.Id); "ownerDisplayName", runString item.DisplayName ]
+                    @ (variant |> Option.map (fun v -> [ "ownerVariantId", box (StableId.value v.Id); "ownerVariantDisplayName", runString v.DisplayName ]) |> Option.defaultValue [])) |> Option.defaultValue [])
+            | ReferenceSubject.CapabilityOperation id ->
+                let owner =
+                    declarations.Capabilities |> List.tryPick (fun item ->
+                        item.Operations |> List.tryFind (fun op -> op.Id = id) |> Option.map (fun op -> item, op))
+                [ "kind", box "capabilityOperation"; "id", box (StableId.value id) ]
+                @ (owner |> Option.map (fun (item, op) -> [ "displayName", runString op.DisplayName; "ownerCapabilityId", box (StableId.value item.Id); "ownerDisplayName", runString item.DisplayName ]) |> Option.defaultValue [])
+        let site (value: ReferenceSite) =
+            match value with
+            | ReferenceSite.ParameterType parameterId -> [ "site", box "parameterType"; "parameterId", box (StableId.value parameterId) ]
+            | ReferenceSite.ResultType -> [ "site", box "resultType" ]
+            | ReferenceSite.RequiredEffect -> [ "site", box "requiredEffect" ]
+            | ReferenceSite.FieldType(variantId, fieldId) ->
+                [ "site", box "fieldType"; "fieldId", box (StableId.value fieldId) ]
+                @ (variantId |> Option.map (fun id -> [ "variantId", box (StableId.value id) ]) |> Option.defaultValue [])
+            | ReferenceSite.OperationParameterType(operationId, parameterId) ->
+                [ "site", box "operationParameterType"; "operationId", box (StableId.value operationId); "parameterId", box (StableId.value parameterId) ]
+            | ReferenceSite.OperationResultType operationId -> [ "site", box "operationResultType"; "operationId", box (StableId.value operationId) ]
+            | ReferenceSite.OperationFailureType operationId -> [ "site", box "operationFailureType"; "operationId", box (StableId.value operationId) ]
+            | ReferenceSite.OperationEffect operationId -> [ "site", box "operationEffect"; "operationId", box (StableId.value operationId) ]
+            | ReferenceSite.Node(nodeId, role) -> [ "site", box "node"; "nodeId", box (StableId.value nodeId); "role", box role ]
+        let reference (item: DeclarationReference) =
+            let ownerKind, ownerId =
+                match item.Owner with
+                | ReferenceOwner.Function id -> "function", StableId.value id
+                | ReferenceOwner.Type id -> "type", StableId.value id
+                | ReferenceOwner.Capability id -> "capability", StableId.value id
+            objectValue ([ "ownerKind", box ownerKind; "ownerId", box ownerId ] @ (named ownerKind ownerId |> List.map (fun (_, name) -> "ownerDisplayName", name)) @ site item.Site)
+        objectValue
+            [ "subject", objectValue subjectFields
+              "count", box items.Length
+              "references", items |> List.map reference |> arrayValue ]
 
     let commitReceipt (value: AuthoringCommitReceipt) =
         objectValue

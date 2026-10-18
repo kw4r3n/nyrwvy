@@ -38,6 +38,31 @@ type AgentFunctionRequiredEffectIntent =
     { TargetFunctionId: FunctionId
       EffectId: EffectId }
 
+type AgentCapabilityParameterIntent =
+    { DisplayName: string
+      Type: TypeRef }
+
+/// One Capability operation as a caller declares it: in `simulateCreateCapability` and in the
+/// `addCapabilityOperation` operation. Operation and parameter IDs are allocated by the system.
+type AgentCapabilityOperationIntent =
+    { DisplayName: string
+      Parameters: AgentCapabilityParameterIntent list
+      ResultType: TypeRef
+      FailureType: TypeRef option
+      EffectId: EffectId }
+
+type AgentCapabilityImplementationPlan =
+    { ConstructNodeId: GraphNodeId
+      ImplementationFunctionId: FunctionId }
+
+/// Adds one operation to an existing Capability. Every `capabilityConstruct` of the Capability
+/// names the function that implements the new operation, so every program implementation stays
+/// complete in the same reviewed change.
+type AgentAddCapabilityOperationIntent =
+    { TargetCapabilityId: CapabilityId
+      Operation: AgentCapabilityOperationIntent
+      ImplementationPlans: AgentCapabilityImplementationPlan list }
+
 [<RequireQualifiedAccess>]
 type AgentOperationIntent =
     | RenameDisplayName of AgentRenameTarget * newDisplayName: string
@@ -49,6 +74,7 @@ type AgentOperationIntent =
     | DeleteEffect of EffectId
     | DeleteCapability of CapabilityId
     | DeleteCapabilityOperation of CapabilityOperationId
+    | AddCapabilityOperation of AgentAddCapabilityOperationIntent
     | ResolveMissingArgument of AgentResolveMissingArgumentIntent
     | AddFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
     | RemoveFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
@@ -186,6 +212,8 @@ module AgentWorkspace =
     let getDependencies workspace functionId nodeId = SemanticQuery.getDependencies (snapshot workspace) functionId nodeId
     let getUses workspace functionId nodeId = SemanticQuery.getUses (snapshot workspace) functionId nodeId
     let focusFunction workspace functionId = SemanticQuery.focusFunction (snapshot workspace) functionId
+    /// Every site of the current snapshot that refers to a declaration or one of its members.
+    let references workspace subject = SemanticQuery.references (snapshot workspace) subject
 
 [<RequireQualifiedAccess>]
 module AgentWorkflow =
@@ -242,6 +270,26 @@ module AgentWorkflow =
             SemanticOperation.DeleteCapability capabilityId
         | AgentOperationIntent.DeleteCapabilityOperation operationId ->
             SemanticOperation.DeleteCapabilityOperation operationId
+        | AgentOperationIntent.AddCapabilityOperation request ->
+            SemanticOperation.AddCapabilityOperation
+                { TargetCapabilityId = request.TargetCapabilityId
+                  Operation =
+                    { Id = StableIdAllocator.newCapabilityOperationId ()
+                      DisplayName = request.Operation.DisplayName
+                      Parameters =
+                        request.Operation.Parameters
+                        |> List.map (fun parameter ->
+                            { Id = StableIdAllocator.newCapabilityParameterId ()
+                              DisplayName = parameter.DisplayName
+                              Type = parameter.Type })
+                      ResultType = request.Operation.ResultType
+                      FailureType = request.Operation.FailureType
+                      EffectId = request.Operation.EffectId }
+                  ImplementationPlans =
+                    request.ImplementationPlans
+                    |> List.map (fun plan ->
+                        { ConstructNodeId = plan.ConstructNodeId
+                          ImplementationFunctionId = plan.ImplementationFunctionId }) }
         | AgentOperationIntent.ResolveMissingArgument request ->
             SemanticOperation.ResolveMissingArgument
                 { TargetObligationId = request.TargetObligationId
