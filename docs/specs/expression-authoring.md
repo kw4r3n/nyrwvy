@@ -70,6 +70,7 @@ ExpressionRecipe =
   | StringToUpper(expr)
   | StringUtf8ByteCount(expr)
   | StringDecodeUtf8Lossy(expr)
+  | StringEncodeUtf8(expr)
   | StringFromCodePoint(expr)
   | StringToCodePoint(expr)
   | Int64WrappingAdd(left, right)
@@ -148,6 +149,7 @@ ExpressionRecipe =
   | ListSortBy(source, lessThanFunctionId, context)
   | ListMinBy(source, lessThanFunctionId, context)
   | ListIndexOf(list, item)
+  | ListContains(list, item)
   | ListLastIndexOf(list, item)
   | ListFindIndex(source, predicateFunctionId, context)
   | ListAny(source, predicateFunctionId, context)
@@ -160,7 +162,9 @@ ExpressionRecipe =
   | OptionSome(value)
   | ResultOk(errorType, value)
   | ResultErr(okType, error)
-  | OptionGetOrDefault(option, default)
+  | OptionGetOrDefault(option, default) | ResultGetOrDefault(result, default)
+  | OptionOkOr(option, error) | ResultOkValue(expr) | ResultErrValue(expr)
+  | OptionIsSome(expr) | ResultIsOk(expr)
   | OptionMap(option, mapperFunctionId, context) | OptionAndThen(option, binderFunctionId, context)
   | ResultMap(result, mapperFunctionId, context) | ResultMapErr(result, mapperFunctionId, context)
   | ResultAndThen(result, binderFunctionId, context)
@@ -351,6 +355,7 @@ For a source `List<T>`:
 - `ListFindIndex(source, predicate)` (wire `listFindIndex`, Nyason `list-find-index`) takes the same callback as `ListAny` and produces `Option<Int64>`: the zero-based index of the first item for which the predicate is true, or `None`.
 - `ListIndexOf(list, item)` (wire `listIndexOf` with the fields `list` and `item`, Nyason `list-index-of`) takes no callback: it produces the index of the first item equal to `item` as `ValueEqual` compares, or `None`. The item must have the list's item type (`ListIndexOfItemTypeMismatch`), and that type must be equatable (`ListIndexOfItemTypeNotEquatable`; a Float64 list uses `ListFindIndex`).
 - `ListLastIndexOf(list, item)` (wire `listLastIndexOf` with the fields `list` and `item`, Nyason `list-last-index-of`) is `ListIndexOf` scanning from the end: the index of the last equal item, or `None`, with the same rules and the diagnostics `ListLastIndexOfItemTypeMismatch` and `ListLastIndexOfItemTypeNotEquatable`.
+- `ListContains(list, item)` (wire `listContains` with the fields `list` and `item`, Nyason `list-contains`) produces `Bool`: whether some item equals `item` as `ValueEqual` compares, stopping at the first; the same rules, with the diagnostics `ListContainsListTypeMismatch`, `ListContainsItemTypeMismatch` and `ListContainsItemTypeNotEquatable` ([decision](../decisions/list-contains.md)).
 - `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;
 - `ListAll(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`.
 
@@ -428,6 +433,8 @@ These cases add no implicit conversion and no special failure semantics; they ma
 
 `OptionGetOrDefault(option, default)` (wire `optionGetOrDefault`: `option`, `default`; Nyason `option-get-or-default`) takes an `Option<T>` and a default of type `T` and yields `T`; it is checked from the `OperationSignatures` table, both operands are evaluated, and they carry the `Source` and `Value` dependency roles. The callback combinators reference an existing pure callback by `FunctionId` with an optional context, as `ListMap` does: `OptionMap` and `OptionAndThen` (wire `optionMap`, `optionAndThen`: `option`, `function` or `functionId`, `context`; Nyason `option-map`, `option-and-then`) take an `Option<T>`, and `ResultMap`, `ResultMapErr` and `ResultAndThen` (wire `resultMap`, `resultMapErr`, `resultAndThen`: `result`, `function` or `functionId`, `context`; Nyason `result-map`, `result-map-err`, `result-and-then`) take a `Result<T, E>`. The callback has exactly one parameter not bound by context, which receives the `Some` or `Ok` value (the `Err` error for `ResultMapErr`). `OptionMap` yields `Option<U>` and `ResultMap` `Result<U, E>` for a `T -> U` mapper, and `ResultMapErr` yields `Result<T, F>` for an `E -> F` mapper. `OptionAndThen`'s binder must return an `Option`, which is the result, and `ResultAndThen`'s binder must return `Result<U, E>` with the source's `E`. The callback runs only for the case it names; the other case passes through unchanged. A source of another shape reports `PureExpressionOperandTypeMismatch`; callback problems report the shared `PureExpressionCallback*` codes, a binder of another result type `PureExpressionCallbackResultTypeMismatch`. A persisted graph reports `HigherOrderSourceTypeMismatch` and the shared callback codes, and for `OptionGetOrDefault` `OptionInputTypeMismatch` or `OptionDefaultTypeMismatch`. Semantics follow Rust's methods of the same names ([decision](../decisions/option-result-combinators.md)).
 
+The accessors are fixed-signature operations checked from the `OperationSignatures` table, which has a `Result<T, E>` signature type for them, with every operand evaluated: `ResultGetOrDefault(result, default)` (wire `resultGetOrDefault`: `result`, `default`; Nyason `result-get-or-default`) yields `T` for a `Result<T, E>` and a default of type `T`; `OptionOkOr(option, error)` (wire `optionOkOr`: `option`, `error`; Nyason `option-ok-or`) yields `Result<T, E>` where `E` is the error operand's type; `ResultOkValue` and `ResultErrValue` (wire `resultOkValue`, `resultErrValue`, field `value`; Nyason `result-ok-value`, `result-err-value`) yield `Option<T>` and `Option<E>`; `OptionIsSome` and `ResultIsOk` (wire `optionIsSome`, `resultIsOk`, field `value`; Nyason `option-is-some`, `result-is-ok`) yield `Bool`. A mistyped operand reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `OptionInputTypeMismatch`, `ResultInputTypeMismatch` or `ResultDefaultTypeMismatch` ([decision](../decisions/option-result-accessors.md)).
+
 ## StringLessThan
 
 `StringLessThan(left, right)` (wire `stringLessThan`, Nyason `string-less-than`) takes two Strings and produces Bool: whether `left` sorts strictly before `right` in ordinal code-point order, as defined in the [language subset](../reference/language-subset.md). An operand of another type reports `PureExpressionOperandTypeMismatch`, and `StringIntrinsicTypeMismatch` in a persisted graph. There is no three-way `StringCompare`: sort callbacks and conditions need a Bool, and `StringEqual` plus `StringLessThan` express every other comparison.
@@ -456,9 +463,9 @@ These cases add no implicit conversion and no special failure semantics; they ma
 
 `StringToLower(text)` (wire `stringToLower`, Nyason `string-to-lower`) takes a String and produces a String: each code point replaced by its culture-invariant Unicode simple lowercase mapping, unpaired surrogates kept. `StringToUpper(text)` (wire `stringToUpper`, Nyason `string-to-upper`) is the uppercase counterpart, with `ß` mapped to `ẞ` ([decision](../decisions/string-uppercase.md)). `StringUtf8ByteCount(text)` (wire `stringUtf8ByteCount`, Nyason `string-utf8-byte-count`) takes a String and produces the Int64 UTF-8 byte length, an unpaired surrogate counting 3 bytes. All three use the wire field `value`, run in linear time and never fail; the semantics and the Python differences are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-lowercase-and-utf8-length.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
 
-## StringDecodeUtf8Lossy
+## StringDecodeUtf8Lossy and StringEncodeUtf8
 
-`StringDecodeUtf8Lossy(bytes)` (wire `stringDecodeUtf8Lossy`, Nyason `string-decode-utf8-lossy`) takes a String of one byte per code point and produces the String that Python's `bytes.decode("utf-8", "replace")` gives for those bytes. It uses the wire field `value`, runs in linear time and never fails; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/utf8-decode.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
+`StringDecodeUtf8Lossy(bytes)` (wire `stringDecodeUtf8Lossy`, Nyason `string-decode-utf8-lossy`) takes a String of one byte per code point and produces the String that Python's `bytes.decode("utf-8", "replace")` gives for those bytes. `StringEncodeUtf8(text)` (wire `stringEncodeUtf8`, Nyason `string-encode-utf8`) is the inverse: the UTF-8 bytes of `text` in that same form, an unpaired surrogate encoded as U+FFFD ([decision](../decisions/string-encode-utf8.md)). Both use the wire field `value`, run in linear time and never fail; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/utf8-decode.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
 
 ## StringFromCodePoint and StringToCodePoint
 
@@ -707,7 +714,7 @@ The canonical API is `ExpressionRecipe`, `AgentReplaceFunctionBodyWithExpression
 
 The earlier `PureExpressionRecipe` and `AgentPureExpression...` F# source aliases and forwarders were removed on 2026-10-18; their only remaining users were tests. There is one recipe algebra and one implementation, not separate pure and effectful engines.
 
-Existing `PureExpression...` diagnostic codes are retained as stable diagnostic identifiers. New capability diagnostics use the `Expression...` prefix. Changing API names does not require renaming historical protocol identifiers or rewriting frozen evaluation evidence. The one exception is the callback codes, which Map, Set and Task nodes share with the List callbacks: they are named for the callback, not the collection (`PureExpressionCallbackNotFound`, `PureExpressionCallbackArityMismatch`, `PureExpressionCallbackInputTypeMismatch`, `PureExpressionCallbackResultTypeMismatch`, `PureExpressionCallbackContextTypeMismatch`, `PureExpressionCallbackEffectsNotAllowed`; in persisted graphs `UnknownCallbackFunction`, `CallbackArityMismatch`, `CallbackParameterTypeMismatch`, `CallbackResultTypeMismatch`, `CallbackContextTypeMismatch`, `CallbackEffectsNotAllowed`, `PredicateResultTypeMismatch` and `HigherOrderSourceTypeMismatch`), and no code for a Map, Set or Task node starts with `List`. The Option and Result combinators share these callback codes too; a persisted `OptionGetOrDefault` adds `OptionInputTypeMismatch` and `OptionDefaultTypeMismatch`.
+Existing `PureExpression...` diagnostic codes are retained as stable diagnostic identifiers. New capability diagnostics use the `Expression...` prefix. Changing API names does not require renaming historical protocol identifiers or rewriting frozen evaluation evidence. The one exception is the callback codes, which Map, Set and Task nodes share with the List callbacks: they are named for the callback, not the collection (`PureExpressionCallbackNotFound`, `PureExpressionCallbackArityMismatch`, `PureExpressionCallbackInputTypeMismatch`, `PureExpressionCallbackResultTypeMismatch`, `PureExpressionCallbackContextTypeMismatch`, `PureExpressionCallbackEffectsNotAllowed`; in persisted graphs `UnknownCallbackFunction`, `CallbackArityMismatch`, `CallbackParameterTypeMismatch`, `CallbackResultTypeMismatch`, `CallbackContextTypeMismatch`, `CallbackEffectsNotAllowed`, `PredicateResultTypeMismatch` and `HigherOrderSourceTypeMismatch`), and no code for a Map, Set or Task node starts with `List`. The Option and Result combinators share these callback codes too; a persisted `OptionGetOrDefault` adds `OptionInputTypeMismatch` and `OptionDefaultTypeMismatch`, and the Option and Result accessors `ResultInputTypeMismatch` and `ResultDefaultTypeMismatch`.
 
 The earlier `Float64ExpressionRecipe` / `AgentStructuralWorkflow` surface remains available as a narrower compatibility surface backed by the same structural interaction model.
 

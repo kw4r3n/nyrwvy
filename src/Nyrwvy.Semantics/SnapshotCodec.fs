@@ -460,6 +460,9 @@ module SnapshotCodec =
         | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
             writer.WriteString("kind", "stringDecodeUtf8Lossy")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringEncodeUtf8 valueNodeId ->
+            writer.WriteString("kind", "stringEncodeUtf8")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->
             writer.WriteString("kind", "float64RoundToInt64")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -774,6 +777,10 @@ module SnapshotCodec =
             writer.WriteString("kind", "listLastIndexOf")
             writer.WriteString("listNodeId", StableId.value mapNodeId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | SemanticNodeKind.ListContains(listNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listContains")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
         | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapGet")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -927,6 +934,26 @@ module SnapshotCodec =
             writer.WriteString("kind", "optionGetOrDefault")
             writer.WriteString("optionNodeId", StableId.value optionNodeId)
             writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
+        | SemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
+            writer.WriteString("kind", "resultGetOrDefault")
+            writer.WriteString("resultNodeId", StableId.value resultNodeId)
+            writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
+        | SemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) ->
+            writer.WriteString("kind", "optionOkOr")
+            writer.WriteString("optionNodeId", StableId.value optionNodeId)
+            writer.WriteString("errorNodeId", StableId.value errorNodeId)
+        | SemanticNodeKind.ResultOkValue resultNodeId ->
+            writer.WriteString("kind", "resultOkValue")
+            writer.WriteString("valueNodeId", StableId.value resultNodeId)
+        | SemanticNodeKind.ResultErrValue resultNodeId ->
+            writer.WriteString("kind", "resultErrValue")
+            writer.WriteString("valueNodeId", StableId.value resultNodeId)
+        | SemanticNodeKind.OptionIsSome optionNodeId ->
+            writer.WriteString("kind", "optionIsSome")
+            writer.WriteString("valueNodeId", StableId.value optionNodeId)
+        | SemanticNodeKind.ResultIsOk resultNodeId ->
+            writer.WriteString("kind", "resultIsOk")
+            writer.WriteString("valueNodeId", StableId.value resultNodeId)
         | SemanticNodeKind.OptionMap(sourceOptionNodeId, mapperFunctionId, context) ->
             writer.WriteString("kind", "optionMap")
             writer.WriteString("sourceOptionNodeId", StableId.value sourceOptionNodeId)
@@ -1557,6 +1584,9 @@ module SnapshotCodec =
             | "stringDecodeUtf8Lossy" ->
                 ensureProperties "StringDecodeUtf8Lossy node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringDecodeUtf8Lossy(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringEncodeUtf8" ->
+                ensureProperties "StringEncodeUtf8 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringEncodeUtf8(readId<GraphNodeTag> "valueNodeId" element)
             | "float64RoundToInt64" ->
                 ensureProperties "Float64RoundToInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.Float64RoundToInt64(readId<GraphNodeTag> "valueNodeId" element)
@@ -1938,6 +1968,9 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "setNodeId" element,
                     readId<GraphNodeTag> "itemNodeId" element
                 )
+            | "listContains" ->
+                ensureProperties "ListContains node" (set [ "id"; "kind"; "listNodeId"; "itemNodeId" ]) (set [ "id"; "kind"; "listNodeId"; "itemNodeId" ]) element
+                SemanticNodeKind.ListContains(readId<GraphNodeTag> "listNodeId" element, readId<GraphNodeTag> "itemNodeId" element)
             | "listIndexOf" ->
                 ensureProperties
                     "ListIndexOf node"
@@ -2167,6 +2200,28 @@ module SnapshotCodec =
                     (set [ "id"; "kind"; "optionNodeId"; "defaultNodeId" ])
                     element
                 SemanticNodeKind.OptionGetOrDefault(readId<GraphNodeTag> "optionNodeId" element, readId<GraphNodeTag> "defaultNodeId" element)
+            | "resultGetOrDefault" ->
+                ensureProperties
+                    "ResultGetOrDefault node"
+                    (set [ "id"; "kind"; "resultNodeId"; "defaultNodeId" ])
+                    (set [ "id"; "kind"; "resultNodeId"; "defaultNodeId" ])
+                    element
+                SemanticNodeKind.ResultGetOrDefault(readId<GraphNodeTag> "resultNodeId" element, readId<GraphNodeTag> "defaultNodeId" element)
+            | "optionOkOr" ->
+                ensureProperties "OptionOkOr node" (set [ "id"; "kind"; "optionNodeId"; "errorNodeId" ]) (set [ "id"; "kind"; "optionNodeId"; "errorNodeId" ]) element
+                SemanticNodeKind.OptionOkOr(readId<GraphNodeTag> "optionNodeId" element, readId<GraphNodeTag> "errorNodeId" element)
+            | "resultOkValue" ->
+                ensureProperties "ResultOkValue node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.ResultOkValue(readId<GraphNodeTag> "valueNodeId" element)
+            | "resultErrValue" ->
+                ensureProperties "ResultErrValue node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.ResultErrValue(readId<GraphNodeTag> "valueNodeId" element)
+            | "optionIsSome" ->
+                ensureProperties "OptionIsSome node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.OptionIsSome(readId<GraphNodeTag> "valueNodeId" element)
+            | "resultIsOk" ->
+                ensureProperties "ResultIsOk node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.ResultIsOk(readId<GraphNodeTag> "valueNodeId" element)
             | "optionMap" ->
                 ensureProperties "OptionMap node" (set [ "id"; "kind"; "sourceOptionNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceOptionNodeId"; "mapperFunctionId"; "context" ]) element
                 SemanticNodeKind.OptionMap(readId<GraphNodeTag> "sourceOptionNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)

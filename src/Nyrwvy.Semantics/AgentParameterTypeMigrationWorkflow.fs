@@ -311,6 +311,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.StringToLower value -> one ExpressionRecipe.StringToLower value
             | ExpressionRecipe.StringToUpper value -> one ExpressionRecipe.StringToUpper value
             | ExpressionRecipe.StringDecodeUtf8Lossy value -> one ExpressionRecipe.StringDecodeUtf8Lossy value
+            | ExpressionRecipe.StringEncodeUtf8 value -> one ExpressionRecipe.StringEncodeUtf8 value
             | ExpressionRecipe.Float64RoundToInt64 value -> one ExpressionRecipe.Float64RoundToInt64 value
             | ExpressionRecipe.Float64FloorToInt64 value -> one ExpressionRecipe.Float64FloorToInt64 value
             | ExpressionRecipe.Float64Sqrt value -> one ExpressionRecipe.Float64Sqrt value
@@ -409,6 +410,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.SetContains(map, key) -> two ExpressionRecipe.SetContains map key
             | ExpressionRecipe.ListIndexOf(map, key) -> two ExpressionRecipe.ListIndexOf map key
             | ExpressionRecipe.ListLastIndexOf(map, key) -> two ExpressionRecipe.ListLastIndexOf map key
+            | ExpressionRecipe.ListContains(list, item) -> two ExpressionRecipe.ListContains list item
             | ExpressionRecipe.MapGet(map, key) -> two ExpressionRecipe.MapGet map key
             | ExpressionRecipe.ListSlice(list, start, stop) -> three ExpressionRecipe.ListSlice list start stop
             | ExpressionRecipe.ListSetAt(list, index, item) -> three ExpressionRecipe.ListSetAt list index item
@@ -417,6 +419,12 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.MapInsert(map, key, value) -> three ExpressionRecipe.MapInsert map key value
             | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> three ExpressionRecipe.MapGetOrDefault map key defaultValue
             | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> two ExpressionRecipe.OptionGetOrDefault option defaultValue
+            | ExpressionRecipe.ResultGetOrDefault(result, defaultValue) -> two ExpressionRecipe.ResultGetOrDefault result defaultValue
+            | ExpressionRecipe.OptionOkOr(option, error) -> two ExpressionRecipe.OptionOkOr option error
+            | ExpressionRecipe.ResultOkValue value -> one ExpressionRecipe.ResultOkValue value
+            | ExpressionRecipe.ResultErrValue value -> one ExpressionRecipe.ResultErrValue value
+            | ExpressionRecipe.OptionIsSome value -> one ExpressionRecipe.OptionIsSome value
+            | ExpressionRecipe.ResultIsOk value -> one ExpressionRecipe.ResultIsOk value
             | ExpressionRecipe.ListConcat(left, right) -> two ExpressionRecipe.ListConcat left right
             | ExpressionRecipe.SetUnion(left, right) -> two ExpressionRecipe.SetUnion left right
             | ExpressionRecipe.SetIntersection(left, right) -> two ExpressionRecipe.SetIntersection left right

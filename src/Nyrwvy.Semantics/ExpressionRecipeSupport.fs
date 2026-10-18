@@ -166,6 +166,7 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.StringTrimStart child
         | ExpressionRecipe.StringTrimEnd child
         | ExpressionRecipe.StringDecodeUtf8Lossy child
+        | ExpressionRecipe.StringEncodeUtf8 child
         | ExpressionRecipe.Float64RoundToInt64 child
         | ExpressionRecipe.Float64FloorToInt64 child
         | ExpressionRecipe.Float64Sqrt child
@@ -214,6 +215,12 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.MapInsert(map, key, value) -> seq { map; key; value }
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> seq { map; key; defaultValue }
         | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> seq { option; defaultValue }
+        | ExpressionRecipe.ResultGetOrDefault(result, defaultValue) -> seq { result; defaultValue }
+        | ExpressionRecipe.OptionOkOr(option, error) -> seq { option; error }
+        | ExpressionRecipe.ResultOkValue child
+        | ExpressionRecipe.ResultErrValue child
+        | ExpressionRecipe.OptionIsSome child
+        | ExpressionRecipe.ResultIsOk child -> Seq.singleton child
         | ExpressionRecipe.StringContains(left, right)
         | ExpressionRecipe.StringLastIndexOf(left, right)
         | ExpressionRecipe.StringStartsWith(left, right)
@@ -276,6 +283,7 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.SetContains(left, right)
         | ExpressionRecipe.ListIndexOf(left, right)
         | ExpressionRecipe.ListLastIndexOf(left, right)
+        | ExpressionRecipe.ListContains(left, right)
         | ExpressionRecipe.MapGet(left, right)
         | ExpressionRecipe.ListConcat(left, right)
         | ExpressionRecipe.SetUnion(left, right)

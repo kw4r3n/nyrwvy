@@ -559,6 +559,8 @@ module NyasonCodec =
             record "string-to-upper" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
             record "string-decode-utf8-lossy" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringEncodeUtf8 valueNodeId ->
+            record "string-encode-utf8" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->
             record "float64-round-to-int64" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.Float64FloorToInt64 valueNodeId ->
@@ -866,6 +868,8 @@ module NyasonCodec =
                 [ nodeId
                   "set", encodeId "node" mapNodeId
                   "item", encodeId "node" itemNodeId ]
+        | SemanticNodeKind.ListContains(listNodeId, itemNodeId) ->
+            record "list-contains" [ nodeId; "list", encodeId "node" listNodeId; "item", encodeId "node" itemNodeId ]
         | SemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId) ->
             record
                 "list-index-of"
@@ -964,6 +968,18 @@ module NyasonCodec =
             record "map-filter" ([ nodeId; "map", encodeId "node" sourceMapNodeId; "keep", encodeId "function" keepFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
             record "option-get-or-default" [ nodeId; "option", encodeId "node" optionNodeId; "default", encodeId "node" defaultNodeId ]
+        | SemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
+            record "result-get-or-default" [ nodeId; "result", encodeId "node" resultNodeId; "default", encodeId "node" defaultNodeId ]
+        | SemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) ->
+            record "option-ok-or" [ nodeId; "option", encodeId "node" optionNodeId; "error", encodeId "node" errorNodeId ]
+        | SemanticNodeKind.ResultOkValue resultNodeId ->
+            record "result-ok-value" [ nodeId; "value", encodeId "node" resultNodeId ]
+        | SemanticNodeKind.ResultErrValue resultNodeId ->
+            record "result-err-value" [ nodeId; "value", encodeId "node" resultNodeId ]
+        | SemanticNodeKind.OptionIsSome optionNodeId ->
+            record "option-is-some" [ nodeId; "value", encodeId "node" optionNodeId ]
+        | SemanticNodeKind.ResultIsOk resultNodeId ->
+            record "result-is-ok" [ nodeId; "value", encodeId "node" resultNodeId ]
         | SemanticNodeKind.OptionMap(sourceNodeId, functionId, context) ->
             record "option-map" ([ nodeId; "option", encodeId "node" sourceNodeId; "mapper", encodeId "function" functionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.OptionAndThen(sourceNodeId, functionId, context) ->
@@ -1245,6 +1261,10 @@ module NyasonCodec =
             let fields = recordFields "string-decode-utf8-lossy" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.StringDecodeUtf8Lossy(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("string-encode-utf8", _) ->
+            let fields = recordFields "string-encode-utf8" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.StringEncodeUtf8(decodeId<GraphNodeTag> "node" (require "value" fields)) }
         | NyasonValue.Record("float64-round-to-int64", _) ->
             let fields = recordFields "float64-round-to-int64" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1692,6 +1712,10 @@ module NyasonCodec =
                     decodeId<GraphNodeTag> "node" (require "set" fields),
                     decodeId<GraphNodeTag> "node" (require "item" fields)
                 ) }
+        | NyasonValue.Record("list-contains", _) ->
+            let fields = recordFields "list-contains" [ "id"; "list"; "item" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ListContains(decodeId<GraphNodeTag> "node" (require "list" fields), decodeId<GraphNodeTag> "node" (require "item" fields)) }
         | NyasonValue.Record("list-index-of", _) ->
             let fields = recordFields "list-index-of" [ "id"; "list"; "item" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1843,6 +1867,30 @@ module NyasonCodec =
             let fields = recordFields "option-get-or-default" [ "id"; "option"; "default" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.OptionGetOrDefault(decodeId<GraphNodeTag> "node" (require "option" fields), decodeId<GraphNodeTag> "node" (require "default" fields)) }
+        | NyasonValue.Record("result-get-or-default", _) ->
+            let fields = recordFields "result-get-or-default" [ "id"; "result"; "default" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ResultGetOrDefault(decodeId<GraphNodeTag> "node" (require "result" fields), decodeId<GraphNodeTag> "node" (require "default" fields)) }
+        | NyasonValue.Record("option-ok-or", _) ->
+            let fields = recordFields "option-ok-or" [ "id"; "option"; "error" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.OptionOkOr(decodeId<GraphNodeTag> "node" (require "option" fields), decodeId<GraphNodeTag> "node" (require "error" fields)) }
+        | NyasonValue.Record("result-ok-value", _) ->
+            let fields = recordFields "result-ok-value" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ResultOkValue(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("result-err-value", _) ->
+            let fields = recordFields "result-err-value" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ResultErrValue(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("option-is-some", _) ->
+            let fields = recordFields "option-is-some" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.OptionIsSome(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("result-is-ok", _) ->
+            let fields = recordFields "result-is-ok" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ResultIsOk(decodeId<GraphNodeTag> "node" (require "value" fields)) }
         | NyasonValue.Record("option-map", _) ->
             let fields = recordFields "option-map" [ "id"; "option"; "mapper" ] [ "context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

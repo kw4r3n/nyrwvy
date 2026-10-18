@@ -34,6 +34,7 @@ type ExpressionRecipe =
     | StringToLower of ExpressionRecipe
     | StringToUpper of ExpressionRecipe
     | StringDecodeUtf8Lossy of ExpressionRecipe
+    | StringEncodeUtf8 of ExpressionRecipe
     | Float64RoundToInt64 of ExpressionRecipe
     | Float64FloorToInt64 of ExpressionRecipe
     | Float64Sqrt of ExpressionRecipe
@@ -135,6 +136,7 @@ type ExpressionRecipe =
     | SetContains of map: ExpressionRecipe * key: ExpressionRecipe
     | ListIndexOf of list: ExpressionRecipe * item: ExpressionRecipe
     | ListLastIndexOf of list: ExpressionRecipe * item: ExpressionRecipe
+    | ListContains of list: ExpressionRecipe * item: ExpressionRecipe
     | MapGet of map: ExpressionRecipe * key: ExpressionRecipe
     | MapGetOrDefault of map: ExpressionRecipe * key: ExpressionRecipe * defaultValue: ExpressionRecipe
     | ListSlice of list: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
@@ -193,6 +195,12 @@ type ExpressionRecipe =
     | OptionNone of itemType: TypeRef
     | OptionSome of ExpressionRecipe
     | OptionGetOrDefault of option: ExpressionRecipe * defaultValue: ExpressionRecipe
+    | ResultGetOrDefault of result: ExpressionRecipe * defaultValue: ExpressionRecipe
+    | OptionOkOr of option: ExpressionRecipe * error: ExpressionRecipe
+    | ResultOkValue of ExpressionRecipe
+    | ResultErrValue of ExpressionRecipe
+    | OptionIsSome of ExpressionRecipe
+    | ResultIsOk of ExpressionRecipe
     | OptionMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | OptionAndThen of source: ExpressionRecipe * binderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ResultMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -250,6 +258,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringToLower value -> ExpressionRecipe.StringToLower(go value)
         | ExpressionRecipe.StringToUpper value -> ExpressionRecipe.StringToUpper(go value)
         | ExpressionRecipe.StringDecodeUtf8Lossy value -> ExpressionRecipe.StringDecodeUtf8Lossy(go value)
+        | ExpressionRecipe.StringEncodeUtf8 value -> ExpressionRecipe.StringEncodeUtf8(go value)
         | ExpressionRecipe.Float64RoundToInt64 value -> ExpressionRecipe.Float64RoundToInt64(go value)
         | ExpressionRecipe.Float64FloorToInt64 value -> ExpressionRecipe.Float64FloorToInt64(go value)
         | ExpressionRecipe.Float64Sqrt value -> ExpressionRecipe.Float64Sqrt(go value)
@@ -351,6 +360,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.SetContains(map, key) -> ExpressionRecipe.SetContains(go map, go key)
         | ExpressionRecipe.ListIndexOf(list, item) -> ExpressionRecipe.ListIndexOf(go list, go item)
         | ExpressionRecipe.ListLastIndexOf(list, item) -> ExpressionRecipe.ListLastIndexOf(go list, go item)
+        | ExpressionRecipe.ListContains(list, item) -> ExpressionRecipe.ListContains(go list, go item)
         | ExpressionRecipe.MapGet(map, key) -> ExpressionRecipe.MapGet(go map, go key)
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> ExpressionRecipe.MapGetOrDefault(go map, go key, go defaultValue)
         | ExpressionRecipe.ListSlice(list, start, stop) -> ExpressionRecipe.ListSlice(go list, go start, go stop)
@@ -407,6 +417,12 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.OptionNone itemType -> ExpressionRecipe.OptionNone(mapType itemType)
         | ExpressionRecipe.OptionSome value -> ExpressionRecipe.OptionSome(go value)
         | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> ExpressionRecipe.OptionGetOrDefault(go option, go defaultValue)
+        | ExpressionRecipe.ResultGetOrDefault(result, defaultValue) -> ExpressionRecipe.ResultGetOrDefault(go result, go defaultValue)
+        | ExpressionRecipe.OptionOkOr(option, error) -> ExpressionRecipe.OptionOkOr(go option, go error)
+        | ExpressionRecipe.ResultOkValue value -> ExpressionRecipe.ResultOkValue(go value)
+        | ExpressionRecipe.ResultErrValue value -> ExpressionRecipe.ResultErrValue(go value)
+        | ExpressionRecipe.OptionIsSome value -> ExpressionRecipe.OptionIsSome(go value)
+        | ExpressionRecipe.ResultIsOk value -> ExpressionRecipe.ResultIsOk(go value)
         | ExpressionRecipe.ResultOk(errorType, value) -> ExpressionRecipe.ResultOk(mapType errorType, go value)
         | ExpressionRecipe.Abort error -> ExpressionRecipe.Abort(go error)
         | ExpressionRecipe.ResultErr(okType, error) -> ExpressionRecipe.ResultErr(mapType okType, go error)

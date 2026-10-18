@@ -386,6 +386,8 @@ module TypedSemanticIrSerializer =
             writeUnaryNode writer "stringToUpper" valueNodeId
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
             writeUnaryNode writer "stringDecodeUtf8Lossy" valueNodeId
+        | TypedSemanticNodeKind.StringEncodeUtf8 valueNodeId ->
+            writeUnaryNode writer "stringEncodeUtf8" valueNodeId
         | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId ->
             writeUnaryNode writer "float64RoundToInt64" valueNodeId
         | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId ->
@@ -675,6 +677,10 @@ module TypedSemanticIrSerializer =
             writer.WriteString("kind", "listLastIndexOf")
             writer.WriteString("listNodeId", StableId.value mapNodeId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | TypedSemanticNodeKind.ListContains(listNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listContains")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapGet")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -683,6 +689,18 @@ module TypedSemanticIrSerializer =
             writer.WriteString("kind", "optionGetOrDefault")
             writer.WriteString("optionNodeId", StableId.value optionNodeId)
             writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
+        | TypedSemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
+            writer.WriteString("kind", "resultGetOrDefault")
+            writer.WriteString("resultNodeId", StableId.value resultNodeId)
+            writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
+        | TypedSemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) ->
+            writer.WriteString("kind", "optionOkOr")
+            writer.WriteString("optionNodeId", StableId.value optionNodeId)
+            writer.WriteString("errorNodeId", StableId.value errorNodeId)
+        | TypedSemanticNodeKind.ResultOkValue resultNodeId -> writeUnaryNode writer "resultOkValue" resultNodeId
+        | TypedSemanticNodeKind.ResultErrValue resultNodeId -> writeUnaryNode writer "resultErrValue" resultNodeId
+        | TypedSemanticNodeKind.OptionIsSome optionNodeId -> writeUnaryNode writer "optionIsSome" optionNodeId
+        | TypedSemanticNodeKind.ResultIsOk resultNodeId -> writeUnaryNode writer "resultIsOk" resultNodeId
         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
             writer.WriteString("kind", "mapGetOrDefault")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)

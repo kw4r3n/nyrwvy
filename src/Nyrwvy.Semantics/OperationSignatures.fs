@@ -8,15 +8,16 @@ namespace Nyrwvy.Core
 /// hand-coded in both places.
 [<RequireQualifiedAccess>]
 module OperationSignatures =
-    /// A type in a fixed operation signature: primitives and the List, Option, Map and Set generics,
-    /// possibly mentioning variables (`T`, `K`, `V`) that stand for any type. The first operand that
-    /// mentions a variable binds it; later operands and the result use the bound type.
+    /// A type in a fixed operation signature: primitives and the List, Option, Result, Map and Set
+    /// generics, possibly mentioning variables (`T`, `E`, `K`, `V`) that stand for any type. The first
+    /// operand that mentions a variable binds it; later operands and the result use the bound type.
     [<RequireQualifiedAccess>]
     type SignatureType =
         | Primitive of PrimitiveType
         | Variable of name: string
         | List of item: SignatureType
         | Option of item: SignatureType
+        | Result of ok: SignatureType * error: SignatureType
         | Map of key: SignatureType * value: SignatureType
         | Set of item: SignatureType
 
@@ -64,6 +65,7 @@ module OperationSignatures =
     let private float64 = SignatureType.Primitive PrimitiveType.Float64
     let private bits32 = SignatureType.Primitive PrimitiveType.Bits32
     let private t = SignatureType.Variable "T"
+    let private e = SignatureType.Variable "E"
     let private k = SignatureType.Variable "K"
     let private v = SignatureType.Variable "V"
 
@@ -136,6 +138,7 @@ module OperationSignatures =
               [ { operand "value" string with TypeDetail = Some " of bytes U+00-U+FF" } ]
               string
               (Some "decode('utf-8', 'replace')")
+          unary "stringEncodeUtf8" string string (Some "encode('utf-8') as bytes U+00-U+FF")
           unary "stringFromCodePoint" int64 (SignatureType.Option string) (Some "chr")
           unary "stringToCodePoint" string (SignatureType.Option int64) (Some "ord")
           unary "int64ToString" int64 string None
@@ -235,6 +238,8 @@ module OperationSignatures =
           |> equatable "T" "ListIndexOfItemTypeNotEquatable" "ListIndexOf compares items of a type that is not equatable: "
           signature "listLastIndexOf" [ operand "list" (SignatureType.List t); operand "item" t ] (SignatureType.Option int64) (Some "last equal item's index")
           |> equatable "T" "ListLastIndexOfItemTypeNotEquatable" "ListLastIndexOf compares items of a type that is not equatable: "
+          signature "listContains" [ operand "list" (SignatureType.List t); operand "item" t ] bool (Some "item in list")
+          |> equatable "T" "ListContainsItemTypeNotEquatable" "ListContains compares items of a type that is not equatable: "
           // map
           signature
               "mapInsert"
@@ -263,7 +268,13 @@ module OperationSignatures =
           unary "setToList" (SignatureType.Set t) (SignatureType.List t) (Some "insertion order")
           // optionResult
           unary "optionSome" t (SignatureType.Option t) None
-          signature "optionGetOrDefault" [ operand "option" (SignatureType.Option t); operand "default" t ] t (Some "unwrap_or") ]
+          signature "optionGetOrDefault" [ operand "option" (SignatureType.Option t); operand "default" t ] t (Some "unwrap_or")
+          signature "resultGetOrDefault" [ operand "result" (SignatureType.Result(t, e)); operand "default" t ] t (Some "unwrap_or")
+          signature "optionOkOr" [ operand "option" (SignatureType.Option t); operand "error" e ] (SignatureType.Result(t, e)) (Some "ok_or")
+          unary "resultOkValue" (SignatureType.Result(t, e)) (SignatureType.Option t) (Some "Result::ok")
+          unary "resultErrValue" (SignatureType.Result(t, e)) (SignatureType.Option e) (Some "Result::err")
+          unary "optionIsSome" (SignatureType.Option t) bool (Some "is_some")
+          unary "resultIsOk" (SignatureType.Result(t, e)) bool (Some "is_ok") ]
 
     let private byKind = table |> List.map (fun entry -> entry.Kind, entry) |> Map.ofList
 
@@ -274,7 +285,10 @@ module OperationSignatures =
         Map.ofList
             [ "stringEqual", "valueEqual"
               "int64Equal", "valueEqual"
-              "mapGetOrDefault", "optionGetOrDefault of mapGet" ]
+              "mapGetOrDefault", "optionGetOrDefault of mapGet"
+              "int64GreaterThan", "int64LessThan with swapped operands"
+              "int64LessThanOrEqual", "boolNot of int64LessThan with swapped operands"
+              "int64GreaterThanOrEqual", "boolNot of int64LessThan" ]
 
     let tryFind kind = Map.tryFind kind byKind
 
@@ -290,6 +304,7 @@ module OperationSignatures =
         | SignatureType.Variable name -> name
         | SignatureType.List item -> $"List<{render item}>"
         | SignatureType.Option item -> $"Option<{render item}>"
+        | SignatureType.Result(ok, error) -> $"Result<{render ok}, {render error}>"
         | SignatureType.Map(key, value) -> $"Map<{render key}, {render value}>"
         | SignatureType.Set item -> $"Set<{render item}>"
 
@@ -336,6 +351,7 @@ module OperationSignatures =
             | None -> Some(Map.add name actual bindings)
         | SignatureType.List item -> generic BuiltinGenericType.List [ item ]
         | SignatureType.Option item -> generic BuiltinGenericType.Option [ item ]
+        | SignatureType.Result(ok, error) -> generic BuiltinGenericType.Result [ ok; error ]
         | SignatureType.Map(key, value) -> generic BuiltinGenericType.Map [ key; value ]
         | SignatureType.Set item -> generic BuiltinGenericType.Set [ item ]
 
@@ -349,6 +365,7 @@ module OperationSignatures =
         | SignatureType.Variable name -> Map.tryFind name bindings
         | SignatureType.List item -> generic BuiltinGenericType.List [ item ]
         | SignatureType.Option item -> generic BuiltinGenericType.Option [ item ]
+        | SignatureType.Result(ok, error) -> generic BuiltinGenericType.Result [ ok; error ]
         | SignatureType.Map(key, value) -> generic BuiltinGenericType.Map [ key; value ]
         | SignatureType.Set item -> generic BuiltinGenericType.Set [ item ]
 

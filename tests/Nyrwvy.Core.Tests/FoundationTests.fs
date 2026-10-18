@@ -46,6 +46,7 @@ module FoundationTests =
                 | SemanticNodeKind.StringToLower _
                 | SemanticNodeKind.StringToUpper _
                 | SemanticNodeKind.StringDecodeUtf8Lossy _
+                | SemanticNodeKind.StringEncodeUtf8 _
                 | SemanticNodeKind.Float64RoundToInt64 _
                 | SemanticNodeKind.Float64FloorToInt64 _
                 | SemanticNodeKind.Float64Sqrt _
@@ -158,8 +159,15 @@ module FoundationTests =
                 | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.ListIndexOf _
                 | SemanticNodeKind.ListLastIndexOf _
+                | SemanticNodeKind.ListContains _
                 | SemanticNodeKind.MapGet _
                 | SemanticNodeKind.OptionGetOrDefault _
+                | SemanticNodeKind.ResultGetOrDefault _
+                | SemanticNodeKind.OptionOkOr _
+                | SemanticNodeKind.ResultOkValue _
+                | SemanticNodeKind.ResultErrValue _
+                | SemanticNodeKind.OptionIsSome _
+                | SemanticNodeKind.ResultIsOk _
                 | SemanticNodeKind.MapGetOrDefault _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _

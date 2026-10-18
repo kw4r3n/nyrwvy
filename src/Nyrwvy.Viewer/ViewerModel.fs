@@ -50,6 +50,7 @@ type ViewerNodeRole =
     | StringToLower
     | StringToUpper
     | StringDecodeUtf8Lossy
+    | StringEncodeUtf8
     | Float64RoundToInt64
     | Float64FloorToInt64
     | Float64Sqrt
@@ -156,6 +157,7 @@ type ViewerNodeRole =
     | SetContains
     | ListIndexOf
     | ListLastIndexOf
+    | ListContains
     | MapGet
     | MapGetOrDefault
     | ListSlice
@@ -192,6 +194,12 @@ type ViewerNodeRole =
     | ListMinBy
     | MapMapValues
     | OptionGetOrDefault
+    | ResultGetOrDefault
+    | OptionOkOr
+    | ResultOkValue
+    | ResultErrValue
+    | OptionIsSome
+    | ResultIsOk
     | OptionMap
     | OptionAndThen
     | ResultMap
@@ -346,6 +354,7 @@ module ViewerProjection =
         | SemanticNodeKind.StringToLower _ -> ViewerNodeRole.StringToLower, []
         | SemanticNodeKind.StringToUpper _ -> ViewerNodeRole.StringToUpper, []
         | SemanticNodeKind.StringDecodeUtf8Lossy _ -> ViewerNodeRole.StringDecodeUtf8Lossy, []
+        | SemanticNodeKind.StringEncodeUtf8 _ -> ViewerNodeRole.StringEncodeUtf8, []
         | SemanticNodeKind.Float64RoundToInt64 _ -> ViewerNodeRole.Float64RoundToInt64, []
         | SemanticNodeKind.Float64FloorToInt64 _ -> ViewerNodeRole.Float64FloorToInt64, []
         | SemanticNodeKind.Float64Sqrt _ -> ViewerNodeRole.Float64Sqrt, []
@@ -452,6 +461,7 @@ module ViewerProjection =
         | SemanticNodeKind.SetContains _ -> ViewerNodeRole.SetContains, []
         | SemanticNodeKind.ListIndexOf _ -> ViewerNodeRole.ListIndexOf, []
         | SemanticNodeKind.ListLastIndexOf _ -> ViewerNodeRole.ListLastIndexOf, []
+        | SemanticNodeKind.ListContains _ -> ViewerNodeRole.ListContains, []
         | SemanticNodeKind.MapGet _ -> ViewerNodeRole.MapGet, []
         | SemanticNodeKind.MapGetOrDefault _ -> ViewerNodeRole.MapGetOrDefault, []
         | SemanticNodeKind.ListSlice _ -> ViewerNodeRole.ListSlice, []
@@ -488,6 +498,12 @@ module ViewerProjection =
         | SemanticNodeKind.ListMinBy _ -> ViewerNodeRole.ListMinBy, []
         | SemanticNodeKind.MapMapValues _ -> ViewerNodeRole.MapMapValues, []
         | SemanticNodeKind.OptionGetOrDefault _ -> ViewerNodeRole.OptionGetOrDefault, []
+        | SemanticNodeKind.ResultGetOrDefault _ -> ViewerNodeRole.ResultGetOrDefault, []
+        | SemanticNodeKind.OptionOkOr _ -> ViewerNodeRole.OptionOkOr, []
+        | SemanticNodeKind.ResultOkValue _ -> ViewerNodeRole.ResultOkValue, []
+        | SemanticNodeKind.ResultErrValue _ -> ViewerNodeRole.ResultErrValue, []
+        | SemanticNodeKind.OptionIsSome _ -> ViewerNodeRole.OptionIsSome, []
+        | SemanticNodeKind.ResultIsOk _ -> ViewerNodeRole.ResultIsOk, []
         | SemanticNodeKind.OptionMap _ -> ViewerNodeRole.OptionMap, []
         | SemanticNodeKind.OptionAndThen _ -> ViewerNodeRole.OptionAndThen, []
         | SemanticNodeKind.ResultMap _ -> ViewerNodeRole.ResultMap, []

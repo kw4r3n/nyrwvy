@@ -154,6 +154,7 @@ module internal ExpressionRecipeMaterialization =
         | ExpressionRecipe.StringTrimStart value -> unary SemanticNodeKind.StringTrimStart value
         | ExpressionRecipe.StringTrimEnd value -> unary SemanticNodeKind.StringTrimEnd value
         | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary SemanticNodeKind.StringDecodeUtf8Lossy value
+        | ExpressionRecipe.StringEncodeUtf8 value -> unary SemanticNodeKind.StringEncodeUtf8 value
         | ExpressionRecipe.Float64RoundToInt64 value -> unary SemanticNodeKind.Float64RoundToInt64 value
         | ExpressionRecipe.Float64FloorToInt64 value -> unary SemanticNodeKind.Float64FloorToInt64 value
         | ExpressionRecipe.Float64Sqrt value -> unary SemanticNodeKind.Float64Sqrt value
@@ -292,6 +293,7 @@ module internal ExpressionRecipeMaterialization =
         | ExpressionRecipe.SetContains(map, key) -> binary SemanticNodeKind.SetContains map key
         | ExpressionRecipe.ListIndexOf(list, item) -> binary SemanticNodeKind.ListIndexOf list item
         | ExpressionRecipe.ListLastIndexOf(list, item) -> binary SemanticNodeKind.ListLastIndexOf list item
+        | ExpressionRecipe.ListContains(list, item) -> binary SemanticNodeKind.ListContains list item
         | ExpressionRecipe.MapGet(map, key) -> binary SemanticNodeKind.MapGet map key
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) ->
             let mapNodes, mapResult = materializeRecipe map
@@ -477,6 +479,12 @@ module internal ExpressionRecipeMaterialization =
             [ { Id = nodeId; Kind = SemanticNodeKind.OptionNone itemType } ], nodeId
         | ExpressionRecipe.OptionSome value -> unary SemanticNodeKind.OptionSome value
         | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> binary SemanticNodeKind.OptionGetOrDefault option defaultValue
+        | ExpressionRecipe.ResultGetOrDefault(result, defaultValue) -> binary SemanticNodeKind.ResultGetOrDefault result defaultValue
+        | ExpressionRecipe.OptionOkOr(option, error) -> binary SemanticNodeKind.OptionOkOr option error
+        | ExpressionRecipe.ResultOkValue value -> unary SemanticNodeKind.ResultOkValue value
+        | ExpressionRecipe.ResultErrValue value -> unary SemanticNodeKind.ResultErrValue value
+        | ExpressionRecipe.OptionIsSome value -> unary SemanticNodeKind.OptionIsSome value
+        | ExpressionRecipe.ResultIsOk value -> unary SemanticNodeKind.ResultIsOk value
         | ExpressionRecipe.ResultOk(errorType, value) -> unary (fun valueNodeId -> SemanticNodeKind.ResultOk(errorType, valueNodeId)) value
         | ExpressionRecipe.Abort error -> unary SemanticNodeKind.Abort error
         | ExpressionRecipe.ResultErr(okType, error) -> unary (fun errorNodeId -> SemanticNodeKind.ResultErr(okType, errorNodeId)) error

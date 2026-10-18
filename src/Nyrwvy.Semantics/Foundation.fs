@@ -265,6 +265,11 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// one U+FFFD per maximal ill-formed subpart, as Python bytes.decode("utf-8", "replace"). A code
     /// point above U+00FF reads as the invalid byte 0xFF. Never fails.
     | StringDecodeUtf8Lossy of valueNodeId: GraphNodeId
+    /// The UTF-8 encoding of the String as a String holding one byte per code point (U+0000..U+00FF),
+    /// the inverse of StringDecodeUtf8Lossy on well-formed text, as Python text.encode("utf-8"). An
+    /// unpaired surrogate encodes as U+FFFD (EF BF BD), the 3 bytes StringUtf8ByteCount counts for it,
+    /// so the result's length is always StringUtf8ByteCount. Never fails.
+    | StringEncodeUtf8 of valueNodeId: GraphNodeId
     /// The nearest integer as Option<Int64>, rounding half away from zero (Python's round rounds ties to
     /// even). None for NaN, an infinity, or a result outside Int64. Never fails.
     | Float64RoundToInt64 of valueNodeId: GraphNodeId
@@ -502,6 +507,9 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// `Some` zero-based position of the last item equal to the item (ValueEqual), scanning from the
     /// end, else `None`; never fails.
     | ListLastIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    /// True when some item equals the item (ValueEqual), as Python item in list; the item type must be
+    /// equatable. Stops at the first equal item. Never fails.
+    | ListContains of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     /// `Some` value for the key, else `None`, as Python map.get(key); never fails.
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     /// The value for key, or the default (of the map's value type) when the key is absent. All
@@ -623,6 +631,20 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// The Some value, or the default (of the option's item type) for None, as Rust's
     /// Option::unwrap_or. Both operands are evaluated. Never fails.
     | OptionGetOrDefault of optionNodeId: GraphNodeId * defaultNodeId: GraphNodeId
+    /// The Ok value, or the default (of the result's ok type) for Err, as Rust's Result::unwrap_or.
+    /// Both operands are evaluated. Never fails.
+    | ResultGetOrDefault of resultNodeId: GraphNodeId * defaultNodeId: GraphNodeId
+    /// Option<T> to Result<T, E>: Some x becomes Ok x and None becomes Err of the error operand, as
+    /// Rust's Option::ok_or. Both operands are evaluated. Never fails.
+    | OptionOkOr of optionNodeId: GraphNodeId * errorNodeId: GraphNodeId
+    /// Result<T, E> to Option<T>: Some of the Ok value, None for Err, as Rust's Result::ok. Never fails.
+    | ResultOkValue of resultNodeId: GraphNodeId
+    /// Result<T, E> to Option<E>: Some of the Err value, None for Ok, as Rust's Result::err. Never fails.
+    | ResultErrValue of resultNodeId: GraphNodeId
+    /// True for Some, as Rust's Option::is_some; None is BoolNot of it. Never fails.
+    | OptionIsSome of optionNodeId: GraphNodeId
+    /// True for Ok, as Rust's Result::is_ok; Err is BoolNot of it. Never fails.
+    | ResultIsOk of resultNodeId: GraphNodeId
     /// Option<T> to Option<R>: None stays None and Some x becomes Some of a pure `T -> R` callback's
     /// result, as Rust's Option::map. The callback runs only for Some. Never fails.
     | OptionMap of sourceOptionNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
@@ -818,6 +840,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringToLower valueNodeId
         | SemanticNodeKind.StringToUpper valueNodeId
         | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId
+        | SemanticNodeKind.StringEncodeUtf8 valueNodeId
         | SemanticNodeKind.Float64RoundToInt64 valueNodeId
         | SemanticNodeKind.Float64FloorToInt64 valueNodeId
         | SemanticNodeKind.Float64Sqrt valueNodeId
@@ -939,8 +962,15 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId) -> [ sourceSetNodeId; itemNodeId ]
         | SemanticNodeKind.ListIndexOf(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.ListLastIndexOf(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
+        | SemanticNodeKind.ListContains(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) -> [ optionNodeId; defaultNodeId ]
+        | SemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) -> [ resultNodeId; defaultNodeId ]
+        | SemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) -> [ optionNodeId; errorNodeId ]
+        | SemanticNodeKind.ResultOkValue resultNodeId
+        | SemanticNodeKind.ResultErrValue resultNodeId
+        | SemanticNodeKind.ResultIsOk resultNodeId -> [ resultNodeId ]
+        | SemanticNodeKind.OptionIsSome optionNodeId -> [ optionNodeId ]
         | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) -> [ sourceMapNodeId; keyNodeId; defaultNodeId ]
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId)
@@ -1035,6 +1065,7 @@ module SemanticNodeShape =
             | SemanticNodeKind.StringToLower valueNodeId -> SemanticNodeKind.StringToLower(mapNodeId valueNodeId)
             | SemanticNodeKind.StringToUpper valueNodeId -> SemanticNodeKind.StringToUpper(mapNodeId valueNodeId)
             | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId -> SemanticNodeKind.StringDecodeUtf8Lossy(mapNodeId valueNodeId)
+            | SemanticNodeKind.StringEncodeUtf8 valueNodeId -> SemanticNodeKind.StringEncodeUtf8(mapNodeId valueNodeId)
             | SemanticNodeKind.Float64RoundToInt64 valueNodeId -> SemanticNodeKind.Float64RoundToInt64(mapNodeId valueNodeId)
             | SemanticNodeKind.Float64FloorToInt64 valueNodeId -> SemanticNodeKind.Float64FloorToInt64(mapNodeId valueNodeId)
             | SemanticNodeKind.Float64Sqrt valueNodeId -> SemanticNodeKind.Float64Sqrt(mapNodeId valueNodeId)
@@ -1203,6 +1234,8 @@ module SemanticNodeShape =
                 SemanticNodeKind.ListIndexOf(mapNodeId listNodeId, mapNodeId itemNodeId)
             | SemanticNodeKind.ListLastIndexOf(listNodeId, itemNodeId) ->
                 SemanticNodeKind.ListLastIndexOf(mapNodeId listNodeId, mapNodeId itemNodeId)
+            | SemanticNodeKind.ListContains(listNodeId, itemNodeId) ->
+                SemanticNodeKind.ListContains(mapNodeId listNodeId, mapNodeId itemNodeId)
             | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) ->
                 SemanticNodeKind.MapGet(mapNodeId sourceMapNodeId, mapNodeId keyNodeId)
             | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) ->
@@ -1268,6 +1301,14 @@ module SemanticNodeShape =
                 SemanticNodeKind.ListSortBy(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
                 SemanticNodeKind.OptionGetOrDefault(mapNodeId optionNodeId, mapNodeId defaultNodeId)
+            | SemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
+                SemanticNodeKind.ResultGetOrDefault(mapNodeId resultNodeId, mapNodeId defaultNodeId)
+            | SemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) ->
+                SemanticNodeKind.OptionOkOr(mapNodeId optionNodeId, mapNodeId errorNodeId)
+            | SemanticNodeKind.ResultOkValue resultNodeId -> SemanticNodeKind.ResultOkValue(mapNodeId resultNodeId)
+            | SemanticNodeKind.ResultErrValue resultNodeId -> SemanticNodeKind.ResultErrValue(mapNodeId resultNodeId)
+            | SemanticNodeKind.OptionIsSome optionNodeId -> SemanticNodeKind.OptionIsSome(mapNodeId optionNodeId)
+            | SemanticNodeKind.ResultIsOk resultNodeId -> SemanticNodeKind.ResultIsOk(mapNodeId resultNodeId)
             | SemanticNodeKind.OptionMap(sourceNodeId, functionId, context) ->
                 SemanticNodeKind.OptionMap(mapNodeId sourceNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.OptionAndThen(sourceNodeId, functionId, context) ->
@@ -1366,6 +1407,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringToLower _
         | SemanticNodeKind.StringToUpper _
         | SemanticNodeKind.StringDecodeUtf8Lossy _
+        | SemanticNodeKind.StringEncodeUtf8 _
         | SemanticNodeKind.Float64RoundToInt64 _
         | SemanticNodeKind.Float64FloorToInt64 _
         | SemanticNodeKind.Float64Sqrt _
@@ -1477,8 +1519,15 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
+        | SemanticNodeKind.ListContains _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.OptionGetOrDefault _
+        | SemanticNodeKind.ResultGetOrDefault _
+        | SemanticNodeKind.OptionOkOr _
+        | SemanticNodeKind.ResultOkValue _
+        | SemanticNodeKind.ResultErrValue _
+        | SemanticNodeKind.OptionIsSome _
+        | SemanticNodeKind.ResultIsOk _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
@@ -1621,6 +1670,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringToLower _
         | SemanticNodeKind.StringToUpper _
         | SemanticNodeKind.StringDecodeUtf8Lossy _
+        | SemanticNodeKind.StringEncodeUtf8 _
         | SemanticNodeKind.Float64RoundToInt64 _
         | SemanticNodeKind.Float64FloorToInt64 _
         | SemanticNodeKind.Float64Sqrt _
@@ -1723,8 +1773,15 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
+        | SemanticNodeKind.ListContains _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.OptionGetOrDefault _
+        | SemanticNodeKind.ResultGetOrDefault _
+        | SemanticNodeKind.OptionOkOr _
+        | SemanticNodeKind.ResultOkValue _
+        | SemanticNodeKind.ResultErrValue _
+        | SemanticNodeKind.OptionIsSome _
+        | SemanticNodeKind.ResultIsOk _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.ListSetAt _
@@ -1857,6 +1914,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringToLower _
         | SemanticNodeKind.StringToUpper _
         | SemanticNodeKind.StringDecodeUtf8Lossy _
+        | SemanticNodeKind.StringEncodeUtf8 _
         | SemanticNodeKind.Float64RoundToInt64 _
         | SemanticNodeKind.Float64FloorToInt64 _
         | SemanticNodeKind.Float64Sqrt _
@@ -1963,8 +2021,15 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
+        | SemanticNodeKind.ListContains _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.OptionGetOrDefault _
+        | SemanticNodeKind.ResultGetOrDefault _
+        | SemanticNodeKind.OptionOkOr _
+        | SemanticNodeKind.ResultOkValue _
+        | SemanticNodeKind.ResultErrValue _
+        | SemanticNodeKind.OptionIsSome _
+        | SemanticNodeKind.ResultIsOk _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.ListSetAt _
@@ -2046,6 +2111,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.StringToLower _
         | SemanticNodeKind.StringToUpper _
         | SemanticNodeKind.StringDecodeUtf8Lossy _
+        | SemanticNodeKind.StringEncodeUtf8 _
         | SemanticNodeKind.Float64RoundToInt64 _
         | SemanticNodeKind.Float64FloorToInt64 _
         | SemanticNodeKind.Float64Sqrt _
@@ -2152,8 +2218,15 @@ module SemanticNodeShape =
         | SemanticNodeKind.SetContains _
         | SemanticNodeKind.ListIndexOf _
         | SemanticNodeKind.ListLastIndexOf _
+        | SemanticNodeKind.ListContains _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.OptionGetOrDefault _
+        | SemanticNodeKind.ResultGetOrDefault _
+        | SemanticNodeKind.OptionOkOr _
+        | SemanticNodeKind.ResultOkValue _
+        | SemanticNodeKind.ResultErrValue _
+        | SemanticNodeKind.OptionIsSome _
+        | SemanticNodeKind.ResultIsOk _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.ListSetAt _
