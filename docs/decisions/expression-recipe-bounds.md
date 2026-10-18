@@ -11,7 +11,7 @@ This decision settles order 6: whether ordinary expression authoring keeps the 6
 | Workflow | Max depth | Max nodes |
 | --- | --- | --- |
 | Ordinary expression authoring: function creation, complete-body replacement, targeted replacement, migration replacement bodies | 32 | **256** |
-| Frozen Milestone 2 bounded Float64 replacement ([bounded structural editing](../specs/bounded-structural-editing.md)) | 32 | 64 (unchanged) |
+| Frozen Milestone 2 bounded Float64 replacement ([bounded structural editing](../specs/bounded-structural-editing.md)); removed from `main` on 2026-10-18 with its evaluation runner | 32 | 64 (unchanged) |
 
 A `StructuralRecipeNodeLimitExceeded` rejection now states the recipe's full node count and up to three of the largest subtrees that fit within the limit, each with its child-index path from the root and its recipe kind. A subtree nested inside one already listed is not repeated. The depth limit and its diagnostic are unchanged, and depth is still checked first.
 

@@ -79,9 +79,6 @@ module internal StructuralTransactionInternals =
 
     type RecipeBounds = { MaxDepth: int; MaxNodes: int }
 
-    /// The frozen Milestone 2 bounded Float64 replacement contract.
-    let boundedFloat64Bounds = { MaxDepth = 32; MaxNodes = 64 }
-
     /// Ordinary expression authoring: function creation, body replacement and targeted replacement.
     let expressionAuthoringBounds = { MaxDepth = ExpressionRecipeBounds.maxDepth; MaxNodes = ExpressionRecipeBounds.maxNodes }
 

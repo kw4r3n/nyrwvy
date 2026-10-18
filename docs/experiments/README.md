@@ -8,7 +8,7 @@ This area holds explorations, evaluation protocols, and measurements that are no
 
 - Milestone 1: [corpus v1](m1-agent-evaluation-corpus-v1.md), [run template v1](m1-agent-evaluation-run-template-v1.md), [condition v2](m1-agent-evaluation-condition-v2.md)
 - Milestone 2: [condition v1](m2-agent-evaluation-condition-v1.md) (invalid for recorded runs), [condition v1.1](m2-agent-evaluation-condition-v1.1.md)
-- Frozen corpus inputs: [`evaluation/m2-agent-corpus-v1/`](../../evaluation/m2-agent-corpus-v1/README.md), [`evaluation/m2-listmap-agent-corpus-v1/`](../../evaluation/m2-listmap-agent-corpus-v1/README.md), and the unfrozen [`evaluation/pure-control-flow-exploratory-v1/`](../../evaluation/pure-control-flow-exploratory-v1/README.md)
+- Frozen corpus inputs: `evaluation/m2-agent-corpus-v1/`, `evaluation/m2-listmap-agent-corpus-v1/` and the unfrozen `evaluation/pure-control-flow-exploratory-v1/`. These corpora, the evaluation runners and their scripts were removed from `main` on 2026-10-18; read and replay them from the freeze tags below or from commit `b3a958a`, the last `main` commit that contained them.
 - Canonical freeze tags: [evaluation freeze tags](../operations/evaluation-freeze-tags.md)
 
 ## Authoring probes

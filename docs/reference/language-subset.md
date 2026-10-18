@@ -528,28 +528,9 @@ Publication repairs exhaustive `MatchUnion` nodes atomically by adding an arm fo
 
 This surface intentionally does not cover field-bearing variant evolution, arbitrary new match-arm recipes, type deletion, or a generalized schema-migration framework. It was added for the concrete Mini Work Planner `ExecutionState.TimedOut` maintenance case.
 
-### Float64 structural compatibility surface
+### Removed Float64 and ListMap compatibility surfaces
 
-`AgentStructuralWorkflow` remains available for the narrower Float64-only body-replacement recipe:
-
-```text
-Parameter(ParameterId)
-Literal(Float64Bits)
-Add(left, right)
-Subtract(left, right)
-Multiply(left, right)
-Divide(left, right)
-```
-
-It preserves the original bounded Float64 interaction surface and frozen M2 evidence. Adjacent Float64 arithmetic roles were added without creating separate operation/protocol families.
-
-The exact narrower contract is maintained in [Bounded structural editing](../specs/bounded-structural-editing.md).
-
-### Specialized ListMap compatibility surface
-
-`AgentListMapStructuralWorkflow` supports the original shallow `ParameterReference -> ListMap` M2 body-replacement shape. The source is a target-owned `List<T>` parameter and the mapper an existing pure unary function compatible with `T -> R`; replacement node identities remain system-owned and the same simulate/review/publication mechanics apply.
-
-The general `ExpressionRecipe` covers the same semantic capability through `ListMap(Parameter(sourceParameterId), mapperFunctionId)` while also allowing composed source expressions. The specialized workflow remains available for compatibility and historical evidence; removing or wrapping it is a separate API-cleanup decision rather than a requirement of the general construction model.
+The narrower Float64-only body-replacement workflow (`AgentStructuralWorkflow`, the [bounded structural editing](../specs/bounded-structural-editing.md) contract) and the specialized shallow `ParameterReference -> ListMap` workflow (`AgentListMapStructuralWorkflow`) lived in the evaluation runners `Nyrwvy.AgentEval.Structural` and `Nyrwvy.AgentEval.ListMapStructural`, not in `Nyrwvy.Semantics`. Those runners were removed from `main` on 2026-10-18; the surfaces and their frozen M2 evidence remain reproducible from the [evaluation freeze tags](../operations/evaluation-freeze-tags.md) and from commit `b3a958a`. The general `ExpressionRecipe` covers the same semantic capability, for example Float64 arithmetic and `ListMap(Parameter(sourceParameterId), mapperFunctionId)`, through the maintained authoring session.
 
 ### Current boundary
 

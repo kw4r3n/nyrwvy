@@ -4,13 +4,13 @@ Nyrwvy keeps routine validation small and separates broader execution checks fro
 
 ## fast
 
-Run during ordinary development (the on-demand `CI` workflow runs the same checks when the maintainer starts it). The fish wrapper is a convenience; fish is needed only for the wrapper scripts and the one fish test below, and the direct `dotnet test` / `node --test` commands in the [README](../README.md#build-and-verify) are the equivalent without it:
+Run during ordinary development (the on-demand `CI` workflow runs the same checks when the maintainer starts it). The fish wrapper is a convenience; fish is needed only for the wrapper scripts, and the direct `dotnet test` / `node --test` commands in the [README](../README.md#build-and-verify) are the equivalent without it:
 
 ```fish
 ./scripts/test-fast.fish
 ```
 
-The fast suite is built from `Nyrwvy.Core.Tests` only, so routine validation does not compile the extended test project. It does compile most of the solution: besides the four `src` projects, `Nyrwvy.Core.Tests` references the tools its protocol and export tests exercise (`Nyrwvy.AuthoringSession`, `Nyrwvy.AgentEval`, `Nyrwvy.AgentEval.Structural`, `Nyrwvy.AgentEval.ListMapStructural`, and `Nyrwvy.ViewerExport`, built but not linked, for the viewer export test), leaving out only `Nyrwvy.EvaluationFixtureExport`. It contains the normal in-process contract, semantic, workflow, IR, codec, query, and backend-generation tests.
+The fast suite is built from `Nyrwvy.Core.Tests` only, so routine validation does not compile the extended test project. It does compile most of the solution: besides the four `src` projects, `Nyrwvy.Core.Tests` references the tools its protocol and export tests exercise (`Nyrwvy.AuthoringSession`, and `Nyrwvy.ViewerExport`, built but not linked, for the viewer export test). It contains the normal in-process contract, semantic, workflow, IR, codec, query, and backend-generation tests.
 
 A few broad execution tests remain in their feature files to avoid duplicating fixture/setup code. Mark these methods `[<Fact; Trait("Suite", "Extended")>]`. `fast.runsettings` selects `Suite!=Extended`; `extended.runsettings` selects `Suite=Extended`. Routing never depends on a display name or module-name substring, so renaming a test does not change suite ownership.
 
@@ -22,7 +22,7 @@ Run for larger related changes and milestone validation:
 ./scripts/test-extended.fish
 ```
 
-`Nyrwvy.Extended.Tests` contains milestone end-to-end tests, evaluation corpus/harness integration, and verification integration. Its test modules carry `[<Trait("Suite", "Extended")>]`, inherited by all their cases. Apply that attribute to new extended modules as well; do not move classification into test names. Use `dotnet test ... --list-tests --settings tests/{fast,extended}.runsettings` to audit discovery without executing expensive cases. The `m2-listmap-evaluation-summary.test.fish` script test under `scripts/tests/` exercises a fish function library and therefore needs fish; everything else runs without it. The extended suite also includes the broader generated-program execution cases kept beside their fast contract tests. Run it locally with `fish scripts/test-extended.fish`; it has no GitHub workflow.
+`Nyrwvy.Extended.Tests` contains milestone end-to-end tests and verification integration. Its test modules carry `[<Trait("Suite", "Extended")>]`, inherited by all their cases. Apply that attribute to new extended modules as well; do not move classification into test names. Use `dotnet test ... --list-tests --settings tests/{fast,extended}.runsettings` to audit discovery without executing expensive cases. The extended suite also includes the broader generated-program execution cases kept beside their fast contract tests. Run it locally with `fish scripts/test-extended.fish`; it has no GitHub workflow.
 
 The wrapper runs xUnit extended first, then the Node example pipelines in `.opencode/tests-extended/`. These generate, compile, execute, and relocate example bundles, so they belong outside routine smoke verification. The move preserves their test bodies and assertions. Extra wrapper arguments go only to `dotnet test`; a failure in either stage fails the wrapper, and an xUnit failure prevents starting Node. Node keeps its default file concurrency; individual test timeouts still apply.
 
@@ -70,13 +70,13 @@ Bun is the test runtime only; npm remains the repository dependency/lockfile man
 
 ## Node transport and script contracts
 
-The fast wrapper also runs the ordinary-authoring smoke tests, authoring and evaluation transport tests, and isolated verification-script regression tests:
+The fast wrapper also runs the ordinary-authoring smoke tests, authoring transport tests, and isolated verification-script regression tests:
 
 ```shell
 node scripts/run-node-tests.mjs fast-contracts
 ```
 
-The on-demand CI workflow additionally verifies the MCP adapter. The fast evaluation transport tests cover the shared runtime behind the frozen structural and ListMap bridges. After `npm ci` and building the Release AuthoringSession, run all fast Node transport/script and MCP contracts with:
+The on-demand CI workflow additionally verifies the MCP adapter. After `npm ci` and building the Release AuthoringSession, run all fast Node transport/script and MCP contracts with:
 
 ```shell
 npm run test:node
@@ -88,11 +88,11 @@ Or select an individual boundary:
 
 ```shell
 npm test --workspace tools/nyrwvy-mcp
-node --experimental-strip-types --test .opencode/tests/nyrwvy-evaluation-transport.test.mjs
+node --experimental-strip-types --test .opencode/tests/nyrwvy-authoring-transport.test.mjs
 ```
 
-The ordinary workflow and MCP transport tests require `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` beforehand. The evaluation transport tests use small local Node children, not live models or frozen evaluation reruns. The default fast wrapper does not install or require the extra tooling dependencies; the dependency-backed adapter/typechecking checks above are explicit separate commands. The Node wrapper-contract test runs when fish is installed and otherwise reports a skip. `npm --prefix tools/nyrwvy-mcp run setup` remains a convenience command, now using the root `npm ci` lockfile before building AuthoringSession.
+The ordinary workflow and MCP transport tests require `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release` beforehand. The authoring transport tests use small local Node children, not live models. The default fast wrapper does not install or require the extra tooling dependencies; the dependency-backed adapter/typechecking checks above are explicit separate commands. The Node wrapper-contract test runs when fish is installed and otherwise reports a skip. `npm --prefix tools/nyrwvy-mcp run setup` remains a convenience command, now using the root `npm ci` lockfile before building AuthoringSession.
 
 ## live / environment-dependent
 
-Model/OpenCode controlled evaluations and environment-dependent preflight checks remain under `scripts/` and are run only when their specific validation boundary is needed. They are not folded into the ordinary xUnit suites.
+The model/OpenCode controlled-evaluation runners, their preflight scripts and their protocol/corpus tests were removed from `main` on 2026-10-18. Replay them from the [evaluation freeze tags](../docs/operations/evaluation-freeze-tags.md) or from commit `b3a958a`, the last `main` commit that contained them.

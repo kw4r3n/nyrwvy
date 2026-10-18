@@ -2,6 +2,8 @@
 
 **Status:** Complete for the accepted bounded Float64 + specialized ListMap scope
 
+> The evaluation runners, OpenCode bridges, scripts and corpora this document names were removed from `main` on 2026-10-18. Replay them from the [evaluation freeze tags](../operations/evaluation-freeze-tags.md) or from commit `b3a958a`, the last `main` commit that contained them.
+
 Milestone 2 extends Nyrwvy's agent-editing authority from the bounded M1 operations into deliberately limited structural expression authoring while preserving graph authority, stable identity, validation, review, and exact publication.
 
 Milestone 1 remains complete for its accepted bounded-operation claim. M1-D13 explicitly left arbitrary List/numeric structural editing outside that claim; M2 adds narrow structural surfaces rather than unrestricted graph mutation. Completion here means the accepted Float64 and shallow specialized ListMap claims are implemented, versioned, locally verified, and supported by frozen controlled-agent evidence. It does **not** mean arbitrary graph editing, generic recursive List recipes, lambdas/closures, or effectful callbacks are accepted.
@@ -77,7 +79,7 @@ That exact revision passed clean local verification, focused structural tests, d
 
 ### Runner boundary
 
-The versioned persistent Float64 runner remains:
+The versioned persistent Float64 runner was:
 
 ```text
 tools/Nyrwvy.AgentEval.Structural

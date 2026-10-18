@@ -2,6 +2,8 @@
 
 **Status:** Verified and frozen for recorded runs at `178f38274890a28ae61a1c70c9d598bc01492256`. See [runtime verification](../verification/m2-controlled-evaluation-condition-v1.1-preflight-20260830.md).
 
+> The evaluation runners, OpenCode bridges, scripts and corpora this document names were removed from `main` on 2026-10-18. Replay them from the [evaluation freeze tags](../operations/evaluation-freeze-tags.md) or from commit `b3a958a`, the last `main` commit that contained them.
+
 Condition v1.1 preserves every frozen semantic input from v1. Its only change is the OpenCode transport used to expose the three persistent bridge tools.
 
 ## Frozen condition
