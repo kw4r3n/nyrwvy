@@ -9,7 +9,7 @@ The [Map decision](map.md) put Set in a second slice on the same runtime structu
 
 ## Decision
 
-- **`Set<T>`** holds equatable items, which compare with `ValueEqual`, the same rule as Map keys. It is visited in insertion order and is an immutable, persistent value. A `Set` is not equatable.
+- **`Set<T>`** holds equatable items, which compare with `ValueEqual`, the same rule as Map keys. It is visited in insertion order and is an immutable, persistent value. A `Set` is not equatable (*superseded on 2026-10-18 by [Map and Set equality](map-set-equality.md)*).
 - **Operations:**
   - `SetEmpty(itemType)`, `SetFromList(items)`, `SetInsert(set, item)`, `SetContains(set, item)`, `SetRemove(set, item)`, `SetSize(set)` and `SetToList(set)`.
   - `SetFromList` keeps first occurrences in order.

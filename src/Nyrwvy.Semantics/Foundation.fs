@@ -2339,9 +2339,15 @@ module EquatableTypes =
             | TypeRef.Function _
             | TypeRef.Capability _
             | TypeRef.TypeParameter _
-            | TypeRef.BuiltinGeneric((BuiltinGenericType.Exception | BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope | BuiltinGenericType.Map | BuiltinGenericType.Set), _) -> Some(List.rev path, typeRef)
+            | TypeRef.BuiltinGeneric((BuiltinGenericType.Exception | BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> Some(List.rev path, typeRef)
             | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
                 arguments |> List.tryPick (visit ("List item" :: path))
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, arguments) ->
+                arguments |> List.tryPick (visit ("Set item" :: path))
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, arguments) ->
+                arguments
+                |> List.mapi (fun index argument -> (if index = 0 then "Map key" else "Map value"), argument)
+                |> List.tryPick (fun (step, argument) -> visit (step :: path) argument)
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) ->
                 arguments |> List.tryPick (visit ("Option value" :: path))
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, arguments) ->
@@ -2380,8 +2386,6 @@ module EquatableTypes =
                 | TypeRef.Primitive PrimitiveType.Float64 -> "Float64 is not equatable because of NaN; compare with Float64Equal"
                 | TypeRef.Function _ -> "function values are not equatable"
                 | TypeRef.BuiltinGeneric((BuiltinGenericType.Exception | BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope), _) -> "runtime handles and scopes are not equatable"
-                | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, _) -> "maps are not equatable"
-                | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, _) -> "sets are not equatable"
                 | TypeRef.Capability _ -> "capability values are not equatable"
                 | TypeRef.TypeParameter _ -> "type parameters are never equatable, because nothing constrains their type arguments, so a Set item or Map key type must be concrete"
                 | _ -> "it is not equatable"

@@ -98,6 +98,7 @@
     <Compile Include="MapTests.fs" />
     <Compile Include="SetTests.fs" />
     <Compile Include="SetIsSubsetAndMapUnionTests.fs" />
+    <Compile Include="MapSetEqualityTests.fs" />
     <Compile Include="StringSpanTests.fs" />
     <Compile Include="StringPositionOffsetTests.fs" />
     <Compile Include="StringCodePointConversionTests.fs" />

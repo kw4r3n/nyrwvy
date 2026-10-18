@@ -190,8 +190,10 @@ module MapTests =
         withSession (fun session _ ->
             let float64Map = $"""{{"kind":"mapEmpty","keyType":{primitive "float64"},"valueType":{str}}}"""
             Assert.Equal("MapKeyTypeNotEquatable", simulateCode session [] (mapOf (primitive "float64") str) float64Map)
-            let nestedMapKey = $"""{{"kind":"mapEmpty","keyType":{wordCounts},"valueType":{str}}}"""
-            Assert.Equal("MapKeyTypeNotEquatable", simulateCode session [] (mapOf wordCounts str) nestedMapKey)
+            // A map is equatable when its values are, so it can be a key only with equatable values.
+            let floatValued = mapOf str (primitive "float64")
+            let nestedMapKey = $"""{{"kind":"mapEmpty","keyType":{floatValued},"valueType":{str}}}"""
+            Assert.Equal("MapKeyTypeNotEquatable", simulateCode session [] (mapOf floatValued str) nestedMapKey)
             Assert.Equal(
                 "PureExpressionOperandTypeMismatch",
                 simulateCode session [ "m", wordCounts ] (optionOf int64Type) $"""{{"kind":"mapGet","map":{parameter "m"},"key":{{"kind":"int64Literal","value":1}}}}"""
@@ -206,7 +208,7 @@ module MapTests =
             )
             Assert.Equal(
                 "ValueEqualTypeNotEquatable",
-                simulateCode session [ "m", wordCounts ] (primitive "bool") $"""{{"kind":"valueEqual","left":{parameter "m"},"right":{parameter "m"}}}"""
+                simulateCode session [ "m", floatValued ] (primitive "bool") $"""{{"kind":"valueEqual","left":{parameter "m"},"right":{parameter "m"}}}"""
             )
             // A key of the wrong type and a duplicate key in a run value are rejected before running.
             let mistyped = $"""{{"kind":"map","keyType":{str},"valueType":{int64Type},"entries":[{{"key":{int64 1L},"value":{int64 2L}}}]}}"""
