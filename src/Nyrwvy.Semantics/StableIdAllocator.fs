@@ -15,6 +15,16 @@ module StableIdAllocator =
         | Ok id -> id
         | Error error -> invalidOp $"Generated UUIDv7 was rejected as a stable ID: {error}."
 
+    /// A deterministic ID derived from a seed: the first 16 bytes of the seed's UTF-8 SHA-256 as a
+    /// GUID. Re-simulating the same request derives the same ID. Callers make the seed unique to
+    /// the identity it names (for example transaction, node and field IDs together).
+    let derived<'Kind> (seed: string): StableId<'Kind> =
+        let hash = Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes seed)
+        let payload = Guid(ReadOnlySpan(hash, 0, 16)).ToString("D")
+        match StableId.tryCreate<'Kind> payload with
+        | Ok id -> id
+        | Error error -> invalidOp $"Derived GUID was rejected as a stable ID: {error}."
+
     let newTypeId (): TypeId = allocate<TypeTag> ()
     let newFieldId (): FieldId = allocate<FieldTag> ()
     let newVariantId (): VariantId = allocate<VariantTag> ()

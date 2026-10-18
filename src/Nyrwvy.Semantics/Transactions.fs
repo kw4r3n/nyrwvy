@@ -963,9 +963,8 @@ module Transaction =
     /// A pattern-binding ID for a field a narrowed arm must now bind, derived from the transaction,
     /// the match node and the field so that re-simulating the same request yields the same snapshot.
     let private derivedPatternBindingId (transactionId: TransactionId) (matchNodeId: GraphNodeId) (fieldId: FieldId) =
-        let text = $"{StableId.value transactionId}|{StableId.value matchNodeId}|{StableId.value fieldId}"
-        let hash = Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes text)
-        StableId.createForTesting<PatternBindingTag> (Guid(ReadOnlySpan(hash, 0, 16)).ToString("D"))
+        StableIdAllocator.derived<PatternBindingTag>
+            $"{StableId.value transactionId}|{StableId.value matchNodeId}|{StableId.value fieldId}"
 
     let private removeUnionVariant
         (transactionId: TransactionId)
