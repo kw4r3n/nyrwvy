@@ -224,6 +224,8 @@ When a schema becomes obsolete:
 4. remove support only in an explicit change with documentation;
 5. never silently reinterpret an obsolete version as the newest schema.
 
+The next removal is the planned [legacy cutover](../plans/post-m2-roadmap.md#legacy-cutover-planned).
+
 ## Testing requirements
 
 For each supported migration/version boundary, test as applicable:

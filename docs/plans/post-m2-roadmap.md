@@ -127,6 +127,33 @@ M6 remains intentionally conditional. Choose at most one workstream when a real 
 
 #109 remains deferred. Its measured CI profile says fresh F# compilation dominates, but current build time does not justify structural project changes solely for CI speed. Revisit only when its documented trigger conditions become true.
 
+## Legacy cutover (planned)
+
+**Status:** planned on 2026-10-18 (owner decision); not started. Retired and superseded constructs are removed in one breaking change instead of being kept indefinitely. The cutover waits until the other breaking changes in view are done, so that snapshots and examples are migrated once.
+
+**What it removes.**
+
+- The recipe kinds and node kinds [retired from the agent reference](../decisions/retired-authoring-kinds.md): `StringEqual`, `Int64Equal` and `MapGetOrDefault`.
+- `mode: "pin"` and legacy source-only dependency manifests ([pinned dependencies](../specs/agent-authoring-session.md#pinned-snapshot-dependencies)).
+- Reading snapshot JSON schemas below the version current at the cutover (today 9–17; see [snapshot schema versions](../specs/schema-evolution-policy.md#snapshot-schema-versions)); an older document gets a diagnostic that names the migration command.
+- Code kept only for the removed surfaces, such as `AgentFieldlessUnionVariantEvolutionWorkflow.simulate`.
+
+**Steps,** following the [deprecation policy](../specs/schema-evolution-policy.md#deprecation-policy):
+
+1. **Migration command.** `Nyrwvy.AuthoringSession migrate --snapshot <path>` rewrites a snapshot to the current schema: retired nodes become their replacements (`ValueEqual`, `OptionGetOrDefault` of `MapGet`), legacy pins become retained content, and the version is raised. It keeps every stable ID, validates the result and records the fingerprints before and after, under the rules for [migration](../specs/schema-evolution-policy.md#migration-is-not-an-ordinary-semantic-edit).
+2. **Examples.** The examples whose fixtures authenticate graph hashes or retained binaries of the old forms (the `member-*` and `offline-session-*` series and `offline-session-replay`) are frozen under an archive tag and removed from `main`, as the evaluation runners were; an example that is still useful as a current example is re-authored and its fixtures re-recorded instead.
+3. **Removal.** One change removes the retired kinds, `pin` and the old schema readers, with a decision record.
+4. **Afterwards.** Anything retired later is removed at the next cutover, so retired constructs do not accumulate.
+
+**Do first** (inferred candidates that may change persisted or runtime contracts; the list is revised when the cutover is scheduled):
+
+- typed capability failures (`FailureType`) in the C# backend;
+- declaration visibility or modules;
+- type-parameter constraints, if adopted;
+- any other change that needs a new snapshot schema version and could replace an existing form rather than add one.
+
+Snapshots outside the repository that use legacy pins or old schemas are converted with the migration command before the readers are removed.
+
 ## Verification policy
 
 Follow [Verification philosophy](../developer/verification.md) and keep evidence proportional to the new boundary.
