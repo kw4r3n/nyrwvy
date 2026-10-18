@@ -164,6 +164,9 @@ module internal WireSymbolic =
 
     let typeKindIntent declarations element = typeKindIntentIn Map.empty declarations element
 
+    /// One `{ displayName, type }` field of an existing declaration's member, with a name-resolved type.
+    let fieldIntent declarations element = typeFieldIntent Map.empty declarations element
+
     /// Whether a declaration kind names `reference` anywhere in its field types.
     let kindReferences (reference: TypeId) (kind: AgentTypeDeclarationKindIntent) =
         let rec mentions typeRef =

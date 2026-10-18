@@ -496,11 +496,12 @@ module AuthoringSessionTests =
         let path = Path.Combine(root, "workspace.json")
         try
             use session = createSession path
-            let before = status session
             let persistedBefore = File.ReadAllText(path)
             let proposal =
                 creationRequest session "value" [] int64Type (ExpressionRecipe.Int64Literal 1L)
                 |> simulateCreation session
+            // Taken with the proposal pending: a rejected line must not change the pending count either.
+            let before = status session
             let requests =
                 [ """{"id":"first","id":"second","op":"status"}"""
                   sprintf """{"id":"commit","op":"reject","op":"commit","proposalId":"%s"}""" proposal.ProposalId

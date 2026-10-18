@@ -137,7 +137,7 @@ M6 remains intentionally conditional. Choose at most one workstream when a real 
 - `mode: "pin"` and legacy source-only dependency manifests ([pinned dependencies](../specs/agent-authoring-session.md#pinned-snapshot-dependencies)).
 - Reading snapshot JSON schemas below the version current at the cutover (today 9–17; see [snapshot schema versions](../specs/schema-evolution-policy.md#snapshot-schema-versions)); an older document gets a diagnostic that names the migration command.
 - The legacy flat `runPure` value forms: `list` and `option` values with a scalar `itemKind`, and `result` values with scalar `okKind`/`errorKind` (the `runPure` paragraph of the [session contract](../specs/agent-authoring-session.md)), represented in `PureRunValue` by `StringList`/`BoolList`/`Int64List`, `StringOption`/`BoolOption`/`Int64Option` and `ResultOk`/`ResultErr` over `PureRunScalar` (`tools/Nyrwvy.AuthoringSession/PureRun.fs`). The typed run-value forms (`itemType`, `okType`/`errorType`) replace them.
-- Code kept only for the removed surfaces, such as `AgentFieldlessUnionVariantEvolutionWorkflow.simulate`.
+- Code kept only for the removed surfaces, such as `AgentUnionVariantEvolutionWorkflow.simulate` (the fieldless-only form, used only by tests).
 
 **Steps,** following the [deprecation policy](../specs/schema-evolution-policy.md#deprecation-policy):
 

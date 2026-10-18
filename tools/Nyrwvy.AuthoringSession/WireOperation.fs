@@ -6,6 +6,49 @@ open Nyrwvy.Core
 module internal WireOperation =
     open WireInput
 
+    let private callSitePlans (element: JsonElement) =
+        array "callSites" element
+        |> List.map (fun plan ->
+            match requiredString "kind" plan with
+            | "bind" ->
+                ensureFields "bind call-site plan" [ "kind"; "callNodeId"; "valueNodeId" ] [ "kind"; "callNodeId"; "valueNodeId" ] plan
+                AgentCallPlan.BindExistingValue(
+                    id<GraphNodeTag> "callNodeId" plan,
+                    id<GraphNodeTag> "valueNodeId" plan
+                )
+            | "leaveMissing" ->
+                ensureFields "leave-missing call-site plan" [ "kind"; "callNodeId" ] [ "kind"; "callNodeId" ] plan
+                AgentCallPlan.LeaveMissing(id<GraphNodeTag> "callNodeId" plan)
+            | value -> fail $"Unsupported call-site plan '{value}'.")
+
+    let private constructionPlans (element: JsonElement): ProductFieldConstructionPlan list =
+        array "constructions" element
+        |> List.map (fun plan ->
+            ensureFields "product construction plan" [ "constructNodeId"; "valueNodeId" ] [ "constructNodeId"; "valueNodeId" ] plan
+            { ConstructNodeId = id<GraphNodeTag> "constructNodeId" plan
+              ValueNodeId = id<GraphNodeTag> "valueNodeId" plan })
+
+    /// The implementation plans of `addCapabilityOperation`: one per `capabilityConstruct` node of
+    /// the Capability, naming the implementing function by `functionId` or (`...ByName`) `function`.
+    let private implementationPlans (resolveFunction: JsonElement -> FunctionId) functionKey (element: JsonElement): AgentCapabilityImplementationPlan list =
+        array "implementations" element
+        |> List.map (fun plan ->
+            ensureFields "capability implementation plan" [ "constructNodeId"; functionKey ] [ "constructNodeId"; functionKey ] plan
+            { ConstructNodeId = id<GraphNodeTag> "constructNodeId" plan
+              ImplementationFunctionId = resolveFunction plan })
+
+    let private failureType (resolve: JsonElement -> TypeRef) (item: JsonElement) =
+        match tryProperty "failureType" item with
+        | None -> None
+        | Some value when value.ValueKind = JsonValueKind.Null -> None
+        | Some value -> Some(resolve value)
+
+    let private resolveMissingArgument (element: JsonElement) =
+        ensureFields "resolve-missing-argument operation" [ "kind"; "obligationId"; "valueNodeId" ] [ "kind"; "obligationId"; "valueNodeId" ] element
+        AgentOperationIntent.ResolveMissingArgument
+            { TargetObligationId = id<ObligationTag> "obligationId" element
+              ResolutionValueNodeId = id<GraphNodeTag> "valueNodeId" element }
+
     let operation (element: JsonElement): AgentOperationIntent =
         match requiredString "kind" element with
         | "renameFunction" ->
@@ -68,42 +111,41 @@ module internal WireOperation =
                 [ "kind"; "functionId"; "displayName"; "type"; "callSites" ]
                 [ "kind"; "functionId"; "displayName"; "type"; "callSites" ]
                 element
-            let plans =
-                array "callSites" element
-                |> List.map (fun plan ->
-                    match requiredString "kind" plan with
-                    | "bind" ->
-                        ensureFields "bind call-site plan" [ "kind"; "callNodeId"; "valueNodeId" ] [ "kind"; "callNodeId"; "valueNodeId" ] plan
-                        AgentCallPlan.BindExistingValue(
-                            id<GraphNodeTag> "callNodeId" plan,
-                            id<GraphNodeTag> "valueNodeId" plan
-                        )
-                    | "leaveMissing" ->
-                        ensureFields "leave-missing call-site plan" [ "kind"; "callNodeId" ] [ "kind"; "callNodeId" ] plan
-                        AgentCallPlan.LeaveMissing(id<GraphNodeTag> "callNodeId" plan)
-                    | value -> fail $"Unsupported call-site plan '{value}'.")
             AgentOperationIntent.AddFunctionParameter
                 { TargetFunctionId = id<FunctionTag> "functionId" element
                   NewParameterDisplayName = requiredString "displayName" element
                   NewParameterType = typeRef (property "type" element)
-                  CallSitePlans = plans }
+                  CallSitePlans = callSitePlans element }
         | "addProductField" ->
             ensureFields
                 "add-product-field operation"
                 [ "kind"; "typeId"; "displayName"; "type"; "constructions" ]
                 [ "kind"; "typeId"; "displayName"; "type"; "constructions" ]
                 element
-            let plans: ProductFieldConstructionPlan list =
-                array "constructions" element
-                |> List.map (fun plan ->
-                    ensureFields "product construction plan" [ "constructNodeId"; "valueNodeId" ] [ "constructNodeId"; "valueNodeId" ] plan
-                    { ConstructNodeId = id<GraphNodeTag> "constructNodeId" plan
-                      ValueNodeId = id<GraphNodeTag> "valueNodeId" plan })
             AgentOperationIntent.AddProductField
                 { TargetTypeId = id<TypeTag> "typeId" element
                   NewFieldDisplayName = requiredString "displayName" element
                   NewFieldType = typeRef (property "type" element)
-                  ConstructionPlans = plans }
+                  ConstructionPlans = constructionPlans element }
+        | "addCapabilityOperation" ->
+            ensureFields
+                "add-capability-operation operation"
+                [ "kind"; "capabilityId"; "displayName"; "parameters"; "resultType"; "failureType"; "effectId"; "implementations" ]
+                [ "kind"; "capabilityId"; "displayName"; "parameters"; "resultType"; "effectId"; "implementations" ]
+                element
+            AgentOperationIntent.AddCapabilityOperation
+                { TargetCapabilityId = id<CapabilityTag> "capabilityId" element
+                  Operation =
+                    { DisplayName = requiredString "displayName" element
+                      Parameters =
+                        array "parameters" element
+                        |> List.map (fun parameter ->
+                            ensureFields "capability parameter" [ "displayName"; "type" ] [ "displayName"; "type" ] parameter
+                            { DisplayName = requiredString "displayName" parameter; Type = typeRef (property "type" parameter) })
+                      ResultType = typeRef (property "resultType" element)
+                      FailureType = failureType typeRef element
+                      EffectId = id<EffectTag> "effectId" element }
+                  ImplementationPlans = implementationPlans (id<FunctionTag> "functionId") "functionId" element }
         | "removeProductField" ->
             ensureFields "remove-product-field operation" [ "kind"; "fieldId" ] [ "kind"; "fieldId" ] element
             AgentOperationIntent.RemoveProductField(id<FieldTag> "fieldId" element)
@@ -128,11 +170,7 @@ module internal WireOperation =
         | "deleteCapabilityOperation" ->
             ensureFields "delete-capability-operation operation" [ "kind"; "operationId" ] [ "kind"; "operationId" ] element
             AgentOperationIntent.DeleteCapabilityOperation(id<CapabilityOperationTag> "operationId" element)
-        | "resolveMissingArgument" ->
-            ensureFields "resolve-missing-argument operation" [ "kind"; "obligationId"; "valueNodeId" ] [ "kind"; "obligationId"; "valueNodeId" ] element
-            AgentOperationIntent.ResolveMissingArgument
-                { TargetObligationId = id<ObligationTag> "obligationId" element
-                  ResolutionValueNodeId = id<GraphNodeTag> "valueNodeId" element }
+        | "resolveMissingArgument" -> resolveMissingArgument element
         | "addRequiredEffect"
         | "removeRequiredEffect" as kind ->
             ensureFields $"{kind} operation" [ "kind"; "functionId"; "effectId" ] [ "kind"; "functionId"; "effectId" ] element
@@ -143,34 +181,123 @@ module internal WireOperation =
             else AgentOperationIntent.RemoveFunctionRequiredEffect intent
         | value -> fail $"Unsupported operation kind '{value}'."
 
-    /// Name-resolved deletion and removal operations (`simulateOperationsByName`). Every name is resolved against
-    /// the current snapshot before the batch is simulated, with the same unknown/ambiguous rejection
-    /// as the other `…ByName` requests; the result is the ordinary exact-ID operation.
+    /// Type parameters an existing function already declares keep their identity when a
+    /// name-resolved type names them; other names introduce new parameters, as the exact form does.
+    let private bindDeclaredTypeParameters (fn: SemanticFunction) (typeRef: TypeRef) =
+        let declared = TypeParameters.ofFunction fn
+        let substitution =
+            TypeParameters.occurring typeRef
+            |> List.choose (fun (id, name) ->
+                declared
+                |> List.tryFind (fun (_, declaredName) -> declaredName = name)
+                |> Option.map (fun (declaredId, declaredName) -> id, TypeRef.TypeParameter(declaredId, declaredName)))
+            |> Map.ofList
+        TypeParameters.substitute substitution typeRef
+
+    /// Name-resolved operations (`simulateOperationsByName`). Every name is resolved against the
+    /// current snapshot before the batch is simulated, with the same unknown/ambiguous rejection as
+    /// the other `…ByName` requests; the result is the ordinary exact-ID operation. Node IDs
+    /// (call sites, constructions, obligations) stay exact: nodes have no names.
     let operationByName (declarations: AuthoringDeclarations) (element: JsonElement): AgentOperationIntent =
+        let resolveFunction () = WireSymbolic.resolveFunction declarations (requiredString "function" element)
+        let resolveType () = WireSymbolic.resolveType declarations (requiredString "type" element)
+        let resolveEffect () = WireSymbolic.resolveEffect declarations (requiredString "effect" element)
+        let resolveCapability () = WireSymbolic.resolveCapability declarations (requiredString "capability" element)
+        let resolveOperation () = WireSymbolic.capabilityOperation (resolveCapability ()) (requiredString "operation" element)
+        let resolveField () =
+            let owner = resolveType ()
+            match tryProperty "variant" element with
+            | Some _ -> WireSymbolic.variantField (WireSymbolic.unionVariant owner (requiredString "variant" element)) (requiredString "field" element)
+            | None -> WireSymbolic.productField owner (requiredString "field" element)
+        let rename kind keys target =
+            ensureFields $"{kind} operation" ("kind" :: "displayName" :: keys) ("kind" :: "displayName" :: keys) element
+            AgentOperationIntent.RenameDisplayName(target (), requiredString "displayName" element)
         match requiredString "kind" element with
+        | "renameFunction" -> rename "rename-function" [ "function" ] (fun () -> AgentRenameTarget.Function (resolveFunction ()).Id)
+        | "renameType" -> rename "rename-type" [ "type" ] (fun () -> AgentRenameTarget.Type (resolveType ()).Id)
+        | "renameField" ->
+            ensureFields "rename-field operation" [ "kind"; "type"; "variant"; "field"; "displayName" ] [ "kind"; "type"; "field"; "displayName" ] element
+            AgentOperationIntent.RenameDisplayName(AgentRenameTarget.Field (resolveField ()).Id, requiredString "displayName" element)
+        | "renameVariant" ->
+            rename "rename-variant" [ "type"; "variant" ] (fun () ->
+                AgentRenameTarget.Variant (WireSymbolic.unionVariant (resolveType ()) (requiredString "variant" element)).Id)
+        | "renameParameter" ->
+            rename "rename-parameter" [ "function"; "parameter" ] (fun () ->
+                AgentRenameTarget.Parameter (WireSymbolic.functionParameter (resolveFunction ()) (requiredString "parameter" element)).Id)
+        | "renameEffect" -> rename "rename-effect" [ "effect" ] (fun () -> AgentRenameTarget.Effect (resolveEffect ()).Id)
+        | "renameCapability" -> rename "rename-capability" [ "capability" ] (fun () -> AgentRenameTarget.Capability (resolveCapability ()).Id)
+        | "renameCapabilityOperation" ->
+            rename "rename-capability-operation" [ "capability"; "operation" ] (fun () -> AgentRenameTarget.CapabilityOperation (resolveOperation ()).Id)
+        | "renameCapabilityParameter" ->
+            rename "rename-capability-parameter" [ "capability"; "operation"; "parameter" ] (fun () ->
+                AgentRenameTarget.CapabilityParameter (WireSymbolic.capabilityParameter (resolveOperation ()) (requiredString "parameter" element)).Id)
+        | "addFunctionParameter" ->
+            ensureFields "add-function-parameter operation" [ "kind"; "function"; "displayName"; "type"; "callSites" ] [ "kind"; "function"; "displayName"; "type"; "callSites" ] element
+            let owner = resolveFunction ()
+            AgentOperationIntent.AddFunctionParameter
+                { TargetFunctionId = owner.Id
+                  NewParameterDisplayName = requiredString "displayName" element
+                  NewParameterType = WireSymbolic.typeRef declarations (property "type" element) |> bindDeclaredTypeParameters owner
+                  CallSitePlans = callSitePlans element }
+        | "addProductField" ->
+            // `type` selects the owning Product, so the new field's type is `fieldType`.
+            ensureFields "add-product-field operation" [ "kind"; "type"; "displayName"; "fieldType"; "constructions" ] [ "kind"; "type"; "displayName"; "fieldType"; "constructions" ] element
+            AgentOperationIntent.AddProductField
+                { TargetTypeId = (resolveType ()).Id
+                  NewFieldDisplayName = requiredString "displayName" element
+                  NewFieldType = WireSymbolic.typeRef declarations (property "fieldType" element)
+                  ConstructionPlans = constructionPlans element }
+        | "addCapabilityOperation" ->
+            ensureFields
+                "add-capability-operation operation"
+                [ "kind"; "capability"; "displayName"; "parameters"; "resultType"; "failureType"; "effect"; "implementations" ]
+                [ "kind"; "capability"; "displayName"; "parameters"; "resultType"; "effect"; "implementations" ]
+                element
+            let typeRef = WireSymbolic.typeRef declarations
+            AgentOperationIntent.AddCapabilityOperation
+                { TargetCapabilityId = (resolveCapability ()).Id
+                  Operation =
+                    { DisplayName = requiredString "displayName" element
+                      Parameters =
+                        array "parameters" element
+                        |> List.map (fun parameter ->
+                            ensureFields "capability parameter" [ "displayName"; "type" ] [ "displayName"; "type" ] parameter
+                            { DisplayName = requiredString "displayName" parameter; Type = typeRef (property "type" parameter) })
+                      ResultType = typeRef (property "resultType" element)
+                      FailureType = failureType typeRef element
+                      EffectId = (resolveEffect ()).Id }
+                  ImplementationPlans =
+                    implementationPlans (fun plan -> (WireSymbolic.resolveFunctionAt declarations "function" plan).Id) "function" element }
+        | "removeProductField" ->
+            ensureFields "remove-product-field operation" [ "kind"; "type"; "field" ] [ "kind"; "type"; "field" ] element
+            AgentOperationIntent.RemoveProductField (WireSymbolic.productField (resolveType ()) (requiredString "field" element)).Id
+        | "resolveMissingArgument" -> resolveMissingArgument element
+        | "addRequiredEffect"
+        | "removeRequiredEffect" as kind ->
+            ensureFields $"{kind} operation" [ "kind"; "function"; "effect" ] [ "kind"; "function"; "effect" ] element
+            let intent: AgentFunctionRequiredEffectIntent = { TargetFunctionId = (resolveFunction ()).Id; EffectId = (resolveEffect ()).Id }
+            if kind = "addRequiredEffect" then AgentOperationIntent.AddFunctionRequiredEffect intent
+            else AgentOperationIntent.RemoveFunctionRequiredEffect intent
         | "deleteFunction" ->
             ensureFields "delete-function operation" [ "kind"; "function" ] [ "kind"; "function" ] element
-            AgentOperationIntent.DeleteFunction((WireSymbolic.resolveFunction declarations (requiredString "function" element)).Id)
+            AgentOperationIntent.DeleteFunction (resolveFunction ()).Id
         | "deleteType" ->
             ensureFields "delete-type operation" [ "kind"; "type" ] [ "kind"; "type" ] element
-            AgentOperationIntent.DeleteType((WireSymbolic.resolveType declarations (requiredString "type" element)).Id)
+            AgentOperationIntent.DeleteType (resolveType ()).Id
         | "deleteEffect" ->
             ensureFields "delete-effect operation" [ "kind"; "effect" ] [ "kind"; "effect" ] element
-            AgentOperationIntent.DeleteEffect((WireSymbolic.resolveEffect declarations (requiredString "effect" element)).Id)
+            AgentOperationIntent.DeleteEffect (resolveEffect ()).Id
         | "deleteCapability" ->
             ensureFields "delete-capability operation" [ "kind"; "capability" ] [ "kind"; "capability" ] element
-            AgentOperationIntent.DeleteCapability((WireSymbolic.resolveCapability declarations (requiredString "capability" element)).Id)
+            AgentOperationIntent.DeleteCapability (resolveCapability ()).Id
         | "deleteCapabilityOperation" ->
             ensureFields "delete-capability-operation operation" [ "kind"; "capability"; "operation" ] [ "kind"; "capability"; "operation" ] element
-            let owner = WireSymbolic.resolveCapability declarations (requiredString "capability" element)
-            AgentOperationIntent.DeleteCapabilityOperation((WireSymbolic.capabilityOperation owner (requiredString "operation" element)).Id)
+            AgentOperationIntent.DeleteCapabilityOperation (resolveOperation ()).Id
         | "removeFunctionParameter" ->
             ensureFields "remove-function-parameter operation" [ "kind"; "function"; "parameter" ] [ "kind"; "function"; "parameter" ] element
-            let owner = WireSymbolic.resolveFunction declarations (requiredString "function" element)
-            AgentOperationIntent.RemoveFunctionParameter((WireSymbolic.functionParameter owner (requiredString "parameter" element)).Id)
+            AgentOperationIntent.RemoveFunctionParameter (WireSymbolic.functionParameter (resolveFunction ()) (requiredString "parameter" element)).Id
         | "removeUnionVariant" ->
             ensureFields "remove-union-variant operation" [ "kind"; "type"; "variant" ] [ "kind"; "type"; "variant" ] element
-            let owner = WireSymbolic.resolveType declarations (requiredString "type" element)
-            AgentOperationIntent.RemoveUnionVariant((WireSymbolic.unionVariant owner (requiredString "variant" element)).Id)
+            AgentOperationIntent.RemoveUnionVariant (WireSymbolic.unionVariant (resolveType ()) (requiredString "variant" element)).Id
         | value ->
-            fail $"Unsupported name-resolved operation kind '{value}'. simulateOperationsByName accepts deleteFunction, deleteType, deleteEffect, deleteCapability, deleteCapabilityOperation, removeFunctionParameter and removeUnionVariant; use simulateOperations with exact IDs for the others."
+            fail $"Unsupported name-resolved operation kind '{value}'. simulateOperationsByName accepts the rename operations (renameFunction, renameType, renameField, renameVariant, renameParameter, renameEffect, renameCapability, renameCapabilityOperation, renameCapabilityParameter), addFunctionParameter, addProductField, addCapabilityOperation, addRequiredEffect, removeRequiredEffect, resolveMissingArgument, removeProductField, removeFunctionParameter, removeUnionVariant, deleteFunction, deleteType, deleteEffect, deleteCapability and deleteCapabilityOperation, each naming its targets by display name."

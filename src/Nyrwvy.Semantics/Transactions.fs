@@ -45,6 +45,19 @@ type FunctionRequiredEffectRequest =
     { TargetFunctionId: FunctionId
       EffectId: EffectId }
 
+/// The program implementation one `CapabilityConstruct` node gives a newly added operation.
+type CapabilityImplementationPlan =
+    { ConstructNodeId: GraphNodeId
+      ImplementationFunctionId: FunctionId }
+
+/// Adds one operation (with system-owned operation and parameter IDs) to an existing Capability.
+/// Every `CapabilityConstruct` of that Capability must plan an implementation for it, so the
+/// implementation set stays complete in one publication.
+type AddCapabilityOperationRequest =
+    { TargetCapabilityId: CapabilityId
+      Operation: SemanticCapabilityOperation
+      ImplementationPlans: CapabilityImplementationPlan list }
+
 type SemanticOperation =
     | RenameDisplayName of RenameTarget * string
     | AddFunctionParameter of AddFunctionParameterRequest
@@ -55,6 +68,7 @@ type SemanticOperation =
     | DeleteEffect of EffectId
     | DeleteCapability of CapabilityId
     | DeleteCapabilityOperation of CapabilityOperationId
+    | AddCapabilityOperation of AddCapabilityOperationRequest
     | ResolveMissingArgument of ResolveMissingArgumentRequest
     | AddFunctionRequiredEffect of FunctionRequiredEffectRequest
     | RemoveFunctionRequiredEffect of FunctionRequiredEffectRequest
@@ -132,6 +146,18 @@ type CapabilityOperationRemoved =
       DisplayName: string
       RemovedParameterIds: CapabilityParameterId list }
 
+/// One operation added to an existing Capability; its operation and parameter IDs are new.
+type CapabilityOperationAdded =
+    { OwnerCapabilityId: CapabilityId
+      Operation: SemanticCapabilityOperation }
+
+/// One `CapabilityConstruct` node that received an implementation for an added operation.
+type CapabilityImplementationBound =
+    { OwnerFunctionId: FunctionId
+      ConstructNodeId: GraphNodeId
+      OperationId: CapabilityOperationId
+      ImplementationFunctionId: FunctionId }
+
 type TypeRemoved =
     { TypeId: TypeId
       DisplayName: string
@@ -190,6 +216,8 @@ type SemanticDiff =
       EffectsRemoved: EffectRemoved list
       CapabilitiesRemoved: CapabilityRemoved list
       CapabilityOperationsRemoved: CapabilityOperationRemoved list
+      CapabilityOperationsAdded: CapabilityOperationAdded list
+      CapabilityImplementationsBound: CapabilityImplementationBound list
       ArgumentsAttached: ArgumentAttached list
       ObligationsCreated: MissingArgumentCreated list
       ObligationsResolved: MissingArgumentResolved list
@@ -222,6 +250,8 @@ type private ChangeAccumulator =
       EffectsRemoved: EffectRemoved list
       CapabilitiesRemoved: CapabilityRemoved list
       CapabilityOperationsRemoved: CapabilityOperationRemoved list
+      CapabilityOperationsAdded: CapabilityOperationAdded list
+      CapabilityImplementationsBound: CapabilityImplementationBound list
       ArgumentsAttached: ArgumentAttached list
       ObligationsCreated: MissingArgumentCreated list
       ObligationsResolved: MissingArgumentResolved list
@@ -244,6 +274,8 @@ module Transaction =
           EffectsRemoved = []
           CapabilitiesRemoved = []
           CapabilityOperationsRemoved = []
+          CapabilityOperationsAdded = []
+          CapabilityImplementationsBound = []
           ArgumentsAttached = []
           ObligationsCreated = []
           ObligationsResolved = []
@@ -727,8 +759,13 @@ module Transaction =
                 |> snd
                 |> List.rev
             match introduced with
-            | issue :: _ -> Error(code, $"Repair all references before deleting this {name}: {issue.Code}: {issue.Message}")
             | [] -> Ok candidate
+            | issues ->
+                // Every blocking issue is listed, so one rejection shows the whole repair; the
+                // `references` query lists the same sites before the deletion is attempted.
+                let listed = issues |> List.map (fun issue -> $"{issue.Code}: {issue.Message}") |> String.concat " ; "
+                let count = if issues.Length = 1 then "" else $" ({issues.Length} blocking issues)"
+                Error(code, $"Repair all references before deleting this {name}{count}: {listed}")
 
     let private deleteType
         (typeId: TypeId)
@@ -809,6 +846,8 @@ module Transaction =
                 |> Option.map (fun operation -> capability, operation))
         match target with
         | None -> Error("TargetNotFound", "The capability operation to delete was not found.")
+        | Some _ when changes.CapabilityOperationsAdded |> List.exists (fun item -> item.Operation.Id = operationId) ->
+            Error("CapabilityOperationCreatedInTransaction", "Delete a newly added operation in a separate reviewed change.")
         | Some(owner, operation) ->
             let candidate =
                 { snapshot with
@@ -824,6 +863,104 @@ module Transaction =
                       DisplayName = operation.DisplayName
                       RemovedParameterIds = operation.Parameters |> List.map (fun item -> item.Id) |> List.sortBy StableId.value }
                 safe, { changes with CapabilityOperationsRemoved = removed :: changes.CapabilityOperationsRemoved })
+
+    let private addCapabilityOperation
+        (request: AddCapabilityOperationRequest)
+        (snapshot: Snapshot)
+        (changes: ChangeAccumulator)
+        : Result<Snapshot * ChangeAccumulator, string * string> =
+        let operation = request.Operation
+        match snapshot.Capabilities |> List.tryFind (fun item -> item.Id = request.TargetCapabilityId) with
+        | None -> Error("TargetNotFound", "The target capability was not found.")
+        | Some target ->
+            let existingOperationIds =
+                snapshot.Capabilities |> List.collect (fun item -> item.Operations |> List.map (fun op -> op.Id)) |> Set.ofList
+            let existingParameterIds =
+                snapshot.Capabilities
+                |> List.collect (fun item -> item.Operations |> List.collect (fun op -> op.Parameters |> List.map (fun p -> p.Id)))
+                |> Set.ofList
+            let parameterNames = operation.Parameters |> List.map (fun item -> item.DisplayName)
+            // Every program implementation of the Capability, with its owning function.
+            let affected =
+                snapshot.Functions
+                |> List.collect (fun owner ->
+                    ValueGraph.collectNodes owner.Body
+                    |> List.choose (fun node ->
+                        match node.Kind with
+                        | SemanticNodeKind.CapabilityConstruct(capabilityId, _) when capabilityId = target.Id -> Some(owner, node.Id)
+                        | _ -> None))
+            let affectedIds = affected |> List.map snd |> Set.ofList
+            let plannedIds = request.ImplementationPlans |> List.map (fun plan -> plan.ConstructNodeId)
+            let plansById =
+                request.ImplementationPlans
+                |> List.map (fun plan -> plan.ConstructNodeId, plan.ImplementationFunctionId)
+                |> Map.ofList
+            if String.IsNullOrWhiteSpace operation.DisplayName then
+                Error("InvalidDisplayName", "The new operation display name cannot be blank.")
+            elif target.Operations |> List.exists (fun item -> item.DisplayName = operation.DisplayName) then
+                Error("DuplicateCapabilityOperationDisplayName", $"Capability '{target.DisplayName}' already has an operation named '{operation.DisplayName}'; operation display names must be unique within their Capability.")
+            elif parameterNames |> List.exists String.IsNullOrWhiteSpace then
+                Error("InvalidDisplayName", "Operation parameter display names cannot be blank.")
+            elif List.distinct parameterNames <> parameterNames then
+                Error("DuplicateCapabilityParameterDisplayName", "Operation parameter display names must be distinct within their operation.")
+            elif Set.contains operation.Id existingOperationIds
+                 || operation.Parameters |> List.exists (fun item -> Set.contains item.Id existingParameterIds)
+                 || (operation.Parameters |> List.map (fun item -> item.Id) |> List.distinct).Length <> operation.Parameters.Length then
+                Error("DuplicateCapabilityOperationId", "The new operation or parameter ID already exists.")
+            elif snapshot.Effects |> List.exists (fun effect -> effect.Id = operation.EffectId) |> not then
+                Error("EffectNotFound", $"Effect '{StableId.value operation.EffectId}' was not found.")
+            elif plannedIds.Length <> affectedIds.Count || Set.ofList plannedIds <> affectedIds then
+                let constructs =
+                    affected
+                    |> List.map (fun (owner, nodeId) -> $"'{StableId.value nodeId}' in function {describeFunction snapshot owner.Id}")
+                    |> String.concat ", "
+                let listed = if List.isEmpty affected then "there are none" else constructs
+                Error(
+                    "CapabilityImplementationPlanMismatch",
+                    $"Every program implementation (capabilityConstruct) of Capability '{target.DisplayName}' requires exactly one implementation plan for the new operation; the constructions are: {listed}."
+                )
+            else
+                let updatedCapabilities =
+                    snapshot.Capabilities
+                    |> List.map (fun item ->
+                        if item.Id = target.Id then { item with Operations = item.Operations @ [ operation ] } else item)
+                let updatedFunctions =
+                    snapshot.Functions
+                    |> List.map (fun owner ->
+                        let mapNode (node: SemanticNode) =
+                            match node.Kind, Map.tryFind node.Id plansById with
+                            | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations), Some functionId ->
+                                { node with Kind = SemanticNodeKind.CapabilityConstruct(capabilityId, implementations @ [ operation.Id, functionId ]) }
+                            | _ -> node
+                        { owner with Body = ValueGraph.mapNodes mapNode owner.Body })
+                let candidate = { snapshot with Capabilities = updatedCapabilities; Functions = updatedFunctions }
+                // The planned implementations are checked here with the same contract the validator
+                // applies, so the rejection names the operation's own code instead of a whole-snapshot one.
+                let invalidPlan =
+                    affected
+                    |> List.tryPick (fun (owner, nodeId) ->
+                        let functionId = Map.find nodeId plansById
+                        CapabilityImplementations.validate candidate target.Id [ operation.Id, functionId ]
+                        |> List.filter (fun (code, _) -> code <> "CapabilityImplementationSetMismatch")
+                        |> List.tryHead
+                        |> Option.map (fun (code, message) -> code, $"Capability construction '{StableId.value nodeId}' in function {describeFunction snapshot owner.Id}: {message}"))
+                match invalidPlan with
+                | Some error -> Error error
+                | None ->
+                    let added: CapabilityOperationAdded = { OwnerCapabilityId = target.Id; Operation = operation }
+                    let bound =
+                        affected
+                        |> List.map (fun (owner, nodeId) ->
+                            { OwnerFunctionId = owner.Id
+                              ConstructNodeId = nodeId
+                              OperationId = operation.Id
+                              ImplementationFunctionId = Map.find nodeId plansById })
+                    Ok(
+                        candidate,
+                        { changes with
+                            CapabilityOperationsAdded = added :: changes.CapabilityOperationsAdded
+                            CapabilityImplementationsBound = bound @ changes.CapabilityImplementationsBound }
+                    )
 
     let private deleteFunction
         (functionId: FunctionId)
@@ -1228,6 +1365,7 @@ module Transaction =
         | DeleteEffect effectId -> deleteEffect effectId snapshot changes
         | DeleteCapability capabilityId -> deleteCapability capabilityId snapshot changes
         | DeleteCapabilityOperation operationId -> deleteCapabilityOperation operationId snapshot changes
+        | AddCapabilityOperation request -> addCapabilityOperation request snapshot changes
         | ResolveMissingArgument request -> resolveMissingArgument transactionId request snapshot changes
         | AddFunctionRequiredEffect request -> changeFunctionRequiredEffect true request snapshot changes
         | RemoveFunctionRequiredEffect request -> changeFunctionRequiredEffect false request snapshot changes
@@ -1422,6 +1560,11 @@ module Transaction =
             EffectsRemoved = changes.EffectsRemoved |> List.sortBy (fun item -> StableId.value item.EffectId)
             CapabilitiesRemoved = changes.CapabilitiesRemoved |> List.sortBy (fun item -> StableId.value item.CapabilityId)
             CapabilityOperationsRemoved = changes.CapabilityOperationsRemoved |> List.sortBy (fun item -> StableId.value item.OperationId)
+            CapabilityOperationsAdded =
+                changes.CapabilityOperationsAdded |> List.sortBy (fun item -> StableId.value item.OwnerCapabilityId, StableId.value item.Operation.Id)
+            CapabilityImplementationsBound =
+                changes.CapabilityImplementationsBound
+                |> List.sortBy (fun item -> StableId.value item.OwnerFunctionId, StableId.value item.ConstructNodeId, StableId.value item.OperationId)
             ParametersRemoved =
                 changes.ParametersRemoved
                 |> List.sortBy (fun item -> StableId.value item.OwnerFunctionId, StableId.value item.RemovedParameterId)
@@ -1517,6 +1660,14 @@ module Transaction =
                           EffectsRemoved = changes.EffectsRemoved
                           CapabilitiesRemoved = changes.CapabilitiesRemoved
                           CapabilityOperationsRemoved = changes.CapabilityOperationsRemoved
+                          CapabilityOperationsAdded =
+                              changes.CapabilityOperationsAdded
+                              |> List.filter (fun item ->
+                                  proposed.Capabilities |> List.exists (fun capability -> capability.Id = item.OwnerCapabilityId))
+                          CapabilityImplementationsBound =
+                              changes.CapabilityImplementationsBound
+                              |> List.filter (fun item ->
+                                  proposed.Functions |> List.exists (fun fn -> fn.Id = item.OwnerFunctionId))
                           ArgumentsAttached = changes.ArgumentsAttached
                           ObligationsCreated = changes.ObligationsCreated
                           ObligationsResolved = changes.ObligationsResolved
@@ -1535,6 +1686,8 @@ module Transaction =
                         || not (List.isEmpty diff.EffectsRemoved)
                         || not (List.isEmpty diff.CapabilitiesRemoved)
                         || not (List.isEmpty diff.CapabilityOperationsRemoved)
+                        || not (List.isEmpty diff.CapabilityOperationsAdded)
+                        || not (List.isEmpty diff.CapabilityImplementationsBound)
                         || not (List.isEmpty diff.ArgumentsAttached)
                         || not (List.isEmpty diff.ObligationsCreated)
                         || not (List.isEmpty diff.ObligationsResolved)

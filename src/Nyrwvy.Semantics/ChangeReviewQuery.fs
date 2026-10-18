@@ -74,8 +74,11 @@ module ChangeReviewQuery =
                |> List.collect (fun item ->
                    item.AffectedConstructNodeIds |> List.choose (fun nodeId -> Map.tryFind nodeId ownersByNode)))
 
+        let changedImplementationOwners =
+            simulation.Diff.CapabilityImplementationsBound |> List.map (fun item -> item.OwnerFunctionId)
+
         let present = simulation.ProposedSnapshot.Functions |> List.map (fun fn -> fn.Id) |> Set.ofList
-        renamed @ parameterOwners @ effectOwners @ changedCallOwners @ changedProductOwners
+        renamed @ parameterOwners @ effectOwners @ changedCallOwners @ changedProductOwners @ changedImplementationOwners
         |> List.distinct
         |> List.filter (fun id -> Set.contains id present)
         |> List.sortBy StableId.value

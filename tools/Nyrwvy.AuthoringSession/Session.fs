@@ -35,7 +35,22 @@ type AuthoringSessionError =
 type AuthoringSessionStatus =
     { SnapshotId: SnapshotId
       SnapshotFingerprint: SnapshotFingerprint
-      SemanticFingerprint: SemanticFingerprint }
+      SemanticFingerprint: SemanticFingerprint
+      /// Proposals simulated in this session and neither committed nor rejected yet.
+      PendingProposalCount: int }
+
+/// One pending proposal as the `proposals` listing shows it: enough to tell proposals apart and
+/// to decide which to read, commit or reject, without the review itself.
+type AuthoringPendingProposalSummary =
+    { ProposalId: string
+      /// The review kind, as the proposal's `review.kind` names it.
+      Kind: string
+      BaseSnapshotId: SnapshotId
+      /// Whether the proposal was simulated against the current committed snapshot; a stale one is
+      /// rejected at commit.
+      BaseIsCurrent: bool
+      /// One line naming the requested change and its targets by display name.
+      Summary: string }
 
 type AuthoringDependencyMember =
     { SnapshotId: string
@@ -123,7 +138,7 @@ type AuthoringProposalReview =
     | CapabilityOperationSignatureMigration of AgentCapabilityOperationSignatureMigrationReview
     | CreateType of AgentTypeDeclarationReview
     | CreateTypeGroup of AgentTypeDeclarationGroupReview
-    | FieldlessUnionVariantEvolution of AgentFieldlessUnionVariantEvolutionReview
+    | UnionVariantEvolution of AgentUnionVariantEvolutionReview
     | CreateEffect of AgentEffectDeclarationReview
     | CreateCapability of AgentCapabilityDeclarationReview
 
@@ -169,7 +184,7 @@ type private PendingProposal =
     | CapabilityOperationSignatureMigration of AgentCapabilityOperationSignatureMigrationProposal
     | CreateType of AgentTypeDeclarationProposal
     | CreateTypeGroup of AgentTypeDeclarationGroupProposal
-    | FieldlessUnionVariantEvolution of AgentFieldlessUnionVariantEvolutionProposal
+    | UnionVariantEvolution of AgentUnionVariantEvolutionProposal
     | CreateEffect of AgentEffectDeclarationProposal
     | CreateCapability of AgentCapabilityDeclarationProposal
 
@@ -187,7 +202,7 @@ module private PendingProposal =
         | PendingProposal.ProductFieldTypeMigration proposal -> Some(AgentProductFieldTypeMigrationProposal.proposedSnapshot proposal)
         | PendingProposal.CreateType proposal -> Some(AgentTypeDeclarationProposal.proposedSnapshot proposal)
         | PendingProposal.CreateTypeGroup proposal -> Some(AgentTypeDeclarationGroupProposal.proposedSnapshot proposal)
-        | PendingProposal.FieldlessUnionVariantEvolution proposal -> Some(AgentFieldlessUnionVariantEvolutionProposal.proposedSnapshot proposal)
+        | PendingProposal.UnionVariantEvolution proposal -> Some(AgentUnionVariantEvolutionProposal.proposedSnapshot proposal)
         | PendingProposal.CreateEffect proposal -> Some(AgentEffectDeclarationProposal.proposedSnapshot proposal)
         | PendingProposal.CreateCapability proposal -> Some(AgentCapabilityDeclarationProposal.proposedSnapshot proposal)
 
@@ -210,13 +225,111 @@ module private ProposalReview =
             item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), []
         | AuthoringProposalReview.ProductFieldTypeMigration item ->
             item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), [ item.ResultingChange.FieldChange.TypeId ]
-        | AuthoringProposalReview.FieldlessUnionVariantEvolution item ->
+        | AuthoringProposalReview.UnionVariantEvolution item ->
             item.RepairedFunctionIds, [ item.UpdatedType.Id ]
         | AuthoringProposalReview.CreateFunction _
         | AuthoringProposalReview.CreateType _
         | AuthoringProposalReview.CreateTypeGroup _
         | AuthoringProposalReview.CreateEffect _
         | AuthoringProposalReview.CreateCapability _ -> [], []
+
+/// One-line summaries of pending proposals for the `proposals` listing. Names come from the
+/// snapshot the proposal was simulated against where the review carries them, otherwise from the
+/// current snapshot with the exact ID as the fallback.
+module private ProposalSummary =
+    let private quote (name: string) = $"'{name}'"
+
+    let private named (items: (StableId<'Kind> * string) list) (id: StableId<'Kind>) =
+        items |> List.tryFind (fun (candidate, _) -> candidate = id) |> Option.map (snd >> quote) |> Option.defaultValue (StableId.value id)
+
+    let describe (declarations: AuthoringDeclarations) (review: AuthoringProposalReview) =
+        let functions = declarations.Functions |> List.map (fun item -> item.Id, item.DisplayName)
+        let types = declarations.Types |> List.map (fun item -> item.Id, item.DisplayName)
+        let effects = declarations.Effects |> List.map (fun item -> item.Id, item.DisplayName)
+        let capabilities = declarations.Capabilities |> List.map (fun item -> item.Id, item.DisplayName)
+        let operations = declarations.Capabilities |> List.collect (fun item -> item.Operations |> List.map (fun op -> op.Id, op.DisplayName))
+        let capabilityParameters =
+            declarations.Capabilities |> List.collect (fun item -> item.Operations |> List.collect (fun op -> op.Parameters |> List.map (fun p -> p.Id, p.DisplayName)))
+        let parameters = declarations.Functions |> List.collect (fun item -> item.Parameters |> List.map (fun p -> p.Id, p.DisplayName))
+        let variants =
+            declarations.Types |> List.collect (fun item ->
+                match item.Kind with
+                | SemanticTypeKind.Union variants -> variants |> List.map (fun v -> v.Id, v.DisplayName)
+                | SemanticTypeKind.Product _ -> [])
+        let fields =
+            declarations.Types |> List.collect (fun item ->
+                match item.Kind with
+                | SemanticTypeKind.Product fields -> fields |> List.map (fun f -> f.Id, f.DisplayName)
+                | SemanticTypeKind.Union variants -> variants |> List.collect (fun v -> v.Fields |> List.map (fun f -> f.Id, f.DisplayName)))
+        let fn = named functions
+        let ty = named types
+        let rename target =
+            match target with
+            | AgentRenameTarget.Type id -> "renameType " + ty id
+            | AgentRenameTarget.Function id -> "renameFunction " + fn id
+            | AgentRenameTarget.Field id -> "renameField " + named fields id
+            | AgentRenameTarget.Variant id -> "renameVariant " + named variants id
+            | AgentRenameTarget.Parameter id -> "renameParameter " + named parameters id
+            | AgentRenameTarget.Effect id -> "renameEffect " + named effects id
+            | AgentRenameTarget.Capability id -> "renameCapability " + named capabilities id
+            | AgentRenameTarget.CapabilityOperation id -> "renameCapabilityOperation " + named operations id
+            | AgentRenameTarget.CapabilityParameter id -> "renameCapabilityParameter " + named capabilityParameters id
+        let operation intent =
+            match intent with
+            | AgentOperationIntent.RenameDisplayName(target, newName) -> $"{rename target} to {quote newName}"
+            | AgentOperationIntent.AddFunctionParameter item -> $"addFunctionParameter {quote item.NewParameterDisplayName} to {fn item.TargetFunctionId}"
+            | AgentOperationIntent.AddProductField item -> $"addProductField {quote item.NewFieldDisplayName} to {ty item.TargetTypeId}"
+            | AgentOperationIntent.RemoveProductField id -> "removeProductField " + named fields id
+            | AgentOperationIntent.DeleteFunction id -> "deleteFunction " + fn id
+            | AgentOperationIntent.DeleteType id -> "deleteType " + ty id
+            | AgentOperationIntent.DeleteEffect id -> "deleteEffect " + named effects id
+            | AgentOperationIntent.DeleteCapability id -> "deleteCapability " + named capabilities id
+            | AgentOperationIntent.DeleteCapabilityOperation id -> "deleteCapabilityOperation " + named operations id
+            | AgentOperationIntent.AddCapabilityOperation item -> $"addCapabilityOperation {quote item.Operation.DisplayName} to {named capabilities item.TargetCapabilityId}"
+            | AgentOperationIntent.ResolveMissingArgument item -> $"resolveMissingArgument {StableId.value item.TargetObligationId}"
+            | AgentOperationIntent.AddFunctionRequiredEffect item -> $"addRequiredEffect {named effects item.EffectId} on {fn item.TargetFunctionId}"
+            | AgentOperationIntent.RemoveFunctionRequiredEffect item -> $"removeRequiredEffect {named effects item.EffectId} from {fn item.TargetFunctionId}"
+            | AgentOperationIntent.RemoveFunctionParameter id -> "removeFunctionParameter " + named parameters id
+            | AgentOperationIntent.RemoveUnionVariant id -> "removeUnionVariant " + named variants id
+        match review with
+        | AuthoringProposalReview.DependencyUpgrade item ->
+            $"dependencyUpgrade: {item.Upgrade.Selected.Length} selected, {item.Repair.ChangedFunctions.Length} functions and {item.Repair.ChangedTypes.Length} types repaired"
+        | AuthoringProposalReview.Operations item -> item.RequestedOperations |> List.map operation |> String.concat "; "
+        | AuthoringProposalReview.ReplaceBody item -> $"replaceBody of {quote item.ProposedFocus.Function.DisplayName}"
+        | AuthoringProposalReview.ReplaceTarget item ->
+            $"replaceTarget {StableId.value item.RequestedChange.TargetNodeId} in {quote item.ProposedFocus.Function.DisplayName}"
+        | AuthoringProposalReview.CreateFunction item -> $"createFunction {quote item.CreatedFunction.DisplayName}"
+        | AuthoringProposalReview.ParameterTypeMigration item ->
+            $"parameterTypeMigration of {fn item.ResultingChange.ParameterChange.FunctionId} parameter {named parameters item.ResultingChange.ParameterChange.ParameterId}"
+        | AuthoringProposalReview.ResultTypeMigration item -> $"resultTypeMigration of {fn item.ResultingChange.ResultChange.FunctionId}"
+        | AuthoringProposalReview.ProductFieldTypeMigration item ->
+            $"productFieldTypeMigration of {ty item.ResultingChange.FieldChange.TypeId} field {named fields item.ResultingChange.FieldChange.FieldId}"
+        | AuthoringProposalReview.CapabilityOperationSignatureMigration item ->
+            $"capabilityOperationSignatureMigration of {named capabilities item.ResultingChange.CapabilityId} operation {quote item.ResultingChange.NewOperation.DisplayName}"
+        | AuthoringProposalReview.CreateType item -> $"createType {quote item.CreatedType.DisplayName}"
+        | AuthoringProposalReview.CreateTypeGroup item ->
+            "createTypes " + (item.CreatedTypes |> List.map (fun t -> quote t.DisplayName) |> String.concat ", ")
+        | AuthoringProposalReview.UnionVariantEvolution item ->
+            $"addUnionVariantLike {quote item.AddedVariant.DisplayName} on {quote item.UpdatedType.DisplayName} ({item.RepairedMatchCount} matches repaired)"
+        | AuthoringProposalReview.CreateEffect item -> $"createEffect {quote item.CreatedEffect.DisplayName}"
+        | AuthoringProposalReview.CreateCapability item -> $"createCapability {quote item.CreatedCapability.DisplayName}"
+
+    let kind (review: AuthoringProposalReview) =
+        match review with
+        | AuthoringProposalReview.DependencyUpgrade _ -> "dependencyUpgrade"
+        | AuthoringProposalReview.Operations _ -> "operations"
+        | AuthoringProposalReview.ReplaceBody _ -> "replaceBody"
+        | AuthoringProposalReview.ReplaceTarget _ -> "replaceTarget"
+        | AuthoringProposalReview.CreateFunction _ -> "createFunction"
+        | AuthoringProposalReview.ParameterTypeMigration _ -> "parameterTypeMigration"
+        | AuthoringProposalReview.ResultTypeMigration _ -> "resultTypeMigration"
+        | AuthoringProposalReview.CapabilityOperationSignatureMigration _ -> "capabilityOperationSignatureMigration"
+        | AuthoringProposalReview.ProductFieldTypeMigration _ -> "productFieldTypeMigration"
+        | AuthoringProposalReview.CreateType _ -> "createType"
+        | AuthoringProposalReview.CreateTypeGroup _ -> "createTypes"
+        | AuthoringProposalReview.UnionVariantEvolution _ -> "fieldlessUnionVariantEvolution"
+        | AuthoringProposalReview.CreateEffect _ -> "createEffect"
+        | AuthoringProposalReview.CreateCapability _ -> "createCapability"
 
 /// Test seam for storage failures that cannot be produced reliably through the file system.
 module internal SessionStorageFaults =
@@ -766,6 +879,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     imported.Capabilities |> List.exists (fun capability -> capability.Id = removed.CapabilityId)))
                 || (item.ResultingChange.Diff.CapabilityOperationsRemoved |> List.exists (fun removed ->
                     imported.Capabilities |> List.exists (fun capability -> capability.Id = removed.OwnerCapabilityId)))
+                || (item.ResultingChange.Diff.CapabilityOperationsAdded |> List.exists (fun added ->
+                    imported.Capabilities |> List.exists (fun capability -> capability.Id = added.OwnerCapabilityId)))
                 // Renamed type members and parameters are covered by the touched types and functions.
                 || (item.ResultingChange.Diff.Renames |> List.exists (function
                     | SymbolRename.EffectRenamed(effectId, _, _) -> imported.Effects |> List.exists (fun effect -> effect.Id = effectId)
@@ -939,7 +1054,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 Ok
                     { SnapshotId = AgentWorkspace.currentSnapshotId workspace
                       SnapshotFingerprint = snapshotFingerprint
-                      SemanticFingerprint = semanticFingerprint }
+                      SemanticFingerprint = semanticFingerprint
+                      PendingProposalCount = proposals.Count }
 
     member _.Declarations(): AuthoringDeclarations =
         { Functions = AgentWorkspace.listFunctions workspace
@@ -949,11 +1065,26 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
           Provenance = [] } |> PinnedDependency.withProvenance selection
 
     member _.FocusFunction(functionId) = AgentWorkspace.focusFunction workspace functionId
-    member _.GetCallers(functionId) = AgentWorkspace.getCallers workspace functionId
-    member _.GetCallees(functionId) = AgentWorkspace.getCallees workspace functionId
     member _.GetOpenObligations(functionId) = AgentWorkspace.getOpenObligations workspace functionId
-    member _.GetDependencies(functionId, nodeId) = AgentWorkspace.getDependencies workspace functionId nodeId
-    member _.GetUses(functionId, nodeId) = AgentWorkspace.getUses workspace functionId nodeId
+
+    /// Every site of the current snapshot that refers to a declaration or one of its members
+    /// (the `references` operation), so the sites can be repaired before a deletion or removal.
+    member _.References(subject: ReferenceSubject) = AgentWorkspace.references workspace subject
+
+    /// The pending proposals of this session (the `proposals` operation), in proposal-ID order.
+    member this.PendingProposals(): AuthoringPendingProposalSummary list =
+        let declarations = this.Declarations()
+        let current = AgentWorkspace.currentSnapshotId workspace
+        registered
+        |> Seq.map (fun entry ->
+            let proposal, baseSnapshotId = entry.Value
+            { ProposalId = proposal.ProposalId
+              Kind = ProposalSummary.kind proposal.Review
+              BaseSnapshotId = baseSnapshotId
+              BaseIsCurrent = (baseSnapshotId = current)
+              Summary = ProposalSummary.describe declarations proposal.Review })
+        |> Seq.sortBy (fun item -> item.ProposalId)
+        |> Seq.toList
 
     /// `expectedBaseSnapshotId` defaults to the current snapshot; a different one is rejected as stale.
     member _.SimulateOperations(operations: AgentOperationIntent list, ?expectedBaseSnapshotId: SnapshotId): Result<AuthoringProposal, AuthoringSessionError> =
@@ -1067,20 +1198,20 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Ok proposal ->
                 register (AgentTypeDeclarationGroupProposal.transactionId proposal) (PendingProposal.CreateTypeGroup proposal) (AuthoringProposalReview.CreateTypeGroup(AgentTypeDeclarationGroupProposal.review proposal))
 
-    member _.SimulateAddUnionVariantLike(request: AgentAddFieldlessUnionVariantLikeRequest, additionalFields: AgentTypeFieldIntent list): Result<AuthoringProposal, AuthoringSessionError> =
+    member _.SimulateAddUnionVariantLike(request: AgentAddUnionVariantLikeRequest, additionalFields: AgentTypeFieldIntent list): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
-            match AgentFieldlessUnionVariantEvolutionWorkflow.simulateWithFields workspace request additionalFields with
+            match AgentUnionVariantEvolutionWorkflow.simulateWithFields workspace request additionalFields with
             | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
             | Ok proposal ->
                 registerWith
-                    (AgentFieldlessUnionVariantEvolutionProposal.proposedFunctions proposal)
-                    (AgentFieldlessUnionVariantEvolutionProposal.transactionId proposal)
-                    (PendingProposal.FieldlessUnionVariantEvolution proposal)
-                    (AuthoringProposalReview.FieldlessUnionVariantEvolution(
-                        AgentFieldlessUnionVariantEvolutionProposal.review proposal
+                    (AgentUnionVariantEvolutionProposal.proposedFunctions proposal)
+                    (AgentUnionVariantEvolutionProposal.transactionId proposal)
+                    (PendingProposal.UnionVariantEvolution proposal)
+                    (AuthoringProposalReview.UnionVariantEvolution(
+                        AgentUnionVariantEvolutionProposal.review proposal
                     ))
 
     member _.SimulateCreateEffect(request: AgentCreateEffectDeclarationRequest): Result<AuthoringProposal, AuthoringSessionError> =
@@ -1190,11 +1321,11 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 | AgentTypeDeclarationGroupCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
                 | AgentTypeDeclarationGroupCommitResult.Committed(candidate, publication) ->
                     commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
-            | true, (_, PendingProposal.FieldlessUnionVariantEvolution proposal) ->
-                match AgentFieldlessUnionVariantEvolutionWorkflow.commitWithPolicy workspace proposal policy with
-                | AgentFieldlessUnionVariantEvolutionCommitResult.Rejected diagnostics ->
+            | true, (_, PendingProposal.UnionVariantEvolution proposal) ->
+                match AgentUnionVariantEvolutionWorkflow.commitWithPolicy workspace proposal policy with
+                | AgentUnionVariantEvolutionCommitResult.Rejected diagnostics ->
                     Error(AuthoringSessionError.CommitRejected diagnostics)
-                | AgentFieldlessUnionVariantEvolutionCommitResult.Committed(candidate, publication) ->
+                | AgentUnionVariantEvolutionCommitResult.Committed(candidate, publication) ->
                     commitCandidate
                         proposalId
                         publication.TransactionId

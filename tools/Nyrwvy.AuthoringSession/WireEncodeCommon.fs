@@ -131,28 +131,28 @@ module internal WireEncodeCommon =
              @ typeParameters
              @ [ "typeKind", kind ])
 
-    let capabilityEntity (value: SemanticCapability) =
-        let operations =
-            value.Operations
-            |> List.map (fun operation ->
-                let parameters =
-                    operation.Parameters
-                    |> List.map (fun parameter ->
-                        objectValue
-                            [ "id", box (StableId.value parameter.Id)
-                              "displayName", box parameter.DisplayName
-                              "type", typeRef parameter.Type ])
+    /// One Capability operation with its parameters, as `declarations` and the reviews show it.
+    let capabilityOperation (operation: SemanticCapabilityOperation) =
+        let parameters =
+            operation.Parameters
+            |> List.map (fun parameter ->
                 objectValue
-                    [ "id", box (StableId.value operation.Id)
-                      "displayName", box operation.DisplayName
-                      "parameters", arrayValue parameters
-                      "resultType", typeRef operation.ResultType
-                      "failureType", optional operation.FailureType typeRef
-                      "effectId", box (StableId.value operation.EffectId) ])
+                    [ "id", box (StableId.value parameter.Id)
+                      "displayName", box parameter.DisplayName
+                      "type", typeRef parameter.Type ])
+        objectValue
+            [ "id", box (StableId.value operation.Id)
+              "displayName", box operation.DisplayName
+              "parameters", arrayValue parameters
+              "resultType", typeRef operation.ResultType
+              "failureType", optional operation.FailureType typeRef
+              "effectId", box (StableId.value operation.EffectId) ]
+
+    let capabilityEntity (value: SemanticCapability) =
         objectValue
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName
-              "operations", arrayValue operations ]
+              "operations", value.Operations |> List.map capabilityOperation |> arrayValue ]
 
     let declarations (value: AuthoringDeclarations) =
         let effects =

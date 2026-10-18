@@ -528,11 +528,11 @@ Required-effect edits do not propagate automatically through callers and do not 
 
 ### Union variant evolution
 
-The session operation `simulateAddUnionVariantLike` adds one new variant to an existing Union while preserving the Union's `TypeId`. The caller names the target Union, an existing source `VariantId` (fieldless or field-bearing) and the new display name, and may add `additionalFields`; the new `VariantId` and `FieldId`s remain system-owned. The new variant copies the source variant's fields, followed by the additional ones.
+The session operation `simulateAddUnionVariantLike` (and `…ByName`) adds one new variant to an existing Union while preserving the Union's `TypeId`. The caller names the target Union, an existing source variant (fieldless or field-bearing) and the new display name, and may add `additionalFields`; the new `VariantId` and `FieldId`s remain system-owned. The new variant copies the source variant's fields, followed by the additional ones. The workflow is `AgentUnionVariantEvolutionWorkflow` (named `AgentFieldlessUnionVariantEvolutionWorkflow` until 2026-10-18).
 
 Publication repairs exhaustive `MatchUnion` nodes atomically: each arm for the source variant is cloned for the new variant with fresh system-owned graph-node and pattern-binding IDs and its field bindings remapped (additional fields are bound but unused); an arm that names the source variant together with others gains the new variant and keeps its body. The variant addition and all match repairs are reviewed and published as one snapshot, so no intermediate non-exhaustive state becomes authoritative. Arm bodies can then be refined with targeted replacement. The [session contract](../specs/agent-authoring-session.md) has the request and review shapes.
 
-This surface does not author arbitrary new match-arm recipes or a generalized schema-migration framework; variant removal is the separate reviewed edit `removeUnionVariant`.
+This surface does not author arbitrary new match-arm recipes or a generalized schema-migration framework; the [decision](../decisions/authoring-surface-queries-and-parity.md) records the design options for a plain `addUnionVariant`. Variant removal is the separate reviewed edit `removeUnionVariant`.
 
 ### Removed Float64 and ListMap compatibility surfaces
 

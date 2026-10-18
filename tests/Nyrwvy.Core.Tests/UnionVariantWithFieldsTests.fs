@@ -49,7 +49,7 @@ module UnionVariantWithFieldsTests =
                 [ [ circleId ], ExpressionRecipe.Int64WrappingMultiply(radius, radius)
                   [ emptyId ], ExpressionRecipe.Int64Literal 0L ]))
 
-    let private like ws name: AgentAddFieldlessUnionVariantLikeRequest =
+    let private like ws name: AgentAddUnionVariantLikeRequest =
         { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
           TargetTypeId = shapeId
           SourceVariantId = circleId
@@ -67,16 +67,16 @@ module UnionVariantWithFieldsTests =
     [<Fact>]
     let ``a variant like a source variant copies its fields and clones every match arm`` () =
         let ws = fixture ()
-        let proposal = AgentFieldlessUnionVariantEvolutionWorkflow.simulateWithFields ws (like ws "Ring") [ inner ] |> unwrap "simulate"
-        let review = AgentFieldlessUnionVariantEvolutionProposal.review proposal
+        let proposal = AgentUnionVariantEvolutionWorkflow.simulateWithFields ws (like ws "Ring") [ inner ] |> unwrap "simulate"
+        let review = AgentUnionVariantEvolutionProposal.review proposal
         Assert.Equal(1, review.RepairedMatchCount)
         let ring = review.AddedVariant
         Assert.Equal<string list>([ "radius"; "inner" ], ring.Fields |> List.map (fun field -> field.DisplayName))
         Assert.Equal<TypeRef list>([ intType; intType ], ring.Fields |> List.map (fun field -> field.Type))
         Assert.DoesNotContain(radiusId, ring.Fields |> List.map (fun field -> field.Id))
         let next =
-            match AgentFieldlessUnionVariantEvolutionWorkflow.commit ws proposal with
-            | AgentFieldlessUnionVariantEvolutionCommitResult.Committed(next, _) -> next
+            match AgentUnionVariantEvolutionWorkflow.commit ws proposal with
+            | AgentUnionVariantEvolutionCommitResult.Committed(next, _) -> next
             | other -> failwithf "Commit failed: %A" other
         let snapshot = AgentWorkspace.snapshotForStructuralEditing next
         Assert.Empty(SnapshotValidator.validate snapshot)
@@ -112,12 +112,12 @@ module UnionVariantWithFieldsTests =
                               ExpressionRecipe.BoolLiteral false,
                               ExpressionRecipe.Int64Equal(radius, ExpressionRecipe.Int64Literal 0L))
                           [ emptyId ], ExpressionRecipe.BoolLiteral false ])))
-        let proposal = AgentFieldlessUnionVariantEvolutionWorkflow.simulateWithFields ws (like ws "Ring") [ inner ] |> unwrap "simulate"
-        let review = AgentFieldlessUnionVariantEvolutionProposal.review proposal
+        let proposal = AgentUnionVariantEvolutionWorkflow.simulateWithFields ws (like ws "Ring") [ inner ] |> unwrap "simulate"
+        let review = AgentUnionVariantEvolutionProposal.review proposal
         Assert.Equal(1, review.RepairedMatchCount)
         let next =
-            match AgentFieldlessUnionVariantEvolutionWorkflow.commit ws proposal with
-            | AgentFieldlessUnionVariantEvolutionCommitResult.Committed(next, _) -> next
+            match AgentUnionVariantEvolutionWorkflow.commit ws proposal with
+            | AgentUnionVariantEvolutionCommitResult.Committed(next, _) -> next
             | other -> failwithf "Commit failed: %A" other
         let snapshot = AgentWorkspace.snapshotForStructuralEditing next
         Assert.Empty(SnapshotValidator.validate snapshot)
@@ -141,11 +141,11 @@ module UnionVariantWithFieldsTests =
             match result with
             | Error(AgentStructuralWorkflowError.SimulationRejected(diagnostic :: _)) -> diagnostic.Code
             | other -> failwithf "Invalid evolution accepted: %A" other
-        Assert.Equal("UnionVariantEvolutionSourceVariantHasFields", code (AgentFieldlessUnionVariantEvolutionWorkflow.simulate ws (like ws "Ring")))
+        Assert.Equal("UnionVariantEvolutionSourceVariantHasFields", code (AgentUnionVariantEvolutionWorkflow.simulate ws (like ws "Ring")))
         Assert.Equal("UnionVariantEvolutionFieldDisplayNameInvalid",
-            code (AgentFieldlessUnionVariantEvolutionWorkflow.simulateWithFields ws (like ws "Ring") [ { inner with DisplayName = "radius" } ]))
+            code (AgentUnionVariantEvolutionWorkflow.simulateWithFields ws (like ws "Ring") [ { inner with DisplayName = "radius" } ]))
         Assert.Equal("UnionVariantEvolutionDuplicateVariantDisplayName",
-            code (AgentFieldlessUnionVariantEvolutionWorkflow.simulateWithFields ws (like ws "Empty") []))
+            code (AgentUnionVariantEvolutionWorkflow.simulateWithFields ws (like ws "Empty") []))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``variant with fields is added over the wire and runs through the cloned arm`` () =

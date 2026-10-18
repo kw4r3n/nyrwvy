@@ -2,16 +2,8 @@ namespace Nyrwvy.Core
 
 open System
 
-type AgentCapabilityParameterIntent =
-    { DisplayName: string
-      Type: TypeRef }
-
-type AgentCapabilityOperationIntent =
-    { DisplayName: string
-      Parameters: AgentCapabilityParameterIntent list
-      ResultType: TypeRef
-      FailureType: TypeRef option
-      EffectId: EffectId }
+// `AgentCapabilityParameterIntent` and `AgentCapabilityOperationIntent` are declared in
+// AgentWorkflow.fs, which the `addCapabilityOperation` operation intent shares them with.
 
 type AgentCreateCapabilityDeclarationRequest =
     { ExpectedBaseSnapshotId: SnapshotId
