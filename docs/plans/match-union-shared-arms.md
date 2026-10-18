@@ -8,11 +8,11 @@
 
 | Probe | Cost |
 | --- | --- |
-| [7](../verification/rrawrlet-slice-probe7-20260929.md) | 8 shallow `Json` matches spell out about 45 default arms |
-| [10](../verification/rrawrlet-slice-probe10-20260930.md) | 130 of 225 arms repeat a sibling arm: 257 nodes, 10% of the port, mostly fixed results over the 14 `Mode` variants |
-| [17](../verification/rrawrlet-slice-probe17-20261001.md) | 25 matches over the 7 `Json` variants: 298 nodes, 11% |
-| [18](../verification/rrawrlet-slice-probe18-20261001.md) | 17 matches over the 8 `Json` variants: 117 default arms, 276 nodes, 10% |
-| [19](../verification/rrawrlet-slice-probe19-20261001.md) | 20 matches over the 8 `Json` variants: 133 default arms, 295 nodes, 7.8% |
+| [7](../verification/rrawrlet-slice-probes-summary.md#probe-7) | 8 shallow `Json` matches spell out about 45 default arms |
+| [10](../verification/rrawrlet-slice-probes-summary.md#probe-10) | 130 of 225 arms repeat a sibling arm: 257 nodes, 10% of the port, mostly fixed results over the 14 `Mode` variants |
+| [17](../verification/rrawrlet-slice-probes-summary.md#probe-17) | 25 matches over the 7 `Json` variants: 298 nodes, 11% |
+| [18](../verification/rrawrlet-slice-probes-summary.md#probe-18) | 17 matches over the 8 `Json` variants: 117 default arms, 276 nodes, 10% |
+| [19](../verification/rrawrlet-slice-probes-summary.md#probe-19) | 20 matches over the 8 `Json` variants: 133 default arms, 295 nodes, 7.8% |
 
 The cost has two parts. The **graph** holds the same body once per variant, and every one is reviewed, fingerprinted and lowered. The **request** spells out every arm, so the agent must look up the full variant list and repeat the body.
 

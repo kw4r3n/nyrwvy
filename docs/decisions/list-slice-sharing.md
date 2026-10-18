@@ -4,7 +4,7 @@
 - **Date:** 2026-10-05
 - **Roadmap:** [post-M2 queue from the 2026-10-05 probe 24 owner choice](../plans/post-m2-roadmap.md#queue-from-the-2026-10-05-probe-24-owner-choice), order 55
 
-[Probe 24](../verification/map-set-probe24-20261005.md)'s breadth-first searches dequeue with `ListSlice(queue, 1, length)`. After order 52 a slice from 0 shared the persistent vector's nodes, but a slice from any other start copied its items, so each dequeue copied the queue: on a fan of 40,000 both the shortest path and probe 21's `reachable` exceeded the 5 s run limit. That met the [order 52 decision](persistent-vector-list.md#revisit-conditions)'s revisit condition for a breadth-first queue. Of the three options in the [roadmap](../plans/post-m2-roadmap.md#queue-from-the-2026-10-05-probe-24-owner-choice), the slice that shares structure was chosen over a `Queue<T>` type and over documenting the two-stack idiom.
+[Probe 24](../verification/map-set-probes-summary.md#probe-24)'s breadth-first searches dequeue with `ListSlice(queue, 1, length)`. After order 52 a slice from 0 shared the persistent vector's nodes, but a slice from any other start copied its items, so each dequeue copied the queue: on a fan of 40,000 both the shortest path and probe 21's `reachable` exceeded the 5 s run limit. That met the [order 52 decision](persistent-vector-list.md#revisit-conditions)'s revisit condition for a breadth-first queue. Of the three options in the [roadmap](../plans/post-m2-roadmap.md#queue-from-the-2026-10-05-probe-24-owner-choice), the slice that shares structure was chosen over a `Queue<T>` type and over documenting the two-stack idiom.
 
 ## Decision
 

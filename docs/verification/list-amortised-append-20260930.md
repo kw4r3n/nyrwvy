@@ -2,7 +2,7 @@
 
 **Status:** Implemented and verified. Baseline: `94a8447`.
 
-[Probe 9](rrawrlet-slice-probe9-20260930.md) found that text built one item at a time is quadratic: a 64K-character line ran, a 128K one exceeded the 5 s `runPure` limit. One cause was the emitted `NyList<T>`, a bare `T[]` that `AppendItem` and `Concat` copied in full on every call, so a `ListFold` that appends each step was O(n²), and "append, then `StringJoin`" was not a linear builder.
+[Probe 9](rrawrlet-slice-probes-summary.md#probe-9) found that text built one item at a time is quadratic: a 64K-character line ran, a 128K one exceeded the 5 s `runPure` limit. One cause was the emitted `NyList<T>`, a bare `T[]` that `AppendItem` and `Concat` copied in full on every call, so a `ListFold` that appends each step was O(n²), and "append, then `StringJoin`" was not a linear builder.
 
 `NyList<T>` is now a shared store (an array and a used count) plus the list's own count, as a Go slice is:
 

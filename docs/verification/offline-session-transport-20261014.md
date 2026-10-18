@@ -26,7 +26,7 @@ network listener is involved. Test-framework local IPC remains a verification
 implementation detail.
 
 JSONL comes from the existing AuthoringSession/AuthoringClient transports and
-the recorded Rrawrlet [probe-25](rrawrlet-slice-probe25-20261005.md) reader
+the recorded Rrawrlet [probe-25](rrawrlet-slice-probes-summary.md#probe-25) reader
 convention. Platform strict UTF-8 decoding stays in the host, and the graph
 continues to own the PR396 application protocol. Historical Python artifacts
 were not recovered and no Python/encoding/MCP equivalence is claimed.

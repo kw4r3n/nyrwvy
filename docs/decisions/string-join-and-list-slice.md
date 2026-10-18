@@ -4,7 +4,7 @@
 - **Date:** 2026-09-29
 - **Roadmap:** [post-M2 queue from the 2026-09-29 probe 4](../plans/post-m2-roadmap.md#queue-from-the-2026-09-29-probe-4), order 22
 
-This decision settles order 22 of the post-M2 queue. [Probe 4](../verification/rrawrlet-slice-probe4-20260929.md) had no join and no list slice (friction 7), so `"\n".join(xs)` and `", ".join(xs[:20])` became `joinStep`, `joinFirst` and a `JoinAcc` accumulator (31 nodes), and `sections[len(shown):]` became `omitStep` with an `OmitAcc` accumulator (19 nodes).
+This decision settles order 22 of the post-M2 queue. [Probe 4](../verification/rrawrlet-slice-probes-summary.md#probe-4) had no join and no list slice (friction 7), so `"\n".join(xs)` and `", ".join(xs[:20])` became `joinStep`, `joinFirst` and a `JoinAcc` accumulator (31 nodes), and `sections[len(shown):]` became `omitStep` with an `OmitAcc` accumulator (19 nodes).
 
 ## Decision
 

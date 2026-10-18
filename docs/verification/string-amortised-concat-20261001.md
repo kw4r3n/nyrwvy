@@ -1,8 +1,8 @@
 # Amortised String concatenation — 2026-10-01
 
-**Status:** Implemented and verified. Baseline: `7277ecd`. Roadmap: order 31, from [probe 14](rrawrlet-slice-probe14-20261001.md)'s cost #1.
+**Status:** Implemented and verified. Baseline: `7277ecd`. Roadmap: order 31, from [probe 14](rrawrlet-slice-probes-summary.md#probe-14)'s cost #1.
 
-[Probe 14](rrawrlet-slice-probe14-20261001.md) wrote `bytes.decode("utf-8", "replace")` by hand. Its first draft built the result with one `StringConcat` per character, which the language subset documented as quadratic, and it exceeded the 5 s `runPure` limit at 195 KB. The list-and-join form was linear but took 12 more requests. [Amortised List append](list-amortised-append-20260930.md) had already made the list form linear; this change does the same for `StringConcat`, so the natural form is linear too.
+[Probe 14](rrawrlet-slice-probes-summary.md#probe-14) wrote `bytes.decode("utf-8", "replace")` by hand. Its first draft built the result with one `StringConcat` per character, which the language subset documented as quadratic, and it exceeded the 5 s `runPure` limit at 195 KB. The list-and-join form was linear but took 12 more requests. [Amortised List append](list-amortised-append-20260930.md) had already made the list form linear; this change does the same for `StringConcat`, so the natural form is linear too.
 
 The emitted C# now maps `String` to `NyStr`, a sealed class emitted with the runtime:
 

@@ -5,7 +5,7 @@
 - **Superseded in part:** 2026-10-03, Map added ([decision](map.md))
 - **Roadmap:** [post-M2 queue from the 2026-09-28 probe 3](../plans/post-m2-roadmap.md#queue-from-the-2026-09-28-probe-3), order 11
 
-This decision settles order 11 of the post-M2 queue: how a program compares keys for Map-like replace-or-append. [Probe 3](../verification/rrawrlet-slice-probe3-20260928.md) (friction 1) replaced-or-appended in 3 places of rrawrlet's `usage_stats` core (statuses, extras and groups) and compared a 6-field `Option<String>` group key by hand. That meets the Map revisit condition in [task fields, list indexing, and Map revisited](task-fields-list-indexing-and-map.md#revisit-conditions). The implemented surface is described by the [language subset](../reference/language-subset.md) and the [expression authoring specification](../specs/expression-authoring.md), which remain the authority once implemented.
+This decision settles order 11 of the post-M2 queue: how a program compares keys for Map-like replace-or-append. [Probe 3](../verification/rrawrlet-slice-probes-summary.md#probe-3) (friction 1) replaced-or-appended in 3 places of rrawrlet's `usage_stats` core (statuses, extras and groups) and compared a 6-field `Option<String>` group key by hand. That meets the Map revisit condition in [task fields, list indexing, and Map revisited](task-fields-list-indexing-and-map.md#revisit-conditions). The implemented surface is described by the [language subset](../reference/language-subset.md) and the [expression authoring specification](../specs/expression-authoring.md), which remain the authority once implemented.
 
 ## Decision
 
@@ -44,6 +44,6 @@ Float64 is not equatable because of NaN (compare with `Float64Equal` explicitly)
 
 ## Revisit conditions
 
-- **Map:** measured fold cost matters at real sizes, or a consumer needs lookup where a linear fold is the dominant cost. The smallest candidate is a Map keyed by an equatable type. [Probe 7](../verification/rrawrlet-slice-probe7-20260929.md#scale) is the first measured consumer: after one restructuring, linear keyed lookups were most of the time of an event observer (about 3.4 s of 3.7 s at 19,200 events and 1,600 keys, within 10 times Python), but nothing was blocked, so Map stayed deferred.
+- **Map:** measured fold cost matters at real sizes, or a consumer needs lookup where a linear fold is the dominant cost. The smallest candidate is a Map keyed by an equatable type. [Probe 7](../verification/rrawrlet-slice-probes-summary.md#probe-7-scale) is the first measured consumer: after one restructuring, linear keyed lookups were most of the time of an event observer (about 3.4 s of 3.7 s at 19,200 events and 1,600 keys, within 10 times Python), but nothing was blocked, so Map stayed deferred.
 - **Equatable type parameters:** equality callbacks passed to generic helpers become a measured authoring cost across several consumers.
 - **Float64 in `ValueEqual`:** a real program needs structural equality over Float64 fields. It would need an explicit NaN rule, for example bitwise equality of canonical NaN.

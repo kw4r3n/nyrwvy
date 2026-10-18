@@ -17,7 +17,7 @@ Five probes (3, 7, 13, 14 and 16) paid for the missing keyed collection. Probe 1
   - Order 44 added `MapEmpty`, `MapInsert`, `MapGet`, `MapContainsKey`, `MapRemove`, `MapSize`, `MapKeys` and `MapValues`.
   - Order 45 added `MapFold` (folder `(S, K, V) -> S`) and `MapFromList` (key callback `T -> K`, later items win, first position kept). They share the callback handling of `ListFold` and `ListMap`.
   - Order 47 (owner choice of 2026-10-04) added `MapFilter(map, keep)` with a pure `(K, V) -> Bool` callback. The kept entries keep their positions.
-  - Order 48 (owner choice of 2026-10-04, after [probe 21](../verification/map-set-probe21-20261004.md)) added two more:
+  - Order 48 (owner choice of 2026-10-04, after [probe 21](../verification/map-set-probes-summary.md#probe-21)) added two more:
     - `MapGetOrDefault(map, key, default): V` gives the value for key, or `default` when the key is absent. `default` has the map's value type. All three operands are evaluated, as for any operation; there is no lazy default. It never fails. Probe 21 wrote `MapGet` with a `MatchOption` at every accumulating write.
     - `MapMapValues(map, mapper): Map<K, U>` keeps the keys in their insertion order and replaces each value with `mapper(key, value)`, a pure callback with context. `U` may be any type a map value may be.
 - **A Map is not equatable.** *Superseded on 2026-10-18 by [Map and Set equality](map-set-equality.md).* `ValueEqual` rejects it, and so do keys. Order-insensitive equality would make two "equal" maps differ in `MapKeys`; order-sensitive equality would surprise readers used to Python. No consumer has compared maps.
