@@ -28,6 +28,26 @@ test("Node ownership discovers every maintained test, including new files, and r
   } finally { rmSync(fixture, { recursive: true, force: true }) }
 })
 
+test("Node discovery rejects a tracked test file missing from the working tree", () => {
+  const fixture = mkdtempSync(join(tmpdir(), "nyrwvy-node-missing-"))
+  const git = (...args) => execFileSync("git", ["-C", fixture, ...args])
+  try {
+    git("init", "--quiet")
+    for (const path of [".opencode/tests/kept.test.mjs", "scripts/tests/gone.test.mjs"]) {
+      mkdirSync(dirname(join(fixture, path)), { recursive: true })
+      writeFileSync(join(fixture, path), "")
+    }
+    git("add", ".")
+    rmSync(join(fixture, "scripts/tests/gone.test.mjs"))
+    assert.throws(() => discoverNodeTests(fixture), error =>
+      /missing from the working tree: scripts\/tests\/gone\.test\.mjs\./.test(error.message)
+      && /git restore -- scripts\/tests\/gone\.test\.mjs/.test(error.message))
+    // A staged removal is intended, and the index no longer lists the file.
+    git("rm", "--quiet", "--cached", "scripts/tests/gone.test.mjs")
+    assert.deepEqual(discoverNodeTests(fixture)["fast-contracts"], [".opencode/tests/kept.test.mjs"])
+  } finally { rmSync(fixture, { recursive: true, force: true }) }
+})
+
 test("Node shards are disjoint and exhaustive and reject malformed selectors", () => {
   const files = ["a", "b", "c", "d", "e", "f", "g"]
   const shards = [1, 2, 3].map(index => selectNodeTestShard(files, `${index}/3`))
