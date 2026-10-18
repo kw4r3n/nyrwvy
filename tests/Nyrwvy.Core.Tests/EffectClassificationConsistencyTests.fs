@@ -11,8 +11,8 @@ open Xunit
 /// candidate node is placed next to an unordered `Abort` witness, and the check reports an ordering
 /// conflict exactly when the candidate is observable. Every union case is built by reflection, so a
 /// new node kind is covered automatically and a nominal/local classification mismatch fails here.
-/// Lowering additionally derives transitive intrinsic behavior; semantic admission retains the
-/// historical callee-contract rule so persisted older graphs remain openable for repair.
+/// Lowering and proposal admission share `GraphOrder`'s transitive closure; full snapshot validation
+/// retains the historical callee-contract rule so persisted older graphs remain openable for repair.
 module EffectClassificationConsistencyTests =
     let private unitType = TypeRef.Primitive PrimitiveType.Unit
     let private probeId = StableId.createForTesting<FunctionTag> "a-effect-probe"
@@ -227,3 +227,44 @@ module EffectClassificationConsistencyTests =
                 Assert.True(typedEffectful variant typedCase, $"{variantName} {name} lost runtime observability.")
             let abortOnly = { Name = "calleeAbort"; TargetFunctionId = effectfulTargetId; NestedEffectful = false }
             Assert.False(typedEffectful abortOnly typedCase, $"{name} treats a callee's local Abort Result as a runtime effect.")
+
+    /// The proposal-time rule (`GraphOrder.semanticObservableFunctions`) reaches the same verdict as
+    /// lowering for intrinsic and transitive helpers and for a callee whose only exit is Abort.
+    let private semanticRuntimeObservable (variantName: string) (case: UnionCaseInfo) =
+        let variant = { Name = variantName; TargetFunctionId = effectfulTargetId; NestedEffectful = false }
+        let candidate: SemanticNode = { Id = freshNode (); Kind = makeCase<SemanticNodeKind> variant case }
+        let witness: SemanticNode = { Id = witnessId; Kind = SemanticNodeKind.Abort(freshNode ()) }
+        let latentId = StableId.createForTesting<FunctionTag> "t-latent-hop"
+        let body kind: ValueGraph =
+            let id = freshNode ()
+            { Nodes = [ { Id = id; Kind = kind } ]; ResultNodeId = id }
+        let target =
+            match variantName with
+            | "intrinsic" -> semanticFunction effectfulTargetId [] (body SemanticNodeKind.CancellationRequested)
+            | "transitive" -> semanticFunction effectfulTargetId [] (body (SemanticNodeKind.DirectCall(latentId, [])))
+            | _ -> semanticFunction effectfulTargetId [] (body (SemanticNodeKind.Abort(freshNode ())))
+        let probe = semanticFunction probeId [] { Nodes = [ candidate; witness ]; ResultNodeId = witnessId }
+        let functions =
+            [ probe
+              target
+              semanticFunction latentId [] (body SemanticNodeKind.CancellationRequested)
+              semanticFunction pureTargetId [] (semanticGraph pureVariant) ]
+        match GraphOrder.tryEffectOrderConflict (GraphOrder.semanticObservableFunctions functions) probe with
+        | Some(first, second) -> first = candidate.Id || second = candidate.Id
+        | None -> false
+
+    [<Fact>]
+    let ``proposal ordering and lowering agree on transitive helper observability for every node kind`` () =
+        let typedByName = typedCases |> Array.map (fun case -> case.Name, case) |> Map.ofArray
+        let mismatches =
+            [ for variantName in [ "intrinsic"; "transitive"; "calleeAbort" ] do
+                for case in semanticCases do
+                    match Map.tryFind case.Name typedByName with
+                    | None -> ()
+                    | Some typedCase ->
+                        let variant = { Name = variantName; TargetFunctionId = effectfulTargetId; NestedEffectful = false }
+                        let semantic = semanticRuntimeObservable variantName case
+                        let typed = typedEffectful variant typedCase
+                        if semantic <> typed then
+                            yield $"{variantName} {case.Name}: proposal observable={semantic}, lowering effectful={typed}" ]
+        Assert.True(List.isEmpty mismatches, String.Join(Environment.NewLine, mismatches))

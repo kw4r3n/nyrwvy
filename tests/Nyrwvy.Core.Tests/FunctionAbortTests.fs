@@ -461,33 +461,88 @@ module FunctionAbortTests =
                 Assert.Equal(errText expected, (PureRun.run session all.Id [ PureRunValue.Bool condition ] None |> unwrap).Actual))
 
     [<Fact>]
-    let ``legacy local abort admission stays reopenable while lowering sees transitive intrinsic helpers`` () =
+    let ``proposals reject a hidden intrinsic helper beside local abort while legacy snapshots stay reopenable`` () =
         withSession (fun session path ->
             let ambient = create session "ambient" [] boolType [] ExpressionRecipe.CancellationRequested
             let hop = create session "hop" [] boolType [] (ExpressionRecipe.DirectCall(ambient.Id, []))
-            let unsequenced =
+            let unsequenced callee =
                 ExpressionRecipe.Bind(
                     ExpressionRecipe.StringConcat(
                         ExpressionRecipe.Conditional(ExpressionRecipe.BoolLiteral true, abort "stop", str "a"),
-                        ExpressionRecipe.Conditional(ExpressionRecipe.DirectCall(hop.Id, []), str "yes", str "no")),
+                        ExpressionRecipe.Conditional(ExpressionRecipe.DirectCall(callee, []), str "yes", str "no")),
                     ok (str "done"))
-            let legacy = create session "legacy" [] (result textType) [] unsequenced
             let before = File.ReadAllBytes path
-            Assert.Empty(SnapshotValidator.validate (snapshot path))
-            match session.ProjectExecution() with
-            | Error(AuthoringSessionError.ExecutionLoweringFailure(ExecutionIrError.AmbiguousEffectOrder(owner, _, _))) -> Assert.Equal(legacy.Id, owner)
-            | other -> failwithf "A hidden intrinsic helper was lowered beside local Abort: %A" other
+            // Proposal time applies the lowering rule: the helper's CancellationRequested is observable.
+            let rejected = session.SimulateCreateFunction(request session "legacy" [] (result textType) [] (unsequenced hop.Id))
+            Assert.True(Result.isError rejected)
+            Assert.Contains("AmbiguousEffectOrder", sprintf "%A" rejected)
             Assert.Equal<byte>(before, File.ReadAllBytes path)
+            // A snapshot published under the historical abort-only rule: the caller was admitted
+            // while its helper was pure, and the helper became intrinsically effectful outside the
+            // proposal path. Full validation, and so reopening, keeps accepting it.
+            let pureHop = create session "pureHop" [] boolType [] (ExpressionRecipe.BoolLiteral true)
+            let legacy = create session "legacy" [] (result textType) [] (unsequenced pureHop.Id)
+            let published = snapshot path
+            let tamperedHop =
+                published.Functions |> List.find (fun fn -> fn.Id = pureHop.Id) |> fun fn ->
+                    { fn with Body = { fn.Body with Nodes = [ { Id = fn.Body.ResultNodeId; Kind = SemanticNodeKind.DirectCall(ambient.Id, []) } ] } }
+            let historical = { published with Functions = published.Functions |> List.map (fun fn -> if fn.Id = pureHop.Id then tamperedHop else fn) }
+            Assert.Empty(SnapshotValidator.validate historical)
             session.Close()
+            File.WriteAllText(path, SnapshotCodec.serialize historical |> unwrap)
             use reopened = AuthoringSession.openExisting path |> unwrap
             Assert.Equal(legacy.Id, (find reopened "legacy").Id)
+            match reopened.ProjectExecution() with
+            | Error(AuthoringSessionError.ExecutionLoweringFailure(ExecutionIrError.AmbiguousEffectOrder(owner, _, _))) -> Assert.Equal(legacy.Id, owner)
+            | other -> failwithf "A hidden intrinsic helper was lowered beside local Abort: %A" other
+            // Proposals that leave the legacy function untouched still publish.
+            create reopened "unrelated" [] boolType [] (ExpressionRecipe.BoolLiteral false) |> ignore
+            // Edits to the legacy function are held to the runtime rule: an ambiguous edit is
+            // rejected and an ordered repair publishes and lowers.
             let status = reopened.Status() |> unwrap
-            let edit: AgentReplaceFunctionBodyWithExpressionRecipe =
+            let still: AgentReplaceFunctionBodyWithExpressionRecipe =
                 { TargetFunctionId = legacy.Id
                   ExpectedBaseSnapshotId = status.SnapshotId
                   ExpectedCurrentResultNodeId = legacy.Body.ResultNodeId
-                  Replacement = ExpressionRecipe.Bind(ExpressionRecipe.DirectCall(hop.Id, []), abort "stop") }
+                  Replacement = unsequenced hop.Id }
+            let stillRejected = reopened.SimulateReplaceBody still
+            Assert.True(Result.isError stillRejected)
+            Assert.Contains("AmbiguousEffectOrder", sprintf "%A" stillRejected)
+            let edit = { still with Replacement = ExpressionRecipe.Bind(ExpressionRecipe.DirectCall(hop.Id, []), abort "stop") }
             let proposal = reopened.SimulateReplaceBody edit |> unwrap
             publish reopened proposal
             let execution = reopened.ProjectExecution() |> unwrap
             Assert.Contains(execution.Functions, fun fn -> fn.SemanticFunctionId = legacy.Id))
+
+    [<Fact>]
+    let ``abort free callers of intrinsic helpers are ordered at proposal time including callee changes`` () =
+        withSession (fun session path ->
+            let ambient = create session "ambient" [] boolType [] ExpressionRecipe.CancellationRequested
+            let twice callee =
+                ExpressionRecipe.StringConcat(
+                    ExpressionRecipe.Conditional(ExpressionRecipe.DirectCall(callee, []), str "a", str "b"),
+                    ExpressionRecipe.Conditional(ExpressionRecipe.DirectCall(callee, []), str "c", str "d"))
+            let before = File.ReadAllBytes path
+            // No Abort and no declared effects anywhere: the helper's CancellationRequested alone
+            // makes the two calls observable, so their order must be explicit.
+            let rejected = session.SimulateCreateFunction(request session "unordered" [] textType [] (twice ambient.Id))
+            Assert.True(Result.isError rejected)
+            Assert.Contains("AmbiguousEffectOrder", sprintf "%A" rejected)
+            Assert.Equal<byte>(before, File.ReadAllBytes path)
+            // Unordered calls to a pure helper are fine...
+            let probe = create session "probe" [] boolType [] (ExpressionRecipe.BoolLiteral true)
+            let caller = create session "caller" [] textType [] (twice probe.Id)
+            session.ProjectExecution() |> unwrap |> ignore
+            // ...until the helper becomes observable: the unchanged caller would be newly ambiguous.
+            let edit: AgentReplaceFunctionBodyWithExpressionRecipe =
+                { TargetFunctionId = probe.Id
+                  ExpectedBaseSnapshotId = current session
+                  ExpectedCurrentResultNodeId = probe.Body.ResultNodeId
+                  Replacement = ExpressionRecipe.CancellationRequested }
+            let beforeEdit = File.ReadAllBytes path
+            let refused = session.SimulateReplaceBody edit
+            Assert.True(Result.isError refused)
+            Assert.Contains("AmbiguousEffectOrder", sprintf "%A" refused)
+            Assert.Contains(StableId.value caller.Id, sprintf "%A" refused)
+            Assert.Equal<byte>(beforeEdit, File.ReadAllBytes path)
+            session.ProjectExecution() |> unwrap |> ignore)

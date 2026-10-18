@@ -121,20 +121,33 @@ module AgentExpressionCapabilityTests =
             invoke suppliedReceiver
                 [ countId, ExpressionRecipe.Int64Literal 2L
                   textId, ExpressionRecipe.DirectCall(argumentId, []) ]
-        let review, published = publish snapshot recipe
+        // Construction order is not execution order: the provider and argument calls are
+        // independent effects, so the proposal is refused before publication.
+        let rejectedWorkspace = workspace snapshot
+        match AgentExpressionStructuralWorkflow.simulate rejectedWorkspace (request snapshot recipe) with
+        | Error(AgentStructuralWorkflowError.SimulationRejected diagnostics) ->
+            let text = sprintf "%A" diagnostics
+            Assert.Contains("AmbiguousEffectOrder", text)
+            Assert.Contains(StableId.value callerId, text)
+        | other -> failwithf "Expected the ambiguous-effect boundary at proposal time, got %A" other
+        Assert.Equal<Snapshot>(snapshot, AgentWorkspace.snapshotForStructuralEditing rejectedWorkspace)
+
+        // Materialization keeps the receiver first and the operation's declaration order.
+        let review, published =
+            publish snapshot (invoke receiver [ countId, ExpressionRecipe.Int64Literal 2L; textId, ExpressionRecipe.DirectCall(argumentId, []) ])
         Assert.Equal<string list>(
-            [ "ParameterReference"; "DirectCall"; "DirectCall"; "Int64Literal"; "CapabilityInvoke" ],
+            [ "ParameterReference"; "DirectCall"; "Int64Literal"; "CapabilityInvoke" ],
             review.ResultingChange.AddedNodes |> List.map (fun node -> node.Role)
         )
         let target = caller published
         match target.Body.Nodes with
-        | [ parameter; provider; argument; count; invocation ] ->
+        | [ parameter; argument; count; invocation ] ->
             Assert.Equal(SemanticNodeKind.ParameterReference receiverId, parameter.Kind)
             Assert.Equal(SemanticNodeKind.DirectCall(argumentId, []), argument.Kind)
             Assert.Equal(SemanticNodeKind.Int64Literal 2L, count.Kind)
             Assert.Equal(
                 SemanticNodeKind.CapabilityInvoke(
-                    provider.Id,
+                    parameter.Id,
                     operationId,
                     [ { TargetCapabilityParameterId = textId; ValueNodeId = argument.Id }
                       { TargetCapabilityParameterId = countId; ValueNodeId = count.Id } ]
@@ -151,20 +164,6 @@ module AgentExpressionCapabilityTests =
         Assert.Equal<SemanticEffect list>(snapshot.Effects, published.Effects)
         Assert.Equal<SemanticCapability list>(snapshot.Capabilities, published.Capabilities)
         Assert.Equal<MissingArgumentObligation list>(snapshot.Obligations, published.Obligations)
-
-        // Construction order is not execution order: these two effects are independent.
-        let independentCalls =
-            target.Body.Nodes
-            |> List.choose (fun node ->
-                match node.Kind with
-                | SemanticNodeKind.DirectCall _ -> Some node.Id
-                | _ -> None)
-            |> Set.ofList
-        match lower published with
-        | Error(ExecutionIrError.AmbiguousEffectOrder(ownerId, first, second)) ->
-            Assert.Equal(callerId, ownerId)
-            Assert.Equal<Set<GraphNodeId>>(independentCalls, Set.ofList [ first; second ])
-        | other -> failwithf "Expected the existing ambiguous-effect boundary, got %A" other
 
         // One effectful receiver or argument is ordered before the invocation by dependency.
         let orderedRecipes =

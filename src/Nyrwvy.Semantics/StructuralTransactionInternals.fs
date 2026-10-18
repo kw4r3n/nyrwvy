@@ -320,7 +320,7 @@ module internal StructuralTransactionInternals =
                             Id = StableIdAllocator.newSnapshotId ()
                             ParentId = Some baseSnapshot.Id }
 
-                match SnapshotValidator.validate proposedSnapshot with
+                match SnapshotValidator.validateProposal baseSnapshot proposedSnapshot with
                 | _ :: _ as issues -> Error(rejectWith (invalidSnapshot "InvalidProposedSnapshot" issues))
                 | [] ->
                     match classifyReadiness proposedSnapshot with
