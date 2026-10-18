@@ -6,7 +6,12 @@ open Nyrwvy.Core
 module internal WireRecipe =
     open WireInput
 
-    let rec recipe (element: JsonElement): ExpressionRecipe =
+    /// `resolveNewField` names a field that has no ID yet on the wire: an `addUnionVariant` arm
+    /// body references the new variant's fields by display name (`"field"` in place of `"fieldId"`
+    /// on a pattern reference), since their IDs are system-owned and allocated by the session.
+    let rec private recipeIn (resolveNewField: string -> FieldId) (element: JsonElement): ExpressionRecipe =
+        let recipe = recipeIn resolveNewField
+
         let fieldValues name =
             array name element
             |> List.map (fun item ->
@@ -41,12 +46,16 @@ module internal WireRecipe =
             ensureFields "parameter-slot recipe" [ "kind"; "index" ] [ "kind"; "index" ] element
             ExpressionRecipe.ParameterSlot(requiredInt "index" element)
         | "patternReference" ->
-            ensureFields "pattern-reference recipe" [ "kind"; "scopeDepth"; "slot"; "fieldId" ] [ "kind"; "scopeDepth"; "slot" ] element
+            ensureFields "pattern-reference recipe" [ "kind"; "scopeDepth"; "slot"; "fieldId"; "field" ] [ "kind"; "scopeDepth"; "slot" ] element
             let slot =
                 match requiredString "slot" element with
                 | "value" -> RecipePatternSlot.Value
                 | "error" -> RecipePatternSlot.Error
-                | "field" -> RecipePatternSlot.Field(id<FieldTag> "fieldId" element)
+                | "field" ->
+                    match tryProperty "fieldId" element, tryProperty "field" element with
+                    | Some _, None -> RecipePatternSlot.Field(id<FieldTag> "fieldId" element)
+                    | None, Some _ -> RecipePatternSlot.Field(resolveNewField (requiredString "field" element))
+                    | _ -> fail "A field pattern reference takes exactly one of fieldId and field."
                 | value -> fail $"Unsupported pattern slot '{value}'."
             ExpressionRecipe.PatternReference { ScopeDepth = requiredInt "scopeDepth" element; Slot = slot }
         | "listEmpty" ->
@@ -201,3 +210,19 @@ module internal WireRecipe =
             match WireRecipeCommon.tryReferenceFree recipe element value with
             | Some decoded -> decoded
             | None -> fail $"Unsupported expression recipe kind '{value}'."
+
+    /// An exact-ID recipe; a field pattern reference by `field` name is not available here.
+    let recipe (element: JsonElement): ExpressionRecipe =
+        recipeIn (fun name -> fail $"Pattern reference by field name '{name}' is available only in an addUnionVariant arm body; use fieldId.") element
+
+    /// An exact-ID recipe whose field pattern references may name one of `newFields` by display
+    /// name: the arm bodies of `addUnionVariant`, whose field IDs do not exist on the wire yet.
+    let recipeWithNewFields (newFields: SemanticField list) (element: JsonElement): ExpressionRecipe =
+        recipeIn
+            (fun name ->
+                match newFields |> List.tryFind (fun field -> field.DisplayName = name) with
+                | Some field -> field.Id
+                | None ->
+                    let known = newFields |> List.map (fun field -> field.DisplayName) |> String.concat ", "
+                    fail $"Unknown new variant field '{name}' in a pattern reference; the new variant's fields are: {known}.")
+            element

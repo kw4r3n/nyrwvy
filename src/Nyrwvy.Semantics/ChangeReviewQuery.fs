@@ -77,8 +77,11 @@ module ChangeReviewQuery =
         let changedImplementationOwners =
             simulation.Diff.CapabilityImplementationsBound |> List.map (fun item -> item.OwnerFunctionId)
 
+        let changedMatchOwners =
+            simulation.Diff.UnionMatchArmsAdded |> List.map (fun item -> item.OwnerFunctionId)
+
         let present = simulation.ProposedSnapshot.Functions |> List.map (fun fn -> fn.Id) |> Set.ofList
-        renamed @ parameterOwners @ effectOwners @ changedCallOwners @ changedProductOwners @ changedImplementationOwners
+        renamed @ parameterOwners @ effectOwners @ changedCallOwners @ changedProductOwners @ changedImplementationOwners @ changedMatchOwners
         |> List.distinct
         |> List.filter (fun id -> Set.contains id present)
         |> List.sortBy StableId.value
@@ -98,6 +101,7 @@ module ChangeReviewQuery =
         @ (simulation.Diff.ProductFieldsAdded |> List.map (fun item -> item.OwnerTypeId))
         @ (simulation.Diff.ProductFieldsRemoved |> List.map (fun item -> item.OwnerTypeId))
         @ (simulation.Diff.UnionVariantsRemoved |> List.map (fun item -> item.OwnerTypeId))
+        @ (simulation.Diff.UnionVariantsAdded |> List.map (fun item -> item.OwnerTypeId))
         |> List.distinct
         |> List.filter (fun id -> simulation.ProposedSnapshot.Types |> List.exists (fun item -> item.Id = id))
         |> List.sortBy StableId.value
