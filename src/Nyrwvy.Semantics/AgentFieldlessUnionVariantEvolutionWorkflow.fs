@@ -369,11 +369,3 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
 
     let commitWithPolicy workspace proposal policy =
         publishWithPolicy workspace proposal policy
-
-    let reject
-        (workspace: AgentWorkspace)
-        (AgentFieldlessUnionVariantEvolutionProposal proposal)
-        : AgentWorkspace * TransactionRejectionReceipt =
-        workspace,
-        { TransactionId = proposal.TransactionId
-          RetainedSnapshotId = AgentWorkspace.currentSnapshotId workspace }

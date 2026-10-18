@@ -27,11 +27,19 @@ export function partitionNodeTests(paths, rules = nodeSuiteRules) {
 }
 
 export function discoverNodeTests(root = repositoryRoot) {
-  // Include new untracked tests, exclude ignored/generated artifacts and removed files.
-  // Git pathspecs find nested tests too, so new directories cannot disappear silently.
-  const paths = execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.test.mjs"], { cwd: root, encoding: "utf8" })
-    .split("\0").filter(path => path && existsSync(join(root, path)))
-  return partitionNodeTests([...new Set(paths)])
+  // Include new untracked tests and exclude ignored/generated artifacts. Git pathspecs find
+  // nested tests too, so new directories cannot disappear silently.
+  const paths = [...new Set(execFileSync("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "*.test.mjs"], { cwd: root, encoding: "utf8" })
+    .split("\0").filter(Boolean))]
+  // A listed path missing from disk is tracked in the index but deleted in the working tree.
+  // Dropping it silently would shrink a suite unnoticed, so it is an error; an intended
+  // removal is staged with `git rm`, after which the index no longer lists it.
+  const missing = paths.filter(path => !existsSync(join(root, path))).sort()
+  if (missing.length) {
+    throw new Error(`Tracked Node test files are missing from the working tree: ${missing.join(", ")}. `
+      + `Restore them with \`git restore -- ${missing.join(" ")}\`, or stage an intended removal with \`git rm\`.`)
+  }
+  return partitionNodeTests(paths)
 }
 
 // Round-robin over the sorted discovery list, so shards stay exhaustive and disjoint

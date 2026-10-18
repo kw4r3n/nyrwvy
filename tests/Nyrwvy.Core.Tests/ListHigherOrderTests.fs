@@ -455,10 +455,10 @@ module ListHigherOrderTests =
 
         let typedJson = TypedSemanticIrSerializer.serialize typed
         let executionJson = ExecutionIrSerializer.serialize execution
-        Assert.Contains("\"schemaVersion\":7", typedJson)
+        Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", typedJson)
         Assert.Contains("\"listMap\"", typedJson)
         Assert.Contains(StableId.value fixture.PositiveFunctionId, typedJson)
-        Assert.Contains("\"schemaVersion\":6", executionJson)
+        Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", executionJson)
         Assert.Contains("\"listFilter\"", executionJson)
 
     [<Fact>]

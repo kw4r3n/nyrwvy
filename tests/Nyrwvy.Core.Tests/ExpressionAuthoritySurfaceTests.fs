@@ -9,7 +9,6 @@ module ExpressionAuthoritySurfaceTests =
     [<Fact>]
     let ``expression authority surface rejects nested raw graph payloads`` () =
         Assert.Equal("ExpressionRecipe", typeof<ExpressionRecipe>.Name)
-        Assert.Equal(typeof<ExpressionRecipe>, typeof<PureExpressionRecipe>)
         let requestFields =
             FSharpType.GetRecordFields(typeof<AgentReplaceFunctionBodyWithExpressionRecipe>)
             |> Array.map (fun field -> field.Name, field.PropertyType)

@@ -35,8 +35,8 @@ module TypedSemanticIrSerializerTests =
 
         use document = JsonDocument.Parse(encoded)
         let root = document.RootElement
-        // Graphs without Abort retain their previous canonical IR schema.
-        Assert.Equal(7, root.GetProperty("schemaVersion").GetInt32())
+        // Every program gets the one current debug schema version.
+        Assert.Equal(TypedSemanticIrSerializer.schemaVersion, root.GetProperty("schemaVersion").GetInt32())
         Assert.Equal(StableId.value fixture.Snapshot.Id, root.GetProperty("sourceSnapshotId").GetString())
 
         Assert.DoesNotContain("displayName", encoded)

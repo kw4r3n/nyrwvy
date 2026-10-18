@@ -161,7 +161,7 @@ ListAll
 
 `ListLast(list)` gives the last item as `Option<T>` (`None` for the empty list), and `ListDropLast(list)` gives the list without its last item (the empty list stays empty); neither fails. With `ListAppendItem` they make a list a stack: peek, pop and push. Both take constant time, because `ListDropLast` shares the items with the original list. A push onto a popped list copies the list once, since the original still holds that slot, so a loop that alternates pops and pushes on a deep stack still copies; one that only pushes and pops, or pushes again only after a further push, does not ([decision](../decisions/list-last-and-drop-last.md)).
 
-Higher-order operations reference callbacks by stable `FunctionId`. The accepted slice is pure: effectful callbacks are rejected rather than acquiring an implicit traversal-order/effect contract. Purity here is the same transitive rule as for [function values](#pure-function-values): a callback has no required effects and neither it nor any function it reaches invokes a capability, uses a resource, starts, waits for or cancels a task, runs `ParallelAll`, or reads `CancellationRequested`. Generic lambdas/closures are not part of the current subset.
+Higher-order operations reference callbacks by stable `FunctionId`. Apart from `ListEffectFold`'s folder below, callbacks are pure: effectful callbacks are rejected rather than acquiring an implicit traversal-order/effect contract. Purity here is the same transitive rule as for [function values](#pure-function-values): a callback has no required effects and neither it nor any function it reaches invokes a capability, uses a resource, starts, waits for or cancels a task, runs `ParallelAll`, or reads `CancellationRequested`. Generic lambdas/closures are not part of the current subset.
 
 `ListEffectFold(source, seed, folder, context)` is the exception with an explicit contract: its folder may use effects the enclosing function declares, and runs once per item, left to right. It is also the fold that stops early. When the folder returns `Result<S, E>` for seed `S` (pure or effectful), the node yields `Result<S, E>` and calls the folder for no item after the first `Err`. With a pure folder no effect is needed, so Python code that raises inside a loop is one folder returning `Result`, with no `Result` accumulator and no pass-through `Err` arm ([decision](../decisions/result-fold-short-circuit.md)).
 
@@ -202,7 +202,7 @@ Insert, get, contains and remove are O(log n), and size is O(1). None of them fa
 
 ## Immutable insertion-ordered `Set<T>`
 
-`Set<T>` holds each item at most once. `T` must be equatable, as for `Map` keys, and items compare with `ValueEqual`. Like `Map`, a set is an immutable value visited in insertion order: inserting a present item changes nothing, and removing an item and inserting it again puts it last. A `Set` is not equatable, and as for `Map` keys its item type is always concrete: a generic function cannot take or return `Set<T>` (`SetItemTypeNotEquatable`).
+`Set<T>` holds each item at most once. `T` must be equatable, as for `Map` keys, and items compare with `ValueEqual`. Like `Map`, a set is an immutable value visited in insertion order: inserting a present item changes nothing, and removing an item and inserting it again puts it last. A `Set` is itself equatable, compared by content regardless of insertion order ([decision](../decisions/map-set-equality.md)). As for `Map` keys, a type parameter is not equatable, so its item type is always concrete: a generic function cannot take or return `Set<T>` (`SetItemTypeNotEquatable`).
 
 ```text
 SetEmpty(itemType)           Set<T>
@@ -290,7 +290,7 @@ StringParseFloat64
 
 `Float64ToString(value)` yields Python `repr(value)`: the shortest decimal digits that read back to the same binary64, in exponent form `d.ddde±XX` (at least two exponent digits) when the decimal point position `decpt` of `0.ddd × 10^decpt` is `<= -4` or `> 16`, and otherwise in fixed form with at least one digit after the point: `0.1`, `100.0`, `1e+16`, `1.5e-05`, `5e-324`. NaN gives `nan`, the infinities `inf` and `-inf`, the zeros `0.0` and `-0.0`. `StringParseFloat64(text)` yields `Option<Float64>`: `Some` when the whole text is `-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?` in ASCII digits (the JSON number grammar, leading zeros accepted), rounded to the nearest binary64 with ties to even for any digit count and exponent length, with a signed infinity on overflow (`1e400`) and a signed zero on underflow (`-1e-400` gives -0.0); `+`, whitespace, `.5`, `5.`, `inf`, `nan`, underscores and empty text yield `None`. Every finite value round-trips through the two. Both never fail; see the [decision](../decisions/float64-decimal-text.md).
 
-Binary64 infinity, NaN, and signed-zero outcomes are normal values under this contract rather than transaction diagnostics. See the [Float64 verification record](../verification/m1-float64-implementation-notes-20260828.md).
+Binary64 infinity, NaN, and signed-zero outcomes are normal values under this contract rather than transaction diagnostics. See the [Float64 verification record](../../docs-archive/2026-08-pre-reorg/m1-float64-implementation-notes-20260828.md).
 
 ## `Bits32`
 
@@ -454,7 +454,7 @@ Before materialization the workflow checks target/base guards, the 32-depth / 25
 
 `ListEmpty`, `ListConstruct`, `OptionNone`, and one side of each `Result` constructor carry explicit type information when it cannot be inferred from a child. Named/capability references and builtin-generic arity are checked before materialization.
 
-Higher-order List cases reference existing callbacks by `FunctionId`. `ListFold` accepts a pure binary `(S, T) -> S` with seed `S`; `ListMap` accepts a pure unary `T -> R`; `ListZipWith` accepts a pure binary `(A, B) -> R` over the left and right item types; `ListFlatMap` accepts a pure unary `T -> List<R>`; `ListFilter`, `ListFindIndex`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. `ListSortBy` and `ListMinBy` accept a pure binary less-than `(T, T) -> Bool`. An optional context binds further callback parameters by identity to values computed before the traversal, and these arities apply to the remaining unbound parameters (see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks)). The workflow does not construct lambdas or permit effectful traversal callbacks. Source expressions may use effects already declared by the target.
+Higher-order List cases reference existing callbacks by `FunctionId`. `ListFold` accepts a pure binary `(S, T) -> S` with seed `S`; `ListMap` accepts a pure unary `T -> R`; `ListZipWith` accepts a pure binary `(A, B) -> R` over the left and right item types; `ListFlatMap` accepts a pure unary `T -> List<R>`; `ListFilter`, `ListFindIndex`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. `ListSortBy` and `ListMinBy` accept a pure binary less-than `(T, T) -> Bool`. An optional context binds further callback parameters by identity to values computed before the traversal, and these arities apply to the remaining unbound parameters (see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks)). `ListEffectFold` accepts a binary `(S, T) -> S` folder (or one returning `Result<S, E>`) that may use effects the target declares. The workflow does not construct lambdas or permit any other effectful callback. Source expressions may use effects already declared by the target.
 
 Product and union construction bind declaration fields by stable `FieldId`. Preflight requires the exact declared field set with no duplicates and exact field-value types. Caller binding order is not semantic: materialization follows declaration field order and creates ordinary persistent `FieldValueBinding` values only after child nodes receive system-owned IDs. `FieldAccess` requires the exact owning product type. `ProductUpdate` copies a source of exactly the named product type with one or more of its fields replaced, each at most once, and keeps every other field; it never fails. `UnionConstruct` derives its result type from the referenced stable `VariantId`.
 
@@ -503,7 +503,7 @@ Scoped control flow remains part of the same ephemeral construction model rather
 
 The requested construction tree is ephemeral intent; the resulting `SemanticNodeKind` graph remains authoritative state. Review, receipt binding, stale rejection, readiness, publication, and history use the same structural transaction mechanics established in M2. `ResultingChange.AddedNodes` recursively includes branch-local nodes so the review covers the complete materialized result rather than only the parent graph.
 
-See [Expression structural authoring](../specs/expression-authoring.md). The old `PureExpressionRecipe` and `AgentPureExpression...` names remain thin F# source aliases/forwarders for existing clients, not an independent pure-only interface. Existing diagnostic codes and historical evaluation protocol names are retained.
+See [Expression structural authoring](../specs/expression-authoring.md). The old `PureExpressionRecipe` and `AgentPureExpression...` F# aliases were removed on 2026-10-18; they were never an independent pure-only interface. Existing diagnostic codes and historical evaluation protocol names are retained.
 
 ### M1 operation workflow
 
@@ -526,13 +526,13 @@ Field-addition plans use `(constructNodeId, valueNodeId)` pairs for existing val
 
 Required-effect edits do not propagate automatically through callers and do not create obligations. Multiple explicit function edits may be composed in one transaction; full validation of the final proposed snapshot enforces caller/callee and capability/body effect consistency. Expression authoring still never mutates `RequiredEffects` implicitly.
 
-### Fieldless Union variant evolution
+### Union variant evolution
 
-`AgentFieldlessUnionVariantEvolutionWorkflow` supports one bounded schema-evolution operation: add a new **fieldless** variant to an existing Union while preserving the Union's `TypeId`. The caller identifies the target Union and one existing fieldless source `VariantId`; the new `VariantId` remains system-owned.
+The session operation `simulateAddUnionVariantLike` adds one new variant to an existing Union while preserving the Union's `TypeId`. The caller names the target Union, an existing source `VariantId` (fieldless or field-bearing) and the new display name, and may add `additionalFields`; the new `VariantId` and `FieldId`s remain system-owned. The new variant copies the source variant's fields, followed by the additional ones.
 
-Publication repairs exhaustive `MatchUnion` nodes atomically by adding an arm for the new variant whose behavior is copied from the selected source arm; when the source variant is in an arm with several variants, the new variant joins that arm and shares its body instead. Copied arm bodies receive fresh system-owned graph-node and pattern-binding IDs. The variant addition and all required match repairs are reviewed and published as one snapshot, so no intermediate non-exhaustive state becomes authoritative.
+Publication repairs exhaustive `MatchUnion` nodes atomically: each arm for the source variant is cloned for the new variant with fresh system-owned graph-node and pattern-binding IDs and its field bindings remapped (additional fields are bound but unused); an arm that names the source variant together with others gains the new variant and keeps its body. The variant addition and all match repairs are reviewed and published as one snapshot, so no intermediate non-exhaustive state becomes authoritative. Arm bodies can then be refined with targeted replacement. The [session contract](../specs/agent-authoring-session.md) has the request and review shapes.
 
-This surface intentionally does not cover field-bearing variant evolution, arbitrary new match-arm recipes, type deletion, or a generalized schema-migration framework. It was added for the concrete Mini Work Planner `ExecutionState.TimedOut` maintenance case.
+This surface does not author arbitrary new match-arm recipes or a generalized schema-migration framework; variant removal is the separate reviewed edit `removeUnionVariant`.
 
 ### Removed Float64 and ListMap compatibility surfaces
 
@@ -567,11 +567,11 @@ The following are not currently accepted language features merely because a back
 - implicit numeric promotion or conversion;
 - generic numeric operator bags;
 - generic lambdas/closures;
-- effectful List traversal callbacks;
+- effectful callbacks other than `ListEffectFold`'s folder;
 - hidden backend exception/default semantics;
-- exact bit manipulation beyond [`Bits32`](#bits32): other widths, byte strings and generic bit vectors.
+- exact bit domains beyond [`Bits32`](#bits32) and the two's-complement `Int64` bitwise operations: other widths, byte strings and generic bit vectors.
 
-`Bits32` is the one implemented exact-bit domain, separate from `Int64` and `Float64` numeric semantics; the broader direction remains an [experiment](../experiments/bit-representation.md).
+`Bits32` is the one implemented exact-bit domain, separate from `Int64` and `Float64` numeric semantics (the `Int64` bitwise operations act on the numeric value's two's-complement form); the broader direction remains an [experiment](../experiments/bit-representation.md).
 
 
 ## Failure behavior

@@ -3,10 +3,10 @@
 - **Status:** Accepted
 - **Date:** 2026-10-03
 - **Roadmap:** [post-M2 owner choice of 2026-10-03](../plans/post-m2-roadmap.md#owner-choice-of-2026-10-03), orders 44, 45, 47 and 48
-- **Design note:** [Map](../plans/map.md)
+- **Design note:** [Map](../../docs-archive/2026-10-decided-plans/map.md)
 - **Supersedes:** the "Map stays deferred" parts of [value equality, and Map revisited again](value-equality-and-map.md)
 
-Five probes (3, 7, 13, 14 and 16) paid for the missing keyed collection. Probe 16's tree comparison went over the run limit. The [design note](../plans/map.md) put five questions to the owner, who accepted every recommendation on 2026-10-03.
+Five probes (3, 7, 13, 14 and 16) paid for the missing keyed collection. Probe 16's tree comparison went over the run limit. The [design note](../../docs-archive/2026-10-decided-plans/map.md) put five questions to the owner, who accepted every recommendation on 2026-10-03.
 
 ## Decision
 

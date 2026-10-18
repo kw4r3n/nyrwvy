@@ -2,12 +2,7 @@ namespace Nyrwvy.Core
 
 open System
 
-[<RequireQualifiedAccess>]
-type StableIdTextError =
-    | MissingDomainPrefix of expectedPrefix: string
-    | InvalidPayload of StableIdError
-
-/// Production stable-ID allocation and typed external text forms.
+/// Production stable-ID allocation and typed text forms.
 ///
 /// The StableId payload is an opaque UUIDv7 string. The generic StableId<'Kind>
 /// type is the in-memory domain authority; textual prefixes are transport and
@@ -19,6 +14,16 @@ module StableIdAllocator =
         match StableId.tryCreate<'Kind> payload with
         | Ok id -> id
         | Error error -> invalidOp $"Generated UUIDv7 was rejected as a stable ID: {error}."
+
+    /// A deterministic ID derived from a seed: the first 16 bytes of the seed's UTF-8 SHA-256 as a
+    /// GUID. Re-simulating the same request derives the same ID. Callers make the seed unique to
+    /// the identity it names (for example transaction, node and field IDs together).
+    let derived<'Kind> (seed: string): StableId<'Kind> =
+        let hash = Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes seed)
+        let payload = Guid(ReadOnlySpan(hash, 0, 16)).ToString("D")
+        match StableId.tryCreate<'Kind> payload with
+        | Ok id -> id
+        | Error error -> invalidOp $"Derived GUID was rejected as a stable ID: {error}."
 
     let newTypeId (): TypeId = allocate<TypeTag> ()
     let newFieldId (): FieldId = allocate<FieldTag> ()
@@ -41,17 +46,6 @@ module StableIdText =
     let private render prefix (id: StableId<'Kind>) =
         prefix + ":" + StableId.value id
 
-    let private parse<'Kind>
-        (prefix: string)
-        (text: string)
-        : Result<StableId<'Kind>, StableIdTextError> =
-        let expected = prefix + ":"
-        if isNull text || not (text.StartsWith(expected, StringComparison.Ordinal)) then
-            Error(StableIdTextError.MissingDomainPrefix prefix)
-        else
-            StableId.tryCreate<'Kind> (text.Substring(expected.Length))
-            |> Result.mapError StableIdTextError.InvalidPayload
-
     let typeId (id: TypeId) = render "type" id
     let fieldId (id: FieldId) = render "field" id
     let variantId (id: VariantId) = render "variant" id
@@ -67,17 +61,3 @@ module StableIdText =
     let snapshotId (id: SnapshotId) = render "snapshot" id
     let transactionId (id: TransactionId) = render "transaction" id
 
-    let parseTypeId text: Result<TypeId, StableIdTextError> = parse<TypeTag> "type" text
-    let parseFieldId text: Result<FieldId, StableIdTextError> = parse<FieldTag> "field" text
-    let parseVariantId text: Result<VariantId, StableIdTextError> = parse<VariantTag> "variant" text
-    let parseFunctionId text: Result<FunctionId, StableIdTextError> = parse<FunctionTag> "function" text
-    let parseParameterId text: Result<ParameterId, StableIdTextError> = parse<ParameterTag> "parameter" text
-    let parsePatternBindingId text: Result<PatternBindingId, StableIdTextError> = parse<PatternBindingTag> "pattern-binding" text
-    let parseGraphNodeId text: Result<GraphNodeId, StableIdTextError> = parse<GraphNodeTag> "node" text
-    let parseEffectId text: Result<EffectId, StableIdTextError> = parse<EffectTag> "effect" text
-    let parseCapabilityId text: Result<CapabilityId, StableIdTextError> = parse<CapabilityTag> "capability" text
-    let parseCapabilityOperationId text: Result<CapabilityOperationId, StableIdTextError> = parse<CapabilityOperationTag> "capability-operation" text
-    let parseCapabilityParameterId text: Result<CapabilityParameterId, StableIdTextError> = parse<CapabilityParameterTag> "capability-parameter" text
-    let parseObligationId text: Result<ObligationId, StableIdTextError> = parse<ObligationTag> "obligation" text
-    let parseSnapshotId text: Result<SnapshotId, StableIdTextError> = parse<SnapshotTag> "snapshot" text
-    let parseTransactionId text: Result<TransactionId, StableIdTextError> = parse<TransactionTag> "transaction" text

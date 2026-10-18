@@ -200,7 +200,7 @@ Rules:
 - editing-only metadata must not be added to IR merely to simplify migration;
 - provenance needed for diagnostics may evolve as explicit non-semantic fields.
 
-The IR JSON writers, `TypedSemanticIrSerializer` and `ExecutionIrSerializer`, are write-only debug and inspection output. Nothing reads them, there is no round trip, and their shape carries no compatibility promise: it may change in any commit without a version bump. Their `schemaVersion` field is informational. Do not persist this output or use it as an interchange format; persist the semantic snapshot and derive the IR again.
+The IR JSON writers, `TypedSemanticIrSerializer` and `ExecutionIrSerializer`, are write-only debug and inspection output. Nothing reads them, there is no round trip, and their shape carries no compatibility promise: it may change in any commit without a version bump. Their `schemaVersion` field is informational: each writer emits one fixed current value for every program (13 on 2026-10-18), not a minimum computed from the constructs a program uses. Do not persist this output or use it as an interchange format; persist the semantic snapshot and derive the IR again.
 
 ## Persistence-format experiments
 

@@ -46,7 +46,9 @@ module CSharpBackend =
     let private renderFloat64Literal bits =
         "BitConverter.UInt64BitsToDouble(0x" + Float64Bits.toHex bits + "UL)"
 
-    let rec private formatType (typeRef: TypeRef) =
+    /// The C# source type of a type reference, as emitted programs spell it. runPure's runner
+    /// uses it to declare its argument and result values.
+    let rec formatType (typeRef: TypeRef) =
         match typeRef with
         | TypeRef.Primitive PrimitiveType.String -> "NyStr"
         | TypeRef.Primitive PrimitiveType.Bool -> "bool"

@@ -15,7 +15,8 @@ usage() {
 Usage: scripts/verify-local-20260825-1427.sh [--clean] [--allow-dirty]
 
 Options:
-  --clean        Remove bin/ and obj/ beside .NET project files before restore.
+  --clean        Remove bin/ and obj/ beside .NET project files before restore
+                 (not inside node_modules, .git or .claude/worktrees).
   --allow-dirty  Permit verification with uncommitted tracked changes.
   -h, --help     Show this help.
 
@@ -99,6 +100,7 @@ echo
 
 if [[ "$CLEAN" -eq 1 ]]; then
   echo "--- Clean .NET project bin/obj ---"
+  # Agent worktrees under .claude/worktrees are other checkouts with their own builds.
   while IFS= read -r -d '' project; do
     project_dir="$(dirname "$project")"
     for dir in "$project_dir/bin" "$project_dir/obj"; do
@@ -108,6 +110,7 @@ if [[ "$CLEAN" -eq 1 ]]; then
       fi
     done
   done < <(find "$ROOT_DIR" \
+    -path "$ROOT_DIR/.claude/worktrees" -prune -o \
     -type d \( -name node_modules -o -name .git -o -name bin -o -name obj \) -prune -o \
     -type f \( -name '*.fsproj' -o -name '*.csproj' \) -print0)
   echo
@@ -121,11 +124,14 @@ echo "--- Release build ---"
 dotnet build Nyrwvy.slnx --configuration Release --no-restore
 echo
 
+ENCODING_REPORT="${TMPDIR:-/tmp}/nyrwvy-encoding-comparison.txt"
+# A report left by an earlier run would satisfy the check below without this run producing one.
+rm -f "$ENCODING_REPORT"
+
 echo "--- Full test suite (once, including extended) ---"
 dotnet test Nyrwvy.slnx --configuration Release --no-build --no-restore
 echo
 
-ENCODING_REPORT="${TMPDIR:-/tmp}/nyrwvy-encoding-comparison.txt"
 if [[ ! -f "$ENCODING_REPORT" ]]; then
   echo "ERROR: expected encoding comparison report was not produced: $ENCODING_REPORT" >&2
   exit 1

@@ -113,7 +113,7 @@ module AgentPureExpressionDirectCallTests =
         | Ok workspace -> workspace
         | Error issues -> failwithf "Unexpected workspace creation failure: %A" issues
 
-    let private request (fixture: Fixture) replacement: AgentReplaceFunctionBodyWithPureExpressionRecipe =
+    let private request (fixture: Fixture) replacement: AgentReplaceFunctionBodyWithExpressionRecipe =
         let caller = fixture.Snapshot.Functions |> List.find (fun functionEntity -> functionEntity.Id = fixture.CallerId)
         { TargetFunctionId = fixture.CallerId
           ExpectedBaseSnapshotId = fixture.Snapshot.Id
@@ -129,18 +129,18 @@ module AgentPureExpressionDirectCallTests =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
         let recipe =
-            PureExpressionRecipe.DirectCall(
+            ExpressionRecipe.DirectCall(
                 fixture.CalleeId,
-                [ fixture.CountParameterId, PureExpressionRecipe.Int64Literal 2L
-                  fixture.TextParameterId, PureExpressionRecipe.StringLiteral "hello" ]
+                [ fixture.CountParameterId, ExpressionRecipe.Int64Literal 2L
+                  fixture.TextParameterId, ExpressionRecipe.StringLiteral "hello" ]
             )
 
         let proposal =
-            match AgentPureExpressionStructuralWorkflow.simulate workspace (request fixture recipe) with
+            match AgentExpressionStructuralWorkflow.simulate workspace (request fixture recipe) with
             | Ok proposal -> proposal
             | Error error -> failwithf "Unexpected DirectCall simulation failure: %A" error
 
-        let review = AgentPureExpressionStructuralChangeProposal.review proposal
+        let review = AgentExpressionStructuralChangeProposal.review proposal
         Assert.Equal(TransactionReadiness.SemanticallyReady, review.Readiness)
 
         let addedNodes = review.ResultingChange.AddedNodes
@@ -152,14 +152,14 @@ module AgentPureExpressionDirectCallTests =
         let fixture = createFixture ()
         let fixture = fixture |> withCallerEffects [ fixture.CallEffectId ]
         let workspace = createWorkspace fixture.Snapshot
-        let recipe = PureExpressionRecipe.DirectCall(fixture.EffectfulCalleeId, [])
+        let recipe = ExpressionRecipe.DirectCall(fixture.EffectfulCalleeId, [])
 
         let proposal =
-            match AgentPureExpressionStructuralWorkflow.simulate workspace (request fixture recipe) with
+            match AgentExpressionStructuralWorkflow.simulate workspace (request fixture recipe) with
             | Ok proposal -> proposal
             | Error error -> failwithf "Unexpected effectful DirectCall simulation failure: %A" error
 
-        let review = AgentPureExpressionStructuralChangeProposal.review proposal
+        let review = AgentExpressionStructuralChangeProposal.review proposal
         Assert.Equal(TransactionReadiness.SemanticallyReady, review.Readiness)
         let callNode = review.ResultingChange.AddedNodes |> List.exactlyOne
         Assert.Equal("DirectCall", callNode.Role)
@@ -170,8 +170,8 @@ module AgentPureExpressionDirectCallTests =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
 
-        request fixture (PureExpressionRecipe.DirectCall(fixture.EffectfulCalleeId, []))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        request fixture (ExpressionRecipe.DirectCall(fixture.EffectfulCalleeId, []))
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "ExpressionCallMissingEffectRequirement"
 
     [<Fact>]
@@ -182,34 +182,34 @@ module AgentPureExpressionDirectCallTests =
         let foreignParameter = StableId.createForTesting<ParameterTag> "parameter-pure-call-foreign"
 
         let cases =
-            [ PureExpressionRecipe.DirectCall(missingCallee, []), "PureExpressionCallTargetNotFound"
-              PureExpressionRecipe.DirectCall(
+            [ ExpressionRecipe.DirectCall(missingCallee, []), "PureExpressionCallTargetNotFound"
+              ExpressionRecipe.DirectCall(
                   fixture.CalleeId,
-                  [ fixture.TextParameterId, PureExpressionRecipe.StringLiteral "a"
-                    fixture.TextParameterId, PureExpressionRecipe.StringLiteral "b"
-                    fixture.CountParameterId, PureExpressionRecipe.Int64Literal 1L ]
+                  [ fixture.TextParameterId, ExpressionRecipe.StringLiteral "a"
+                    fixture.TextParameterId, ExpressionRecipe.StringLiteral "b"
+                    fixture.CountParameterId, ExpressionRecipe.Int64Literal 1L ]
               ),
               "PureExpressionDuplicateCallArgument"
-              PureExpressionRecipe.DirectCall(
+              ExpressionRecipe.DirectCall(
                   fixture.CalleeId,
-                  [ foreignParameter, PureExpressionRecipe.StringLiteral "a"
-                    fixture.TextParameterId, PureExpressionRecipe.StringLiteral "b"
-                    fixture.CountParameterId, PureExpressionRecipe.Int64Literal 1L ]
+                  [ foreignParameter, ExpressionRecipe.StringLiteral "a"
+                    fixture.TextParameterId, ExpressionRecipe.StringLiteral "b"
+                    fixture.CountParameterId, ExpressionRecipe.Int64Literal 1L ]
               ),
               "PureExpressionCallArgumentTargetNotFound"
-              PureExpressionRecipe.DirectCall(
+              ExpressionRecipe.DirectCall(
                   fixture.CalleeId,
-                  [ fixture.TextParameterId, PureExpressionRecipe.StringLiteral "a" ]
+                  [ fixture.TextParameterId, ExpressionRecipe.StringLiteral "a" ]
               ),
               "PureExpressionCallArgumentMissing"
-              PureExpressionRecipe.DirectCall(
+              ExpressionRecipe.DirectCall(
                   fixture.CalleeId,
-                  [ fixture.TextParameterId, PureExpressionRecipe.Int64Literal 1L
-                    fixture.CountParameterId, PureExpressionRecipe.Int64Literal 2L ]
+                  [ fixture.TextParameterId, ExpressionRecipe.Int64Literal 1L
+                    fixture.CountParameterId, ExpressionRecipe.Int64Literal 2L ]
               ),
               "PureExpressionCallArgumentTypeMismatch" ]
 
         for recipe, expectedCode in cases do
             request fixture recipe
-            |> AgentPureExpressionStructuralWorkflow.simulate workspace
+            |> AgentExpressionStructuralWorkflow.simulate workspace
             |> assertRejectedCode expectedCode

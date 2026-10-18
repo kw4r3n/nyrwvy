@@ -18,6 +18,8 @@ Archive material should be grouped one level deeper by coherent phase, event, or
 
 - [`2026-09-general-purpose-programming/`](2026-09-general-purpose-programming/) — the original general-purpose roadmap and staged implementation history (Japanese; the original working document, superseded by the English [general-purpose programming roadmap](../docs/plans/general-purpose-programming-roadmap.md)), separated from the maintained current status on 2026-09-26.
 
+- [`2026-10-decided-plans/`](2026-10-decided-plans/) — plan and design notes whose work is complete or whose recommendations the owner decided, archived on 2026-10-18: [loops](2026-10-decided-plans/loops.md), [Map](2026-10-decided-plans/map.md), [shared `MatchUnion` arms](2026-10-decided-plans/match-union-shared-arms.md), [List stack operations](2026-10-decided-plans/list-stack-operations.md), [task communication and time](2026-10-decided-plans/task-communication-and-time.md), [ordered expression binding](2026-10-decided-plans/ordered-expression-binding.md) and the completed [Milestone 1 agent evaluation plan](2026-10-decided-plans/m1-agent-evaluation-plan-20260826.md) (its earlier draft is in the pre-reorg collection). The resulting decisions and specs under `docs/` are authoritative.
+
 ## Retention
 
 Ordinary documentation maintenance may move clearly inactive material into this archive without deleting its history. Deleting archived records is a separate maintenance action and requires explicit confirmation.

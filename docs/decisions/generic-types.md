@@ -21,7 +21,7 @@ Functions could be generic, but declared types could not: "declared types stay m
 
 ## Consequences
 
-- Snapshot JSON 18 / Nyason `nayamnyam.snapshot.v14` hold the new constructs: a type with `typeParameters`, a named type with `arguments`, and a construct node with `typeArguments`. All three are omitted when empty, so a monomorphic snapshot keeps its version, bytes and fingerprint ([schema versions](../specs/schema-evolution-policy.md#snapshot-schema-versions)). The typed semantic IR and Execution IR write schema version 13 when a type has type parameters.
+- Snapshot JSON 18 / Nyason `nayamnyam.snapshot.v14` hold the new constructs: a type with `typeParameters`, a named type with `arguments`, and a construct node with `typeArguments`. All three are omitted when empty, so a monomorphic snapshot keeps its version, bytes and fingerprint ([schema versions](../specs/schema-evolution-policy.md#snapshot-schema-versions)). The typed semantic IR and Execution IR debug writers then wrote schema version 13 when a type had type parameters; since 2026-10-18 they write that one version for every program ([IR evolution](../specs/schema-evolution-policy.md#ir-evolution)).
 - `GenericTypeTests` covers declaration, derived and explicit type arguments, rejection of missing, conflicting and wrong-arity arguments, irregular recursion, equality, persistence in both codecs, lowering, the C# backend and `runPure` results.
 
 ## Revisit conditions

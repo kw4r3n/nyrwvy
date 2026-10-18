@@ -12,7 +12,7 @@ Use one scoped value-binding expression, `Bind(value, body)`. Evaluate `value` o
 
 Keep existing dependency-ordered calls and genuine conditional/match control flow. Preserve `AmbiguousEffectOrder` for independent effectful siblings within each graph. Do not derive effect order from `ValueGraph.Nodes`, argument/field binding-list order, materialization traversal, or allocated IDs.
 
-The accepted representation and implementation gates are in the [bounded Bind plan](../plans/ordered-expression-binding.md). This decision authorizes a design boundary, not a broad sequencing implementation, new CI job, or model corpus.
+The accepted representation and implementation gates are in the [bounded Bind plan](../../docs-archive/2026-10-decided-plans/ordered-expression-binding.md). This decision authorizes a design boundary, not a broad sequencing implementation, new CI job, or model corpus.
 
 ## Reason
 

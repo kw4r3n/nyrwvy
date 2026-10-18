@@ -8,7 +8,7 @@
 
 ## Decision
 
-`NyList<T>` is a persistent vector, as the [design note](../plans/list-stack-operations.md) proposed: a 32-way trie of full leaves and a tail of 1 to 32 items. Append, drop-last, last, item-at and a slice from 0 share every untouched node and take O(log₃₂ n); a push after a pop copies at most the 32-item tail. The tail keeps the compare-exchange rule of the old store, so a chain of appends writes in place. The [C# backend specification](../specs/csharp-backend.md) describes the representation.
+`NyList<T>` is a persistent vector, as the [design note](../../docs-archive/2026-10-decided-plans/list-stack-operations.md) proposed: a 32-way trie of full leaves and a tail of 1 to 32 items. Append, drop-last, last, item-at and a slice from 0 share every untouched node and take O(log₃₂ n); a push after a pop copies at most the 32-item tail. The tail keeps the compare-exchange rule of the old store, so a chain of appends writes in place. The [C# backend specification](../specs/csharp-backend.md) describes the representation.
 
 Language, semantics, run values, Execution IR, snapshots and Nyason are unchanged, and the public members of `NyList<T>` keep their signatures. A slice from 0 now shares nodes instead of copying, which the design note did not propose; it falls out of the trie, since a prefix is a shorter count over the same nodes, and it makes `ListSlice(stack, 0, i)` a constant-size truncation.
 

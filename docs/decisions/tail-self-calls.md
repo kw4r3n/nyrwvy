@@ -3,10 +3,10 @@
 - **Status:** Accepted
 - **Date:** 2026-10-04
 - **Roadmap:** [post-M2 owner choice of 2026-10-03](../plans/post-m2-roadmap.md#owner-choice-of-2026-10-03), order 49
-- **Design note:** [Loops](../plans/loops.md)
+- **Design note:** [Loops](../../docs-archive/2026-10-decided-plans/loops.md)
 - **Refines:** the recursion depth bound of [string code points and the recursion depth bound](string-code-points.md), which now applies only to recursion that is not a tail self-call
 
-Nyrwvy has no loop construct. Programs looped with a `ListFold` over a worst-case `ListRange` bound, with a `ListEffectFold` that stops at an invented `Err`, or with self-recursion, which was the shortest form but overflowed the stack: probe 15's event loop at 12,000–14,000 turns, and a minimal `sumTo(n, acc)` between 50,000 and 100,000 calls. The [design note](../plans/loops.md) put three questions to the owner, who accepted every recommendation on 2026-10-04.
+Nyrwvy has no loop construct. Programs looped with a `ListFold` over a worst-case `ListRange` bound, with a `ListEffectFold` that stops at an invented `Err`, or with self-recursion, which was the shortest form but overflowed the stack: probe 15's event loop at 12,000–14,000 turns, and a minimal `sumTo(n, acc)` between 50,000 and 100,000 calls. The [design note](../../docs-archive/2026-10-decided-plans/loops.md) put three questions to the owner, who accepted every recommendation on 2026-10-04.
 
 ## Decision
 

@@ -1,6 +1,6 @@
 # Map (design note)
 
-**Status:** Decided 2026-10-03: every recommendation accepted (keys of any equatable type, insertion order, the ten operations, Map not equatable, Set second). The owner also agreed that the language has no general tuple type (see the [decision](../decisions/map.md)). The first eight operations are order 44; `MapFold` and `MapFromList` are order 45; Set is order 46; set algebra and `MapFilter` are order 47; `MapGetOrDefault` and `MapMapValues` are order 48. The analysis below is kept as written. Following the owner's stance of 2026-10-03, each choice prefers what one would ordinarily expect of a map over matching Python exactly.
+**Status:** Decided 2026-10-03: every recommendation accepted (keys of any equatable type, insertion order, the ten operations, Map not equatable, Set second). The owner also agreed that the language has no general tuple type (see the [decision](../../docs/decisions/map.md)). The first eight operations are order 44; `MapFold` and `MapFromList` are order 45; Set is order 46; set algebra and `MapFilter` are order 47; `MapGetOrDefault` and `MapMapValues` are order 48. The analysis below is kept as written. Following the owner's stance of 2026-10-03, each choice prefers what one would ordinarily expect of a map over matching Python exactly.
 
 ## Context
 
@@ -8,13 +8,13 @@ Nyrwvy has no keyed collection. Programs look keys up with a fold over a `List`,
 
 | Probe | What it cost |
 | --- | --- |
-| [3](../verification/rrawrlet-slice-probes-summary.md#probe-3) | Replace-or-append in 3 places; settled for that size by `ValueEqual` and a generic `upsert` (27 nodes) |
-| [7](../verification/rrawrlet-slice-probes-summary.md#probe-7) | Five dicts and sets keyed by message ID or `(messageID, partID)`. Map emulation 17 nodes in 150; linear lookups were about 3.4 s of 3.7 s at 19,200 events |
-| [13](../verification/rrawrlet-slice-probes-summary.md#probe-13) | `dict` with its duplicate-key rule, and `set`: 10 functions and 159 nodes for a sorted index with binary search. The naive fold hit the 5 s limit at about 40,000 refs |
-| [14](../verification/rrawrlet-slice-probes-summary.md#probe-14) | Constant sets written as literal lists, about 90 nodes, 36 comparisons per tree node |
-| [16](../verification/rrawrlet-slice-probes-summary.md#probe-16) | Comparing two file trees by name is quadratic: over the 5 s limit at 16,000 files. The Map-free rewrite (sort both, then merge-join) took 7 requests and 327 nodes, and is an algorithm the Python does not contain |
+| [3](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-3) | Replace-or-append in 3 places; settled for that size by `ValueEqual` and a generic `upsert` (27 nodes) |
+| [7](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-7) | Five dicts and sets keyed by message ID or `(messageID, partID)`. Map emulation 17 nodes in 150; linear lookups were about 3.4 s of 3.7 s at 19,200 events |
+| [13](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-13) | `dict` with its duplicate-key rule, and `set`: 10 functions and 159 nodes for a sorted index with binary search. The naive fold hit the 5 s limit at about 40,000 refs |
+| [14](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-14) | Constant sets written as literal lists, about 90 nodes, 36 comparisons per tree node |
+| [16](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-16) | Comparing two file trees by name is quadratic: over the 5 s limit at 16,000 files. The Map-free rewrite (sort both, then merge-join) took 7 requests and 327 nodes, and is an algorithm the Python does not contain |
 
-Earlier decisions deferred Map for two reasons. There was no key-equality contract, and [`ValueEqual`](../decisions/value-equality-and-map.md) has since supplied one. The evidence was also thin. That evidence now stands at five probes. A map is something a general-purpose language is expected to have.
+Earlier decisions deferred Map for two reasons. There was no key-equality contract, and [`ValueEqual`](../../docs/decisions/value-equality-and-map.md) has since supplied one. The evidence was also thin. That evidence now stands at five probes. A map is something a general-purpose language is expected to have.
 
 ## Invariants to keep
 

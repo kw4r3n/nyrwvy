@@ -2323,10 +2323,6 @@ module TypeParameters =
     let instantiate (typeEntity: SemanticType) (arguments: TypeRef list) (fieldType: TypeRef) =
         if List.isEmpty typeEntity.TypeParameters then fieldType else substitute (ofArguments typeEntity arguments) fieldType
 
-    /// A reference to the declaration at its own type parameters, as its field types see it.
-    let selfReference (typeEntity: SemanticType) =
-        TypeRef.Named(typeEntity.Id, typeEntity.TypeParameters |> List.map TypeRef.TypeParameter)
-
 [<RequireQualifiedAccess>]
 module TaskTypes =
     let rec private occurs (matches: BuiltinGenericType -> bool) (typeRef: TypeRef) =
