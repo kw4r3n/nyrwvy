@@ -9,7 +9,8 @@ open System.Text.Json
 ///
 /// Write-only debug and inspection output. There is no reader, and the JSON shape
 /// carries no compatibility promise: it may change in any commit, and `schemaVersion`
-/// is informational only. Do not persist this output or parse it as an interchange format.
+/// is informational only: one fixed value for every program, not a per-feature minimum.
+/// Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
 module ExecutionIrSerializer =
     let schemaVersion = 13
@@ -955,63 +956,8 @@ module ExecutionIrSerializer =
                    |> arrayValue) ]
 
     let serialize (program: ExecutionProgram): string =
-        let blocks = program.Functions |> List.collect (fun fn -> fn.Blocks)
-        let hasLimit =
-            blocks |> List.exists (fun block ->
-                block.Instructions |> List.exists (fun instruction ->
-                    match instruction.Kind with
-                    | ExecutionInstructionKind.TaskWait(_, _, Some _) -> true
-                    | _ -> false))
-        let hasAbort = blocks |> List.exists (fun block -> match block.Terminator with ExecutionTerminator.Abort _ -> true | _ -> false)
-        let hasTailCall = blocks |> List.exists (fun block -> match block.Terminator with ExecutionTerminator.TailCall _ -> true | _ -> false)
-        let hasOneShotSignature =
-            program.Functions |> List.exists (fun fn ->
-                TaskTypes.mentionsOneShot fn.ResultType
-                || fn.Parameters |> List.exists (fun p -> TaskTypes.mentionsOneShot p.Value.Type))
-        let hasOneShotField =
-            program.Types |> List.exists (fun ty ->
-                match ty.Kind with
-                | ExecutionTypeKind.Product fields -> fields |> List.exists (fun f -> TaskTypes.mentionsOneShot f.Type)
-                | ExecutionTypeKind.Union variants ->
-                    variants |> List.exists (fun v -> v.Fields |> List.exists (fun f -> TaskTypes.mentionsOneShot f.Type)))
-        let hasOneShotValue =
-            blocks |> List.exists (fun block ->
-                block.Parameters |> List.exists (fun p -> TaskTypes.mentionsOneShot p.Type)
-                || block.Instructions |> List.exists (fun instruction ->
-                    TaskTypes.mentionsOneShot instruction.Result.Type
-                    || (match instruction.Kind with
-                        | ExecutionInstructionKind.OneShotCreate _
-                        | ExecutionInstructionKind.OneShotComplete _
-                        | ExecutionInstructionKind.OneShotWait _ -> true
-                        | _ -> false)))
-        let hasOneShot = hasOneShotSignature || hasOneShotField || hasOneShotValue
-        let hasExceptionSignature =
-            program.Functions |> List.exists (fun fn ->
-                TaskTypes.mentionsException fn.ResultType
-                || fn.Parameters |> List.exists (fun p -> TaskTypes.mentionsException p.Value.Type))
-        let hasExceptionField =
-            program.Types |> List.exists (fun ty ->
-                match ty.Kind with
-                | ExecutionTypeKind.Product fields -> fields |> List.exists (fun f -> TaskTypes.mentionsException f.Type)
-                | ExecutionTypeKind.Union variants -> variants |> List.exists (fun v -> v.Fields |> List.exists (fun f -> TaskTypes.mentionsException f.Type)))
-        let hasException =
-            hasExceptionSignature || hasExceptionField
-            || blocks |> List.exists (fun block ->
-                block.Parameters |> List.exists (fun p -> TaskTypes.mentionsException p.Type)
-                || block.Instructions |> List.exists (fun instruction ->
-                    TaskTypes.mentionsException instruction.Result.Type
-                    || match instruction.Kind with
-                       | ExecutionInstructionKind.ExceptionCatch _
-                       | ExecutionInstructionKind.ExceptionIsCancellation _
-                       | ExecutionInstructionKind.ExceptionMessage _
-                       | ExecutionInstructionKind.ExceptionRethrow _ -> true
-                       | _ -> false))
-
-        let hasClassification = blocks |> List.exists (fun block -> block.Instructions |> List.exists (fun instruction -> match instruction.Kind with | ExecutionInstructionKind.ExceptionIsCancellation _ -> true | _ -> false))
-        let hasGenericTypes = program.Types |> List.exists (fun ty -> not (List.isEmpty ty.TypeParameters))
-        let version = if hasGenericTypes then schemaVersion elif hasClassification then 12 elif hasException then 11 elif hasOneShot then 10 elif hasTailCall then 9 elif hasLimit then 8 elif hasAbort then 7 else 6
         objectValue
-            [ property "schemaVersion" (string version)
+            [ property "schemaVersion" (string schemaVersion)
               property "sourceSnapshotId" (stableIdValue program.SourceSnapshotId)
               property
                   "types"

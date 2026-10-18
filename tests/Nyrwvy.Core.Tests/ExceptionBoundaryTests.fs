@@ -53,8 +53,8 @@ module ExceptionBoundaryTests =
             Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serialize |> unwrap)
             Assert.True(Result.isError(NyasonCodec.deserialize(nyason.Replace("nayamnyam.snapshot.v12", "nayamnyam.snapshot.v11"))))
             let typed = TypedSemanticIr.project original |> unwrap
-            Assert.Contains("\"schemaVersion\":11", TypedSemanticIrSerializer.serialize typed)
-            Assert.Contains("\"schemaVersion\":11", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
+            Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
             session.Close()
             use reopened = AuthoringSession.openExisting path |> unwrap
             Assert.Equal(json, snapshot path |> SnapshotCodec.serialize |> unwrap)
@@ -143,9 +143,9 @@ module ExceptionBoundaryTests =
             Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serialize |> unwrap)
             Assert.True(Result.isError(NyasonCodec.deserialize(nyason.Replace("nayamnyam.snapshot.v13", "nayamnyam.snapshot.v12"))))
             let typed = TypedSemanticIr.project original |> unwrap
-            Assert.Contains("\"schemaVersion\":12", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
             Assert.Contains("exceptionIsCancellation", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
-            Assert.Contains("\"schemaVersion\":12", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
+            Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
             let viewer = SemanticQuery.focusFunction original fn.Id |> unwrap |> ViewerProjection.focus |> ViewerHtml.renderFocusDocument
             Assert.Contains("exception is cancellation", viewer)
             let source = (session.EmitCSharp CSharpBackendProfile.empty |> unwrap).Source

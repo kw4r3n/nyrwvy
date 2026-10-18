@@ -195,7 +195,8 @@ and parallel runtime code receives the same typed Result as from an ordinary
 callee. Payload instructions run once in their owning block.
 
 Graphs without Abort retain their previous canonical bytes: JSON 9 / Nyason v5,
-or JSON 10 / Nyason v6 with CapabilityConstruct; Typed IR 7 and Execution IR 6.
+or JSON 10 / Nyason v6 with CapabilityConstruct. (The IR debug writers no longer
+vary their version by construct; see [IR evolution](schema-evolution-policy.md#ir-evolution).)
 Older snapshot/Nyason versions reject an Abort even if the input has been relabeled
 with an older schema. Fingerprint algorithms/domains are unchanged; the existing
 canonical serialization includes the new node and version in new graph digests.

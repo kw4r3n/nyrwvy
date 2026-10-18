@@ -78,8 +78,8 @@ module FunctionAbortTests =
             let old = File.ReadAllText path
             Assert.Contains("\"schemaVersion\":9", old)
             let oldTyped = TypedSemanticIr.project (snapshot path) |> unwrap
-            Assert.Contains("\"schemaVersion\":7", TypedSemanticIrSerializer.serialize oldTyped)
-            Assert.Contains("\"schemaVersion\":6", ExecutionIrSerializer.serialize (ExecutionIr.lower oldTyped |> unwrap))
+            Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize oldTyped)
+            Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", ExecutionIrSerializer.serialize (ExecutionIr.lower oldTyped |> unwrap))
             Assert.Equal(old, SnapshotCodec.serialize (snapshot path) |> unwrap)
             let choose = ExpressionRecipe.Conditional(slot 0, abort "bad", str "normal")
             let fn =
@@ -102,9 +102,9 @@ module FunctionAbortTests =
                 Assert.True(Result.isError(NyasonCodec.deserialize(nyason.Replace("nayamnyam.snapshot.v7", $"nayamnyam.snapshot.v{version}"))))
             let typed = TypedSemanticIr.project graph |> unwrap
             let program = ExecutionIr.lower typed |> unwrap
-            Assert.Contains("\"schemaVersion\":8", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
             Assert.Contains("\"completion\":\"abort\"", TypedSemanticIrSerializer.serialize typed)
-            Assert.Contains("\"schemaVersion\":7", ExecutionIrSerializer.serialize program)
+            Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", ExecutionIrSerializer.serialize program)
             let ordered = { graph with Functions = List.rev graph.Functions |> List.map (fun fn -> { fn with Body = { fn.Body with Nodes = List.rev fn.Body.Nodes } }) }
             Assert.Equal(ExecutionIrSerializer.serialize program, ExecutionIrSerializer.serialize(ExecutionIr.lower(TypedSemanticIr.project ordered |> unwrap) |> unwrap))
             let resolve = SemanticFacts.createNodeCompletionResolver graph fn

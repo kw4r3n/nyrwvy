@@ -9,7 +9,8 @@ open System.Text.Json
 ///
 /// Write-only debug and inspection output. There is no reader, and the JSON shape
 /// carries no compatibility promise: it may change in any commit, and `schemaVersion`
-/// is informational only. Do not persist this output or parse it as an interchange format.
+/// is informational only: one fixed value for every program, not a per-feature minimum.
+/// Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrSerializer =
     let schemaVersion = 13
@@ -1017,56 +1018,7 @@ module TypedSemanticIrSerializer =
         use writer = new Utf8JsonWriter(stream)
 
         writer.WriteStartObject()
-        let rec has matches (graph: TypedSemanticGraph) =
-            graph.Nodes |> List.exists (fun node ->
-                matches node.Kind || TypedSemanticNodeKind.subgraphs node.Kind |> List.exists (has matches))
-        let uses matches = program.Functions |> List.exists (fun fn -> has matches fn.Body)
-        let rec hasTypeValue matches (graph: TypedSemanticGraph) =
-            graph.Nodes |> List.exists (fun node ->
-                (match node.Completion with
-                 | GraphCompletion.Normal typeRef -> matches typeRef
-                 | GraphCompletion.Aborts -> false)
-                || TypedSemanticNodeKind.subgraphs node.Kind |> List.exists (hasTypeValue matches))
-        let hasOneShotSignature =
-            program.Functions |> List.exists (fun fn ->
-                TaskTypes.mentionsOneShot fn.ResultType
-                || fn.Parameters |> List.exists (fun p -> TaskTypes.mentionsOneShot p.Type))
-        let hasOneShotField =
-            program.Types |> List.exists (fun ty ->
-                match ty.Kind with
-                | TypedSemanticTypeKind.Product fields -> fields |> List.exists (fun f -> TaskTypes.mentionsOneShot f.Type)
-                | TypedSemanticTypeKind.Union variants ->
-                    variants |> List.exists (fun v -> v.Fields |> List.exists (fun f -> TaskTypes.mentionsOneShot f.Type)))
-        let hasExceptionSignature =
-            program.Functions |> List.exists (fun fn ->
-                TaskTypes.mentionsException fn.ResultType
-                || fn.Parameters |> List.exists (fun p -> TaskTypes.mentionsException p.Type))
-        let hasExceptionField =
-            program.Types |> List.exists (fun ty ->
-                match ty.Kind with
-                | TypedSemanticTypeKind.Product fields -> fields |> List.exists (fun f -> TaskTypes.mentionsException f.Type)
-                | TypedSemanticTypeKind.Union variants -> variants |> List.exists (fun v -> v.Fields |> List.exists (fun f -> TaskTypes.mentionsException f.Type)))
-        let hasException =
-            hasExceptionSignature || hasExceptionField
-            || uses (function
-                | TypedSemanticNodeKind.ExceptionCatch _
-                | TypedSemanticNodeKind.ExceptionIsCancellation _
-                | TypedSemanticNodeKind.ExceptionMessage _
-                | TypedSemanticNodeKind.ExceptionRethrow _ -> true
-                | _ -> false)
-            || program.Functions |> List.exists (fun fn -> hasTypeValue TaskTypes.mentionsException fn.Body)
-
-        let version =
-            if program.Types |> List.exists (fun ty -> not (List.isEmpty ty.TypeParameters)) then schemaVersion
-            elif uses (function | TypedSemanticNodeKind.ExceptionIsCancellation _ -> true | _ -> false) then 12
-            elif hasException then 11
-            elif hasOneShotSignature || hasOneShotField
-               || program.Functions |> List.exists (fun fn -> hasTypeValue TaskTypes.mentionsOneShot fn.Body) then 10
-            elif uses (function TypedSemanticNodeKind.OneShotCreate _ | TypedSemanticNodeKind.OneShotComplete _ | TypedSemanticNodeKind.OneShotWait _ -> true | _ -> false) then 10
-            elif uses (function TypedSemanticNodeKind.TaskWait(_, _, Some _) -> true | _ -> false) then 9
-            elif uses (function TypedSemanticNodeKind.Abort _ -> true | _ -> false) then 8
-            else 7
-        writer.WriteNumber("schemaVersion", version)
+        writer.WriteNumber("schemaVersion", schemaVersion)
         writer.WriteString("sourceSnapshotId", StableId.value program.SourceSnapshotId)
 
         writer.WritePropertyName("types")

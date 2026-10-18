@@ -52,9 +52,9 @@ module OneShotTests =
             Assert.Contains("nayamnyam.snapshot.v10", nyason)
             Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serialize |> unwrap)
             let typed = TypedSemanticIr.project snapshot |> unwrap
-            Assert.Contains("\"schemaVersion\":10", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
             let lowered = session.ProjectExecution() |> unwrap
-            Assert.Contains("\"schemaVersion\":10", ExecutionIrSerializer.serialize lowered)
+            Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", ExecutionIrSerializer.serialize lowered)
             let beforeIds = snapshot.Functions |> List.map (fun f -> f.Id)
             session.Close()
             use reopened = AuthoringSession.openExisting path |> unwrap
@@ -74,9 +74,9 @@ module OneShotTests =
             Assert.Empty(SnapshotValidator.validate localOnly)
             Assert.Contains("\"schemaVersion\":14", SnapshotCodec.serialize localOnly |> unwrap)
             let typed = TypedSemanticIr.project localOnly |> unwrap
-            Assert.Contains("\"schemaVersion\":10", TypedSemanticIrSerializer.serialize typed)
+            Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
             let execution = ExecutionIr.lower typed |> unwrap
-            Assert.Contains("\"schemaVersion\":10", ExecutionIrSerializer.serialize execution))
+            Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", ExecutionIrSerializer.serialize execution))
 
     [<Fact>]
     let ``invalid scope payload and limit proposals refuse without changing persisted bytes`` () =
