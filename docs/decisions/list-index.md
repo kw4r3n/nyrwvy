@@ -4,7 +4,7 @@
 - **Date:** 2026-10-05
 - **Roadmap:** [post-M2 queue from the 2026-10-05 probe 22 owner choice](../plans/post-m2-roadmap.md#queue-from-the-2026-10-05-probe-22-owner-choice), order 51
 
-[Probe 22](../verification/map-set-probe22-20261005.md) took a depth-first search's stack from a node to the top with a 16-node `ListFold` that started collecting at the first frame naming the node: there was no way to ask where an item is. The owner queued both usual forms on 2026-10-05.
+[Probe 22](../verification/map-set-probes-summary.md#probe-22) took a depth-first search's stack from a node to the top with a 16-node `ListFold` that started collecting at the first frame naming the node: there was no way to ask where an item is. The owner queued both usual forms on 2026-10-05.
 
 ## Decision
 

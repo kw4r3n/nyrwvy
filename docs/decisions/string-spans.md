@@ -4,7 +4,7 @@
 - **Date:** 2026-09-30
 - **Roadmap:** [candidates from the 2026-09-30 probe 5](../plans/post-m2-roadmap.md#candidates-from-the-2026-09-30-probe-5), order 23
 
-This decision settles order 23 of the post-M2 queue. [Probe 5](../verification/rrawrlet-slice-probe5-20260930.md) ranked character-class spans and strip as its largest remaining cost (#1): `charAt`, `inSet`, `skipIn`, `rskipIn`, `strip`, `isDigit` and `digitsEnd` were 7 hand-written self-recursive functions and 70 nodes serving `str.strip()`, `\s+`, `\d+`, `[-*]` and `strip("`")`. They were the port's only remaining per-character recursion and the source of both adversarial slowdowns (16,000 spaces before a path took 3.3 s).
+This decision settles order 23 of the post-M2 queue. [Probe 5](../verification/rrawrlet-slice-probes-summary.md#probe-5) ranked character-class spans and strip as its largest remaining cost (#1): `charAt`, `inSet`, `skipIn`, `rskipIn`, `strip`, `isDigit` and `digitsEnd` were 7 hand-written self-recursive functions and 70 nodes serving `str.strip()`, `\s+`, `\d+`, `[-*]` and `strip("`")`. They were the port's only remaining per-character recursion and the source of both adversarial slowdowns (16,000 spaces before a path took 3.3 s).
 
 ## Decision
 

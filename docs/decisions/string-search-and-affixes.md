@@ -4,7 +4,7 @@
 - **Date:** 2026-09-29
 - **Roadmap:** [post-M2 queue from the 2026-09-29 probe 4](../plans/post-m2-roadmap.md#queue-from-the-2026-09-29-probe-4), order 18
 
-This decision settles order 18 of the post-M2 queue. [Probe 4](../verification/rrawrlet-slice-probe4-20260929.md) (friction 2) had only `StringContains` for searching text, so finding a position, testing a prefix or splitting a line took 13 functions and 199 nodes of emulation.
+This decision settles order 18 of the post-M2 queue. [Probe 4](../verification/rrawrlet-slice-probes-summary.md#probe-4) (friction 2) had only `StringContains` for searching text, so finding a position, testing a prefix or splitting a line took 13 functions and 199 nodes of emulation.
 
 ## Decision
 

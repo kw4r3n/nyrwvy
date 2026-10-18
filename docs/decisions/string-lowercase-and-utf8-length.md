@@ -4,7 +4,7 @@
 - **Date:** 2026-09-29
 - **Roadmap:** [post-M2 queue from the 2026-09-29 probe 4](../plans/post-m2-roadmap.md#queue-from-the-2026-09-29-probe-4), order 21
 
-This decision settles order 21 of the post-M2 queue. [Probe 4](../verification/rrawrlet-slice-probe4-20260929.md) had no case mapping (friction 3), so `.lower()` was emulated for ASCII only with 3 functions and 63 nodes and every literal was passed in both spellings, and no UTF-8 length (friction 6), so `len(text.encode())` was emulated per code point with `StringLessThan` thresholds (22 nodes).
+This decision settles order 21 of the post-M2 queue. [Probe 4](../verification/rrawrlet-slice-probes-summary.md#probe-4) had no case mapping (friction 3), so `.lower()` was emulated for ASCII only with 3 functions and 63 nodes and every literal was passed in both spellings, and no UTF-8 length (friction 6), so `len(text.encode())` was emulated per code point with `StringLessThan` thresholds (22 nodes).
 
 ## Decision
 

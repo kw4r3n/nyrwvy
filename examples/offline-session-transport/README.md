@@ -17,7 +17,7 @@ original regressions. No runtime, core, schema or domain primitive changes.
 
 The framing follows repository JSON-lines transports (`AuthoringClient` and
 `AuthoringSession`'s `ReadLine`) and the recorded Rrawrlet reader convention in
-[probe 25](../../docs/verification/rrawrlet-slice-probe25-20261005.md).
+[probe 25](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-25).
 The host uses .NET's `StreamReader` with strict UTF-8 and BOM detection disabled.
 JSON syntax, envelope, keyword, notification and ID policy remain in the graph;
 the [bounded application vocabulary](../offline-leader-jsonrpc/README.md) is

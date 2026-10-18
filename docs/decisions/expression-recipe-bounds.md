@@ -17,7 +17,7 @@ A `StructuralRecipeNodeLimitExceeded` rejection now states the recipe's full nod
 
 ## Reason
 
-The 64-node bound was set for the first bounded Float64 replacement, where recipes were small arithmetic trees. Expression authoring later reused it as "the same practical bounds", without evidence about ordinary functions. The [2026-09-28 re-probe](../verification/rrawrlet-slice-reprobe-20260928.md) supplies that evidence: rrawrlet's leader loop is ~204 nodes as one body. Fitting it under 64 needed 2 bundling Product types and 5 helper functions that do not correspond to anything in the source program, and two pieces still sat near the limit. That is splitting driven by the bound, not by review.
+The 64-node bound was set for the first bounded Float64 replacement, where recipes were small arithmetic trees. Expression authoring later reused it as "the same practical bounds", without evidence about ordinary functions. The [2026-09-28 re-probe](../verification/rrawrlet-slice-probes-summary.md#reprobe) supplies that evidence: rrawrlet's leader loop is ~204 nodes as one body. Fitting it under 64 needed 2 bundling Product types and 5 helper functions that do not correspond to anything in the source program, and two pieces still sat near the limit. That is splitting driven by the bound, not by review.
 
 256 covers the observed body with margin while keeping a request bounded. The limit still protects against runaway recipes and keeps one proposal's review readable; authors can still split a function where it helps review. Depth was never the constraint (the deepest probe recipe was far below 32), so it stays.
 

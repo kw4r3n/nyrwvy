@@ -4,7 +4,7 @@
 - **Date:** 2026-09-28
 - **Roadmap:** [post-M2 queue from the 2026-09-28 re-probe](../plans/post-m2-roadmap.md#queue-from-the-2026-09-28-re-probe), order 8
 
-This decision settles order 8 of the post-M2 queue: how a leader selects a member's task handle by id. The [re-probe](../verification/rrawrlet-slice-reprobe-20260928.md) (friction 2) needed parallel `names`/`tasks` lists, an `IndexSearch` type and 4 functions, including an "Err means found" `ListEffectFold`, and folded a one-element wait result only to extract it. That is the second keyed-lookup consumer named in the [Map revisit condition](bool-operators-and-map.md#revisit-conditions). The implemented surface is described by the [language subset](../reference/language-subset.md) and the [expression authoring specification](../specs/expression-authoring.md), which remain the authority once implemented.
+This decision settles order 8 of the post-M2 queue: how a leader selects a member's task handle by id. The [re-probe](../verification/rrawrlet-slice-probes-summary.md#reprobe) (friction 2) needed parallel `names`/`tasks` lists, an `IndexSearch` type and 4 functions, including an "Err means found" `ListEffectFold`, and folded a one-element wait result only to extract it. That is the second keyed-lookup consumer named in the [Map revisit condition](bool-operators-and-map.md#revisit-conditions). The implemented surface is described by the [language subset](../reference/language-subset.md) and the [expression authoring specification](../specs/expression-authoring.md), which remain the authority once implemented.
 
 ## Decision
 

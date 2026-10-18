@@ -4,7 +4,7 @@
 - **Date:** 2026-09-29
 - **Roadmap:** [post-M2 queue from the 2026-09-29 probe 4](../plans/post-m2-roadmap.md#queue-from-the-2026-09-29-probe-4), order 17
 
-This decision settles order 17 of the post-M2 queue: how a program iterates text. [Probe 4](../verification/rrawrlet-slice-probe4-20260929.md) (friction 1) could scan text only by self-recursion that takes one character with `StringSlice` per call. That is quadratic, because each slice walks from the start, and it overflows the stack at about 7,700 characters.
+This decision settles order 17 of the post-M2 queue: how a program iterates text. [Probe 4](../verification/rrawrlet-slice-probes-summary.md#probe-4) (friction 1) could scan text only by self-recursion that takes one character with `StringSlice` per call. That is quadratic, because each slice walks from the start, and it overflows the stack at about 7,700 characters.
 
 ## Decision
 

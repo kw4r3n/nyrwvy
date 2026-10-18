@@ -4,7 +4,7 @@
 - **Date:** 2026-09-30
 - **Roadmap:** [findings from the 2026-09-30 probe 11](../plans/post-m2-roadmap.md#findings-from-the-2026-09-30-probe-11), cost #1
 
-[Probe 11](../verification/rrawrlet-slice-probe11-20260930.md) ranked Python exceptions written as data as its largest new cost: 138 `Result` nodes, 8% of its new nodes. Every fold whose Python loop can raise carried a `Result` accumulator, and every folder repeated a pass-through arm (`MatchResult(acc, …, ResultErr(err))`), because `ListFold` cannot stop. [String join and list slice](string-join-and-list-slice.md) deferred early-stop folds until a probe measured them; this is that measurement.
+[Probe 11](../verification/rrawrlet-slice-probes-summary.md#probe-11) ranked Python exceptions written as data as its largest new cost: 138 `Result` nodes, 8% of its new nodes. Every fold whose Python loop can raise carried a `Result` accumulator, and every folder repeated a pass-through arm (`MatchResult(acc, …, ResultErr(err))`), because `ListFold` cannot stop. [String join and list slice](string-join-and-list-slice.md) deferred early-stop folds until a probe measured them; this is that measurement.
 
 ## Decision
 

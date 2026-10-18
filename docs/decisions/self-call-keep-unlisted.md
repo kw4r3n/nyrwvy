@@ -4,7 +4,7 @@
 - **Date:** 2026-10-05
 - **Roadmap:** [post-M2 queue from the 2026-10-05 probe 23 owner choice](../plans/post-m2-roadmap.md#queue-from-the-2026-10-05-probe-23-owner-choice), order 54
 
-A loop written as a tail self-call (order 49) carries its state in its parameters, and each self-call repeats every one of them. [Probe 23](../verification/map-set-probe23-20261005.md)'s `tarjanLoop` passed 47 of its 70 self-call arguments through unchanged. Keeping the state in a Product updated by `ProductUpdate`, which exists today, was [tried](../verification/map-set-probe23-20261005.md#follow-up-loop-state-in-a-product) and came out larger (236 nodes instead of 208), because every read of the state becomes a `FieldAccess`. The owner judged the evidence sufficient on 2026-10-05.
+A loop written as a tail self-call (order 49) carries its state in its parameters, and each self-call repeats every one of them. [Probe 23](../verification/map-set-probes-summary.md#probe-23)'s `tarjanLoop` passed 47 of its 70 self-call arguments through unchanged. Keeping the state in a Product updated by `ProductUpdate`, which exists today, was [tried](../verification/map-set-probes-summary.md#probe-23-loop-state-product) and came out larger (236 nodes instead of 208), because every read of the state becomes a `FieldAccess`. The owner judged the evidence sufficient on 2026-10-05.
 
 ## Decision
 
