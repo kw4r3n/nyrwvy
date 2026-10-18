@@ -164,7 +164,7 @@ module AgentPureExpressionStructuredValueTests =
         | Ok workspace -> workspace
         | Error issues -> failwithf "Unexpected workspace creation failure: %A" issues
 
-    let private request fixture targetFunctionId replacement: AgentReplaceFunctionBodyWithPureExpressionRecipe =
+    let private request fixture targetFunctionId replacement: AgentReplaceFunctionBodyWithExpressionRecipe =
         let target = fixture.Snapshot.Functions |> List.find (fun functionEntity -> functionEntity.Id = targetFunctionId)
         { TargetFunctionId = targetFunctionId
           ExpectedBaseSnapshotId = fixture.Snapshot.Id
@@ -172,13 +172,13 @@ module AgentPureExpressionStructuredValueTests =
           Replacement = replacement }
 
     let private simulate workspace structuralRequest =
-        match AgentPureExpressionStructuralWorkflow.simulate workspace structuralRequest with
+        match AgentExpressionStructuralWorkflow.simulate workspace structuralRequest with
         | Ok proposal -> proposal
         | Error error -> failwithf "Unexpected pure-expression simulation failure: %A" error
 
     let private assertRoles expected proposal =
         let actual =
-            (AgentPureExpressionStructuralChangeProposal.review proposal).ResultingChange.AddedNodes
+            (AgentExpressionStructuralChangeProposal.review proposal).ResultingChange.AddedNodes
             |> List.map (fun node -> node.Role)
         Assert.Equal<string list>(expected, actual)
 
@@ -192,11 +192,11 @@ module AgentPureExpressionStructuredValueTests =
         let workspace = createWorkspace fixture.Snapshot
 
         let fieldAccess =
-            PureExpressionRecipe.FieldAccess(
-                PureExpressionRecipe.ProductConstruct(
+            ExpressionRecipe.FieldAccess(
+                ExpressionRecipe.ProductConstruct(
                     fixture.ProductTypeId, [],
-                    [ fixture.ScoreFieldId, PureExpressionRecipe.Int64Literal 7L
-                      fixture.NameFieldId, PureExpressionRecipe.StringLiteral "Ada" ]
+                    [ fixture.ScoreFieldId, ExpressionRecipe.Int64Literal 7L
+                      fixture.NameFieldId, ExpressionRecipe.StringLiteral "Ada" ]
                 ),
                 fixture.NameFieldId
             )
@@ -206,9 +206,9 @@ module AgentPureExpressionStructuredValueTests =
         |> assertRoles [ "StringLiteral"; "Int64Literal"; "ProductConstruct"; "FieldAccess" ]
 
         let unionRecipe =
-            PureExpressionRecipe.UnionConstruct(
+            ExpressionRecipe.UnionConstruct(
                 fixture.TextVariantId, [],
-                [ fixture.TextFieldId, PureExpressionRecipe.StringLiteral "hello" ]
+                [ fixture.TextFieldId, ExpressionRecipe.StringLiteral "hello" ]
             )
 
         request fixture fixture.UnionTargetId unionRecipe
@@ -223,25 +223,25 @@ module AgentPureExpressionStructuredValueTests =
         request
             fixture
             fixture.OptionTargetId
-            (PureExpressionRecipe.OptionSome(PureExpressionRecipe.StringLiteral "value"))
+            (ExpressionRecipe.OptionSome(ExpressionRecipe.StringLiteral "value"))
         |> simulate workspace
         |> assertRoles [ "StringLiteral"; "OptionSome" ]
 
-        request fixture fixture.OptionTargetId (PureExpressionRecipe.OptionNone stringType)
+        request fixture fixture.OptionTargetId (ExpressionRecipe.OptionNone stringType)
         |> simulate workspace
         |> assertRoles [ "OptionNone" ]
 
         request
             fixture
             fixture.ResultTargetId
-            (PureExpressionRecipe.ResultOk(int64Type, PureExpressionRecipe.StringLiteral "ok"))
+            (ExpressionRecipe.ResultOk(int64Type, ExpressionRecipe.StringLiteral "ok"))
         |> simulate workspace
         |> assertRoles [ "StringLiteral"; "ResultOk" ]
 
         request
             fixture
             fixture.ResultTargetId
-            (PureExpressionRecipe.ResultErr(stringType, PureExpressionRecipe.Int64Literal 5L))
+            (ExpressionRecipe.ResultErr(stringType, ExpressionRecipe.Int64Literal 5L))
         |> simulate workspace
         |> assertRoles [ "Int64Literal"; "ResultErr" ]
 
@@ -253,40 +253,40 @@ module AgentPureExpressionStructuredValueTests =
         request
             fixture
             fixture.ProductTargetId
-            (PureExpressionRecipe.ProductConstruct(
+            (ExpressionRecipe.ProductConstruct(
                 fixture.ProductTypeId, [],
-                [ fixture.NameFieldId, PureExpressionRecipe.StringLiteral "Ada" ]
+                [ fixture.NameFieldId, ExpressionRecipe.StringLiteral "Ada" ]
             ))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionFieldBindingMismatch"
 
         request
             fixture
             fixture.ProductTargetId
-            (PureExpressionRecipe.ProductConstruct(
+            (ExpressionRecipe.ProductConstruct(
                 fixture.ProductTypeId, [],
-                [ fixture.NameFieldId, PureExpressionRecipe.StringLiteral "Ada"
-                  fixture.ScoreFieldId, PureExpressionRecipe.StringLiteral "wrong" ]
+                [ fixture.NameFieldId, ExpressionRecipe.StringLiteral "Ada"
+                  fixture.ScoreFieldId, ExpressionRecipe.StringLiteral "wrong" ]
             ))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionFieldBindingTypeMismatch"
 
         request
             fixture
             fixture.StringTargetId
-            (PureExpressionRecipe.FieldAccess(
-                PureExpressionRecipe.UnionConstruct(fixture.EmptyVariantId, [], []),
+            (ExpressionRecipe.FieldAccess(
+                ExpressionRecipe.UnionConstruct(fixture.EmptyVariantId, [], []),
                 fixture.NameFieldId
             ))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionFieldAccessTypeMismatch"
 
         let missingVariant = StableId.createForTesting<VariantTag> "variant-pure-structured-missing"
-        request fixture fixture.UnionTargetId (PureExpressionRecipe.UnionConstruct(missingVariant, [], []))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        request fixture fixture.UnionTargetId (ExpressionRecipe.UnionConstruct(missingVariant, [], []))
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionUnionVariantNotFound"
 
         let missingType = StableId.createForTesting<TypeTag> "type-pure-structured-missing"
-        request fixture fixture.OptionTargetId (PureExpressionRecipe.OptionNone(TypeRef.Named(missingType, [])))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        request fixture fixture.OptionTargetId (ExpressionRecipe.OptionNone(TypeRef.Named(missingType, [])))
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionInvalidTypeRef"

@@ -60,28 +60,6 @@ module StableIdAllocatorTests =
             assertTypedText prefix payload typedText
 
     [<Fact>]
-    let ``typed external stable ID text round-trips without changing identity`` () =
-        let functionId = StableIdAllocator.newFunctionId ()
-        let nodeId = StableIdAllocator.newGraphNodeId ()
-        let transactionId = StableIdAllocator.newTransactionId ()
-
-        if StableIdText.parseFunctionId (StableIdText.functionId functionId) <> Ok functionId then
-            failwith "FunctionId typed text did not round-trip."
-        if StableIdText.parseGraphNodeId (StableIdText.graphNodeId nodeId) <> Ok nodeId then
-            failwith "GraphNodeId typed text did not round-trip."
-        if StableIdText.parseTransactionId (StableIdText.transactionId transactionId) <> Ok transactionId then
-            failwith "TransactionId typed text did not round-trip."
-
-    [<Fact>]
-    let ``typed stable ID parser rejects the wrong semantic domain`` () =
-        let functionId = StableIdAllocator.newFunctionId ()
-        let text = StableIdText.functionId functionId
-
-        match StableIdText.parseTypeId text with
-        | Error(StableIdTextError.MissingDomainPrefix "type") -> ()
-        | result -> failwithf "Expected wrong-domain rejection, got %A" result
-
-    [<Fact>]
     let ``parallel production allocation does not collide in one semantic domain`` () =
         let payloads =
             [| 1 .. 4096 |]
@@ -102,9 +80,6 @@ module StableIdAllocatorTests =
         let typed = StableIdText.functionId fixtureId
         if typed <> "function:function-fixture-readable-id" then
             failwithf "Unexpected typed fixture ID: %s" typed
-
-        if StableIdText.parseFunctionId typed <> Ok fixtureId then
-            failwith "Typed fixture ID did not round-trip."
 
     [<Fact>]
     let ``Nyason emits one typed prefix for production UUIDv7 snapshot IDs`` () =

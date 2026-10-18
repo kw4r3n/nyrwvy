@@ -33,22 +33,22 @@ module RecipeBoundsTests =
 
     let rec private deepFloat depth =
         if depth <= 1 then
-            PureExpressionRecipe.Float64Literal(Float64Bits.ofFloat 1.0)
+            ExpressionRecipe.Float64Literal(Float64Bits.ofFloat 1.0)
         else
-            PureExpressionRecipe.Float64Add(
-                PureExpressionRecipe.Float64Literal(Float64Bits.ofFloat 1.0),
+            ExpressionRecipe.Float64Add(
+                ExpressionRecipe.Float64Literal(Float64Bits.ofFloat 1.0),
                 deepFloat (depth - 1)
             )
 
-    let private listRecipe items = PureExpressionRecipe.ListConstruct(float64Type, items)
+    let private listRecipe items = ExpressionRecipe.ListConstruct(float64Type, items)
 
     let private simulate
         (snapshot: Snapshot)
         (workspace: AgentWorkspace)
         (target: SemanticFunction)
-        (replacement: PureExpressionRecipe)
+        (replacement: ExpressionRecipe)
         =
-        AgentPureExpressionStructuralWorkflow.simulate
+        AgentExpressionStructuralWorkflow.simulate
             workspace
             { TargetFunctionId = target.Id
               ExpectedBaseSnapshotId = snapshot.Id
@@ -62,7 +62,7 @@ module RecipeBoundsTests =
     [<Fact>]
     let ``pure recipe traversal enforces depth and node budgets at their boundaries`` () =
         let snapshot, workspace, target = createFixture ()
-        let literal () = PureExpressionRecipe.Float64Literal(Float64Bits.ofFloat 1.0)
+        let literal () = ExpressionRecipe.Float64Literal(Float64Bits.ofFloat 1.0)
 
         match simulate snapshot workspace target (listRecipe [ deepFloat 31 ]) with
         | Ok _ -> ()
@@ -81,12 +81,12 @@ module RecipeBoundsTests =
     [<Fact>]
     let ``node-limit diagnostics report the count and the largest extractable subtrees`` () =
         let snapshot, workspace, target = createFixture ()
-        let literal () = PureExpressionRecipe.Float64Literal(Float64Bits.ofFloat 1.0)
-        let wide count = PureExpressionRecipe.ListConstruct(float64Type, List.init count (fun _ -> literal ()))
-        let small = PureExpressionRecipe.ListConcat(wide 3, wide 2)
+        let literal () = ExpressionRecipe.Float64Literal(Float64Bits.ofFloat 1.0)
+        let wide count = ExpressionRecipe.ListConstruct(float64Type, List.init count (fun _ -> literal ()))
+        let small = ExpressionRecipe.ListConcat(wide 3, wide 2)
         // 1 + 201 + (1 + 61 + 8) = 272 nodes. Both root children fit within 256; their own children are
         // nested in an already listed subtree, so they are not repeated.
-        let recipe = PureExpressionRecipe.ListConcat(wide 200, PureExpressionRecipe.ListConcat(wide 60, small))
+        let recipe = ExpressionRecipe.ListConcat(wide 200, ExpressionRecipe.ListConcat(wide 60, small))
         match simulate snapshot workspace target recipe with
         | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) ->
             Assert.Equal("StructuralRecipeNodeLimitExceeded", diagnostic.Code)

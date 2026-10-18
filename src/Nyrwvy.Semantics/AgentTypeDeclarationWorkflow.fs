@@ -466,11 +466,3 @@ module AgentTypeDeclarationWorkflow =
     let commitWithPolicy workspace proposal policy =
         publishWithPolicy workspace proposal policy
 
-    let reject
-        (workspace: AgentWorkspace)
-        (AgentTypeDeclarationProposal proposal)
-        : AgentWorkspace * TransactionRejectionReceipt =
-        workspace,
-        { TransactionId = proposal.TransactionId
-          RetainedSnapshotId = AgentWorkspace.currentSnapshotId workspace }
-

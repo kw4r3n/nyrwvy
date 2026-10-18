@@ -1040,15 +1040,6 @@ module AgentParameterTypeMigrationWorkflow =
     let commitWithPolicy workspace proposal policy =
         publishWithPolicy workspace proposal policy
 
-    let rejectProposal
-        (workspace: AgentWorkspace)
-        (AgentParameterTypeMigrationProposal proposal)
-        : AgentWorkspace * AgentStructuralRejectionReceipt =
-        workspace,
-        { TransactionId = proposal.TransactionId
-          RetainedSnapshotId =
-            AgentWorkspace.currentSnapshotId workspace }
-
 
 /// Changes a function's result type together with its body and every direct caller, as one
 /// reviewed publication. Identities of the target, its parameters and untouched nodes are kept.

@@ -276,7 +276,7 @@ module AgentPureExpressionStructuralWorkflowTests =
         | Ok workspace -> workspace
         | Error issues -> failwithf "Unexpected workspace creation failure: %A" issues
 
-    let private request (fixture: Fixture) targetFunctionId replacement: AgentReplaceFunctionBodyWithPureExpressionRecipe =
+    let private request (fixture: Fixture) targetFunctionId replacement: AgentReplaceFunctionBodyWithExpressionRecipe =
         let target = fixture.Snapshot.Functions |> List.find (fun functionEntity -> functionEntity.Id = targetFunctionId)
         { TargetFunctionId = targetFunctionId
           ExpectedBaseSnapshotId = fixture.Snapshot.Id
@@ -284,7 +284,7 @@ module AgentPureExpressionStructuralWorkflowTests =
           Replacement = replacement }
 
     let private simulate workspace structuralRequest =
-        match AgentPureExpressionStructuralWorkflow.simulate workspace structuralRequest with
+        match AgentExpressionStructuralWorkflow.simulate workspace structuralRequest with
         | Ok proposal -> proposal
         | Error error -> failwithf "Unexpected pure-expression simulation failure: %A" error
 
@@ -294,15 +294,15 @@ module AgentPureExpressionStructuralWorkflowTests =
 
     let private assertRoles expectedRoles proposal =
         let roles =
-            (AgentPureExpressionStructuralChangeProposal.review proposal).ResultingChange.AddedNodes
+            (AgentExpressionStructuralChangeProposal.review proposal).ResultingChange.AddedNodes
             |> List.map (fun node -> node.Role)
         if roles <> expectedRoles then
             failwithf "Unexpected materialization order. Expected %A, got %A" expectedRoles roles
 
     let private intList values =
-        PureExpressionRecipe.ListConstruct(
+        ExpressionRecipe.ListConstruct(
             int64Type,
-            values |> List.map PureExpressionRecipe.Int64Literal
+            values |> List.map ExpressionRecipe.Int64Literal
         )
 
     [<Fact>]
@@ -310,15 +310,15 @@ module AgentPureExpressionStructuralWorkflowTests =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
         let cases =
-            [ fixture.StringTargetId, PureExpressionRecipe.StringLiteral "next", "StringLiteral"
-              fixture.BoolTargetId, PureExpressionRecipe.BoolLiteral true, "BoolLiteral"
-              fixture.UnitTargetId, PureExpressionRecipe.UnitLiteral, "UnitLiteral"
-              fixture.IntTargetId, PureExpressionRecipe.Int64Literal 42L, "Int64Literal"
-              fixture.FloatTargetId, PureExpressionRecipe.Float64Literal(Float64Bits.ofFloat 2.5), "Float64Literal" ]
+            [ fixture.StringTargetId, ExpressionRecipe.StringLiteral "next", "StringLiteral"
+              fixture.BoolTargetId, ExpressionRecipe.BoolLiteral true, "BoolLiteral"
+              fixture.UnitTargetId, ExpressionRecipe.UnitLiteral, "UnitLiteral"
+              fixture.IntTargetId, ExpressionRecipe.Int64Literal 42L, "Int64Literal"
+              fixture.FloatTargetId, ExpressionRecipe.Float64Literal(Float64Bits.ofFloat 2.5), "Float64Literal" ]
 
         for targetId, recipe, role in cases do
             let proposal = request fixture targetId recipe |> simulate workspace
-            let review = AgentPureExpressionStructuralChangeProposal.review proposal
+            let review = AgentExpressionStructuralChangeProposal.review proposal
             Assert.Equal(TransactionReadiness.SemanticallyReady, review.Readiness)
             Assert.Equal(role, (List.exactlyOne review.ResultingChange.AddedNodes).Role)
 
@@ -327,23 +327,23 @@ module AgentPureExpressionStructuralWorkflowTests =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
         let cases =
-            [ PureExpressionRecipe.StringContains(
-                  PureExpressionRecipe.Parameter fixture.TextParameterId,
-                  PureExpressionRecipe.Parameter fixture.SubstringParameterId
+            [ ExpressionRecipe.StringContains(
+                  ExpressionRecipe.Parameter fixture.TextParameterId,
+                  ExpressionRecipe.Parameter fixture.SubstringParameterId
               ),
               [ "ParameterReference"; "ParameterReference"; "StringContains" ]
-              PureExpressionRecipe.Int64LessThan(
-                  PureExpressionRecipe.Int64WrappingAdd(
-                      PureExpressionRecipe.Parameter fixture.CountParameterId,
-                      PureExpressionRecipe.Int64Literal 1L
+              ExpressionRecipe.Int64LessThan(
+                  ExpressionRecipe.Int64WrappingAdd(
+                      ExpressionRecipe.Parameter fixture.CountParameterId,
+                      ExpressionRecipe.Int64Literal 1L
                   ),
-                  PureExpressionRecipe.Int64Literal 5L
+                  ExpressionRecipe.Int64Literal 5L
               ),
               [ "ParameterReference"; "Int64Literal"; "Int64WrappingAdd"; "Int64Literal"; "Int64LessThan" ]
-              PureExpressionRecipe.Float64IsFinite(
-                  PureExpressionRecipe.Float64Divide(
-                      PureExpressionRecipe.Parameter fixture.FloatParameterId,
-                      PureExpressionRecipe.Float64Literal(Float64Bits.ofFloat 2.0)
+              ExpressionRecipe.Float64IsFinite(
+                  ExpressionRecipe.Float64Divide(
+                      ExpressionRecipe.Parameter fixture.FloatParameterId,
+                      ExpressionRecipe.Float64Literal(Float64Bits.ofFloat 2.0)
                   )
               ),
               [ "ParameterReference"; "Float64Literal"; "Float64Divide"; "Float64IsFinite" ] ]
@@ -359,30 +359,30 @@ module AgentPureExpressionStructuralWorkflowTests =
         let workspace = createWorkspace fixture.Snapshot
         let cases =
             [ fixture.ListTargetId,
-              PureExpressionRecipe.ListConstruct(
+              ExpressionRecipe.ListConstruct(
                   int64Type,
-                  [ PureExpressionRecipe.Int64Literal 1L
-                    PureExpressionRecipe.Int64Literal 2L ]
+                  [ ExpressionRecipe.Int64Literal 1L
+                    ExpressionRecipe.Int64Literal 2L ]
               ),
               [ "Int64Literal"; "Int64Literal"; "ListConstruct" ]
               fixture.ListTargetId,
-              PureExpressionRecipe.ListAppendItem(
-                  PureExpressionRecipe.Parameter fixture.ListParameterId,
-                  PureExpressionRecipe.Parameter fixture.ListItemParameterId
+              ExpressionRecipe.ListAppendItem(
+                  ExpressionRecipe.Parameter fixture.ListParameterId,
+                  ExpressionRecipe.Parameter fixture.ListItemParameterId
               ),
               [ "ParameterReference"; "ParameterReference"; "ListAppendItem" ]
               fixture.ListTargetId,
-              PureExpressionRecipe.ListConcat(
-                  PureExpressionRecipe.Parameter fixture.ListParameterId,
-                  PureExpressionRecipe.ListEmpty int64Type
+              ExpressionRecipe.ListConcat(
+                  ExpressionRecipe.Parameter fixture.ListParameterId,
+                  ExpressionRecipe.ListEmpty int64Type
               ),
               [ "ParameterReference"; "ListEmpty"; "ListConcat" ]
               fixture.IntTargetId,
-              PureExpressionRecipe.ListLength(
-                  PureExpressionRecipe.ListConstruct(
+              ExpressionRecipe.ListLength(
+                  ExpressionRecipe.ListConstruct(
                       int64Type,
-                      [ PureExpressionRecipe.Int64Literal 10L
-                        PureExpressionRecipe.Int64Literal 20L ]
+                      [ ExpressionRecipe.Int64Literal 10L
+                        ExpressionRecipe.Int64Literal 20L ]
                   )
               ),
               [ "Int64Literal"; "Int64Literal"; "ListConstruct"; "ListLength" ] ]
@@ -398,16 +398,16 @@ module AgentPureExpressionStructuralWorkflowTests =
         let workspace = createWorkspace fixture.Snapshot
         let cases =
             [ fixture.StringListTargetId,
-              PureExpressionRecipe.ListMap(intList [ 1L; 2L ], fixture.MapperFunctionId, []),
+              ExpressionRecipe.ListMap(intList [ 1L; 2L ], fixture.MapperFunctionId, []),
               [ "Int64Literal"; "Int64Literal"; "ListConstruct"; "ListMap" ]
               fixture.ListTargetId,
-              PureExpressionRecipe.ListFilter(intList [ 1L; 2L ], fixture.PredicateFunctionId, []),
+              ExpressionRecipe.ListFilter(intList [ 1L; 2L ], fixture.PredicateFunctionId, []),
               [ "Int64Literal"; "Int64Literal"; "ListConstruct"; "ListFilter" ]
               fixture.BoolTargetId,
-              PureExpressionRecipe.ListAny(intList [ 1L ], fixture.PredicateFunctionId, []),
+              ExpressionRecipe.ListAny(intList [ 1L ], fixture.PredicateFunctionId, []),
               [ "Int64Literal"; "ListConstruct"; "ListAny" ]
               fixture.BoolTargetId,
-              PureExpressionRecipe.ListAll(intList [ 1L ], fixture.PredicateFunctionId, []),
+              ExpressionRecipe.ListAll(intList [ 1L ], fixture.PredicateFunctionId, []),
               [ "Int64Literal"; "ListConstruct"; "ListAll" ] ]
 
         for targetId, recipe, expectedRoles in cases do
@@ -418,10 +418,10 @@ module AgentPureExpressionStructuralWorkflowTests =
             request
                 fixture
                 fixture.StringListTargetId
-                (PureExpressionRecipe.ListMap(intList [ 1L ], fixture.MapperFunctionId, []))
+                (ExpressionRecipe.ListMap(intList [ 1L ], fixture.MapperFunctionId, []))
             |> simulate workspace
         let mapNode =
-            (AgentPureExpressionStructuralChangeProposal.review mapProposal).ResultingChange.AddedNodes
+            (AgentExpressionStructuralChangeProposal.review mapProposal).ResultingChange.AddedNodes
             |> List.last
         Assert.Equal(Some fixture.MapperFunctionId, mapNode.FunctionId)
 
@@ -430,72 +430,72 @@ module AgentPureExpressionStructuralWorkflowTests =
         let fixture = createFixture ()
         let workspace = createWorkspace fixture.Snapshot
 
-        request fixture fixture.StringTargetId (PureExpressionRecipe.StringLiteral null)
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        request fixture fixture.StringTargetId (ExpressionRecipe.StringLiteral null)
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionNullStringLiteral"
 
-        request fixture fixture.BoolTargetId (PureExpressionRecipe.Int64Literal 1L)
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        request fixture fixture.BoolTargetId (ExpressionRecipe.Int64Literal 1L)
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionResultTypeMismatch"
 
-        request fixture fixture.BoolTargetId (PureExpressionRecipe.StringIsEmpty(PureExpressionRecipe.Int64Literal 1L))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        request fixture fixture.BoolTargetId (ExpressionRecipe.StringIsEmpty(ExpressionRecipe.Int64Literal 1L))
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionOperandTypeMismatch"
 
         let foreignParameter = StableId.createForTesting<ParameterTag> "parameter-pure-structural-foreign"
-        request fixture fixture.BoolTargetId (PureExpressionRecipe.Parameter foreignParameter)
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        request fixture fixture.BoolTargetId (ExpressionRecipe.Parameter foreignParameter)
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionParameterOutOfScope"
 
         request
             fixture
             fixture.ListTargetId
-            (PureExpressionRecipe.ListConstruct(stringType, [ PureExpressionRecipe.Int64Literal 1L ]))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+            (ExpressionRecipe.ListConstruct(stringType, [ ExpressionRecipe.Int64Literal 1L ]))
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionOperandTypeMismatch"
 
         let missingType = StableId.createForTesting<TypeTag> "type-pure-structural-missing"
-        request fixture fixture.ListTargetId (PureExpressionRecipe.ListEmpty(TypeRef.Named(missingType, [])))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        request fixture fixture.ListTargetId (ExpressionRecipe.ListEmpty(TypeRef.Named(missingType, [])))
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionInvalidTypeRef"
 
         let missingCallback = StableId.createForTesting<FunctionTag> "function-pure-structural-missing-callback"
-        request fixture fixture.BoolTargetId (PureExpressionRecipe.ListAny(intList [ 1L ], missingCallback, []))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+        request fixture fixture.BoolTargetId (ExpressionRecipe.ListAny(intList [ 1L ], missingCallback, []))
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionCallbackNotFound"
 
         request
             fixture
             fixture.BoolTargetId
-            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.ZeroArityPredicateFunctionId, []))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+            (ExpressionRecipe.ListAny(intList [ 1L ], fixture.ZeroArityPredicateFunctionId, []))
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionCallbackArityMismatch"
 
         request
             fixture
             fixture.BoolTargetId
-            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.WrongInputPredicateFunctionId, []))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+            (ExpressionRecipe.ListAny(intList [ 1L ], fixture.WrongInputPredicateFunctionId, []))
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionCallbackInputTypeMismatch"
 
         request
             fixture
             fixture.BoolTargetId
-            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.WrongResultPredicateFunctionId, []))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+            (ExpressionRecipe.ListAny(intList [ 1L ], fixture.WrongResultPredicateFunctionId, []))
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionCallbackResultTypeMismatch"
 
         request
             fixture
             fixture.BoolTargetId
-            (PureExpressionRecipe.ListAny(intList [ 1L ], fixture.EffectfulPredicateFunctionId, []))
-        |> AgentPureExpressionStructuralWorkflow.simulate workspace
+            (ExpressionRecipe.ListAny(intList [ 1L ], fixture.EffectfulPredicateFunctionId, []))
+        |> AgentExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionCallbackEffectsNotAllowed"
 
     [<Fact>]
     let ``pure expression request exposes construction intent without raw graph authority`` () =
         let requestFields =
-            FSharpType.GetRecordFields(typeof<AgentReplaceFunctionBodyWithPureExpressionRecipe>)
+            FSharpType.GetRecordFields(typeof<AgentReplaceFunctionBodyWithExpressionRecipe>)
             |> Array.map (fun field -> field.Name, field.PropertyType)
             |> Array.toList
 
@@ -503,7 +503,7 @@ module AgentPureExpressionStructuralWorkflowTests =
         if requestNames <> [ "TargetFunctionId"; "ExpectedBaseSnapshotId"; "ExpectedCurrentResultNodeId"; "Replacement" ] then
             failwithf "Pure-expression request authority surface changed: %A" requestNames
 
-        let cases = FSharpType.GetUnionCases(typeof<PureExpressionRecipe>)
+        let cases = FSharpType.GetUnionCases(typeof<ExpressionRecipe>)
         let caseNames = cases |> Array.map (fun case -> case.Name) |> Array.toList
         let expectedCases =
             [ "Parameter"

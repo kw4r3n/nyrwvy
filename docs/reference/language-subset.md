@@ -503,7 +503,7 @@ Scoped control flow remains part of the same ephemeral construction model rather
 
 The requested construction tree is ephemeral intent; the resulting `SemanticNodeKind` graph remains authoritative state. Review, receipt binding, stale rejection, readiness, publication, and history use the same structural transaction mechanics established in M2. `ResultingChange.AddedNodes` recursively includes branch-local nodes so the review covers the complete materialized result rather than only the parent graph.
 
-See [Expression structural authoring](../specs/expression-authoring.md). The old `PureExpressionRecipe` and `AgentPureExpression...` names remain thin F# source aliases/forwarders for existing clients, not an independent pure-only interface. Existing diagnostic codes and historical evaluation protocol names are retained.
+See [Expression structural authoring](../specs/expression-authoring.md). The old `PureExpressionRecipe` and `AgentPureExpression...` F# aliases were removed on 2026-10-18; they were never an independent pure-only interface. Existing diagnostic codes and historical evaluation protocol names are retained.
 
 ### M1 operation workflow
 
