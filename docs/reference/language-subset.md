@@ -526,13 +526,13 @@ Field-addition plans use `(constructNodeId, valueNodeId)` pairs for existing val
 
 Required-effect edits do not propagate automatically through callers and do not create obligations. Multiple explicit function edits may be composed in one transaction; full validation of the final proposed snapshot enforces caller/callee and capability/body effect consistency. Expression authoring still never mutates `RequiredEffects` implicitly.
 
-### Fieldless Union variant evolution
+### Union variant evolution
 
-`AgentFieldlessUnionVariantEvolutionWorkflow` supports one bounded schema-evolution operation: add a new **fieldless** variant to an existing Union while preserving the Union's `TypeId`. The caller identifies the target Union and one existing fieldless source `VariantId`; the new `VariantId` remains system-owned.
+`AgentUnionVariantEvolutionWorkflow` (named `AgentFieldlessUnionVariantEvolutionWorkflow` until 2026-10-18) supports one bounded schema-evolution operation: add a new variant **like** an existing one to an existing Union while preserving the Union's `TypeId`. The caller identifies the target Union and one existing source `VariantId`; the new variant copies the source variant's fields under fresh IDs, may add fields, and its `VariantId` remains system-owned (`simulateAddUnionVariantLike` and `…ByName`).
 
 Publication repairs exhaustive `MatchUnion` nodes atomically by adding an arm for the new variant whose behavior is copied from the selected source arm; when the source variant is in an arm with several variants, the new variant joins that arm and shares its body instead. Copied arm bodies receive fresh system-owned graph-node and pattern-binding IDs. The variant addition and all required match repairs are reviewed and published as one snapshot, so no intermediate non-exhaustive state becomes authoritative.
 
-This surface intentionally does not cover field-bearing variant evolution, arbitrary new match-arm recipes, type deletion, or a generalized schema-migration framework. It was added for the concrete Mini Work Planner `ExecutionState.TimedOut` maintenance case.
+This surface intentionally does not cover arbitrary new match-arm recipes or a generalized schema-migration framework; see the [decision](../decisions/authoring-surface-queries-and-parity.md) for the design options of a plain `addUnionVariant`. It was added for the concrete Mini Work Planner `ExecutionState.TimedOut` maintenance case; type deletion is the ordinary `deleteType` operation.
 
 ### Removed Float64 and ListMap compatibility surfaces
 
