@@ -155,6 +155,12 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ListLastIndexOf _
                 | TypedSemanticNodeKind.MapGet _
                 | TypedSemanticNodeKind.OptionGetOrDefault _
+                | TypedSemanticNodeKind.ResultGetOrDefault _
+                | TypedSemanticNodeKind.OptionOkOr _
+                | TypedSemanticNodeKind.ResultOkValue _
+                | TypedSemanticNodeKind.ResultErrValue _
+                | TypedSemanticNodeKind.OptionIsSome _
+                | TypedSemanticNodeKind.ResultIsOk _
                 | TypedSemanticNodeKind.MapGetOrDefault _
                 | TypedSemanticNodeKind.ListAppendItem _
                 | TypedSemanticNodeKind.ListConcat _

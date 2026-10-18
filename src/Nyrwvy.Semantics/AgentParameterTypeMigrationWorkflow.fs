@@ -417,6 +417,12 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.MapInsert(map, key, value) -> three ExpressionRecipe.MapInsert map key value
             | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> three ExpressionRecipe.MapGetOrDefault map key defaultValue
             | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> two ExpressionRecipe.OptionGetOrDefault option defaultValue
+            | ExpressionRecipe.ResultGetOrDefault(result, defaultValue) -> two ExpressionRecipe.ResultGetOrDefault result defaultValue
+            | ExpressionRecipe.OptionOkOr(option, error) -> two ExpressionRecipe.OptionOkOr option error
+            | ExpressionRecipe.ResultOkValue value -> one ExpressionRecipe.ResultOkValue value
+            | ExpressionRecipe.ResultErrValue value -> one ExpressionRecipe.ResultErrValue value
+            | ExpressionRecipe.OptionIsSome value -> one ExpressionRecipe.OptionIsSome value
+            | ExpressionRecipe.ResultIsOk value -> one ExpressionRecipe.ResultIsOk value
             | ExpressionRecipe.ListConcat(left, right) -> two ExpressionRecipe.ListConcat left right
             | ExpressionRecipe.SetUnion(left, right) -> two ExpressionRecipe.SetUnion left right
             | ExpressionRecipe.SetIntersection(left, right) -> two ExpressionRecipe.SetIntersection left right

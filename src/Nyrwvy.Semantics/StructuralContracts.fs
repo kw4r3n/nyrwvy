@@ -282,9 +282,17 @@ module ValueDependency =
         | SemanticNodeKind.MapGet(sourceNodeId, keyNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId ]
-        | SemanticNodeKind.OptionGetOrDefault(sourceNodeId, defaultNodeId) ->
+        | SemanticNodeKind.OptionGetOrDefault(sourceNodeId, defaultNodeId)
+        | SemanticNodeKind.ResultGetOrDefault(sourceNodeId, defaultNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Value defaultNodeId ]
+        | SemanticNodeKind.OptionOkOr(sourceNodeId, errorNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Error errorNodeId ]
+        | SemanticNodeKind.ResultOkValue sourceNodeId
+        | SemanticNodeKind.ResultErrValue sourceNodeId
+        | SemanticNodeKind.OptionIsSome sourceNodeId
+        | SemanticNodeKind.ResultIsOk sourceNodeId -> [ create ValueDependencyRole.Source sourceNodeId ]
         | SemanticNodeKind.MapGetOrDefault(sourceNodeId, keyNodeId, defaultNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId

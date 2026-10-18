@@ -623,6 +623,20 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// The Some value, or the default (of the option's item type) for None, as Rust's
     /// Option::unwrap_or. Both operands are evaluated. Never fails.
     | OptionGetOrDefault of optionNodeId: GraphNodeId * defaultNodeId: GraphNodeId
+    /// The Ok value, or the default (of the result's ok type) for Err, as Rust's Result::unwrap_or.
+    /// Both operands are evaluated. Never fails.
+    | ResultGetOrDefault of resultNodeId: GraphNodeId * defaultNodeId: GraphNodeId
+    /// Option<T> to Result<T, E>: Some x becomes Ok x and None becomes Err of the error operand, as
+    /// Rust's Option::ok_or. Both operands are evaluated. Never fails.
+    | OptionOkOr of optionNodeId: GraphNodeId * errorNodeId: GraphNodeId
+    /// Result<T, E> to Option<T>: Some of the Ok value, None for Err, as Rust's Result::ok. Never fails.
+    | ResultOkValue of resultNodeId: GraphNodeId
+    /// Result<T, E> to Option<E>: Some of the Err value, None for Ok, as Rust's Result::err. Never fails.
+    | ResultErrValue of resultNodeId: GraphNodeId
+    /// True for Some, as Rust's Option::is_some; None is BoolNot of it. Never fails.
+    | OptionIsSome of optionNodeId: GraphNodeId
+    /// True for Ok, as Rust's Result::is_ok; Err is BoolNot of it. Never fails.
+    | ResultIsOk of resultNodeId: GraphNodeId
     /// Option<T> to Option<R>: None stays None and Some x becomes Some of a pure `T -> R` callback's
     /// result, as Rust's Option::map. The callback runs only for Some. Never fails.
     | OptionMap of sourceOptionNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
@@ -941,6 +955,12 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListLastIndexOf(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | SemanticNodeKind.MapGet(sourceMapNodeId, keyNodeId) -> [ sourceMapNodeId; keyNodeId ]
         | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) -> [ optionNodeId; defaultNodeId ]
+        | SemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) -> [ resultNodeId; defaultNodeId ]
+        | SemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) -> [ optionNodeId; errorNodeId ]
+        | SemanticNodeKind.ResultOkValue resultNodeId
+        | SemanticNodeKind.ResultErrValue resultNodeId
+        | SemanticNodeKind.ResultIsOk resultNodeId -> [ resultNodeId ]
+        | SemanticNodeKind.OptionIsSome optionNodeId -> [ optionNodeId ]
         | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) -> [ sourceMapNodeId; keyNodeId; defaultNodeId ]
         | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
         | SemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId)
@@ -1268,6 +1288,14 @@ module SemanticNodeShape =
                 SemanticNodeKind.ListSortBy(mapNodeId sourceListNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
                 SemanticNodeKind.OptionGetOrDefault(mapNodeId optionNodeId, mapNodeId defaultNodeId)
+            | SemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
+                SemanticNodeKind.ResultGetOrDefault(mapNodeId resultNodeId, mapNodeId defaultNodeId)
+            | SemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) ->
+                SemanticNodeKind.OptionOkOr(mapNodeId optionNodeId, mapNodeId errorNodeId)
+            | SemanticNodeKind.ResultOkValue resultNodeId -> SemanticNodeKind.ResultOkValue(mapNodeId resultNodeId)
+            | SemanticNodeKind.ResultErrValue resultNodeId -> SemanticNodeKind.ResultErrValue(mapNodeId resultNodeId)
+            | SemanticNodeKind.OptionIsSome optionNodeId -> SemanticNodeKind.OptionIsSome(mapNodeId optionNodeId)
+            | SemanticNodeKind.ResultIsOk resultNodeId -> SemanticNodeKind.ResultIsOk(mapNodeId resultNodeId)
             | SemanticNodeKind.OptionMap(sourceNodeId, functionId, context) ->
                 SemanticNodeKind.OptionMap(mapNodeId sourceNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.OptionAndThen(sourceNodeId, functionId, context) ->
@@ -1479,6 +1507,12 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.OptionGetOrDefault _
+        | SemanticNodeKind.ResultGetOrDefault _
+        | SemanticNodeKind.OptionOkOr _
+        | SemanticNodeKind.ResultOkValue _
+        | SemanticNodeKind.ResultErrValue _
+        | SemanticNodeKind.OptionIsSome _
+        | SemanticNodeKind.ResultIsOk _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
@@ -1725,6 +1759,12 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.OptionGetOrDefault _
+        | SemanticNodeKind.ResultGetOrDefault _
+        | SemanticNodeKind.OptionOkOr _
+        | SemanticNodeKind.ResultOkValue _
+        | SemanticNodeKind.ResultErrValue _
+        | SemanticNodeKind.OptionIsSome _
+        | SemanticNodeKind.ResultIsOk _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.ListSetAt _
@@ -1965,6 +2005,12 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.OptionGetOrDefault _
+        | SemanticNodeKind.ResultGetOrDefault _
+        | SemanticNodeKind.OptionOkOr _
+        | SemanticNodeKind.ResultOkValue _
+        | SemanticNodeKind.ResultErrValue _
+        | SemanticNodeKind.OptionIsSome _
+        | SemanticNodeKind.ResultIsOk _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.ListSetAt _
@@ -2154,6 +2200,12 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListLastIndexOf _
         | SemanticNodeKind.MapGet _
         | SemanticNodeKind.OptionGetOrDefault _
+        | SemanticNodeKind.ResultGetOrDefault _
+        | SemanticNodeKind.OptionOkOr _
+        | SemanticNodeKind.ResultOkValue _
+        | SemanticNodeKind.ResultErrValue _
+        | SemanticNodeKind.OptionIsSome _
+        | SemanticNodeKind.ResultIsOk _
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListSlice _
         | SemanticNodeKind.ListSetAt _

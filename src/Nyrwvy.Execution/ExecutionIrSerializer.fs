@@ -602,6 +602,18 @@ module ExecutionIrSerializer =
             [ property "kind" (quote "optionGetOrDefault")
               property "optionValueId" (executionValueIdValue optionValueId)
               property "defaultValueId" (executionValueIdValue defaultValueId) ]
+        | ExecutionInstructionKind.ResultGetOrDefault(resultValueId, defaultValueId) ->
+            [ property "kind" (quote "resultGetOrDefault")
+              property "resultValueId" (executionValueIdValue resultValueId)
+              property "defaultValueId" (executionValueIdValue defaultValueId) ]
+        | ExecutionInstructionKind.OptionOkOr(optionValueId, errorValueId) ->
+            [ property "kind" (quote "optionOkOr")
+              property "optionValueId" (executionValueIdValue optionValueId)
+              property "errorValueId" (executionValueIdValue errorValueId) ]
+        | ExecutionInstructionKind.ResultOkValue valueId -> writeUnaryInstruction "resultOkValue" valueId
+        | ExecutionInstructionKind.ResultErrValue valueId -> writeUnaryInstruction "resultErrValue" valueId
+        | ExecutionInstructionKind.OptionIsSome valueId -> writeUnaryInstruction "optionIsSome" valueId
+        | ExecutionInstructionKind.ResultIsOk valueId -> writeUnaryInstruction "resultIsOk" valueId
         | ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId) ->
             [ property "kind" (quote "mapGetOrDefault")
               property "mapValueId" (executionValueIdValue mapValueId)

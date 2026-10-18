@@ -214,6 +214,16 @@ module internal WireRecipeCommon =
         | "optionGetOrDefault" ->
             ensureFields "option-get-or-default recipe" [ "kind"; "option"; "default" ] [ "kind"; "option"; "default" ] element
             ExpressionRecipe.OptionGetOrDefault(recipe (property "option" element), recipe (property "default" element)) |> Some
+        | "resultGetOrDefault" ->
+            ensureFields "result-get-or-default recipe" [ "kind"; "result"; "default" ] [ "kind"; "result"; "default" ] element
+            ExpressionRecipe.ResultGetOrDefault(recipe (property "result" element), recipe (property "default" element)) |> Some
+        | "optionOkOr" ->
+            ensureFields "option-ok-or recipe" [ "kind"; "option"; "error" ] [ "kind"; "option"; "error" ] element
+            ExpressionRecipe.OptionOkOr(recipe (property "option" element), recipe (property "error" element)) |> Some
+        | "resultOkValue" -> unary "result-ok-value recipe" ExpressionRecipe.ResultOkValue |> Some
+        | "resultErrValue" -> unary "result-err-value recipe" ExpressionRecipe.ResultErrValue |> Some
+        | "optionIsSome" -> unary "option-is-some recipe" ExpressionRecipe.OptionIsSome |> Some
+        | "resultIsOk" -> unary "result-is-ok recipe" ExpressionRecipe.ResultIsOk |> Some
         | "mapGetOrDefault" ->
             ensureFields "map-get-or-default recipe" [ "kind"; "map"; "key"; "default" ] [ "kind"; "map"; "key"; "default" ] element
             ExpressionRecipe.MapGetOrDefault(recipe (property "map" element), recipe (property "key" element), recipe (property "default" element)) |> Some

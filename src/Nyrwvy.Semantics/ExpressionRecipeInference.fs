@@ -616,7 +616,13 @@ module internal ExpressionRecipeInference =
             | ExpressionRecipe.SetSize _
             | ExpressionRecipe.SetToList _
             | ExpressionRecipe.OptionSome _
-            | ExpressionRecipe.OptionGetOrDefault _ -> fixedSignature ()
+            | ExpressionRecipe.OptionGetOrDefault _
+            | ExpressionRecipe.ResultGetOrDefault _
+            | ExpressionRecipe.OptionOkOr _
+            | ExpressionRecipe.ResultOkValue _
+            | ExpressionRecipe.ResultErrValue _
+            | ExpressionRecipe.OptionIsSome _
+            | ExpressionRecipe.ResultIsOk _ -> fixedSignature ()
             | ExpressionRecipe.BoolAnd(left, right)
             | ExpressionRecipe.BoolOr(left, right) ->
                 let role =

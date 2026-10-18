@@ -48,6 +48,8 @@ type SnapshotSchemaFeature =
     /// A Product or Union with type parameters, a named type with type arguments, or a construct
     /// node with type arguments.
     | GenericTypes
+    /// ResultGetOrDefault, OptionOkOr, ResultOkValue, ResultErrValue, OptionIsSome and ResultIsOk.
+    | OptionResultAccessors
 
 /// One persisted snapshot schema: its JSON `schemaVersion` and its Nyason schema identifier.
 /// The two formats number their versions separately but move together.
@@ -80,12 +82,15 @@ module SnapshotSchema =
 
     let private v18 = version 18 "nayamnyam.snapshot.v14"
 
+    let private v19 = version 19 "nayamnyam.snapshot.v15"
+
     /// Every version the codecs read, oldest first.
-    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18 ]
+    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19 ]
 
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
-        [ SnapshotSchemaFeature.GenericTypes, v18, "Generic Product and Union types"
+        [ SnapshotSchemaFeature.OptionResultAccessors, v19, "Option and Result accessors"
+          SnapshotSchemaFeature.GenericTypes, v18, "Generic Product and Union types"
           SnapshotSchemaFeature.ExceptionIsCancellation, v17, "Exception cancellation classification"
           SnapshotSchemaFeature.StringReplaceAndTrim, v17, "StringReplace and StringTrim"
           SnapshotSchemaFeature.ListZipWithAndFlatMap, v17, "ListZipWith and ListFlatMap"
@@ -129,6 +134,12 @@ module SnapshotSchema =
         | SemanticNodeKind.ResultMap _
         | SemanticNodeKind.ResultMapErr _
         | SemanticNodeKind.ResultAndThen _ -> Some SnapshotSchemaFeature.OptionResultCombinators
+        | SemanticNodeKind.ResultGetOrDefault _
+        | SemanticNodeKind.OptionOkOr _
+        | SemanticNodeKind.ResultOkValue _
+        | SemanticNodeKind.ResultErrValue _
+        | SemanticNodeKind.OptionIsSome _
+        | SemanticNodeKind.ResultIsOk _ -> Some SnapshotSchemaFeature.OptionResultAccessors
         | SemanticNodeKind.ExceptionIsCancellation _ -> Some SnapshotSchemaFeature.ExceptionIsCancellation
         | SemanticNodeKind.ExceptionCatch _
         | SemanticNodeKind.ExceptionMessage _

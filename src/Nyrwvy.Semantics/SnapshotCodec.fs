@@ -927,6 +927,26 @@ module SnapshotCodec =
             writer.WriteString("kind", "optionGetOrDefault")
             writer.WriteString("optionNodeId", StableId.value optionNodeId)
             writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
+        | SemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
+            writer.WriteString("kind", "resultGetOrDefault")
+            writer.WriteString("resultNodeId", StableId.value resultNodeId)
+            writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
+        | SemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) ->
+            writer.WriteString("kind", "optionOkOr")
+            writer.WriteString("optionNodeId", StableId.value optionNodeId)
+            writer.WriteString("errorNodeId", StableId.value errorNodeId)
+        | SemanticNodeKind.ResultOkValue resultNodeId ->
+            writer.WriteString("kind", "resultOkValue")
+            writer.WriteString("valueNodeId", StableId.value resultNodeId)
+        | SemanticNodeKind.ResultErrValue resultNodeId ->
+            writer.WriteString("kind", "resultErrValue")
+            writer.WriteString("valueNodeId", StableId.value resultNodeId)
+        | SemanticNodeKind.OptionIsSome optionNodeId ->
+            writer.WriteString("kind", "optionIsSome")
+            writer.WriteString("valueNodeId", StableId.value optionNodeId)
+        | SemanticNodeKind.ResultIsOk resultNodeId ->
+            writer.WriteString("kind", "resultIsOk")
+            writer.WriteString("valueNodeId", StableId.value resultNodeId)
         | SemanticNodeKind.OptionMap(sourceOptionNodeId, mapperFunctionId, context) ->
             writer.WriteString("kind", "optionMap")
             writer.WriteString("sourceOptionNodeId", StableId.value sourceOptionNodeId)
@@ -2167,6 +2187,28 @@ module SnapshotCodec =
                     (set [ "id"; "kind"; "optionNodeId"; "defaultNodeId" ])
                     element
                 SemanticNodeKind.OptionGetOrDefault(readId<GraphNodeTag> "optionNodeId" element, readId<GraphNodeTag> "defaultNodeId" element)
+            | "resultGetOrDefault" ->
+                ensureProperties
+                    "ResultGetOrDefault node"
+                    (set [ "id"; "kind"; "resultNodeId"; "defaultNodeId" ])
+                    (set [ "id"; "kind"; "resultNodeId"; "defaultNodeId" ])
+                    element
+                SemanticNodeKind.ResultGetOrDefault(readId<GraphNodeTag> "resultNodeId" element, readId<GraphNodeTag> "defaultNodeId" element)
+            | "optionOkOr" ->
+                ensureProperties "OptionOkOr node" (set [ "id"; "kind"; "optionNodeId"; "errorNodeId" ]) (set [ "id"; "kind"; "optionNodeId"; "errorNodeId" ]) element
+                SemanticNodeKind.OptionOkOr(readId<GraphNodeTag> "optionNodeId" element, readId<GraphNodeTag> "errorNodeId" element)
+            | "resultOkValue" ->
+                ensureProperties "ResultOkValue node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.ResultOkValue(readId<GraphNodeTag> "valueNodeId" element)
+            | "resultErrValue" ->
+                ensureProperties "ResultErrValue node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.ResultErrValue(readId<GraphNodeTag> "valueNodeId" element)
+            | "optionIsSome" ->
+                ensureProperties "OptionIsSome node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.OptionIsSome(readId<GraphNodeTag> "valueNodeId" element)
+            | "resultIsOk" ->
+                ensureProperties "ResultIsOk node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.ResultIsOk(readId<GraphNodeTag> "valueNodeId" element)
             | "optionMap" ->
                 ensureProperties "OptionMap node" (set [ "id"; "kind"; "sourceOptionNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceOptionNodeId"; "mapperFunctionId"; "context" ]) element
                 SemanticNodeKind.OptionMap(readId<GraphNodeTag> "sourceOptionNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)

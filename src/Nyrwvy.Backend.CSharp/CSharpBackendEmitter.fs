@@ -1607,6 +1607,27 @@ module CSharpBackend =
         | ExecutionInstructionKind.OptionGetOrDefault(optionValueId, defaultValueId) ->
             let option = valueName optionValueId
             writer.Line(target + " = " + option + ".HasValue ? " + option + ".Value : " + valueName defaultValueId + ";")
+        // The Option and Result accessors are one conditional (or one member read) over HasValue or IsOk,
+        // with every operand already evaluated.
+        | ExecutionInstructionKind.ResultGetOrDefault(resultValueId, defaultValueId) ->
+            let result = valueName resultValueId
+            writer.Line(target + " = " + result + ".IsOk ? " + result + ".OkValue : " + valueName defaultValueId + ";")
+        | ExecutionInstructionKind.OptionOkOr(optionValueId, errorValueId) ->
+            let option = valueName optionValueId
+            let resultType = formatType instruction.Result.Type
+            writer.Line(target + " = " + option + ".HasValue ? " + resultType + ".Ok(" + option + ".Value) : " + resultType + ".Err(" + valueName errorValueId + ");")
+        | ExecutionInstructionKind.ResultOkValue resultValueId ->
+            let result = valueName resultValueId
+            let optionType = formatType instruction.Result.Type
+            writer.Line(target + " = " + result + ".IsOk ? " + optionType + ".Some(" + result + ".OkValue) : " + optionType + ".None();")
+        | ExecutionInstructionKind.ResultErrValue resultValueId ->
+            let result = valueName resultValueId
+            let optionType = formatType instruction.Result.Type
+            writer.Line(target + " = " + result + ".IsOk ? " + optionType + ".None() : " + optionType + ".Some(" + result + ".ErrorValue);")
+        | ExecutionInstructionKind.OptionIsSome optionValueId ->
+            writer.Line(target + " = " + valueName optionValueId + ".HasValue;")
+        | ExecutionInstructionKind.ResultIsOk resultValueId ->
+            writer.Line(target + " = " + valueName resultValueId + ".IsOk;")
         | ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".GetOrDefault(" + valueName keyValueId + ", " + valueName defaultValueId + ");")
         | ExecutionInstructionKind.ListSlice(listValueId, startId, endId) ->

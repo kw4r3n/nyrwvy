@@ -542,6 +542,20 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
                             lowerBinaryNode node optionNodeId defaultNodeId (fun optionValueId defaultValueId ->
                                 ExecutionInstructionKind.OptionGetOrDefault(optionValueId, defaultValueId))
+                        | TypedSemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
+                            lowerBinaryNode node resultNodeId defaultNodeId (fun resultValueId defaultValueId ->
+                                ExecutionInstructionKind.ResultGetOrDefault(resultValueId, defaultValueId))
+                        | TypedSemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) ->
+                            lowerBinaryNode node optionNodeId errorNodeId (fun optionValueId errorValueId ->
+                                ExecutionInstructionKind.OptionOkOr(optionValueId, errorValueId))
+                        | TypedSemanticNodeKind.ResultOkValue resultNodeId ->
+                            lowerUnaryNode node resultNodeId ExecutionInstructionKind.ResultOkValue
+                        | TypedSemanticNodeKind.ResultErrValue resultNodeId ->
+                            lowerUnaryNode node resultNodeId ExecutionInstructionKind.ResultErrValue
+                        | TypedSemanticNodeKind.OptionIsSome optionNodeId ->
+                            lowerUnaryNode node optionNodeId ExecutionInstructionKind.OptionIsSome
+                        | TypedSemanticNodeKind.ResultIsOk resultNodeId ->
+                            lowerUnaryNode node resultNodeId ExecutionInstructionKind.ResultIsOk
                         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
                             lowerTernaryNode node mapNodeId keyNodeId defaultNodeId (fun mapValueId keyValueId defaultValueId ->
                                 ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId))

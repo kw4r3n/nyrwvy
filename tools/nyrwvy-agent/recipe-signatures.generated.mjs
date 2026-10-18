@@ -124,4 +124,10 @@ export const fixedSignatures = Object.freeze({
   "setToList": "(value: Set<T>) -> List<T>  // insertion order",
   "optionSome": "(value: T) -> Option<T>",
   "optionGetOrDefault": "(option: Option<T>, default: T) -> T  // unwrap_or",
+  "resultGetOrDefault": "(result: Result<T, E>, default: T) -> T  // unwrap_or",
+  "optionOkOr": "(option: Option<T>, error: E) -> Result<T, E>  // ok_or",
+  "resultOkValue": "(value: Result<T, E>) -> Option<T>  // Result::ok",
+  "resultErrValue": "(value: Result<T, E>) -> Option<E>  // Result::err",
+  "optionIsSome": "(value: Option<T>) -> Bool  // is_some",
+  "resultIsOk": "(value: Result<T, E>) -> Bool  // is_ok",
 })

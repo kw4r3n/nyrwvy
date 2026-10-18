@@ -178,6 +178,13 @@ module internal WireGraph =
         | SemanticNodeKind.MapGet(map, key) -> tagged "mapGet" [ "mapNodeId", identity map; "keyNodeId", identity key ]
         | SemanticNodeKind.OptionGetOrDefault(option, fallback) ->
             tagged "optionGetOrDefault" [ "optionNodeId", identity option; "defaultNodeId", identity fallback ]
+        | SemanticNodeKind.ResultGetOrDefault(result, fallback) ->
+            tagged "resultGetOrDefault" [ "resultNodeId", identity result; "defaultNodeId", identity fallback ]
+        | SemanticNodeKind.OptionOkOr(option, error) -> tagged "optionOkOr" [ "optionNodeId", identity option; "errorNodeId", identity error ]
+        | SemanticNodeKind.ResultOkValue value -> unary "resultOkValue" value
+        | SemanticNodeKind.ResultErrValue value -> unary "resultErrValue" value
+        | SemanticNodeKind.OptionIsSome value -> unary "optionIsSome" value
+        | SemanticNodeKind.ResultIsOk value -> unary "resultIsOk" value
         | SemanticNodeKind.MapGetOrDefault(map, key, fallback) ->
             tagged "mapGetOrDefault" [ "mapNodeId", identity map; "keyNodeId", identity key; "defaultNodeId", identity fallback ]
         | SemanticNodeKind.ListSlice(list, start, stop) ->

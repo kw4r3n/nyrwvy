@@ -193,6 +193,12 @@ type ExpressionRecipe =
     | OptionNone of itemType: TypeRef
     | OptionSome of ExpressionRecipe
     | OptionGetOrDefault of option: ExpressionRecipe * defaultValue: ExpressionRecipe
+    | ResultGetOrDefault of result: ExpressionRecipe * defaultValue: ExpressionRecipe
+    | OptionOkOr of option: ExpressionRecipe * error: ExpressionRecipe
+    | ResultOkValue of ExpressionRecipe
+    | ResultErrValue of ExpressionRecipe
+    | OptionIsSome of ExpressionRecipe
+    | ResultIsOk of ExpressionRecipe
     | OptionMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | OptionAndThen of source: ExpressionRecipe * binderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ResultMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -407,6 +413,12 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.OptionNone itemType -> ExpressionRecipe.OptionNone(mapType itemType)
         | ExpressionRecipe.OptionSome value -> ExpressionRecipe.OptionSome(go value)
         | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> ExpressionRecipe.OptionGetOrDefault(go option, go defaultValue)
+        | ExpressionRecipe.ResultGetOrDefault(result, defaultValue) -> ExpressionRecipe.ResultGetOrDefault(go result, go defaultValue)
+        | ExpressionRecipe.OptionOkOr(option, error) -> ExpressionRecipe.OptionOkOr(go option, go error)
+        | ExpressionRecipe.ResultOkValue value -> ExpressionRecipe.ResultOkValue(go value)
+        | ExpressionRecipe.ResultErrValue value -> ExpressionRecipe.ResultErrValue(go value)
+        | ExpressionRecipe.OptionIsSome value -> ExpressionRecipe.OptionIsSome(go value)
+        | ExpressionRecipe.ResultIsOk value -> ExpressionRecipe.ResultIsOk(go value)
         | ExpressionRecipe.ResultOk(errorType, value) -> ExpressionRecipe.ResultOk(mapType errorType, go value)
         | ExpressionRecipe.Abort error -> ExpressionRecipe.Abort(go error)
         | ExpressionRecipe.ResultErr(okType, error) -> ExpressionRecipe.ResultErr(mapType okType, go error)

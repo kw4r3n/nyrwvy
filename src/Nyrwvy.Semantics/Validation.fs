@@ -1381,6 +1381,30 @@ module SnapshotValidator =
                         | Some _ ->
                             add "OptionInputTypeMismatch" $"OptionGetOrDefault node '{StableId.value node.Id}' requires an Option<T> input."
                         | None -> ()
+                    | SemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
+                        match nodeType resultNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ])) ->
+                            requireNodeType
+                                "ResultDefaultTypeMismatch"
+                                $"ResultGetOrDefault node '{StableId.value node.Id}' requires a default of the result's ok type."
+                                okType
+                                defaultNodeId
+                        | Some _ ->
+                            add "ResultInputTypeMismatch" $"ResultGetOrDefault node '{StableId.value node.Id}' requires a Result<T, E> input."
+                        | None -> ()
+                    | SemanticNodeKind.OptionOkOr(optionNodeId, _)
+                    | SemanticNodeKind.OptionIsSome optionNodeId ->
+                        match nodeType optionNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ _ ])) -> ()
+                        | Some _ -> add "OptionInputTypeMismatch" $"Node '{StableId.value node.Id}' requires an Option<T> input."
+                        | None -> ()
+                    | SemanticNodeKind.ResultOkValue resultNodeId
+                    | SemanticNodeKind.ResultErrValue resultNodeId
+                    | SemanticNodeKind.ResultIsOk resultNodeId ->
+                        match nodeType resultNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ])) -> ()
+                        | Some _ -> add "ResultInputTypeMismatch" $"Node '{StableId.value node.Id}' requires a Result<T, E> input."
+                        | None -> ()
                     | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) ->
                         match requireMapInput node.Id sourceMapNodeId with
                         | Some(keyType, valueType) ->
@@ -2527,6 +2551,12 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListLastIndexOf _
                 | SemanticNodeKind.MapGet _
                 | SemanticNodeKind.OptionGetOrDefault _
+                | SemanticNodeKind.ResultGetOrDefault _
+                | SemanticNodeKind.OptionOkOr _
+                | SemanticNodeKind.ResultOkValue _
+                | SemanticNodeKind.ResultErrValue _
+                | SemanticNodeKind.OptionIsSome _
+                | SemanticNodeKind.ResultIsOk _
                 | SemanticNodeKind.MapGetOrDefault _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _

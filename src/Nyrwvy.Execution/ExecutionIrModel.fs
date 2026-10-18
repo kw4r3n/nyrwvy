@@ -210,6 +210,12 @@ type ExecutionInstructionKind =
     | MapGet of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | MapGetOrDefault of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId * defaultValueId: ExecutionValueId
     | OptionGetOrDefault of optionValueId: ExecutionValueId * defaultValueId: ExecutionValueId
+    | ResultGetOrDefault of resultValueId: ExecutionValueId * defaultValueId: ExecutionValueId
+    | OptionOkOr of optionValueId: ExecutionValueId * errorValueId: ExecutionValueId
+    | ResultOkValue of ExecutionValueId
+    | ResultErrValue of ExecutionValueId
+    | OptionIsSome of ExecutionValueId
+    | ResultIsOk of ExecutionValueId
     | ListSlice of listValueId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
     | ListSetAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListInsertAt of listValueId: ExecutionValueId * indexValueId: ExecutionValueId * itemValueId: ExecutionValueId
@@ -472,6 +478,12 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.ListLastIndexOf _
         | ExecutionInstructionKind.MapGet _
         | ExecutionInstructionKind.OptionGetOrDefault _
+        | ExecutionInstructionKind.ResultGetOrDefault _
+        | ExecutionInstructionKind.OptionOkOr _
+        | ExecutionInstructionKind.ResultOkValue _
+        | ExecutionInstructionKind.ResultErrValue _
+        | ExecutionInstructionKind.OptionIsSome _
+        | ExecutionInstructionKind.ResultIsOk _
         | ExecutionInstructionKind.MapGetOrDefault _
         | ExecutionInstructionKind.ListSlice _
         | ExecutionInstructionKind.ListSetAt _

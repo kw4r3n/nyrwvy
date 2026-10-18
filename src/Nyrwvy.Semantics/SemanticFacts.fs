@@ -302,6 +302,28 @@ module SemanticFacts =
                         match tryNodeType nextVisiting optionNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])) -> Some itemType
                         | _ -> None
+                    | SemanticNodeKind.ResultGetOrDefault(resultNodeId, _) ->
+                        match tryNodeType nextVisiting resultNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ])) -> Some okType
+                        | _ -> None
+                    | SemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) ->
+                        match tryNodeType nextVisiting optionNodeId, tryNodeType nextVisiting errorNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])), Some errorType ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ itemType; errorType ]))
+                        | _ -> None
+                    | SemanticNodeKind.ResultOkValue resultNodeId ->
+                        match tryNodeType nextVisiting resultNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ])) ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ okType ]))
+                        | _ -> None
+                    | SemanticNodeKind.ResultErrValue resultNodeId ->
+                        match tryNodeType nextVisiting resultNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; errorType ])) ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ errorType ]))
+                        | _ -> None
+                    | SemanticNodeKind.OptionIsSome _
+                    | SemanticNodeKind.ResultIsOk _ ->
+                        Some(TypeRef.Primitive PrimitiveType.Bool)
                     | SemanticNodeKind.OptionMap(sourceNodeId, mapperFunctionId, context) ->
                         match tryNodeType nextVisiting sourceNodeId, Map.tryFind mapperFunctionId index.Functions with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])), Some mapper ->

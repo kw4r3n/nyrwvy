@@ -202,6 +202,12 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | MapGetOrDefault of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * defaultNodeId: GraphNodeId
     | OptionGetOrDefault of optionNodeId: GraphNodeId * defaultNodeId: GraphNodeId
+    | ResultGetOrDefault of resultNodeId: GraphNodeId * defaultNodeId: GraphNodeId
+    | OptionOkOr of optionNodeId: GraphNodeId * errorNodeId: GraphNodeId
+    | ResultOkValue of resultNodeId: GraphNodeId
+    | ResultErrValue of resultNodeId: GraphNodeId
+    | OptionIsSome of optionNodeId: GraphNodeId
+    | ResultIsOk of resultNodeId: GraphNodeId
     | ListSlice of listNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
     | ListSetAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListInsertAt of listNodeId: GraphNodeId * indexNodeId: GraphNodeId * itemNodeId: GraphNodeId
@@ -422,6 +428,12 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.ListLastIndexOf _
         | TypedSemanticNodeKind.MapGet _
         | TypedSemanticNodeKind.OptionGetOrDefault _
+        | TypedSemanticNodeKind.ResultGetOrDefault _
+        | TypedSemanticNodeKind.OptionOkOr _
+        | TypedSemanticNodeKind.ResultOkValue _
+        | TypedSemanticNodeKind.ResultErrValue _
+        | TypedSemanticNodeKind.OptionIsSome _
+        | TypedSemanticNodeKind.ResultIsOk _
         | TypedSemanticNodeKind.MapGetOrDefault _
         | TypedSemanticNodeKind.ListSlice _
         | TypedSemanticNodeKind.ListSetAt _
@@ -657,6 +669,12 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) -> [ mapNodeId; keyNodeId ]
         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) -> [ mapNodeId; keyNodeId; defaultNodeId ]
         | TypedSemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) -> [ optionNodeId; defaultNodeId ]
+        | TypedSemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) -> [ resultNodeId; defaultNodeId ]
+        | TypedSemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) -> [ optionNodeId; errorNodeId ]
+        | TypedSemanticNodeKind.ResultOkValue resultNodeId
+        | TypedSemanticNodeKind.ResultErrValue resultNodeId
+        | TypedSemanticNodeKind.OptionIsSome resultNodeId
+        | TypedSemanticNodeKind.ResultIsOk resultNodeId -> [ resultNodeId ]
         | TypedSemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) -> [ listNodeId; startNodeId; endNodeId ]
         | TypedSemanticNodeKind.ListSetAt(listNodeId, indexNodeId, itemNodeId)
         | TypedSemanticNodeKind.ListInsertAt(listNodeId, indexNodeId, itemNodeId) -> [ listNodeId; indexNodeId; itemNodeId ]
@@ -1022,6 +1040,14 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId))
                     | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
                         Ok(TypedSemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId))
+                    | SemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
+                        Ok(TypedSemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId))
+                    | SemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) ->
+                        Ok(TypedSemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId))
+                    | SemanticNodeKind.ResultOkValue resultNodeId -> Ok(TypedSemanticNodeKind.ResultOkValue resultNodeId)
+                    | SemanticNodeKind.ResultErrValue resultNodeId -> Ok(TypedSemanticNodeKind.ResultErrValue resultNodeId)
+                    | SemanticNodeKind.OptionIsSome optionNodeId -> Ok(TypedSemanticNodeKind.OptionIsSome optionNodeId)
+                    | SemanticNodeKind.ResultIsOk resultNodeId -> Ok(TypedSemanticNodeKind.ResultIsOk resultNodeId)
                     | SemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
                         Ok(TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId))
                     | SemanticNodeKind.ListSlice(listNodeId, startNodeId, endNodeId) ->

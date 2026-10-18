@@ -30,7 +30,7 @@ The implemented subset includes:
 - explicit conditionals;
 - Bool negation and short-circuit Bool and/or;
 - exhaustive union, `Option`, and `Result` matching with pattern bindings;
-- `Option` and `Result` combinators (`OptionGetOrDefault`, `OptionMap`, `OptionAndThen`, `ResultMap`, `ResultMapErr`, `ResultAndThen`; [decision](../decisions/option-result-combinators.md));
+- `Option` and `Result` combinators (`OptionGetOrDefault`, `OptionMap`, `OptionAndThen`, `ResultMap`, `ResultMapErr`, `ResultAndThen`; [decision](../decisions/option-result-combinators.md)) and accessors (`ResultGetOrDefault`, `OptionOkOr`, `ResultOkValue`, `ResultErrValue`, `OptionIsSome`, `ResultIsOk`; [decision](../decisions/option-result-accessors.md));
 - internal direct function calls;
 - pure capture-free function types, named references, and positional invocation;
 - program-defined stateless Capability values backed by pure named functions;
@@ -431,7 +431,10 @@ OptionNone
 OptionSome
 ResultOk
 ResultErr
-OptionGetOrDefault
+OptionGetOrDefault / ResultGetOrDefault
+OptionOkOr
+ResultOkValue / ResultErrValue
+OptionIsSome / ResultIsOk
 OptionMap / OptionAndThen
 ResultMap / ResultMapErr / ResultAndThen
 Abort
@@ -469,9 +472,15 @@ OptionAndThen(option, binder, context)    Option<U>, None, or binder(x): Option<
 ResultMap(result, mapper, context)        Result<U, E>, Ok(mapper(x)), or the Err unchanged
 ResultMapErr(result, mapper, context)     Result<T, F>, Err(mapper(e)), or the Ok unchanged
 ResultAndThen(result, binder, context)    Result<U, E>, binder(x): Result<U, E>, or the Err unchanged
+ResultGetOrDefault(result, default)       T, the Ok value, or default for Err
+OptionOkOr(option, error)                 Result<T, E>, Ok(x) for Some(x), Err(error) for None
+ResultOkValue(result)                     Option<T>, Some of the Ok value, None for Err
+ResultErrValue(result)                    Option<E>, Some of the Err value, None for Ok
+OptionIsSome(option)                      Bool, true for Some
+ResultIsOk(result)                        Bool, true for Ok
 ```
 
-`OptionGetOrDefault` evaluates its default whether or not the option holds a value, as `MapGetOrDefault` does, and the default has the item type (for `Option<Option<T>>`, `Some(None)` gives `None`, not the default). The callbacks are pure named functions with exactly one parameter not bound by the optional context, as for `ListMap`, and run only for the case they name: `Some`, `Ok`, or `Err` for `ResultMapErr`. `ResultAndThen`'s binder must return a `Result` with the source's error type. None of them fails.
+`OptionGetOrDefault` and `ResultGetOrDefault` evaluate their default whether or not the value is present, as `MapGetOrDefault` does, and the default has the item or ok type (for `Option<Option<T>>`, `Some(None)` gives `None`, not the default). `OptionOkOr` likewise evaluates its error either way, and its error type is the error operand's type. `ResultOkValue` and `ResultErrValue` are Rust's `Result::ok` and `Result::err`, named for the value they keep because `ResultOk` and `ResultErr` are the constructors. `OptionIsSome` and `ResultIsOk` are `is_some` and `is_ok`; there is no `IsNone` or `IsErr`, which are `BoolNot` of them ([decision](../decisions/option-result-accessors.md)). The callbacks are pure named functions with exactly one parameter not bound by the optional context, as for `ListMap`, and run only for the case they name: `Some`, `Ok`, or `Err` for `ResultMapErr`. `ResultAndThen`'s binder must return a `Result` with the source's error type. None of them fails.
 
 `DirectCall` references an existing callee by `FunctionId` and arguments by stable callee `ParameterId`. Every callee required effect must already be declared by the target, and every callee parameter must be bound exactly once with an exact-compatible child recipe. Caller binding-list order is ignored; materialization follows callee parameter declaration order and creates persistent `ArgumentBinding` values only after child nodes receive system-owned IDs. Incomplete calls do not create obligations through this surface.
 

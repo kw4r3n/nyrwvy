@@ -160,6 +160,12 @@ module FoundationTests =
                 | SemanticNodeKind.ListLastIndexOf _
                 | SemanticNodeKind.MapGet _
                 | SemanticNodeKind.OptionGetOrDefault _
+                | SemanticNodeKind.ResultGetOrDefault _
+                | SemanticNodeKind.OptionOkOr _
+                | SemanticNodeKind.ResultOkValue _
+                | SemanticNodeKind.ResultErrValue _
+                | SemanticNodeKind.OptionIsSome _
+                | SemanticNodeKind.ResultIsOk _
                 | SemanticNodeKind.MapGetOrDefault _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _

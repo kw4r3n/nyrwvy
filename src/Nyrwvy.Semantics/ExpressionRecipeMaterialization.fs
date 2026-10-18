@@ -477,6 +477,12 @@ module internal ExpressionRecipeMaterialization =
             [ { Id = nodeId; Kind = SemanticNodeKind.OptionNone itemType } ], nodeId
         | ExpressionRecipe.OptionSome value -> unary SemanticNodeKind.OptionSome value
         | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> binary SemanticNodeKind.OptionGetOrDefault option defaultValue
+        | ExpressionRecipe.ResultGetOrDefault(result, defaultValue) -> binary SemanticNodeKind.ResultGetOrDefault result defaultValue
+        | ExpressionRecipe.OptionOkOr(option, error) -> binary SemanticNodeKind.OptionOkOr option error
+        | ExpressionRecipe.ResultOkValue value -> unary SemanticNodeKind.ResultOkValue value
+        | ExpressionRecipe.ResultErrValue value -> unary SemanticNodeKind.ResultErrValue value
+        | ExpressionRecipe.OptionIsSome value -> unary SemanticNodeKind.OptionIsSome value
+        | ExpressionRecipe.ResultIsOk value -> unary SemanticNodeKind.ResultIsOk value
         | ExpressionRecipe.ResultOk(errorType, value) -> unary (fun valueNodeId -> SemanticNodeKind.ResultOk(errorType, valueNodeId)) value
         | ExpressionRecipe.Abort error -> unary SemanticNodeKind.Abort error
         | ExpressionRecipe.ResultErr(okType, error) -> unary (fun errorNodeId -> SemanticNodeKind.ResultErr(okType, errorNodeId)) error

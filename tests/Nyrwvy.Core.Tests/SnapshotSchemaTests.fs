@@ -82,6 +82,10 @@ module SnapshotSchemaTests =
     let private cases: (string * SnapshotSchemaFeature * (Create -> unit)) list =
         [ "option get or default", SnapshotSchemaFeature.OptionResultCombinators, (fun create ->
               create "getOr" [ "option", optionOf stringType; "fallback", stringType ] stringType [] (ExpressionRecipe.OptionGetOrDefault(slot 0, slot 1)) |> ignore)
+          "result is ok", SnapshotSchemaFeature.OptionResultAccessors, (fun create ->
+              create "isOk" [ "result", generic BuiltinGenericType.Result [ stringType; int64Type ] ] boolType [] (ExpressionRecipe.ResultIsOk(slot 0)) |> ignore)
+          "option ok or", SnapshotSchemaFeature.OptionResultAccessors, (fun create ->
+              create "okOr" [ "option", optionOf stringType; "error", int64Type ] (generic BuiltinGenericType.Result [ stringType; int64Type ]) [] (ExpressionRecipe.OptionOkOr(slot 0, slot 1)) |> ignore)
           "exception classification", SnapshotSchemaFeature.ExceptionIsCancellation, (fun create ->
               create "isCancellation" [ "exception", generic BuiltinGenericType.Exception [] ] boolType [] (ExpressionRecipe.ExceptionIsCancellation(slot 0)) |> ignore)
           "exception node", SnapshotSchemaFeature.ExceptionBoundary, (fun create ->
