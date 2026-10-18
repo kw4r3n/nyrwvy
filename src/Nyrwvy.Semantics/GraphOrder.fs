@@ -1,6 +1,20 @@
 namespace Nyrwvy.Core
 
-/// The same dependency-order rule is used by semantic abort admission and IR lowering.
+/// How one graph node takes part in runtime effect ordering. Semantic admission and IR lowering
+/// each supply a view of their own node type; the ordering rule itself (which functions are
+/// observable, which nodes are observable, which pairs are unordered) lives only in `GraphOrder`.
+type internal EffectOrderView<'Node> =
+    { NodeId: 'Node -> GraphNodeId
+      /// The nodes of the same graph this node must run after, including nested free references.
+      Dependencies: 'Node -> GraphNodeId list
+      /// The node lists of the graphs this node owns.
+      NestedGraphs: 'Node -> 'Node list list
+      /// Whether the node is observable on its own, and the named functions it runs.
+      Descriptor: 'Node -> bool * FunctionId list
+      /// A local exit (Abort) is observable inside its own function only: it never makes a caller observable.
+      IsLocalExit: 'Node -> bool }
+
+/// The same dependency-order rule is used by semantic admission and IR lowering.
 /// Traversal stays local to a graph: enclosing Bind/branch edges own cross-scope order.
 [<RequireQualifiedAccess>]
 module internal GraphOrder =
@@ -27,8 +41,6 @@ module internal GraphOrder =
 
     /// Derive transitive runtime observability with a reverse worklist. A recursive call cycle
     /// is observable exactly when it reaches a seed; pure cycles do not invent effects.
-    /// Typed lowering supplies intrinsic seeds and executed callees; historical semantic
-    /// admission remains unchanged so persisted graphs can still be opened and repaired.
     let observableClosure (descriptors: Map<FunctionId, bool * FunctionId list>) =
         let callers = System.Collections.Generic.Dictionary<FunctionId, ResizeArray<FunctionId>>()
         let observable = System.Collections.Generic.HashSet<FunctionId>()
@@ -47,40 +59,111 @@ module internal GraphOrder =
             | false, _ -> ()
         observable |> Set.ofSeq
 
-    /// Only functions with a local exit (Abort) are ordered here, so that such a function cannot be
-    /// published or reopened unordered; graphs without one are ordered by the same rule at lowering
-    /// (`ExecutionIrAnalysis.validateEffectOrder`).
+    let rec private allNodes (view: EffectOrderView<'Node>) (nodes: 'Node list) =
+        nodes @ (nodes |> List.collect (fun node -> view.NestedGraphs node |> List.collect (allNodes view)))
+
+    /// The runtime-observable functions: a function is observable when it declares effects, when
+    /// any of its nodes (at any depth) is observable on its own other than a local exit, or when it
+    /// runs an observable function. `functions` lists each function's id, whether it declares
+    /// effects, and its body nodes.
+    let observableFunctions (view: EffectOrderView<'Node>) (functions: (FunctionId * bool * 'Node list) seq) : Set<FunctionId> =
+        functions
+        |> Seq.map (fun (id, declaresEffects, body) ->
+            let descriptors = allNodes view body |> List.map (fun node ->
+                let intrinsic, targets = view.Descriptor node
+                (intrinsic && not (view.IsLocalExit node)), targets)
+            id, ((declaresEffects || (descriptors |> List.exists fst)), (descriptors |> List.collect snd |> List.distinct)))
+        |> Map.ofSeq
+        |> observableClosure
+
+    let rec private nodeObservable (view: EffectOrderView<'Node>) (observable: Set<FunctionId>) (node: 'Node) =
+        let intrinsic, targets = view.Descriptor node
+        intrinsic
+        || (targets |> List.exists (fun id -> Set.contains id observable))
+        || (view.NestedGraphs node |> List.exists (List.exists (nodeObservable view observable)))
+
+    /// The first pair of observable nodes of one graph (or of a graph nested in it) with no
+    /// dependency between them, given the observable functions.
+    let tryUnorderedEffects (view: EffectOrderView<'Node>) (observable: Set<FunctionId>) (body: 'Node list) =
+        let rec check (nodes: 'Node list) =
+            let edges = nodes |> List.map (fun node -> view.NodeId node, view.Dependencies node) |> Map.ofList
+            let effectful = nodes |> List.filter (nodeObservable view observable) |> List.map view.NodeId
+            match tryUnorderedPair edges effectful with
+            | Some pair -> Some pair
+            // Nested scopes retain their own dependencies: enclosing Bind/branch edges own order.
+            | None -> nodes |> List.collect view.NestedGraphs |> List.tryPick check
+        check body
+
+    /// Bodies and TaskStart workers belong to kinds that are observable on their own.
+    /// Pure callbacks carry no effects (validation requires them pure), so they never make a node observable.
+    let private carriesCalleeEffects role =
+        match role with
+        | FunctionReferenceRole.DirectCall
+        | FunctionReferenceRole.EffectListCallback
+        | FunctionReferenceRole.Worker
+        | FunctionReferenceRole.Body -> true
+        | FunctionReferenceRole.PureListCallback
+        | FunctionReferenceRole.FunctionValue
+        | FunctionReferenceRole.CapabilityImplementation _ -> false
+
+    let private isAbort (node: SemanticNode) = match node.Kind with SemanticNodeKind.Abort _ -> true | _ -> false
+
+    /// The semantic view of the ordering rule. Abort and every intrinsically effectful kind are
+    /// observable on their own, except ParallelAll: it orders nothing itself, so only an
+    /// observable worker makes it observable. Typed lowering mirrors this per kind
+    /// (`ExecutionIrAnalysis.orderingDescriptor`; EffectClassificationConsistencyTests checks it).
+    let semanticView: EffectOrderView<SemanticNode> =
+        { NodeId = fun node -> node.Id
+          Dependencies = SemanticNodeShape.dependencies
+          NestedGraphs = fun node -> SemanticNodeShape.nestedGraphs node |> List.map (fun graph -> graph.Nodes)
+          Descriptor = fun node ->
+            let targets =
+                SemanticNodeShape.functionReferences node
+                |> List.filter (fun reference -> carriesCalleeEffects reference.Role)
+                |> List.map (fun reference -> reference.FunctionId)
+            match node.Kind with
+            | SemanticNodeKind.Abort _ -> true, targets
+            | SemanticNodeKind.ParallelAll _ -> false, targets
+            | _ -> SemanticNodeShape.isIntrinsicallyEffectful node, targets
+          IsLocalExit = isAbort }
+
+    /// The runtime-observable functions of a snapshot, by the rule lowering enforces.
+    let semanticObservableFunctions (functions: SemanticFunction list) =
+        functions
+        |> List.map (fun fn -> fn.Id, not (List.isEmpty fn.RequiredEffects), fn.Body.Nodes)
+        |> observableFunctions semanticView
+
+    /// The unordered observable pair lowering would reject in `fn`, if any.
+    let tryEffectOrderConflict (observable: Set<FunctionId>) (fn: SemanticFunction) =
+        tryUnorderedEffects semanticView observable fn.Body.Nodes
+
+    /// Historical admission rule, applied by full snapshot validation (and so on reopen): only
+    /// functions with a local exit (Abort) are ordered, and a callee is observable only when it
+    /// declares effects. Proposals are held to the runtime rule instead (`newEffectOrderConflicts`),
+    /// so snapshots published under this rule stay reopenable and repairable.
     let tryAbortOrderConflict (functions: Map<FunctionId, SemanticFunction>) (fn: SemanticFunction) =
-        let all = ValueGraph.collectNodes fn.Body
-        if not (all |> List.exists (fun node -> match node.Kind with SemanticNodeKind.Abort _ -> true | _ -> false)) then None
+        if not (ValueGraph.collectNodes fn.Body |> List.exists isAbort) then None
         else
-            let functionHasEffects id = Map.tryFind id functions |> Option.exists (fun target -> not (List.isEmpty target.RequiredEffects))
-            // Bodies and TaskStart workers belong to kinds that are observable on their own above.
-            // Pure callbacks carry no effects (validation requires them pure), so they never make a node observable.
-            let carriesCalleeEffects role =
-                match role with
-                | FunctionReferenceRole.DirectCall
-                | FunctionReferenceRole.EffectListCallback
-                | FunctionReferenceRole.Worker
-                | FunctionReferenceRole.Body -> true
-                | FunctionReferenceRole.PureListCallback
-                | FunctionReferenceRole.FunctionValue
-                | FunctionReferenceRole.CapabilityImplementation _ -> false
-            // Abort and every intrinsically effectful kind are observable on their own, except
-            // ParallelAll: it orders nothing itself, so only an effectful worker makes it observable.
-            let rec observable node =
-                let throughReferences () =
-                    SemanticNodeShape.functionReferences node |> List.exists (fun reference ->
-                        carriesCalleeEffects reference.Role && functionHasEffects reference.FunctionId)
-                    || SemanticNodeShape.nestedGraphs node |> List.exists (fun graph -> graph.Nodes |> List.exists observable)
-                match node.Kind with
-                | SemanticNodeKind.Abort _ -> true
-                | SemanticNodeKind.ParallelAll _ -> throughReferences ()
-                | _ when SemanticNodeShape.isIntrinsicallyEffectful node -> true
-                | _ -> throughReferences ()
-            let rec check graph =
-                let edges = graph.Nodes |> List.map (fun node -> node.Id, SemanticNodeShape.dependencies node) |> Map.ofList
-                match tryUnorderedPair edges (graph.Nodes |> List.filter observable |> List.map (fun node -> node.Id)) with
-                | Some pair -> Some pair
-                | None -> graph.Nodes |> List.collect SemanticNodeShape.nestedGraphs |> List.tryPick check
-            check fn.Body
+            let declared =
+                functions |> Map.toSeq |> Seq.choose (fun (id, target) -> if List.isEmpty target.RequiredEffects then None else Some id) |> Set.ofSeq
+            tryEffectOrderConflict declared fn
+
+    /// The runtime ordering conflicts a proposal introduces relative to its published base: every
+    /// function of `proposed` with an unordered observable pair, except an unchanged function
+    /// (same body and declared effects) whose conflict already existed in `baseline`. A function
+    /// that is new, edited, or newly ambiguous because a callee became observable is reported.
+    let newEffectOrderConflicts (baseline: Snapshot) (proposed: Snapshot) : (SemanticFunction * GraphNodeId * GraphNodeId) list =
+        let observableAfter = semanticObservableFunctions proposed.Functions
+        let observableBefore = lazy (semanticObservableFunctions baseline.Functions)
+        let baseById = baseline.Functions |> List.map (fun fn -> fn.Id, fn) |> Map.ofList
+        proposed.Functions
+        |> List.choose (fun fn ->
+            match tryEffectOrderConflict observableAfter fn with
+            | None -> None
+            | Some(first, second) ->
+                let preExisting =
+                    match Map.tryFind fn.Id baseById with
+                    | Some old when old.Body = fn.Body && old.RequiredEffects = fn.RequiredEffects ->
+                        tryEffectOrderConflict observableBefore.Value old |> Option.isSome
+                    | _ -> false
+                if preExisting then None else Some(fn, first, second))

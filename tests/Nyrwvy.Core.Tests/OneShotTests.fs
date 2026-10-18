@@ -216,22 +216,33 @@ module OneShotTests =
             session.EmitCSharp CSharpBackendProfile.empty |> unwrap |> ignore)
 
     [<Fact>]
-    let ``helper extraction preserves one shot ordering checks through multiple direct calls`` () =
+    let ``abort free helpers cannot publish unordered one shot completions through direct calls`` () =
         withFixture (fun session path ->
             let parameters = $"""[{{"displayName":"cell","type":{cellJson}}},{{"displayName":"value","type":{stringJson}}}]"""
             create session "finishHop" parameters boolJson """{"kind":"directCall","function":"finish","arguments":[{"parameter":"cell","value":{"kind":"parameter","name":"cell"}},{"parameter":"value","value":{"kind":"parameter","name":"value"}}]}"""
             let call name value = $"""{{"kind":"directCall","function":"{name}","arguments":[{{"parameter":"cell","value":{{"kind":"parameter","name":"cell"}}}},{{"parameter":"value","value":{{"kind":"stringLiteral","value":"{value}"}}}}]}}"""
+            let cellParameters = $"""[{{"displayName":"cell","type":{cellJson}}}]"""
+            let unordered helper = $"""{{"kind":"valueEqual","left":{call helper "a"},"right":{call helper "b"}}}"""
+            let ordered helper = $"""{{"kind":"bind","value":{call helper "a"},"body":{call helper "b"}}}"""
+            // `finish` and `finishHop` declare no effects and contain no Abort: the helpers'
+            // OneShotComplete is still observable, so the unordered caller is refused at proposal
+            // time, naming both calls, instead of committing and failing at lowering.
             for helper in [ "finish"; "finishHop" ] do
-                create session (helper + "Unordered") ($"""[{{"displayName":"cell","type":{cellJson}}}]""") boolJson
-                    ($"""{{"kind":"valueEqual","left":{call helper "a"},"right":{call helper "b"}}}""")
                 let before = File.ReadAllBytes path
-                match session.ProjectExecution() with
-                | Error(AuthoringSessionError.ExecutionLoweringFailure(ExecutionIrError.AmbiguousEffectOrder _)) -> ()
-                | other -> failwithf "Unordered helper completions were lowered: %A" other
-                Assert.Equal<byte>(before, File.ReadAllBytes path)
                 let response =
+                    execute session "simulateCreateFunctionByName"
+                        ($"""{{"displayName":"{helper}Unordered","parameters":{cellParameters},"resultType":{boolJson},"requiredEffects":[],"body":{unordered helper}}}""")
+                Assert.False(response.GetProperty("ok").GetBoolean(), response.ToString())
+                Assert.Contains("AmbiguousEffectOrder", response.ToString())
+                Assert.Contains("unordered observable nodes", response.ToString())
+                Assert.Equal<byte>(before, File.ReadAllBytes path)
+                create session (helper + "Ordered") cellParameters boolJson (ordered helper)
+                session.ProjectExecution() |> unwrap |> ignore
+                // Editing an ordered caller back to the unordered form is refused the same way.
+                let beforeEdit = File.ReadAllBytes path
+                let edit =
                     execute session "simulateReplaceBodyByName"
-                        ($"""{{"function":"{helper}Unordered","replacement":{{"kind":"bind","value":{call helper "a"},"body":{call helper "b"}}}}}""")
-                let proposal = requireSuccess response
-                execute session "commit" ($"""{{"proposalId":"{proposal.GetProperty("proposalId").GetString()}"}}""") |> requireSuccess |> ignore
-                session.ProjectExecution() |> unwrap |> ignore)
+                        ($"""{{"function":"{helper}Ordered","replacement":{unordered helper}}}""")
+                Assert.False(edit.GetProperty("ok").GetBoolean(), edit.ToString())
+                Assert.Contains("AmbiguousEffectOrder", edit.ToString())
+                Assert.Equal<byte>(beforeEdit, File.ReadAllBytes path))

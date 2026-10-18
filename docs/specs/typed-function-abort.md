@@ -208,7 +208,9 @@ not a proof of runtime reachability. HTML Focus and Change Review expose the sam
 boundary facts. Recipe discovery is shared by the MCP and OpenCode tool hosts.
 
 Abort-bearing functions must pass the shared dependency-order rule during
-snapshot validation, including deserialize and publication. Legacy graphs with
-only ordinary effects retain their existing lowering-time readiness check.
+snapshot validation, including deserialize and publication. Proposals hold every
+added or edited function, with or without Abort, to the runtime ordering rule
+([derived runtime ordering](runtime-ordering.md)); full validation keeps the
+historical rule so earlier snapshots still open.
 A control that may abort counts as observable for ordering without becoming a
 nominal EffectId. Invalid branches and undeclared effects are still validated.
