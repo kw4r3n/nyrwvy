@@ -4,6 +4,14 @@ namespace Nyrwvy.Core
 type AgentRenameTarget =
     | Type of TypeId
     | Function of FunctionId
+    /// A Product field or a Union variant field.
+    | Field of FieldId
+    | Variant of VariantId
+    | Parameter of ParameterId
+    | Effect of EffectId
+    | Capability of CapabilityId
+    | CapabilityOperation of CapabilityOperationId
+    | CapabilityParameter of CapabilityParameterId
 
 [<RequireQualifiedAccess>]
 type AgentCallPlan =
@@ -44,6 +52,8 @@ type AgentOperationIntent =
     | ResolveMissingArgument of AgentResolveMissingArgumentIntent
     | AddFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
     | RemoveFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
+    | RemoveFunctionParameter of ParameterId
+    | RemoveUnionVariant of VariantId
 
 type AgentWorkspace = private { Workspace: WorkspaceState }
 
@@ -190,12 +200,22 @@ module AgentWorkflow =
         { TargetFunctionId = intent.TargetFunctionId
           EffectId = intent.EffectId }
 
+    let private renameTarget target =
+        match target with
+        | AgentRenameTarget.Type id -> RenameTarget.TypeTarget id
+        | AgentRenameTarget.Function id -> RenameTarget.FunctionTarget id
+        | AgentRenameTarget.Field id -> RenameTarget.FieldTarget id
+        | AgentRenameTarget.Variant id -> RenameTarget.VariantTarget id
+        | AgentRenameTarget.Parameter id -> RenameTarget.ParameterTarget id
+        | AgentRenameTarget.Effect id -> RenameTarget.EffectTarget id
+        | AgentRenameTarget.Capability id -> RenameTarget.CapabilityTarget id
+        | AgentRenameTarget.CapabilityOperation id -> RenameTarget.CapabilityOperationTarget id
+        | AgentRenameTarget.CapabilityParameter id -> RenameTarget.CapabilityParameterTarget id
+
     let private materializeOperation intent =
         match intent with
-        | AgentOperationIntent.RenameDisplayName(AgentRenameTarget.Type typeId, newDisplayName) ->
-            SemanticOperation.RenameDisplayName(RenameTarget.TypeTarget typeId, newDisplayName)
-        | AgentOperationIntent.RenameDisplayName(AgentRenameTarget.Function functionId, newDisplayName) ->
-            SemanticOperation.RenameDisplayName(RenameTarget.FunctionTarget functionId, newDisplayName)
+        | AgentOperationIntent.RenameDisplayName(target, newDisplayName) ->
+            SemanticOperation.RenameDisplayName(renameTarget target, newDisplayName)
         | AgentOperationIntent.AddFunctionParameter request ->
             SemanticOperation.AddFunctionParameter
                 { TargetFunctionId = request.TargetFunctionId
@@ -230,6 +250,10 @@ module AgentWorkflow =
             SemanticOperation.AddFunctionRequiredEffect(requiredEffectRequest request)
         | AgentOperationIntent.RemoveFunctionRequiredEffect request ->
             SemanticOperation.RemoveFunctionRequiredEffect(requiredEffectRequest request)
+        | AgentOperationIntent.RemoveFunctionParameter parameterId ->
+            SemanticOperation.RemoveFunctionParameter parameterId
+        | AgentOperationIntent.RemoveUnionVariant variantId ->
+            SemanticOperation.RemoveUnionVariant variantId
 
     /// Simulates against the current snapshot on behalf of a caller that inspected
     /// `expectedBaseSnapshotId`; a different current snapshot rejects with `StaleBaseSnapshot`.
