@@ -32,7 +32,7 @@ module TestGraph =
         let runCallNodeId = StableId.createForTesting<GraphNodeTag> "node-run-call"
 
         let policyType: SemanticType =
-            { Id = policyTypeId
+            { TypeParameters = []; Id = policyTypeId
               DisplayName = "ValidationPolicy"
               Kind = SemanticTypeKind.Product [] }
 
@@ -63,7 +63,7 @@ module TestGraph =
         let runPolicy: SemanticParameter =
             { Id = runPolicyParameterId
               DisplayName = "policy"
-              Type = TypeRef.Named policyTypeId }
+              Type = TypeRef.Named(policyTypeId, []) }
 
         let runInputNode: SemanticNode =
             { Id = runInputNodeId

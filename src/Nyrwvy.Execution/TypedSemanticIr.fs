@@ -18,6 +18,8 @@ type TypedSemanticTypeKind =
 
 type TypedSemanticType =
     { Id: TypeId
+      /// Declared type parameters in order; empty for a monomorphic type.
+      TypeParameters: (TypeParameterId * string) list
       Kind: TypedSemanticTypeKind }
 
 type TypedSemanticCapabilityParameter =
@@ -1117,7 +1119,7 @@ module TypedSemanticIr =
                                 |> List.map projectCapabilityArgument
                             )
                         )
-                    | SemanticNodeKind.ProductConstruct(_, fields) ->
+                    | SemanticNodeKind.ProductConstruct(_, _, fields) ->
                         Ok(
                             TypedSemanticNodeKind.ProductConstruct(
                                 fields
@@ -1136,7 +1138,7 @@ module TypedSemanticIr =
                                 |> List.map projectFieldValue
                             )
                         )
-                    | SemanticNodeKind.UnionConstruct(variantId, fields) ->
+                    | SemanticNodeKind.UnionConstruct(variantId, _, fields) ->
                         Ok(
                             TypedSemanticNodeKind.UnionConstruct(
                                 variantId,
@@ -1238,6 +1240,7 @@ module TypedSemanticIr =
                 )
 
         { Id = typeEntity.Id
+          TypeParameters = typeEntity.TypeParameters
           Kind = kind }
 
     let private projectCapability (capability: SemanticCapability): TypedSemanticCapability =

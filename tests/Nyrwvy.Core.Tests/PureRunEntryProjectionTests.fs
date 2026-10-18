@@ -202,7 +202,7 @@ module PureRunEntryProjectionTests =
             let outcome = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ intType; errorType ])
             let task = TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ outcome ])
             let declaration = session.SimulateCreateType
-                                  { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "UnrelatedTaskRecord"
+                                  { TypeParameters = []; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "UnrelatedTaskRecord"
                                     Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "task"; Type = task } ] } |> unwrap
             session.Commit(declaration.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             let good = fixture.Create "good" [] intType [] (number 7L)

@@ -505,7 +505,7 @@ module ViewerProjection =
             ViewerNodeRole.CapabilityInvoke,
             [ { Kind = ViewerRelationKind.InvokesCapabilityOperation
                 Target = ViewerTarget.CapabilityOperation operationId } ]
-        | SemanticNodeKind.ProductConstruct(typeId, _) ->
+        | SemanticNodeKind.ProductConstruct(typeId, _, _) ->
             ViewerNodeRole.ProductConstruct,
             [ { Kind = ViewerRelationKind.ConstructsType
                 Target = ViewerTarget.Type typeId } ]
@@ -517,7 +517,7 @@ module ViewerProjection =
             ViewerNodeRole.ProductUpdate,
             [ { Kind = ViewerRelationKind.ConstructsType
                 Target = ViewerTarget.Type typeId } ]
-        | SemanticNodeKind.UnionConstruct(variantId, _) ->
+        | SemanticNodeKind.UnionConstruct(variantId, _, _) ->
             ViewerNodeRole.UnionConstruct,
             [ { Kind = ViewerRelationKind.ConstructsVariant
                 Target = ViewerTarget.Variant variantId } ]

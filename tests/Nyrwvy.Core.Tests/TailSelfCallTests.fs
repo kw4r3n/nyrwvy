@@ -58,7 +58,7 @@ module TailSelfCallTests =
         let path = Path.Combine(root, "workspace.json")
         try
             let types: SemanticType list =
-                [ { Id = stepId; DisplayName = "Step"
+                [ { TypeParameters = []; Id = stepId; DisplayName = "Step"
                     Kind = SemanticTypeKind.Union
                         [ { Id = evenId; DisplayName = "Even"; Fields = [] }
                           { Id = oddId; DisplayName = "Odd"; Fields = [] }
@@ -136,11 +136,11 @@ module TailSelfCallTests =
             let step =
                 ExpressionRecipe.Conditional(
                     atMost (slot 0) (int 0L),
-                    ExpressionRecipe.UnionConstruct(doneId, []),
+                    ExpressionRecipe.UnionConstruct(doneId, [], []),
                     ExpressionRecipe.Conditional(
                         ExpressionRecipe.Int64Equal(ExpressionRecipe.Int64FloorModulo(slot 0, int 2L), int 0L),
-                        ExpressionRecipe.UnionConstruct(evenId, []),
-                        ExpressionRecipe.UnionConstruct(oddId, [])))
+                        ExpressionRecipe.UnionConstruct(evenId, [], []),
+                        ExpressionRecipe.UnionConstruct(oddId, [], [])))
             create "unionLoop" nAcc intType
                 (ExpressionRecipe.MatchUnion(
                     step,

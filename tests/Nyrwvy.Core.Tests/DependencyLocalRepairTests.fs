@@ -19,8 +19,8 @@ module DependencyLocalRepairTests =
     let private library version valueType =
         let input, result = id<GraphNodeTag> "input", id<GraphNodeTag> "read"
         { Snapshot.empty (id<SnapshotTag> version) with
-            Types = [ { Id = moneyId; DisplayName = "Money"; Kind = SemanticTypeKind.Product [ { Id = amountId; DisplayName = "amount"; Type = valueType } ] } ]
-            Functions = [ { Id = readId; DisplayName = "read"; Parameters = [ { Id = parameterId; DisplayName = "input"; Type = TypeRef.Named moneyId } ]
+            Types = [ { TypeParameters = []; Id = moneyId; DisplayName = "Money"; Kind = SemanticTypeKind.Product [ { Id = amountId; DisplayName = "amount"; Type = valueType } ] } ]
+            Functions = [ { Id = readId; DisplayName = "read"; Parameters = [ { Id = parameterId; DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
                             ResultType = valueType; RequiredEffects = []
                             Body = { Nodes = [ { Id = input; Kind = SemanticNodeKind.ParameterReference parameterId }
                                                { Id = result; Kind = SemanticNodeKind.FieldAccess(input, amountId) } ]; ResultNodeId = result } } ] }
@@ -29,7 +29,7 @@ module DependencyLocalRepairTests =
     let private create (session: AuthoringSession) name resultType body =
         session.SimulateCreateFunction
             { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
-              Parameters = [ { DisplayName = "input"; Type = TypeRef.Named moneyId } ]
+              Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
               ResultType = resultType; RequiredEffects = []; Body = body } |> publish session
         session.Declarations().Functions |> List.find (fun f -> f.DisplayName = name)
     let private call (fn: SemanticFunction) = ExpressionRecipe.DirectCall(fn.Id, [ fn.Parameters.Head.Id, ExpressionRecipe.ParameterSlot 0 ])
@@ -117,7 +117,7 @@ module DependencyLocalRepairTests =
     [<Fact>]
     let ``local field and operation signature repairs retain field operation and parameter identities`` () =
         withApp (fun session path _ _ change repairs _ _ ->
-            session.SimulateCreateType { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Local"
+            session.SimulateCreateType { TypeParameters = []; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Local"
                                          Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "value"; Type = intType } ] } |> publish session
             session.SimulateCreateEffect { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Record" } |> publish session
             let effect = session.Declarations().Effects.Head.Id
@@ -196,7 +196,7 @@ module DependencyLocalRepairTests =
                     let proposalId = response.GetProperty("result").GetProperty("proposalId").GetString()
                     let commit = AuthoringProtocol.executeLine session (serialize {| id = "commit"; op = "commit"; proposalId = proposalId |}) |> parse
                     Assert.True(commit.GetProperty("ok").GetBoolean(), commit.ToString())
-                    let actual = PureRun.run session entry.Id [ PureRunValue.Product(moneyId, [ amountId, PureRunValue.String "123" ]) ] (Some(PureRunValue.String "123")) |> unwrap
+                    let actual = PureRun.run session entry.Id [ PureRunValue.Product(moneyId, [], [ amountId, PureRunValue.String "123" ]) ] (Some(PureRunValue.String "123")) |> unwrap
                     Assert.Equal(Some true, actual.Matches)
                     let updated = session.Declarations().Functions |> List.find (fun f -> f.Id = entry.Id)
                     Assert.Equal<ParameterId list>(entry.Parameters |> List.map (fun p -> p.Id), updated.Parameters |> List.map (fun p -> p.Id)))
@@ -266,7 +266,7 @@ module DependencyLocalRepairTests =
             let genericType = TypeRef.TypeParameter(id<TypeParameterTag> "request-T", "T")
             session.SimulateCreateFunction
                 { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "generic"
-                  Parameters = [ { DisplayName = "input"; Type = TypeRef.Named moneyId }; { DisplayName = "extra"; Type = genericType } ]
+                  Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) }; { DisplayName = "extra"; Type = genericType } ]
                   ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.DirectCall(readId, [ parameterId, ExpressionRecipe.ParameterSlot 0 ]) } |> publish session
             let before = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "generic")
             let parse text = use doc = JsonDocument.Parse(text: string) in doc.RootElement.Clone()

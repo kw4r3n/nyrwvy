@@ -33,7 +33,7 @@ module AgentPureExpressionControlFlowTests =
         let firstVariantId = variantId "first"
         let secondVariantId = variantId "second"
         let choiceType: SemanticType =
-            { Id = choiceTypeId
+            { TypeParameters = []; Id = choiceTypeId
               DisplayName = "choice"
               Kind =
                 SemanticTypeKind.Union
@@ -54,7 +54,7 @@ module AgentPureExpressionControlFlowTests =
         let unionParameter: SemanticParameter =
             { Id = parameterId "union"
               DisplayName = "union"
-              Type = TypeRef.Named choiceTypeId }
+              Type = TypeRef.Named(choiceTypeId, []) }
         let targetId = functionId "target"
         let resultNodeId = nodeId "old-result"
         let target: SemanticFunction =

@@ -118,7 +118,7 @@ module DeclarationCleanupTests =
             { initial with
                 Functions = []
                 Types =
-                    [ { Id = typeId
+                    [ { TypeParameters = []; Id = typeId
                         DisplayName = "Holder"
                         Kind = SemanticTypeKind.Product
                             [ { Id = id<FieldTag> "nested-capability"
@@ -199,7 +199,7 @@ module DeclarationCleanupTests =
     let private withUnusedType (snapshot: Snapshot) =
         { snapshot with
             Types =
-                [ { Id = unusedTypeId
+                [ { TypeParameters = []; Id = unusedTypeId
                     DisplayName = "Unused"
                     Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "unused-field"; DisplayName = "text"; Type = stringType } ] } ] }
 

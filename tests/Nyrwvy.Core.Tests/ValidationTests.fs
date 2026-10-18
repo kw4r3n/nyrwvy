@@ -42,7 +42,7 @@ module ValidationTests =
         let policyParameter: SemanticParameter =
             { Id = policyParameterId
               DisplayName = "policy"
-              Type = TypeRef.Named fixture.PolicyTypeId }
+              Type = TypeRef.Named(fixture.PolicyTypeId, []) }
 
         let functions =
             fixture.Snapshot.Functions

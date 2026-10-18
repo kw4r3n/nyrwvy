@@ -39,7 +39,7 @@ module PureRunBindingTests =
 
     let private createType (session: AuthoringSession) name fieldName =
         let request: AgentCreateTypeDeclarationRequest =
-            { ExpectedBaseSnapshotId = current session
+            { TypeParameters = []; ExpectedBaseSnapshotId = current session
               DisplayName = name
               Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = fieldName; Type = stringType } ] }
         session.SimulateCreateType request |> unwrap "create type" |> publish session
@@ -76,7 +76,7 @@ module PureRunBindingTests =
             let effectRequest: AgentCreateEffectDeclarationRequest = { ExpectedBaseSnapshotId = current session; DisplayName = "External" }
             session.SimulateCreateEffect effectRequest |> unwrap "create effect" |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
-            let lookupResult = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.Named responseType.Id; stringType ])
+            let lookupResult = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.Named(responseType.Id, []); stringType ])
             let operation name parameters resultType: AgentCapabilityOperationIntent =
                 { DisplayName = name
                   Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
@@ -85,7 +85,7 @@ module PureRunBindingTests =
                   EffectId = effect.Id }
             let provider =
                 createCapability session "LookupProvider"
-                    [ operation "lookup" [ "request", TypeRef.Named requestType.Id ] lookupResult
+                    [ operation "lookup" [ "request", TypeRef.Named(requestType.Id, []) ] lookupResult
                       operation "fallback" [] lookupResult ]
             let log = createCapability session "Log" [ operation "write" [ "message", stringType ] unitType ]
             // Nine nested Lists exceed the eight composite layers a run value type may have.
@@ -97,7 +97,7 @@ module PureRunBindingTests =
             let valueSlot = ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Value }
             let errorSlot = ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Error }
             createFunction session "query"
-                [ "request", TypeRef.Named requestType.Id; "provider", TypeRef.Capability provider.Id ] stringType [ effect.Id ]
+                [ "request", TypeRef.Named(requestType.Id, []); "provider", TypeRef.Capability provider.Id ] stringType [ effect.Id ]
                 (ExpressionRecipe.MatchResult(
                     ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 1, lookup.Id,
                         [ (List.exactlyOne lookup.Parameters).Id, ExpressionRecipe.ParameterSlot 0 ]),
@@ -120,14 +120,14 @@ module PureRunBindingTests =
         finally
             if Directory.Exists root then Directory.Delete(root, true)
 
-    let private request (fixture: Fixture) key = PureRunValue.Product(fixture.Request.Id, [ fixture.Key.Id, PureRunValue.String key ])
+    let private request (fixture: Fixture) key = PureRunValue.Product(fixture.Request.Id, [], [ fixture.Key.Id, PureRunValue.String key ])
 
     let private found (fixture: Fixture) text =
-        PureRunValue.ResultValue(TypeRef.Named fixture.Response.Id, stringType, true,
-            PureRunValue.Product(fixture.Response.Id, [ fixture.Value.Id, PureRunValue.String text ]))
+        PureRunValue.ResultValue(TypeRef.Named(fixture.Response.Id, []), stringType, true,
+            PureRunValue.Product(fixture.Response.Id, [], [ fixture.Value.Id, PureRunValue.String text ]))
 
     let private missing (fixture: Fixture) text =
-        PureRunValue.ResultValue(TypeRef.Named fixture.Response.Id, stringType, false, PureRunValue.String text)
+        PureRunValue.ResultValue(TypeRef.Named(fixture.Response.Id, []), stringType, false, PureRunValue.String text)
 
     let private provider (fixture: Fixture) responses =
         PureRunValue.FakeCapability(fixture.Provider.Id, [ { OperationId = fixture.Lookup.Id; Cases = None; Responses = responses } ])
@@ -366,7 +366,7 @@ public sealed class Broken : {capability}
             let invoke index = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 2, fixture.Lookup.Id,
                                     [ fixture.Lookup.Parameters.Head.Id, ExpressionRecipe.ParameterSlot index ])
             createFunction fixture.Session "interleaved"
-                [ "a", TypeRef.Named fixture.Request.Id; "b", TypeRef.Named fixture.Request.Id; "provider", TypeRef.Capability fixture.Provider.Id ]
+                [ "a", TypeRef.Named(fixture.Request.Id, []); "b", TypeRef.Named(fixture.Request.Id, []); "provider", TypeRef.Capability fixture.Provider.Id ]
                 fixture.Lookup.ResultType [ fixture.Lookup.EffectId ]
                 (ExpressionRecipe.Bind(invoke 0, ExpressionRecipe.Bind(invoke 1, invoke 0)))
             for cases in [ [ a; b ]; [ b; a ] ] do
@@ -404,7 +404,7 @@ public sealed class Broken : {capability}
             let listOf t = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ t ])
             let optionOf t = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ t ])
             s.SimulateCreateType
-                { ExpectedBaseSnapshotId = current s; DisplayName = "KeyChoice"
+                { TypeParameters = []; ExpectedBaseSnapshotId = current s; DisplayName = "KeyChoice"
                   Kind = AgentTypeDeclarationKindIntent.Union
                     [ { DisplayName = "Numbers"; Fields = [ { DisplayName = "items"; Type = listOf intType } ] }
                       { DisplayName = "Empty"; Fields = [] } ] }
@@ -413,7 +413,7 @@ public sealed class Broken : {capability}
             let variants = match choice.Kind with SemanticTypeKind.Union variants -> variants | _ -> failwith "union"
             let numbers = variants |> List.find (fun v -> v.DisplayName = "Numbers")
             let empty = variants |> List.find (fun v -> v.DisplayName = "Empty")
-            let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.Named choice.Id; stringType ])
+            let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.Named(choice.Id, []); stringType ])
             let nestedType = listOf (optionOf resultType)
             let parameters = [ "left", nestedType; "right", nestedType; "unit", unitType ]
             let cap = createCapability s "NestedLookup"
@@ -423,12 +423,12 @@ public sealed class Broken : {capability}
             createFunction s "nestedLookup" (parameters @ [ "provider", TypeRef.Capability cap.Id ]) stringType [ fixture.Lookup.EffectId ]
                 (ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 3, op.Id,
                     op.Parameters |> List.mapi (fun i p -> p.Id, ExpressionRecipe.ParameterSlot i)))
-            let numberValues xs = PureRunValue.Union(choice.Id, numbers.Id, [ numbers.Fields.Head.Id, PureRunValue.Int64List xs ])
+            let numberValues xs = PureRunValue.Union(choice.Id, [], numbers.Id, [ numbers.Fields.Head.Id, PureRunValue.Int64List xs ])
             let nested value = PureRunValue.ListValue(optionOf resultType,
-                                [ PureRunValue.OptionValue(resultType, Some(PureRunValue.ResultValue(TypeRef.Named choice.Id, stringType, true, value)))
+                                [ PureRunValue.OptionValue(resultType, Some(PureRunValue.ResultValue(TypeRef.Named(choice.Id, []), stringType, true, value)))
                                   PureRunValue.OptionValue(resultType, None) ])
             let a, b = nested (numberValues [ Int64.MinValue; 2L ]), nested (numberValues [ Int64.MinValue; 3L ])
-            let noFields = nested (PureRunValue.Union(choice.Id, empty.Id, []))
+            let noFields = nested (PureRunValue.Union(choice.Id, [], empty.Id, []))
             let key left right answer: PureRunFakeCase =
                 { Arguments = [ op.Parameters[2].Id, PureRunValue.Unit; op.Parameters[1].Id, right; op.Parameters[0].Id, left ]
                   Responses = [ PureRunFakeResponse.Return(PureRunValue.String answer) ] }

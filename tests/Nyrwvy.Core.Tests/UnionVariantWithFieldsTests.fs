@@ -24,7 +24,7 @@ module UnionVariantWithFieldsTests =
 
     let private withFunction displayName parameters resultType body =
         let shape: SemanticType =
-            { Id = shapeId; DisplayName = "Shape"
+            { TypeParameters = []; Id = shapeId; DisplayName = "Shape"
               Kind = SemanticTypeKind.Union
                 [ { Id = circleId; DisplayName = "Circle"; Fields = [ { Id = radiusId; DisplayName = "radius"; Type = intType } ] }
                   { Id = emptyId; DisplayName = "Empty"; Fields = [] } ] }
@@ -43,7 +43,7 @@ module UnionVariantWithFieldsTests =
 
     /// `area` squares a Circle's radius and returns 0 for Empty.
     let private fixture () =
-        withFunction "area" [ "shape", TypeRef.Named shapeId ] intType (
+        withFunction "area" [ "shape", TypeRef.Named(shapeId, []) ] intType (
             ExpressionRecipe.MatchUnion(
                 ExpressionRecipe.ParameterSlot 0,
                 [ [ circleId ], ExpressionRecipe.Int64WrappingMultiply(radius, radius)
@@ -102,7 +102,7 @@ module UnionVariantWithFieldsTests =
         // `flag && (match shape with Circle -> false || radius = 0 | Empty -> false)`:
         // the match sits in a BoolAnd right graph, and the Circle arm reads its binding in a BoolOr right graph.
         let ws =
-            withFunction "flatCircle" [ "shape", TypeRef.Named shapeId; "flag", boolType ] boolType (
+            withFunction "flatCircle" [ "shape", TypeRef.Named(shapeId, []); "flag", boolType ] boolType (
                 ExpressionRecipe.BoolAnd(
                     ExpressionRecipe.ParameterSlot 1,
                     ExpressionRecipe.MatchUnion(
@@ -170,7 +170,7 @@ module UnionVariantWithFieldsTests =
                 | _ -> failwith "Shape must stay a Union."
             let area = (session.Declarations().Functions |> List.exactlyOne).Id
             let fields = ring.Fields |> List.map (fun field -> field.Id, PureRunValue.Int64(if field.DisplayName = "radius" then 7L else 2L))
-            let result = PureRun.run session area [ PureRunValue.Union(shapeId, ring.Id, fields) ] (Some(PureRunValue.Int64 49L)) |> unwrap "run"
+            let result = PureRun.run session area [ PureRunValue.Union(shapeId, [], ring.Id, fields) ] (Some(PureRunValue.Int64 49L)) |> unwrap "run"
             Assert.Equal(Some true, result.Matches)
         finally
             if Directory.Exists root then Directory.Delete(root, true)

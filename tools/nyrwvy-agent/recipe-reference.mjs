@@ -2,7 +2,7 @@ import { fixedSignatures as fixed } from "./recipe-signatures.generated.mjs"
 
 const typeRef = {
   primitive: { kind: "primitive", primitive: "<string|bool|unit|int64|float64>" },
-  named: { kind: "named", name: "<type display name>" },
+  named: { kind: "named", name: "<type display name>", arguments: ["<typeRef, one per type parameter of a generic type; omit otherwise>"] },
   capability: { kind: "capability", name: "<capability display name>" },
   function: { kind: "function", parameters: ["<typeRef>"], resultType: "<typeRef>" },
   typeParameter: { kind: "typeParameter", name: "<function type parameter name>" },
@@ -200,10 +200,10 @@ const categories = {
     "taskCancel": "(task: Task<T>) -> Unit",
   },
   structured: {
-    "productConstruct": "(type, fields: [field, value]) -> the product",
+    "productConstruct": "(type, fields: [field, value], typeArguments?) -> the product",
     "fieldAccess": "(source: Product, type, field) -> the field's type",
     "productUpdate": "(source: Product, type, fields: [field, value]) -> the product",
-    "unionConstruct": "(type, variant, fields: [field, value]) -> the union",
+    "unionConstruct": "(type, variant, fields: [field, value], typeArguments?) -> the union",
     "valueEqual": "(left: T, right: T) -> Bool  // T equatable",
   },
   optionResult: {
@@ -427,7 +427,7 @@ const references = {
   listAll: listCallback("listAll"),
   productConstruct: {
     shape: { kind: "productConstruct", type: "<product type display name>", fields: [{ field: "<field display name>", value: recipe }] },
-    notes: "fields must cover the declaration exactly; field order is not semantic.",
+    notes: "fields must cover the declaration exactly; field order is not semantic. For a generic Product, optional typeArguments: [typeRef, ...] give its type arguments; when omitted they are derived from the field values.",
   },
   fieldAccess: {
     shape: { kind: "fieldAccess", source: recipe, type: "<product type display name>", field: "<field display name>" },
@@ -438,7 +438,7 @@ const references = {
   },
   unionConstruct: {
     shape: { kind: "unionConstruct", type: "<union type display name>", variant: "<variant display name>", fields: [{ field: "<field display name>", value: recipe }] },
-    notes: "fields must cover the selected variant exactly; use [] for a fieldless variant.",
+    notes: "fields must cover the selected variant exactly; use [] for a fieldless variant. For a generic Union, optional typeArguments: [typeRef, ...]; when omitted they are derived from the field values, so a variant whose fields do not mention every type parameter (such as a fieldless Nothing) needs them.",
   },
   optionNone: { shape: { kind: "optionNone", itemType: type }, typeRef },
   optionSome: unary("optionSome"),

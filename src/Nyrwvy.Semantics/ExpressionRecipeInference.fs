@@ -5,6 +5,10 @@ module internal ExpressionRecipeInference =
     open StructuralTransactionInternals
     open ExpressionRecipeSupport
 
+    /// A declared type's fields as seen through a reference with these type arguments.
+    let private instantiateFields (owner: SemanticType) (arguments: TypeRef list) (fields: SemanticField list) =
+        fields |> List.map (fun field -> { field with Type = TypeParameters.instantiate owner arguments field.Type })
+
     let internal inferTypeWithContext
         (index: SnapshotIndex)
         (owner: ExpressionOwnerContext)
@@ -297,6 +301,51 @@ module internal ExpressionRecipeInference =
                                     )
                                 | Ok _ -> validateFields rest
                         validateFields expectedFields
+
+            /// The type arguments of a construction: the given ones, checked against the declared
+            /// type parameters, or else the ones that matching the declared field types against the
+            /// field values determines. A type parameter no field value determines must be given.
+            let typeArgumentsFor
+                role
+                (owner: SemanticType)
+                (declaredFields: SemanticField list)
+                (given: TypeRef list)
+                (bindings: (FieldId * ExpressionRecipe) list)
+                : Result<TypeRef list, TransactionDiagnostic> =
+                let parameters = owner.TypeParameters
+                if List.isEmpty parameters && List.isEmpty given then Ok []
+                elif not (List.isEmpty given) then
+                    if given.Length <> parameters.Length then
+                        Error(diagnostic "PureExpressionTypeArgumentArityMismatch" $"{role} of {owner.DisplayName} gives {given.Length} type arguments; {owner.DisplayName} declares {parameters.Length}.")
+                    else
+                        given
+                        |> List.fold (fun state typeRef -> state |> Result.bind (fun () -> validateTypeRef index typeRef)) (Ok())
+                        |> Result.map (fun () -> given)
+                else
+                    let pairs =
+                        declaredFields
+                        |> List.choose (fun field ->
+                            bindings
+                            |> List.tryFind (fun (fieldId, _) -> fieldId = field.Id)
+                            |> Option.map (fun (_, value) -> field, value))
+                    let rec derive substitution = function
+                        | [] -> Ok substitution
+                        | ((field: SemanticField), value) :: rest ->
+                            match infer frames value with
+                            | Error error -> Error error
+                            | Ok actual ->
+                                match TypeParameters.matchType substitution field.Type actual with
+                                | Some next -> derive next rest
+                                | None ->
+                                    let expected, produced = tyPair (TypeParameters.substitute substitution field.Type) actual
+                                    Error(diagnostic "PureExpressionFieldBindingTypeMismatch" $"{role} field {StableId.describe field.DisplayName field.Id} requires {expected}, but the recipe produces {produced}.")
+                    derive Map.empty pairs
+                    |> Result.bind (fun substitution ->
+                        match parameters |> List.filter (fun (id, _) -> not (Map.containsKey id substitution)) with
+                        | [] -> Ok(parameters |> List.map (fun (id, _) -> substitution[id]))
+                        | missing ->
+                            let names = missing |> List.map snd |> String.concat ", "
+                            Error(diagnostic "PureExpressionTypeArgumentsRequired" $"{role} of {owner.DisplayName} cannot derive type parameter {names} from its field values; give typeArguments."))
 
             let validateCallArguments (callee: SemanticFunction) (bindings: (ParameterId * ExpressionRecipe) list) =
                 match tryFindDuplicate fst bindings with
@@ -1105,12 +1154,15 @@ module internal ExpressionRecipeInference =
                         match validateListCallback "ListAll" predicateFunctionId context sourceItemType true (infer frames) with
                         | Error error -> Error error
                         | Ok _ -> Ok boolType
-            | ExpressionRecipe.ProductConstruct(typeId, fields) ->
+            | ExpressionRecipe.ProductConstruct(typeId, typeArguments, fields) ->
                 match Map.tryFind typeId typesById with
                 | None ->
                     Error(diagnostic "PureExpressionProductTypeNotFound" $"Product construction references unknown type '{StableId.value typeId}'.")
-                | Some { Kind = SemanticTypeKind.Product expectedFields } ->
-                    validateFieldBindings "ProductConstruct" expectedFields fields |> Result.map (fun () -> TypeRef.Named typeId)
+                | Some({ Kind = SemanticTypeKind.Product declaredFields } as owner) ->
+                    typeArgumentsFor "ProductConstruct" owner declaredFields typeArguments fields
+                    |> Result.bind (fun arguments ->
+                        validateFieldBindings "ProductConstruct" (instantiateFields owner arguments declaredFields) fields
+                        |> Result.map (fun () -> TypeRef.Named(typeId, arguments)))
                 | Some _ ->
                     Error(diagnostic "PureExpressionProductTargetMismatch" $"Product construction target '{StableId.value typeId}' is not a product type.")
             | ExpressionRecipe.FieldAccess(source, fieldId) ->
@@ -1120,14 +1172,17 @@ module internal ExpressionRecipeInference =
                 | Some(ownerTypeId, field) ->
                     match infer frames source with
                     | Error error -> Error error
-                    | Ok(TypeRef.Named sourceTypeId) when sourceTypeId = ownerTypeId -> Ok field.Type
+                    | Ok(TypeRef.Named(sourceTypeId, arguments)) when sourceTypeId = ownerTypeId ->
+                        match Map.tryFind ownerTypeId typesById with
+                        | Some owner -> Ok(TypeParameters.instantiate owner arguments field.Type)
+                        | None -> Ok field.Type
                     | Ok actual ->
                         Error(diagnostic "PureExpressionFieldAccessTypeMismatch" $"Field access to {StableId.describe field.DisplayName field.Id} requires {DiagnosticText.namedType snapshot ownerTypeId}, but the source recipe produces {DiagnosticText.typeRefWithId snapshot actual}.")
             | ExpressionRecipe.ProductUpdate(typeId, source, fields) ->
                 match Map.tryFind typeId typesById with
                 | None ->
                     Error(diagnostic "PureExpressionProductTypeNotFound" $"Product update references unknown type '{StableId.value typeId}'.")
-                | Some { Kind = SemanticTypeKind.Product declaredFields } ->
+                | Some({ Kind = SemanticTypeKind.Product declaredFields } as owner) ->
                     let declaredIds = declaredFields |> List.map (fun field -> field.Id) |> Set.ofList
                     match fields |> List.tryFind (fun (fieldId, _) -> not (Set.contains fieldId declaredIds)) with
                     | _ when List.isEmpty fields ->
@@ -1137,20 +1192,26 @@ module internal ExpressionRecipeInference =
                     | None ->
                         match infer frames source with
                         | Error error -> Error error
-                        | Ok(TypeRef.Named sourceTypeId) when sourceTypeId = typeId ->
+                        | Ok(TypeRef.Named(sourceTypeId, arguments) as sourceType) when sourceTypeId = typeId ->
                             let boundIds = fields |> List.map fst |> Set.ofList
-                            let updatedFields = declaredFields |> List.filter (fun field -> Set.contains field.Id boundIds)
-                            validateFieldBindings "ProductUpdate" updatedFields fields |> Result.map (fun () -> TypeRef.Named typeId)
+                            let updatedFields = instantiateFields owner arguments declaredFields |> List.filter (fun field -> Set.contains field.Id boundIds)
+                            validateFieldBindings "ProductUpdate" updatedFields fields |> Result.map (fun () -> sourceType)
                         | Ok actual ->
                             Error(diagnostic "PureExpressionProductUpdateSourceMismatch" $"Product update of {DiagnosticText.namedType snapshot typeId} requires a source of that type, but the source recipe produces {DiagnosticText.typeRefWithId snapshot actual}.")
                 | Some _ ->
                     Error(diagnostic "PureExpressionProductTargetMismatch" $"Product update target '{StableId.value typeId}' is not a product type.")
-            | ExpressionRecipe.UnionConstruct(variantId, fields) ->
+            | ExpressionRecipe.UnionConstruct(variantId, typeArguments, fields) ->
                 match Map.tryFind variantId variantsById with
                 | None ->
                     Error(diagnostic "PureExpressionUnionVariantNotFound" $"Union construction references unknown variant '{StableId.value variantId}'.")
                 | Some(ownerTypeId, variant) ->
-                    validateFieldBindings "UnionConstruct" variant.Fields fields |> Result.map (fun () -> TypeRef.Named ownerTypeId)
+                    match Map.tryFind ownerTypeId typesById with
+                    | None -> validateFieldBindings "UnionConstruct" variant.Fields fields |> Result.map (fun () -> TypeRef.Named(ownerTypeId, []))
+                    | Some owner ->
+                        typeArgumentsFor "UnionConstruct" owner variant.Fields typeArguments fields
+                        |> Result.bind (fun arguments ->
+                            validateFieldBindings "UnionConstruct" (instantiateFields owner arguments variant.Fields) fields
+                            |> Result.map (fun () -> TypeRef.Named(ownerTypeId, arguments)))
             | ExpressionRecipe.OptionNone itemType ->
                 match validateTypeRef index itemType with
                 | Error error -> Error error
@@ -1304,9 +1365,11 @@ module internal ExpressionRecipeInference =
             | ExpressionRecipe.MatchUnion(input, arms) ->
                 match infer frames input with
                 | Error error -> Error error
-                | Ok(TypeRef.Named inputTypeId) ->
+                | Ok(TypeRef.Named(inputTypeId, inputArguments)) ->
                     match Map.tryFind inputTypeId typesById with
-                    | Some { Kind = SemanticTypeKind.Union variants } ->
+                    | Some({ Kind = SemanticTypeKind.Union declaredVariants } as inputType) ->
+                        let variants =
+                            declaredVariants |> List.map (fun variant -> { variant with Fields = instantiateFields inputType inputArguments variant.Fields })
                         match resolveUnionArms variants arms with
                         | Error error -> Error error
                         | Ok resolved ->

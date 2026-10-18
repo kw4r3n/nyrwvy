@@ -150,8 +150,8 @@ module internal WireRecipe =
             | "listFindIndex" -> ExpressionRecipe.ListFindIndex(source, functionId, context)
             | _ -> ExpressionRecipe.ListAll(source, functionId, context)
         | "productConstruct" ->
-            ensureFields "product-construct recipe" [ "kind"; "typeId"; "fields" ] [ "kind"; "typeId"; "fields" ] element
-            ExpressionRecipe.ProductConstruct(id<TypeTag> "typeId" element, fieldValues "fields")
+            ensureFields "product-construct recipe" [ "kind"; "typeId"; "typeArguments"; "fields" ] [ "kind"; "typeId"; "fields" ] element
+            ExpressionRecipe.ProductConstruct(id<TypeTag> "typeId" element, optionalTypeArguments "typeArguments" typeRef element, fieldValues "fields")
         | "fieldAccess" ->
             ensureFields "field-access recipe" [ "kind"; "source"; "fieldId" ] [ "kind"; "source"; "fieldId" ] element
             ExpressionRecipe.FieldAccess(recipe (property "source" element), id<FieldTag> "fieldId" element)
@@ -159,8 +159,8 @@ module internal WireRecipe =
             ensureFields "product-update recipe" [ "kind"; "typeId"; "source"; "fields" ] [ "kind"; "typeId"; "source"; "fields" ] element
             ExpressionRecipe.ProductUpdate(id<TypeTag> "typeId" element, recipe (property "source" element), fieldValues "fields")
         | "unionConstruct" ->
-            ensureFields "union-construct recipe" [ "kind"; "variantId"; "fields" ] [ "kind"; "variantId"; "fields" ] element
-            ExpressionRecipe.UnionConstruct(id<VariantTag> "variantId" element, fieldValues "fields")
+            ensureFields "union-construct recipe" [ "kind"; "variantId"; "typeArguments"; "fields" ] [ "kind"; "variantId"; "fields" ] element
+            ExpressionRecipe.UnionConstruct(id<VariantTag> "variantId" element, optionalTypeArguments "typeArguments" typeRef element, fieldValues "fields")
         | "optionNone" ->
             ensureFields "option-none recipe" [ "kind"; "itemType" ] [ "kind"; "itemType" ] element
             ExpressionRecipe.OptionNone(typeRef (property "itemType" element))

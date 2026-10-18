@@ -41,16 +41,16 @@ module ProductFieldTypeMigrationTests =
     /// `make` constructs Item; `describe` and `total` read its Int64 quantity; `unrelated` does neither.
     let private fixture () =
         let types: SemanticType list =
-            [ { Id = itemId; DisplayName = "Item"
+            [ { TypeParameters = []; Id = itemId; DisplayName = "Item"
                 Kind = SemanticTypeKind.Product
                     [ { Id = quantityId; DisplayName = "quantity"; Type = intType }
                       { Id = labelId; DisplayName = "label"; Type = stringType } ] }
-              { Id = tagId; DisplayName = "Tag"
+              { TypeParameters = []; Id = tagId; DisplayName = "Tag"
                 Kind = SemanticTypeKind.Union [ { Id = id<VariantTag> "named"; DisplayName = "Named"; Fields = [ { Id = tagNameId; DisplayName = "name"; Type = stringType } ] } ] } ]
         let ws = AgentWorkspace.create { Snapshot.empty (id<SnapshotTag> "base") with Types = types } |> unwrap "workspace"
         let input = ExpressionRecipe.ParameterSlot 0
-        let itemType = TypeRef.Named itemId
-        let ws = create ws "make" intType itemType (ExpressionRecipe.ProductConstruct(itemId, [ quantityId, input; labelId, ExpressionRecipe.StringLiteral "box" ]))
+        let itemType = TypeRef.Named(itemId, [])
+        let ws = create ws "make" intType itemType (ExpressionRecipe.ProductConstruct(itemId, [], [ quantityId, input; labelId, ExpressionRecipe.StringLiteral "box" ]))
         let ws =
             create ws "describe" itemType stringType
                 (ExpressionRecipe.StringConcat(ExpressionRecipe.FieldAccess(input, labelId), ExpressionRecipe.Int64ToString(ExpressionRecipe.FieldAccess(input, quantityId))))
@@ -67,7 +67,7 @@ module ProductFieldTypeMigrationTests =
           NewFieldType = optionInt
           FunctionRewrites =
             [ { FunctionId = (find ws "make").Id
-                Replacement = ExpressionRecipe.ProductConstruct(itemId, [ quantityId, ExpressionRecipe.OptionSome(parameter "make"); labelId, ExpressionRecipe.StringLiteral "box" ]) }
+                Replacement = ExpressionRecipe.ProductConstruct(itemId, [], [ quantityId, ExpressionRecipe.OptionSome(parameter "make"); labelId, ExpressionRecipe.StringLiteral "box" ]) }
               { FunctionId = (find ws "describe").Id
                 Replacement =
                     ExpressionRecipe.MatchOption(
@@ -135,7 +135,7 @@ module ProductFieldTypeMigrationTests =
     let ``field type migration checks the new field type before binding rewrites`` () =
         let ws = fixture ()
         let valid = request ws
-        let unknown = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Named(id<TypeTag> "missing") ])
+        let unknown = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Named(id<TypeTag> "missing", []) ])
         Assert.Equal("FieldTypeMigrationUnknownNamedType", rejects ws { valid with NewFieldType = unknown })
         Assert.Equal("FieldTypeMigrationUnknownCapabilityType", rejects ws { valid with NewFieldType = TypeRef.Capability(id<CapabilityTag> "missing") })
         Assert.Equal(
@@ -179,7 +179,7 @@ module ProductFieldTypeMigrationTests =
                 AuthoringProtocol.executeLine session (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" (result.GetProperty("proposalId").GetString()))
                 |> JsonDocument.Parse
             Assert.True(committed.RootElement.GetProperty("ok").GetBoolean(), committed.RootElement.ToString())
-            let item quantity = PureRunValue.Product(itemId, [ quantityId, PureRunValue.Int64Option quantity; labelId, PureRunValue.String "box" ] |> List.sortBy (fst >> StableId.value))
+            let item quantity = PureRunValue.Product(itemId, [], [ quantityId, PureRunValue.Int64Option quantity; labelId, PureRunValue.String "box" ] |> List.sortBy (fst >> StableId.value))
             let made = PureRun.run session (functionId "make") [ PureRunValue.Int64 3L ] (Some(item (Some 3L))) |> unwrap "make"
             Assert.Equal(Some true, made.Matches)
             Assert.Equal(PureRunValue.String "box3", (PureRun.run session (functionId "describe") [ item (Some 3L) ] None |> unwrap "describe").Actual)
@@ -268,7 +268,7 @@ module ProductFieldTypeMigrationTests =
 
     [<Fact>]
     let ``many missing field repairs bound diagnostic previews and expose omitted counts`` () =
-        let ws = [ 0..8 ] |> List.fold (fun ws i -> create ws ("reader" + string i) (TypeRef.Named itemId) intType (ExpressionRecipe.FieldAccess(ExpressionRecipe.ParameterSlot 0, quantityId))) (fixture ())
+        let ws = [ 0..8 ] |> List.fold (fun ws i -> create ws ("reader" + string i) (TypeRef.Named(itemId, [])) intType (ExpressionRecipe.FieldAccess(ExpressionRecipe.ParameterSlot 0, quantityId))) (fixture ())
         withSession ws (fun session ->
             let response = execute session (namedDefault [])
             let details = response.GetProperty("error").GetProperty("details")
@@ -299,7 +299,7 @@ module ProductFieldTypeMigrationTests =
             let response = execute session (namedDefault namedBodies)
             Assert.Equal("ProtocolError", response.GetProperty("error").GetProperty("code").GetString())
             Assert.Contains("Ambiguous", response.GetProperty("error").GetProperty("message").GetString())
-            let original = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "total" && f.Parameters.Head.Type = TypeRef.Named itemId)
+            let original = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "total" && f.Parameters.Head.Type = TypeRef.Named(itemId, []))
             let selector name = if name = "total" then json {| id = StableId.value original.Id; name = "total"; ownership = "local" |} else json name
             let line = namedLine (json {| id = StableId.value itemId; name = "Item"; ownership = "local" |}) selector namedBodies
             let qualified = execute session line
@@ -309,7 +309,7 @@ module ProductFieldTypeMigrationTests =
     let ``ambiguous Product owner names bind the field only after an exact owner selector`` () =
         let original = AgentWorkspace.snapshotForStructuralEditing (fixture ())
         let other: SemanticType =
-            { Id = id<TypeTag> "other-item"; DisplayName = "Item"
+            { TypeParameters = []; Id = id<TypeTag> "other-item"; DisplayName = "Item"
               Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "other-quantity"; DisplayName = "quantity"; Type = stringType } ] }
         let ws = AgentWorkspace.create { original with Types = other :: original.Types } |> unwrap "ambiguous types"
         withSession ws (fun session ->

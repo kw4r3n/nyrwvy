@@ -440,7 +440,7 @@ module FunctionAbortTests =
                                 (ExpressionRecipe.MatchResult(invocation, ok (bound RecipePatternSlot.Value), ok (bound RecipePatternSlot.Error)))
             Assert.Equal(okText "generic error", (PureRun.run session consumer.Id [] None |> unwrap).Actual)
             session.SimulateCreateType
-                { ExpectedBaseSnapshotId = current session; DisplayName = "Choice"
+                { TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = "Choice"
                   Kind = AgentTypeDeclarationKindIntent.Union [ { DisplayName = "Left"; Fields = [] }; { DisplayName = "Right"; Fields = [] } ] }
             |> unwrap |> publish session
             let choice = session.Declarations().Types |> List.exactlyOne
@@ -449,7 +449,7 @@ module FunctionAbortTests =
             let union =
                 create session "union" [ "left", boolType ] (result textType) []
                             (ExpressionRecipe.MatchUnion(
-                                ExpressionRecipe.Conditional(slot 0, ExpressionRecipe.UnionConstruct(left, []), ExpressionRecipe.UnionConstruct(right, [])),
+                                ExpressionRecipe.Conditional(slot 0, ExpressionRecipe.UnionConstruct(left, [], []), ExpressionRecipe.UnionConstruct(right, [], [])),
                                 [ [ left ], abort "left"; [ right ], ok (str "right") ]))
             for condition, expected in [ true, errText "left"; false, okText "right" ] do
                 Assert.Equal(expected, (PureRun.run session union.Id [ PureRunValue.Bool condition ] None |> unwrap).Actual)

@@ -40,7 +40,7 @@ module AgentPureExpressionStructuredValueTests =
         let textFieldId = fieldId "message-text-value"
 
         let profileType: SemanticType =
-            { Id = profileTypeId
+            { TypeParameters = []; Id = profileTypeId
               DisplayName = "Profile"
               Kind =
                 SemanticTypeKind.Product
@@ -52,7 +52,7 @@ module AgentPureExpressionStructuredValueTests =
                         Type = int64Type } ] }
 
         let messageType: SemanticType =
-            { Id = messageTypeId
+            { TypeParameters = []; Id = messageTypeId
               DisplayName = "Message"
               Kind =
                 SemanticTypeKind.Union
@@ -84,7 +84,7 @@ module AgentPureExpressionStructuredValueTests =
             { Id = functionId "product-target"
               DisplayName = "product_target"
               Parameters = []
-              ResultType = TypeRef.Named profileTypeId
+              ResultType = TypeRef.Named(profileTypeId, [])
               RequiredEffects = []
               Body =
                 { Nodes =
@@ -93,7 +93,7 @@ module AgentPureExpressionStructuredValueTests =
                       { Id = oldProductId
                         Kind =
                             SemanticNodeKind.ProductConstruct(
-                                profileTypeId,
+                                profileTypeId, [],
                                 [ { TargetFieldId = nameFieldId; ValueNodeId = oldNameId }
                                   { TargetFieldId = scoreFieldId; ValueNodeId = oldScoreId } ]
                             ) } ]
@@ -104,10 +104,10 @@ module AgentPureExpressionStructuredValueTests =
             { Id = functionId "union-target"
               DisplayName = "union_target"
               Parameters = []
-              ResultType = TypeRef.Named messageTypeId
+              ResultType = TypeRef.Named(messageTypeId, [])
               RequiredEffects = []
               Body =
-                { Nodes = [ { Id = oldUnionId; Kind = SemanticNodeKind.UnionConstruct(emptyVariantId, []) } ]
+                { Nodes = [ { Id = oldUnionId; Kind = SemanticNodeKind.UnionConstruct(emptyVariantId, [], []) } ]
                   ResultNodeId = oldUnionId } }
 
         let oldOptionId = nodeId "option-old-none"
@@ -194,7 +194,7 @@ module AgentPureExpressionStructuredValueTests =
         let fieldAccess =
             PureExpressionRecipe.FieldAccess(
                 PureExpressionRecipe.ProductConstruct(
-                    fixture.ProductTypeId,
+                    fixture.ProductTypeId, [],
                     [ fixture.ScoreFieldId, PureExpressionRecipe.Int64Literal 7L
                       fixture.NameFieldId, PureExpressionRecipe.StringLiteral "Ada" ]
                 ),
@@ -207,7 +207,7 @@ module AgentPureExpressionStructuredValueTests =
 
         let unionRecipe =
             PureExpressionRecipe.UnionConstruct(
-                fixture.TextVariantId,
+                fixture.TextVariantId, [],
                 [ fixture.TextFieldId, PureExpressionRecipe.StringLiteral "hello" ]
             )
 
@@ -254,7 +254,7 @@ module AgentPureExpressionStructuredValueTests =
             fixture
             fixture.ProductTargetId
             (PureExpressionRecipe.ProductConstruct(
-                fixture.ProductTypeId,
+                fixture.ProductTypeId, [],
                 [ fixture.NameFieldId, PureExpressionRecipe.StringLiteral "Ada" ]
             ))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
@@ -264,7 +264,7 @@ module AgentPureExpressionStructuredValueTests =
             fixture
             fixture.ProductTargetId
             (PureExpressionRecipe.ProductConstruct(
-                fixture.ProductTypeId,
+                fixture.ProductTypeId, [],
                 [ fixture.NameFieldId, PureExpressionRecipe.StringLiteral "Ada"
                   fixture.ScoreFieldId, PureExpressionRecipe.StringLiteral "wrong" ]
             ))
@@ -275,18 +275,18 @@ module AgentPureExpressionStructuredValueTests =
             fixture
             fixture.StringTargetId
             (PureExpressionRecipe.FieldAccess(
-                PureExpressionRecipe.UnionConstruct(fixture.EmptyVariantId, []),
+                PureExpressionRecipe.UnionConstruct(fixture.EmptyVariantId, [], []),
                 fixture.NameFieldId
             ))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionFieldAccessTypeMismatch"
 
         let missingVariant = StableId.createForTesting<VariantTag> "variant-pure-structured-missing"
-        request fixture fixture.UnionTargetId (PureExpressionRecipe.UnionConstruct(missingVariant, []))
+        request fixture fixture.UnionTargetId (PureExpressionRecipe.UnionConstruct(missingVariant, [], []))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionUnionVariantNotFound"
 
         let missingType = StableId.createForTesting<TypeTag> "type-pure-structured-missing"
-        request fixture fixture.OptionTargetId (PureExpressionRecipe.OptionNone(TypeRef.Named missingType))
+        request fixture fixture.OptionTargetId (PureExpressionRecipe.OptionNone(TypeRef.Named(missingType, [])))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionInvalidTypeRef"

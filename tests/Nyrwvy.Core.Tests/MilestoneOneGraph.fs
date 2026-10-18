@@ -46,9 +46,9 @@ module MilestoneOneGraph =
         let rawEmailField = findField "email" rawUserInput
         let rawDisplayNameField = findField "display_name" rawUserInput
 
-        let rawUserRef = TypeRef.Named rawUserInput.Id
-        let validUserRef = TypeRef.Named validUser.Id
-        let validationErrorRef = TypeRef.Named validationError.Id
+        let rawUserRef = TypeRef.Named(rawUserInput.Id, [])
+        let validUserRef = TypeRef.Named(validUser.Id, [])
+        let validationErrorRef = TypeRef.Named(validationError.Id, [])
         let validationResultType =
             TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ validUserRef; validationErrorRef ])
         let rawUserListType =

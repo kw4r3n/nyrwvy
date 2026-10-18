@@ -30,7 +30,8 @@ module ViewerHtml =
         | TypeRef.Primitive PrimitiveType.Int64 -> "Int64"
         | TypeRef.Primitive PrimitiveType.Float64 -> "Float64"
         | TypeRef.Primitive PrimitiveType.Bits32 -> "Bits32"
-        | TypeRef.Named typeId -> stableText "type:" typeId
+        | TypeRef.Named(typeId, []) -> stableText "type:" typeId
+        | TypeRef.Named(typeId, arguments) -> stableText "type:" typeId + "<" + (arguments |> List.map typeRefText |> String.concat ", ") + ">"
         | TypeRef.Capability capabilityId -> stableText "capability:" capabilityId
         | TypeRef.Function(arguments, result) -> "(" + (arguments |> List.map typeRefText |> String.concat ", ") + ") -> " + typeRefText result
         | TypeRef.TypeParameter(_, displayName) -> displayName

@@ -69,7 +69,7 @@ module AgentWorkflowTests =
             AgentOperationIntent.AddFunctionParameter
                 { TargetFunctionId = fixture.ValidateFunctionId
                   NewParameterDisplayName = "policy"
-                  NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                  NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                   CallSitePlans = [ AgentCallPlan.LeaveMissing fixture.MainValidateCallNodeId ] }
 
         let proposal = simulate workspace [ intent ]
@@ -134,7 +134,7 @@ module AgentWorkflowTests =
             AgentOperationIntent.AddFunctionParameter
                 { TargetFunctionId = fixture.ValidateFunctionId
                   NewParameterDisplayName = "policy"
-                  NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                  NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                   CallSitePlans = [ AgentCallPlan.LeaveMissing fixture.MainValidateCallNodeId ] }
         let proposal = simulate workspace [ intent ]
 
@@ -176,7 +176,7 @@ module AgentWorkflowTests =
             AgentOperationIntent.AddFunctionParameter
                 { TargetFunctionId = fixture.ValidateFunctionId
                   NewParameterDisplayName = "policy"
-                  NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                  NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                   CallSitePlans = [ AgentCallPlan.LeaveMissing fixture.MainValidateCallNodeId ] }
         let addProposal = simulate workspace [ addIntent ]
         let obligationId =

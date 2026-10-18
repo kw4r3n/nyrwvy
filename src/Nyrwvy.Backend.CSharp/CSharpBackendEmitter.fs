@@ -54,7 +54,7 @@ module CSharpBackend =
         | TypeRef.Primitive PrimitiveType.Int64 -> "long"
         | TypeRef.Primitive PrimitiveType.Float64 -> "double"
         | TypeRef.Primitive PrimitiveType.Bits32 -> "uint"
-        | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
+        | TypeRef.Named(typeId, arguments) -> CSharpBackendNames.typeName typeId + typeArgumentList arguments
         | TypeRef.Capability capabilityId -> CSharpBackendNames.capabilityName capabilityId
         | TypeRef.Function(arguments, result) ->
             "NyFunction" + string arguments.Length + "<" + (arguments @ [ result ] |> List.map formatType |> String.concat ", ") + ">"
@@ -94,6 +94,15 @@ module CSharpBackend =
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, arguments) ->
             invalidOp $"C# backend received List with {arguments.Length} type arguments."
 
+
+    /// `<A, B>` for the type arguments of a generic Product or Union; empty for a monomorphic one.
+    and private typeArgumentList (arguments: TypeRef list) =
+        if List.isEmpty arguments then "" else "<" + (arguments |> List.map formatType |> String.concat ", ") + ">"
+
+    let private namedTypeArguments (typeRef: TypeRef) =
+        match typeRef with
+        | TypeRef.Named(_, arguments) -> arguments
+        | _ -> []
     let private emitRuntime (writer: SourceWriter) =
         writer.Line("public readonly record struct NyUnit")
         writer.Line("{")
@@ -1000,9 +1009,9 @@ module CSharpBackend =
     let private emitFunctionTypes (writer: SourceWriter) (program: ExecutionProgram) =
         let rec arities = function
             | TypeRef.Function(arguments, result) -> arguments.Length :: List.collect arities (arguments @ [ result ])
-            | TypeRef.BuiltinGeneric(_, arguments) -> List.collect arities arguments
+            | TypeRef.BuiltinGeneric(_, arguments)
+            | TypeRef.Named(_, arguments) -> List.collect arities arguments
             | TypeRef.Primitive _
-            | TypeRef.Named _
             | TypeRef.Capability _
             | TypeRef.TypeParameter _ -> []
         let declaredTypes = program.Types |> List.collect (fun t ->
@@ -1023,7 +1032,11 @@ module CSharpBackend =
 
     let private emitTypes (writer: SourceWriter) (program: ExecutionProgram) =
         for typeEntity in program.Types |> List.sortBy (fun item -> StableId.value item.Id) do
-            let typeName = CSharpBackendNames.typeName typeEntity.Id
+            // A generic Product or Union is a generic record; its variants share its type parameters.
+            let parameterList =
+                if List.isEmpty typeEntity.TypeParameters then ""
+                else "<" + (typeEntity.TypeParameters |> List.map (fst >> CSharpBackendNames.typeParameterName) |> String.concat ", ") + ">"
+            let typeName = CSharpBackendNames.typeName typeEntity.Id + parameterList
             match typeEntity.Kind with
             | ExecutionTypeKind.Product fields ->
                 let parameters =
@@ -1040,7 +1053,7 @@ module CSharpBackend =
                         |> List.sortBy (fun field -> StableId.value field.Id)
                         |> List.map fieldParameter
                         |> String.concat ", "
-                    let variantName = CSharpBackendNames.variantName variant.Id
+                    let variantName = CSharpBackendNames.variantName variant.Id + parameterList
                     writer.Line("public sealed record " + variantName + "(" + parameters + ") : " + typeName + ";")
             writer.Line("")
 
@@ -1830,8 +1843,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName capabilityValueId + "." + methodName + "(" + renderCapabilityArguments arguments + ");")
         | ExecutionInstructionKind.ProductConstruct fields ->
             match instruction.Result.Type with
-            | TypeRef.Named typeId ->
-                writer.Line(target + " = new " + CSharpBackendNames.typeName typeId + "(" + renderFieldArguments fields + ");")
+            | TypeRef.Named _ as productType ->
+                writer.Line(target + " = new " + formatType productType + "(" + renderFieldArguments fields + ");")
             | _ -> invalidOp "ProductConstruct result does not carry a named product type."
         | ExecutionInstructionKind.FieldAccess(sourceValueId, fieldId) ->
             writer.Line(target + " = " + valueName sourceValueId + "." + CSharpBackendNames.fieldName fieldId + ";")
@@ -1843,7 +1856,7 @@ module CSharpBackend =
                 |> String.concat ", "
             writer.Line(target + " = " + valueName sourceValueId + " with { " + assignments + " };")
         | ExecutionInstructionKind.UnionConstruct(variantId, fields) ->
-            writer.Line(target + " = new " + CSharpBackendNames.variantName variantId + "(" + renderFieldArguments fields + ");")
+            writer.Line(target + " = new " + CSharpBackendNames.variantName variantId + typeArgumentList (namedTypeArguments instruction.Result.Type) + "(" + renderFieldArguments fields + ");")
         | ExecutionInstructionKind.OptionNone ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".None();")
         | ExecutionInstructionKind.OptionSome sourceValueId ->
@@ -1853,7 +1866,7 @@ module CSharpBackend =
         | ExecutionInstructionKind.ResultErr errorValueId ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".Err(" + valueName errorValueId + ");")
         | ExecutionInstructionKind.ExtractUnionField(inputValueId, variantId, fieldId) ->
-            writer.Line(target + " = ((" + CSharpBackendNames.variantName variantId + ")" + valueName inputValueId + ")." + CSharpBackendNames.fieldName fieldId + ";")
+            writer.Line(target + " = ((" + CSharpBackendNames.variantName variantId + typeArgumentList (namedTypeArguments (valueTypeOf inputValueId)) + ")" + valueName inputValueId + ")." + CSharpBackendNames.fieldName fieldId + ";")
         | ExecutionInstructionKind.ExtractOptionSome inputValueId ->
             writer.Line(target + " = " + valueName inputValueId + ".Value;")
         | ExecutionInstructionKind.ExtractResultOk inputValueId ->
@@ -1881,6 +1894,7 @@ module CSharpBackend =
 
     let private emitTerminator
         (functionEntity: ExecutionFunction)
+        (valueTypeOf: ExecutionValueId -> TypeRef)
         (writer: SourceWriter)
         (block: ExecutionBlock)
         (terminator: ExecutionTerminator) =
@@ -1911,7 +1925,7 @@ module CSharpBackend =
             | orderedTargets ->
                 for index, target in orderedTargets |> List.indexed do
                     let prefix = if index = 0 then "if" else "else if"
-                    writer.Line(prefix + " (" + valueName inputValueId + " is " + CSharpBackendNames.variantName target.VariantId + ") goto " + CSharpBackendNames.executionBlockLabel target.BlockId + ";")
+                    writer.Line(prefix + " (" + valueName inputValueId + " is " + CSharpBackendNames.variantName target.VariantId + typeArgumentList (namedTypeArguments (valueTypeOf inputValueId)) + ") goto " + CSharpBackendNames.executionBlockLabel target.BlockId + ";")
                 writer.Line("else throw new InvalidOperationException(\"Execution IR union value did not match a declared variant.\");")
         | ExecutionTerminator.MatchOption(inputValueId, someBlock, noneBlock) ->
             writer.Line("if (" + valueName inputValueId + ".HasValue) goto " + CSharpBackendNames.executionBlockLabel someBlock + ";")
@@ -2018,7 +2032,7 @@ module CSharpBackend =
             writer.Push()
             for instruction in block.Instructions do
                 emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf instruction
-            emitTerminator functionEntity writer block block.Terminator
+            emitTerminator functionEntity (fun valueId -> Map.find valueId valueTypes) writer block block.Terminator
             writer.Line("")
 
         writer.Pop()

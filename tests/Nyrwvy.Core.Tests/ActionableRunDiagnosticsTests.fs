@@ -12,9 +12,9 @@ module ActionableRunDiagnosticsTests =
     let private intType = TypeRef.Primitive PrimitiveType.Int64
     let private exprId, literalId, pairId = id<TypeTag> "expr", id<VariantTag> "literal", id<VariantTag> "pair"
     let private amountId, leftId, rightId = id<FieldTag> "amount", id<FieldTag> "left", id<FieldTag> "right"
-    let private exprType = TypeRef.Named exprId
+    let private exprType = TypeRef.Named(exprId, [])
     let private expr =
-        { Id = exprId; DisplayName = "Expr"
+        { TypeParameters = []; Id = exprId; DisplayName = "Expr"
           Kind = SemanticTypeKind.Union
               [ { Id = literalId; DisplayName = "Literal"; Fields = [ { Id = amountId; DisplayName = "amount"; Type = intType } ] }
                 { Id = pairId; DisplayName = "Pair"; Fields = [ { Id = leftId; DisplayName = "left"; Type = exprType }; { Id = rightId; DisplayName = "right"; Type = exprType } ] } ] }
@@ -31,13 +31,13 @@ module ActionableRunDiagnosticsTests =
             use session = AuthoringSession.openExisting path |> unwrap
             test session fn path
         finally Directory.Delete(root, true)
-    let private literal value = PureRunValue.Union(exprId, literalId, [ amountId, value ])
+    let private literal value = PureRunValue.Union(exprId, [], literalId, [ amountId, value ])
 
     [<Fact>]
     let ``recursive input error names exact nested field and expected actual types`` () =
         withSession (fun session fn path ->
             let before = File.ReadAllBytes path
-            let value = PureRunValue.Union(exprId, pairId, [ rightId, literal(PureRunValue.String "3"); leftId, literal(PureRunValue.Int64 2L) ])
+            let value = PureRunValue.Union(exprId, [], pairId, [ rightId, literal(PureRunValue.String "3"); leftId, literal(PureRunValue.Int64 2L) ])
             let issue = PureRun.inputIssue (session.Declarations()) fn.Id [ value ] None |> Option.get
             Assert.Equal<string list>([ "arguments"; "input"; "Expr"; "Pair"; "right"; "Expr"; "Literal"; "amount" ], issue.Path)
             Assert.Equal(Some intType, issue.ExpectedType)
@@ -50,12 +50,12 @@ module ActionableRunDiagnosticsTests =
     [<Fact>]
     let ``missing duplicate and foreign fields have precise diagnostic paths`` () =
         withSession (fun session fn _ ->
-            let missing = PureRun.inputIssue (session.Declarations()) fn.Id [ PureRunValue.Union(exprId, literalId, []) ] None |> Option.get
+            let missing = PureRun.inputIssue (session.Declarations()) fn.Id [ PureRunValue.Union(exprId, [], literalId, []) ] None |> Option.get
             Assert.Equal("amount", List.last missing.Path)
             Assert.True(missing.ActualType.IsNone)
-            let duplicate = PureRun.inputIssue (session.Declarations()) fn.Id [ PureRunValue.Union(exprId, literalId, [ amountId, PureRunValue.Int64 1L; amountId, PureRunValue.Int64 2L ]) ] None |> Option.get
+            let duplicate = PureRun.inputIssue (session.Declarations()) fn.Id [ PureRunValue.Union(exprId, [], literalId, [ amountId, PureRunValue.Int64 1L; amountId, PureRunValue.Int64 2L ]) ] None |> Option.get
             Assert.Contains("more than once", duplicate.Reason)
-            let foreign = PureRun.inputIssue (session.Declarations()) fn.Id [ PureRunValue.Union(exprId, literalId, [ leftId, PureRunValue.Int64 1L ]) ] None |> Option.get
+            let foreign = PureRun.inputIssue (session.Declarations()) fn.Id [ PureRunValue.Union(exprId, [], literalId, [ leftId, PureRunValue.Int64 1L ]) ] None |> Option.get
             Assert.Contains(StableId.value leftId, List.last foreign.Path)
             Assert.True(foreign.ExpectedType.IsNone))
 
@@ -96,12 +96,12 @@ module ActionableRunDiagnosticsTests =
         withSession (fun session _ _ ->
             let publish p = session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             session.SimulateCreateType
-                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Money"
+                { TypeParameters = []; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Money"
                   Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "amount"; Type = intType } ] } |> publish
             session.SimulateCreateFunction
                 { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "mixed"
                   Parameters = [ { DisplayName = "xs"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ intType ]) }
-                                 { DisplayName = "p"; Type = TypeRef.Named((session.Declarations().Types |> List.find (fun t -> t.DisplayName = "Money")).Id) } ]
+                                 { DisplayName = "p"; Type = TypeRef.Named((session.Declarations().Types |> List.find (fun t -> t.DisplayName = "Money")).Id, []) } ]
                   ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> publish
             use response = JsonDocument.Parse(AuthoringProtocol.executeLine session """{"id":"mixed","op":"runPureByName","function":"mixed","arguments":[{"kind":"list","itemType":{"kind":"primitive","primitive":"int64"},"items":[{"kind":"int64","value":"1"}]},{"kind":"product","type":"Money","fields":[]}]}""")
             let error = response.RootElement.GetProperty("error")
@@ -110,15 +110,15 @@ module ActionableRunDiagnosticsTests =
             Assert.Equal("p", path[1].GetString())
             Assert.Contains("p.Money.amount", error.GetProperty("message").GetString())
             let money = (session.Declarations().Types |> List.find (fun t -> t.DisplayName = "Money")).Id
-            let optionType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Named money ])
+            let optionType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Named(money, []) ])
             session.SimulateCreateFunction
                 { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "nestedMixed"
                   Parameters = [ { DisplayName = "xs"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ optionType ]) } ]
                   ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> publish
             let fn = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "nestedMixed")
             let items =
-                [ PureRunValue.OptionValue(TypeRef.Named money, Some(PureRunValue.Bool true))
-                  PureRunValue.OptionValue(TypeRef.Named money, Some(PureRunValue.Product(money, []))) ]
+                [ PureRunValue.OptionValue(TypeRef.Named(money, []), Some(PureRunValue.Bool true))
+                  PureRunValue.OptionValue(TypeRef.Named(money, []), Some(PureRunValue.Product(money, [], []))) ]
             let values = [ PureRunValue.ListValue(optionType, items) ]
             match PureRun.run session fn.Id values None with
             | Error(PureRunError.Unsupported(code, message) as error) ->

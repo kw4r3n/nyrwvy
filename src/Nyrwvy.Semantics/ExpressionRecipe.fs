@@ -182,10 +182,14 @@ type ExpressionRecipe =
     | ListAny of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListFindIndex of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListAll of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
-    | ProductConstruct of typeId: TypeId * fields: (FieldId * ExpressionRecipe) list
+    /// `typeArguments` instantiate a generic Product's type parameters; empty means "derive them
+    /// from the field values" (always empty for a monomorphic Product).
+    | ProductConstruct of typeId: TypeId * typeArguments: TypeRef list * fields: (FieldId * ExpressionRecipe) list
     | FieldAccess of source: ExpressionRecipe * fieldId: FieldId
     | ProductUpdate of typeId: TypeId * source: ExpressionRecipe * fields: (FieldId * ExpressionRecipe) list
-    | UnionConstruct of variantId: VariantId * fields: (FieldId * ExpressionRecipe) list
+    /// `typeArguments` as for ProductConstruct; a variant whose fields do not mention every type
+    /// parameter (a fieldless `None`-like variant) needs them given.
+    | UnionConstruct of variantId: VariantId * typeArguments: TypeRef list * fields: (FieldId * ExpressionRecipe) list
     | OptionNone of itemType: TypeRef
     | OptionSome of ExpressionRecipe
     | OptionGetOrDefault of option: ExpressionRecipe * defaultValue: ExpressionRecipe
@@ -396,10 +400,10 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.ListAny(source, callback, context) -> ExpressionRecipe.ListAny(go source, callback, pairs context)
         | ExpressionRecipe.ListFindIndex(source, callback, context) -> ExpressionRecipe.ListFindIndex(go source, callback, pairs context)
         | ExpressionRecipe.ListAll(source, callback, context) -> ExpressionRecipe.ListAll(go source, callback, pairs context)
-        | ExpressionRecipe.ProductConstruct(typeId, fields) -> ExpressionRecipe.ProductConstruct(typeId, pairs fields)
+        | ExpressionRecipe.ProductConstruct(typeId, typeArguments, fields) -> ExpressionRecipe.ProductConstruct(typeId, List.map mapType typeArguments, pairs fields)
         | ExpressionRecipe.FieldAccess(source, fieldId) -> ExpressionRecipe.FieldAccess(go source, fieldId)
         | ExpressionRecipe.ProductUpdate(typeId, source, fields) -> ExpressionRecipe.ProductUpdate(typeId, go source, pairs fields)
-        | ExpressionRecipe.UnionConstruct(variantId, fields) -> ExpressionRecipe.UnionConstruct(variantId, pairs fields)
+        | ExpressionRecipe.UnionConstruct(variantId, typeArguments, fields) -> ExpressionRecipe.UnionConstruct(variantId, List.map mapType typeArguments, pairs fields)
         | ExpressionRecipe.OptionNone itemType -> ExpressionRecipe.OptionNone(mapType itemType)
         | ExpressionRecipe.OptionSome value -> ExpressionRecipe.OptionSome(go value)
         | ExpressionRecipe.OptionGetOrDefault(option, defaultValue) -> ExpressionRecipe.OptionGetOrDefault(go option, go defaultValue)

@@ -422,7 +422,7 @@ module Transaction =
                     ValueGraph.collectNodes owner.Body
                     |> List.choose (fun node ->
                         match node.Kind with
-                        | SemanticNodeKind.ProductConstruct(typeId, _) when typeId = target.Id -> Some(owner, node.Id)
+                        | SemanticNodeKind.ProductConstruct(typeId, _, _) when typeId = target.Id -> Some(owner, node.Id)
                         | _ -> None))
             let affectedIds = affected |> List.map snd |> Set.ofList
             let plannedIds = request.ConstructionPlans |> List.map (fun plan -> plan.ConstructNodeId)
@@ -463,9 +463,9 @@ module Transaction =
                         |> List.map (fun owner ->
                             let mapNode (node: SemanticNode) =
                                 match node.Kind, Map.tryFind node.Id plansById with
-                                | SemanticNodeKind.ProductConstruct(typeId, bindings), Some valueNodeId ->
+                                | SemanticNodeKind.ProductConstruct(typeId, typeArguments, bindings), Some valueNodeId ->
                                     { node with
-                                        Kind = SemanticNodeKind.ProductConstruct(typeId, bindings @
+                                        Kind = SemanticNodeKind.ProductConstruct(typeId, typeArguments, bindings @
                                             [ { TargetFieldId = newField.Id; ValueNodeId = valueNodeId } ]) }
                                 | _ -> node
                             { owner with Body = ValueGraph.mapNodes mapNode owner.Body })
@@ -513,7 +513,7 @@ module Transaction =
                 | _ -> false)
             let affected = nodes |> List.choose (fun (fn, node) ->
                 match node.Kind with
-                | SemanticNodeKind.ProductConstruct(typeId, bindings)
+                | SemanticNodeKind.ProductConstruct(typeId, _, bindings)
                     when typeId = owner.Id && bindings |> List.exists (fun binding -> binding.TargetFieldId = fieldId) ->
                     Some(fn, node.Id)
                 | _ -> None)
@@ -533,9 +533,9 @@ module Transaction =
                 let updatedFunctions = snapshot.Functions |> List.map (fun fn ->
                     let mapNode (node: SemanticNode) =
                         match node.Kind with
-                        | SemanticNodeKind.ProductConstruct(typeId, bindings) when typeId = owner.Id ->
+                        | SemanticNodeKind.ProductConstruct(typeId, typeArguments, bindings) when typeId = owner.Id ->
                             let kept = bindings |> List.filter (fun binding -> binding.TargetFieldId <> fieldId)
-                            { node with Kind = SemanticNodeKind.ProductConstruct(typeId, kept) }
+                            { node with Kind = SemanticNodeKind.ProductConstruct(typeId, typeArguments, kept) }
                         | _ -> node
                     { fn with Body = ValueGraph.mapNodes mapNode fn.Body })
                 let removed: ProductFieldRemoved =

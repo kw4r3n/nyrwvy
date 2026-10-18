@@ -143,7 +143,7 @@ module AuthoringDependencyTests =
             let variantId = StableId.createForTesting<VariantTag> "variant-imported-case"
             let imported =
                 { fixture.Snapshot with
-                    Types = { Id = unionId; DisplayName = "Choice"
+                    Types = { TypeParameters = []; Id = unionId; DisplayName = "Choice"
                               Kind = SemanticTypeKind.Union [ { Id = variantId; DisplayName = "First"; Fields = [] } ] }
                             :: fixture.Snapshot.Types }
             let sourcePath = Path.Combine(root, "source.json")
@@ -182,7 +182,7 @@ module AuthoringDependencyTests =
                         { ExpectedBaseSnapshotId = before.SnapshotId
                           TargetFunctionId = fixture.ValidateFunctionId
                           TargetParameterId = fixture.ValidateInputParameterId
-                          NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                          NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                           TargetReplacement = ExpressionRecipe.StringLiteral "changed"
                           CallerRewrites =
                             [ { CallerFunctionId = fixture.RunFunctionId

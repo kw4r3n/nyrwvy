@@ -42,7 +42,7 @@ module AgentParameterTypeMigrationTests =
               Type = stringType }
 
         let requestType: SemanticType =
-            { Id = typeId "request"
+            { TypeParameters = []; Id = typeId "request"
               DisplayName = "ValidationRequest"
               Kind = SemanticTypeKind.Product [ emailField ] }
 
@@ -150,7 +150,7 @@ module AgentParameterTypeMigrationTests =
             fixture.Classify.Id,
             [ fixture.ClassifyInput.Id,
               ExpressionRecipe.ProductConstruct(
-                  fixture.RequestType.Id,
+                  fixture.RequestType.Id, [],
                   [ fixture.EmailField.Id,
                     ExpressionRecipe.Parameter fixture.ProcessInput.Id ]
               ) ]
@@ -160,7 +160,7 @@ module AgentParameterTypeMigrationTests =
         { ExpectedBaseSnapshotId = fixture.Snapshot.Id
           TargetFunctionId = fixture.Classify.Id
           TargetParameterId = fixture.ClassifyInput.Id
-          NewParameterType = TypeRef.Named fixture.RequestType.Id
+          NewParameterType = TypeRef.Named(fixture.RequestType.Id, [])
           TargetReplacement = targetReplacement fixture
           CallerRewrites = callerRewrites }
 
@@ -191,7 +191,7 @@ module AgentParameterTypeMigrationTests =
         Assert.Equal(fixture.Classify.Id, review.ResultingChange.ParameterChange.FunctionId)
         Assert.Equal(fixture.ClassifyInput.Id, review.ResultingChange.ParameterChange.ParameterId)
         Assert.Equal(stringType, review.ResultingChange.ParameterChange.OldType)
-        Assert.Equal(TypeRef.Named fixture.RequestType.Id, review.ResultingChange.ParameterChange.NewType)
+        Assert.Equal(TypeRef.Named(fixture.RequestType.Id, []), review.ResultingChange.ParameterChange.NewType)
         Assert.Single(review.ResultingChange.AffectedCallSites) |> ignore
         Assert.Equal(2, review.ResultingChange.BodyRewrites.Length)
         Assert.Equal(TransactionReadiness.SemanticallyReady, review.Readiness)
@@ -209,7 +209,7 @@ module AgentParameterTypeMigrationTests =
                 published.Functions
                 |> List.find (fun fn -> fn.Id = fixture.Classify.Id)
             Assert.Equal(fixture.ClassifyInput.Id, classify.Parameters.Head.Id)
-            Assert.Equal(TypeRef.Named fixture.RequestType.Id, classify.Parameters.Head.Type)
+            Assert.Equal(TypeRef.Named(fixture.RequestType.Id, []), classify.Parameters.Head.Type)
 
             let processFunction =
                 published.Functions
@@ -231,7 +231,7 @@ module AgentParameterTypeMigrationTests =
                     ValueGraph.collectNodes processFunction.Body
                     |> List.find (fun node -> node.Id = argument.ValueNodeId)
                 match argumentNode.Kind with
-                | SemanticNodeKind.ProductConstruct(typeId, _) ->
+                | SemanticNodeKind.ProductConstruct(typeId, _, _) ->
                     Assert.Equal(fixture.RequestType.Id, typeId)
                 | other -> failwithf "Expected request construction, got %A" other
             | other -> failwithf "Unexpected migrated call: %A" other

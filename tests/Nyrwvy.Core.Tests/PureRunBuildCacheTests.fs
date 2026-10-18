@@ -25,7 +25,7 @@ module PureRunBuildCacheTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
 
     let private createType (session: AuthoringSession) name kind =
-        let request: AgentCreateTypeDeclarationRequest = { ExpectedBaseSnapshotId = current session; DisplayName = name; Kind = kind }
+        let request: AgentCreateTypeDeclarationRequest = { TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = name; Kind = kind }
         session.SimulateCreateType request |> unwrap ("create " + name) |> publish session
         session.Declarations().Types |> List.find (fun item -> item.DisplayName = name)
 
@@ -55,13 +55,13 @@ module PureRunBuildCacheTests =
     /// A Product value with fields named by display name, in canonical order as results report them.
     let private product (itemType: SemanticType) (values: (string * PureRunValue) list) =
         let declared = fields itemType
-        PureRunValue.Product(itemType.Id,
+        PureRunValue.Product(itemType.Id, [],
             values |> List.map (fun (name, value) -> (declared |> List.find (fun item -> item.DisplayName = name)).Id, value)
             |> List.sortBy (fst >> StableId.value))
 
     let private union (itemType: SemanticType) variantName (values: (string * PureRunValue) list) =
         let variant = variants itemType |> List.find (fun item -> item.DisplayName = variantName)
-        PureRunValue.Union(itemType.Id, variant.Id,
+        PureRunValue.Union(itemType.Id, [], variant.Id,
             values |> List.map (fun (name, value) -> (variant.Fields |> List.find (fun item -> item.DisplayName = name)).Id, value)
             |> List.sortBy (fst >> StableId.value))
 
@@ -97,14 +97,14 @@ module PureRunBuildCacheTests =
                           field "f" (TypeRef.Primitive PrimitiveType.Float64)
                           field "w" (TypeRef.Primitive PrimitiveType.Bits32)
                           field "u" (TypeRef.Primitive PrimitiveType.Unit)
-                          field "pairs" (list (TypeRef.Named pair.Id))
+                          field "pairs" (list (TypeRef.Named(pair.Id, [])))
                           field "maybe" (option intType)
                           field "outcome" (TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ stringType; intType ]))
                           field "texts" (list stringType)
-                          field "shape" (TypeRef.Named shape.Id)
-                          field "shapes" (list (option (TypeRef.Named shape.Id))) ])
-            let identity = createFunction session "cacheIdentity" [ "all", TypeRef.Named all.Id ] (TypeRef.Named all.Id) [] (ExpressionRecipe.ParameterSlot 0)
-            let other = createFunction session "cacheOther" [ "all", TypeRef.Named all.Id ] (TypeRef.Named all.Id) [] (ExpressionRecipe.ParameterSlot 0)
+                          field "shape" (TypeRef.Named(shape.Id, []))
+                          field "shapes" (list (option (TypeRef.Named(shape.Id, [])))) ])
+            let identity = createFunction session "cacheIdentity" [ "all", TypeRef.Named(all.Id, []) ] (TypeRef.Named(all.Id, [])) [] (ExpressionRecipe.ParameterSlot 0)
+            let other = createFunction session "cacheOther" [ "all", TypeRef.Named(all.Id, []) ] (TypeRef.Named(all.Id, [])) [] (ExpressionRecipe.ParameterSlot 0)
             let float bits = PureRunValue.Float64(Float64Bits.create bits)
             let pairValue text count = product pair [ "text", PureRunValue.String text; "count", PureRunValue.Int64 count ]
             let circle bits = union shape "Circle" [ "radius", float bits ]
@@ -112,10 +112,10 @@ module PureRunBuildCacheTests =
                 product all
                     [ "s", PureRunValue.String s; "n", PureRunValue.Int64 n; "b", PureRunValue.Bool b; "f", float f
                       "w", PureRunValue.Bits32 w; "u", PureRunValue.Unit
-                      "pairs", PureRunValue.ListValue(TypeRef.Named pair.Id, pairs)
+                      "pairs", PureRunValue.ListValue(TypeRef.Named(pair.Id, []), pairs)
                       "maybe", PureRunValue.Int64Option maybe; "outcome", outcome; "texts", PureRunValue.StringList texts
                       "shape", shapeValue
-                      "shapes", PureRunValue.ListValue(option (TypeRef.Named shape.Id), shapes |> List.map (fun item -> PureRunValue.OptionValue(TypeRef.Named shape.Id, item))) ]
+                      "shapes", PureRunValue.ListValue(option (TypeRef.Named(shape.Id, [])), shapes |> List.map (fun item -> PureRunValue.OptionValue(TypeRef.Named(shape.Id, []), item))) ]
             let values =
                 [ value "" 0L false 0UL 0u [] None (PureRunValue.ResultOk(PureRunScalarKind.Int64, PureRunScalar.String "")) [] (union shape "Empty" []) []
                   value "a b,c\n\"k" Int64.MinValue true 0x8000000000000000UL UInt32.MaxValue
@@ -164,7 +164,7 @@ module PureRunBuildCacheTests =
                   DisplayName = "KeyStore"
                   Operations =
                     [ { DisplayName = "get"
-                        Parameters = [ { DisplayName = "key"; Type = stringType }; { DisplayName = "pair"; Type = TypeRef.Named pair.Id } ]
+                        Parameters = [ { DisplayName = "key"; Type = stringType }; { DisplayName = "pair"; Type = TypeRef.Named(pair.Id, []) } ]
                         ResultType = stringType
                         FailureType = None
                         EffectId = effect.Id } ] }
@@ -173,7 +173,7 @@ module PureRunBuildCacheTests =
             let get = store.Operations |> List.exactlyOne
             let parameterId name = (get.Parameters |> List.find (fun item -> item.DisplayName = name)).Id
             let ask =
-                createFunction session "ask" [ "key", stringType; "pair", TypeRef.Named pair.Id; "store", TypeRef.Capability store.Id ] stringType [ effect.Id ]
+                createFunction session "ask" [ "key", stringType; "pair", TypeRef.Named(pair.Id, []); "store", TypeRef.Capability store.Id ] stringType [ effect.Id ]
                     (ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 2, get.Id,
                         [ parameterId "key", ExpressionRecipe.ParameterSlot 0; parameterId "pair", ExpressionRecipe.ParameterSlot 1 ]))
             let pairValue text count = product pair [ "text", PureRunValue.String text; "count", PureRunValue.Int64 count ]

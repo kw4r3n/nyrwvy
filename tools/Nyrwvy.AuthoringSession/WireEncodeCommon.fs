@@ -24,8 +24,10 @@ module internal WireEncodeCommon =
             objectValue [ "kind", box "primitive"; "primitive", box name ]
         | TypeRef.Function(arguments, result) ->
             objectValue [ "kind", box "function"; "parameters", arguments |> List.map typeRef |> arrayValue; "resultType", typeRef result ]
-        | TypeRef.Named typeId ->
+        | TypeRef.Named(typeId, []) ->
             objectValue [ "kind", box "named"; "typeId", box (StableId.value typeId) ]
+        | TypeRef.Named(typeId, arguments) ->
+            objectValue [ "kind", box "named"; "typeId", box (StableId.value typeId); "arguments", arguments |> List.map typeRef |> arrayValue ]
         | TypeRef.Capability capabilityId ->
             objectValue [ "kind", box "capability"; "capabilityId", box (StableId.value capabilityId) ]
         | TypeRef.TypeParameter(typeParameterId, displayName) ->
@@ -115,10 +117,19 @@ module internal WireEncodeCommon =
                                   "displayName", box variant.DisplayName
                                   "fields", variant.Fields |> List.map field |> arrayValue ])
                         |> arrayValue ]
+        // Type parameters, in declaration order, only for a generic type, so other output is unchanged.
+        let typeParameters =
+            if List.isEmpty value.TypeParameters then []
+            else
+                [ "typeParameters",
+                  value.TypeParameters
+                  |> List.map (fun (id, name) -> objectValue [ "typeParameterId", box (StableId.value id); "displayName", box name ])
+                  |> arrayValue ]
         objectValue
-            [ "id", box (StableId.value value.Id)
-              "displayName", box value.DisplayName
-              "typeKind", kind ]
+            ([ "id", box (StableId.value value.Id)
+               "displayName", box value.DisplayName ]
+             @ typeParameters
+             @ [ "typeKind", kind ])
 
     let capabilityEntity (value: SemanticCapability) =
         let operations =

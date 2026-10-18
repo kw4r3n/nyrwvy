@@ -24,7 +24,7 @@ module ValueGraphTests =
               Type = stringType }
 
         let typeEntity: SemanticType =
-            { Id = typeId
+            { TypeParameters = []; Id = typeId
               DisplayName = "RawUserInput"
               Kind = SemanticTypeKind.Product [ field ] }
 
@@ -41,7 +41,7 @@ module ValueGraphTests =
             { Id = constructNodeId
               Kind =
                 SemanticNodeKind.ProductConstruct(
-                    typeId,
+                    typeId, [],
                     [ { TargetFieldId = fieldId
                         ValueNodeId = parameterNodeId } ]
                 ) }
@@ -84,7 +84,7 @@ module ValueGraphTests =
         let stringType = TypeRef.Primitive PrimitiveType.String
 
         let errorType: SemanticType =
-            { Id = unionTypeId
+            { TypeParameters = []; Id = unionTypeId
               DisplayName = "ValidationError"
               Kind =
                 SemanticTypeKind.Union
@@ -98,7 +98,7 @@ module ValueGraphTests =
         let parameter: SemanticParameter =
             { Id = parameterId
               DisplayName = "error"
-              Type = TypeRef.Named unionTypeId }
+              Type = TypeRef.Named(unionTypeId, []) }
 
         let parameterNode: SemanticNode =
             { Id = parameterNodeId
@@ -167,8 +167,8 @@ module ValueGraphTests =
                     let updateNode (node: SemanticNode) =
                         if node.Id = constructNodeId then
                             match node.Kind with
-                            | SemanticNodeKind.ProductConstruct(typeId, _) ->
-                                { node with Kind = SemanticNodeKind.ProductConstruct(typeId, []) }
+                            | SemanticNodeKind.ProductConstruct(typeId, _, _) ->
+                                { node with Kind = SemanticNodeKind.ProductConstruct(typeId, [], []) }
                             | _ -> node
                         else
                             node

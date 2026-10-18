@@ -59,7 +59,7 @@ module ChangeReviewQueryTests =
                     { TargetFunctionId = fixture.ValidateFunctionId
                       NewParameterId = newParameterId
                       NewParameterDisplayName = "policy_for_review"
-                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                       CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ] }
 
         let simulation = Transaction.simulate fixture.Snapshot request |> proposedSnapshot
@@ -97,7 +97,7 @@ module ChangeReviewQueryTests =
                     { TargetFunctionId = fixture.ValidateFunctionId
                       NewParameterId = newParameterId
                       NewParameterDisplayName = "policy_for_resolution"
-                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                       CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ] }
 
         let incomplete = Transaction.simulate fixture.Snapshot addRequest |> proposedSnapshot

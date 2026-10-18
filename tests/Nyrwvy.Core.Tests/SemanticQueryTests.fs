@@ -106,7 +106,7 @@ module SemanticQueryTests =
                     { TargetFunctionId = fixture.ValidateFunctionId
                       NewParameterId = newParameterId
                       NewParameterDisplayName = "policy_for_query"
-                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                       CallSitePlans =
                         [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ] }
 
@@ -148,18 +148,18 @@ module SemanticQueryTests =
         let outerParameterId = StableId.createForTesting<ParameterTag> "parameter-query-outer"
 
         let innerType: SemanticType =
-            { Id = innerTypeId
+            { TypeParameters = []; Id = innerTypeId
               DisplayName = "QueryInner"
               Kind = SemanticTypeKind.Product [] }
 
         let outerType: SemanticType =
-            { Id = outerTypeId
+            { TypeParameters = []; Id = outerTypeId
               DisplayName = "QueryOuter"
               Kind =
                 SemanticTypeKind.Product
                     [ { Id = innerFieldId
                         DisplayName = "inner"
-                        Type = TypeRef.Named innerTypeId } ] }
+                        Type = TypeRef.Named(innerTypeId, []) } ] }
 
         let functions =
             fixture.Snapshot.Functions
@@ -172,7 +172,7 @@ module SemanticQueryTests =
                             functionEntity.Parameters
                             @ [ { Id = outerParameterId
                                   DisplayName = "outer"
-                                  Type = TypeRef.Named outerTypeId } ] })
+                                  Type = TypeRef.Named(outerTypeId, []) } ] })
 
         let snapshot =
             { fixture.Snapshot with
@@ -208,7 +208,7 @@ module SemanticQueryTests =
                             functionEntity.Parameters
                             @ [ { Id = typeParameterId
                                   DisplayName = "unresolved_type"
-                                  Type = TypeRef.Named missingTypeId }
+                                  Type = TypeRef.Named(missingTypeId, []) }
                                 { Id = capabilityParameterId
                                   DisplayName = "unresolved_capability"
                                   Type = TypeRef.Capability missingCapabilityId } ]

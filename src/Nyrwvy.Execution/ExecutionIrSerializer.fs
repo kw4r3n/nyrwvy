@@ -12,7 +12,7 @@ open System.Text.Json
 /// is informational only. Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
 module ExecutionIrSerializer =
-    let schemaVersion = 12
+    let schemaVersion = 13
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -56,10 +56,12 @@ module ExecutionIrSerializer =
                   property "displayName" (quote displayName) ]
         | TypeRef.Function(arguments, result) ->
             objectValue [ property "kind" (quote "function"); property "parameters" (arrayValue (List.map writeTypeRef arguments)); property "resultType" (writeTypeRef result) ]
-        | TypeRef.Named typeId ->
+        | TypeRef.Named(typeId, arguments) ->
             objectValue
-                [ property "kind" (quote "named")
-                  property "typeId" (stableIdValue typeId) ]
+                ([ property "kind" (quote "named")
+                   property "typeId" (stableIdValue typeId) ]
+                 // Absent for a monomorphic type, so its IR keeps its bytes.
+                 @ (if List.isEmpty arguments then [] else [ property "arguments" (arrayValue (List.map writeTypeRef arguments)) ]))
         | TypeRef.Capability capabilityId ->
             objectValue
                 [ property "kind" (quote "capability")
@@ -153,27 +155,38 @@ module ExecutionIrSerializer =
                    |> arrayValue) ]
 
     let private writeType (typeEntity: ExecutionType): string =
+        // Declaration order is the order of type arguments; absent for a monomorphic type.
+        let typeParameters =
+            if List.isEmpty typeEntity.TypeParameters then []
+            else
+                [ property
+                      "typeParameters"
+                      (typeEntity.TypeParameters
+                       |> List.map (fun (id, name) -> objectValue [ property "typeParameterId" (quote (StableId.value id)); property "displayName" (quote name) ])
+                       |> arrayValue) ]
         match typeEntity.Kind with
         | ExecutionTypeKind.Product fields ->
             objectValue
-                [ property "id" (stableIdValue typeEntity.Id)
-                  property "kind" (quote "product")
-                  property
-                      "fields"
-                      (fields
-                       |> List.sortBy (fun field -> StableId.value field.Id)
-                       |> List.map writeField
-                       |> arrayValue) ]
+                ([ property "id" (stableIdValue typeEntity.Id)
+                   property "kind" (quote "product")
+                   property
+                       "fields"
+                       (fields
+                        |> List.sortBy (fun field -> StableId.value field.Id)
+                        |> List.map writeField
+                        |> arrayValue) ]
+                 @ typeParameters)
         | ExecutionTypeKind.Union variants ->
             objectValue
-                [ property "id" (stableIdValue typeEntity.Id)
-                  property "kind" (quote "union")
-                  property
-                      "variants"
-                      (variants
-                       |> List.sortBy (fun variant -> StableId.value variant.Id)
-                       |> List.map writeVariant
-                       |> arrayValue) ]
+                ([ property "id" (stableIdValue typeEntity.Id)
+                   property "kind" (quote "union")
+                   property
+                       "variants"
+                       (variants
+                        |> List.sortBy (fun variant -> StableId.value variant.Id)
+                        |> List.map writeVariant
+                        |> arrayValue) ]
+                 @ typeParameters)
 
     let private writeCapabilityParameter (parameter: ExecutionCapabilityParameter): string =
         objectValue
@@ -995,7 +1008,8 @@ module ExecutionIrSerializer =
                        | _ -> false))
 
         let hasClassification = blocks |> List.exists (fun block -> block.Instructions |> List.exists (fun instruction -> match instruction.Kind with | ExecutionInstructionKind.ExceptionIsCancellation _ -> true | _ -> false))
-        let version = if hasClassification then schemaVersion elif hasException then 11 elif hasOneShot then 10 elif hasTailCall then 9 elif hasLimit then 8 elif hasAbort then 7 else 6
+        let hasGenericTypes = program.Types |> List.exists (fun ty -> not (List.isEmpty ty.TypeParameters))
+        let version = if hasGenericTypes then schemaVersion elif hasClassification then 12 elif hasException then 11 elif hasOneShot then 10 elif hasTailCall then 9 elif hasLimit then 8 elif hasAbort then 7 else 6
         objectValue
             [ property "schemaVersion" (string version)
               property "sourceSnapshotId" (stableIdValue program.SourceSnapshotId)

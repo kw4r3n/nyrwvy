@@ -118,12 +118,13 @@ module internal WireSymbolic =
         | "primitive" ->
             primitiveType element
         | "named" ->
-            ensureFields "named type" [ "kind"; "name" ] [ "kind"; "name" ] element
+            ensureFields "named type" [ "kind"; "name"; "arguments" ] [ "kind"; "name" ] element
             let selector = property "name" element
             let reference = if selector.ValueKind = JsonValueKind.String then Map.tryFind (selector.GetString()) group else None
+            let arguments = optionalTypeArguments "arguments" (typeRef declarations) element
             match reference with
-            | Some reference -> TypeRef.Named reference
-            | None -> TypeRef.Named((resolveTypeSelector declarations selector).Id)
+            | Some reference -> TypeRef.Named(reference, arguments)
+            | None -> TypeRef.Named((resolveTypeSelector declarations selector).Id, arguments)
         | "capability" ->
             ensureFields "capability type" [ "kind"; "name" ] [ "kind"; "name" ] element
             TypeRef.Capability((resolveCapabilityAt declarations "name" element).Id)
@@ -167,7 +168,7 @@ module internal WireSymbolic =
     let kindReferences (reference: TypeId) (kind: AgentTypeDeclarationKindIntent) =
         let rec mentions typeRef =
             match typeRef with
-            | TypeRef.Named id -> id = reference
+            | TypeRef.Named(id, arguments) -> id = reference || List.exists mentions arguments
             | TypeRef.Function(arguments, result) -> List.exists mentions arguments || mentions result
             | TypeRef.BuiltinGeneric(_, arguments) -> List.exists mentions arguments
             | _ -> false
@@ -459,7 +460,7 @@ module internal WireSymbolic =
             | "listFindIndex" -> ExpressionRecipe.ListFindIndex(source, callback.Id, context)
             | _ -> ExpressionRecipe.ListAll(source, callback.Id, context)
         | "productConstruct" ->
-            ensureFields "product-construct recipe" [ "kind"; "type"; "fields" ] [ "kind"; "type"; "fields" ] element
+            ensureFields "product-construct recipe" [ "kind"; "type"; "typeArguments"; "fields" ] [ "kind"; "type"; "fields" ] element
             let owner = resolveTypeAt declarations "type" element
             let fields =
                 array "fields" element
@@ -467,7 +468,7 @@ module internal WireSymbolic =
                     ensureFields "product field recipe" [ "field"; "value" ] [ "field"; "value" ] item
                     let field = productField owner (requiredString "field" item)
                     field.Id, recipe declarations parameterContext (property "value" item))
-            ExpressionRecipe.ProductConstruct(owner.Id, fields)
+            ExpressionRecipe.ProductConstruct(owner.Id, optionalTypeArguments "typeArguments" (typeRef declarations) element, fields)
         | "fieldAccess" ->
             ensureFields
                 "field-access recipe"
@@ -497,7 +498,7 @@ module internal WireSymbolic =
         | "unionConstruct" ->
             ensureFields
                 "union-construct recipe"
-                [ "kind"; "type"; "variant"; "fields" ]
+                [ "kind"; "type"; "variant"; "typeArguments"; "fields" ]
                 [ "kind"; "type"; "variant"; "fields" ]
                 element
             let owner = resolveTypeAt declarations "type" element
@@ -508,7 +509,7 @@ module internal WireSymbolic =
                     ensureFields "union field recipe" [ "field"; "value" ] [ "field"; "value" ] item
                     let field = variantField variant (requiredString "field" item)
                     field.Id, recipe declarations parameterContext (property "value" item))
-            ExpressionRecipe.UnionConstruct(variant.Id, fields)
+            ExpressionRecipe.UnionConstruct(variant.Id, optionalTypeArguments "typeArguments" (typeRef declarations) element, fields)
         | "optionNone" ->
             ensureFields "option-none recipe" [ "kind"; "itemType" ] [ "kind"; "itemType" ] element
             ExpressionRecipe.OptionNone(typeRef declarations (property "itemType" element))

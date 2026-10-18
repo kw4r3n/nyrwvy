@@ -21,19 +21,19 @@ module PureRunRecursiveTests =
     let private childrenId = id<FieldTag> "children"
     let private leafId = id<VariantTag> "leaf"
     let private branchId = id<VariantTag> "branch"
-    let private nodeType = TypeRef.Named nodeId
-    let private treeType = TypeRef.Named treeId
+    let private nodeType = TypeRef.Named(nodeId, [])
+    let private treeType = TypeRef.Named(treeId, [])
     let private unwrap = function
         | Ok value -> value
         | Error error -> failwithf "Unexpected error: %A" error
 
     let private withSession run =
         let types: SemanticType list =
-            [ { Id = nodeId; DisplayName = "Node"
+            [ { TypeParameters = []; Id = nodeId; DisplayName = "Node"
                 Kind = SemanticTypeKind.Product
                     [ { Id = valueId; DisplayName = "value"; Type = intType }
                       { Id = nextId; DisplayName = "next"; Type = optionType nodeType } ] }
-              { Id = treeId; DisplayName = "Tree"
+              { TypeParameters = []; Id = treeId; DisplayName = "Tree"
                 Kind = SemanticTypeKind.Union
                     [ { Id = leafId; DisplayName = "Leaf"; Fields = [ { Id = leafValueId; DisplayName = "value"; Type = intType } ] }
                       { Id = branchId; DisplayName = "Branch"; Fields = [ { Id = childrenId; DisplayName = "children"; Type = listType treeType } ] } ] } ]
@@ -52,9 +52,9 @@ module PureRunRecursiveTests =
         let ws = create ws "node" nodeType nodeType input
         let ws = create ws "tree" treeType treeType input
         let ws = create ws "push" nodeType nodeType
-                    (ExpressionRecipe.ProductConstruct(nodeId, [ valueId, ExpressionRecipe.Int64Literal 0L; nextId, ExpressionRecipe.OptionSome input ]))
+                    (ExpressionRecipe.ProductConstruct(nodeId, [], [ valueId, ExpressionRecipe.Int64Literal 0L; nextId, ExpressionRecipe.OptionSome input ]))
         let ws = create ws "branch" treeType treeType
-                    (ExpressionRecipe.UnionConstruct(branchId, [ childrenId, ExpressionRecipe.ListConstruct(treeType, [ input; input ]) ]))
+                    (ExpressionRecipe.UnionConstruct(branchId, [], [ childrenId, ExpressionRecipe.ListConstruct(treeType, [ input; input ]) ]))
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-recursive-run-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory root |> ignore
         let path = Path.Combine(root, "workspace.json")
@@ -68,10 +68,10 @@ module PureRunRecursiveTests =
     /// A chain of `count` Nodes; each Node adds a Product and an Option layer. Fields are in canonical ID order.
     let rec private chain count =
         let next = if count = 1 then None else Some(chain (count - 1))
-        PureRunValue.Product(nodeId, [ nextId, PureRunValue.OptionValue(nodeType, next); valueId, PureRunValue.Int64(int64 count) ])
+        PureRunValue.Product(nodeId, [], [ nextId, PureRunValue.OptionValue(nodeType, next); valueId, PureRunValue.Int64(int64 count) ])
 
-    let private leaf value = PureRunValue.Union(treeId, leafId, [ leafValueId, PureRunValue.Int64 value ])
-    let private branch children = PureRunValue.Union(treeId, branchId, [ childrenId, PureRunValue.ListValue(treeType, children) ])
+    let private leaf value = PureRunValue.Union(treeId, [], leafId, [ leafValueId, PureRunValue.Int64 value ])
+    let private branch children = PureRunValue.Union(treeId, [], branchId, [ childrenId, PureRunValue.ListValue(treeType, children) ])
 
     let rec private chainWire count =
         let next =
@@ -89,7 +89,7 @@ module PureRunRecursiveTests =
                 | other -> failwithf "Invalid recursive value accepted for %s: %A" name other
             // 17 Nodes need 34 layers.
             reject "node" [ chain 17 ] "RunArgumentTooLarge"
-            reject "node" [ PureRunValue.Product(nodeId, [ valueId, PureRunValue.Int64 1L; nextId, PureRunValue.OptionValue(treeType, None) ]) ] "RunProductShapeMismatch"
+            reject "node" [ PureRunValue.Product(nodeId, [], [ valueId, PureRunValue.Int64 1L; nextId, PureRunValue.OptionValue(treeType, None) ]) ] "RunProductShapeMismatch"
             reject "tree" [ branch [ chain 1 ] ] "RunContainerTypeMismatch"
             let request = $"""{{"id":"deep","op":"runPure","functionId":"{StableId.value (functionId "node")}","arguments":[{chainWire 17}]}}"""
             use response = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
@@ -110,7 +110,7 @@ module PureRunRecursiveTests =
             let tree = branch [ leaf 1L; branch []; branch [ leaf Int64.MinValue; branch [ leaf 3L ] ] ]
             roundtrip "tree" tree
             let pushed = PureRun.run session (functionId "push") [ chain 3 ] None |> unwrap
-            Assert.Equal(PureRunValue.Product(nodeId, [ nextId, PureRunValue.OptionValue(nodeType, Some(chain 3)); valueId, PureRunValue.Int64 0L ]), pushed.Actual)
+            Assert.Equal(PureRunValue.Product(nodeId, [], [ nextId, PureRunValue.OptionValue(nodeType, Some(chain 3)); valueId, PureRunValue.Int64 0L ]), pushed.Actual)
             let doubled = PureRun.run session (functionId "branch") [ tree ] (Some(branch [ tree; leaf 0L ])) |> unwrap
             Assert.Equal(Some false, doubled.Matches)
             Assert.Equal(branch [ tree; tree ], doubled.Actual)

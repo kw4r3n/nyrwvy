@@ -153,7 +153,7 @@ NyFunctions.{mainFunctionName}(empty, console);
                 [ AgentOperationIntent.AddFunctionParameter
                       { TargetFunctionId = fixture.ValidateFunctionId
                         NewParameterDisplayName = "policy"
-                        NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                        NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                         CallSitePlans = [ AgentCallPlan.LeaveMissing fixture.MainValidateCallNodeId ] } ]
             |> unwrap "incomplete agent simulation"
 

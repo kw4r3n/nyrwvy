@@ -59,7 +59,7 @@ module AuthoringParameterMigrationSessionTests =
             use session = AuthoringSession.createNew path |> unwrap "session creation"
 
             let typeRequest: AgentCreateTypeDeclarationRequest =
-                { ExpectedBaseSnapshotId = currentSnapshotId session
+                { TypeParameters = []; ExpectedBaseSnapshotId = currentSnapshotId session
                   DisplayName = "ValidationRequest"
                   Kind =
                     AgentTypeDeclarationKindIntent.Product
@@ -126,7 +126,7 @@ module AuthoringParameterMigrationSessionTests =
                 session.Declarations().Functions
                 |> List.find (fun item -> item.Id = classify.Id)
             Assert.Equal(classifyInput.Id, migratedClassify.Parameters.Head.Id)
-            Assert.Equal(TypeRef.Named requestType.Id, migratedClassify.Parameters.Head.Type)
+            Assert.Equal(TypeRef.Named(requestType.Id, []), migratedClassify.Parameters.Head.Type)
 
             let migratedProcess =
                 session.Declarations().Functions
@@ -142,6 +142,6 @@ module AuthoringParameterMigrationSessionTests =
                 reopened.Declarations().Functions
                 |> List.find (fun item -> item.Id = classify.Id)
             Assert.Equal(classifyInput.Id, reopenedClassify.Parameters.Head.Id)
-            Assert.Equal(TypeRef.Named requestType.Id, reopenedClassify.Parameters.Head.Type)
+            Assert.Equal(TypeRef.Named(requestType.Id, []), reopenedClassify.Parameters.Head.Type)
         finally
             if Directory.Exists root then Directory.Delete(root, true)

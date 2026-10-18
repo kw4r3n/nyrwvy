@@ -20,7 +20,7 @@ module AuthoringDependencySetTests =
     let private amountId = id<FieldTag> "amount"
 
     let private money name: SemanticType =
-        { Id = moneyId; DisplayName = name; Kind = SemanticTypeKind.Product [ { Id = amountId; DisplayName = "amount"; Type = intType } ] }
+        { TypeParameters = []; Id = moneyId; DisplayName = name; Kind = SemanticTypeKind.Product [ { Id = amountId; DisplayName = "amount"; Type = intType } ] }
 
     /// A function `name : Money -> Money` that returns its input.
     let private identity name: SemanticFunction =
@@ -28,8 +28,8 @@ module AuthoringDependencySetTests =
         let node = id<GraphNodeTag> (name + "-node")
         { Id = id<FunctionTag> name
           DisplayName = name
-          Parameters = [ { Id = parameter; DisplayName = "input"; Type = TypeRef.Named moneyId } ]
-          ResultType = TypeRef.Named moneyId
+          Parameters = [ { Id = parameter; DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
+          ResultType = TypeRef.Named(moneyId, [])
           RequiredEffects = []
           Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.ParameterReference parameter } ]; ResultNodeId = node } }
 
@@ -77,8 +77,8 @@ module AuthoringDependencySetTests =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                   DisplayName = "both"
-                  Parameters = [ { DisplayName = "input"; Type = TypeRef.Named moneyId } ]
-                  ResultType = TypeRef.Named moneyId
+                  Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
+                  ResultType = TypeRef.Named(moneyId, [])
                   RequiredEffects = []
                   Body =
                     ExpressionRecipe.DirectCall(id<FunctionTag> "keep",
@@ -135,11 +135,11 @@ module AuthoringDependencySetTests =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = (mid.Status() |> unwrap "status").SnapshotId
                   DisplayName = "grow"
-                  Parameters = [ { DisplayName = "input"; Type = TypeRef.Named moneyId } ]
-                  ResultType = TypeRef.Named moneyId
+                  Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
+                  ResultType = TypeRef.Named(moneyId, [])
                   RequiredEffects = []
                   Body =
-                    ExpressionRecipe.ProductConstruct(moneyId,
+                    ExpressionRecipe.ProductConstruct(moneyId, [],
                         [ amountId, ExpressionRecipe.Int64WrappingAdd(ExpressionRecipe.FieldAccess(ExpressionRecipe.ParameterSlot 0, amountId), ExpressionRecipe.Int64Literal 1L) ]) }
             let proposal = mid.SimulateCreateFunction request |> unwrap "grow"
             mid.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
@@ -171,8 +171,8 @@ module AuthoringDependencySetTests =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
               DisplayName = "wrap"
-              Parameters = [ { DisplayName = "input"; Type = TypeRef.Named moneyId } ]
-              ResultType = TypeRef.Named moneyId
+              Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
+              ResultType = TypeRef.Named(moneyId, [])
               RequiredEffects = []
               Body = ExpressionRecipe.DirectCall(id<FunctionTag> "keep", [ id<ParameterTag> "keep-input", ExpressionRecipe.ParameterSlot 0 ]) }
         let proposal = session.SimulateCreateFunction request |> unwrap "wrap"
@@ -270,7 +270,7 @@ module AuthoringDependencySetTests =
     let ``the same declaration with reordered Product fields is a conflict, not a merge`` () =
         let currencyId = id<FieldTag> "currency"
         let withFields fields: SemanticType =
-            { Id = moneyId; DisplayName = "Money"; Kind = SemanticTypeKind.Product fields }
+            { TypeParameters = []; Id = moneyId; DisplayName = "Money"; Kind = SemanticTypeKind.Product fields }
         let amount: SemanticField = { Id = amountId; DisplayName = "amount"; Type = intType }
         let currency: SemanticField = { Id = currencyId; DisplayName = "currency"; Type = TypeRef.Primitive PrimitiveType.String }
         let first = library "ordered" [ withFields [ amount; currency ] ] []

@@ -39,8 +39,9 @@ type PureRunValue =
     | Int64Option of int64 option
     | ResultOk of errorKind: PureRunScalarKind * value: PureRunScalar
     | ResultErr of okKind: PureRunScalarKind * error: PureRunScalar
-    | Product of typeId: TypeId * fields: (FieldId * PureRunValue) list
-    | Union of typeId: TypeId * variantId: VariantId * fields: (FieldId * PureRunValue) list
+    /// `typeArguments` instantiate a generic Product's type parameters; empty for a monomorphic one.
+    | Product of typeId: TypeId * typeArguments: TypeRef list * fields: (FieldId * PureRunValue) list
+    | Union of typeId: TypeId * typeArguments: TypeRef list * variantId: VariantId * fields: (FieldId * PureRunValue) list
     | ListValue of itemType: TypeRef * items: PureRunValue list
     | OptionValue of itemType: TypeRef * item: PureRunValue option
     /// A Map<K, V> as its entries in iteration (insertion) order, each key once.
@@ -194,8 +195,8 @@ module PureRun =
         | PureRunValue.MapValue(keyType, valueType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ])
         | PureRunValue.SetValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ])
         | PureRunValue.OptionValue(itemType, _) -> TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])
-        | PureRunValue.Product(typeId, _)
-        | PureRunValue.Union(typeId, _, _) -> TypeRef.Named typeId
+        | PureRunValue.Product(typeId, typeArguments, _)
+        | PureRunValue.Union(typeId, typeArguments, _, _) -> TypeRef.Named(typeId, typeArguments)
         | PureRunValue.ResultOk(errorKind, value) ->
             TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ scalarType (scalarKind value); scalarType errorKind ])
         | PureRunValue.ResultErr(okKind, error) ->
@@ -219,7 +220,8 @@ module PureRun =
         | TypeRef.Primitive PrimitiveType.Int64 -> "long"
         | TypeRef.Primitive PrimitiveType.Float64 -> "double"
         | TypeRef.Primitive PrimitiveType.Bits32 -> "uint"
-        | TypeRef.Named typeId -> CSharpBackendNames.typeName typeId
+        | TypeRef.Named(typeId, []) -> CSharpBackendNames.typeName typeId
+        | TypeRef.Named(typeId, arguments) -> CSharpBackendNames.typeName typeId + "<" + (arguments |> List.map sourceType |> String.concat ", ") + ">"
         | TypeRef.BuiltinGeneric(kind, arguments) ->
             let name = match kind with BuiltinGenericType.List -> "NyList" | BuiltinGenericType.Option -> "NyOption" | BuiltinGenericType.Result -> "NyResult" | BuiltinGenericType.Map -> "NyMap" | BuiltinGenericType.Set -> "NySet" | BuiltinGenericType.Exception | BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> invalidOp "Runtime handles are not run values."
             name + "<" + (arguments |> List.map sourceType |> String.concat ", ") + ">"
@@ -227,6 +229,20 @@ module PureRun =
 
     /// A String as one input token: "s" and the Base64 of its UTF-16 code units in this machine's
     /// byte order, which the child process shares.
+
+    /// `<A, B>` after a generic type's or variant's C# name; empty for a monomorphic type.
+    let private typeArgumentSuffix (typeArguments: TypeRef list) =
+        if List.isEmpty typeArguments then "" else "<" + (typeArguments |> List.map sourceType |> String.concat ", ") + ">"
+
+    let private namedParts (named: TypeRef) =
+        match named with
+        | TypeRef.Named(typeId, typeArguments) -> typeId, typeArguments
+        | _ -> invalidOp "A runner value helper was requested for a type that is not named."
+
+    /// A runner helper name for one named type instance; each generic instance gets a numbered name.
+    let private instanceName (prefix: string) (existing: System.Collections.Generic.Dictionary<TypeRef, string>) (named: TypeRef) =
+        let typeId, typeArguments = namedParts named
+        prefix + CSharpBackendNames.typeName typeId + (if List.isEmpty typeArguments then "" else "_" + string existing.Count)
     let private textToken (text: string) =
         "s" + Convert.ToBase64String(System.Runtime.InteropServices.MemoryMarshal.AsBytes(text.AsSpan()).ToArray())
 
@@ -272,8 +288,8 @@ module PureRun =
         | PureRunValue.ResultOk(_, payload) -> result true (scalarValue payload)
         | PureRunValue.ResultErr(_, payload) -> result false (scalarValue payload)
         | PureRunValue.ResultValue(_, _, isOk, payload) -> result isOk payload
-        | PureRunValue.Product(_, values) -> fields values
-        | PureRunValue.Union(typeId, variantId, values) ->
+        | PureRunValue.Product(_, _, values) -> fields values
+        | PureRunValue.Union(typeId, _, variantId, values) ->
             let variants = types |> List.tryFind (fun item -> item.Id = typeId) |> Option.bind (fun item ->
                 match item.Kind with
                 | SemanticTypeKind.Union variants -> Some(variants |> List.sortBy (fun variant -> StableId.value variant.Id))
@@ -344,8 +360,8 @@ module PureRun =
         | PureRunValue.MapValue(_, _, entries) -> entries |> List.collect (fun (key, value) -> [ key; value ])
         | PureRunValue.SetValue(_, items) -> items
         | PureRunValue.OptionValue(_, item) -> Option.toList item
-        | PureRunValue.Product(_, fields)
-        | PureRunValue.Union(_, _, fields) -> fields |> List.map snd
+        | PureRunValue.Product(_, _, fields)
+        | PureRunValue.Union(_, _, _, fields) -> fields |> List.map snd
         | PureRunValue.ResultValue(_, _, _, payload) -> [ payload ]
         | PureRunValue.FakeCapability(_, operations) ->
             operations |> List.collect (fun operation ->
@@ -376,8 +392,8 @@ module PureRun =
             | PureRunValue.ListValue(_, items) -> items.Length > 4096
             | PureRunValue.MapValue(_, _, entries) -> entries.Length > 4096
             | PureRunValue.SetValue(_, items) -> items.Length > 4096
-            | PureRunValue.Product(_, fields)
-            | PureRunValue.Union(_, _, fields) -> fields.Length > 256
+            | PureRunValue.Product(_, _, fields)
+            | PureRunValue.Union(_, _, _, fields) -> fields.Length > 256
             | PureRunValue.FakeCapability(_, operations) ->
                 operations.Length > 256 || operations |> List.exists (fun operation -> (PureRunFakeOperation.responses operation).Length > 256 || (operation.Cases |> Option.exists (fun cases -> cases.Length > 256 || cases |> List.exists (fun item -> item.Arguments.Length > 256))))
             | PureRunValue.StringList items ->
@@ -468,9 +484,9 @@ module PureRun =
         elif valueType expected <> valueType actual then here ()
         else
             match expected, actual with
-            | PureRunValue.Product(typeId, left), PureRunValue.Product(_, right) ->
+            | PureRunValue.Product(typeId, _, left), PureRunValue.Product(_, _, right) ->
                 fields (fun fieldId -> PureRunPathStep.Field(typeId, fieldId)) left right
-            | PureRunValue.Union(typeId, leftVariant, left), PureRunValue.Union(_, rightVariant, right) when leftVariant = rightVariant ->
+            | PureRunValue.Union(typeId, _, leftVariant, left), PureRunValue.Union(_, _, rightVariant, right) when leftVariant = rightVariant ->
                 fields (fun fieldId -> PureRunPathStep.Field(typeId, fieldId)) left right
             | _ ->
                 match items expected, items actual, payload expected, payload actual, result expected, result actual with
@@ -501,20 +517,30 @@ module PureRun =
         || itemType = TypeRef.Primitive PrimitiveType.Float64
         || itemType = TypeRef.Primitive PrimitiveType.Bits32
 
-    let private productFields (types: SemanticType list) typeId =
+    /// A Product's fields in ID order, at the given type arguments of a generic Product.
+    let private productFields (types: SemanticType list) typeId typeArguments =
         types |> List.tryFind (fun item -> item.Id = typeId)
         |> Option.bind (fun item ->
             match item.Kind with
-            | SemanticTypeKind.Product fields -> Some(fields |> List.sortBy (fun field -> StableId.value field.Id))
+            | SemanticTypeKind.Product fields ->
+                Some(fields
+                     |> List.sortBy (fun field -> StableId.value field.Id)
+                     |> List.map (fun field -> { field with Type = TypeParameters.instantiate item typeArguments field.Type }))
             | _ -> None)
 
-    let private unionVariants (types: SemanticType list) typeId =
+    /// A Union's variants and their fields in ID order, at the given type arguments of a generic Union.
+    let private unionVariants (types: SemanticType list) typeId typeArguments =
         types |> List.tryFind (fun item -> item.Id = typeId)
         |> Option.bind (fun item ->
             match item.Kind with
             | SemanticTypeKind.Union variants ->
                 Some(variants |> List.sortBy (fun variant -> StableId.value variant.Id)
-                     |> List.map (fun variant -> { variant with Fields = variant.Fields |> List.sortBy (fun field -> StableId.value field.Id) }))
+                     |> List.map (fun variant ->
+                         { variant with
+                             Fields =
+                                 variant.Fields
+                                 |> List.sortBy (fun field -> StableId.value field.Id)
+                                 |> List.map (fun field -> { field with Type = TypeParameters.instantiate item typeArguments field.Type }) }))
             | _ -> None)
 
     /// Maximum expanded size of a supported type, counting every type node reached through
@@ -532,11 +558,11 @@ module PureRun =
     /// maxValueLayers instead.
     let private typeSupport (types: SemanticType list) =
         let memo = System.Collections.Generic.Dictionary<TypeRef * int, int64 option>(HashIdentity.Structural)
-        let visiting = System.Collections.Generic.HashSet<TypeId>()
+        let visiting = System.Collections.Generic.HashSet<TypeRef>(HashIdentity.Structural)
         let rec cost depth itemType =
             match itemType with
             | _ when supportedLeaf itemType -> Some 1L
-            | TypeRef.Named typeId when visiting.Contains typeId -> Some 1L
+            | TypeRef.Named _ when visiting.Contains itemType -> Some 1L
             | _ when depth > 7 -> None
             | _ ->
                 match memo.TryGetValue((itemType, depth)) with
@@ -552,15 +578,15 @@ module PureRun =
                         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) -> total [ okType; errorType ]
                         | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) -> total [ keyType; valueType ]
                         | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) -> total [ item ]
-                        | TypeRef.Named typeId when visiting.Add typeId ->
+                        | TypeRef.Named(typeId, typeArguments) when visiting.Add itemType ->
                             try
-                                match productFields types typeId, unionVariants types typeId with
+                                match productFields types typeId typeArguments, unionVariants types typeId typeArguments with
                                 | Some fields, _ when fields.Length <= 256 -> total (fields |> List.map (fun field -> field.Type))
                                 | None, Some variants when not (List.isEmpty variants) && variants.Length <= 256
                                                            && variants |> List.forall (fun variant -> variant.Fields.Length <= 256) ->
                                     total (variants |> List.collect (fun variant -> variant.Fields |> List.map (fun field -> field.Type)))
                                 | _ -> None
-                            finally visiting.Remove typeId |> ignore
+                            finally visiting.Remove itemType |> ignore
                         | _ -> None
                     memo[(itemType, depth)] <- computed
                     computed
@@ -580,13 +606,13 @@ module PureRun =
 
     let rec private validProduct types value =
         match value with
-        | PureRunValue.Product(typeId, fields) when not (validFields (productFields types typeId) fields) -> false
+        | PureRunValue.Product(typeId, typeArguments, fields) when not (validFields (productFields types typeId typeArguments) fields) -> false
         | _ -> children value |> List.forall (validProduct types)
 
     let rec private validUnion types value =
         match value with
-        | PureRunValue.Union(typeId, variantId, fields) ->
-            let declared = unionVariants types typeId
+        | PureRunValue.Union(typeId, typeArguments, variantId, fields) ->
+            let declared = unionVariants types typeId typeArguments
                            |> Option.bind (List.tryFind (fun variant -> variant.Id = variantId))
                            |> Option.map (fun variant -> variant.Fields)
             validFields declared fields && (children value |> List.forall (validUnion types))
@@ -598,11 +624,11 @@ module PureRun =
             PureRunValue.MapValue(keyType, valueType, entries |> List.map (fun (key, value) -> canonicalValue key, canonicalValue value))
         | PureRunValue.SetValue(itemType, items) -> PureRunValue.SetValue(itemType, List.map canonicalValue items)
         | PureRunValue.OptionValue(itemType, item) -> PureRunValue.OptionValue(itemType, Option.map canonicalValue item)
-        | PureRunValue.Union(typeId, variantId, fields) ->
-            PureRunValue.Union(typeId, variantId, fields |> List.map (fun (fieldId, item) -> fieldId, canonicalValue item)
+        | PureRunValue.Union(typeId, typeArguments, variantId, fields) ->
+            PureRunValue.Union(typeId, typeArguments, variantId, fields |> List.map (fun (fieldId, item) -> fieldId, canonicalValue item)
                                                   |> List.sortBy (fst >> StableId.value))
-        | PureRunValue.Product(typeId, fields) ->
-            PureRunValue.Product(typeId, fields |> List.map (fun (fieldId, item) -> fieldId, canonicalValue item)
+        | PureRunValue.Product(typeId, typeArguments, fields) ->
+            PureRunValue.Product(typeId, typeArguments, fields |> List.map (fun (fieldId, item) -> fieldId, canonicalValue item)
                                          |> List.sortBy (fst >> StableId.value))
         | PureRunValue.ResultValue(okType, errorType, isOk, payload) ->
             PureRunValue.ResultValue(okType, errorType, isOk, canonicalValue payload)
@@ -676,17 +702,17 @@ module PureRun =
                             parseElement types keyType pair[0] |> Result.bind (fun key ->
                                 parseElement types valueType pair[1] |> Result.map (fun item -> (key, item) :: acc)))) (Ok [])
                     |> Result.map (fun entries -> PureRunValue.MapValue(keyType, valueType, List.rev entries))
-            | TypeRef.Named typeId, JsonValueKind.Array ->
-                match productFields types typeId with
-                | Some fields -> parseFields types fields value |> Result.map (fun parsed -> PureRunValue.Product(typeId, parsed))
+            | TypeRef.Named(typeId, typeArguments), JsonValueKind.Array ->
+                match productFields types typeId typeArguments with
+                | Some fields -> parseFields types fields value |> Result.map (fun parsed -> PureRunValue.Product(typeId, typeArguments, parsed))
                 | None ->
                     let variant =
                         if value.GetArrayLength() <> 2 || value[0].ValueKind <> JsonValueKind.String then None
-                        else unionVariants types typeId
+                        else unionVariants types typeId typeArguments
                              |> Option.bind (List.tryFind (fun variant -> StableId.value variant.Id = value[0].GetString()))
                     match variant with
                     | Some variant -> parseFields types variant.Fields value[1]
-                                      |> Result.map (fun parsed -> PureRunValue.Union(typeId, variant.Id, parsed))
+                                      |> Result.map (fun parsed -> PureRunValue.Union(typeId, typeArguments, variant.Id, parsed))
                     | None -> Error(diagnostic "RunInvalidResult" "The Union result does not match its declaration.")
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]), JsonValueKind.Array
                 when value.GetArrayLength() = 2
@@ -897,9 +923,9 @@ module PureRun =
             let mismatch = if declared <> actual then issue mismatchCode path (Some declared) (Some actual) "The value type differs from the declared type." else None
             if mismatch.IsSome then mismatch
             else
-                let fields shapeCode path typeId (declared: SemanticField list option) (fields: (FieldId * PureRunValue) list) =
+                let fields shapeCode path typeId typeArguments (declared: SemanticField list option) (fields: (FieldId * PureRunValue) list) =
                     match declared with
-                    | None -> issue shapeCode path (Some(TypeRef.Named typeId)) (Some actual) "The Product type or Union variant is not declared."
+                    | None -> issue shapeCode path (Some(TypeRef.Named(typeId, typeArguments))) (Some actual) "The Product type or Union variant is not declared."
                     | Some declared ->
                         let known = declared |> List.map (fun f -> f.Id) |> Set.ofList
                         match fields |> List.tryFind (fun (id, _) -> not (Set.contains id known)) with
@@ -936,11 +962,11 @@ module PureRun =
                                         declaration.Parameters |> List.tryFind (fun parameter -> parameter.Id = id)
                                         |> Option.bind (fun parameter -> walk "RunBindingShapeMismatch" (casePath @ [ $"arguments[{argumentIndex}]"; "value" ]) parameter.Type value))
                                     |> Option.orElseWith (fun () -> responses casePath item.Responses))))
-                | PureRunValue.Product(typeId, values) -> fields "RunProductShapeMismatch" (path @ [ typeName typeId ]) typeId (productFields declarations.Types typeId) values
-                | PureRunValue.Union(typeId, variantId, values) ->
-                    let variant = unionVariants declarations.Types typeId |> Option.bind (List.tryFind (fun v -> v.Id = variantId))
+                | PureRunValue.Product(typeId, typeArguments, values) -> fields "RunProductShapeMismatch" (path @ [ typeName typeId ]) typeId typeArguments (productFields declarations.Types typeId typeArguments) values
+                | PureRunValue.Union(typeId, typeArguments, variantId, values) ->
+                    let variant = unionVariants declarations.Types typeId typeArguments |> Option.bind (List.tryFind (fun v -> v.Id = variantId))
                     let name = variant |> Option.map (fun v -> v.DisplayName) |> Option.defaultValue ("variant:" + StableId.value variantId)
-                    fields "RunUnionShapeMismatch" (path @ [ typeName typeId; name ]) typeId (variant |> Option.map (fun v -> v.Fields)) values
+                    fields "RunUnionShapeMismatch" (path @ [ typeName typeId; name ]) typeId typeArguments (variant |> Option.map (fun v -> v.Fields)) values
                 | PureRunValue.ListValue(itemType, values) ->
                     items path itemType values |> Option.orElseWith (fun () ->
                         if supportedScalar itemType then issue "RunContainerTypeMismatch" path (Some declared) (Some actual) "Scalar List values use the flat itemKind/items representation; nested tagged List values use itemType."
@@ -1215,8 +1241,9 @@ module PureRun =
                             nextName <- nextName + 1
                             "v" + string nextName
                         // Each named type is encoded by one local function, so recursive types stay finite.
-                        let encoders = System.Collections.Generic.Dictionary<TypeId, string>()
-                        let pending = System.Collections.Generic.Queue<TypeId>()
+                        // One encoder per named type instance: a generic type gets one per type-argument list.
+                        let encoders = System.Collections.Generic.Dictionary<TypeRef, string>(HashIdentity.Structural)
+                        let pending = System.Collections.Generic.Queue<TypeRef>()
                         let layerLimit = string maxValueLayers
                         let rec encode itemType access (depthBase: string) (offset: int) =
                             let depth = if offset = 0 then depthBase else depthBase + " + " + string offset
@@ -1249,29 +1276,30 @@ module PureRun =
                                     let ok = array [ "true"; encode okType (access + ".OkValue") depthBase (offset + 1) ]
                                     let error = array [ "false"; encode errorType (access + ".ErrorValue") depthBase (offset + 1) ]
                                     layer $"({access}.IsOk ? {ok} : {error})"
-                                | TypeRef.Named typeId ->
-                                    if not (encoders.ContainsKey typeId) then
-                                        encoders[typeId] <- "Encode" + CSharpBackendNames.typeName typeId
-                                        pending.Enqueue typeId
-                                    encoders[typeId] + "(" + access + ", " + depth + ")"
+                                | TypeRef.Named _ ->
+                                    if not (encoders.ContainsKey itemType) then
+                                        encoders[itemType] <- instanceName "Encode" encoders itemType
+                                        pending.Enqueue itemType
+                                    encoders[itemType] + "(" + access + ", " + depth + ")"
                                 | _ -> invalidOp "Unsupported output type passed validation."
                             "Count(" + expression + ")"
-                        let encodeNamed typeId =
+                        let encodeNamed (named: TypeRef) =
+                            let typeId, typeArguments = namedParts named
                             let fields owner (fields: SemanticField list) =
                                 fields |> List.map (fun field -> encode field.Type (owner + "." + CSharpBackendNames.fieldName field.Id) "depth" 1)
                                 |> fun items -> "new object[] { " + String.concat ", " items + " }"
                             let body =
-                                match productFields declarations.Types typeId with
+                                match productFields declarations.Types typeId typeArguments with
                                 | Some declared -> fields "value" declared
                                 | None ->
-                                    let cases = unionVariants declarations.Types typeId |> Option.get
+                                    let cases = unionVariants declarations.Types typeId typeArguments |> Option.get
                                     let fallback = "throw new RunnerException(\"Unknown or null Union variant.\")"
                                     List.foldBack (fun (variant: SemanticVariant) rest ->
                                         let name = fresh ()
-                                        let variantName = CSharpBackendNames.variantName variant.Id
+                                        let variantName = CSharpBackendNames.variantName variant.Id + typeArgumentSuffix typeArguments
                                         let tag = JsonSerializer.Serialize(StableId.value variant.Id)
                                         $"(value is {variantName} {name} ? new object[] {{ {tag}, {fields name variant.Fields} }} : {rest})") cases fallback
-                            $"object {encoders[typeId]}({CSharpBackendNames.typeName typeId} value, int depth) => depth >= {layerLimit} ? throw new RunnerException(\"Result exceeds {layerLimit} composite layers.\") : {body};\n"
+                            $"object {encoders[named]}({sourceType named} value, int depth) => depth >= {layerLimit} ? throw new RunnerException(\"Result exceeds {layerLimit} composite layers.\") : {body};\n"
                         let encoded = encode fn.ResultType "result" "0" 0
                         let callArms =
                             sites |> List.mapi (fun site call ->
@@ -1283,10 +1311,10 @@ module PureRun =
                             |> String.concat ""
                         // Argument values and fake scripts are decoded from the input file, never compiled in:
                         // one decoder and one key writer per named type, like the encoders.
-                        let decoders = System.Collections.Generic.Dictionary<TypeId, string>()
-                        let keyWriters = System.Collections.Generic.Dictionary<TypeId, string>()
-                        let decodePending = System.Collections.Generic.Queue<TypeId>()
-                        let keyPending = System.Collections.Generic.Queue<TypeId>()
+                        let decoders = System.Collections.Generic.Dictionary<TypeRef, string>(HashIdentity.Structural)
+                        let keyWriters = System.Collections.Generic.Dictionary<TypeRef, string>(HashIdentity.Structural)
+                        let decodePending = System.Collections.Generic.Queue<TypeRef>()
+                        let keyPending = System.Collections.Generic.Queue<TypeRef>()
                         let rec decode itemType =
                             match itemType with
                             | TypeRef.Primitive PrimitiveType.Unit -> "input.Unit()"
@@ -1310,27 +1338,28 @@ module PureRun =
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
                                 let name = sourceType itemType
                                 $"(input.Bool() ? {name}.Ok({decode okType}) : {name}.Err({decode errorType}))"
-                            | TypeRef.Named typeId ->
-                                if not (decoders.ContainsKey typeId) then
-                                    decoders[typeId] <- "Decode" + CSharpBackendNames.typeName typeId
-                                    decodePending.Enqueue typeId
-                                "RunnerValues." + decoders[typeId] + "(input)"
+                            | TypeRef.Named _ ->
+                                if not (decoders.ContainsKey itemType) then
+                                    decoders[itemType] <- instanceName "Decode" decoders itemType
+                                    decodePending.Enqueue itemType
+                                "RunnerValues." + decoders[itemType] + "(input)"
                             | _ -> invalidOp "Unsupported input type passed validation."
                         let decodeFields (fields: SemanticField list) =
                             fields |> List.map (fun field -> CSharpBackendNames.fieldName field.Id + ": " + decode field.Type) |> String.concat ", "
-                        let decodeNamed typeId =
-                            let typeName = CSharpBackendNames.typeName typeId
+                        let decodeNamed (named: TypeRef) =
+                            let typeId, typeArguments = namedParts named
+                            let typeName = sourceType named
                             let body =
-                                match productFields declarations.Types typeId with
+                                match productFields declarations.Types typeId typeArguments with
                                 | Some declared -> $"new {typeName}({decodeFields declared})"
                                 | None ->
                                     let arms =
-                                        unionVariants declarations.Types typeId |> Option.get
+                                        unionVariants declarations.Types typeId typeArguments |> Option.get
                                         |> List.mapi (fun index variant ->
-                                            $"{index} => ({typeName})new {CSharpBackendNames.variantName variant.Id}({decodeFields variant.Fields}), ")
+                                            $"{index} => ({typeName})new {CSharpBackendNames.variantName variant.Id}{typeArgumentSuffix typeArguments}({decodeFields variant.Fields}), ")
                                         |> String.concat ""
                                     "input.Count() switch { " + arms + "_ => throw new InvalidOperationException(\"Invalid runner input.\") }"
-                            $"    public static {typeName} {decoders[typeId]}(RunnerInput input) => {body};\n"
+                            $"    public static {typeName} {decoders[named]}(RunnerInput input) => {body};\n"
                         // Writes a value in the input token form, for comparison with a keyed case.
                         let rec keyStatement itemType access =
                             match itemType with
@@ -1355,31 +1384,32 @@ module PureRun =
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
                                 let ok, error = keyStatement okType (access + ".OkValue"), keyStatement errorType (access + ".ErrorValue")
                                 $"if ({access}.IsOk) {{ key.Add(\"1\"); {ok} }} else {{ key.Add(\"0\"); {error} }}"
-                            | TypeRef.Named typeId ->
-                                if not (keyWriters.ContainsKey typeId) then
-                                    keyWriters[typeId] <- "Key" + CSharpBackendNames.typeName typeId
-                                    keyPending.Enqueue typeId
-                                $"RunnerValues.{keyWriters[typeId]}(key, {access});"
+                            | TypeRef.Named _ ->
+                                if not (keyWriters.ContainsKey itemType) then
+                                    keyWriters[itemType] <- instanceName "Key" keyWriters itemType
+                                    keyPending.Enqueue itemType
+                                $"RunnerValues.{keyWriters[itemType]}(key, {access});"
                             | _ -> invalidOp "Unsupported key type passed validation."
                         let keyFields owner (fields: SemanticField list) =
                             fields |> List.map (fun field -> keyStatement field.Type (owner + "." + CSharpBackendNames.fieldName field.Id)) |> String.concat " "
-                        let keyNamed typeId =
-                            let typeName = CSharpBackendNames.typeName typeId
+                        let keyNamed (named: TypeRef) =
+                            let typeId, typeArguments = namedParts named
+                            let typeName = sourceType named
                             let body =
-                                match productFields declarations.Types typeId with
+                                match productFields declarations.Types typeId typeArguments with
                                 | Some declared -> "if (value == null) { key.Null(); return; } " + keyFields "value" declared
                                 | None ->
                                     let arms =
-                                        unionVariants declarations.Types typeId |> Option.get
+                                        unionVariants declarations.Types typeId typeArguments |> Option.get
                                         |> List.mapi (fun index variant ->
-                                            let variantName = CSharpBackendNames.variantName variant.Id
+                                            let variantName = CSharpBackendNames.variantName variant.Id + typeArgumentSuffix typeArguments
                                             if List.isEmpty variant.Fields then $"case {variantName}: key.Add({index}); break; "
                                             else
                                                 let name = fresh ()
                                                 $"case {variantName} {name}: key.Add({index}); {keyFields name variant.Fields} break; ")
                                         |> String.concat ""
                                     "switch (value) { " + arms + "default: key.Null(); break; }"
-                            $"    public static void {keyWriters[typeId]}(RunnerKey key, {typeName} value) {{ {body} }}\n"
+                            $"    public static void {keyWriters[named]}(RunnerKey key, {typeName} value) {{ {body} }}\n"
                         let concurrent = CSharpBackend.usesConcurrencyRuntime program
                         let fakeClasses =
                             let mutable site = 0

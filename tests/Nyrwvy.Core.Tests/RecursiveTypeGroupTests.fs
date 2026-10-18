@@ -16,15 +16,15 @@ module RecursiveTypeGroupTests =
     let private field displayName typeRef: AgentTypeFieldIntent = { DisplayName = displayName; Type = typeRef }
     let private variant displayName fields: AgentTypeVariantIntent = { DisplayName = displayName; Fields = fields }
     let private product name fields: AgentTypeDeclarationGroupMember =
-        { Reference = reference name; DisplayName = name; Kind = AgentTypeDeclarationKindIntent.Product fields }
+        { TypeParameters = []; Reference = reference name; DisplayName = name; Kind = AgentTypeDeclarationKindIntent.Product fields }
     let private union name variants: AgentTypeDeclarationGroupMember =
-        { Reference = reference name; DisplayName = name; Kind = AgentTypeDeclarationKindIntent.Union variants }
-    let private named name = TypeRef.Named(reference name)
+        { TypeParameters = []; Reference = reference name; DisplayName = name; Kind = AgentTypeDeclarationKindIntent.Union variants }
+    let private named name = TypeRef.Named(reference name, [])
 
     let private workspace () =
         let snapshot =
             { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-type-group") with
-                Types = [ { Id = StableId.createForTesting<TypeTag> "type-group-existing"; DisplayName = "Existing"; Kind = SemanticTypeKind.Product [] } ] }
+                Types = [ { TypeParameters = []; Id = StableId.createForTesting<TypeTag> "type-group-existing"; DisplayName = "Existing"; Kind = SemanticTypeKind.Product [] } ] }
         match AgentWorkspace.create snapshot with
         | Ok value -> value, snapshot.Id
         | Error issues -> failwithf "Invalid fixture: %A" issues
@@ -51,7 +51,7 @@ module RecursiveTypeGroupTests =
                 | SemanticTypeKind.Product fields -> fields
                 | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields))
             |> List.map (fun item -> item.Type)
-        Assert.Equal<TypeRef list>([ stringType; listOf (TypeRef.Named jsonId); listOf (TypeRef.Named memberId); stringType; TypeRef.Named jsonId ], fieldTypes)
+        Assert.Equal<TypeRef list>([ stringType; listOf (TypeRef.Named(jsonId, [])); listOf (TypeRef.Named(memberId, [])); stringType; TypeRef.Named(jsonId, []) ], fieldTypes)
         match AgentTypeDeclarationWorkflow.commitGroup ws proposal with
         | AgentTypeDeclarationGroupCommitResult.Committed(next, publication) ->
             Assert.Equal<TypeId list>([ jsonId; memberId ], publication.CreatedTypeIds)

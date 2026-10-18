@@ -198,7 +198,8 @@ module SemanticQuery =
             | TypeRef.TypeParameter _ -> ()
             | TypeRef.Function(arguments, result) -> (arguments @ [ result ]) |> List.iter visitTypeRef
             | TypeRef.BuiltinGeneric(_, arguments) -> arguments |> List.iter visitTypeRef
-            | TypeRef.Named typeId ->
+            | TypeRef.Named(typeId, arguments) ->
+                arguments |> List.iter visitTypeRef
                 if not (Set.contains typeId typeIds) then
                     typeIds <- Set.add typeId typeIds
                     match Map.tryFind typeId typesById with

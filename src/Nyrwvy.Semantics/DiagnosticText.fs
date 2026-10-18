@@ -19,10 +19,13 @@ module DiagnosticText =
         | TypeRef.Primitive PrimitiveType.Int64 -> "Int64"
         | TypeRef.Primitive PrimitiveType.Float64 -> "Float64"
         | TypeRef.Primitive PrimitiveType.Bits32 -> "Bits32"
-        | TypeRef.Named typeId ->
-            match snapshot.Types |> List.tryFind (fun typeEntity -> typeEntity.Id = typeId) with
-            | Some typeEntity -> typeEntity.DisplayName
-            | None -> $"type '{StableId.value typeId}'"
+        | TypeRef.Named(typeId, arguments) ->
+            let name =
+                match snapshot.Types |> List.tryFind (fun typeEntity -> typeEntity.Id = typeId) with
+                | Some typeEntity -> typeEntity.DisplayName
+                | None -> $"type '{StableId.value typeId}'"
+            if List.isEmpty arguments then name
+            else generic name arguments
         | TypeRef.Capability capabilityId ->
             match snapshot.Capabilities |> List.tryFind (fun capability -> capability.Id = capabilityId) with
             | Some capability -> capability.DisplayName
@@ -65,7 +68,7 @@ module DiagnosticText =
     /// A type with the ID of a top-level named type appended, e.g. `'Tail' (01a0…)`.
     let typeRefWithId (snapshot: Snapshot) (value: TypeRef) =
         match value with
-        | TypeRef.Named typeId -> namedType snapshot typeId
+        | TypeRef.Named(typeId, []) -> namedType snapshot typeId
         | _ -> typeRef snapshot value
 
     /// The normal-completion type, or a note that the expression never completes normally.

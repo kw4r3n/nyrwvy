@@ -79,7 +79,7 @@ module AgentProductFieldTypeMigrationWorkflow =
             ValueGraph.collectNodes fn.Body
             |> List.exists (fun node ->
                 match node.Kind with
-                | SemanticNodeKind.ProductConstruct(constructed, _) -> constructed = typeId
+                | SemanticNodeKind.ProductConstruct(constructed, _, _) -> constructed = typeId
                 | SemanticNodeKind.FieldAccess(_, accessed) -> accessed = fieldId
                 | SemanticNodeKind.ProductUpdate(_, _, bindings) ->
                     bindings |> List.exists (fun binding -> binding.TargetFieldId = fieldId)
@@ -105,11 +105,13 @@ module AgentProductFieldTypeMigrationWorkflow =
         else
             // The new type is checked like a declared field type, so an unknown or ill-formed type
             // is reported before any rewrite is bound against it.
+            // A field of a generic Product may use the Product's own type parameters.
             let newFieldTypeCheck =
-                validateDeclaredTypeRef
+                validateDeclaredTypeRefWith
                     "FieldTypeMigration"
                     (baseSnapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList)
                     (baseSnapshot.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList)
+                    (owner |> Option.map (fun (ownerType, _, _) -> ownerType.TypeParameters |> List.map fst |> Set.ofList) |> Option.defaultValue Set.empty)
                     "The new field type"
                     request.NewFieldType
             match owner, newFieldTypeCheck with

@@ -455,7 +455,7 @@ module AgentPureExpressionStructuralWorkflowTests =
         |> assertRejectedCode "PureExpressionOperandTypeMismatch"
 
         let missingType = StableId.createForTesting<TypeTag> "type-pure-structural-missing"
-        request fixture fixture.ListTargetId (PureExpressionRecipe.ListEmpty(TypeRef.Named missingType))
+        request fixture fixture.ListTargetId (PureExpressionRecipe.ListEmpty(TypeRef.Named(missingType, [])))
         |> AgentPureExpressionStructuralWorkflow.simulate workspace
         |> assertRejectedCode "PureExpressionInvalidTypeRef"
 

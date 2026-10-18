@@ -55,7 +55,7 @@ module ValueEqualTests =
 
     let private field name t: AgentTypeFieldIntent = { DisplayName = name; Type = t }
     let private createType (session: AuthoringSession) name kind =
-        session.SimulateCreateType { ExpectedBaseSnapshotId = current session; DisplayName = name; Kind = kind } |> unwrap |> publish session
+        session.SimulateCreateType { TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = name; Kind = kind } |> unwrap |> publish session
         session.Declarations().Types |> List.find (fun item -> item.DisplayName = name)
     let private product session name fields = createType session name (AgentTypeDeclarationKindIntent.Product(fields |> List.map (fun (n, t) -> field n t)))
     let private fieldOf (typeEntity: SemanticType) name =
@@ -91,12 +91,12 @@ module ValueEqualTests =
               TargetTypeId = chainStart.Id
               SourceVariantId = variantOf chainStart "End"
               NewVariantDisplayName = "Link" },
-            [ field "value" textType; field "tags" (listOf textType); field "next" (TypeRef.Named chainStart.Id) ])
+            [ field "value" textType; field "tags" (listOf textType); field "next" (TypeRef.Named(chainStart.Id, [])) ])
         |> unwrap |> publish session
         let chain = session.Declarations().Types |> List.find (fun item -> item.Id = chainStart.Id)
-        let box = product session "Box" [ "keys", listOf (TypeRef.Named key.Id); "outcome", resultOf intType textType ]
+        let box = product session "Box" [ "keys", listOf (TypeRef.Named(key.Id, [])); "outcome", resultOf intType textType ]
         let measure = product session "Measure" [ "label", textType; "value", floatType ]
-        let holder = product session "Holder" [ "measures", listOf (TypeRef.Named measure.Id) ]
+        let holder = product session "Holder" [ "measures", listOf (TypeRef.Named(measure.Id, [])) ]
         { Key = key; Shape = shape; Chain = chain; Box = box; Holder = holder }
 
     [<Fact>]
@@ -107,16 +107,16 @@ module ValueEqualTests =
             let equatable = EquatableTypes.isEquatable all
             for t in
                 [ textType; intType; boolType; TypeRef.Primitive PrimitiveType.Unit
-                  TypeRef.Named types.Key.Id; TypeRef.Named types.Shape.Id; TypeRef.Named types.Chain.Id; TypeRef.Named types.Box.Id
-                  listOf (optionOf (resultOf (TypeRef.Named types.Key.Id) (listOf textType))) ] do
+                  TypeRef.Named(types.Key.Id, []); TypeRef.Named(types.Shape.Id, []); TypeRef.Named(types.Chain.Id, []); TypeRef.Named(types.Box.Id, [])
+                  listOf (optionOf (resultOf (TypeRef.Named(types.Key.Id, [])) (listOf textType))) ] do
                 Assert.True(equatable t, sprintf "%A" t)
             for t in
                 [ floatType; optionOf floatType; TypeRef.Function([ intType ], intType); taskType
                   TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])
                   TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "t", "T")
-                  TypeRef.Named types.Holder.Id; resultOf intType (TypeRef.Named types.Holder.Id) ] do
+                  TypeRef.Named(types.Holder.Id, []); resultOf intType (TypeRef.Named(types.Holder.Id, [])) ] do
                 Assert.False(equatable t, sprintf "%A" t)
-            match EquatableTypes.firstNotEquatable all (optionOf (TypeRef.Named types.Holder.Id)) with
+            match EquatableTypes.firstNotEquatable all (optionOf (TypeRef.Named(types.Holder.Id, []))) with
             | Some(path, offending) ->
                 Assert.Equal<string list>([ "Option value"; "Holder.measures"; "List item"; "Measure.value" ], path)
                 Assert.Equal(floatType, offending)
@@ -124,20 +124,20 @@ module ValueEqualTests =
             // A recursive type is not equatable when a field anywhere on the cycle is not.
             let recursiveId = StableId.createForTesting<TypeTag> "type-tree"
             let tree payload: SemanticType =
-                { Id = recursiveId; DisplayName = "Tree"
+                { TypeParameters = []; Id = recursiveId; DisplayName = "Tree"
                   Kind =
                     SemanticTypeKind.Product
-                        [ { Id = StableId.createForTesting<FieldTag> "field-children"; DisplayName = "children"; Type = listOf (TypeRef.Named recursiveId) }
+                        [ { Id = StableId.createForTesting<FieldTag> "field-children"; DisplayName = "children"; Type = listOf (TypeRef.Named(recursiveId, [])) }
                           { Id = StableId.createForTesting<FieldTag> "field-payload"; DisplayName = "payload"; Type = payload } ] }
-            Assert.True(EquatableTypes.isEquatable [ tree textType ] (TypeRef.Named recursiveId))
-            Assert.False(EquatableTypes.isEquatable [ tree floatType ] (TypeRef.Named recursiveId))
-            Assert.Contains("Tree.payload", EquatableTypes.explain [ tree floatType ] (TypeRef.Named recursiveId)))
+            Assert.True(EquatableTypes.isEquatable [ tree textType ] (TypeRef.Named(recursiveId, [])))
+            Assert.False(EquatableTypes.isEquatable [ tree floatType ] (TypeRef.Named(recursiveId, [])))
+            Assert.Contains("Tree.payload", EquatableTypes.explain [ tree floatType ] (TypeRef.Named(recursiveId, []))))
 
     [<Fact>]
     let ``ValueEqual checks its operands in recipes and persisted graphs`` () =
         withSession (fun session _ ->
             let types = fixture session
-            let named (t: SemanticType) = TypeRef.Named t.Id
+            let named (t: SemanticType) = TypeRef.Named(t.Id, [])
             // Accepted: declared, recursive and nested builtin types.
             [ textType; boolType; TypeRef.Primitive PrimitiveType.Unit; named types.Key; named types.Shape; named types.Chain; named types.Box
               listOf (optionOf (resultOf (named types.Key) (listOf textType))) ]
@@ -226,16 +226,16 @@ module ValueEqualTests =
     let ``ValueEqual compares values structurally through runPure`` () =
         withSession (fun session path ->
             let types = fixture session
-            let keyType = TypeRef.Named types.Key.Id
+            let keyType = TypeRef.Named(types.Key.Id, [])
             let sameKey = create session "sameKey" [ "a", keyType; "b", keyType ] boolType (equal (slot 0) (slot 1))
             let sameTexts = create session "sameTexts" [ "a", listOf textType; "b", listOf textType ] boolType (equal (slot 0) (slot 1))
             // Products holding lists: each side is built from its own list instance, so reference
             // equality of the lists would give false.
             let boxOf keys outcome =
-                ExpressionRecipe.ProductConstruct(types.Box.Id, [ fieldOf types.Box "keys", keys; fieldOf types.Box "outcome", outcome ])
+                ExpressionRecipe.ProductConstruct(types.Box.Id, [], [ fieldOf types.Box "keys", keys; fieldOf types.Box "outcome", outcome ])
             let keyOf role backend =
                 ExpressionRecipe.ProductConstruct(
-                    types.Key.Id,
+                    types.Key.Id, [],
                     [ fieldOf types.Key "role", str role
                       fieldOf types.Key "backend", (match backend with Some text -> ExpressionRecipe.OptionSome(str text) | None -> ExpressionRecipe.OptionNone textType)
                       fieldOf types.Key "provider", ExpressionRecipe.OptionNone textType ])
@@ -248,7 +248,7 @@ module ValueEqualTests =
                   "boxesOption", boxOf (keys [ "a", Some "x" ]) (ok 1L), boxOf (keys [ "a", None ]) (ok 1L), false
                   "boxesResult", boxOf (keys []) (ok 1L), boxOf (keys []) (ExpressionRecipe.ResultErr(intType, str "1")), false ]
             let shape variant fields =
-                ExpressionRecipe.UnionConstruct(variantOf types.Shape variant, fields |> List.map (fun (name, value) -> fieldOf types.Shape name, int value))
+                ExpressionRecipe.UnionConstruct(variantOf types.Shape variant, [], fields |> List.map (fun (name, value) -> fieldOf types.Shape name, int value))
             let shapes =
                 [ "shapesSame", shape "Circle" [ "radius", 1L ], shape "Circle" [ "radius", 1L ], true
                   "shapesField", shape "Circle" [ "radius", 1L ], shape "Circle" [ "radius", 2L ], false
@@ -256,10 +256,10 @@ module ValueEqualTests =
                   "shapesEmpty", shape "Dot" [], shape "Dot" [], true ]
             let rec chainOf (values: (string * string list) list) =
                 match values with
-                | [] -> ExpressionRecipe.UnionConstruct(variantOf types.Chain "End", [])
+                | [] -> ExpressionRecipe.UnionConstruct(variantOf types.Chain "End", [], [])
                 | (value, tags) :: rest ->
                     ExpressionRecipe.UnionConstruct(
-                        variantOf types.Chain "Link",
+                        variantOf types.Chain "Link", [],
                         [ fieldOf types.Chain "value", str value
                           fieldOf types.Chain "tags", ExpressionRecipe.ListConstruct(textType, tags |> List.map str)
                           fieldOf types.Chain "next", chainOf rest ])
@@ -276,7 +276,7 @@ module ValueEqualTests =
                 Assert.True(PureRunValue.Bool expected = run fn [], fn.DisplayName)
             let key role backend provider =
                 PureRunValue.Product(
-                    types.Key.Id,
+                    types.Key.Id, [],
                     [ fieldOf types.Key "role", PureRunValue.String role
                       fieldOf types.Key "backend", PureRunValue.StringOption backend
                       fieldOf types.Key "provider", PureRunValue.StringOption provider ])

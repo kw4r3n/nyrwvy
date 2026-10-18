@@ -28,7 +28,7 @@ module MilestoneFourProviderEndToEndTests =
 
     let private createOutcomeType (session: AuthoringSession) =
         let request: AgentCreateTypeDeclarationRequest =
-            { ExpectedBaseSnapshotId = currentSnapshotId session
+            { TypeParameters = []; ExpectedBaseSnapshotId = currentSnapshotId session
               DisplayName = "ValidationOutcome"
               Kind =
                 AgentTypeDeclarationKindIntent.Union
@@ -209,7 +209,7 @@ NyFunctions.{functionName}("not-an-email", console);
                         session
                         "classify"
                         [ classifyParameter ]
-                        (TypeRef.Named outcome.Id)
+                        (TypeRef.Named(outcome.Id, []))
                         []
                         (ExpressionRecipe.Conditional(
                             ExpressionRecipe.StringContains(
@@ -217,11 +217,11 @@ NyFunctions.{functionName}("not-an-email", console);
                                 ExpressionRecipe.StringLiteral "@"
                             ),
                             ExpressionRecipe.UnionConstruct(
-                                accepted.Id,
+                                accepted.Id, [],
                                 [ acceptedField.Id, ExpressionRecipe.StringLiteral "accepted" ]
                             ),
                             ExpressionRecipe.UnionConstruct(
-                                rejected.Id,
+                                rejected.Id, [],
                                 [ rejectedField.Id, ExpressionRecipe.StringLiteral "rejected" ]
                             )
                         ))

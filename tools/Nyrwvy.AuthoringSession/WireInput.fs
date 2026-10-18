@@ -207,6 +207,25 @@ module internal WireInput =
             | value -> fail $"Unsupported builtin generic '{value}'."
         TypeRef.BuiltinGeneric(generic, array "arguments" element |> List.map argument)
 
+    /// Optional type arguments of a generic Product or Union (absent or empty for none).
+    let optionalTypeArguments (name: string) (argument: JsonElement -> TypeRef) (element: JsonElement) =
+        match tryProperty name element with
+        | None -> []
+        | Some _ -> array name element |> List.map argument
+
+    /// A type declaration's optional `typeParameters`: request-local names that its field types
+    /// refer to as `{"kind":"typeParameter","name":...}`; creation allocates their identities.
+    let typeParameterNames (element: JsonElement) : (TypeParameterId * string) list =
+        match tryProperty "typeParameters" element with
+        | None -> []
+        | Some _ ->
+            array "typeParameters" element
+            |> List.map (fun item ->
+                if item.ValueKind <> JsonValueKind.String then fail "typeParameters must list type parameter names as strings."
+                let name = item.GetString()
+                if System.String.IsNullOrWhiteSpace name then fail "Type parameter names must not be blank."
+                stableId<TypeParameterTag> "typeParameters" name, name)
+
     let rec typeRef (element: JsonElement): TypeRef =
         match requiredString "kind" element with
         | "function" ->
@@ -215,8 +234,8 @@ module internal WireInput =
         | "primitive" ->
             primitiveType element
         | "named" ->
-            ensureFields "named type" [ "kind"; "typeId" ] [ "kind"; "typeId" ] element
-            TypeRef.Named(id<TypeTag> "typeId" element)
+            ensureFields "named type" [ "kind"; "typeId"; "arguments" ] [ "kind"; "typeId" ] element
+            TypeRef.Named(id<TypeTag> "typeId" element, optionalTypeArguments "arguments" typeRef element)
         | "capability" ->
             ensureFields "capability type" [ "kind"; "capabilityId" ] [ "kind"; "capabilityId" ] element
             TypeRef.Capability(id<CapabilityTag> "capabilityId" element)

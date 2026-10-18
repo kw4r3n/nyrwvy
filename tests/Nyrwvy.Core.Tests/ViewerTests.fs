@@ -384,7 +384,7 @@ module ViewerTests =
                     { TargetFunctionId = fixture.ValidateFunctionId
                       NewParameterId = newParameterId
                       NewParameterDisplayName = "policy_for_viewer"
-                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                       CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ] }
 
         let simulation =

@@ -80,7 +80,7 @@ module PinnedDependencyRecoveryTests =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             let imported =
                 { Snapshot.empty (StableIdAllocator.newSnapshotId ()) with
-                    Types = [ { Id = typeId; DisplayName = "Unused"; Kind = SemanticTypeKind.Product [] } ]
+                    Types = [ { TypeParameters = []; Id = typeId; DisplayName = "Unused"; Kind = SemanticTypeKind.Product [] } ]
                     Effects = [ { Id = effectId; DisplayName = "Notify" } ]
                     Capabilities =
                         [ { Id = capabilityId; DisplayName = "Notifier"

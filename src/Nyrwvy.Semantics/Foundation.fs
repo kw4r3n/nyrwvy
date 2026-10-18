@@ -90,13 +90,16 @@ type TaskWaitMode =
 [<RequireQualifiedAccess>]
 type TypeRef =
     | Primitive of PrimitiveType
-    | Named of TypeId
+    /// A declared Product or Union, with one type argument per type parameter of the declaration
+    /// (none for a declaration without type parameters).
+    | Named of TypeId * arguments: TypeRef list
     | Capability of CapabilityId
     /// Pure, capture-free callable; parameter order is semantic, parameter identities are not.
     | Function of parameters: TypeRef list * resultType: TypeRef
     | BuiltinGeneric of BuiltinGenericType * TypeRef list
-    /// A type parameter of the function whose parameter types mention it. Its identity is
-    /// system-owned; the display name is fixed with it and carried for presentation only.
+    /// A type parameter of the function whose parameter types mention it, or of the Product or Union
+    /// that declares it. Its identity is system-owned; the display name is fixed with it and carried
+    /// for presentation only.
     | TypeParameter of id: TypeParameterId * displayName: string
 
 /// Completion is a derived control-flow fact, never a language value type.
@@ -141,6 +144,8 @@ type SemanticTypeKind =
 type SemanticType =
     { Id: TypeId
       DisplayName: string
+      /// Declared type parameters in order; field types may mention them. Empty for a monomorphic type.
+      TypeParameters: (TypeParameterId * string) list
       Kind: SemanticTypeKind }
 
 type SemanticEffect =
@@ -601,13 +606,15 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | FunctionReference of FunctionId
     | FunctionInvoke of functionValueNodeId: GraphNodeId * arguments: GraphNodeId list
     | CapabilityInvoke of capabilityValueNodeId: GraphNodeId * operationId: CapabilityOperationId * arguments: CapabilityArgumentBinding list
-    | ProductConstruct of TypeId * FieldValueBinding list
+    /// The type arguments instantiate the Product's type parameters; empty for a monomorphic type.
+    | ProductConstruct of TypeId * typeArguments: TypeRef list * FieldValueBinding list
     | FieldAccess of GraphNodeId * FieldId
     /// A copy of the source product with the bound fields replaced and every other field kept.
     /// The source produces exactly the named product type; the bindings name distinct fields of it,
     /// at least one, each with an exact-compatible value. Never fails.
     | ProductUpdate of TypeId * sourceNodeId: GraphNodeId * FieldValueBinding list
-    | UnionConstruct of VariantId * FieldValueBinding list
+    /// The type arguments instantiate the owning Union's type parameters; empty for a monomorphic type.
+    | UnionConstruct of VariantId * typeArguments: TypeRef list * FieldValueBinding list
     | OptionNone of itemType: TypeRef
     | OptionSome of valueNodeId: GraphNodeId
     | ResultOk of errorType: TypeRef * valueNodeId: GraphNodeId
@@ -968,8 +975,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.DirectCall(_, arguments) -> contextValues arguments
         | SemanticNodeKind.CapabilityInvoke(capabilityValueNodeId, _, arguments) ->
             capabilityValueNodeId :: (arguments |> List.map (fun argument -> argument.ValueNodeId))
-        | SemanticNodeKind.ProductConstruct(_, fields)
-        | SemanticNodeKind.UnionConstruct(_, fields) ->
+        | SemanticNodeKind.ProductConstruct(_, _, fields)
+        | SemanticNodeKind.UnionConstruct(_, _, fields) ->
             fields |> List.map (fun field -> field.ValueNodeId)
         | SemanticNodeKind.FieldAccess(sourceNodeId, _) -> [ sourceNodeId ]
         | SemanticNodeKind.ProductUpdate(_, sourceNodeId, fields) ->
@@ -1291,10 +1298,10 @@ module SemanticNodeShape =
                     operationId,
                     arguments |> List.map (fun argument -> { argument with ValueNodeId = mapNodeId argument.ValueNodeId })
                 )
-            | SemanticNodeKind.ProductConstruct(typeId, fields) ->
-                SemanticNodeKind.ProductConstruct(typeId, mapFieldValues mapNodeId fields)
-            | SemanticNodeKind.UnionConstruct(variantId, fields) ->
-                SemanticNodeKind.UnionConstruct(variantId, mapFieldValues mapNodeId fields)
+            | SemanticNodeKind.ProductConstruct(typeId, typeArguments, fields) ->
+                SemanticNodeKind.ProductConstruct(typeId, typeArguments, mapFieldValues mapNodeId fields)
+            | SemanticNodeKind.UnionConstruct(variantId, typeArguments, fields) ->
+                SemanticNodeKind.UnionConstruct(variantId, typeArguments, mapFieldValues mapNodeId fields)
             | SemanticNodeKind.FieldAccess(sourceNodeId, fieldId) -> SemanticNodeKind.FieldAccess(mapNodeId sourceNodeId, fieldId)
             | SemanticNodeKind.ProductUpdate(typeId, sourceNodeId, fields) ->
                 SemanticNodeKind.ProductUpdate(typeId, mapNodeId sourceNodeId, mapFieldValues mapNodeId fields)
@@ -1588,6 +1595,10 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
             [ itemType ], SemanticNodeKind.ListConstruct(mapTypeRef itemType, itemNodeIds)
         | SemanticNodeKind.OptionNone itemType -> [ itemType ], SemanticNodeKind.OptionNone(mapTypeRef itemType)
+        | SemanticNodeKind.ProductConstruct(typeId, typeArguments, fields) ->
+            typeArguments, SemanticNodeKind.ProductConstruct(typeId, List.map mapTypeRef typeArguments, fields)
+        | SemanticNodeKind.UnionConstruct(variantId, typeArguments, fields) ->
+            typeArguments, SemanticNodeKind.UnionConstruct(variantId, List.map mapTypeRef typeArguments, fields)
         | SemanticNodeKind.ResultOk(errorType, valueNodeId) ->
             [ errorType ], SemanticNodeKind.ResultOk(mapTypeRef errorType, valueNodeId)
         | SemanticNodeKind.ResultErr(okType, errorNodeId) ->
@@ -1759,10 +1770,8 @@ module SemanticNodeShape =
         | SemanticNodeKind.FunctionReference _
         | SemanticNodeKind.FunctionInvoke _
         | SemanticNodeKind.CapabilityInvoke _
-        | SemanticNodeKind.ProductConstruct _
         | SemanticNodeKind.FieldAccess _
         | SemanticNodeKind.ProductUpdate _
-        | SemanticNodeKind.UnionConstruct _
         | SemanticNodeKind.OptionSome _
         | SemanticNodeKind.Abort _
         | SemanticNodeKind.BoolNot _
@@ -2241,15 +2250,92 @@ module Snapshot =
 /// Task and OneShot handles and captured Exceptions exist only inside one run. Declared fields may hold these handles
 /// but not TaskScope, which is lexical. Runtime-bearing types, including through declared types,
 /// never cross a capability or runPure boundary.
+/// Type parameters of functions and of declared types. A function's type parameters are those
+/// occurring in its parameter types; a Product's or Union's are the ones it declares. At a call or
+/// callback, a function's type arguments are derived by matching each parameter type against the
+/// concrete argument type, so no inference beyond structural matching is involved. A named type's
+/// field types are read through `instantiate`, which replaces its type parameters by the arguments.
+[<RequireQualifiedAccess>]
+module TypeParameters =
+    /// Type parameters occurring in a type, in first-occurrence order.
+    let occurring (typeRef: TypeRef): (TypeParameterId * string) list =
+        let rec collect (collected: (TypeParameterId * string) list) current =
+            match current with
+            | TypeRef.TypeParameter(id, _) when collected |> List.exists (fun (seen, _) -> seen = id) -> collected
+            | TypeRef.TypeParameter(id, name) -> collected @ [ id, name ]
+            | TypeRef.Function(arguments, result) -> (arguments @ [ result ]) |> List.fold collect collected
+            | TypeRef.BuiltinGeneric(_, arguments)
+            | TypeRef.Named(_, arguments) -> arguments |> List.fold collect collected
+            | TypeRef.Primitive _
+            | TypeRef.Capability _ -> collected
+        collect [] typeRef
+
+    /// Type parameters declared by a function's parameter types, in first-occurrence order.
+    let ofFunction (functionEntity: SemanticFunction): (TypeParameterId * string) list =
+        functionEntity.Parameters
+        |> List.collect (fun parameter -> occurring parameter.Type)
+        |> List.distinctBy fst
+
+    let rec substitute (substitution: Map<TypeParameterId, TypeRef>) (typeRef: TypeRef): TypeRef =
+        match typeRef with
+        | TypeRef.TypeParameter(id, _) -> Map.tryFind id substitution |> Option.defaultValue typeRef
+        | TypeRef.Function(arguments, result) -> TypeRef.Function(arguments |> List.map (substitute substitution), substitute substitution result)
+        | TypeRef.BuiltinGeneric(kind, arguments) -> TypeRef.BuiltinGeneric(kind, arguments |> List.map (substitute substitution))
+        | TypeRef.Named(typeId, arguments) -> TypeRef.Named(typeId, arguments |> List.map (substitute substitution))
+        | TypeRef.Primitive _
+        | TypeRef.Capability _ -> typeRef
+
+    /// Extends `substitution` so that `declared` becomes `actual`, or returns None on a conflict.
+    let rec matchType (substitution: Map<TypeParameterId, TypeRef>) (declared: TypeRef) (actual: TypeRef) =
+        let matchArguments (declaredArguments: TypeRef list) (actualArguments: TypeRef list) =
+            List.zip declaredArguments actualArguments
+            |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some substitution)
+        match declared, actual with
+        | TypeRef.TypeParameter(id, _), _ ->
+            match Map.tryFind id substitution with
+            | Some bound when bound = actual -> Some substitution
+            | Some _ -> None
+            | None -> Some(Map.add id actual substitution)
+        | TypeRef.Function(declaredArguments, declaredResult), TypeRef.Function(actualArguments, actualResult) when declaredArguments.Length = actualArguments.Length ->
+            matchArguments (declaredArguments @ [ declaredResult ]) (actualArguments @ [ actualResult ])
+        | TypeRef.BuiltinGeneric(declaredKind, declaredArguments), TypeRef.BuiltinGeneric(actualKind, actualArguments)
+            when declaredKind = actualKind && declaredArguments.Length = actualArguments.Length ->
+            matchArguments declaredArguments actualArguments
+        | TypeRef.Named(declaredId, declaredArguments), TypeRef.Named(actualId, actualArguments)
+            when declaredId = actualId && declaredArguments.Length = actualArguments.Length ->
+            matchArguments declaredArguments actualArguments
+        | _ when declared = actual -> Some substitution
+        | _ -> None
+
+    /// Extends `substitution` by matching declared types against actual types in order; None when any pair conflicts.
+    let matchFrom (substitution: Map<TypeParameterId, TypeRef>) (pairs: (TypeRef * TypeRef) list) =
+        pairs |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some substitution)
+
+    /// Matches declared parameter types against actual types in order; None when any pair conflicts.
+    let matchAll (pairs: (TypeRef * TypeRef) list) = matchFrom Map.empty pairs
+
+    /// The substitution from a declared type's parameters to the arguments of a reference to it.
+    /// Arguments beyond or short of the declared parameters are ignored here; validation reports them.
+    let ofArguments (typeEntity: SemanticType) (arguments: TypeRef list) : Map<TypeParameterId, TypeRef> =
+        Seq.zip (typeEntity.TypeParameters |> Seq.map fst) arguments |> Map.ofSeq
+
+    /// A field type of a declared type as seen through a reference with these type arguments.
+    let instantiate (typeEntity: SemanticType) (arguments: TypeRef list) (fieldType: TypeRef) =
+        if List.isEmpty typeEntity.TypeParameters then fieldType else substitute (ofArguments typeEntity arguments) fieldType
+
+    /// A reference to the declaration at its own type parameters, as its field types see it.
+    let selfReference (typeEntity: SemanticType) =
+        TypeRef.Named(typeEntity.Id, typeEntity.TypeParameters |> List.map TypeRef.TypeParameter)
+
 [<RequireQualifiedAccess>]
 module TaskTypes =
     let rec private occurs (matches: BuiltinGenericType -> bool) (typeRef: TypeRef) =
         match typeRef with
         | TypeRef.BuiltinGeneric(kind, _) when matches kind -> true
-        | TypeRef.BuiltinGeneric(_, arguments) -> List.exists (occurs matches) arguments
+        | TypeRef.BuiltinGeneric(_, arguments)
+        | TypeRef.Named(_, arguments) -> List.exists (occurs matches) arguments
         | TypeRef.Function(parameters, result) -> List.exists (occurs matches) parameters || occurs matches result
         | TypeRef.Primitive _
-        | TypeRef.Named _
         | TypeRef.Capability _
         | TypeRef.TypeParameter _ -> false
 
@@ -2273,10 +2359,10 @@ module TaskTypes =
     /// types are handled; each named type is inspected once.
     let bearing (types: SemanticType list) (typeRef: TypeRef) =
         let byId = types |> List.map (fun item -> item.Id, item) |> Map.ofList
-        let visited = System.Collections.Generic.HashSet<TypeId>()
+        let visited = System.Collections.Generic.HashSet<TypeId * TypeRef list>()
         let rec named (typeRef: TypeRef) =
             match typeRef with
-            | TypeRef.Named typeId -> [ typeId ]
+            | TypeRef.Named(typeId, arguments) -> (typeId, arguments) :: List.collect named arguments
             | TypeRef.BuiltinGeneric(_, arguments) -> List.collect named arguments
             | TypeRef.Function(parameters, result) -> List.collect named (result :: parameters)
             | TypeRef.Primitive _
@@ -2285,8 +2371,8 @@ module TaskTypes =
         let rec visit (typeRef: TypeRef) =
             mentions typeRef
             || named typeRef
-               |> List.exists (fun typeId ->
-                   visited.Add typeId
+               |> List.exists (fun (typeId, arguments) ->
+                   visited.Add((typeId, arguments))
                    && (match Map.tryFind typeId byId with
                        | None -> false
                        | Some typeEntity ->
@@ -2294,7 +2380,7 @@ module TaskTypes =
                                match typeEntity.Kind with
                                | SemanticTypeKind.Product fields -> fields
                                | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields)
-                           fields |> List.exists (fun field -> visit field.Type)))
+                           fields |> List.exists (fun field -> visit (TypeParameters.instantiate typeEntity arguments field.Type))))
         visit typeRef
 
 /// `ValueEqual` compares two values of one *equatable* type: String, Int64, Bool, Unit, Bits32,
@@ -2311,11 +2397,13 @@ module EquatableTypes =
         let go = describe types
         match typeRef with
         | TypeRef.Primitive primitive -> string primitive
-        | TypeRef.Named typeId ->
-            types
-            |> List.tryFind (fun item -> item.Id = typeId)
-            |> Option.map (fun item -> item.DisplayName)
-            |> Option.defaultValue (StableId.value typeId)
+        | TypeRef.Named(typeId, arguments) ->
+            let name =
+                types
+                |> List.tryFind (fun item -> item.Id = typeId)
+                |> Option.map (fun item -> item.DisplayName)
+                |> Option.defaultValue (StableId.value typeId)
+            if List.isEmpty arguments then name else name + "<" + (arguments |> List.map go |> String.concat ", ") + ">"
         | TypeRef.Capability capabilityId -> $"capability '{StableId.value capabilityId}'"
         | TypeRef.Function(parameters, result) ->
             "(" + (parameters |> List.map go |> String.concat ", ") + ") -> " + go result
@@ -2331,7 +2419,7 @@ module EquatableTypes =
     /// are left to the declaration checks.
     let firstNotEquatable (types: SemanticType list) (typeRef: TypeRef) : (string list * TypeRef) option =
         let byId = types |> List.map (fun item -> item.Id, item) |> Map.ofList
-        let visited = System.Collections.Generic.HashSet<TypeId>()
+        let visited = System.Collections.Generic.HashSet<TypeId * TypeRef list>()
         let rec visit (path: string list) (typeRef: TypeRef) =
             match typeRef with
             | TypeRef.Primitive(PrimitiveType.String | PrimitiveType.Int64 | PrimitiveType.Bool | PrimitiveType.Unit | PrimitiveType.Bits32) -> None
@@ -2354,8 +2442,8 @@ module EquatableTypes =
                 arguments
                 |> List.mapi (fun index argument -> (if index = 0 then "Result ok" else "Result err"), argument)
                 |> List.tryPick (fun (step, argument) -> visit (step :: path) argument)
-            | TypeRef.Named typeId ->
-                if not (visited.Add typeId) then
+            | TypeRef.Named(typeId, arguments) ->
+                if not (visited.Add((typeId, arguments))) then
                     None
                 else
                     match Map.tryFind typeId byId with
@@ -2364,13 +2452,13 @@ module EquatableTypes =
                         match typeEntity.Kind with
                         | SemanticTypeKind.Product fields ->
                             fields
-                            |> List.tryPick (fun field -> visit ($"{typeEntity.DisplayName}.{field.DisplayName}" :: path) field.Type)
+                            |> List.tryPick (fun field -> visit ($"{typeEntity.DisplayName}.{field.DisplayName}" :: path) (TypeParameters.instantiate typeEntity arguments field.Type))
                         | SemanticTypeKind.Union variants ->
                             variants
                             |> List.tryPick (fun variant ->
                                 variant.Fields
                                 |> List.tryPick (fun field ->
-                                    visit ($"{typeEntity.DisplayName}.{variant.DisplayName}.{field.DisplayName}" :: path) field.Type))
+                                    visit ($"{typeEntity.DisplayName}.{variant.DisplayName}.{field.DisplayName}" :: path) (TypeParameters.instantiate typeEntity arguments field.Type)))
         visit [] typeRef
 
     let isEquatable (types: SemanticType list) (typeRef: TypeRef) =
@@ -2394,61 +2482,3 @@ module EquatableTypes =
                 | [] -> ""
                 | steps -> " at " + String.concat " -> " steps
             $"{describe types typeRef} is not equatable: {describe types offending}{location}; {reason}."
-
-/// Function type parameters. A function's type parameters are those occurring in its parameter
-/// types; at a call or callback, type arguments are derived by matching each parameter type
-/// against the concrete argument type, so no inference beyond structural matching is involved.
-[<RequireQualifiedAccess>]
-module TypeParameters =
-    /// Type parameters occurring in a type, in first-occurrence order.
-    let occurring (typeRef: TypeRef): (TypeParameterId * string) list =
-        let rec collect (collected: (TypeParameterId * string) list) current =
-            match current with
-            | TypeRef.TypeParameter(id, name) when collected |> List.exists (fun (seen, _) -> seen = id) -> collected
-            | TypeRef.TypeParameter(id, name) -> collected @ [ id, name ]
-            | TypeRef.Function(arguments, result) -> (arguments @ [ result ]) |> List.fold collect collected
-            | TypeRef.BuiltinGeneric(_, arguments) -> arguments |> List.fold collect collected
-            | TypeRef.Primitive _
-            | TypeRef.Named _
-            | TypeRef.Capability _ -> collected
-        collect [] typeRef
-
-    /// Type parameters declared by a function's parameter types, in first-occurrence order.
-    let ofFunction (functionEntity: SemanticFunction): (TypeParameterId * string) list =
-        functionEntity.Parameters
-        |> List.collect (fun parameter -> occurring parameter.Type)
-        |> List.distinctBy fst
-
-    let rec substitute (substitution: Map<TypeParameterId, TypeRef>) (typeRef: TypeRef): TypeRef =
-        match typeRef with
-        | TypeRef.TypeParameter(id, _) -> Map.tryFind id substitution |> Option.defaultValue typeRef
-        | TypeRef.Function(arguments, result) -> TypeRef.Function(arguments |> List.map (substitute substitution), substitute substitution result)
-        | TypeRef.BuiltinGeneric(kind, arguments) -> TypeRef.BuiltinGeneric(kind, arguments |> List.map (substitute substitution))
-        | TypeRef.Primitive _
-        | TypeRef.Named _
-        | TypeRef.Capability _ -> typeRef
-
-    /// Extends `substitution` so that `declared` becomes `actual`, or returns None on a conflict.
-    let rec matchType (substitution: Map<TypeParameterId, TypeRef>) (declared: TypeRef) (actual: TypeRef) =
-        match declared, actual with
-        | TypeRef.TypeParameter(id, _), _ ->
-            match Map.tryFind id substitution with
-            | Some bound when bound = actual -> Some substitution
-            | Some _ -> None
-            | None -> Some(Map.add id actual substitution)
-        | TypeRef.Function(declaredArguments, declaredResult), TypeRef.Function(actualArguments, actualResult) when declaredArguments.Length = actualArguments.Length ->
-            List.zip (declaredArguments @ [ declaredResult ]) (actualArguments @ [ actualResult ])
-            |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some substitution)
-        | TypeRef.BuiltinGeneric(declaredKind, declaredArguments), TypeRef.BuiltinGeneric(actualKind, actualArguments)
-            when declaredKind = actualKind && declaredArguments.Length = actualArguments.Length ->
-            List.zip declaredArguments actualArguments
-            |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some substitution)
-        | _ when declared = actual -> Some substitution
-        | _ -> None
-
-    /// Extends `substitution` by matching declared types against actual types in order; None when any pair conflicts.
-    let matchFrom (substitution: Map<TypeParameterId, TypeRef>) (pairs: (TypeRef * TypeRef) list) =
-        pairs |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some substitution)
-
-    /// Matches declared parameter types against actual types in order; None when any pair conflicts.
-    let matchAll (pairs: (TypeRef * TypeRef) list) = matchFrom Map.empty pairs

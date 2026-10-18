@@ -497,15 +497,15 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.ListAny(source, functionId, context) -> callback ExpressionRecipe.ListAny source functionId context
             | ExpressionRecipe.ListFindIndex(source, functionId, context) -> callback ExpressionRecipe.ListFindIndex source functionId context
             | ExpressionRecipe.ListAll(source, functionId, context) -> callback ExpressionRecipe.ListAll source functionId context
-            | ExpressionRecipe.ProductConstruct(typeId, fields) ->
-                rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.ProductConstruct(typeId, fields))
+            | ExpressionRecipe.ProductConstruct(typeId, typeArguments, fields) ->
+                rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.ProductConstruct(typeId, typeArguments, fields))
             | ExpressionRecipe.FieldAccess(source, fieldId) -> one (fun source -> ExpressionRecipe.FieldAccess(source, fieldId)) source
             | ExpressionRecipe.ProductUpdate(typeId, source, fields) ->
                 match rewrite source with
                 | Error error -> Error error
                 | Ok source -> rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.ProductUpdate(typeId, source, fields))
-            | ExpressionRecipe.UnionConstruct(variantId, fields) ->
-                rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.UnionConstruct(variantId, fields))
+            | ExpressionRecipe.UnionConstruct(variantId, typeArguments, fields) ->
+                rewritePairs fields |> Result.map (fun fields -> ExpressionRecipe.UnionConstruct(variantId, typeArguments, fields))
             | ExpressionRecipe.ResultOk(errorType, value) -> one (fun value -> ExpressionRecipe.ResultOk(errorType, value)) value
             | ExpressionRecipe.Abort error -> one ExpressionRecipe.Abort error
             | ExpressionRecipe.ResultErr(okType, error) -> one (fun error -> ExpressionRecipe.ResultErr(okType, error)) error

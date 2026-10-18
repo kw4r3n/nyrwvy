@@ -44,6 +44,8 @@ type ExecutionTypeKind =
 
 type ExecutionType =
     { Id: TypeId
+      /// Declared type parameters in order; empty for a monomorphic type.
+      TypeParameters: (TypeParameterId * string) list
       Kind: ExecutionTypeKind }
 
 type ExecutionCapabilityParameter =

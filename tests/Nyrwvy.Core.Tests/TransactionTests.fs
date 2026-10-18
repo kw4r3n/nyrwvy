@@ -55,7 +55,7 @@ module TransactionTests =
                     { TargetFunctionId = fixture.ValidateFunctionId
                       NewParameterId = parameterId
                       NewParameterDisplayName = "policy"
-                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                       CallSitePlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
 
         let simulation = Transaction.simulate fixture.Snapshot request |> unwrap
@@ -82,7 +82,7 @@ module TransactionTests =
                     { TargetFunctionId = fixture.ValidateFunctionId
                       NewParameterId = parameterId
                       NewParameterDisplayName = "policy"
-                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                       CallSitePlans = [ LeaveMissing(fixture.RunCallNodeId, obligationId) ] } ] }
         let incomplete = (Transaction.simulate fixture.Snapshot addRequest |> unwrap).ProposedSnapshot
 
@@ -127,7 +127,7 @@ module TransactionTests =
                     { TargetFunctionId = fixture.ValidateFunctionId
                       NewParameterId = parameterId
                       NewParameterDisplayName = "policy"
-                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                       CallSitePlans = [ BindExistingValue(fixture.RunCallNodeId, fixture.RunPolicyNodeId) ] } ] }
 
         let simulation = Transaction.simulate fixture.Snapshot request |> unwrap
@@ -223,7 +223,7 @@ module TransactionTests =
                     { TargetFunctionId = fixture.ValidateFunctionId
                       NewParameterId = parameterId
                       NewParameterDisplayName = "policy"
-                      NewParameterType = TypeRef.Named fixture.PolicyTypeId
+                      NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                       CallSitePlans = [] } ] }
 
         match Transaction.simulate fixture.Snapshot request with

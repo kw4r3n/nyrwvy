@@ -70,7 +70,7 @@ module AgentTypeDeclarationTests =
         let ws0 = workspace snapshot
 
         let productRequest: AgentCreateTypeDeclarationRequest =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { TypeParameters = []; ExpectedBaseSnapshotId = snapshot.Id
               DisplayName = "Record"
               Kind =
                 AgentTypeDeclarationKindIntent.Product
@@ -96,7 +96,7 @@ module AgentTypeDeclarationTests =
         | Error error -> failwithf "Published product was not discoverable: %A" error
 
         let unionRequest: AgentCreateTypeDeclarationRequest =
-            { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws1
+            { TypeParameters = []; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws1
               DisplayName = "Choice"
               Kind =
                 AgentTypeDeclarationKindIntent.Union
@@ -128,11 +128,11 @@ module AgentTypeDeclarationTests =
             { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws2
               DisplayName = "make_record"
               Parameters = []
-              ResultType = TypeRef.Named productType.Id
+              ResultType = TypeRef.Named(productType.Id, [])
               RequiredEffects = []
               Body =
                 ExpressionRecipe.ProductConstruct(
-                    productType.Id,
+                    productType.Id, [],
                     [ productFields[0].Id, ExpressionRecipe.StringLiteral "created"
                       productFields[1].Id,
                         ExpressionRecipe.ListConstruct(
@@ -148,7 +148,7 @@ module AgentTypeDeclarationTests =
               DisplayName = "record_name"
               Parameters =
                 [ { DisplayName = "record"
-                    Type = TypeRef.Named productType.Id } ]
+                    Type = TypeRef.Named(productType.Id, []) } ]
               ResultType = stringType
               RequiredEffects = []
               Body =
@@ -162,11 +162,11 @@ module AgentTypeDeclarationTests =
             { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws4
               DisplayName = "make_number"
               Parameters = []
-              ResultType = TypeRef.Named unionType.Id
+              ResultType = TypeRef.Named(unionType.Id, [])
               RequiredEffects = []
               Body =
                 ExpressionRecipe.UnionConstruct(
-                    numberVariant.Id,
+                    numberVariant.Id, [],
                     [ numberField.Id, ExpressionRecipe.Int64Literal 7L ]
                 ) }
         let ws5, makeUnionId = createFunction ws4 makeUnionRequest
@@ -176,7 +176,7 @@ module AgentTypeDeclarationTests =
               DisplayName = "choice_value"
               Parameters =
                 [ { DisplayName = "choice"
-                    Type = TypeRef.Named unionType.Id } ]
+                    Type = TypeRef.Named(unionType.Id, []) } ]
               ResultType = int64Type
               RequiredEffects = []
               Body =
@@ -206,18 +206,18 @@ module AgentTypeDeclarationTests =
         let unknownType = typeId "unknown"
 
         let unknownFieldRequest: AgentCreateTypeDeclarationRequest =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { TypeParameters = []; ExpectedBaseSnapshotId = snapshot.Id
               DisplayName = "BadProduct"
               Kind =
                 AgentTypeDeclarationKindIntent.Product
-                    [ field "missing" (TypeRef.Named unknownType) ] }
+                    [ field "missing" (TypeRef.Named(unknownType, [])) ] }
         match AgentTypeDeclarationWorkflow.simulate ws unknownFieldRequest with
         | Error(AgentTypeDeclarationWorkflowError.SimulationRejected [ diagnostic ]) ->
             Assert.Equal("TypeDeclarationUnknownNamedType", diagnostic.Code)
         | result -> failwithf "Expected unknown field type rejection, got %A" result
 
         let blankVariantRequest: AgentCreateTypeDeclarationRequest =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { TypeParameters = []; ExpectedBaseSnapshotId = snapshot.Id
               DisplayName = "BadUnion"
               Kind = AgentTypeDeclarationKindIntent.Union [ variant " " [] ] }
         match AgentTypeDeclarationWorkflow.simulate ws blankVariantRequest with
@@ -233,7 +233,7 @@ module AgentTypeDeclarationTests =
         let snapshot = Snapshot.empty (snapshotId "stale")
         let ws = workspace snapshot
         let request name: AgentCreateTypeDeclarationRequest =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { TypeParameters = []; ExpectedBaseSnapshotId = snapshot.Id
               DisplayName = name
               Kind = AgentTypeDeclarationKindIntent.Product [] }
 
@@ -262,6 +262,7 @@ module AgentTypeDeclarationTests =
         Assert.Equal<(string * System.Type) list>(
             [ "ExpectedBaseSnapshotId", typeof<SnapshotId>
               "DisplayName", typeof<string>
+              "TypeParameters", typeof<(TypeParameterId * string) list>
               "Kind", typeof<AgentTypeDeclarationKindIntent> ],
             requestFields
         )

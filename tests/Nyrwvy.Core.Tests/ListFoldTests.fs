@@ -14,10 +14,10 @@ module ListFoldTests =
     let private stateId = id<TypeTag> "state"
     let private keyId = id<FieldTag> "key"
     let private foundId = id<FieldTag> "found"
-    let private stateType = TypeRef.Named stateId
+    let private stateType = TypeRef.Named(stateId, [])
     let private field fieldId = ExpressionRecipe.FieldAccess(ExpressionRecipe.ParameterSlot 0, fieldId)
     let private stateWithFound =
-        ExpressionRecipe.ProductConstruct(stateId, [ keyId, field keyId; foundId, ExpressionRecipe.BoolLiteral true ])
+        ExpressionRecipe.ProductConstruct(stateId, [], [ keyId, field keyId; foundId, ExpressionRecipe.BoolLiteral true ])
 
     let private create ws name parameters resultType body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
@@ -45,7 +45,7 @@ module ListFoldTests =
 
     let private fixture () =
         let state: SemanticType =
-            { Id = stateId
+            { TypeParameters = []; Id = stateId
               DisplayName = "LookupState"
               Kind = SemanticTypeKind.Product
                 [ { Id = keyId; DisplayName = "key"; Type = stringType }
@@ -70,7 +70,7 @@ module ListFoldTests =
                 [ parameter "state" stateType; parameter "item" stringType ]
                 stateType folderBody
         let seed =
-            ExpressionRecipe.ProductConstruct(stateId,
+            ExpressionRecipe.ProductConstruct(stateId, [],
                 [ keyId, ExpressionRecipe.ParameterSlot 1
                   foundId, ExpressionRecipe.BoolLiteral false ])
         let searchBody =
@@ -108,9 +108,9 @@ module ListFoldTests =
         let stateId = id<TypeTag> "index-state"
         let remainingId = id<FieldTag> "remaining"
         let itemId = id<FieldTag> "item"
-        let stateType = TypeRef.Named stateId
+        let stateType = TypeRef.Named(stateId, [])
         let state: SemanticType =
-            { Id = stateId
+            { TypeParameters = []; Id = stateId
               DisplayName = "IndexState"
               Kind = SemanticTypeKind.Product
                 [ { Id = remainingId; DisplayName = "remaining"; Type = intType }
@@ -127,10 +127,10 @@ module ListFoldTests =
         let step =
             ExpressionRecipe.Conditional(
                 ExpressionRecipe.Int64Equal(remaining, ExpressionRecipe.Int64Literal 0L),
-                ExpressionRecipe.ProductConstruct(stateId,
+                ExpressionRecipe.ProductConstruct(stateId, [],
                     [ remainingId, ExpressionRecipe.Int64Literal -1L
                       itemId, ExpressionRecipe.OptionSome(ExpressionRecipe.ParameterSlot 1) ]),
-                ExpressionRecipe.ProductConstruct(stateId,
+                ExpressionRecipe.ProductConstruct(stateId, [],
                     [ remainingId,
                         ExpressionRecipe.Int64WrappingSubtract(remaining, ExpressionRecipe.Int64Literal 1L)
                       itemId, previous ]))
@@ -139,7 +139,7 @@ module ListFoldTests =
                 [ parameter "state" stateType; parameter "item" stringType ] stateType step
         let index = ExpressionRecipe.ParameterSlot 1
         let seed =
-            ExpressionRecipe.ProductConstruct(stateId,
+            ExpressionRecipe.ProductConstruct(stateId, [],
                 [ remainingId, index; itemId, ExpressionRecipe.OptionNone stringType ])
         let lookup =
             ExpressionRecipe.Conditional(
@@ -160,17 +160,17 @@ module ListFoldTests =
         let stateKeyId = id<FieldTag> "find-state-key"
         let stateFoundId = id<FieldTag> "find-state-found"
         let stateValueId = id<FieldTag> "find-state-value"
-        let entryType = TypeRef.Named entryId
-        let stateType = TypeRef.Named stateId
+        let entryType = TypeRef.Named(entryId, [])
+        let stateType = TypeRef.Named(stateId, [])
         let optionType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ stringType ])
         let entry: SemanticType =
-            { Id = entryId
+            { TypeParameters = []; Id = entryId
               DisplayName = "Entry"
               Kind = SemanticTypeKind.Product
                 [ { Id = entryKeyId; DisplayName = "key"; Type = stringType }
                   { Id = entryValueId; DisplayName = "value"; Type = stringType } ] }
         let state: SemanticType =
-            { Id = stateId
+            { TypeParameters = []; Id = stateId
               DisplayName = "FindState"
               Kind = SemanticTypeKind.Product
                 [ { Id = stateKeyId; DisplayName = "key"; Type = stringType }
@@ -191,7 +191,7 @@ module ListFoldTests =
                 current,
                 ExpressionRecipe.Conditional(
                     ExpressionRecipe.StringEqual(field item entryKeyId, field current stateKeyId),
-                    ExpressionRecipe.ProductConstruct(stateId,
+                    ExpressionRecipe.ProductConstruct(stateId, [],
                         [ stateKeyId, field current stateKeyId
                           stateFoundId, ExpressionRecipe.BoolLiteral true
                           stateValueId, ExpressionRecipe.OptionSome(field item entryValueId) ]),
@@ -200,7 +200,7 @@ module ListFoldTests =
             create ws "find_step"
                 [ parameter "state" stateType; parameter "item" entryType ] stateType folderBody
         let seed =
-            ExpressionRecipe.ProductConstruct(stateId,
+            ExpressionRecipe.ProductConstruct(stateId, [],
                 [ stateKeyId, ExpressionRecipe.ParameterSlot 1
                   stateFoundId, ExpressionRecipe.BoolLiteral false
                   stateValueId, ExpressionRecipe.OptionNone stringType ])

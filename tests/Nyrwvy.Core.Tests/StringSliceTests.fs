@@ -22,7 +22,7 @@ module StringSliceTests =
         | Error error -> failwithf "%s: %A" label error
 
     let private caseType: SemanticType =
-        { Id = caseTypeId
+        { TypeParameters = []; Id = caseTypeId
           DisplayName = "SliceCase"
           Kind =
             SemanticTypeKind.Product
@@ -107,7 +107,7 @@ module StringSliceTests =
                 session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
             let listOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
             create' "measureAll" [ listOf stringType ] (listOf intType) (ExpressionRecipe.ListMap(ExpressionRecipe.ParameterSlot 0, functionId "measure", []))
-            create' "cutAll" [ listOf (TypeRef.Named caseTypeId) ] (listOf stringType) (ExpressionRecipe.ListMap(ExpressionRecipe.ParameterSlot 0, functionId "cut", []))
+            create' "cutAll" [ listOf (TypeRef.Named(caseTypeId, [])) ] (listOf stringType) (ExpressionRecipe.ListMap(ExpressionRecipe.ParameterSlot 0, functionId "cut", []))
             // Lone surrogates in a String literal (built with utf16) survive the snapshot and Nyason round trips.
             create' "measureLone" [] intType (ExpressionRecipe.StringLength(ExpressionRecipe.StringLiteral (utf16 "a{D800}b{DC00}")))
             session.Close()
@@ -145,13 +145,13 @@ module StringSliceTests =
                   ("abc", Int64.MinValue, Int64.MaxValue), "abc" ]
             let caseValue (text, start, stop) =
                 PureRunValue.Product(
-                    caseTypeId,
+                    caseTypeId, [],
                     [ textFieldId, PureRunValue.String text
                       startFieldId, PureRunValue.Int64 start
                       endFieldId, PureRunValue.Int64 stop ])
             let cut =
                 PureRun.run reopened (functionId "cutAll")
-                    [ PureRunValue.ListValue(TypeRef.Named caseTypeId, cases |> List.map (fst >> caseValue)) ]
+                    [ PureRunValue.ListValue(TypeRef.Named(caseTypeId, []), cases |> List.map (fst >> caseValue)) ]
                     (Some(PureRunValue.StringList(List.map snd cases))) |> unwrap "cut"
             Assert.True((cut.Matches = Some true), sprintf "%A" cut.Mismatch)
         finally

@@ -21,6 +21,8 @@ module SemanticFacts =
         { Functions: Map<FunctionId, SemanticFunction>
           CapabilityOperations: Map<CapabilityOperationId, SemanticCapabilityOperation>
           ProductFields: Map<FieldId, SemanticField>
+          /// The Product that owns each Product field.
+          ProductFieldOwners: Map<FieldId, SemanticType>
           Variants: Map<VariantId, TypeId> }
 
     let private indexSnapshot (snapshot: Snapshot): SnapshotTypeIndex =
@@ -53,9 +55,18 @@ module SemanticFacts =
                     variants |> List.map (fun variant -> variant.Id, typeEntity.Id))
             |> Map.ofList
 
+        let productFieldOwners: Map<FieldId, SemanticType> =
+            snapshot.Types
+            |> List.collect (fun typeEntity ->
+                match typeEntity.Kind with
+                | SemanticTypeKind.Product fields -> fields |> List.map (fun field -> field.Id, typeEntity)
+                | SemanticTypeKind.Union _ -> [])
+            |> Map.ofList
+
         { Functions = functionsById
           CapabilityOperations = capabilityOperationsById
           ProductFields = productFieldsById
+          ProductFieldOwners = productFieldOwners
           Variants = variantsById }
 
     let private createCompletionResolver
@@ -503,15 +514,25 @@ module SemanticFacts =
                     | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
                         Map.tryFind operationId index.CapabilityOperations
                         |> Option.map (fun operation -> operation.ResultType)
-                    | SemanticNodeKind.ProductConstruct(typeId, _)
-                    | SemanticNodeKind.ProductUpdate(typeId, _, _) ->
-                        Some(TypeRef.Named typeId)
-                    | SemanticNodeKind.FieldAccess(_, fieldId) ->
-                        Map.tryFind fieldId index.ProductFields
-                        |> Option.map (fun field -> field.Type)
-                    | SemanticNodeKind.UnionConstruct(variantId, _) ->
+                    | SemanticNodeKind.ProductConstruct(typeId, typeArguments, _) -> Some(TypeRef.Named(typeId, typeArguments))
+                    // An update keeps its source's type, including its type arguments.
+                    | SemanticNodeKind.ProductUpdate(typeId, sourceNodeId, _) ->
+                        match tryNodeType nextVisiting sourceNodeId with
+                        | Some(TypeRef.Named(sourceTypeId, _) as sourceType) when sourceTypeId = typeId -> Some sourceType
+                        | _ -> Some(TypeRef.Named(typeId, []))
+                    // A field of a generic Product reads at its source's type arguments.
+                    | SemanticNodeKind.FieldAccess(sourceNodeId, fieldId) ->
+                        match Map.tryFind fieldId index.ProductFields, Map.tryFind fieldId index.ProductFieldOwners with
+                        | Some field, Some owner when List.isEmpty owner.TypeParameters -> Some field.Type
+                        | Some field, Some owner ->
+                            match tryNodeType nextVisiting sourceNodeId with
+                            | Some(TypeRef.Named(sourceTypeId, arguments)) when sourceTypeId = owner.Id ->
+                                Some(TypeParameters.instantiate owner arguments field.Type)
+                            | _ -> None
+                        | _ -> None
+                    | SemanticNodeKind.UnionConstruct(variantId, typeArguments, _) ->
                         Map.tryFind variantId index.Variants
-                        |> Option.map TypeRef.Named
+                        |> Option.map (fun typeId -> TypeRef.Named(typeId, typeArguments))
                     | SemanticNodeKind.OptionNone itemType ->
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]))
                     | SemanticNodeKind.OptionSome valueNodeId ->

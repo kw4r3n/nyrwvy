@@ -236,9 +236,18 @@ module SnapshotValidator =
                 // Function scope is checked per function; declarations reject type parameters.
                 if String.IsNullOrWhiteSpace displayName then
                     add "TypeParameterDisplayNameBlank" $"{context} uses a type parameter with a blank display name."
-            | TypeRef.Named typeId ->
-                if not (Set.contains typeId typeIds) then
-                    add "UnknownNamedType" $"{context} references unknown type '{StableId.value typeId}'."
+            | TypeRef.Named(typeId, arguments) ->
+                match Map.tryFind typeId typesById with
+                | None -> add "UnknownNamedType" $"{context} references unknown type '{StableId.value typeId}'."
+                | Some typeEntity when typeEntity.TypeParameters.Length <> arguments.Length ->
+                    add
+                        "NamedTypeArityMismatch"
+                        $"{context} uses {typeEntity.DisplayName} with {arguments.Length} type arguments; exactly {typeEntity.TypeParameters.Length} are required."
+                | Some _ -> ()
+                // A type argument cannot smuggle a lexical scope into a declared type.
+                if arguments |> List.exists TaskTypes.mentionsScope then
+                    add "TaskTypeInDeclaredType" $"{context} passes TaskScope as a type argument; a task scope cannot be stored in a declared type."
+                arguments |> List.iter (validateTypeRef context)
             | TypeRef.Capability capabilityId ->
                 if not (Set.contains capabilityId capabilityIds) then
                     add
@@ -328,14 +337,67 @@ module SnapshotValidator =
             |> Option.iter (validateTypeRef $"Capability operation {StableId.describe operation.DisplayName operation.Id} failure")
 
         let rec mentionsTypeParameter typeRef = not (List.isEmpty (TypeParameters.occurring typeRef))
+        let fieldsOf (typeEntity: SemanticType) =
+            match typeEntity.Kind with
+            | SemanticTypeKind.Product fields -> fields
+            | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields)
+        // Declared types reachable from a type's field types, for the regular-recursion rule below.
+        let directlyReferenced (typeEntity: SemanticType) =
+            let rec named typeRef =
+                match typeRef with
+                | TypeRef.Named(typeId, arguments) -> typeId :: List.collect named arguments
+                | TypeRef.BuiltinGeneric(_, arguments) -> List.collect named arguments
+                | TypeRef.Function(parameters, result) -> List.collect named (result :: parameters)
+                | TypeRef.Primitive _
+                | TypeRef.Capability _
+                | TypeRef.TypeParameter _ -> []
+            fieldsOf typeEntity |> List.collect (fun field -> named field.Type) |> Set.ofList
+        let reaches =
+            let direct = snapshot.Types |> List.map (fun item -> item.Id, directlyReferenced item) |> Map.ofList
+            let closure (start: TypeId) =
+                let visited = System.Collections.Generic.HashSet<TypeId>()
+                let rec visit typeId =
+                    for next in Map.tryFind typeId direct |> Option.defaultValue Set.empty do
+                        if visited.Add next then visit next
+                visit start
+                Set.ofSeq visited
+            snapshot.Types |> List.map (fun item -> item.Id, closure item.Id) |> Map.ofList
         for typeEntity in snapshot.Types do
-            let fields =
-                match typeEntity.Kind with
-                | SemanticTypeKind.Product fields -> fields
-                | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields)
-            for field in fields do
-                if mentionsTypeParameter field.Type then
-                    add "TypeParameterOutsideFunction" $"Field {StableId.describe field.DisplayName field.Id} uses a function type parameter; declared types are monomorphic."
+            let declared = typeEntity.TypeParameters |> List.map fst |> Set.ofList
+            for _, displayName in typeEntity.TypeParameters do
+                if String.IsNullOrWhiteSpace displayName then
+                    add "TypeParameterDisplayNameBlank" $"Type {StableId.describe typeEntity.DisplayName typeEntity.Id} declares a type parameter with a blank display name."
+            typeEntity.TypeParameters
+            |> List.countBy snd
+            |> List.filter (fun (_, count) -> count > 1)
+            |> List.iter (fun (name, _) ->
+                add "DuplicateTypeParameterName" $"Type {StableId.describe typeEntity.DisplayName typeEntity.Id} declares type parameter '{name}' more than once.")
+            if declared.Count <> typeEntity.TypeParameters.Length then
+                add "DuplicateTypeParameterId" $"Type {StableId.describe typeEntity.DisplayName typeEntity.Id} declares one type parameter more than once."
+            for field in fieldsOf typeEntity do
+                for id, name in TypeParameters.occurring field.Type do
+                    if not (Set.contains id declared) then
+                        add "TypeParameterNotDeclared" $"Field {StableId.describe field.DisplayName field.Id} uses type parameter '{name}', which its type {StableId.describe typeEntity.DisplayName typeEntity.Id} does not declare."
+                // Regular recursion: a reference back into the type's own recursive group passes plain
+                // type parameters, so the instantiations a value can reach stay finite.
+                let rec checkRecursion typeRef =
+                    match typeRef with
+                    | TypeRef.Named(targetId, arguments) ->
+                        let cyclic = Map.tryFind targetId reaches |> Option.exists (Set.contains typeEntity.Id)
+                        if cyclic && not (List.isEmpty arguments)
+                           && not (arguments |> List.forall (function TypeRef.TypeParameter _ -> true | _ -> false)) then
+                            add
+                                "IrregularRecursiveType"
+                                $"Field {StableId.describe field.DisplayName field.Id} refers back to its recursive type group with type arguments other than plain type parameters."
+                        List.iter checkRecursion arguments
+                    | TypeRef.BuiltinGeneric(_, arguments) -> List.iter checkRecursion arguments
+                    | TypeRef.Function(parameters, result) -> List.iter checkRecursion (result :: parameters)
+                    | TypeRef.Primitive _
+                    | TypeRef.Capability _
+                    | TypeRef.TypeParameter _ -> ()
+                checkRecursion field.Type
+        for typeEntity in snapshot.Types do
+            for field in fieldsOf typeEntity do
                 // A field may hold a Task handle; a scope is lexical and stays out of declared types.
                 if TaskTypes.mentionsScope field.Type then
                     add "TaskTypeInDeclaredType" $"Field {StableId.describe field.DisplayName field.Id} uses TaskScope; a task scope cannot be stored in a declared type."
@@ -350,13 +412,15 @@ module SnapshotValidator =
         // Each type parameter belongs to one function, keeps one display name, and is introduced by
         // that function's parameter types before its result or body can use it.
         let typeParameterOwners =
-            snapshot.Functions
-            |> List.collect (fun functionEntity -> TypeParameters.ofFunction functionEntity |> List.map (fun (id, name) -> id, (functionEntity.Id, name)))
+            (snapshot.Functions
+             |> List.collect (fun functionEntity -> TypeParameters.ofFunction functionEntity |> List.map (fun (id, name) -> id, ("function:" + StableId.value functionEntity.Id, name))))
+            @ (snapshot.Types
+               |> List.collect (fun typeEntity -> typeEntity.TypeParameters |> List.map (fun (id, name) -> id, ("type:" + StableId.value typeEntity.Id, name))))
         typeParameterOwners
         |> List.groupBy fst
         |> List.iter (fun (id, owners) ->
             if (owners |> List.map (snd >> fst) |> List.distinct).Length > 1 then
-                add "TypeParameterSharedAcrossFunctions" $"Type parameter '{StableId.value id}' is declared by more than one function."
+                add "TypeParameterSharedAcrossFunctions" $"Type parameter '{StableId.value id}' is declared by more than one function or type."
             if (owners |> List.map (snd >> snd) |> List.distinct).Length > 1 then
                 add "TypeParameterDisplayNameConflict" $"Type parameter '{StableId.value id}' has more than one display name.")
         for functionEntity in snapshot.Functions do
@@ -717,6 +781,9 @@ module SnapshotValidator =
                 match resultError source, resultError result with
                 | Some sourceError, Some resultError -> sourceError = resultError
                 | _ -> false
+
+            let instantiateFields (owner: SemanticType) (arguments: TypeRef list) (fields: SemanticField list) =
+                fields |> List.map (fun field -> { field with Type = TypeParameters.instantiate owner arguments field.Type })
 
             let validateFieldBindings
                 (context: string)
@@ -1926,10 +1993,11 @@ module SnapshotValidator =
                                 add
                                     "MissingEffectRequirement"
                                     $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} invokes capability operation {StableId.describe operation.DisplayName operation.Id} but does not declare required effect {effectLabel operation.EffectId}."
-                    | SemanticNodeKind.ProductConstruct(typeId, fields) ->
+                    | SemanticNodeKind.ProductConstruct(typeId, typeArguments, fields) ->
                         match Map.tryFind typeId typesById with
-                        | Some { Kind = SemanticTypeKind.Product expectedFields } ->
-                            validateFieldBindings $"Product node '{StableId.value node.Id}'" expectedFields fields
+                        | Some({ Kind = SemanticTypeKind.Product expectedFields } as typeEntity) ->
+                            validateTypeRef $"Product node '{StableId.value node.Id}'" (TypeRef.Named(typeId, typeArguments))
+                            validateFieldBindings $"Product node '{StableId.value node.Id}'" (instantiateFields typeEntity typeArguments expectedFields) fields
                         | Some _ ->
                             add
                                 "InvalidProductConstructTarget"
@@ -1946,7 +2014,7 @@ module SnapshotValidator =
                                 $"Field-access node '{StableId.value node.Id}' references a field that is not owned by a product type."
                         | Some(ownerTypeId, _) ->
                             match nodeType sourceNodeId with
-                            | Some(TypeRef.Named sourceTypeId) when sourceTypeId = ownerTypeId -> ()
+                            | Some(TypeRef.Named(sourceTypeId, _)) when sourceTypeId = ownerTypeId -> ()
                             | Some _ ->
                                 add
                                     "FieldAccessTypeMismatch"
@@ -1954,14 +2022,18 @@ module SnapshotValidator =
                             | None -> ()
                     | SemanticNodeKind.ProductUpdate(typeId, sourceNodeId, fields) ->
                         match Map.tryFind typeId typesById with
-                        | Some { Kind = SemanticTypeKind.Product expectedFields } ->
+                        | Some({ Kind = SemanticTypeKind.Product declaredFields } as typeEntity) ->
                             let context = $"Product-update node '{StableId.value node.Id}'"
 
-                            match nodeType sourceNodeId with
-                            | Some(TypeRef.Named sourceTypeId) when sourceTypeId = typeId -> ()
-                            | Some _ ->
-                                add "ProductUpdateSourceTypeMismatch" $"{context} updates a source that is not of its product type."
-                            | None -> ()
+                            // The bound values must match the fields at the source's type arguments.
+                            let expectedFields =
+                                match nodeType sourceNodeId with
+                                | Some(TypeRef.Named(sourceTypeId, arguments)) when sourceTypeId = typeId ->
+                                    instantiateFields typeEntity arguments declaredFields
+                                | Some _ ->
+                                    add "ProductUpdateSourceTypeMismatch" $"{context} updates a source that is not of its product type."
+                                    declaredFields
+                                | None -> declaredFields
 
                             if List.isEmpty fields then
                                 add "EmptyProductUpdate" $"{context} must replace at least one field."
@@ -1994,14 +2066,19 @@ module SnapshotValidator =
                             add
                                 "UnknownProductUpdateType"
                                 $"Product-update node '{StableId.value node.Id}' targets unknown type '{StableId.value typeId}'."
-                    | SemanticNodeKind.UnionConstruct(variantId, fields) ->
+                    | SemanticNodeKind.UnionConstruct(variantId, typeArguments, fields) ->
                         match Map.tryFind variantId variantsById with
                         | None ->
                             add
                                 "UnknownUnionVariant"
                                 $"Union node '{StableId.value node.Id}' references unknown variant '{StableId.value variantId}'."
-                        | Some(_, variant) ->
-                            validateFieldBindings $"Union node '{StableId.value node.Id}'" variant.Fields fields
+                        | Some(ownerId, variant) ->
+                            validateTypeRef $"Union node '{StableId.value node.Id}'" (TypeRef.Named(ownerId, typeArguments))
+                            let expected =
+                                match Map.tryFind ownerId typesById with
+                                | Some owner -> instantiateFields owner typeArguments variant.Fields
+                                | None -> variant.Fields
+                            validateFieldBindings $"Union node '{StableId.value node.Id}'" expected fields
                     | SemanticNodeKind.OptionNone itemType ->
                         validateTypeRef $"Option.None node '{StableId.value node.Id}'" itemType
                     | SemanticNodeKind.Abort errorNodeId ->
@@ -2079,9 +2156,13 @@ module SnapshotValidator =
                         let describeArm (arm: UnionMatchArm) =
                             UnionMatchArm.canonicalVariantIds arm |> List.map StableId.value |> String.concat "|"
                         match nodeType inputNodeId with
-                        | Some(TypeRef.Named inputTypeId) ->
+                        | Some(TypeRef.Named(inputTypeId, inputArguments)) ->
                             match Map.tryFind inputTypeId typesById with
-                            | Some { Kind = SemanticTypeKind.Union variants } ->
+                            | Some({ Kind = SemanticTypeKind.Union declaredVariants } as inputType) ->
+                                // Pattern bindings see the variant fields at the input's type arguments.
+                                let variants =
+                                    declaredVariants
+                                    |> List.map (fun variant -> { variant with Fields = instantiateFields inputType inputArguments variant.Fields })
                                 arms
                                 |> List.filter (fun arm -> List.isEmpty arm.VariantIds)
                                 |> List.iter (fun _ ->
