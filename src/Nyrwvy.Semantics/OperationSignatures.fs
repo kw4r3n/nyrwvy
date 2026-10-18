@@ -267,6 +267,15 @@ module OperationSignatures =
 
     let private byKind = table |> List.map (fun entry -> entry.Kind, entry) |> Map.ofList
 
+    /// Kinds kept for existing graphs and authoring scripts but left out of the agent reference,
+    /// because another operation already expresses them directly ([decision](docs/decisions/retired-authoring-kinds.md)).
+    /// Each maps to the recipe to use instead.
+    let retired =
+        Map.ofList
+            [ "stringEqual", "valueEqual"
+              "int64Equal", "valueEqual"
+              "mapGetOrDefault", "optionGetOrDefault of mapGet" ]
+
     let tryFind kind = Map.tryFind kind byKind
 
     /// The type in wire `TypeRef` notation with variables by name: `Map<K, V>`.
@@ -307,7 +316,7 @@ module OperationSignatures =
               ""
               "/** One-line signatures of the fixed-signature recipe kinds, in wire field names. */"
               "export const fixedSignatures = Object.freeze({"
-              yield! table |> List.map (fun entry -> $"  {quote entry.Kind}: {quote (referenceText entry)},")
+              yield! table |> List.filter (fun entry -> not (retired.ContainsKey entry.Kind)) |> List.map (fun entry -> $"  {quote entry.Kind}: {quote (referenceText entry)},")
               "})"
               "" ]
         String.concat "\n" lines

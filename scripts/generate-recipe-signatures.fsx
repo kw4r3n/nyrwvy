@@ -8,4 +8,4 @@ open Nyrwvy.Core
 
 let path = Path.GetFullPath(Path.Combine(__SOURCE_DIRECTORY__, "..", "tools", "nyrwvy-agent", "recipe-signatures.generated.mjs"))
 File.WriteAllText(path, OperationSignatures.referenceModule ())
-printfn $"Wrote {List.length OperationSignatures.table} signatures to {path}"
+printfn $"Wrote {List.length OperationSignatures.table - OperationSignatures.retired.Count} signatures to {path}"

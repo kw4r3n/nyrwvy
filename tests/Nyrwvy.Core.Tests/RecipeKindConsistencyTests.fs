@@ -78,6 +78,7 @@ module RecipeKindConsistencyTests =
     let ``ID form, name form and agent reference list the same recipe kinds`` () =
         let documented = documentedKinds ()
         let candidates = candidateKinds documented
+        let retired = OperationSignatures.retired.Keys |> Set.ofSeq
         Assert.False(idForm "noSuchRecipeKind", "The ID-form probe must reject unknown kinds.")
         Assert.False(nameForm "noSuchRecipeKind", "The name-form probe must reject unknown kinds.")
         let idKinds = candidates |> Set.filter idForm
@@ -88,7 +89,9 @@ module RecipeKindConsistencyTests =
               describe "Name form only (add to WireRecipe)" (nameKinds - idKinds)
               describe "idOnlyKinds entries that the name form now accepts" (Set.intersect idOnlyKinds nameKinds)
               describe "idOnlyKinds entries that the ID form no longer accepts" (idOnlyKinds - idKinds)
-              describe "Name form but undocumented in recipe-reference.mjs" (nameKinds - documented)
+              describe "Name form but undocumented in recipe-reference.mjs" (nameKinds - documented - retired)
+              describe "Retired kinds still documented in recipe-reference.mjs" (Set.intersect retired documented)
+              describe "Retired kinds the readers no longer accept (drop them from OperationSignatures.retired)" (retired - Set.intersect idKinds nameKinds)
               describe "Documented in recipe-reference.mjs but rejected by the name form" (documented - nameKinds)
               describe "ExpressionRecipe cases whose kind the ID form rejects" (recipeCaseKinds - idKinds) ]
             |> List.choose id
