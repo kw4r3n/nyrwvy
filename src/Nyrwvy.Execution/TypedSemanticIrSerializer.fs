@@ -385,6 +385,8 @@ module TypedSemanticIrSerializer =
             writeUnaryNode writer "stringToUpper" valueNodeId
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
             writeUnaryNode writer "stringDecodeUtf8Lossy" valueNodeId
+        | TypedSemanticNodeKind.StringEncodeUtf8 valueNodeId ->
+            writeUnaryNode writer "stringEncodeUtf8" valueNodeId
         | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId ->
             writeUnaryNode writer "float64RoundToInt64" valueNodeId
         | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId ->
@@ -673,6 +675,10 @@ module TypedSemanticIrSerializer =
         | TypedSemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId) ->
             writer.WriteString("kind", "listLastIndexOf")
             writer.WriteString("listNodeId", StableId.value mapNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | TypedSemanticNodeKind.ListContains(listNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listContains")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapGet")

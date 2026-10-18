@@ -343,6 +343,7 @@ module internal CSharpBackendRuntime =
           "        return NyOption<long>.None();"
           "    }"
           "    public NyOption<long> IndexOf(T item) => FindIndex(candidate => NyEquality.Equal(candidate, item));"
+          "    public bool Contains(T item) => IndexOf(item).HasValue;"
           "    // LastIndexOf scans right to left, so an item near the end, as on a stack, is found in time proportional to its distance from the end."
           "    public NyOption<long> LastIndexOf(T item)"
           "    {"

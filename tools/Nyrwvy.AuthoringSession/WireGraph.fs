@@ -64,6 +64,7 @@ module internal WireGraph =
         | SemanticNodeKind.StringToLower value -> unary "stringToLower" value
         | SemanticNodeKind.StringToUpper value -> unary "stringToUpper" value
         | SemanticNodeKind.StringDecodeUtf8Lossy value -> unary "stringDecodeUtf8Lossy" value
+        | SemanticNodeKind.StringEncodeUtf8 value -> unary "stringEncodeUtf8" value
         | SemanticNodeKind.Float64RoundToInt64 value -> unary "float64RoundToInt64" value
         | SemanticNodeKind.Float64FloorToInt64 value -> unary "float64FloorToInt64" value
         | SemanticNodeKind.Float64Sqrt value -> unary "float64Sqrt" value
@@ -175,6 +176,7 @@ module internal WireGraph =
         | SemanticNodeKind.SetContains(map, key) -> tagged "setContains" [ "setNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.ListIndexOf(map, key) -> tagged "listIndexOf" [ "listNodeId", identity map; "itemNodeId", identity key ]
         | SemanticNodeKind.ListLastIndexOf(map, key) -> tagged "listLastIndexOf" [ "listNodeId", identity map; "itemNodeId", identity key ]
+        | SemanticNodeKind.ListContains(list, item) -> tagged "listContains" [ "listNodeId", identity list; "itemNodeId", identity item ]
         | SemanticNodeKind.MapGet(map, key) -> tagged "mapGet" [ "mapNodeId", identity map; "keyNodeId", identity key ]
         | SemanticNodeKind.OptionGetOrDefault(option, fallback) ->
             tagged "optionGetOrDefault" [ "optionNodeId", identity option; "defaultNodeId", identity fallback ]

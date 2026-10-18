@@ -448,6 +448,15 @@ module CSharpBackend =
         writer.Line("return System.Text.Encoding.UTF8.GetString(bytes, 0, count);")
         writer.Pop()
         writer.Line("}")
+        // EncodeUtf8 is the inverse: Encoding.UTF8.GetBytes, whose replacement fallback writes an unpaired
+        // surrogate as U+FFFD (EF BF BD, the 3 bytes Utf8ByteCount counts), then one char per byte.
+        writer.Line("public static string EncodeUtf8(string text)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var bytes = System.Text.Encoding.UTF8.GetBytes(text);")
+        writer.Line("return string.Create(bytes.Length, bytes, static (span, source) => { for (var index = 0; index < source.Length; index++) span[index] = (char)source[index]; });")
+        writer.Pop()
+        writer.Line("}")
         // FromCodePoint is Python chr as an Option. A BMP code, surrogates included, is one UTF-16 unit;
         // char.ConvertFromUtf32 is used only above U+FFFF, since it throws for a surrogate code.
         writer.Line("public static NyOption<NyStr> FromCodePoint(long code) =>")
@@ -1287,6 +1296,8 @@ module CSharpBackend =
             writer.Line(target + " = NyText.ToUpper(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringDecodeUtf8Lossy sourceValueId ->
             writer.Line(target + " = NyText.DecodeUtf8Lossy(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.StringEncodeUtf8 sourceValueId ->
+            writer.Line(target + " = NyText.EncodeUtf8(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.Float64RoundToInt64 sourceValueId ->
             writer.Line(target + " = NyNumber.RoundToInt64(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.Float64FloorToInt64 sourceValueId ->
@@ -1602,6 +1613,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName listValueId + ".IndexOf(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.ListLastIndexOf(listValueId, itemValueId) ->
             writer.Line(target + " = " + valueName listValueId + ".LastIndexOf(" + valueName itemValueId + ");")
+        | ExecutionInstructionKind.ListContains(listValueId, itemValueId) ->
+            writer.Line(target + " = " + valueName listValueId + ".Contains(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".Get(" + valueName keyValueId + ");")
         | ExecutionInstructionKind.OptionGetOrDefault(optionValueId, defaultValueId) ->

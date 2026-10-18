@@ -110,7 +110,7 @@ Implicit conversion and a broader numeric tower are not part of this contract.
 
 `StringToUpper(text)` replaces each code point with its Unicode simple (one-to-one) uppercase mapping, culture invariant: `i` and DOTLESS I `ı` become `I`, LONG S `ſ` becomes `S`, and `ß`, which has no simple uppercase mapping, becomes CAPITAL SHARP S `ẞ`, so `StringToLower` undoes it. Code points without a mapping are kept, so the code-point length never changes. It differs from Python `text.upper()`, which applies the full mapping (`ß` to `SS`, `ŉ` to `ʼN`) ([decision](../decisions/string-uppercase.md)).
 
-`StringDecodeUtf8Lossy(bytes)` decodes UTF-8 bytes held one per code point (U+0000..U+00FF, the latin-1 form in which probes carry bytes, so code-point positions are byte offsets) and equals Python `bytes.decode("utf-8", "replace")`: each maximal ill-formed subpart of the input (a byte that cannot start a sequence, an overlong form, an encoded surrogate, a value above U+10FFFF, or a sequence cut short) becomes one U+FFFD. A code point above U+00FF is not a byte and reads as the invalid byte 0xFF, so it becomes one U+FFFD too. It never fails and runs in linear time; see the [decision](../decisions/utf8-decode.md).
+`StringDecodeUtf8Lossy(bytes)` decodes UTF-8 bytes held one per code point (U+0000..U+00FF, the latin-1 form in which probes carry bytes, so code-point positions are byte offsets) and equals Python `bytes.decode("utf-8", "replace")`: each maximal ill-formed subpart of the input (a byte that cannot start a sequence, an overlong form, an encoded surrogate, a value above U+10FFFF, or a sequence cut short) becomes one U+FFFD. A code point above U+00FF is not a byte and reads as the invalid byte 0xFF, so it becomes one U+FFFD too. It never fails and runs in linear time; see the [decision](../decisions/utf8-decode.md). `StringEncodeUtf8(text)` is the inverse: the UTF-8 encoding of `text` as a String of one byte per code point, `text.encode("utf-8")` in that form, so decoding it gives `text` back for every well-formed String. An unpaired surrogate, on which Python raises, encodes as U+FFFD (`EF BF BD`), the 3 bytes `StringUtf8ByteCount` counts for it, so `StringLength(StringEncodeUtf8(text))` always equals `StringUtf8ByteCount(text)`. It never fails and runs in linear time; see the [decision](../decisions/string-encode-utf8.md).
 
 `StringFromCodePoint(code)` yields `Option<String>`: for an `Int64` `code` with `0 <= code <= 0x10FFFF`, `Some` String of that one code point, Python `chr(code)`, and `None` for a negative code or one above 0x10FFFF. A surrogate code 0xD800..0xDFFF gives a String of one unpaired surrogate code unit, as Python allows, and `StringConcat` of a high and a low one forms the pair, as when a JSON `\ud83d\ude00` escape is decoded. `StringToCodePoint(text)` yields `Option<Int64>`, Python `ord(text)`: `Some` code point when `text` is exactly one code point as `StringLength` counts it (a surrogate pair gives its scalar value, an unpaired surrogate its code unit), and `None` for the empty String or a longer one. `StringToCodePoint(StringFromCodePoint(n)) = Some n` for every `n` in `0..0x10FFFF`. `runPure` passes Strings with unpaired surrogates as arguments and results unchanged, using JSON `\uD800`-style escapes ([String run values](../specs/agent-authoring-session.md)). Both never fail; see the [decision](../decisions/string-code-point-conversion.md).
 
@@ -152,6 +152,7 @@ ListSortBy
 ListMinBy
 ListIndexOf
 ListLastIndexOf
+ListContains
 ListFindIndex
 ListAny
 ListAll
@@ -173,7 +174,7 @@ Higher-order operations reference callbacks by stable `FunctionId`. The accepted
 
 `ListZipWith(left, right, combiner, context)` gives the `List<R>` whose item i is `combiner(left[i], right[i])` for every index below the shorter length; the extra items of the longer list are ignored, as Python `zip`. There is no tuple type, so a pairing combiner builds a product. `ListFlatMap(source, mapper, context)` concatenates, in source order, the `List<R>` a pure `T -> List<R>` mapper returns for each item, as Python `[y for x in xs for y in f(x)]`; a mapper returning `[]` drops its item, and the time is linear in the output length, so it replaces a `ListFold` over `ListConcat`. Neither fails ([decision](../decisions/list-zip-with-and-flat-map.md)).
 
-`ListIndexOf(list, item)` gives the zero-based index of the first item equal to `item` (as `ValueEqual`) as `Option<Int64>`, `None` when there is none; the item type must be equatable. `ListFindIndex(source, predicate, context)` gives the index of the first item for which a pure `T -> Bool` callback is true, scanning left to right and stopping there. `ListLastIndexOf(list, item)` gives the index of the last equal item, scanning from the end, so an item near the end of a stack is found in time proportional to its distance from the end ([decision](../decisions/list-last-index-and-set-difference.md)). None of them fails ([decision](../decisions/list-index.md)).
+`ListIndexOf(list, item)` gives the zero-based index of the first item equal to `item` (as `ValueEqual`) as `Option<Int64>`, `None` when there is none; the item type must be equatable. `ListFindIndex(source, predicate, context)` gives the index of the first item for which a pure `T -> Bool` callback is true, scanning left to right and stopping there. `ListLastIndexOf(list, item)` gives the index of the last equal item, scanning from the end, so an item near the end of a stack is found in time proportional to its distance from the end ([decision](../decisions/list-last-index-and-set-difference.md)). `ListContains(list, item)` is Python `item in list`: true when some item equals `item` (as `ValueEqual`), under the same equatable restriction, stopping at the first equal item; repeated tests against one list are better served by `SetFromList` once and `SetContains` ([decision](../decisions/list-contains.md)). None of them fails ([decision](../decisions/list-index.md)).
 
 ## Immutable insertion-ordered `Map<K, V>`
 
@@ -360,7 +361,7 @@ StringJoin
 StringToLower
 StringToUpper
 StringUtf8ByteCount
-StringDecodeUtf8Lossy
+StringDecodeUtf8Lossy / EncodeUtf8
 StringFromCodePoint / ToCodePoint
 Int64WrappingAdd / Subtract / Multiply
 Int64FloorDivide / FloorModulo
@@ -420,6 +421,7 @@ ListSortBy
 ListMinBy
 ListIndexOf
 ListLastIndexOf
+ListContains
 ListFindIndex
 ListAny
 ListAll

@@ -47,6 +47,7 @@ module internal WireRecipeCommon =
         | "stringToLower" -> unary "string-to-lower recipe" ExpressionRecipe.StringToLower |> Some
         | "stringToUpper" -> unary "string-to-upper recipe" ExpressionRecipe.StringToUpper |> Some
         | "stringDecodeUtf8Lossy" -> unary "string-decode-utf8-lossy recipe" ExpressionRecipe.StringDecodeUtf8Lossy |> Some
+        | "stringEncodeUtf8" -> unary "string-encode-utf8 recipe" ExpressionRecipe.StringEncodeUtf8 |> Some
         | "float64RoundToInt64" -> unary "float64-round-to-int64 recipe" ExpressionRecipe.Float64RoundToInt64 |> Some
         | "float64FloorToInt64" -> unary "float64-floor-to-int64 recipe" ExpressionRecipe.Float64FloorToInt64 |> Some
         | "float64Sqrt" -> unary "float64-sqrt recipe" ExpressionRecipe.Float64Sqrt |> Some
@@ -208,6 +209,9 @@ module internal WireRecipeCommon =
         | "listLastIndexOf" ->
             ensureFields "set-contains recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
             ExpressionRecipe.ListLastIndexOf(recipe (property "list" element), recipe (property "item" element)) |> Some
+        | "listContains" ->
+            ensureFields "list-contains recipe" [ "kind"; "list"; "item" ] [ "kind"; "list"; "item" ] element
+            ExpressionRecipe.ListContains(recipe (property "list" element), recipe (property "item" element)) |> Some
         | "mapGet" ->
             ensureFields "map-get recipe" [ "kind"; "map"; "key" ] [ "kind"; "map"; "key" ] element
             ExpressionRecipe.MapGet(recipe (property "map" element), recipe (property "key" element)) |> Some

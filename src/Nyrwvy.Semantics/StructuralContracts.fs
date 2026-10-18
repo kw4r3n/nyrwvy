@@ -72,6 +72,7 @@ module ValueDependency =
         | SemanticNodeKind.StringTrimStart sourceNodeId
         | SemanticNodeKind.StringTrimEnd sourceNodeId
         | SemanticNodeKind.StringDecodeUtf8Lossy sourceNodeId
+        | SemanticNodeKind.StringEncodeUtf8 sourceNodeId
         | SemanticNodeKind.Float64RoundToInt64 sourceNodeId
         | SemanticNodeKind.Float64FloorToInt64 sourceNodeId
         | SemanticNodeKind.Float64Sqrt sourceNodeId
@@ -276,7 +277,8 @@ module ValueDependency =
         | SemanticNodeKind.ListIndexOf(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]
-        | SemanticNodeKind.ListLastIndexOf(sourceNodeId, itemNodeId) ->
+        | SemanticNodeKind.ListLastIndexOf(sourceNodeId, itemNodeId)
+        | SemanticNodeKind.ListContains(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]
         | SemanticNodeKind.MapGet(sourceNodeId, keyNodeId) ->

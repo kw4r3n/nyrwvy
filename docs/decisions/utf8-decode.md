@@ -34,5 +34,5 @@ This decision settles order 33 of the post-M2 queue. The language has no bytes t
 
 - **Strict decoding:** a second consumer needs Python's strict decode, or its error text, from a module that cannot leave decoding to the host.
 - **`surrogateescape` or other error modes:** a consumer must round-trip invalid bytes through text, as `os.fsdecode` does.
-- **Encoding:** a consumer must produce UTF-8 bytes from text in the program, beyond counting them with `StringUtf8ByteCount`.
+- **Encoding:** settled by [`StringEncodeUtf8`](string-encode-utf8.md) (order 67), the inverse over the same byte form.
 - **A bytes type:** a port finds an operation on bytes that the latin-1 String form cannot express or makes quadratic.

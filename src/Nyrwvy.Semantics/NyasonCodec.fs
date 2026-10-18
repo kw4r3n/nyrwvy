@@ -559,6 +559,8 @@ module NyasonCodec =
             record "string-to-upper" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
             record "string-decode-utf8-lossy" [ nodeId; "value", encodeId "node" valueNodeId ]
+        | SemanticNodeKind.StringEncodeUtf8 valueNodeId ->
+            record "string-encode-utf8" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->
             record "float64-round-to-int64" [ nodeId; "value", encodeId "node" valueNodeId ]
         | SemanticNodeKind.Float64FloorToInt64 valueNodeId ->
@@ -866,6 +868,8 @@ module NyasonCodec =
                 [ nodeId
                   "set", encodeId "node" mapNodeId
                   "item", encodeId "node" itemNodeId ]
+        | SemanticNodeKind.ListContains(listNodeId, itemNodeId) ->
+            record "list-contains" [ nodeId; "list", encodeId "node" listNodeId; "item", encodeId "node" itemNodeId ]
         | SemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId) ->
             record
                 "list-index-of"
@@ -1257,6 +1261,10 @@ module NyasonCodec =
             let fields = recordFields "string-decode-utf8-lossy" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.StringDecodeUtf8Lossy(decodeId<GraphNodeTag> "node" (require "value" fields)) }
+        | NyasonValue.Record("string-encode-utf8", _) ->
+            let fields = recordFields "string-encode-utf8" [ "id"; "value" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.StringEncodeUtf8(decodeId<GraphNodeTag> "node" (require "value" fields)) }
         | NyasonValue.Record("float64-round-to-int64", _) ->
             let fields = recordFields "float64-round-to-int64" [ "id"; "value" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1704,6 +1712,10 @@ module NyasonCodec =
                     decodeId<GraphNodeTag> "node" (require "set" fields),
                     decodeId<GraphNodeTag> "node" (require "item" fields)
                 ) }
+        | NyasonValue.Record("list-contains", _) ->
+            let fields = recordFields "list-contains" [ "id"; "list"; "item" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.ListContains(decodeId<GraphNodeTag> "node" (require "list" fields), decodeId<GraphNodeTag> "node" (require "item" fields)) }
         | NyasonValue.Record("list-index-of", _) ->
             let fields = recordFields "list-index-of" [ "id"; "list"; "item" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)

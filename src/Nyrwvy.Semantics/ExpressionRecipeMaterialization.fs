@@ -154,6 +154,7 @@ module internal ExpressionRecipeMaterialization =
         | ExpressionRecipe.StringTrimStart value -> unary SemanticNodeKind.StringTrimStart value
         | ExpressionRecipe.StringTrimEnd value -> unary SemanticNodeKind.StringTrimEnd value
         | ExpressionRecipe.StringDecodeUtf8Lossy value -> unary SemanticNodeKind.StringDecodeUtf8Lossy value
+        | ExpressionRecipe.StringEncodeUtf8 value -> unary SemanticNodeKind.StringEncodeUtf8 value
         | ExpressionRecipe.Float64RoundToInt64 value -> unary SemanticNodeKind.Float64RoundToInt64 value
         | ExpressionRecipe.Float64FloorToInt64 value -> unary SemanticNodeKind.Float64FloorToInt64 value
         | ExpressionRecipe.Float64Sqrt value -> unary SemanticNodeKind.Float64Sqrt value
@@ -292,6 +293,7 @@ module internal ExpressionRecipeMaterialization =
         | ExpressionRecipe.SetContains(map, key) -> binary SemanticNodeKind.SetContains map key
         | ExpressionRecipe.ListIndexOf(list, item) -> binary SemanticNodeKind.ListIndexOf list item
         | ExpressionRecipe.ListLastIndexOf(list, item) -> binary SemanticNodeKind.ListLastIndexOf list item
+        | ExpressionRecipe.ListContains(list, item) -> binary SemanticNodeKind.ListContains list item
         | ExpressionRecipe.MapGet(map, key) -> binary SemanticNodeKind.MapGet map key
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) ->
             let mapNodes, mapResult = materializeRecipe map

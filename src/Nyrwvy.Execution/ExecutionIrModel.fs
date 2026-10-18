@@ -95,6 +95,7 @@ type ExecutionInstructionKind =
     | StringToLower of ExecutionValueId
     | StringToUpper of ExecutionValueId
     | StringDecodeUtf8Lossy of ExecutionValueId
+    | StringEncodeUtf8 of ExecutionValueId
     | Float64RoundToInt64 of ExecutionValueId
     | Float64FloorToInt64 of ExecutionValueId
     | Float64Sqrt of ExecutionValueId
@@ -207,6 +208,7 @@ type ExecutionInstructionKind =
     | SetContains of setValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListIndexOf of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | ListLastIndexOf of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
+    | ListContains of listValueId: ExecutionValueId * itemValueId: ExecutionValueId
     | MapGet of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId
     | MapGetOrDefault of mapValueId: ExecutionValueId * keyValueId: ExecutionValueId * defaultValueId: ExecutionValueId
     | OptionGetOrDefault of optionValueId: ExecutionValueId * defaultValueId: ExecutionValueId
@@ -369,6 +371,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.StringToLower _
         | ExecutionInstructionKind.StringToUpper _
         | ExecutionInstructionKind.StringDecodeUtf8Lossy _
+        | ExecutionInstructionKind.StringEncodeUtf8 _
         | ExecutionInstructionKind.Float64RoundToInt64 _
         | ExecutionInstructionKind.Float64FloorToInt64 _
         | ExecutionInstructionKind.Float64Sqrt _
@@ -476,6 +479,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.SetContains _
         | ExecutionInstructionKind.ListIndexOf _
         | ExecutionInstructionKind.ListLastIndexOf _
+        | ExecutionInstructionKind.ListContains _
         | ExecutionInstructionKind.MapGet _
         | ExecutionInstructionKind.OptionGetOrDefault _
         | ExecutionInstructionKind.ResultGetOrDefault _

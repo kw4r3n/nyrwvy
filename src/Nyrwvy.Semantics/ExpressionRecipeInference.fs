@@ -519,6 +519,7 @@ module internal ExpressionRecipeInference =
             | ExpressionRecipe.StringToUpper _
             | ExpressionRecipe.StringUtf8ByteCount _
             | ExpressionRecipe.StringDecodeUtf8Lossy _
+            | ExpressionRecipe.StringEncodeUtf8 _
             | ExpressionRecipe.StringFromCodePoint _
             | ExpressionRecipe.StringToCodePoint _
             | ExpressionRecipe.Int64ToString _
@@ -596,6 +597,7 @@ module internal ExpressionRecipeInference =
             | ExpressionRecipe.CancellationRequested
             | ExpressionRecipe.ListIndexOf _
             | ExpressionRecipe.ListLastIndexOf _
+            | ExpressionRecipe.ListContains _
             | ExpressionRecipe.MapInsert _
             | ExpressionRecipe.MapGet _
             | ExpressionRecipe.MapGetOrDefault _

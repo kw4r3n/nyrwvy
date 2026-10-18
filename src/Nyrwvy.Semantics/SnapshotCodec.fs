@@ -460,6 +460,9 @@ module SnapshotCodec =
         | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
             writer.WriteString("kind", "stringDecodeUtf8Lossy")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.StringEncodeUtf8 valueNodeId ->
+            writer.WriteString("kind", "stringEncodeUtf8")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
         | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->
             writer.WriteString("kind", "float64RoundToInt64")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -773,6 +776,10 @@ module SnapshotCodec =
         | SemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId) ->
             writer.WriteString("kind", "listLastIndexOf")
             writer.WriteString("listNodeId", StableId.value mapNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | SemanticNodeKind.ListContains(listNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listContains")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
         | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapGet")
@@ -1577,6 +1584,9 @@ module SnapshotCodec =
             | "stringDecodeUtf8Lossy" ->
                 ensureProperties "StringDecodeUtf8Lossy node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.StringDecodeUtf8Lossy(readId<GraphNodeTag> "valueNodeId" element)
+            | "stringEncodeUtf8" ->
+                ensureProperties "StringEncodeUtf8 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                SemanticNodeKind.StringEncodeUtf8(readId<GraphNodeTag> "valueNodeId" element)
             | "float64RoundToInt64" ->
                 ensureProperties "Float64RoundToInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
                 SemanticNodeKind.Float64RoundToInt64(readId<GraphNodeTag> "valueNodeId" element)
@@ -1958,6 +1968,9 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "setNodeId" element,
                     readId<GraphNodeTag> "itemNodeId" element
                 )
+            | "listContains" ->
+                ensureProperties "ListContains node" (set [ "id"; "kind"; "listNodeId"; "itemNodeId" ]) (set [ "id"; "kind"; "listNodeId"; "itemNodeId" ]) element
+                SemanticNodeKind.ListContains(readId<GraphNodeTag> "listNodeId" element, readId<GraphNodeTag> "itemNodeId" element)
             | "listIndexOf" ->
                 ensureProperties
                     "ListIndexOf node"

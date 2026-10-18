@@ -138,6 +138,7 @@ module OperationSignatures =
               [ { operand "value" string with TypeDetail = Some " of bytes U+00-U+FF" } ]
               string
               (Some "decode('utf-8', 'replace')")
+          unary "stringEncodeUtf8" string string (Some "encode('utf-8') as bytes U+00-U+FF")
           unary "stringFromCodePoint" int64 (SignatureType.Option string) (Some "chr")
           unary "stringToCodePoint" string (SignatureType.Option int64) (Some "ord")
           unary "int64ToString" int64 string None
@@ -237,6 +238,8 @@ module OperationSignatures =
           |> equatable "T" "ListIndexOfItemTypeNotEquatable" "ListIndexOf compares items of a type that is not equatable: "
           signature "listLastIndexOf" [ operand "list" (SignatureType.List t); operand "item" t ] (SignatureType.Option int64) (Some "last equal item's index")
           |> equatable "T" "ListLastIndexOfItemTypeNotEquatable" "ListLastIndexOf compares items of a type that is not equatable: "
+          signature "listContains" [ operand "list" (SignatureType.List t); operand "item" t ] bool (Some "item in list")
+          |> equatable "T" "ListContainsItemTypeNotEquatable" "ListContains compares items of a type that is not equatable: "
           // map
           signature
               "mapInsert"

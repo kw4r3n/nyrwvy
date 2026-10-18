@@ -306,6 +306,8 @@ module ExecutionIrSerializer =
             writeUnaryInstruction "stringToUpper" valueId
         | ExecutionInstructionKind.StringDecodeUtf8Lossy valueId ->
             writeUnaryInstruction "stringDecodeUtf8Lossy" valueId
+        | ExecutionInstructionKind.StringEncodeUtf8 valueId ->
+            writeUnaryInstruction "stringEncodeUtf8" valueId
         | ExecutionInstructionKind.Float64RoundToInt64 valueId ->
             writeUnaryInstruction "float64RoundToInt64" valueId
         | ExecutionInstructionKind.Float64FloorToInt64 valueId ->
@@ -592,6 +594,10 @@ module ExecutionIrSerializer =
               property "itemValueId" (executionValueIdValue itemValueId) ]
         | ExecutionInstructionKind.ListLastIndexOf(listValueId, itemValueId) ->
             [ property "kind" (quote "listLastIndexOf")
+              property "listValueId" (executionValueIdValue listValueId)
+              property "itemValueId" (executionValueIdValue itemValueId) ]
+        | ExecutionInstructionKind.ListContains(listValueId, itemValueId) ->
+            [ property "kind" (quote "listContains")
               property "listValueId" (executionValueIdValue listValueId)
               property "itemValueId" (executionValueIdValue itemValueId) ]
         | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->

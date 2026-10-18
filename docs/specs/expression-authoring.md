@@ -70,6 +70,7 @@ ExpressionRecipe =
   | StringToUpper(expr)
   | StringUtf8ByteCount(expr)
   | StringDecodeUtf8Lossy(expr)
+  | StringEncodeUtf8(expr)
   | StringFromCodePoint(expr)
   | StringToCodePoint(expr)
   | Int64WrappingAdd(left, right)
@@ -148,6 +149,7 @@ ExpressionRecipe =
   | ListSortBy(source, lessThanFunctionId, context)
   | ListMinBy(source, lessThanFunctionId, context)
   | ListIndexOf(list, item)
+  | ListContains(list, item)
   | ListLastIndexOf(list, item)
   | ListFindIndex(source, predicateFunctionId, context)
   | ListAny(source, predicateFunctionId, context)
@@ -353,6 +355,7 @@ For a source `List<T>`:
 - `ListFindIndex(source, predicate)` (wire `listFindIndex`, Nyason `list-find-index`) takes the same callback as `ListAny` and produces `Option<Int64>`: the zero-based index of the first item for which the predicate is true, or `None`.
 - `ListIndexOf(list, item)` (wire `listIndexOf` with the fields `list` and `item`, Nyason `list-index-of`) takes no callback: it produces the index of the first item equal to `item` as `ValueEqual` compares, or `None`. The item must have the list's item type (`ListIndexOfItemTypeMismatch`), and that type must be equatable (`ListIndexOfItemTypeNotEquatable`; a Float64 list uses `ListFindIndex`).
 - `ListLastIndexOf(list, item)` (wire `listLastIndexOf` with the fields `list` and `item`, Nyason `list-last-index-of`) is `ListIndexOf` scanning from the end: the index of the last equal item, or `None`, with the same rules and the diagnostics `ListLastIndexOfItemTypeMismatch` and `ListLastIndexOfItemTypeNotEquatable`.
+- `ListContains(list, item)` (wire `listContains` with the fields `list` and `item`, Nyason `list-contains`) produces `Bool`: whether some item equals `item` as `ValueEqual` compares, stopping at the first; the same rules, with the diagnostics `ListContainsListTypeMismatch`, `ListContainsItemTypeMismatch` and `ListContainsItemTypeNotEquatable` ([decision](../decisions/list-contains.md)).
 - `ListAny(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`;
 - `ListAll(source, p)` requires a pure unary `p : T -> Bool` and produces `Bool`.
 
@@ -460,9 +463,9 @@ The accessors are fixed-signature operations checked from the `OperationSignatur
 
 `StringToLower(text)` (wire `stringToLower`, Nyason `string-to-lower`) takes a String and produces a String: each code point replaced by its culture-invariant Unicode simple lowercase mapping, unpaired surrogates kept. `StringToUpper(text)` (wire `stringToUpper`, Nyason `string-to-upper`) is the uppercase counterpart, with `ß` mapped to `ẞ` ([decision](../decisions/string-uppercase.md)). `StringUtf8ByteCount(text)` (wire `stringUtf8ByteCount`, Nyason `string-utf8-byte-count`) takes a String and produces the Int64 UTF-8 byte length, an unpaired surrogate counting 3 bytes. All three use the wire field `value`, run in linear time and never fail; the semantics and the Python differences are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-lowercase-and-utf8-length.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
 
-## StringDecodeUtf8Lossy
+## StringDecodeUtf8Lossy and StringEncodeUtf8
 
-`StringDecodeUtf8Lossy(bytes)` (wire `stringDecodeUtf8Lossy`, Nyason `string-decode-utf8-lossy`) takes a String of one byte per code point and produces the String that Python's `bytes.decode("utf-8", "replace")` gives for those bytes. It uses the wire field `value`, runs in linear time and never fails; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/utf8-decode.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
+`StringDecodeUtf8Lossy(bytes)` (wire `stringDecodeUtf8Lossy`, Nyason `string-decode-utf8-lossy`) takes a String of one byte per code point and produces the String that Python's `bytes.decode("utf-8", "replace")` gives for those bytes. `StringEncodeUtf8(text)` (wire `stringEncodeUtf8`, Nyason `string-encode-utf8`) is the inverse: the UTF-8 bytes of `text` in that same form, an unpaired surrogate encoded as U+FFFD ([decision](../decisions/string-encode-utf8.md)). Both use the wire field `value`, run in linear time and never fail; the semantics are in the [language subset](../reference/language-subset.md) and the [decision](../decisions/utf8-decode.md). An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `StringIntrinsicTypeMismatch`.
 
 ## StringFromCodePoint and StringToCodePoint
 

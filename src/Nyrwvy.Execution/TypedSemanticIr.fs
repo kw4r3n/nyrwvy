@@ -93,6 +93,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | StringToLower of valueNodeId: GraphNodeId
     | StringToUpper of valueNodeId: GraphNodeId
     | StringDecodeUtf8Lossy of valueNodeId: GraphNodeId
+    | StringEncodeUtf8 of valueNodeId: GraphNodeId
     | Float64RoundToInt64 of valueNodeId: GraphNodeId
     | Float64FloorToInt64 of valueNodeId: GraphNodeId
     | Float64Sqrt of valueNodeId: GraphNodeId
@@ -199,6 +200,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | SetContains of setNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | ListLastIndexOf of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
+    | ListContains of listNodeId: GraphNodeId * itemNodeId: GraphNodeId
     | MapGet of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId
     | MapGetOrDefault of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * defaultNodeId: GraphNodeId
     | OptionGetOrDefault of optionNodeId: GraphNodeId * defaultNodeId: GraphNodeId
@@ -320,6 +322,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.StringToLower _
         | TypedSemanticNodeKind.StringToUpper _
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
+        | TypedSemanticNodeKind.StringEncodeUtf8 _
         | TypedSemanticNodeKind.Float64RoundToInt64 _
         | TypedSemanticNodeKind.Float64FloorToInt64 _
         | TypedSemanticNodeKind.Float64Sqrt _
@@ -426,6 +429,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.SetContains _
         | TypedSemanticNodeKind.ListIndexOf _
         | TypedSemanticNodeKind.ListLastIndexOf _
+        | TypedSemanticNodeKind.ListContains _
         | TypedSemanticNodeKind.MapGet _
         | TypedSemanticNodeKind.OptionGetOrDefault _
         | TypedSemanticNodeKind.ResultGetOrDefault _
@@ -520,6 +524,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.StringTrimStart valueNodeId
         | TypedSemanticNodeKind.StringTrimEnd valueNodeId
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId
+        | TypedSemanticNodeKind.StringEncodeUtf8 valueNodeId
         | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId
         | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId
         | TypedSemanticNodeKind.Float64Sqrt valueNodeId
@@ -666,6 +671,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.SetContains(mapNodeId, itemNodeId) -> [ mapNodeId; itemNodeId ]
         | TypedSemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId) -> [ mapNodeId; itemNodeId ]
         | TypedSemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId) -> [ mapNodeId; itemNodeId ]
+        | TypedSemanticNodeKind.ListContains(listNodeId, itemNodeId) -> [ listNodeId; itemNodeId ]
         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) -> [ mapNodeId; keyNodeId ]
         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) -> [ mapNodeId; keyNodeId; defaultNodeId ]
         | TypedSemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) -> [ optionNodeId; defaultNodeId ]
@@ -834,6 +840,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.StringToUpper valueNodeId)
                     | SemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
                         Ok(TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId)
+                    | SemanticNodeKind.StringEncodeUtf8 valueNodeId ->
+                        Ok(TypedSemanticNodeKind.StringEncodeUtf8 valueNodeId)
                     | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->
                         Ok(TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId)
                     | SemanticNodeKind.Float64FloorToInt64 valueNodeId ->
@@ -1036,6 +1044,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListIndexOf(mapNodeId, itemNodeId))
                     | SemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId) ->
                         Ok(TypedSemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId))
+                    | SemanticNodeKind.ListContains(listNodeId, itemNodeId) ->
+                        Ok(TypedSemanticNodeKind.ListContains(listNodeId, itemNodeId))
                     | SemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
                         Ok(TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId))
                     | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->

@@ -34,6 +34,7 @@ type ExpressionRecipe =
     | StringToLower of ExpressionRecipe
     | StringToUpper of ExpressionRecipe
     | StringDecodeUtf8Lossy of ExpressionRecipe
+    | StringEncodeUtf8 of ExpressionRecipe
     | Float64RoundToInt64 of ExpressionRecipe
     | Float64FloorToInt64 of ExpressionRecipe
     | Float64Sqrt of ExpressionRecipe
@@ -135,6 +136,7 @@ type ExpressionRecipe =
     | SetContains of map: ExpressionRecipe * key: ExpressionRecipe
     | ListIndexOf of list: ExpressionRecipe * item: ExpressionRecipe
     | ListLastIndexOf of list: ExpressionRecipe * item: ExpressionRecipe
+    | ListContains of list: ExpressionRecipe * item: ExpressionRecipe
     | MapGet of map: ExpressionRecipe * key: ExpressionRecipe
     | MapGetOrDefault of map: ExpressionRecipe * key: ExpressionRecipe * defaultValue: ExpressionRecipe
     | ListSlice of list: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
@@ -256,6 +258,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringToLower value -> ExpressionRecipe.StringToLower(go value)
         | ExpressionRecipe.StringToUpper value -> ExpressionRecipe.StringToUpper(go value)
         | ExpressionRecipe.StringDecodeUtf8Lossy value -> ExpressionRecipe.StringDecodeUtf8Lossy(go value)
+        | ExpressionRecipe.StringEncodeUtf8 value -> ExpressionRecipe.StringEncodeUtf8(go value)
         | ExpressionRecipe.Float64RoundToInt64 value -> ExpressionRecipe.Float64RoundToInt64(go value)
         | ExpressionRecipe.Float64FloorToInt64 value -> ExpressionRecipe.Float64FloorToInt64(go value)
         | ExpressionRecipe.Float64Sqrt value -> ExpressionRecipe.Float64Sqrt(go value)
@@ -357,6 +360,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.SetContains(map, key) -> ExpressionRecipe.SetContains(go map, go key)
         | ExpressionRecipe.ListIndexOf(list, item) -> ExpressionRecipe.ListIndexOf(go list, go item)
         | ExpressionRecipe.ListLastIndexOf(list, item) -> ExpressionRecipe.ListLastIndexOf(go list, go item)
+        | ExpressionRecipe.ListContains(list, item) -> ExpressionRecipe.ListContains(go list, go item)
         | ExpressionRecipe.MapGet(map, key) -> ExpressionRecipe.MapGet(go map, go key)
         | ExpressionRecipe.MapGetOrDefault(map, key, defaultValue) -> ExpressionRecipe.MapGetOrDefault(go map, go key, go defaultValue)
         | ExpressionRecipe.ListSlice(list, start, stop) -> ExpressionRecipe.ListSlice(go list, go start, go stop)

@@ -84,6 +84,10 @@ module SnapshotSchemaTests =
               create "getOr" [ "option", optionOf stringType; "fallback", stringType ] stringType [] (ExpressionRecipe.OptionGetOrDefault(slot 0, slot 1)) |> ignore)
           "result is ok", SnapshotSchemaFeature.OptionResultAccessors, (fun create ->
               create "isOk" [ "result", generic BuiltinGenericType.Result [ stringType; int64Type ] ] boolType [] (ExpressionRecipe.ResultIsOk(slot 0)) |> ignore)
+          "list contains", SnapshotSchemaFeature.ListContains, (fun create ->
+              create "has" [ "items", listOf int64Type; "item", int64Type ] boolType [] (ExpressionRecipe.ListContains(slot 0, slot 1)) |> ignore)
+          "encode utf8", SnapshotSchemaFeature.StringEncodeUtf8, (fun create ->
+              create "encode" [ "text", stringType ] stringType [] (ExpressionRecipe.StringEncodeUtf8(slot 0)) |> ignore)
           "option ok or", SnapshotSchemaFeature.OptionResultAccessors, (fun create ->
               create "okOr" [ "option", optionOf stringType; "error", int64Type ] (generic BuiltinGenericType.Result [ stringType; int64Type ]) [] (ExpressionRecipe.OptionOkOr(slot 0, slot 1)) |> ignore)
           "exception classification", SnapshotSchemaFeature.ExceptionIsCancellation, (fun create ->

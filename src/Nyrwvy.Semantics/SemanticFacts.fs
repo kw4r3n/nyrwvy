@@ -159,6 +159,7 @@ module SemanticFacts =
                     | SemanticNodeKind.StringTrimStart _
                     | SemanticNodeKind.StringTrimEnd _
                     | SemanticNodeKind.StringDecodeUtf8Lossy _
+                    | SemanticNodeKind.StringEncodeUtf8 _
                     | SemanticNodeKind.StringJoin _
                     | SemanticNodeKind.StringRepeat _
                     | SemanticNodeKind.StringSlice _ ->
@@ -272,6 +273,7 @@ module SemanticFacts =
                     | SemanticNodeKind.MapContainsKey _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)
                     | SemanticNodeKind.SetContains _
+                    | SemanticNodeKind.ListContains _
                     | SemanticNodeKind.SetIsSubset _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bool)
                     | SemanticNodeKind.ListFindIndex _

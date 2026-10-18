@@ -50,6 +50,10 @@ type SnapshotSchemaFeature =
     | GenericTypes
     /// ResultGetOrDefault, OptionOkOr, ResultOkValue, ResultErrValue, OptionIsSome and ResultIsOk.
     | OptionResultAccessors
+    /// ListContains.
+    | ListContains
+    /// StringEncodeUtf8.
+    | StringEncodeUtf8
 
 /// One persisted snapshot schema: its JSON `schemaVersion` and its Nyason schema identifier.
 /// The two formats number their versions separately but move together.
@@ -90,6 +94,8 @@ module SnapshotSchema =
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
         [ SnapshotSchemaFeature.OptionResultAccessors, v19, "Option and Result accessors"
+          SnapshotSchemaFeature.ListContains, v19, "ListContains"
+          SnapshotSchemaFeature.StringEncodeUtf8, v19, "StringEncodeUtf8"
           SnapshotSchemaFeature.GenericTypes, v18, "Generic Product and Union types"
           SnapshotSchemaFeature.ExceptionIsCancellation, v17, "Exception cancellation classification"
           SnapshotSchemaFeature.StringReplaceAndTrim, v17, "StringReplace and StringTrim"
@@ -140,6 +146,8 @@ module SnapshotSchema =
         | SemanticNodeKind.ResultErrValue _
         | SemanticNodeKind.OptionIsSome _
         | SemanticNodeKind.ResultIsOk _ -> Some SnapshotSchemaFeature.OptionResultAccessors
+        | SemanticNodeKind.ListContains _ -> Some SnapshotSchemaFeature.ListContains
+        | SemanticNodeKind.StringEncodeUtf8 _ -> Some SnapshotSchemaFeature.StringEncodeUtf8
         | SemanticNodeKind.ExceptionIsCancellation _ -> Some SnapshotSchemaFeature.ExceptionIsCancellation
         | SemanticNodeKind.ExceptionCatch _
         | SemanticNodeKind.ExceptionMessage _

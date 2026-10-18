@@ -166,6 +166,7 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.StringTrimStart child
         | ExpressionRecipe.StringTrimEnd child
         | ExpressionRecipe.StringDecodeUtf8Lossy child
+        | ExpressionRecipe.StringEncodeUtf8 child
         | ExpressionRecipe.Float64RoundToInt64 child
         | ExpressionRecipe.Float64FloorToInt64 child
         | ExpressionRecipe.Float64Sqrt child
@@ -282,6 +283,7 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.SetContains(left, right)
         | ExpressionRecipe.ListIndexOf(left, right)
         | ExpressionRecipe.ListLastIndexOf(left, right)
+        | ExpressionRecipe.ListContains(left, right)
         | ExpressionRecipe.MapGet(left, right)
         | ExpressionRecipe.ListConcat(left, right)
         | ExpressionRecipe.SetUnion(left, right)

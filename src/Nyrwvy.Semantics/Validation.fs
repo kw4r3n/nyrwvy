@@ -927,6 +927,12 @@ module SnapshotValidator =
                             $"StringDecodeUtf8Lossy node '{StableId.value node.Id}' requires a String value."
                             (TypeRef.Primitive PrimitiveType.String)
                             valueNodeId
+                    | SemanticNodeKind.StringEncodeUtf8 valueNodeId ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringEncodeUtf8 node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
                     | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->
                         requireNodeType
                             "Float64OperandTypeMismatch"
@@ -1318,6 +1324,23 @@ module SnapshotValidator =
                             add
                                 "ListLastIndexOfListTypeMismatch"
                                 $"ListLastIndexOf node '{StableId.value node.Id}' requires List<T> as its list input."
+                        | None -> ()
+                    | SemanticNodeKind.ListContains(listNodeId, itemNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            if not (EquatableTypes.isEquatable snapshot.Types itemType) then
+                                add
+                                    "ListContainsItemTypeNotEquatable"
+                                    $"ListContains node '{StableId.value node.Id}' compares items of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                            requireNodeType
+                                "ListContainsItemTypeMismatch"
+                                $"ListContains node '{StableId.value node.Id}' requires an item of the list's item type."
+                                itemType
+                                itemNodeId
+                        | Some _ ->
+                            add
+                                "ListContainsListTypeMismatch"
+                                $"ListContains node '{StableId.value node.Id}' requires List<T> as its list input."
                         | None -> ()
                     | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId)
                     | SemanticNodeKind.SetInsert(sourceSetNodeId, itemNodeId)
@@ -2439,6 +2462,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringToLower _
                 | SemanticNodeKind.StringToUpper _
                 | SemanticNodeKind.StringDecodeUtf8Lossy _
+                | SemanticNodeKind.StringEncodeUtf8 _
                 | SemanticNodeKind.Float64RoundToInt64 _
                 | SemanticNodeKind.Float64FloorToInt64 _
                 | SemanticNodeKind.Float64Sqrt _
@@ -2549,6 +2573,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.ListIndexOf _
                 | SemanticNodeKind.ListLastIndexOf _
+                | SemanticNodeKind.ListContains _
                 | SemanticNodeKind.MapGet _
                 | SemanticNodeKind.OptionGetOrDefault _
                 | SemanticNodeKind.ResultGetOrDefault _
