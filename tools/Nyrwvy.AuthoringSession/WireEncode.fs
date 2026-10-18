@@ -106,6 +106,28 @@ module internal WireEncode =
                         "operationId", box (StableId.value item.OperationId)
                         "functionId", box (StableId.value item.ImplementationFunctionId) ])
               |> arrayValue ])
+        @ (if List.isEmpty value.UnionVariantsAdded then [] else
+            [ "unionVariantsAdded",
+              value.UnionVariantsAdded
+              |> List.map (fun item ->
+                  objectValue
+                      [ "ownerTypeId", box (StableId.value item.OwnerTypeId)
+                        "variant",
+                          objectValue
+                              [ "id", box (StableId.value item.Variant.Id)
+                                "displayName", box item.Variant.DisplayName
+                                "fields", item.Variant.Fields |> List.map WireEncodeCommon.field |> arrayValue ] ])
+              |> arrayValue ])
+        @ (if List.isEmpty value.UnionMatchArmsAdded then [] else
+            [ "unionMatchArmsAdded",
+              value.UnionMatchArmsAdded
+              |> List.map (fun item ->
+                  objectValue
+                      [ "ownerFunctionId", box (StableId.value item.OwnerFunctionId)
+                        "matchNodeId", box (StableId.value item.MatchNodeId)
+                        "variantId", box (StableId.value item.VariantId)
+                        "patternBindingIds", item.PatternBindingIds |> List.map (StableId.value >> box) |> arrayValue ])
+              |> arrayValue ])
 
     let private semanticDiffFields (value: SemanticDiff) =
             [ "renames", value.Renames |> List.map rename |> arrayValue

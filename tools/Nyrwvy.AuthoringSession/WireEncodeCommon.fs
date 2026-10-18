@@ -95,7 +95,8 @@ module internal WireEncodeCommon =
                     [ "resultNodeId", box (StableId.value value.Body.ResultNodeId)
                       "nodeCount", box (ValueGraph.collectNodes value.Body |> List.length) ] ]
 
-    let private field (value: SemanticField) =
+    /// One Product or variant field, as `declarations` and the reviews show it.
+    let field (value: SemanticField) =
         objectValue
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName

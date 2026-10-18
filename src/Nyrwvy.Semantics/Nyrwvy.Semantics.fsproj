@@ -42,6 +42,7 @@
     <Compile Include="ExpressionRecipeInference.fs" />
     <Compile Include="ExpressionRecipeMaterialization.fs" />
     <Compile Include="TargetedReplacementGraph.fs" />
+    <Compile Include="AgentUnionVariantArmPlans.fs" />
     <Compile Include="AgentExpressionStructuralWorkflow.fs" />
     <Compile Include="AgentParameterTypeMigrationWorkflow.fs" />
     <Compile Include="AgentProductFieldTypeMigrationWorkflow.fs" />

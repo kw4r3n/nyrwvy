@@ -111,6 +111,7 @@
     <Compile Include="ResultTypeMigrationTests.fs" />
     <Compile Include="SignatureMigrationGenericRecursiveTests.fs" />
     <Compile Include="UnionVariantWithFieldsTests.fs" />
+    <Compile Include="UnionVariantAdditionTests.fs" />
     <Compile Include="ProductFieldTypeMigrationTests.fs" />
     <Compile Include="CapabilityOperationSignatureMigrationTests.fs" />
     <Compile Include="ListCallbackContextTests.fs" />

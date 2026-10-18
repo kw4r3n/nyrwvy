@@ -71,6 +71,14 @@ type AuthoringDeclarations =
       Capabilities: SemanticCapability list
       Provenance: AuthoringDeclarationProvenance list }
 
+/// One operation of a `simulateOperations` batch as the wire layer reads it. `addUnionVariant`
+/// arrives with arm recipes, which the session materializes in each match's scope against the
+/// current snapshot before the batch is simulated; every other operation is already an intent.
+[<RequireQualifiedAccess>]
+type AuthoringOperationRequest =
+    | Intent of AgentOperationIntent
+    | AddUnionVariant of targetTypeId: TypeId * variant: SemanticVariant * arms: AgentUnionVariantArmRecipe list
+
 /// Read-only execution inputs; candidate projection never publishes into the session.
 type internal AuthoringExecutionContext =
     { SnapshotId: SnapshotId
@@ -291,6 +299,7 @@ module private ProposalSummary =
             | AgentOperationIntent.RemoveFunctionRequiredEffect item -> $"removeRequiredEffect {named effects item.EffectId} from {fn item.TargetFunctionId}"
             | AgentOperationIntent.RemoveFunctionParameter id -> "removeFunctionParameter " + named parameters id
             | AgentOperationIntent.RemoveUnionVariant id -> "removeUnionVariant " + named variants id
+            | AgentOperationIntent.AddUnionVariant item -> $"addUnionVariant {quote item.Variant.DisplayName} to {ty item.TargetTypeId}"
         match review with
         | AuthoringProposalReview.DependencyUpgrade item ->
             $"dependencyUpgrade: {item.Upgrade.Selected.Length} selected, {item.Repair.ChangedFunctions.Length} functions and {item.Repair.ChangedTypes.Length} types repaired"
@@ -1097,6 +1106,26 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Error error -> Error(AuthoringSessionError.WorkflowSimulationFailure error)
             | Ok proposal ->
                 register (AgentChangeProposal.transactionId proposal) (PendingProposal.Operations proposal) (AuthoringProposalReview.Operations(AgentChangeProposal.review proposal))
+
+    /// `SimulateOperations` for a batch the wire layer read: `addUnionVariant` arm recipes are
+    /// materialized in their matches' scopes against the current snapshot first, and a recipe that
+    /// does not bind or type-check rejects the whole batch as a simulation rejection.
+    member this.SimulateOperationRequests(requests: AuthoringOperationRequest list, ?expectedBaseSnapshotId: SnapshotId): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            let rec prepare acc remaining =
+                match remaining with
+                | [] -> Ok(List.rev acc)
+                | AuthoringOperationRequest.Intent intent :: rest -> prepare (intent :: acc) rest
+                | AuthoringOperationRequest.AddUnionVariant(targetTypeId, variant, arms) :: rest ->
+                    match AgentUnionVariantArmPlans.prepare workspace targetTypeId variant arms with
+                    | Error diagnostic -> Error(AuthoringSessionError.WorkflowSimulationFailure(AgentWorkflowError.SimulationRejected [ diagnostic ]))
+                    | Ok intent -> prepare (AgentOperationIntent.AddUnionVariant intent :: acc) rest
+            match prepare [] requests with
+            | Error error -> Error error
+            | Ok operations -> this.SimulateOperations(operations, ?expectedBaseSnapshotId = expectedBaseSnapshotId)
 
     member _.SimulateReplaceBody(request: AgentReplaceFunctionBodyWithExpressionRecipe): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
