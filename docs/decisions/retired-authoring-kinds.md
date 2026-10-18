@@ -30,4 +30,4 @@ Rejecting the kinds at the wire boundary would make every example that authors t
 
 ## Revisit conditions
 
-Revisit when the examples that author these kinds are retired or re-recorded, or when a snapshot migration is otherwise needed.
+Revisit when the examples that author these kinds are retired or re-recorded, or when a snapshot migration is otherwise needed. The [legacy cutover](../plans/post-m2-roadmap.md#legacy-cutover-planned) plans exactly that.
