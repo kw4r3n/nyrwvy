@@ -57,6 +57,9 @@ jobs:
       - name: Install fish for maintained verification entry points
         run: scripts/ci-wait.sh fish
 
+      - name: Check Node test suite ownership
+        run: node scripts/check-test-suite-partition.mjs --node-only
+
       - name: Typecheck maintained adapters and Bun tests
         run: npm run typecheck
 

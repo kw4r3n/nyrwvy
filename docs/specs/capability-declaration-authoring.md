@@ -126,4 +126,4 @@ Existing persistence, effect, lowering, backend, and provider evidence remains a
 
 ## Non-goals
 
-This slice does not implement provider registration, runtime implementations, capability/operation mutation or deletion, migrations, partial/draft declarations, future IDs, recursive declaration groups, caller-owned production IDs, raw snapshot authority, or generalized schema-authoring infrastructure.
+This slice does not implement provider registration, runtime implementations, partial/draft declarations, future IDs, recursive declaration groups, caller-owned production IDs, raw snapshot authority, or generalized schema-authoring infrastructure. Later slices added, through the same session, renames of a Capability, its operations and their parameters, `addCapabilityOperation` and `deleteCapabilityOperation`, `deleteCapability`, operation signature migration (`simulateCapabilityOperationSignatureMigration`), and program-defined implementations (`capabilityConstruct`); see the [session contract](agent-authoring-session.md#operations) and the [reference query](agent-authoring-session.md#reference-query) for repairing uses before a deletion.

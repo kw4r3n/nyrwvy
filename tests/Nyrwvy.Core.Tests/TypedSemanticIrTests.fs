@@ -41,6 +41,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.StringToLower _
                 | TypedSemanticNodeKind.StringToUpper _
                 | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
+                | TypedSemanticNodeKind.StringEncodeUtf8 _
                 | TypedSemanticNodeKind.Float64RoundToInt64 _
                 | TypedSemanticNodeKind.Float64FloorToInt64 _
                 | TypedSemanticNodeKind.Float64Sqrt _
@@ -153,8 +154,15 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.SetContains _
                 | TypedSemanticNodeKind.ListIndexOf _
                 | TypedSemanticNodeKind.ListLastIndexOf _
+                | TypedSemanticNodeKind.ListContains _
                 | TypedSemanticNodeKind.MapGet _
                 | TypedSemanticNodeKind.OptionGetOrDefault _
+                | TypedSemanticNodeKind.ResultGetOrDefault _
+                | TypedSemanticNodeKind.OptionOkOr _
+                | TypedSemanticNodeKind.ResultOkValue _
+                | TypedSemanticNodeKind.ResultErrValue _
+                | TypedSemanticNodeKind.OptionIsSome _
+                | TypedSemanticNodeKind.ResultIsOk _
                 | TypedSemanticNodeKind.MapGetOrDefault _
                 | TypedSemanticNodeKind.ListAppendItem _
                 | TypedSemanticNodeKind.ListConcat _

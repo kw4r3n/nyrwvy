@@ -1,10 +1,10 @@
 # Communication between tasks, and time (design note)
 
-**Status:** Decided 2026-10-07: the owner accepted all three recommendations below (A: measure `OneShot` on probe 25's code before designing a channel; D: no time value yet; no zero-time yield). The measurement is [probe 26](../verification/task-communication-probe26-20261007.md): the `OneShot` version passed the same scenarios as the event loop at about the same size (491 and 508 nodes), so no channel is queued. The analysis below is kept as written, except for the correction in section 1.
+**Status:** Decided 2026-10-07: the owner accepted all three recommendations below (A: measure `OneShot` on probe 25's code before designing a channel; D: no time value yet; no zero-time yield). The measurement is [probe 26](../../docs/verification/task-communication-probe26-20261007.md): the `OneShot` version passed the same scenarios as the event loop at about the same size (491 and 508 nodes), so no channel is queued. The analysis below is kept as written, except for the correction in section 1.
 
 ## Context
 
-[Probe 25](../verification/rrawrlet-slice-probes-summary.md#probe-25-costs) ported rrawrlet's `codex.py` and recorded three concurrency costs. Each was a first observation, and nothing was blocked:
+[Probe 25](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-25-costs) ported rrawrlet's `codex.py` and recorded three concurrency costs. Each was a first observation, and nothing was blocked:
 
 | # | Cost | Probe 25 evidence |
 | --- | --- | --- |
@@ -12,11 +12,11 @@
 | 2 | No time value | Every timeout is a task that calls `Host.sleep`, and a turn's deadline is passed into every request inside the turn, because `TaskWait`'s limit covers one wait and a later wait cannot compute the time left |
 | 3 | No zero-time yield | One harmless divergence: asyncio ran a ready task between two steps at the same virtual instant, which the port cannot write |
 
-The day after the probe, #362 added [scoped one-shot cells](../specs/scoped-one-shot.md) (`OneShot<T>`, `OneShotCreate`, `OneShotComplete`, `OneShotWait`). A cell is owned by an existing `TaskScope`, takes the first value, and closes with its scope. This is the structured form of a future: the [concurrency decision](../decisions/concurrency-control.md) rejected futures with no owning scope, not this. Cost 1 therefore has to be asked again: does `OneShot` remove the reader cost, and if not, what is still missing?
+The day after the probe, #362 added [scoped one-shot cells](../../docs/specs/scoped-one-shot.md) (`OneShot<T>`, `OneShotCreate`, `OneShotComplete`, `OneShotWait`). A cell is owned by an existing `TaskScope`, takes the first value, and closes with its scope. This is the structured form of a future: the [concurrency decision](../../docs/decisions/concurrency-control.md) rejected futures with no owning scope, not this. Cost 1 therefore has to be asked again: does `OneShot` remove the reader cost, and if not, what is still missing?
 
 ## Invariants to keep
 
-- Every task, cell and wait belongs to a scope, and nothing survives its scope ([concurrency decision](../decisions/concurrency-control.md), N6).
+- Every task, cell and wait belongs to a scope, and nothing survives its scope ([concurrency decision](../../docs/decisions/concurrency-control.md), N6).
 - `runPure` stays deterministic: real elapsed time never affects a result, and the virtual clock advances only when every running task is blocked.
 - The order of two events at one instant is not part of a program's meaning. The one-shot contract already states that completing a cell does not introduce a yield.
 
@@ -36,7 +36,7 @@ A running task sees only its start arguments, and Nyrwvy has no shared mutable s
 
 Whether this chain is cheaper than the probe's event loop is the open question. It may well not be: every requester must find the current tail, which itself needs a cell or an argument passed down.
 
-**Correction (probe 26).** In `codex.py` only the sequential driver issues requests, so one producer is enough and no requester races another for the tail. [Probe 26](../verification/task-communication-probe26-20261007.md) wrote it that way. Option B's case is now a program with several concurrent producers into one consumer, or one where racing a cell against a task is a large share of the cost.
+**Correction (probe 26).** In `codex.py` only the sequential driver issues requests, so one producer is enough and no requester races another for the tail. [Probe 26](../../docs/verification/task-communication-probe26-20261007.md) wrote it that way. Option B's case is now a program with several concurrent producers into one consumer, or one where racing a cell against a task is a large share of the cost.
 
 ### Options
 
@@ -50,11 +50,11 @@ Whether this chain is cheaper than the probe's event loop is the open question. 
 
 ### Whether the revisit condition is met
 
-The concurrency decision's [revisit condition](../decisions/concurrency-control.md#revisit-conditions) is "a time value is needed outside waiting (timestamps, schedules)". Probe 25's need is a deadline that spans several waits. That is still waiting, so the condition is only arguably met. The owner decides.
+The concurrency decision's [revisit condition](../../docs/decisions/concurrency-control.md#revisit-conditions) is "a time value is needed outside waiting (timestamps, schedules)". Probe 25's need is a deadline that spans several waits. That is still waiting, so the condition is only arguably met. The owner decides.
 
 ### Why it would have to be a builtin
 
-The obvious alternative needs no language change: a `Host.now` operation, as probe 25 already has `Host.sleep`. It does not work under `runPure`, because a fake response is scripted in advance and cannot read the virtual clock (`NyRuntime.Clock`, [C# backend](../specs/csharp-backend.md)). A fake `now` returns its scripted values whatever the virtual time is, so a deadline computed from it disagrees with the delays that actually elapse. Only a builtin can return the virtual clock under `runPure` and a monotonic clock otherwise.
+The obvious alternative needs no language change: a `Host.now` operation, as probe 25 already has `Host.sleep`. It does not work under `runPure`, because a fake response is scripted in advance and cannot read the virtual clock (`NyRuntime.Clock`, [C# backend](../../docs/specs/csharp-backend.md)). A fake `now` returns its scripted values whatever the virtual time is, so a deadline computed from it disagrees with the delays that actually elapse. Only a builtin can return the virtual clock under `runPure` and a monotonic clock otherwise.
 
 ### Options
 

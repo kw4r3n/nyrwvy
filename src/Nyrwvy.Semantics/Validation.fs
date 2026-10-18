@@ -927,6 +927,12 @@ module SnapshotValidator =
                             $"StringDecodeUtf8Lossy node '{StableId.value node.Id}' requires a String value."
                             (TypeRef.Primitive PrimitiveType.String)
                             valueNodeId
+                    | SemanticNodeKind.StringEncodeUtf8 valueNodeId ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringEncodeUtf8 node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
                     | SemanticNodeKind.Float64RoundToInt64 valueNodeId ->
                         requireNodeType
                             "Float64OperandTypeMismatch"
@@ -1319,6 +1325,23 @@ module SnapshotValidator =
                                 "ListLastIndexOfListTypeMismatch"
                                 $"ListLastIndexOf node '{StableId.value node.Id}' requires List<T> as its list input."
                         | None -> ()
+                    | SemanticNodeKind.ListContains(listNodeId, itemNodeId) ->
+                        match nodeType listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            if not (EquatableTypes.isEquatable snapshot.Types itemType) then
+                                add
+                                    "ListContainsItemTypeNotEquatable"
+                                    $"ListContains node '{StableId.value node.Id}' compares items of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                            requireNodeType
+                                "ListContainsItemTypeMismatch"
+                                $"ListContains node '{StableId.value node.Id}' requires an item of the list's item type."
+                                itemType
+                                itemNodeId
+                        | Some _ ->
+                            add
+                                "ListContainsListTypeMismatch"
+                                $"ListContains node '{StableId.value node.Id}' requires List<T> as its list input."
+                        | None -> ()
                     | SemanticNodeKind.SetContains(sourceSetNodeId, itemNodeId)
                     | SemanticNodeKind.SetInsert(sourceSetNodeId, itemNodeId)
                     | SemanticNodeKind.SetRemove(sourceSetNodeId, itemNodeId) ->
@@ -1380,6 +1403,30 @@ module SnapshotValidator =
                                 defaultNodeId
                         | Some _ ->
                             add "OptionInputTypeMismatch" $"OptionGetOrDefault node '{StableId.value node.Id}' requires an Option<T> input."
+                        | None -> ()
+                    | SemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
+                        match nodeType resultNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; _ ])) ->
+                            requireNodeType
+                                "ResultDefaultTypeMismatch"
+                                $"ResultGetOrDefault node '{StableId.value node.Id}' requires a default of the result's ok type."
+                                okType
+                                defaultNodeId
+                        | Some _ ->
+                            add "ResultInputTypeMismatch" $"ResultGetOrDefault node '{StableId.value node.Id}' requires a Result<T, E> input."
+                        | None -> ()
+                    | SemanticNodeKind.OptionOkOr(optionNodeId, _)
+                    | SemanticNodeKind.OptionIsSome optionNodeId ->
+                        match nodeType optionNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ _ ])) -> ()
+                        | Some _ -> add "OptionInputTypeMismatch" $"Node '{StableId.value node.Id}' requires an Option<T> input."
+                        | None -> ()
+                    | SemanticNodeKind.ResultOkValue resultNodeId
+                    | SemanticNodeKind.ResultErrValue resultNodeId
+                    | SemanticNodeKind.ResultIsOk resultNodeId ->
+                        match nodeType resultNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ])) -> ()
+                        | Some _ -> add "ResultInputTypeMismatch" $"Node '{StableId.value node.Id}' requires a Result<T, E> input."
                         | None -> ()
                     | SemanticNodeKind.MapGetOrDefault(sourceMapNodeId, keyNodeId, defaultNodeId) ->
                         match requireMapInput node.Id sourceMapNodeId with
@@ -2415,6 +2462,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.StringToLower _
                 | SemanticNodeKind.StringToUpper _
                 | SemanticNodeKind.StringDecodeUtf8Lossy _
+                | SemanticNodeKind.StringEncodeUtf8 _
                 | SemanticNodeKind.Float64RoundToInt64 _
                 | SemanticNodeKind.Float64FloorToInt64 _
                 | SemanticNodeKind.Float64Sqrt _
@@ -2525,8 +2573,15 @@ module SnapshotValidator =
                 | SemanticNodeKind.SetContains _
                 | SemanticNodeKind.ListIndexOf _
                 | SemanticNodeKind.ListLastIndexOf _
+                | SemanticNodeKind.ListContains _
                 | SemanticNodeKind.MapGet _
                 | SemanticNodeKind.OptionGetOrDefault _
+                | SemanticNodeKind.ResultGetOrDefault _
+                | SemanticNodeKind.OptionOkOr _
+                | SemanticNodeKind.ResultOkValue _
+                | SemanticNodeKind.ResultErrValue _
+                | SemanticNodeKind.OptionIsSome _
+                | SemanticNodeKind.ResultIsOk _
                 | SemanticNodeKind.MapGetOrDefault _
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
@@ -2593,3 +2648,36 @@ module SnapshotValidator =
 
     let private validateCached = SnapshotComputationScope.Memoize("validation", validateUncached)
     let validate (snapshot: Snapshot): ValidationIssue list = validateCached snapshot
+
+    /// Validates a snapshot proposed on top of `baseline`: full validation, plus the runtime
+    /// effect-ordering rule IR lowering enforces (`GraphOrder.newEffectOrderConflicts`) for every
+    /// function the proposal adds, edits or newly makes ambiguous. Full validation alone keeps the
+    /// historical abort-only rule so snapshots published under it still open for repair.
+    let validateProposal (baseline: Snapshot) (proposed: Snapshot): ValidationIssue list =
+        match validate proposed with
+        | _ :: _ as issues -> issues
+        | [] ->
+            let functionsById = proposed.Functions |> List.map (fun fn -> fn.Id, fn) |> Map.ofList
+            let operationNames =
+                proposed.Capabilities
+                |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id, capability.DisplayName + "." + operation.DisplayName))
+                |> Map.ofList
+            let describeNode (fn: SemanticFunction) (nodeId: GraphNodeId) =
+                match ValueGraph.collectNodes fn.Body |> List.tryFind (fun node -> node.Id = nodeId) with
+                | None -> $"'{StableId.value nodeId}'"
+                | Some node ->
+                    let case, _ = Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(node.Kind, typeof<SemanticNodeKind>)
+                    let subject =
+                        match node.Kind with
+                        | SemanticNodeKind.DirectCall(callee, _) ->
+                            Map.tryFind callee functionsById |> Option.map (fun target -> $"{case.Name} to '{target.DisplayName}'")
+                        | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
+                            Map.tryFind operationId operationNames |> Option.map (fun name -> $"{case.Name} {name}")
+                        | _ -> None
+                    $"'{StableId.value nodeId}' ({Option.defaultValue case.Name subject})"
+            GraphOrder.newEffectOrderConflicts baseline proposed
+            |> List.map (fun (fn, first, second) ->
+                { Code = "AmbiguousEffectOrder"
+                  Message =
+                    $"Function {StableId.describe fn.DisplayName fn.Id} has unordered observable nodes {describeNode fn first} and {describeNode fn second}, "
+                    + "whose effects (direct or through called functions) would run in no defined order. Sequence them with Bind in the intended order." })

@@ -687,6 +687,63 @@ module AuthoringProtocol =
         { CallerFunctionId = id<FunctionTag> "callerFunctionId" item
           Replacement = recipe (property "replacement" item) }
 
+    /// A caller rewrite of a `…MigrationByName` request: the caller by display name and a recipe
+    /// resolved in that caller's scope.
+    let private parameterTypeCallerRewriteByName declarations (item: JsonElement): AgentParameterTypeCallerRewrite =
+        ensureFields "parameter type caller rewrite by name" [ "function"; "replacement" ] [ "function"; "replacement" ] item
+        let caller = WireSymbolic.resolveFunctionAt declarations "function" item
+        { CallerFunctionId = caller.Id
+          Replacement = WireSymbolic.recipeForExistingFunction declarations caller (property "replacement" item) }
+
+    /// The subject of a `references` request: `kind` selects the declaration kind, and the subject is
+    /// named by its exact ID key or by display names (a member within its owner), never both.
+    let private referenceSubject (declarations: AuthoringDeclarations) (root: JsonElement): ReferenceSubject =
+        let has name = (tryProperty name root).IsSome
+        let kind = requiredString "kind" root
+        let exactly exactKeys nameKeys =
+            ensureFields $"references request for a {kind}" ([ "id"; "op"; "kind" ] @ exactKeys @ nameKeys) [ "id"; "op"; "kind" ] root
+            let exact = exactKeys |> List.forall has
+            let named = nameKeys |> List.forall has
+            if exact = named || (exactKeys @ nameKeys |> List.filter has).Length > (if exact then exactKeys.Length else nameKeys.Length) then
+                let exactText = String.Join(", ", exactKeys)
+                let nameText = String.Join(", ", nameKeys)
+                WireInput.fail $"A references request for a {kind} names its subject by exactly one of {exactText} (exact) and {nameText} (display names)."
+            exact
+        match kind with
+        | "function" ->
+            if exactly [ "functionId" ] [ "function" ] then ReferenceSubject.Function(id<FunctionTag> "functionId" root)
+            else ReferenceSubject.Function (WireSymbolic.resolveFunctionAt declarations "function" root).Id
+        | "type" ->
+            if exactly [ "typeId" ] [ "type" ] then ReferenceSubject.Type(id<TypeTag> "typeId" root)
+            else ReferenceSubject.Type (WireSymbolic.resolveTypeAt declarations "type" root).Id
+        | "effect" ->
+            if exactly [ "effectId" ] [ "effect" ] then ReferenceSubject.Effect(id<EffectTag> "effectId" root)
+            else ReferenceSubject.Effect (WireSymbolic.resolveEffectAt declarations "effect" root).Id
+        | "capability" ->
+            if exactly [ "capabilityId" ] [ "capability" ] then ReferenceSubject.Capability(id<CapabilityTag> "capabilityId" root)
+            else ReferenceSubject.Capability (WireSymbolic.resolveCapabilityAt declarations "capability" root).Id
+        | "capabilityOperation" ->
+            if exactly [ "operationId" ] [ "capability"; "operation" ] then ReferenceSubject.CapabilityOperation(id<CapabilityOperationTag> "operationId" root)
+            else
+                let owner = WireSymbolic.resolveCapabilityAt declarations "capability" root
+                ReferenceSubject.CapabilityOperation (WireSymbolic.capabilityOperation owner (requiredString "operation" root)).Id
+        | "variant" ->
+            if exactly [ "variantId" ] [ "type"; "variant" ] then ReferenceSubject.Variant(id<VariantTag> "variantId" root)
+            else
+                let owner = WireSymbolic.resolveTypeAt declarations "type" root
+                ReferenceSubject.Variant (WireSymbolic.unionVariant owner (requiredString "variant" root)).Id
+        | "field" ->
+            // A Product field is `type` + `field`; a Union variant field adds `variant`.
+            let nameKeys = if has "variant" then [ "type"; "variant"; "field" ] else [ "type"; "field" ]
+            if exactly [ "fieldId" ] nameKeys then ReferenceSubject.Field(id<FieldTag> "fieldId" root)
+            else
+                let owner = WireSymbolic.resolveTypeAt declarations "type" root
+                if has "variant" then
+                    let variant = WireSymbolic.unionVariant owner (requiredString "variant" root)
+                    ReferenceSubject.Field (WireSymbolic.variantField variant (requiredString "field" root)).Id
+                else ReferenceSubject.Field (WireSymbolic.productField owner (requiredString "field" root)).Id
+        | value -> WireInput.fail $"Unsupported references subject kind '{value}'; use function, type, variant, field, effect, capability or capabilityOperation."
+
     let private semanticQueryFailure requestId (error: SemanticQueryError) =
         let message =
             match error with
@@ -694,6 +751,7 @@ module AuthoringProtocol =
             | SemanticQueryError.TypeNotFound typeId -> $"No type has the ID '{StableId.value typeId}'."
             | SemanticQueryError.NodeNotFound(functionId, nodeId) ->
                 $"Function '{StableId.value functionId}' has no node '{StableId.value nodeId}'."
+            | SemanticQueryError.SubjectNotFound(kind, id) -> $"No {kind} has the ID '{id}'."
         failure requestId (objectValue [ "code", box "SemanticQueryFailure"; "message", box message ])
 
     /// The `InternalError` message: exception names and messages stay off the wire.
@@ -863,6 +921,15 @@ module AuthoringProtocol =
             | "declarations" ->
                 ensureFields "declarations request" [ "id"; "op" ] [ "id"; "op" ] root
                 success requestId (WireEncode.declarations (session.Declarations()))
+            | "proposals" ->
+                ensureFields "proposals request" [ "id"; "op" ] [ "id"; "op" ] root
+                success requestId (WireEncode.pendingProposals (session.PendingProposals()))
+            | "references" ->
+                let declarations = session.Declarations()
+                let subject = referenceSubject declarations root
+                match session.References subject with
+                | Ok items -> success requestId (WireEncode.references declarations subject items)
+                | Error error -> semanticQueryFailure requestId error
             | "readFunction" ->
                 ensureFields
                     "readFunction request"
@@ -1027,6 +1094,38 @@ module AuthoringProtocol =
                       TargetReplacement = recipe (property "targetReplacement" root)
                       CallerRewrites = array "callerRewrites" root |> List.map parameterTypeCallerRewrite }
                 proposalResponse (session.SimulateParameterTypeMigration request)
+            | "simulateParameterTypeMigrationByName" ->
+                ensureFields
+                    "simulateParameterTypeMigrationByName request"
+                    [ "id"; "op"; "function"; "parameter"; "newParameterType"; "targetReplacement"; "callerRewrites"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "function"; "parameter"; "newParameterType"; "targetReplacement"; "callerRewrites" ]
+                    root
+                let declarations = session.Declarations()
+                let fn = WireSymbolic.resolveFunctionAt declarations "function" root
+                let parameter = WireSymbolic.functionParameter fn (requiredString "parameter" root)
+                let request: AgentParameterTypeMigrationRequest =
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
+                      TargetFunctionId = fn.Id
+                      TargetParameterId = parameter.Id
+                      NewParameterType = WireSymbolic.typeRefForExistingFunction declarations fn (property "newParameterType" root)
+                      TargetReplacement = WireSymbolic.recipeForExistingFunction declarations fn (property "targetReplacement" root)
+                      CallerRewrites = array "callerRewrites" root |> List.map (parameterTypeCallerRewriteByName declarations) }
+                proposalResponse (session.SimulateParameterTypeMigration request)
+            | "simulateResultTypeMigrationByName" ->
+                ensureFields
+                    "simulateResultTypeMigrationByName request"
+                    [ "id"; "op"; "function"; "newResultType"; "targetReplacement"; "callerRewrites"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "function"; "newResultType"; "targetReplacement"; "callerRewrites" ]
+                    root
+                let declarations = session.Declarations()
+                let fn = WireSymbolic.resolveFunctionAt declarations "function" root
+                let request: AgentResultTypeMigrationRequest =
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
+                      TargetFunctionId = fn.Id
+                      NewResultType = WireSymbolic.typeRefForExistingFunction declarations fn (property "newResultType" root)
+                      TargetReplacement = WireSymbolic.recipeForExistingFunction declarations fn (property "targetReplacement" root)
+                      CallerRewrites = array "callerRewrites" root |> List.map (parameterTypeCallerRewriteByName declarations) }
+                proposalResponse (session.SimulateResultTypeMigration request)
             | "simulateResultTypeMigration" ->
                 ensureFields
                     "simulateResultTypeMigration request"
@@ -1187,7 +1286,7 @@ module AuthoringProtocol =
                     [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName"; "additionalFields"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "typeId"; "sourceVariantId"; "displayName" ]
                     root
-                let request: AgentAddFieldlessUnionVariantLikeRequest =
+                let request: AgentAddUnionVariantLikeRequest =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       TargetTypeId = id<TypeTag> "typeId" root
                       SourceVariantId = id<VariantTag> "sourceVariantId" root
@@ -1195,6 +1294,25 @@ module AuthoringProtocol =
                 let additionalFields =
                     tryProperty "additionalFields" root
                     |> Option.map (fun _ -> array "additionalFields" root |> List.map typeFieldIntent)
+                    |> Option.defaultValue []
+                proposalResponse (session.SimulateAddUnionVariantLike(request, additionalFields))
+            | "simulateAddUnionVariantLikeByName" ->
+                ensureFields
+                    "simulateAddUnionVariantLikeByName request"
+                    [ "id"; "op"; "type"; "sourceVariant"; "displayName"; "additionalFields"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "type"; "sourceVariant"; "displayName" ]
+                    root
+                let declarations = session.Declarations()
+                let owner = WireSymbolic.resolveTypeAt declarations "type" root
+                let source = WireSymbolic.unionVariant owner (requiredString "sourceVariant" root)
+                let request: AgentAddUnionVariantLikeRequest =
+                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
+                      TargetTypeId = owner.Id
+                      SourceVariantId = source.Id
+                      NewVariantDisplayName = requiredString "displayName" root }
+                let additionalFields =
+                    tryProperty "additionalFields" root
+                    |> Option.map (fun _ -> array "additionalFields" root |> List.map (WireSymbolic.fieldIntent declarations))
                     |> Option.defaultValue []
                 proposalResponse (session.SimulateAddUnionVariantLike(request, additionalFields))
             | "simulateCreateEffect" ->
@@ -1331,15 +1449,31 @@ module AuthoringProtocol =
                               "sourceSnapshotId", box (StableId.value execution.SourceSnapshotId)
                               "functionCount", box execution.Functions.Length ])
                 | Error error -> sessionFailure requestId error
-            | "verifyChange" ->
-                ensureFields "verifyChange request" [ "id"; "op"; "proposalId"; "cases"; "output" ] [ "id"; "op"; "proposalId"; "cases" ] root
+            | "verifyChange" | "verifyChangeByName" as op ->
+                ensureFields $"{op} request" [ "id"; "op"; "proposalId"; "cases"; "output" ] [ "id"; "op"; "proposalId"; "cases" ] root
+                let proposalId = requiredString "proposalId" root
+                // By name, the case function and its arguments resolve against the committed snapshot,
+                // which both runs share; an expected candidate value resolves against the candidate,
+                // whose declarations may differ (a created type, a renamed variant).
+                let baseline = if op = "verifyChangeByName" then Some(session.Declarations()) else None
+                let candidate =
+                    baseline |> Option.map (fun declarations ->
+                        match session.PendingProposalView proposalId with
+                        | Ok { ProposedSnapshot = Some snapshot } ->
+                            { Functions = snapshot.Functions; Types = snapshot.Types; Effects = snapshot.Effects
+                              Capabilities = snapshot.Capabilities; Provenance = declarations.Provenance }
+                        | _ -> declarations)
+                let functionKey = if baseline.IsSome then "function" else "functionId"
                 let cases = array "cases" root |> List.mapi (fun caseIndex item ->
-                    ensureFields "verification case" [ "label"; "functionId"; "arguments"; "expectedCandidate" ] [ "label"; "functionId"; "arguments" ] item
+                    ensureFields "verification case" [ "label"; functionKey; "arguments"; "expectedCandidate" ] [ "label"; functionKey; "arguments" ] item
                     { Label = requiredString "label" item
-                      FunctionId = id<FunctionTag> "functionId" item
-                      Arguments = array "arguments" item |> List.mapi (fun index value -> pureValue None $"cases[{caseIndex}].arguments[{index}]" value)
-                      ExpectedCandidate = tryProperty "expectedCandidate" item |> Option.map (pureValue None $"cases[{caseIndex}].expectedCandidate") })
-                match ChangeVerification.verify session (requiredString "proposalId" root) cases with
+                      FunctionId =
+                        match baseline with
+                        | Some declarations -> (WireSymbolic.resolveFunctionAt declarations functionKey item).Id
+                        | None -> id<FunctionTag> functionKey item
+                      Arguments = array "arguments" item |> List.mapi (fun index value -> pureValue baseline $"cases[{caseIndex}].arguments[{index}]" value)
+                      ExpectedCandidate = tryProperty "expectedCandidate" item |> Option.map (pureValue candidate $"cases[{caseIndex}].expectedCandidate") })
+                match ChangeVerification.verify session proposalId cases with
                 | Error error -> sessionFailure requestId error
                 | Ok evidence ->
                     let names = runNames evidence.BaselineDeclarations
@@ -1351,13 +1485,14 @@ module AuthoringProtocol =
                             objectValue [ "error", encodeRunError names functionId issue error ]
                     let encodeCase item =
                         objectValue
-                            [ "label", box item.Case.Label
-                              "functionId", box (StableId.value item.Case.FunctionId)
-                              "arguments", item.Case.Arguments |> List.map (encodePureValue names) |> arrayValue
-                              "expectedCandidate", item.Case.ExpectedCandidate |> Option.map (encodePureValue candidateNames) |> Option.defaultValue null
-                              "status", box item.Status
-                              "baseline", observation names item.Case.FunctionId item.Case.Arguments None item.Baseline
-                              "candidate", observation candidateNames item.Case.FunctionId item.Case.Arguments item.Case.ExpectedCandidate item.Candidate ]
+                            ([ "label", box item.Case.Label
+                               "functionId", box (StableId.value item.Case.FunctionId) ]
+                             @ named names "function" item.Case.FunctionId
+                             @ [ "arguments", item.Case.Arguments |> List.map (encodePureValue names) |> arrayValue
+                                 "expectedCandidate", item.Case.ExpectedCandidate |> Option.map (encodePureValue candidateNames) |> Option.defaultValue null
+                                 "status", box item.Status
+                                 "baseline", observation names item.Case.FunctionId item.Case.Arguments None item.Baseline
+                                 "candidate", observation candidateNames item.Case.FunctionId item.Case.Arguments item.Case.ExpectedCandidate item.Candidate ])
                     let encoded =
                         objectValue
                             [ "proposalId", box evidence.ProposalId

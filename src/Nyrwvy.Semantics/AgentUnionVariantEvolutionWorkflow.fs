@@ -2,14 +2,14 @@ namespace Nyrwvy.Core
 
 open System
 
-type AgentAddFieldlessUnionVariantLikeRequest =
+type AgentAddUnionVariantLikeRequest =
     { ExpectedBaseSnapshotId: SnapshotId
       TargetTypeId: TypeId
       SourceVariantId: VariantId
       NewVariantDisplayName: string }
 
-type AgentFieldlessUnionVariantEvolutionReview =
-    { RequestedChange: AgentAddFieldlessUnionVariantLikeRequest
+type AgentUnionVariantEvolutionReview =
+    { RequestedChange: AgentAddUnionVariantLikeRequest
       Receipt: TransactionPreviewReceipt
       Readiness: TransactionReadiness
       UpdatedType: SemanticType
@@ -17,7 +17,7 @@ type AgentFieldlessUnionVariantEvolutionReview =
       RepairedFunctionIds: FunctionId list
       RepairedMatchCount: int }
 
-type AgentFieldlessUnionVariantEvolutionPublishedTransaction =
+type AgentUnionVariantEvolutionPublishedTransaction =
     { TransactionId: TransactionId
       BaseSnapshotId: SnapshotId
       PublishedSnapshotId: SnapshotId
@@ -28,23 +28,23 @@ type AgentFieldlessUnionVariantEvolutionPublishedTransaction =
       Readiness: TransactionReadiness
       Receipt: TransactionPreviewReceipt }
 
-type private AgentFieldlessUnionVariantEvolutionProposalState =
+type private AgentUnionVariantEvolutionProposalState =
     { TransactionId: TransactionId
       ProposedSnapshot: Snapshot
-      Review: AgentFieldlessUnionVariantEvolutionReview }
+      Review: AgentUnionVariantEvolutionReview }
 
-type AgentFieldlessUnionVariantEvolutionProposal =
+type AgentUnionVariantEvolutionProposal =
     private
-    | AgentFieldlessUnionVariantEvolutionProposal of AgentFieldlessUnionVariantEvolutionProposalState
+    | AgentUnionVariantEvolutionProposal of AgentUnionVariantEvolutionProposalState
 
 [<RequireQualifiedAccess>]
-type AgentFieldlessUnionVariantEvolutionCommitResult =
+type AgentUnionVariantEvolutionCommitResult =
     | Rejected of TransactionDiagnostic list
-    | Committed of AgentWorkspace * AgentFieldlessUnionVariantEvolutionPublishedTransaction
+    | Committed of AgentWorkspace * AgentUnionVariantEvolutionPublishedTransaction
 
 [<RequireQualifiedAccess>]
-module AgentFieldlessUnionVariantEvolutionProposal =
-    let private state (AgentFieldlessUnionVariantEvolutionProposal state) = state
+module AgentUnionVariantEvolutionProposal =
+    let private state (AgentUnionVariantEvolutionProposal state) = state
     let review proposal = (state proposal).Review
     let transactionId proposal = (state proposal).TransactionId
     let proposedSnapshotId proposal = (state proposal).ProposedSnapshot.Id
@@ -54,7 +54,7 @@ module AgentFieldlessUnionVariantEvolutionProposal =
     let proposedFunctions proposal = (state proposal).ProposedSnapshot.Functions
 
 [<RequireQualifiedAccess>]
-module AgentFieldlessUnionVariantEvolutionWorkflow =
+module AgentUnionVariantEvolutionWorkflow =
     open StructuralTransactionInternals
 
     /// Clones a graph with fresh node and pattern-binding IDs. `outerBindings` are bindings owned
@@ -174,10 +174,10 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
 
     let private simulateLike
         (workspace: AgentWorkspace)
-        (request: AgentAddFieldlessUnionVariantLikeRequest)
+        (request: AgentAddUnionVariantLikeRequest)
         (copySourceFields: bool)
         (additionalFields: AgentTypeFieldIntent list)
-        : Result<AgentFieldlessUnionVariantEvolutionProposal, AgentStructuralWorkflowError> =
+        : Result<AgentUnionVariantEvolutionProposal, AgentStructuralWorkflowError> =
         let prepare (baseSnapshot: Snapshot) =
             if request.ExpectedBaseSnapshotId <> baseSnapshot.Id then
                 rejected
@@ -301,20 +301,20 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                   RepairedFunctionIds = repairedFunctionIds
                   RepairedMatchCount = repairedMatchCount }
 
-            AgentFieldlessUnionVariantEvolutionProposal
+            AgentUnionVariantEvolutionProposal
                 { TransactionId = candidate.TransactionId
                   ProposedSnapshot = candidate.ProposedSnapshot
                   Review = review })
 
     /// Adds a fieldless variant whose match arms copy those of a fieldless source variant.
-    let simulate workspace (request: AgentAddFieldlessUnionVariantLikeRequest) =
+    let simulate workspace (request: AgentAddUnionVariantLikeRequest) =
         simulateLike workspace request false []
 
     /// Adds a variant that copies the source variant's fields (fresh identities, same names and
     /// types) plus `additionalFields`. Every match arm for the source is cloned for the new variant
     /// with its field bindings remapped, so no intermediate program is non-exhaustive; arm bodies
     /// can then be refined with targeted replacement.
-    let simulateWithFields workspace (request: AgentAddFieldlessUnionVariantLikeRequest) (additionalFields: AgentTypeFieldIntent list) =
+    let simulateWithFields workspace (request: AgentAddUnionVariantLikeRequest) (additionalFields: AgentTypeFieldIntent list) =
         simulateLike workspace request true additionalFields
 
     let private publicationMessages =
@@ -325,14 +325,14 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
 
     let private publishWithPolicy
         (workspace: AgentWorkspace)
-        (AgentFieldlessUnionVariantEvolutionProposal proposal)
+        (AgentUnionVariantEvolutionProposal proposal)
         (policy: CommitPolicy)
-        : AgentFieldlessUnionVariantEvolutionCommitResult =
+        : AgentUnionVariantEvolutionCommitResult =
         let receipt = proposal.Review.Receipt
 
         if receipt.TransactionId <> proposal.TransactionId
            || receipt.ProposedSnapshotId <> proposal.ProposedSnapshot.Id then
-            AgentFieldlessUnionVariantEvolutionCommitResult.Rejected
+            AgentUnionVariantEvolutionCommitResult.Rejected
                 [ diagnostic
                       "PreviewReceiptRequestMismatch"
                       "The reviewed receipt does not identify this Union-variant evolution proposal." ]
@@ -346,9 +346,9 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
                     receipt
                     policy
             with
-            | Error diagnostics -> AgentFieldlessUnionVariantEvolutionCommitResult.Rejected diagnostics
+            | Error diagnostics -> AgentUnionVariantEvolutionCommitResult.Rejected diagnostics
             | Ok nextWorkspace ->
-                AgentFieldlessUnionVariantEvolutionCommitResult.Committed(
+                AgentUnionVariantEvolutionCommitResult.Committed(
                     nextWorkspace,
                     { TransactionId = proposal.TransactionId
                       BaseSnapshotId = receipt.BaseSnapshotId
@@ -369,11 +369,3 @@ module AgentFieldlessUnionVariantEvolutionWorkflow =
 
     let commitWithPolicy workspace proposal policy =
         publishWithPolicy workspace proposal policy
-
-    let reject
-        (workspace: AgentWorkspace)
-        (AgentFieldlessUnionVariantEvolutionProposal proposal)
-        : AgentWorkspace * TransactionRejectionReceipt =
-        workspace,
-        { TransactionId = proposal.TransactionId
-          RetainedSnapshotId = AgentWorkspace.currentSnapshotId workspace }

@@ -46,7 +46,9 @@ module CSharpBackend =
     let private renderFloat64Literal bits =
         "BitConverter.UInt64BitsToDouble(0x" + Float64Bits.toHex bits + "UL)"
 
-    let rec private formatType (typeRef: TypeRef) =
+    /// The C# source type of a type reference, as emitted programs spell it. runPure's runner
+    /// uses it to declare its argument and result values.
+    let rec formatType (typeRef: TypeRef) =
         match typeRef with
         | TypeRef.Primitive PrimitiveType.String -> "NyStr"
         | TypeRef.Primitive PrimitiveType.Bool -> "bool"
@@ -446,6 +448,15 @@ module CSharpBackend =
         writer.Pop()
         writer.Line("}")
         writer.Line("return System.Text.Encoding.UTF8.GetString(bytes, 0, count);")
+        writer.Pop()
+        writer.Line("}")
+        // EncodeUtf8 is the inverse: Encoding.UTF8.GetBytes, whose replacement fallback writes an unpaired
+        // surrogate as U+FFFD (EF BF BD, the 3 bytes Utf8ByteCount counts), then one char per byte.
+        writer.Line("public static string EncodeUtf8(string text)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var bytes = System.Text.Encoding.UTF8.GetBytes(text);")
+        writer.Line("return string.Create(bytes.Length, bytes, static (span, source) => { for (var index = 0; index < source.Length; index++) span[index] = (char)source[index]; });")
         writer.Pop()
         writer.Line("}")
         // FromCodePoint is Python chr as an Option. A BMP code, surrogates included, is one UTF-16 unit;
@@ -1287,6 +1298,8 @@ module CSharpBackend =
             writer.Line(target + " = NyText.ToUpper(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.StringDecodeUtf8Lossy sourceValueId ->
             writer.Line(target + " = NyText.DecodeUtf8Lossy(" + valueName sourceValueId + ");")
+        | ExecutionInstructionKind.StringEncodeUtf8 sourceValueId ->
+            writer.Line(target + " = NyText.EncodeUtf8(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.Float64RoundToInt64 sourceValueId ->
             writer.Line(target + " = NyNumber.RoundToInt64(" + valueName sourceValueId + ");")
         | ExecutionInstructionKind.Float64FloorToInt64 sourceValueId ->
@@ -1602,11 +1615,34 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName listValueId + ".IndexOf(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.ListLastIndexOf(listValueId, itemValueId) ->
             writer.Line(target + " = " + valueName listValueId + ".LastIndexOf(" + valueName itemValueId + ");")
+        | ExecutionInstructionKind.ListContains(listValueId, itemValueId) ->
+            writer.Line(target + " = " + valueName listValueId + ".Contains(" + valueName itemValueId + ");")
         | ExecutionInstructionKind.MapGet(mapValueId, keyValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".Get(" + valueName keyValueId + ");")
         | ExecutionInstructionKind.OptionGetOrDefault(optionValueId, defaultValueId) ->
             let option = valueName optionValueId
             writer.Line(target + " = " + option + ".HasValue ? " + option + ".Value : " + valueName defaultValueId + ";")
+        // The Option and Result accessors are one conditional (or one member read) over HasValue or IsOk,
+        // with every operand already evaluated.
+        | ExecutionInstructionKind.ResultGetOrDefault(resultValueId, defaultValueId) ->
+            let result = valueName resultValueId
+            writer.Line(target + " = " + result + ".IsOk ? " + result + ".OkValue : " + valueName defaultValueId + ";")
+        | ExecutionInstructionKind.OptionOkOr(optionValueId, errorValueId) ->
+            let option = valueName optionValueId
+            let resultType = formatType instruction.Result.Type
+            writer.Line(target + " = " + option + ".HasValue ? " + resultType + ".Ok(" + option + ".Value) : " + resultType + ".Err(" + valueName errorValueId + ");")
+        | ExecutionInstructionKind.ResultOkValue resultValueId ->
+            let result = valueName resultValueId
+            let optionType = formatType instruction.Result.Type
+            writer.Line(target + " = " + result + ".IsOk ? " + optionType + ".Some(" + result + ".OkValue) : " + optionType + ".None();")
+        | ExecutionInstructionKind.ResultErrValue resultValueId ->
+            let result = valueName resultValueId
+            let optionType = formatType instruction.Result.Type
+            writer.Line(target + " = " + result + ".IsOk ? " + optionType + ".None() : " + optionType + ".Some(" + result + ".ErrorValue);")
+        | ExecutionInstructionKind.OptionIsSome optionValueId ->
+            writer.Line(target + " = " + valueName optionValueId + ".HasValue;")
+        | ExecutionInstructionKind.ResultIsOk resultValueId ->
+            writer.Line(target + " = " + valueName resultValueId + ".IsOk;")
         | ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId) ->
             writer.Line(target + " = " + valueName mapValueId + ".GetOrDefault(" + valueName keyValueId + ", " + valueName defaultValueId + ");")
         | ExecutionInstructionKind.ListSlice(listValueId, startId, endId) ->

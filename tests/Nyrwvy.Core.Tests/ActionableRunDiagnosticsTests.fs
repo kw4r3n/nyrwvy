@@ -138,13 +138,40 @@ module ActionableRunDiagnosticsTests =
                                                Operations = [ { DisplayName = "read"; Parameters = []; ResultType = intType; FailureType = None; EffectId = effect } ] } |> publish
             let cap = session.Declarations().Capabilities.Head
             let invoke = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, cap.Operations.Head.Id, [])
-            session.SimulateCreateFunction
+            let creation: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = session.SnapshotId
                   DisplayName = "unordered"
                   Parameters = [ { DisplayName = "values"; Type = TypeRef.Capability cap.Id } ]
                   ResultType = intType
                   RequiredEffects = [ effect ]
-                  Body = ExpressionRecipe.Int64WrappingAdd(invoke, invoke) } |> publish
+                  Body = ExpressionRecipe.Int64WrappingAdd(invoke, invoke) }
+            // Proposal time applies the lowering rule and names both operations.
+            let refused = session.SimulateCreateFunction creation
+            Assert.True(Result.isError refused)
+            let refusal = sprintf "%A" refused
+            Assert.Contains("AmbiguousEffectOrder", refusal)
+            Assert.Contains("CapabilityInvoke Values.read", refusal)
+            Assert.Contains("Sequence them with Bind", refusal)
+            // A snapshot published before that rule still reaches the lowering diagnostic.
+            session.SimulateCreateFunction { creation with Body = ExpressionRecipe.Bind(invoke, ExpressionRecipe.Bind(invoke, ExpressionRecipe.Int64Literal 0L)) } |> publish
+            let ordered = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "unordered")
+            let historical = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap
+            let invokes = ValueGraph.collectNodes ordered.Body |> List.filter (fun n -> match n.Kind with SemanticNodeKind.CapabilityInvoke _ -> true | _ -> false)
+            let receiver = ordered.Body.Nodes |> List.find (fun n -> match n.Kind with SemanticNodeKind.ParameterReference _ -> true | _ -> false)
+            let addId = StableId.createForTesting<GraphNodeTag> "legacy-unordered-add"
+            let firstId, secondId = invokes[0].Id, invokes[1].Id
+            let legacyBody: ValueGraph =
+                { Nodes =
+                    [ receiver
+                      { invokes[0] with Kind = SemanticNodeKind.CapabilityInvoke(receiver.Id, cap.Operations.Head.Id, []) }
+                      { invokes[1] with Kind = SemanticNodeKind.CapabilityInvoke(receiver.Id, cap.Operations.Head.Id, []) }
+                      { Id = addId; Kind = SemanticNodeKind.Int64WrappingAdd(firstId, secondId) } ]
+                  ResultNodeId = addId }
+            let legacy = { historical with Functions = historical.Functions |> List.map (fun f -> if f.Id = ordered.Id then { f with Body = legacyBody } else f) }
+            Assert.Empty(SnapshotValidator.validate legacy)
+            session.Close()
+            File.WriteAllText(path, SnapshotCodec.serialize legacy |> unwrap)
+            use session = AuthoringSession.openExisting path |> unwrap
             let fn = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "unordered")
             let before = File.ReadAllBytes path
             use response = JsonDocument.Parse(AuthoringProtocol.executeLine session "{\"id\":\"emit\",\"op\":\"emitCSharp\",\"profile\":{\"kind\":\"empty\"}}")
@@ -162,5 +189,6 @@ module ActionableRunDiagnosticsTests =
                 { ExpectedBaseSnapshotId = session.SnapshotId
                   ExpectedCurrentResultNodeId = fn.Body.ResultNodeId
                   TargetFunctionId = fn.Id
-                  Replacement = ExpressionRecipe.Bind(invoke, ExpressionRecipe.Bind(invoke, ExpressionRecipe.Int64Literal 0L)) } |> publish
+                  Replacement = ExpressionRecipe.Bind(invoke, ExpressionRecipe.Bind(invoke, ExpressionRecipe.Int64Literal 0L)) }
+            |> fun p -> session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             session.ProjectEntryExecution fn.Id |> unwrap |> ignore)

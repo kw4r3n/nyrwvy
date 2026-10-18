@@ -146,10 +146,14 @@ module AgentExpressionBindTests =
                   message
               ) |> fun condition -> ExpressionRecipe.Conditional(condition, doneValue, doneValue) ]
         for recipe in ambiguous do
-            let _, published = publish snapshot recipe
-            match lower published with
-            | Error(ExecutionIrError.AmbiguousEffectOrder(owner, _, _)) -> Assert.Equal(targetId, owner)
-            | other -> failwithf "Expected ambiguous effects after semantic publication, got %A" other
+            let ws = workspace snapshot
+            match AgentExpressionStructuralWorkflow.simulate ws (request snapshot recipe) with
+            | Error(AgentStructuralWorkflowError.SimulationRejected diagnostics) ->
+                let text = sprintf "%A" diagnostics
+                Assert.Contains("AmbiguousEffectOrder", text)
+                Assert.Contains(StableId.value targetId, text)
+                Assert.Equal<Snapshot>(snapshot, AgentWorkspace.snapshotForStructuralEditing ws)
+            | other -> failwithf "Expected ambiguous effects to be refused before publication, got %A" other
 
         let ordered = ExpressionRecipe.Bind(acquire, ExpressionRecipe.Bind(write snapshot (value 0) message, doneValue))
         let _, published = publish snapshot ordered

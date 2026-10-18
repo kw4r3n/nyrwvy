@@ -119,7 +119,7 @@ A successful session commit persists the reviewed candidate through the M3 publi
 
 ## Non-goals
 
-This slice does not implement type mutation or deletion, field migration, exhaustive-match repair, partial declarations, caller-owned declaration IDs, future-ID guessing, multi-declaration draft protocols, effect/capability/provider creation, or a generalized schema-authoring framework.
+This slice does not implement partial declarations, caller-owned declaration IDs, future-ID guessing, effect/capability/provider creation, or a generalized schema-authoring framework. Later slices added, through the same session, recursive type groups (`simulateCreateTypesByName`), renames of types, fields and variants, `addProductField`/`removeProductField`, `removeUnionVariant`, `deleteType`, Product field type migration (`simulateProductFieldTypeMigration`), and Union variant addition with exhaustive-match repair by cloning a source variant's arms (`simulateAddUnionVariantLike`); see the [session contract](agent-authoring-session.md#operations). Adding a variant with arbitrary new arm bodies remains unimplemented.
 
 ## Verification contract
 

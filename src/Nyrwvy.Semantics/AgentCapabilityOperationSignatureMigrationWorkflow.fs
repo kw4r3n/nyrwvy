@@ -205,5 +205,3 @@ module AgentCapabilityOperationSignatureMigrationWorkflow =
                   Diff = proposal.Review.ResultingChange
                   Readiness = proposal.Review.Readiness
                   Receipt = proposal.Review.Receipt })
-
-    let commit workspace proposal = commitWithPolicy workspace proposal CommitPolicy.RejectBlockingObligations

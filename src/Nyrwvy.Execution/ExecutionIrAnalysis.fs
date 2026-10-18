@@ -85,6 +85,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringToLower _
         | TypedSemanticNodeKind.StringToUpper _
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy _
+        | TypedSemanticNodeKind.StringEncodeUtf8 _
         | TypedSemanticNodeKind.Float64RoundToInt64 _
         | TypedSemanticNodeKind.Float64FloorToInt64 _
         | TypedSemanticNodeKind.Float64Sqrt _
@@ -196,8 +197,15 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.SetContains _
         | TypedSemanticNodeKind.ListIndexOf _
         | TypedSemanticNodeKind.ListLastIndexOf _
+        | TypedSemanticNodeKind.ListContains _
         | TypedSemanticNodeKind.MapGet _
         | TypedSemanticNodeKind.OptionGetOrDefault _
+        | TypedSemanticNodeKind.ResultGetOrDefault _
+        | TypedSemanticNodeKind.OptionOkOr _
+        | TypedSemanticNodeKind.ResultOkValue _
+        | TypedSemanticNodeKind.ResultErrValue _
+        | TypedSemanticNodeKind.OptionIsSome _
+        | TypedSemanticNodeKind.ResultIsOk _
         | TypedSemanticNodeKind.MapGetOrDefault _
         | TypedSemanticNodeKind.ListAppendItem _
         | TypedSemanticNodeKind.ListConcat _
@@ -230,41 +238,25 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ResultErr _ -> false, []
         | TypedSemanticNodeKind.Abort _ -> true, []
 
-    let observableFunctions (functionsById: Map<FunctionId, TypedSemanticFunction>) =
-        let rec nodes (graph: TypedSemanticGraph) =
-            graph.Nodes @ (graph.Nodes |> List.collect (fun node -> TypedSemanticNodeKind.subgraphs node.Kind |> List.collect nodes))
-        functionsById
-        |> Map.map (fun _ fn ->
-            let descriptors = nodes fn.Body |> List.map (fun node ->
-                let intrinsic, targets = orderingDescriptor node
-                // Abort is observable only inside the function whose control flow it exits.
-                let seed = match node.Kind with TypedSemanticNodeKind.Abort _ -> false | _ -> intrinsic
-                seed, targets)
-            (not (List.isEmpty fn.RequiredEffects) || (descriptors |> List.exists fst)),
-            (descriptors |> List.collect snd |> List.distinct))
-        |> GraphOrder.observableClosure
+    /// The typed view of `GraphOrder`'s shared effect-ordering rule; only the per-kind descriptor is typed.
+    let private orderingView: EffectOrderView<TypedSemanticNode> =
+        { NodeId = fun node -> node.OriginNodeId
+          Dependencies = dependencies
+          NestedGraphs = fun node -> TypedSemanticNodeKind.subgraphs node.Kind |> List.map (fun graph -> graph.Nodes)
+          Descriptor = orderingDescriptor
+          IsLocalExit = fun node -> match node.Kind with TypedSemanticNodeKind.Abort _ -> true | _ -> false }
 
-    let rec private nodeHasEffects observable (node: TypedSemanticNode) =
-        let intrinsic, targets = orderingDescriptor node
-        intrinsic
-        || (targets |> List.exists (fun id -> Set.contains id observable))
-        || (TypedSemanticNodeKind.subgraphs node.Kind
-            |> List.exists (fun graph -> graph.Nodes |> List.exists (nodeHasEffects observable)))
+    let observableFunctions (functionsById: Map<FunctionId, TypedSemanticFunction>) =
+        functionsById
+        |> Map.toSeq
+        |> Seq.map (fun (id, fn) -> id, not (List.isEmpty fn.RequiredEffects), fn.Body.Nodes)
+        |> GraphOrder.observableFunctions orderingView
 
     let validateEffectOrder
         (functionId: FunctionId)
         (observable: Set<FunctionId>)
         (graph: TypedSemanticGraph)
         : Result<unit, ExecutionIrError> =
-        let rec validate (graph: TypedSemanticGraph) =
-            let edges = graph.Nodes |> List.map (fun node -> node.OriginNodeId, dependencies node) |> Map.ofList
-            let effectfulIds = graph.Nodes |> List.filter (nodeHasEffects observable) |> List.map (fun node -> node.OriginNodeId)
-            let ordered =
-                match GraphOrder.tryUnorderedPair edges effectfulIds with
-                | Some(first, second) -> Error(ExecutionIrError.AmbiguousEffectOrder(functionId, first, second))
-                | None -> Ok()
-            // Nested scopes retain their own dependencies: enclosing Bind/branch edges own order.
-            graph.Nodes
-            |> List.collect (fun node -> TypedSemanticNodeKind.subgraphs node.Kind)
-            |> List.fold (fun result child -> result |> Result.bind (fun () -> validate child)) ordered
-        validate graph
+        match GraphOrder.tryUnorderedEffects orderingView observable graph.Nodes with
+        | Some(first, second) -> Error(ExecutionIrError.AmbiguousEffectOrder(functionId, first, second))
+        | None -> Ok()

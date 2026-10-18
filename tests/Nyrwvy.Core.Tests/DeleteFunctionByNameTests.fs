@@ -97,7 +97,7 @@ module DeleteFunctionByNameTests =
             let id = functionId session "leaf"
             protocolMessage (deleteByName [ $"""{{"kind":"deleteFunction","functionId":"{id}"}}""" ]) |> ignore
             Assert.Contains(
-                "Unsupported name-resolved operation kind 'renameFunction'",
-                protocolMessage (deleteByName [ """{"kind":"renameFunction","function":"leaf","displayName":"x"}""" ]))
+                "Unsupported name-resolved operation kind 'frobnicate'",
+                protocolMessage (deleteByName [ """{"kind":"frobnicate","function":"leaf"}""" ]))
             Assert.Contains("Unknown type 'Missing'", protocolMessage (deleteByName [ """{"kind":"deleteType","type":"Missing"}""" ]))
             Assert.Single(session.Declarations().Functions) |> ignore)

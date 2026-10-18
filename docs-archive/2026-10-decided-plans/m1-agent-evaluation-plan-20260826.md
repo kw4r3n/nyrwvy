@@ -2,7 +2,7 @@
 
 ## Status
 
-Completed plan. This was the accepted evaluation methodology for Milestone 1; the results are in the [initial tranche verification record](../verification/m1-agent-evaluation-initial-tranche-20260829.md).
+Completed plan. This was the accepted evaluation methodology for Milestone 1; the results are in the [initial tranche verification record](../../docs/verification/m1-agent-evaluation-initial-tranche-20260829.md).
 
 The purpose is to test the AI-first design claim without choosing success criteria after observing the results. This document defines the comparison structure, required evidence, and failure categories before the larger M1 semantic subset is implemented.
 

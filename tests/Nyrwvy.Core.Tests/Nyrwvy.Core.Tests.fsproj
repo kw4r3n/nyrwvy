@@ -87,6 +87,9 @@
     <Compile Include="ListPositionalUpdateTests.fs" />
     <Compile Include="ListZipWithAndFlatMapTests.fs" />
     <Compile Include="OptionResultCombinatorTests.fs" />
+    <Compile Include="OptionResultAccessorTests.fs" />
+    <Compile Include="ListContainsTests.fs" />
+    <Compile Include="StringEncodeUtf8Tests.fs" />
     <Compile Include="StandardOperationChoiceTests.fs" />
     <Compile Include="MatchUnionSharedArmTests.fs" />
     <Compile Include="MapTests.fs" />
@@ -95,6 +98,7 @@
     <Compile Include="MapSetEqualityTests.fs" />
     <Compile Include="GenericTypeTests.fs" />
     <Compile Include="StructuralRenameAndRemovalTests.fs" />
+    <Compile Include="AuthoringSurfaceExtensionTests.fs" />
     <Compile Include="StringSpanTests.fs" />
     <Compile Include="StringPositionOffsetTests.fs" />
     <Compile Include="StringCodePointConversionTests.fs" />

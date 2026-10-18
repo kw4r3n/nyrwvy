@@ -16,7 +16,8 @@ module PureRunEntryProjectionTests =
     let private number = ExpressionRecipe.Int64Literal
 
     type private Fixture =
-        { Session: AuthoringSession
+        { /// Replaced when `legacyUnordered` reopens the workspace file.
+          mutable Session: AuthoringSession
           Path: string
           Effect: EffectId
           Capability: CapabilityId
@@ -26,9 +27,11 @@ module PureRunEntryProjectionTests =
     let private withFixture test =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-entry-projection-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory root |> ignore
+        let mutable current: AuthoringSession option = None
         try
             let path = Path.Combine(root, "workspace.json")
-            use session = AuthoringSession.createNew path |> unwrap
+            let session = AuthoringSession.createNew path |> unwrap
+            current <- Some session
             let publish (proposal: AuthoringProposal) = session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             session.SimulateCreateEffect { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Io" } |> unwrap |> publish
             let effect = session.Declarations().Effects |> List.exactlyOne
@@ -37,21 +40,52 @@ module PureRunEntryProjectionTests =
                   Operations = [ { DisplayName = "read"; Parameters = []; ResultType = intType; FailureType = None; EffectId = effect.Id } ] }
             |> unwrap |> publish
             let capability = session.Declarations().Capabilities |> List.exactlyOne
+            let fixtureRef = ref Unchecked.defaultof<Fixture>
             let create name parameters result effects body =
+                let session = fixtureRef.Value.Session
                 session.SimulateCreateFunction
                     { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
                       Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
                       ResultType = result; RequiredEffects = effects; Body = body }
-                |> unwrap |> publish
+                |> unwrap |> fun proposal -> session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
                 session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
-            test { Session = session; Path = path; Effect = effect.Id; Capability = capability.Id
-                   Operation = capability.Operations.Head.Id; Create = create }
-        finally Directory.Delete(root, true)
+            fixtureRef.Value <-
+                { Session = session; Path = path; Effect = effect.Id; Capability = capability.Id
+                  Operation = capability.Operations.Head.Id; Create = create }
+            try test fixtureRef.Value
+            finally current <- Some fixtureRef.Value.Session
+        finally
+            current |> Option.iter (fun session -> session.Close())
+            Directory.Delete(root, true)
+
+    /// Proposals refuse unordered effects, so a graph holding them can only be one published
+    /// before that check. Each function was authored with one capability invocation beside an
+    /// `Int64Literal 0` stand-in; the stand-in becomes a second, unordered invocation of the same
+    /// receiver in the persisted snapshot, and the workspace is reopened from it.
+    let private legacyUnordered fixture (functions: SemanticFunction list) =
+        let ids = functions |> List.map (fun fn -> fn.Id) |> Set.ofList
+        let published = SnapshotCodec.deserialize(File.ReadAllText fixture.Path) |> unwrap
+        let tamper (fn: SemanticFunction) =
+            let invoke =
+                ValueGraph.collectNodes fn.Body
+                |> List.pick (fun node -> match node.Kind with SemanticNodeKind.CapabilityInvoke _ -> Some node.Kind | _ -> None)
+            { fn with
+                Body = fn.Body |> ValueGraph.mapNodes (fun node ->
+                    match node.Kind with
+                    | SemanticNodeKind.Int64Literal 0L -> { node with Kind = invoke }
+                    | _ -> node) }
+        let legacy = { published with Functions = published.Functions |> List.map (fun fn -> if Set.contains fn.Id ids then tamper fn else fn) }
+        Assert.Empty(SnapshotValidator.validate legacy)
+        fixture.Session.Close()
+        File.WriteAllText(fixture.Path, SnapshotCodec.serialize legacy |> unwrap)
+        fixture.Session <- AuthoringSession.openExisting fixture.Path |> unwrap
+        functions |> List.map (fun fn -> fixture.Session.Declarations().Functions |> List.find (fun item -> item.Id = fn.Id))
 
     let private createBad fixture name =
         let invoke = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, fixture.Operation, [])
         fixture.Create name [ "values", TypeRef.Capability fixture.Capability ] intType [ fixture.Effect ]
-            (ExpressionRecipe.Int64WrappingAdd(invoke, invoke))
+            (ExpressionRecipe.Int64WrappingAdd(invoke, number 0L))
+        |> List.singleton |> legacyUnordered fixture |> List.exactlyOne
 
     let private fake fixture =
         PureRunValue.FakeCapability(fixture.Capability,
@@ -66,6 +100,7 @@ module PureRunEntryProjectionTests =
     [<Fact; Trait("Suite", "Extended")>]
     let ``unrelated unordered effects do not poison complete entries or omit any target role`` () =
         withFixture (fun fixture ->
+            let bad = createBad fixture "unfinished"
             let session = fixture.Session
             let good = fixture.Create "good" [] intType [] (number 7L)
             let direct = fixture.Create "direct" [] intType [] (ExpressionRecipe.DirectCall(good.Id, []))
@@ -78,7 +113,6 @@ module PureRunEntryProjectionTests =
             let implemented = fixture.Create "implemented" [] intType [ fixture.Effect ]
                                 (ExpressionRecipe.CapabilityInvoke(
                                     ExpressionRecipe.CapabilityConstruct(fixture.Capability, [ fixture.Operation, good.Id ]), fixture.Operation, []))
-            let bad = createBad fixture "unfinished"
             let snapshot = SnapshotCodec.deserialize(File.ReadAllText fixture.Path) |> unwrap
             let selected = ExecutionCallGraph.forSnapshotEntry snapshot implemented.Id
             Assert.Equal<Set<FunctionId>>(Set.ofList [ implemented.Id; good.Id ], selected.Functions |> List.map (fun fn -> fn.Id) |> Set.ofList)
@@ -102,9 +136,9 @@ module PureRunEntryProjectionTests =
     [<Fact; Trait("Suite", "Extended")>]
     let ``verification projects both snapshots by entry and preserves unknown for reachable bad graphs`` () =
         withFixture (fun fixture ->
+            let bad = createBad fixture "unfinished"
             let session = fixture.Session
             let good = fixture.Create "good" [] intType [] (number 7L)
-            let bad = createBad fixture "unfinished"
             let proposal = session.SimulateReplaceBody
                                { TargetFunctionId = good.Id; ExpectedBaseSnapshotId = session.SnapshotId
                                  ExpectedCurrentResultNodeId = good.Body.ResultNodeId; Replacement = number 8L } |> unwrap
@@ -123,36 +157,38 @@ module PureRunEntryProjectionTests =
             Assert.Equal<byte[]>(bytes, File.ReadAllBytes fixture.Path))
 
     [<Fact; Trait("Suite", "Extended")>]
-    let ``candidate only unordered function does not turn preserved entry verification unknown`` () =
+    let ``candidate only unordered function is refused before verification can see it`` () =
         withFixture (fun fixture ->
             let session = fixture.Session
-            let good = fixture.Create "good" [] intType [] (number 7L)
+            fixture.Create "good" [] intType [] (number 7L) |> ignore
             let invoke = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, fixture.Operation, [])
-            let proposal = session.SimulateCreateFunction
-                               { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "unfinishedCandidate"
-                                 Parameters = [ { DisplayName = "values"; Type = TypeRef.Capability fixture.Capability } ]
-                                 ResultType = intType; RequiredEffects = [ fixture.Effect ]
-                                 Body = ExpressionRecipe.Int64WrappingAdd(invoke, invoke) } |> unwrap
-            let evidence = ChangeVerification.verify session proposal.ProposalId
-                               [ { Label = "existing entry survives unrelated candidate"; FunctionId = good.Id
-                                   Arguments = []; ExpectedCandidate = None } ] |> unwrap
-            Assert.Equal("tested-agreement", evidence.Observations.Head.Status)
-            Assert.Equal(PureRunValue.Int64 7L, (evidence.Observations.Head.Candidate |> unwrap).Actual))
+            let bytes = File.ReadAllBytes fixture.Path
+            let refused = session.SimulateCreateFunction
+                              { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "unfinishedCandidate"
+                                Parameters = [ { DisplayName = "values"; Type = TypeRef.Capability fixture.Capability } ]
+                                ResultType = intType; RequiredEffects = [ fixture.Effect ]
+                                Body = ExpressionRecipe.Int64WrappingAdd(invoke, invoke) }
+            Assert.True(Result.isError refused)
+            Assert.Contains("AmbiguousEffectOrder", sprintf "%A" refused)
+            Assert.Equal<byte[]>(bytes, File.ReadAllBytes fixture.Path))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``effectful callback and task worker targets remain reachable before lowering`` () =
         withFixture (fun fixture ->
-            let session = fixture.Session
             let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ intType; TypeRef.Primitive PrimitiveType.String ])
             let capabilityType = TypeRef.Capability fixture.Capability
             let invoke = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, fixture.Operation, [])
-            let unordered = ExpressionRecipe.ResultOk(TypeRef.Primitive PrimitiveType.String, ExpressionRecipe.Int64WrappingAdd(invoke, invoke))
-            let folder = fixture.Create "unfinishedFolder" [ "values", capabilityType; "acc", intType; "item", intType ] resultType [ fixture.Effect ] unordered
+            let standIn = ExpressionRecipe.ResultOk(TypeRef.Primitive PrimitiveType.String, ExpressionRecipe.Int64WrappingAdd(invoke, number 0L))
+            let folder, worker =
+                [ fixture.Create "unfinishedFolder" [ "values", capabilityType; "acc", intType; "item", intType ] resultType [ fixture.Effect ] standIn
+                  fixture.Create "unfinishedWorker" [ "values", capabilityType; "item", intType ] resultType [ fixture.Effect ] standIn ]
+                |> legacyUnordered fixture
+                |> function [ folder; worker ] -> folder, worker | other -> failwithf "%A" other
+            let session = fixture.Session
             let callback = fixture.Create "callback" [ "values", capabilityType ] resultType [ fixture.Effect ]
                                (ExpressionRecipe.ListEffectFold(ExpressionRecipe.ListConstruct(intType, [ number 1L ]), number 0L, folder.Id,
                                     [ folder.Parameters.Head.Id, ExpressionRecipe.ParameterSlot 0 ]))
             PureRun.run session callback.Id [ fake fixture ] None |> assertLoweringFailure
-            let worker = fixture.Create "unfinishedWorker" [ "values", capabilityType; "item", intType ] resultType [ fixture.Effect ] unordered
             let scopeType = TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])
             let body = fixture.Create "taskBody" [ "values", capabilityType; "scope", scopeType ] resultType [ fixture.Effect ]
                            (ExpressionRecipe.Bind(ExpressionRecipe.TaskStart(ExpressionRecipe.ParameterSlot 1, worker.Id,

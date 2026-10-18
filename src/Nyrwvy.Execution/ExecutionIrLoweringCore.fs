@@ -320,6 +320,8 @@ module ExecutionIr =
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringToUpper
                         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringDecodeUtf8Lossy
+                        | TypedSemanticNodeKind.StringEncodeUtf8 valueNodeId ->
+                            lowerUnaryNode node valueNodeId ExecutionInstructionKind.StringEncodeUtf8
                         | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId ->
                             lowerUnaryNode node valueNodeId ExecutionInstructionKind.Float64RoundToInt64
                         | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId ->
@@ -536,12 +538,29 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.ListLastIndexOf(mapNodeId, itemNodeId) ->
                             lowerBinaryNode node mapNodeId itemNodeId (fun listValueId itemValueId ->
                                 ExecutionInstructionKind.ListLastIndexOf(listValueId, itemValueId))
+                        | TypedSemanticNodeKind.ListContains(listNodeId, itemNodeId) ->
+                            lowerBinaryNode node listNodeId itemNodeId (fun listValueId itemValueId ->
+                                ExecutionInstructionKind.ListContains(listValueId, itemValueId))
                         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
                             lowerBinaryNode node mapNodeId keyNodeId (fun mapValueId keyValueId ->
                                 ExecutionInstructionKind.MapGet(mapValueId, keyValueId))
                         | TypedSemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
                             lowerBinaryNode node optionNodeId defaultNodeId (fun optionValueId defaultValueId ->
                                 ExecutionInstructionKind.OptionGetOrDefault(optionValueId, defaultValueId))
+                        | TypedSemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
+                            lowerBinaryNode node resultNodeId defaultNodeId (fun resultValueId defaultValueId ->
+                                ExecutionInstructionKind.ResultGetOrDefault(resultValueId, defaultValueId))
+                        | TypedSemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) ->
+                            lowerBinaryNode node optionNodeId errorNodeId (fun optionValueId errorValueId ->
+                                ExecutionInstructionKind.OptionOkOr(optionValueId, errorValueId))
+                        | TypedSemanticNodeKind.ResultOkValue resultNodeId ->
+                            lowerUnaryNode node resultNodeId ExecutionInstructionKind.ResultOkValue
+                        | TypedSemanticNodeKind.ResultErrValue resultNodeId ->
+                            lowerUnaryNode node resultNodeId ExecutionInstructionKind.ResultErrValue
+                        | TypedSemanticNodeKind.OptionIsSome optionNodeId ->
+                            lowerUnaryNode node optionNodeId ExecutionInstructionKind.OptionIsSome
+                        | TypedSemanticNodeKind.ResultIsOk resultNodeId ->
+                            lowerUnaryNode node resultNodeId ExecutionInstructionKind.ResultIsOk
                         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
                             lowerTernaryNode node mapNodeId keyNodeId defaultNodeId (fun mapValueId keyValueId defaultValueId ->
                                 ExecutionInstructionKind.MapGetOrDefault(mapValueId, keyValueId, defaultValueId))

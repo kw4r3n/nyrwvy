@@ -411,7 +411,7 @@ module Float64Tests =
 
         let typedJson = TypedSemanticIrSerializer.serialize typed
         let executionJson = ExecutionIrSerializer.serialize execution
-        Assert.Contains("\"schemaVersion\":7", typedJson)
+        Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", typedJson)
         Assert.Contains("\"primitiveFloat64\"", typedJson)
         Assert.Contains("\"bits\":\"8000000000000000\"", typedJson)
         Assert.Contains("\"float64Divide\"", executionJson)

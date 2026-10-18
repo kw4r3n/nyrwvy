@@ -1,22 +1,22 @@
 # Repeated `MatchUnion` arms (design note)
 
-**Status:** Decided 2026-10-03: option D with E's shorthand, no shared field bindings, one-variant arms keep their persisted form. Implemented as order 41; see the [decision](../decisions/match-union-shared-arms.md). The analysis below is kept as written.
+**Status:** Decided 2026-10-03: option D with E's shorthand, no shared field bindings, one-variant arms keep their persisted form. Implemented as order 41; see the [decision](../../docs/decisions/match-union-shared-arms.md). The analysis below is kept as written.
 
 ## Context
 
-`MatchUnion` must list every declared variant exactly once, each with its own body ([expression authoring](../specs/expression-authoring.md#matchunion)). Five probes paid for this when most variants share one body:
+`MatchUnion` must list every declared variant exactly once, each with its own body ([expression authoring](../../docs/specs/expression-authoring.md#matchunion)). Five probes paid for this when most variants share one body:
 
 | Probe | Cost |
 | --- | --- |
-| [7](../verification/rrawrlet-slice-probes-summary.md#probe-7) | 8 shallow `Json` matches spell out about 45 default arms |
-| [10](../verification/rrawrlet-slice-probes-summary.md#probe-10) | 130 of 225 arms repeat a sibling arm: 257 nodes, 10% of the port, mostly fixed results over the 14 `Mode` variants |
-| [17](../verification/rrawrlet-slice-probes-summary.md#probe-17) | 25 matches over the 7 `Json` variants: 298 nodes, 11% |
-| [18](../verification/rrawrlet-slice-probes-summary.md#probe-18) | 17 matches over the 8 `Json` variants: 117 default arms, 276 nodes, 10% |
-| [19](../verification/rrawrlet-slice-probes-summary.md#probe-19) | 20 matches over the 8 `Json` variants: 133 default arms, 295 nodes, 7.8% |
+| [7](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-7) | 8 shallow `Json` matches spell out about 45 default arms |
+| [10](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-10) | 130 of 225 arms repeat a sibling arm: 257 nodes, 10% of the port, mostly fixed results over the 14 `Mode` variants |
+| [17](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-17) | 25 matches over the 7 `Json` variants: 298 nodes, 11% |
+| [18](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-18) | 17 matches over the 8 `Json` variants: 117 default arms, 276 nodes, 10% |
+| [19](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-19) | 20 matches over the 8 `Json` variants: 133 default arms, 295 nodes, 7.8% |
 
 The cost has two parts. The **graph** holds the same body once per variant, and every one is reviewed, fingerprinted and lowered. The **request** spells out every arm, so the agent must look up the full variant list and repeat the body.
 
-What a plain default arm would give up is the [exhaustiveness principle](../concepts/ai-first-design-principles.md#exhaustiveness-over-catch-all-behavior): adding a union variant makes every match that does not handle it invalid, so the impact of the new variant is mechanically observable. A catch-all would silently send the new variant to its body. (D-015's wildcard rule in the [foundational decisions](../decisions/foundational.md) is the F# core's own code style, not a rule about Nyrwvy programs; the roadmap already records this.)
+What a plain default arm would give up is the [exhaustiveness principle](../../docs/concepts/ai-first-design-principles.md#exhaustiveness-over-catch-all-behavior): adding a union variant makes every match that does not handle it invalid, so the impact of the new variant is mechanically observable. A catch-all would silently send the new variant to its body. (D-015's wildcard rule in the [foundational decisions](../../docs/decisions/foundational.md) is the F# core's own code style, not a rule about Nyrwvy programs; the roadmap already records this.)
 
 ## Invariant to keep
 

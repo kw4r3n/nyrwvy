@@ -12,7 +12,7 @@ Use one scoped value-binding expression, `Bind(value, body)`. Evaluate `value` o
 
 Keep existing dependency-ordered calls and genuine conditional/match control flow. Preserve `AmbiguousEffectOrder` for independent effectful siblings within each graph. Do not derive effect order from `ValueGraph.Nodes`, argument/field binding-list order, materialization traversal, or allocated IDs.
 
-The accepted representation and implementation gates are in the [bounded Bind plan](../plans/ordered-expression-binding.md). This decision authorizes a design boundary, not a broad sequencing implementation, new CI job, or model corpus.
+The accepted representation and implementation gates are in the [bounded Bind plan](../../docs-archive/2026-10-decided-plans/ordered-expression-binding.md). This decision authorizes a design boundary, not a broad sequencing implementation, new CI job, or model corpus.
 
 ## Reason
 
@@ -38,7 +38,7 @@ An explicit scoped binding directly represents the common intent, supports arbit
 - Nesting binds specifies a sequence. Multiple references to one bound value reuse its evaluated result; they do not repeat its producer. Independent effects inside the input or body still require their own dependency or scope order.
 - Target `RequiredEffects`, declarations, exact types, existing recipe bounds, review binding, stale rejection, and atomic publication remain enforced. This does not permit effectful List callbacks.
 - The scope, binding, and input relationship must survive persistence, fingerprints, typed projection, semantic queries, change review, and execution lowering. Closed schema changes require explicit versioning under the [schema evolution policy](../specs/schema-evolution-policy.md).
-- `SemanticallyReady` continues to describe semantic publication readiness. Execution diagnostics stay a distinct downstream result. The first implementation does not add an execution gate to simulation/publication; any later early advisory must reuse execution lowering and clearly distinguish the two readiness domains.
+- `SemanticallyReady` continues to describe semantic publication readiness. Execution diagnostics stay a distinct downstream result. The first implementation does not add an execution gate to simulation/publication; any later early advisory must reuse execution lowering and clearly distinguish the two readiness domains. Refined by [effect ordering checked at proposal time](proposal-time-effect-ordering.md): simulation and publication now apply the lowering's ordering rule, shared rather than duplicated, to added and edited functions.
 
 ## Revisit conditions
 
@@ -48,7 +48,7 @@ Revisit this boundary if a concrete use case requires values escaping lexical sc
 
 These sources established the pre-Bind ordering boundary. The later Bind contract has focused coverage in [`AgentExpressionBindTests.fs`](../../tests/Nyrwvy.Core.Tests/AgentExpressionBindTests.fs) and generated execution coverage in [`CSharpBackendTests.fs`](../../tests/Nyrwvy.Core.Tests/CSharpBackendTests.fs).
 
-- [`AgentExpressionCapabilityTests.fs`](../../tests/Nyrwvy.Core.Tests/AgentExpressionCapabilityTests.fs): published independent receiver/argument calls retain `AmbiguousEffectOrder`; dependency-ordered variants lower; a lexical capability invocation remains inside its match arm.
+- [`AgentExpressionCapabilityTests.fs`](../../tests/Nyrwvy.Core.Tests/AgentExpressionCapabilityTests.fs): independent receiver/argument calls are refused with `AmbiguousEffectOrder` (at proposal time since the later refinement); dependency-ordered variants lower; a lexical capability invocation remains inside its match arm.
 - [`ExecutionIrAnalysis.fs`](../../src/Nyrwvy.Execution/ExecutionIrAnalysis.fs), `validateEffectOrder`: compares effectful nodes by dependency reachability and validates nested graphs independently; control nodes include nested effects in their effect classification.
 - [`ExecutionIrLoweringCore.fs`](../../src/Nyrwvy.Execution/ExecutionIrLoweringCore.fs), `lowerOptionMatch`: requires the scrutinee value before branching, extends the selected arm's pattern environment, and merges arm results.
 - [`AgentExpressionStructuralWorkflow.fs`](../../src/Nyrwvy.Semantics/AgentExpressionStructuralWorkflow.fs), `MatchOption` materialization: allocates the binding system-side and materializes separate scoped bodies. None arms retain an empty lexical frame.

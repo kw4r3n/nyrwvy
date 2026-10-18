@@ -213,19 +213,7 @@ module PureRun =
         | PureRunValue.BoolOption _ -> optionType PrimitiveType.Bool
         | PureRunValue.Int64Option _ -> optionType PrimitiveType.Int64
 
-    let rec private sourceType = function
-        | TypeRef.Primitive PrimitiveType.Unit -> "NyUnit"
-        | TypeRef.Primitive PrimitiveType.String -> "NyStr"
-        | TypeRef.Primitive PrimitiveType.Bool -> "bool"
-        | TypeRef.Primitive PrimitiveType.Int64 -> "long"
-        | TypeRef.Primitive PrimitiveType.Float64 -> "double"
-        | TypeRef.Primitive PrimitiveType.Bits32 -> "uint"
-        | TypeRef.Named(typeId, []) -> CSharpBackendNames.typeName typeId
-        | TypeRef.Named(typeId, arguments) -> CSharpBackendNames.typeName typeId + "<" + (arguments |> List.map sourceType |> String.concat ", ") + ">"
-        | TypeRef.BuiltinGeneric(kind, arguments) ->
-            let name = match kind with BuiltinGenericType.List -> "NyList" | BuiltinGenericType.Option -> "NyOption" | BuiltinGenericType.Result -> "NyResult" | BuiltinGenericType.Map -> "NyMap" | BuiltinGenericType.Set -> "NySet" | BuiltinGenericType.Exception | BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> invalidOp "Runtime handles are not run values."
-            name + "<" + (arguments |> List.map sourceType |> String.concat ", ") + ">"
-        | _ -> invalidOp "Unsupported runner type passed validation."
+    let private sourceType = CSharpBackend.formatType
 
     /// A String as one input token: "s" and the Base64 of its UTF-16 code units in this machine's
     /// byte order, which the child process shares.

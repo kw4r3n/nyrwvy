@@ -89,28 +89,28 @@ module AgentPureExpressionControlFlowTests =
         | Ok value -> value
         | Error issues -> failwithf "Unexpected fixture failure: %A" issues
 
-    let private request fixture replacement: AgentReplaceFunctionBodyWithPureExpressionRecipe =
+    let private request fixture replacement: AgentReplaceFunctionBodyWithExpressionRecipe =
         { TargetFunctionId = fixture.TargetId
           ExpectedBaseSnapshotId = fixture.Snapshot.Id
           ExpectedCurrentResultNodeId = fixture.ResultNodeId
           Replacement = replacement }
 
     let private simulate fixture replacement =
-        match AgentPureExpressionStructuralWorkflow.simulate (workspace fixture.Snapshot) (request fixture replacement) with
+        match AgentExpressionStructuralWorkflow.simulate (workspace fixture.Snapshot) (request fixture replacement) with
         | Ok proposal -> proposal
         | Error error -> failwithf "Unexpected simulation failure: %A" error
 
     let private reviewRoles proposal =
-        (AgentPureExpressionStructuralChangeProposal.review proposal).ResultingChange.AddedNodes
+        (AgentExpressionStructuralChangeProposal.review proposal).ResultingChange.AddedNodes
         |> List.map (fun node -> node.Role)
 
     let private pattern depth slot =
-        PureExpressionRecipe.PatternReference
+        ExpressionRecipe.PatternReference
             { ScopeDepth = depth
               Slot = slot }
 
     let private assertRejectedCode expected fixture replacement =
-        match AgentPureExpressionStructuralWorkflow.simulate (workspace fixture.Snapshot) (request fixture replacement) with
+        match AgentExpressionStructuralWorkflow.simulate (workspace fixture.Snapshot) (request fixture replacement) with
         | Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic ]) when diagnostic.Code = expected -> ()
         | other -> failwithf "Expected %s, got %A" expected other
 
@@ -119,10 +119,10 @@ module AgentPureExpressionControlFlowTests =
         let fixture = createFixture ()
 
         let conditional =
-            PureExpressionRecipe.Conditional(
-                PureExpressionRecipe.BoolLiteral true,
-                PureExpressionRecipe.Int64Literal 1L,
-                PureExpressionRecipe.Int64Literal 2L
+            ExpressionRecipe.Conditional(
+                ExpressionRecipe.BoolLiteral true,
+                ExpressionRecipe.Int64Literal 1L,
+                ExpressionRecipe.Int64Literal 2L
             )
         Assert.Equal<string list>(
             [ "BoolLiteral"; "Conditional"; "Int64Literal"; "Int64Literal" ],
@@ -130,10 +130,10 @@ module AgentPureExpressionControlFlowTests =
         )
 
         let optionMatch =
-            PureExpressionRecipe.MatchOption(
-                PureExpressionRecipe.Parameter fixture.OptionParameterId,
+            ExpressionRecipe.MatchOption(
+                ExpressionRecipe.Parameter fixture.OptionParameterId,
                 pattern 0 RecipePatternSlot.Value,
-                PureExpressionRecipe.Int64Literal 0L
+                ExpressionRecipe.Int64Literal 0L
             )
         let optionProposal = simulate fixture optionMatch
         Assert.Equal<string list>(
@@ -141,15 +141,15 @@ module AgentPureExpressionControlFlowTests =
             reviewRoles optionProposal
         )
         let optionPatternSummary =
-            (AgentPureExpressionStructuralChangeProposal.review optionProposal).ResultingChange.AddedNodes
+            (AgentExpressionStructuralChangeProposal.review optionProposal).ResultingChange.AddedNodes
             |> List.find (fun node -> node.Role = "PatternReference")
         Assert.Equal(Some int64Type, optionPatternSummary.Type)
 
         let resultMatch =
-            PureExpressionRecipe.MatchResult(
-                PureExpressionRecipe.ResultOk(stringType, PureExpressionRecipe.Int64Literal 3L),
+            ExpressionRecipe.MatchResult(
+                ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.Int64Literal 3L),
                 pattern 0 RecipePatternSlot.Value,
-                PureExpressionRecipe.Int64Literal 0L
+                ExpressionRecipe.Int64Literal 0L
             )
         Assert.Equal<string list>(
             [ "Int64Literal"; "ResultOk"; "MatchResult"; "PatternReference"; "Int64Literal" ],
@@ -157,9 +157,9 @@ module AgentPureExpressionControlFlowTests =
         )
 
         let unionMatch =
-            PureExpressionRecipe.MatchUnion(
-                PureExpressionRecipe.Parameter fixture.UnionParameterId,
-                [ [ fixture.SecondVariantId ], PureExpressionRecipe.Int64Literal 2L
+            ExpressionRecipe.MatchUnion(
+                ExpressionRecipe.Parameter fixture.UnionParameterId,
+                [ [ fixture.SecondVariantId ], ExpressionRecipe.Int64Literal 2L
                   [ fixture.FirstVariantId ], pattern 0 (RecipePatternSlot.Field fixture.FirstFieldId) ]
             )
         Assert.Equal<string list>(
@@ -172,19 +172,19 @@ module AgentPureExpressionControlFlowTests =
         let fixture = createFixture ()
         let outerValue = pattern 1 RecipePatternSlot.Value
         let recipe =
-            PureExpressionRecipe.MatchOption(
-                PureExpressionRecipe.Parameter fixture.OptionParameterId,
-                PureExpressionRecipe.MatchOption(
-                    PureExpressionRecipe.OptionNone unitType,
+            ExpressionRecipe.MatchOption(
+                ExpressionRecipe.Parameter fixture.OptionParameterId,
+                ExpressionRecipe.MatchOption(
+                    ExpressionRecipe.OptionNone unitType,
                     outerValue,
                     outerValue
                 ),
-                PureExpressionRecipe.Int64Literal 0L
+                ExpressionRecipe.Int64Literal 0L
             )
 
         let proposal = simulate fixture recipe
         let patternNodes =
-            (AgentPureExpressionStructuralChangeProposal.review proposal).ResultingChange.AddedNodes
+            (AgentExpressionStructuralChangeProposal.review proposal).ResultingChange.AddedNodes
             |> List.filter (fun node -> node.Role = "PatternReference")
         Assert.Equal(2, List.length patternNodes)
         Assert.All(patternNodes, fun node -> Assert.Equal(Some int64Type, node.Type))
@@ -196,29 +196,29 @@ module AgentPureExpressionControlFlowTests =
         pattern 0 RecipePatternSlot.Value
         |> assertRejectedCode "PureExpressionPatternScopeNotFound" fixture
 
-        PureExpressionRecipe.MatchOption(
-            PureExpressionRecipe.Parameter fixture.OptionParameterId,
-            PureExpressionRecipe.Int64Literal 1L,
+        ExpressionRecipe.MatchOption(
+            ExpressionRecipe.Parameter fixture.OptionParameterId,
+            ExpressionRecipe.Int64Literal 1L,
             pattern 0 RecipePatternSlot.Value
         )
         |> assertRejectedCode "PureExpressionPatternSlotNotFound" fixture
 
-        PureExpressionRecipe.MatchUnion(
-            PureExpressionRecipe.Parameter fixture.UnionParameterId,
-            [ [ fixture.FirstVariantId ], PureExpressionRecipe.Int64Literal 1L
-              [ fixture.FirstVariantId ], PureExpressionRecipe.Int64Literal 2L ]
+        ExpressionRecipe.MatchUnion(
+            ExpressionRecipe.Parameter fixture.UnionParameterId,
+            [ [ fixture.FirstVariantId ], ExpressionRecipe.Int64Literal 1L
+              [ fixture.FirstVariantId ], ExpressionRecipe.Int64Literal 2L ]
         )
         |> assertRejectedCode "PureExpressionMatchArmDuplicate" fixture
 
-        PureExpressionRecipe.MatchUnion(
-            PureExpressionRecipe.Parameter fixture.UnionParameterId,
-            [ [ fixture.FirstVariantId ], PureExpressionRecipe.Int64Literal 1L ]
+        ExpressionRecipe.MatchUnion(
+            ExpressionRecipe.Parameter fixture.UnionParameterId,
+            [ [ fixture.FirstVariantId ], ExpressionRecipe.Int64Literal 1L ]
         )
         |> assertRejectedCode "PureExpressionMatchArmMismatch" fixture
 
-        PureExpressionRecipe.Conditional(
-            PureExpressionRecipe.BoolLiteral true,
-            PureExpressionRecipe.Int64Literal 1L,
-            PureExpressionRecipe.BoolLiteral false
+        ExpressionRecipe.Conditional(
+            ExpressionRecipe.BoolLiteral true,
+            ExpressionRecipe.Int64Literal 1L,
+            ExpressionRecipe.BoolLiteral false
         )
         |> assertRejectedCode "PureExpressionBranchTypeMismatch" fixture

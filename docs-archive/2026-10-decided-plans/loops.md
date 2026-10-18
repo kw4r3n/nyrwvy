@@ -1,6 +1,6 @@
 # Loops (design note)
 
-**Status:** Decided 2026-10-04: the owner accepted all three recommendations below (option 1 as a stated guarantee, `BoolAnd`/`BoolOr` right operands as tail positions, mutual recursion left out), implemented as order 49 ([decision](../decisions/tail-self-calls.md)). The analysis below is kept as written.
+**Status:** Decided 2026-10-04: the owner accepted all three recommendations below (option 1 as a stated guarantee, `BoolAnd`/`BoolOr` right operands as tail positions, mutual recursion left out), implemented as order 49 ([decision](../../docs/decisions/tail-self-calls.md)). The analysis below is kept as written.
 
 ## Context
 
@@ -8,9 +8,9 @@ Nyrwvy has no loop construct. Programs loop in three ways today, and each has a 
 
 | Form | Where it was needed | Cost |
 | --- | --- | --- |
-| `ListFold` over `ListRange(0, bound)` | [Probe 21](../verification/map-set-probes-summary.md#probe-21): reachability and a topological order | The bound is the worst case, so the fold keeps running after the work is done. Each loop needs a state Product (`Walk`, `Topo`) and a step function that passes the state through unchanged once it is finished |
-| `ListEffectFold` whose folder returns `Result`, stopping at the first `Err` | [Probe 13](../verification/rrawrlet-slice-probes-summary.md#probe-13): three `while` loops of a process supervisor | It does stop early, but needs a pre-built bound list (1,024 items built by doubling), `Err` to mean "done", and an arm for "bound reached". 11 functions and 199 nodes, and the bound diverges from Python's unbounded loop by construction |
-| Self-recursion | [Probe 15](../verification/rrawrlet-slice-probes-summary.md#probe-15): an event loop | Natural to write, but each turn is a stack frame. Probe 15's loop overflowed at 12,000–14,000 turns; the workaround was nested `Result` folds over invented lists, 3 functions and 104 nodes |
+| `ListFold` over `ListRange(0, bound)` | [Probe 21](../../docs/verification/map-set-probes-summary.md#probe-21): reachability and a topological order | The bound is the worst case, so the fold keeps running after the work is done. Each loop needs a state Product (`Walk`, `Topo`) and a step function that passes the state through unchanged once it is finished |
+| `ListEffectFold` whose folder returns `Result`, stopping at the first `Err` | [Probe 13](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-13): three `while` loops of a process supervisor | It does stop early, but needs a pre-built bound list (1,024 items built by doubling), `Err` to mean "done", and an arm for "bound reached". 11 functions and 199 nodes, and the bound diverges from Python's unbounded loop by construction |
+| Self-recursion | [Probe 15](../../docs/verification/rrawrlet-slice-probes-summary.md#probe-15): an event loop | Natural to write, but each turn is a stack frame. Probe 15's loop overflowed at 12,000–14,000 turns; the workaround was nested `Result` folds over invented lists, 3 functions and 104 nodes |
 
 Self-recursion is already the shortest form. Probe 21's loops rewritten as self-recursive functions, with the loop variables as parameters, matched the same cases:
 
@@ -24,7 +24,7 @@ The only thing wrong with it is depth. A minimal tail self-call (`sumTo(n, acc)`
 ## Options
 
 1. **Compile a self-call in tail position as a jump.** No new syntax. A function whose last step is to call itself runs in constant stack, so self-recursion becomes the loop.
-2. **`IndexFold(count, seed, step)`.** A counted loop without building a list, as the [real-time note](realtime-processors.md) proposes for processors. It removes `ListRange` but keeps the state Product and the step function, and it cannot stop early.
+2. **`IndexFold(count, seed, step)`.** A counted loop without building a list, as the [real-time note](../../docs/plans/realtime-processors.md) proposes for processors. It removes `ListRange` but keeps the state Product and the step function, and it cannot stop early.
 3. **`While(seed, continue, step)` or `Iterate`.** A loop node with two callbacks. It stops early, but each loop still needs a state Product and two helper functions, so it costs more nodes than a self-call. Probe 13 estimated that a bounded `Iterate` would save about 40 of its 199 nodes.
 
 ## Recommendation: option 1, as a guarantee
@@ -43,7 +43,7 @@ Nothing else is. A call whose value is wrapped (`ResultOk`, `OptionSome`, a Prod
 
 **Not covered:** mutual recursion (a placeholder callee is still needed to write it, and no probe has looped through two functions) and non-tail recursion such as a tree walk, which keeps its depth bound.
 
-*Added with the decision:* mutual recursion is also a larger change in kind. A self-call can jump back to the start of its own C# method, but C# has no jump between methods, so a loop through two functions would need a dispatch method that holds every member's body, or a trampoline that returns thunks. The [decision record](../decisions/tail-self-calls.md#if-mutual-recursion-is-needed-later) lists the planned steps if a probe needs it.
+*Added with the decision:* mutual recursion is also a larger change in kind. A self-call can jump back to the start of its own C# method, but C# has no jump between methods, so a loop through two functions would need a dispatch method that holds every member's body, or a trampoline that returns thunks. The [decision record](../../docs/decisions/tail-self-calls.md#if-mutual-recursion-is-needed-later) lists the planned steps if a probe needs it.
 
 **Infinite loops** are already possible with recursion in principle; today they end as a stack overflow, and afterwards they end at the `runPure` time limit (5 s) or run until cancelled. A loop inside a `ParallelAll` worker or task should still check `CancellationRequested`, as now. No totality check is added.
 
@@ -61,7 +61,7 @@ The change:
 1. **Lowering** (`ExecutionIrLoweringCore.fs`, `lowerGraph`): pass an `isTail` flag into the arms and the `Bind` body of a structured node that is itself in tail position. A self `DirectCall` lowered with `isTail` ends its block with a new terminator, `TailCall(arguments)`, instead of a call instruction and a jump to the merge block. Node scheduling orders instructions by dependency and then by node ID, so the tail call is emitted last in its block; other nodes of the arm are independent of it and are placed before it.
 2. **IR model and codec**: the new terminator, in `ExecutionIrModel.fs`, `ExecutionIrSerializer.fs`, the backend validation and the call graph (a self edge, already allowed).
 3. **Emitter**: the new terminator assigns the parameter locals through temporaries and jumps to the label after the prologue, so the parameter copies are not redone. The function keeps its C# signature.
-4. **Documentation**: the guarantee and the tail-position rule in the [language subset](../reference/language-subset.md) and the [expression authoring spec](../specs/expression-authoring.md#selfcall), and a revised `runPure` overflow message that names the rule.
+4. **Documentation**: the guarantee and the tail-position rule in the [language subset](../../docs/reference/language-subset.md) and the [expression authoring spec](../../docs/specs/expression-authoring.md#selfcall), and a revised `runPure` overflow message that names the rule.
 5. **Tests**: a 10,000,000-turn tail self-call under `runPure`; a self-call in each tail position kind; a non-tail self-call (`ResultOk(f(x))`) that still overflows; an effectful loop with a fake capability; a call inside a `ListFold` callback; and the codec round trip.
 
 No surface, recipe, Nyason or review change is needed. Whether review output should mark tail self-calls is left open; nothing so far has needed it.

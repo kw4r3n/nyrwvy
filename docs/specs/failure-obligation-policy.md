@@ -204,14 +204,9 @@ Never imply semantic priority from incidental traversal/hash-map order.
 
 `Int64WrappingAdd/Subtract/Multiply` are total semantic operations. Overflow is defined behavior, not a runtime error and not a diagnostic.
 
-### Future checked Int64 arithmetic
+### Checked Int64 arithmetic
 
-If checked arithmetic is introduced, choose one explicit contract:
-
-- result-returning total node, e.g. `Result<Int64, ArithmeticError>`; or
-- a distinct semantic trap/effect model if the language later introduces such a concept.
-
-Do not inherit C# `checked` exception behavior implicitly.
+`Int64CheckedAdd/Subtract/Multiply` are total nodes returning `Option<Int64>`: `Some` of the exact result when it lies in Int64 range and `None` otherwise ([decision](../decisions/checked-int64-arithmetic.md)). Overflow is an ordinary value, not a runtime error, a diagnostic or an inherited C# `checked` exception.
 
 ### Float64 arithmetic
 
@@ -219,7 +214,7 @@ IEEE binary64 NaN/infinity/signed-zero results are normal values under the Float
 
 ### Float64 -> Int64 conversion
 
-A future conversion that can encounter NaN, infinity, fraction, or out-of-range values must expose its rounding/failure semantics explicitly. A likely design is a `Result`-returning conversion with an explicit rounding policy.
+`Float64RoundToInt64` (half away from zero) and `Float64FloorToInt64` name their rounding policy and return `Option<Int64>`: `None` for NaN, either infinity or a result outside Int64 range ([decision](../decisions/float64-to-int64.md), [amendment](../decisions/rounding-half-away-from-zero.md)). They never fail.
 
 ## Collection implications
 

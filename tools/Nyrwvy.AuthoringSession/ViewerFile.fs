@@ -97,7 +97,7 @@ module ViewerFile =
         | AuthoringProposalReview.ProductFieldTypeMigration _ -> "productFieldTypeMigration"
         | AuthoringProposalReview.CreateType _ -> "createType"
         | AuthoringProposalReview.CreateTypeGroup _ -> "createTypes"
-        | AuthoringProposalReview.FieldlessUnionVariantEvolution _ -> "fieldlessUnionVariantEvolution"
+        | AuthoringProposalReview.UnionVariantEvolution _ -> "fieldlessUnionVariantEvolution"
         | AuthoringProposalReview.CreateEffect _ -> "createEffect"
         | AuthoringProposalReview.CreateCapability _ -> "createCapability"
 
@@ -114,7 +114,7 @@ module ViewerFile =
         | AuthoringProposalReview.ProductFieldTypeMigration item -> item.Readiness
         | AuthoringProposalReview.CreateType item -> item.Readiness
         | AuthoringProposalReview.CreateTypeGroup item -> item.Readiness
-        | AuthoringProposalReview.FieldlessUnionVariantEvolution item -> item.Readiness
+        | AuthoringProposalReview.UnionVariantEvolution item -> item.Readiness
         | AuthoringProposalReview.CreateEffect item -> item.Readiness
         | AuthoringProposalReview.CreateCapability item -> item.Readiness
 

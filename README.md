@@ -14,7 +14,7 @@ dotnet build tools/Nyrwvy.AuthoringSession --configuration Release
 node --experimental-strip-types examples/function-abort/run.mjs
 ```
 
-The example authors a function that reads a file through a capability and aborts on failure, using exactly the tool handlers an agent uses. It prints the three scenario results and writes a `workspace.json` snapshot and a `transcript.jsonl` of every tool request and review to a temporary directory. The [example README](examples/function-abort/README.md) explains what to look at; [`examples/`](examples/README.md) lists two more small programs kept as snapshots with generated runners.
+The example authors a function that reads a file through a capability and aborts on failure, using exactly the tool handlers an agent uses. It prints the three scenario results and writes a `workspace.json` snapshot and a `transcript.jsonl` of every tool request and review to a temporary directory. The [example README](examples/function-abort/README.md) explains what to look at; [`examples/`](examples/README.md) lists four more small programs kept as snapshots with generated runners, and the probe programs.
 
 To drive the same tools from an AI agent, run the MCP server (`npm --prefix tools/nyrwvy-mcp run setup`, then point your MCP client at `tools/nyrwvy-mcp/server.mjs`) as the [MCP guide](docs/specs/mcp-graph-tools.md) describes; OpenCode users can load the plugin under `.opencode/` instead. The [tool contract](docs/specs/agent-graph-tools.md) lists the twelve `nyrwvy_*` tools.
 
@@ -130,4 +130,4 @@ See [SECURITY.md](SECURITY.md) for how to report a vulnerability and for the bou
 
 ## License
 
-Nyrwvy is licensed under the [Apache License, Version 2.0](LICENSE). The evaluation corpora under `evaluation/` and the archived documentation under `docs-archive/` are covered by the same license.
+Nyrwvy is licensed under the [Apache License, Version 2.0](LICENSE). The probe material under `evaluation/` and the archived documentation under `docs-archive/` are covered by the same license.

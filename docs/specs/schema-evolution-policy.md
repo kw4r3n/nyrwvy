@@ -53,6 +53,7 @@ The snapshot JSON `schemaVersion` and the Nyason `schema` identifier name the sa
 | 16 | `nayamnyam.snapshot.v12` | `Exception` anywhere; `ExceptionCatch`, `ExceptionMessage`, `ExceptionRethrow`. |
 | 17 | `nayamnyam.snapshot.v13` | `ExceptionIsCancellation`; `StringReplace`, `StringTrim`, `StringTrimStart`, `StringTrimEnd`; `SetIsSubset`, `MapUnion`; `Int64BitAnd`, `Int64BitOr`, `Int64BitXor`, `Int64BitNot`, `Int64ShiftLeft`, `Int64ShiftRight`, `Float64Min`, `Float64Max`; `ListSetAt`, `ListInsertAt`, `ListRemoveAt`; `ListZipWith`, `ListFlatMap`; `OptionGetOrDefault`, `OptionMap`, `OptionAndThen`, `ResultMap`, `ResultMapErr`, `ResultAndThen`. |
 | 18 | `nayamnyam.snapshot.v14` | A Product or Union with type parameters, a named type with type arguments, or a construct node with type arguments ([generic types](../decisions/generic-types.md)). |
+| 19 | `nayamnyam.snapshot.v15` | `ResultGetOrDefault`, `OptionOkOr`, `ResultOkValue`, `ResultErrValue`, `OptionIsSome`, `ResultIsOk` ([Option and Result accessors](../decisions/option-result-accessors.md)); `ListContains` ([decision](../decisions/list-contains.md)); `StringEncodeUtf8` ([decision](../decisions/string-encode-utf8.md)). |
 
 Versions 9 to 12 keep their earlier meaning. Version 13 collects the constructs added in orders 40 to 53, which were first written as version 9 and are now gated; a snapshot that uses none of them is unchanged. Older versions (JSON 8, Nyason v4 and before) are rejected.
 
@@ -200,7 +201,7 @@ Rules:
 - editing-only metadata must not be added to IR merely to simplify migration;
 - provenance needed for diagnostics may evolve as explicit non-semantic fields.
 
-The IR JSON writers, `TypedSemanticIrSerializer` and `ExecutionIrSerializer`, are write-only debug and inspection output. Nothing reads them, there is no round trip, and their shape carries no compatibility promise: it may change in any commit without a version bump. Their `schemaVersion` field is informational. Do not persist this output or use it as an interchange format; persist the semantic snapshot and derive the IR again.
+The IR JSON writers, `TypedSemanticIrSerializer` and `ExecutionIrSerializer`, are write-only debug and inspection output. Nothing reads them, there is no round trip, and their shape carries no compatibility promise: it may change in any commit without a version bump. Their `schemaVersion` field is informational: each writer emits one fixed current value for every program (13 on 2026-10-18), not a minimum computed from the constructs a program uses. Do not persist this output or use it as an interchange format; persist the semantic snapshot and derive the IR again.
 
 ## Persistence-format experiments
 

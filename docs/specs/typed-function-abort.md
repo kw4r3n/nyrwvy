@@ -195,7 +195,8 @@ and parallel runtime code receives the same typed Result as from an ordinary
 callee. Payload instructions run once in their owning block.
 
 Graphs without Abort retain their previous canonical bytes: JSON 9 / Nyason v5,
-or JSON 10 / Nyason v6 with CapabilityConstruct; Typed IR 7 and Execution IR 6.
+or JSON 10 / Nyason v6 with CapabilityConstruct. (The IR debug writers no longer
+vary their version by construct; see [IR evolution](schema-evolution-policy.md#ir-evolution).)
 Older snapshot/Nyason versions reject an Abort even if the input has been relabeled
 with an older schema. Fingerprint algorithms/domains are unchanged; the existing
 canonical serialization includes the new node and version in new graph digests.
@@ -207,7 +208,9 @@ not a proof of runtime reachability. HTML Focus and Change Review expose the sam
 boundary facts. Recipe discovery is shared by the MCP and OpenCode tool hosts.
 
 Abort-bearing functions must pass the shared dependency-order rule during
-snapshot validation, including deserialize and publication. Legacy graphs with
-only ordinary effects retain their existing lowering-time readiness check.
+snapshot validation, including deserialize and publication. Proposals hold every
+added or edited function, with or without Abort, to the runtime ordering rule
+([derived runtime ordering](runtime-ordering.md)); full validation keeps the
+historical rule so earlier snapshots still open.
 A control that may abort counts as observable for ordering without becoming a
 nominal EffectId. Invalid branches and undeclared effects are still validated.

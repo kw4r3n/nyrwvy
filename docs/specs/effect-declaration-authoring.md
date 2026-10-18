@@ -108,6 +108,4 @@ Existing persistence, readiness, execution, and effect-validation evidence remai
 
 ## Non-goals
 
-This slice does not implement effect mutation/deletion, new propagation policy, handlers/providers, automatic caller rewrites, capability or operation creation, runtime registration, caller-owned IDs, raw snapshot authority, or generalized schema-authoring infrastructure.
-
-Capability/capability-operation declaration authoring remains issue #161.
+This slice does not implement new propagation policy, handlers/providers, automatic caller rewrites, runtime registration, caller-owned IDs, raw snapshot authority, or generalized schema-authoring infrastructure. Later slices added, through the same session, `renameEffect`, `deleteEffect` for an effect nothing references (the [reference query](agent-authoring-session.md#reference-query) lists the referencing functions and operations), `addRequiredEffect`/`removeRequiredEffect` on functions, and Capability/operation declaration authoring ([capability declaration authoring](capability-declaration-authoring.md)).

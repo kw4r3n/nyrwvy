@@ -45,7 +45,7 @@ Implemented vertical slices include:
 6. **Post-commit execution handoff** — committed agent state continues through Typed Semantic IR, Execution IR, C# emission, compilation, and execution.
 7. **`Float64`** — explicit IEEE 754 binary64 semantics with bit-authoritative literals, signed-zero preservation, infinity behavior, canonical NaN literal policy, arithmetic, comparison, and classification.
 
-The maintained surface is summarized in the [current language subset](../reference/language-subset.md). Detailed Float64 implementation evidence is in the [Float64 verification record](../verification/m1-float64-implementation-notes-20260828.md).
+The maintained surface is summarized in the [current language subset](../reference/language-subset.md). Detailed Float64 implementation evidence is in the [Float64 verification record](../../docs-archive/2026-08-pre-reorg/m1-float64-implementation-notes-20260828.md).
 
 Explicit numeric conversion experiments remain deferred until precision, rounding, and failure contracts are specified. They are not required by the current M1 exit criteria.
 
@@ -67,7 +67,7 @@ Run a small, versioned set of semantic-editing tasks through the agent-facing wo
 
 A conventional source-editing baseline is desirable where a fair comparison can be constructed. Milestone 1 does not require a predetermined percentage improvement; it requires enough evidence to identify which design choices improve or hurt agent reliability.
 
-See the [M1 agent evaluation plan](m1-agent-evaluation-plan-20260826.md).
+See the [M1 agent evaluation plan](../../docs-archive/2026-10-decided-plans/m1-agent-evaluation-plan-20260826.md).
 
 The first concrete protocol is frozen as [`m1-agent-corpus-v1`](../experiments/m1-agent-evaluation-corpus-v1.md), with a separate [run-record template](../experiments/m1-agent-evaluation-run-template-v1.md). It covers the currently supported rename/signature/obligation/stale-review workflow and explicitly records where the ordinary agent operation surface cannot yet express structural List or numeric edits.
 

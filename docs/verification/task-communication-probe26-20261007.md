@@ -1,6 +1,6 @@
 # Task communication probe 26 — 2026-10-07
 
-**Status:** Complete. This is the measurement chosen as option A of the [design note on communication between tasks and time](../plans/task-communication-and-time.md#1-communication-between-tasks). The same reduced client was written twice, once as probe 25's event loop and once with a reader task and scoped `OneShot` cells. Both pass the same 9 scenarios. They are about the same size (508 and 491 nodes), so `OneShot` does not remove probe 25's reader cost, and nothing here asks for a channel.
+**Status:** Complete. This is the measurement chosen as option A of the [design note on communication between tasks and time](../../docs-archive/2026-10-decided-plans/task-communication-and-time.md#1-communication-between-tasks). The same reduced client was written twice, once as probe 25's event loop and once with a reader task and scoped `OneShot` cells. Both pass the same 9 scenarios. They are about the same size (508 and 491 nodes), so `OneShot` does not remove probe 25's reader cost, and nothing here asks for a channel.
 
 **Date:** 2026-10-07
 

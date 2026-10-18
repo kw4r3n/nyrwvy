@@ -9,7 +9,8 @@ open System.Text.Json
 ///
 /// Write-only debug and inspection output. There is no reader, and the JSON shape
 /// carries no compatibility promise: it may change in any commit, and `schemaVersion`
-/// is informational only. Do not persist this output or parse it as an interchange format.
+/// is informational only: one fixed value for every program, not a per-feature minimum.
+/// Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrSerializer =
     let schemaVersion = 13
@@ -385,6 +386,8 @@ module TypedSemanticIrSerializer =
             writeUnaryNode writer "stringToUpper" valueNodeId
         | TypedSemanticNodeKind.StringDecodeUtf8Lossy valueNodeId ->
             writeUnaryNode writer "stringDecodeUtf8Lossy" valueNodeId
+        | TypedSemanticNodeKind.StringEncodeUtf8 valueNodeId ->
+            writeUnaryNode writer "stringEncodeUtf8" valueNodeId
         | TypedSemanticNodeKind.Float64RoundToInt64 valueNodeId ->
             writeUnaryNode writer "float64RoundToInt64" valueNodeId
         | TypedSemanticNodeKind.Float64FloorToInt64 valueNodeId ->
@@ -674,6 +677,10 @@ module TypedSemanticIrSerializer =
             writer.WriteString("kind", "listLastIndexOf")
             writer.WriteString("listNodeId", StableId.value mapNodeId)
             writer.WriteString("itemNodeId", StableId.value itemNodeId)
+        | TypedSemanticNodeKind.ListContains(listNodeId, itemNodeId) ->
+            writer.WriteString("kind", "listContains")
+            writer.WriteString("listNodeId", StableId.value listNodeId)
+            writer.WriteString("itemNodeId", StableId.value itemNodeId)
         | TypedSemanticNodeKind.MapGet(mapNodeId, keyNodeId) ->
             writer.WriteString("kind", "mapGet")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -682,6 +689,18 @@ module TypedSemanticIrSerializer =
             writer.WriteString("kind", "optionGetOrDefault")
             writer.WriteString("optionNodeId", StableId.value optionNodeId)
             writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
+        | TypedSemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
+            writer.WriteString("kind", "resultGetOrDefault")
+            writer.WriteString("resultNodeId", StableId.value resultNodeId)
+            writer.WriteString("defaultNodeId", StableId.value defaultNodeId)
+        | TypedSemanticNodeKind.OptionOkOr(optionNodeId, errorNodeId) ->
+            writer.WriteString("kind", "optionOkOr")
+            writer.WriteString("optionNodeId", StableId.value optionNodeId)
+            writer.WriteString("errorNodeId", StableId.value errorNodeId)
+        | TypedSemanticNodeKind.ResultOkValue resultNodeId -> writeUnaryNode writer "resultOkValue" resultNodeId
+        | TypedSemanticNodeKind.ResultErrValue resultNodeId -> writeUnaryNode writer "resultErrValue" resultNodeId
+        | TypedSemanticNodeKind.OptionIsSome optionNodeId -> writeUnaryNode writer "optionIsSome" optionNodeId
+        | TypedSemanticNodeKind.ResultIsOk resultNodeId -> writeUnaryNode writer "resultIsOk" resultNodeId
         | TypedSemanticNodeKind.MapGetOrDefault(mapNodeId, keyNodeId, defaultNodeId) ->
             writer.WriteString("kind", "mapGetOrDefault")
             writer.WriteString("mapNodeId", StableId.value mapNodeId)
@@ -1017,56 +1036,7 @@ module TypedSemanticIrSerializer =
         use writer = new Utf8JsonWriter(stream)
 
         writer.WriteStartObject()
-        let rec has matches (graph: TypedSemanticGraph) =
-            graph.Nodes |> List.exists (fun node ->
-                matches node.Kind || TypedSemanticNodeKind.subgraphs node.Kind |> List.exists (has matches))
-        let uses matches = program.Functions |> List.exists (fun fn -> has matches fn.Body)
-        let rec hasTypeValue matches (graph: TypedSemanticGraph) =
-            graph.Nodes |> List.exists (fun node ->
-                (match node.Completion with
-                 | GraphCompletion.Normal typeRef -> matches typeRef
-                 | GraphCompletion.Aborts -> false)
-                || TypedSemanticNodeKind.subgraphs node.Kind |> List.exists (hasTypeValue matches))
-        let hasOneShotSignature =
-            program.Functions |> List.exists (fun fn ->
-                TaskTypes.mentionsOneShot fn.ResultType
-                || fn.Parameters |> List.exists (fun p -> TaskTypes.mentionsOneShot p.Type))
-        let hasOneShotField =
-            program.Types |> List.exists (fun ty ->
-                match ty.Kind with
-                | TypedSemanticTypeKind.Product fields -> fields |> List.exists (fun f -> TaskTypes.mentionsOneShot f.Type)
-                | TypedSemanticTypeKind.Union variants ->
-                    variants |> List.exists (fun v -> v.Fields |> List.exists (fun f -> TaskTypes.mentionsOneShot f.Type)))
-        let hasExceptionSignature =
-            program.Functions |> List.exists (fun fn ->
-                TaskTypes.mentionsException fn.ResultType
-                || fn.Parameters |> List.exists (fun p -> TaskTypes.mentionsException p.Type))
-        let hasExceptionField =
-            program.Types |> List.exists (fun ty ->
-                match ty.Kind with
-                | TypedSemanticTypeKind.Product fields -> fields |> List.exists (fun f -> TaskTypes.mentionsException f.Type)
-                | TypedSemanticTypeKind.Union variants -> variants |> List.exists (fun v -> v.Fields |> List.exists (fun f -> TaskTypes.mentionsException f.Type)))
-        let hasException =
-            hasExceptionSignature || hasExceptionField
-            || uses (function
-                | TypedSemanticNodeKind.ExceptionCatch _
-                | TypedSemanticNodeKind.ExceptionIsCancellation _
-                | TypedSemanticNodeKind.ExceptionMessage _
-                | TypedSemanticNodeKind.ExceptionRethrow _ -> true
-                | _ -> false)
-            || program.Functions |> List.exists (fun fn -> hasTypeValue TaskTypes.mentionsException fn.Body)
-
-        let version =
-            if program.Types |> List.exists (fun ty -> not (List.isEmpty ty.TypeParameters)) then schemaVersion
-            elif uses (function | TypedSemanticNodeKind.ExceptionIsCancellation _ -> true | _ -> false) then 12
-            elif hasException then 11
-            elif hasOneShotSignature || hasOneShotField
-               || program.Functions |> List.exists (fun fn -> hasTypeValue TaskTypes.mentionsOneShot fn.Body) then 10
-            elif uses (function TypedSemanticNodeKind.OneShotCreate _ | TypedSemanticNodeKind.OneShotComplete _ | TypedSemanticNodeKind.OneShotWait _ -> true | _ -> false) then 10
-            elif uses (function TypedSemanticNodeKind.TaskWait(_, _, Some _) -> true | _ -> false) then 9
-            elif uses (function TypedSemanticNodeKind.Abort _ -> true | _ -> false) then 8
-            else 7
-        writer.WriteNumber("schemaVersion", version)
+        writer.WriteNumber("schemaVersion", schemaVersion)
         writer.WriteString("sourceSnapshotId", StableId.value program.SourceSnapshotId)
 
         writer.WritePropertyName("types")

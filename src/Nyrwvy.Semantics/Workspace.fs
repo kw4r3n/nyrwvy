@@ -138,7 +138,7 @@ module SemanticWorkspace =
                     "SnapshotAlreadyPublished"
                     "The proposed snapshot ID has already been published in this workspace." ]
         else
-            match SnapshotValidator.validate snapshot with
+            match SnapshotValidator.validateProposal workspace.CurrentSnapshot snapshot with
             | issue :: rest -> Error(validationDiagnostics (issue :: rest))
             | [] ->
                 Ok

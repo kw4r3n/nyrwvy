@@ -113,7 +113,7 @@ The task scope meets N1–N5 while keeping N6 and N7, and it keeps task lifetime
 | Cancelled as a distinct runtime state of `Task<T>` | Needs a builtin state Union, and it duplicates what the worker already reports through its own `Err`. |
 | A time type and a clock capability now | Only `TaskWait` needs time today. A general time value can come later without changing `TaskWait`'s `Int64` milliseconds. |
 
-Unstructured futures stay rejected. A future owned by a scope was added later as the [scoped one-shot cell](../specs/scoped-one-shot.md) (order 56): it closes with its `TaskScope`, so N6 holds. Channels, a time value and a zero-time yield are discussed in the [design note on communication between tasks and time](../plans/task-communication-and-time.md).
+Unstructured futures stay rejected. A future owned by a scope was added later as the [scoped one-shot cell](../specs/scoped-one-shot.md) (order 56): it closes with its `TaskScope`, so N6 holds. Channels, a time value and a zero-time yield are discussed in the [design note on communication between tasks and time](../../docs-archive/2026-10-decided-plans/task-communication-and-time.md).
 
 ## Consequences
 
@@ -159,4 +159,4 @@ Accepted on 2026-09-25:
 
 - A probe needs a task that outlives its scope, or cross-scope cancellation.
 - A capability implementation cannot tolerate concurrent calls, and host-side serialization is not acceptable (Q-010).
-- A time value is needed outside waiting (timestamps, schedules). On 2026-10-07 the owner judged that probe 25's deadline over several waits alone does not meet this condition ([design note](../plans/task-communication-and-time.md#2-a-monotonic-time-value)).
+- A time value is needed outside waiting (timestamps, schedules). On 2026-10-07 the owner judged that probe 25's deadline over several waits alone does not meet this condition ([design note](../../docs-archive/2026-10-decided-plans/task-communication-and-time.md#2-a-monotonic-time-value)).
