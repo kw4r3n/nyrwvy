@@ -2,7 +2,7 @@
 
 **Status:** Experimental protocol — frozen before recorded runs
 
-This document defines the first concrete task corpus for the Milestone 1 AI-agent evaluation. It turns the accepted [evaluation methodology](../plans/m1-agent-evaluation-plan-20260826.md) into versioned tasks and task oracles without changing the production editing surface merely to make the benchmark easier.
+This document defines the first concrete task corpus for the Milestone 1 AI-agent evaluation. It turns the accepted [evaluation methodology](../../docs-archive/2026-10-decided-plans/m1-agent-evaluation-plan-20260826.md) into versioned tasks and task oracles without changing the production editing surface merely to make the benchmark easier.
 
 Corpus identifier: `m1-agent-corpus-v1`
 

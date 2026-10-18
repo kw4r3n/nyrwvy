@@ -3,9 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-10-05
 - **Roadmap:** [post-M2 queue from the 2026-10-05 probe 22 owner choice](../plans/post-m2-roadmap.md#queue-from-the-2026-10-05-probe-22-owner-choice), order 50
-- **Design note:** [List stack operations](../plans/list-stack-operations.md)
+- **Design note:** [List stack operations](../../docs-archive/2026-10-decided-plans/list-stack-operations.md)
 
-[Probe 22](../verification/map-set-probes-summary.md#probe-22)'s depth-first search kept an explicit stack in a `List<Frame>`, read its top with `ListItemAt(stack, ListLength(stack) − 1)` and replaced it with `ListAppendItem(ListSlice(stack, 0, ListLength(stack) − 1), …)`. The loop was 117 nodes and quadratic: 1.95 s at 20,000 frames, over the 5 s limit at 40,000. The [design note](../plans/list-stack-operations.md) weighed a persistent-vector `NyList<T>` against two small builtins on the current store. The owner chose the small change on 2026-10-05, with the persistent vector deferred to a measured need.
+[Probe 22](../verification/map-set-probes-summary.md#probe-22)'s depth-first search kept an explicit stack in a `List<Frame>`, read its top with `ListItemAt(stack, ListLength(stack) − 1)` and replaced it with `ListAppendItem(ListSlice(stack, 0, ListLength(stack) − 1), …)`. The loop was 117 nodes and quadratic: 1.95 s at 20,000 frames, over the 5 s limit at 40,000. The [design note](../../docs-archive/2026-10-decided-plans/list-stack-operations.md) weighed a persistent-vector `NyList<T>` against two small builtins on the current store. The owner chose the small change on 2026-10-05, with the persistent vector deferred to a measured need.
 
 ## Decision
 
@@ -29,4 +29,4 @@
 
 ## Revisit conditions
 
-- **A program exceeds a run limit because pushes after pops copy a deep stack.** Then make `NyList<T>` a persistent vector, following the [design note](../plans/list-stack-operations.md)'s risks and acceptance criteria. **Met on 2026-10-05** by [probe 23](../verification/map-set-probes-summary.md#probe-23)'s comb, a constructed input of realistic shape; done as order 52 ([decision](persistent-vector-list.md)).
+- **A program exceeds a run limit because pushes after pops copy a deep stack.** Then make `NyList<T>` a persistent vector, following the [design note](../../docs-archive/2026-10-decided-plans/list-stack-operations.md)'s risks and acceptance criteria. **Met on 2026-10-05** by [probe 23](../verification/map-set-probes-summary.md#probe-23)'s comb, a constructed input of realistic shape; done as order 52 ([decision](persistent-vector-list.md)).

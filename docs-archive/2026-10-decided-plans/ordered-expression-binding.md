@@ -1,8 +1,8 @@
 # Bounded ordered expression binding
 
-**Status:** Completed implementation plan for the [accepted effect-ordering design](../decisions/effectful-expression-ordering.md). Issue #141 recorded the design; implementation followed separately. This document retains the planned boundaries and gates; the maintained contract is in the [expression authoring specification](../specs/expression-authoring.md).
+**Status:** Completed implementation plan for the [accepted effect-ordering design](../../docs/decisions/effectful-expression-ordering.md). Issue #141 recorded the design; implementation followed separately. This document retains the planned boundaries and gates; the maintained contract is in the [expression authoring specification](../../docs/specs/expression-authoring.md).
 
-Completion evidence is recorded in [ordered expression binding verification](../verification/ordered-expression-binding-20260908.md).
+Completion evidence is recorded in [ordered expression binding verification](../../docs/verification/ordered-expression-binding-20260908.md).
 
 ## Authoring and authority boundary
 
@@ -84,6 +84,6 @@ Before claiming an implementation complete, use focused contract tests for:
 5. **Durable meaning and review:** round-trip the supported persistence/typed encodings, check strict version/kind rejection and explicit migration policy, and verify binding identity/scope and ordered structure in fingerprints and review. Permuting node storage must not change behavior or semantic fingerprint; reversing the ordered structure must be detected.
 6. **Execution integration:** inspect the explicit lowered control/data flow and run a small recording-capability backend test to verify effect count/order and returned value. Verify semantic and binding provenance for diagnostics without adding a broad runtime subsystem.
 
-Run focused tests and the existing fast suite. The recording-capability integration belongs at this semantic/lowering completion boundary under the existing [verification philosophy](../developer/verification.md); place it in the appropriate existing suite. No new CI job, frozen corpus, or controlled model tranche is part of this plan.
+Run focused tests and the existing fast suite. The recording-capability integration belongs at this semantic/lowering completion boundary under the existing [verification philosophy](../../docs/developer/verification.md); place it in the appropriate existing suite. No new CI job, frozen corpus, or controlled model tranche is part of this plan.
 
 General local symbols, arbitrary DAG sharing, recursive/mutable bindings, automatic sequencing of lists/arguments, effect-declaration editing, concurrency, and new failure semantics remain outside this slice.

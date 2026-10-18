@@ -6,7 +6,7 @@ This area holds evidence from completed implementation and evaluation work. A re
 
 ## Milestone 1
 
-- [Float64 implementation contract](m1-float64-implementation-notes-20260828.md)
+- [Float64 implementation contract](../../docs-archive/2026-08-pre-reorg/m1-float64-implementation-notes-20260828.md) (archived)
 - [Agent evaluation initial tranche](m1-agent-evaluation-initial-tranche-20260829.md)
 
 ## Milestone 2 — Float64 structural editing

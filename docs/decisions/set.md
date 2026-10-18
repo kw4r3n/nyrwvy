@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-03
 - **Roadmap:** [post-M2 owner choice of 2026-10-03](../plans/post-m2-roadmap.md#owner-choice-of-2026-10-03), orders 46 and 47
-- **Design note:** [Map](../plans/map.md), question 5 (Set in a second slice)
+- **Design note:** [Map](../../docs-archive/2026-10-decided-plans/map.md), question 5 (Set in a second slice)
 
 The [Map decision](map.md) put Set in a second slice on the same runtime structure. Probes 13 and 14 needed sets: membership in a constant set, and removing repeats. The owner asked for it on 2026-10-03.
 

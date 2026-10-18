@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-03
 - **Roadmap:** [post-M2 owner choice of 2026-10-03](../plans/post-m2-roadmap.md#owner-choice-of-2026-10-03), order 41
-- **Design note:** [repeated `MatchUnion` arms](../plans/match-union-shared-arms.md)
+- **Design note:** [repeated `MatchUnion` arms](../../docs-archive/2026-10-decided-plans/match-union-shared-arms.md)
 
 This decision settles the `matchUnion` default-arm candidate, observed in probes 7, 10, 17, 18 and 19, where repeating one body across arms cost 8 to 11% of each port. The design note compared five options; the owner chose option D, with option E's shorthand left to the AI-facing judgment, which took it.
 

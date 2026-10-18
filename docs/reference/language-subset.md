@@ -290,7 +290,7 @@ StringParseFloat64
 
 `Float64ToString(value)` yields Python `repr(value)`: the shortest decimal digits that read back to the same binary64, in exponent form `d.ddde±XX` (at least two exponent digits) when the decimal point position `decpt` of `0.ddd × 10^decpt` is `<= -4` or `> 16`, and otherwise in fixed form with at least one digit after the point: `0.1`, `100.0`, `1e+16`, `1.5e-05`, `5e-324`. NaN gives `nan`, the infinities `inf` and `-inf`, the zeros `0.0` and `-0.0`. `StringParseFloat64(text)` yields `Option<Float64>`: `Some` when the whole text is `-?[0-9]+(\.[0-9]+)?([eE][+-]?[0-9]+)?` in ASCII digits (the JSON number grammar, leading zeros accepted), rounded to the nearest binary64 with ties to even for any digit count and exponent length, with a signed infinity on overflow (`1e400`) and a signed zero on underflow (`-1e-400` gives -0.0); `+`, whitespace, `.5`, `5.`, `inf`, `nan`, underscores and empty text yield `None`. Every finite value round-trips through the two. Both never fail; see the [decision](../decisions/float64-decimal-text.md).
 
-Binary64 infinity, NaN, and signed-zero outcomes are normal values under this contract rather than transaction diagnostics. See the [Float64 verification record](../verification/m1-float64-implementation-notes-20260828.md).
+Binary64 infinity, NaN, and signed-zero outcomes are normal values under this contract rather than transaction diagnostics. See the [Float64 verification record](../../docs-archive/2026-08-pre-reorg/m1-float64-implementation-notes-20260828.md).
 
 ## `Bits32`
 
