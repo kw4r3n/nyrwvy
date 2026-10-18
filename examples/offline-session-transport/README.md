@@ -3,8 +3,8 @@
 This continuation composes PR396's graph parser and command fold with actual
 child-process stdin/stdout pipes. It starts at reviewed commit
 `9171508041350969a8d41e0408d9e6b4cba55dd5`, tree
-`93a914f2f36bb922fb0c1f3e2aed8b9b42b175ed`. **It depends on draft PR396 and
-its unmerged dependency PR395.** Neither dependency is merged or replaced.
+`93a914f2f36bb922fb0c1f3e2aed8b9b42b175ed`. It was written on top of
+PR396 and its dependency PR395, both since merged.
 
 `Transport.readLine: Option<String>` is an ordinary application capability.
 The authored `transportLoop` retains `AdmissionOwner`, passes every line through

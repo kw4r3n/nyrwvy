@@ -24,13 +24,14 @@ OpenCode discovers `.opencode/tools/nyrwvy.ts`. These ordinary tools are not res
 
 | Tool | Role |
 | --- | --- |
-| `nyrwvy_open` | `create`, `open`, or same-content `pin`; optional `dependency` selects a complete source for creation or supplies the exact original version for pin recovery. Relative paths use the selected workspace/worktree. |
+| `nyrwvy_open` | `create`, `open`, same-content `pin`, or reviewed `upgrade`; optional `dependency` selects a complete source for creation, supplies the exact original version for pin recovery, or names the new version for an upgrade previewed as compatible. Relative paths use the selected workspace/worktree. |
 | `nyrwvy_inspect` | Status, compact declarations, or a structured function graph with impact facts. |
 | `nyrwvy_view` | Write a human-readable HTML page and return its path, for a person to open in a browser: Function Focus of one committed function, or Change Review of a pending proposal (`proposalId`). See [human-readable view](#human-readable-view). |
 | `nyrwvy_recipe_reference` | Read the maintained name-resolved `ExpressionRecipe` wire shapes without opening a snapshot: no argument for the categorized index of kind names, `category` for its one-line signatures, `kind` or `kinds` for exact shapes. |
 | `nyrwvy_create_type` | Propose a Product/Union with name-resolved type references. |
 | `nyrwvy_create_function` | Propose a function with named references; reject an existing local/imported function's exact display name. |
 | `nyrwvy_replace` | Propose a targeted replacement using an inspected node ID; omit the target only for whole-body replacement. |
+| `nyrwvy_upgrade_dependencies` | Propose a dependency selection update together with explicit local field, function and Capability operation repairs (`simulateDependencyUpgradeByName`); review and commit it like any other proposal. |
 | `nyrwvy_commit` / `nyrwvy_reject` | Publish or discard exactly the reviewed proposal handle. |
 | `nyrwvy_request` | Direct structured access to every maintained protocol operation, including exact-ID operations. |
 | `nyrwvy_close` | Release the session; committed state remains on disk. |

@@ -118,7 +118,7 @@ Read projection may expose semantic facts and stable IDs, but it grants no raw s
 
 The session is an adapter over existing authoring contracts:
 
-- ordinary `AgentWorkflow` operations: display-name rename, add function parameter, add Product field with exhaustive constructor plans, remove an unused Product field, delete an unreferenced function/type/effect/capability, resolve missing argument, and add/remove required effects;
+- ordinary `AgentWorkflow` operations: function/type display-name rename (exact-ID `simulateOperations` only), add function parameter, add Product field with exhaustive constructor plans, remove an unused Product field, delete an unreferenced function/type/effect/capability, resolve missing argument, and add/remove required effects;
 - whole-body `ExpressionRecipe` replacement;
 - targeted `ExpressionRecipe` replacement from issue #148;
 - atomic function creation with ordered `ParameterSlot` references from issue #149;
@@ -173,8 +173,11 @@ The maintained operation set is:
 | --- | --- |
 | `status` | Current snapshot ID and fingerprints. |
 | `dependency` | Read-only provenance path, snapshot ID, fingerprint and `storage` (`embedded` or `legacySource`), or null. Does not return the retained graph payload. |
+| `previewDependencyUpgrade` / `previewDependencyUpgrades` | Read-only compatibility review of replacing one pinned dependency, or of an atomic set of replacements or a consolidating/splitting `selection`; nothing is written ([pinned dependencies](#pinned-snapshot-dependencies)). |
+| `simulateDependencyUpgrade` / `simulateDependencyUpgradeByName` | Propose a dependency update together with explicit local repairs, reviewed and committed like any other proposal (shared tool `upgrade_dependencies`). |
 | `declarations` | Stable-ID declaration discovery. |
 | `focusFunction` | Focused function/query projection by `functionId`. |
+| `readFunction` | Structured function graph by exactly one of `function` (display name) and `functionId` ([contract](agent-graph-tools.md)). |
 | `viewFunction` | Write the committed function's human-readable Function Focus HTML and return its path; exactly one of `function` and `functionId`, optional `.html` `output` ([contract](agent-graph-tools.md#human-readable-view)). |
 | `viewProposal` | Write a pending proposal's human-readable Change Review HTML and return its path; required `proposalId`, optional `.html` `output`. Publishes nothing ([contract](agent-graph-tools.md#human-readable-view)). |
 | `simulateOperations` | Simulate a list of existing `AgentOperationIntent` operations. |
@@ -186,18 +189,23 @@ The maintained operation set is:
 | `simulateCreateType` | Simulate atomic product/union declaration creation. |
 | `simulateCreateEffect` | Simulate atomic effect declaration creation. |
 | `simulateCreateCapability` | Simulate atomic capability/operation declaration creation. |
+| `simulateCreateCapabilityByName` | Simulate capability/operation creation with name-resolved type and effect references ([name-resolved authoring](#name-resolved-ai-authoring)). |
 | `simulateReplaceBody` | Simulate whole-body `ExpressionRecipe` replacement. |
 | `simulateReplaceBodyByName` | Resolve the target function and recipe references by display name, including the current result node, then simulate whole-body replacement. |
 | `simulateReplaceTarget` | Simulate targeted `ExpressionRecipe` replacement. |
+| `simulateReplaceTargetByName` | Resolve the target function and recipe references by display name, then simulate targeted replacement. |
 | `simulateAddUnionVariantLike` | Add a Union variant that copies a source variant's fields (fresh IDs) plus optional `additionalFields`, cloning every match arm for the source. |
+| `simulateAddFieldlessUnionVariantLike` | The earlier fieldless-only form of `simulateAddUnionVariantLike` (no `additionalFields`). |
 | `simulateProductFieldTypeMigration` | Change one Product field's type with a replacement body for every function that constructs the Product or reads the field, reviewed and published together. |
 | `simulateProductFieldTypeMigrationByName` | The same atomic field migration with owner/type/function selectors and name-resolved replacement recipes. |
 | `readProposal` | Read bounded pages of the immutable full review of a pending proposal, including its candidate graphs and whether its base is still current. |
+| `simulateParameterTypeMigration` | Change one function parameter's type with a complete new body and one replacement body per direct caller, reviewed and published together. |
 | `simulateResultTypeMigration` | Change one function's result type with a complete new body and one replacement body per direct caller, reviewed and published together. |
 | `simulateCapabilityOperationSignatureMigration` / `simulateCapabilityOperationSignatureMigrationByName` | Change one Capability operation's argument and result types with a repaired signature and body for every affected implementation and caller, reviewed and published together. |
 | `commit` | Commit one ephemeral `proposalId` and persist it before success. |
 | `reject` | Reject and forget one ephemeral `proposalId`. |
 | `executionReadiness` | Project and lower the current committed snapshot without running it. |
+| `verifyChange` | Compare a pending structural proposal with the committed baseline on chosen `runPure` cases ([opt-in change verification](#opt-in-change-verification)). |
 | `emitCSharp` | Emit through the existing C# backend using an explicit existing profile. |
 | `runPure` / `runPureByName` | Build and run one function with Unit/String/Bool/Int64/Float64/Bits32, List/Option, Product/Union or Result arguments/results (bounded nesting through container items, fields and Result payloads, including recursive named types), scripted fakes for capability parameters, and optional expected value; report identity, actual result, match, mismatch path and fake calls. |
 
@@ -608,7 +616,7 @@ M3 does not select a new long-term storage format. The maintained session stores
 
 ## Non-goals
 
-The maintained session does not add MCP/HTTP/cloud transport, multiple simultaneous transports, orchestration, a database, semantic merge/rebase, caller-owned production IDs, raw graph mutation, runtime provider registration/implementation, a new evaluator/runtime, or compatibility changes to the frozen evaluation protocols.
+The session process itself speaks only JSON lines over stdio; it does not add MCP/HTTP/cloud transport (the [stdio MCP server](mcp-graph-tools.md) is a separate adapter over it), multiple simultaneous transports, orchestration, a database, semantic merge/rebase, caller-owned production IDs, raw graph mutation, runtime provider registration/implementation, a new evaluator/runtime, or compatibility changes to the frozen evaluation protocols.
 
 ## Program-defined capabilities
 

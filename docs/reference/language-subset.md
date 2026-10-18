@@ -403,6 +403,11 @@ OneShotCreate
 OneShotComplete
 OneShotWait
 UseResource
+CancellationShield
+ExceptionCatch
+ExceptionMessage
+ExceptionIsCancellation
+ExceptionRethrow
 ListMap
 ListZipWith
 ListFlatMap
@@ -609,3 +614,11 @@ and [ordinary-tool example](../../examples/function-abort/README.md).
 ## Scoped one-shot values
 
 `OneShot<T>` delivers one value between tasks owned by an existing TaskScope. Create allocates an empty cell, Complete accepts the first publication while the owner is open, and Wait observes its value as Option<T>. A timeout or waiter cancellation leaves other users unaffected; owner closure closes unresolved cells before cancelling and joining tasks. Completed values remain readable after closure. These operations are effectful, and cells cannot cross capability or runPure value boundaries. See the [contract](../specs/scoped-one-shot.md) and [runnable example](../../examples/scoped-result-handoff/README.md).
+
+## Explicit host exception boundary
+
+`ExceptionCatch` runs a body callback and, on a host `System.Exception`, a handler callback that receives the opaque builtin `Exception`; both return the same `Result<T, E>`. `ExceptionMessage` reads the message, `ExceptionIsCancellation` is a pure `Exception -> Bool` classifier for `OperationCanceledException`, and `ExceptionRethrow(value, resultType)` rethrows the original exception. `Exception` values do not cross Capability or `runPure` value boundaries. See the [contract](../specs/exception-boundary.md) and [runnable example](../../examples/exception-boundary/README.md).
+
+## Lexical cancellation shield
+
+`CancellationShield(body, context)` runs a `Unit -> Result<T, E>` body in the current task with a non-cancelled ambient token, so cleanup inside it does not observe parent cancellation; the original token is restored on every exit and cancellation stays requested afterwards. The node is effectful and requires `Bind` ordering. See the [contract](../specs/cancellation-shield.md) and [runnable example](../../examples/cleanup-shield/README.md).
