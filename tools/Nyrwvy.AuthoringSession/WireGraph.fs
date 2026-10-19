@@ -86,6 +86,8 @@ module internal WireGraph =
             tagged "stringSpan" [ "valueNodeId", identity value; "setNodeId", identity set; "fromNodeId", identity from ]
         | SemanticNodeKind.StringSpanBack(value, set, stop) ->
             tagged "stringSpanBack" [ "valueNodeId", identity value; "setNodeId", identity set; "endNodeId", identity stop ]
+        | SemanticNodeKind.StringLastIndexOfBefore(value, set, stop) ->
+            tagged "stringLastIndexOfBefore" [ "valueNodeId", identity value; "substringNodeId", identity set; "endNodeId", identity stop ]
         | SemanticNodeKind.StringLastIndexOf(value, other) -> tagged "stringLastIndexOf" [ "valueNodeId", identity value; "substringNodeId", identity other ]
         | SemanticNodeKind.StringStartsWith(value, other) -> tagged "stringStartsWith" [ "valueNodeId", identity value; "prefixNodeId", identity other ]
         | SemanticNodeKind.StringEndsWith(value, other) -> tagged "stringEndsWith" [ "valueNodeId", identity value; "suffixNodeId", identity other ]
@@ -130,6 +132,7 @@ module internal WireGraph =
         | SemanticNodeKind.Float64Subtract(left, right) -> binary "float64Subtract" left right
         | SemanticNodeKind.Float64Multiply(left, right) -> binary "float64Multiply" left right
         | SemanticNodeKind.Float64Divide(left, right) -> binary "float64Divide" left right
+        | SemanticNodeKind.Float64FloorModulo(left, right) -> binary "float64FloorModulo" left right
         | SemanticNodeKind.Float64Equal(left, right) -> binary "float64Equal" left right
         | SemanticNodeKind.Float64LessThan(left, right) -> binary "float64LessThan" left right
         | SemanticNodeKind.Float64IsNaN value -> unary "float64IsNaN" value
@@ -203,6 +206,8 @@ module internal WireGraph =
             tagged "listFold" ([ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
         | SemanticNodeKind.MapFold(source, seed, folder, bindings) ->
             tagged "mapFold" ([ "sourceMapNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
+        | SemanticNodeKind.SetFold(source, seed, folder, bindings) ->
+            tagged "setFold" ([ "sourceSetNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
         | SemanticNodeKind.ListEffectFold(source, seed, folder, bindings) ->
             tagged "listEffectFold" ([ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
         | SemanticNodeKind.UseResource(acquire, releaseCapability, releaseOperation, body, bindings) ->
@@ -241,8 +246,11 @@ module internal WireGraph =
         | SemanticNodeKind.ListFilter(source, callback, bindings) -> traversal "listFilter" source callback bindings
         | SemanticNodeKind.MapFilter(source, callback, bindings) ->
             tagged "mapFilter" ([ "sourceMapNodeId", identity source; "keepFunctionId", identity callback ] @ context bindings)
+        | SemanticNodeKind.SetFilter(source, callback, bindings) ->
+            tagged "setFilter" ([ "sourceSetNodeId", identity source; "predicateFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.ListSortBy(source, callback, bindings) -> traversal "listSortBy" source callback bindings
         | SemanticNodeKind.ListMinBy(source, callback, bindings) -> traversal "listMinBy" source callback bindings
+        | SemanticNodeKind.ListMaxBy(source, callback, bindings) -> traversal "listMaxBy" source callback bindings
         | SemanticNodeKind.OptionMap(source, callback, bindings) ->
             tagged "optionMap" ([ "sourceOptionNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.OptionAndThen(source, callback, bindings) ->
@@ -255,6 +263,8 @@ module internal WireGraph =
             tagged "resultAndThen" ([ "sourceResultNodeId", identity source; "binderFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.MapMapValues(source, callback, bindings) ->
             tagged "mapMapValues" ([ "sourceMapNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
+        | SemanticNodeKind.SetMap(source, callback, bindings) ->
+            tagged "setMap" ([ "sourceSetNodeId", identity source; "mapperFunctionId", identity callback ] @ context bindings)
         | SemanticNodeKind.ListAny(source, callback, bindings) -> traversal "listAny" source callback bindings
         | SemanticNodeKind.ListFindIndex(source, callback, bindings) -> traversal "listFindIndex" source callback bindings
         | SemanticNodeKind.ListAll(source, callback, bindings) -> traversal "listAll" source callback bindings

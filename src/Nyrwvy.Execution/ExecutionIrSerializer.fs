@@ -359,6 +359,11 @@ module ExecutionIrSerializer =
               property "valueId" (executionValueIdValue valueId)
               property "setId" (executionValueIdValue setId)
               property "endId" (executionValueIdValue endId) ]
+        | ExecutionInstructionKind.StringLastIndexOfBefore(valueId, substringId, endId) ->
+            [ property "kind" (quote "stringLastIndexOfBefore")
+              property "valueId" (executionValueIdValue valueId)
+              property "substringId" (executionValueIdValue substringId)
+              property "endId" (executionValueIdValue endId) ]
         | ExecutionInstructionKind.StringLastIndexOf(valueId, otherId) ->
             [ property "kind" (quote "stringLastIndexOf")
               property "valueId" (executionValueIdValue valueId)
@@ -470,6 +475,8 @@ module ExecutionIrSerializer =
             writeBinaryInstruction "float64Multiply" leftValueId rightValueId
         | ExecutionInstructionKind.Float64Divide(leftValueId, rightValueId) ->
             writeBinaryInstruction "float64Divide" leftValueId rightValueId
+        | ExecutionInstructionKind.Float64FloorModulo(leftValueId, rightValueId) ->
+            writeBinaryInstruction "float64FloorModulo" leftValueId rightValueId
         | ExecutionInstructionKind.Float64Equal(leftValueId, rightValueId) ->
             writeBinaryInstruction "float64Equal" leftValueId rightValueId
         | ExecutionInstructionKind.Float64LessThan(leftValueId, rightValueId) ->
@@ -670,6 +677,12 @@ module ExecutionIrSerializer =
               property "seedValueId" (executionValueIdValue seedValueId)
               property "folderFunctionId" (stableIdValue folderFunctionId) ]
             @ writeCallbackContext context
+        | ExecutionInstructionKind.SetFold(sourceSetValueId, seedValueId, folderFunctionId, context) ->
+            [ property "kind" (quote "setFold")
+              property "sourceSetValueId" (executionValueIdValue sourceSetValueId)
+              property "seedValueId" (executionValueIdValue seedValueId)
+              property "folderFunctionId" (stableIdValue folderFunctionId) ]
+            @ writeCallbackContext context
         | ExecutionInstructionKind.ListEffectFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
             [ property "kind" (quote "listEffectFold")
               property "sourceListValueId" (executionValueIdValue sourceListValueId)
@@ -743,10 +756,17 @@ module ExecutionIrSerializer =
               property "sourceMapValueId" (executionValueIdValue sourceMapValueId)
               property "keepFunctionId" (stableIdValue keepFunctionId) ]
             @ writeCallbackContext context
+        | ExecutionInstructionKind.SetFilter(sourceSetValueId, predicateFunctionId, context) ->
+            [ property "kind" (quote "setFilter")
+              property "sourceSetValueId" (executionValueIdValue sourceSetValueId)
+              property "predicateFunctionId" (stableIdValue predicateFunctionId) ]
+            @ writeCallbackContext context
         | ExecutionInstructionKind.ListSortBy(sourceListValueId, lessThanFunctionId, context) ->
             writeListCallbackInstruction "listSortBy" sourceListValueId "lessThanFunctionId" lessThanFunctionId context
         | ExecutionInstructionKind.ListMinBy(sourceListValueId, lessThanFunctionId, context) ->
             writeListCallbackInstruction "listMinBy" sourceListValueId "lessThanFunctionId" lessThanFunctionId context
+        | ExecutionInstructionKind.ListMaxBy(sourceListValueId, lessThanFunctionId, context) ->
+            writeListCallbackInstruction "listMaxBy" sourceListValueId "lessThanFunctionId" lessThanFunctionId context
         | ExecutionInstructionKind.OptionMap(sourceValueId, functionId, context) ->
             [ property "kind" (quote "optionMap")
               property "sourceOptionValueId" (executionValueIdValue sourceValueId)
@@ -775,6 +795,11 @@ module ExecutionIrSerializer =
         | ExecutionInstructionKind.MapMapValues(sourceMapValueId, mapperFunctionId, context) ->
             [ property "kind" (quote "mapMapValues")
               property "sourceMapValueId" (executionValueIdValue sourceMapValueId)
+              property "mapperFunctionId" (stableIdValue mapperFunctionId) ]
+            @ writeCallbackContext context
+        | ExecutionInstructionKind.SetMap(sourceSetValueId, mapperFunctionId, context) ->
+            [ property "kind" (quote "setMap")
+              property "sourceSetValueId" (executionValueIdValue sourceSetValueId)
               property "mapperFunctionId" (stableIdValue mapperFunctionId) ]
             @ writeCallbackContext context
         | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->

@@ -26,6 +26,10 @@ module internal OneShotPayloadRequirements =
                     match nodeType source with
                     | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ key; value ])) -> [ key; value ]
                     | _ -> []
+                let setItem source =
+                    match nodeType source with
+                    | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ])) -> [ item ]
+                    | _ -> []
                 ValueGraph.collectNodes fn.Body |> List.collect (fun node ->
                     let iteration =
                         match node.Kind with
@@ -39,8 +43,12 @@ module internal OneShotPayloadRequirements =
                         | SemanticNodeKind.ListFold(source, seed, _, _)
                         | SemanticNodeKind.ListEffectFold(source, seed, _, _) -> (nodeType seed |> Option.toList) @ listItem source
                         | SemanticNodeKind.MapFold(source, seed, _, _) -> (nodeType seed |> Option.toList) @ mapItems source
+                        | SemanticNodeKind.SetFold(source, seed, _, _) -> (nodeType seed |> Option.toList) @ setItem source
+                        | SemanticNodeKind.SetFilter(source, _, _)
+                        | SemanticNodeKind.SetMap(source, _, _) -> setItem source
                         | SemanticNodeKind.ListSortBy(source, _, _)
                         | SemanticNodeKind.ListMinBy(source, _, _) -> let items = listItem source in items @ items
+                        | SemanticNodeKind.ListMaxBy(source, _, _) -> let items = listItem source in items @ items
                         | SemanticNodeKind.ListZipWith(left, right, _, _) -> listItem left @ listItem right
                         | SemanticNodeKind.ListFlatMap(source, _, _)
                         | SemanticNodeKind.ListMap(source, _, _)

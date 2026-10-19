@@ -208,6 +208,7 @@ module SemanticFacts =
                     | SemanticNodeKind.Float64Subtract _
                     | SemanticNodeKind.Float64Multiply _
                     | SemanticNodeKind.Float64Divide _
+                    | SemanticNodeKind.Float64FloorModulo _
                     | SemanticNodeKind.Int64ToFloat64 _
                     | SemanticNodeKind.Float64Sqrt _
                     | SemanticNodeKind.Float64Abs _
@@ -238,6 +239,7 @@ module SemanticFacts =
                         Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Float64 ]))
                     | SemanticNodeKind.StringIndexOf _
                     | SemanticNodeKind.StringLastIndexOf _
+                    | SemanticNodeKind.StringLastIndexOfBefore _
                     | SemanticNodeKind.StringToCodePoint _
                     | SemanticNodeKind.Int64CheckedAdd _
                     | SemanticNodeKind.Int64CheckedSubtract _
@@ -357,6 +359,12 @@ module SemanticFacts =
                             Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]))
                         | Some _
                         | None -> None
+                    | SemanticNodeKind.ListMaxBy(listNodeId, _, _) ->
+                        match tryNodeType nextVisiting listNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]))
+                        | Some _
+                        | None -> None
                     | SemanticNodeKind.MapGet(sourceMapNodeId, _) ->
                         match tryNodeType nextVisiting sourceMapNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ _; valueType ])) ->
@@ -368,6 +376,16 @@ module SemanticFacts =
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ _; _ ]) as mapType) -> Some mapType
                         | Some _
                         | None -> None
+                    | SemanticNodeKind.SetFilter(sourceSetNodeId, _, _) ->
+                        match tryNodeType nextVisiting sourceSetNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ _ ]) as setType) -> Some setType
+                        | Some _
+                        | None -> None
+                    | SemanticNodeKind.SetMap(sourceSetNodeId, mapperFunctionId, context) ->
+                        match tryNodeType nextVisiting sourceSetNodeId, Map.tryFind mapperFunctionId index.Functions with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ])), Some mapper ->
+                            Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ callbackResult nextVisiting mapper context [ itemType ] ]))
+                        | _ -> None
                     | SemanticNodeKind.MapKeys sourceMapNodeId ->
                         match tryNodeType nextVisiting sourceMapNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; _ ])) ->
@@ -439,7 +457,8 @@ module SemanticFacts =
                         | _ -> None
                     | SemanticNodeKind.ListFold(_, seedNodeId, _, _) ->
                         tryNodeType nextVisiting seedNodeId
-                    | SemanticNodeKind.MapFold(_, seedNodeId, _, _) ->
+                    | SemanticNodeKind.MapFold(_, seedNodeId, _, _)
+                    | SemanticNodeKind.SetFold(_, seedNodeId, _, _) ->
                         tryNodeType nextVisiting seedNodeId
                     | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                         // A folder returning Result<S, E> for seed S stops at the first Err.

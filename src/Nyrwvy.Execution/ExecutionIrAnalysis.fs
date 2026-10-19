@@ -104,6 +104,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.StringIndexOf _
         | TypedSemanticNodeKind.StringSpan _
         | TypedSemanticNodeKind.StringSpanBack _
+        | TypedSemanticNodeKind.StringLastIndexOfBefore _
         | TypedSemanticNodeKind.StringLastIndexOf _
         | TypedSemanticNodeKind.StringStartsWith _
         | TypedSemanticNodeKind.StringEndsWith _
@@ -147,6 +148,7 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Float64Subtract _
         | TypedSemanticNodeKind.Float64Multiply _
         | TypedSemanticNodeKind.Float64Divide _
+        | TypedSemanticNodeKind.Float64FloorModulo _
         | TypedSemanticNodeKind.Float64Equal _
         | TypedSemanticNodeKind.Float64LessThan _
         | TypedSemanticNodeKind.Float64IsNaN _
@@ -211,12 +213,14 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ListConcat _
         | TypedSemanticNodeKind.ListFold _
         | TypedSemanticNodeKind.MapFold _
+        | TypedSemanticNodeKind.SetFold _
         | TypedSemanticNodeKind.ListZipWith _
         | TypedSemanticNodeKind.ListFlatMap _
         | TypedSemanticNodeKind.ListMap _
         | TypedSemanticNodeKind.MapFromList _
         | TypedSemanticNodeKind.ListFilter _
         | TypedSemanticNodeKind.MapFilter _
+        | TypedSemanticNodeKind.SetFilter _
         | TypedSemanticNodeKind.ListSortBy _
         | TypedSemanticNodeKind.OptionMap _
         | TypedSemanticNodeKind.OptionAndThen _
@@ -224,7 +228,9 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.ResultMapErr _
         | TypedSemanticNodeKind.ResultAndThen _
         | TypedSemanticNodeKind.MapMapValues _
+        | TypedSemanticNodeKind.SetMap _
         | TypedSemanticNodeKind.ListMinBy _
+        | TypedSemanticNodeKind.ListMaxBy _
         | TypedSemanticNodeKind.ListAny _
         | TypedSemanticNodeKind.ListFindIndex _
         | TypedSemanticNodeKind.ListAll _

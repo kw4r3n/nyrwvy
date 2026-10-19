@@ -123,7 +123,7 @@ module internal ExpressionRecipeSupport =
 
     let internal setOf itemType = TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ])
 
-    let private setItemType typeRef =
+    let internal setItemType typeRef =
         match typeRef with
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]) -> Some itemType
         | _ -> None
@@ -209,6 +209,7 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.StringReplace(value, pattern, replacement) -> seq { value; pattern; replacement }
         | ExpressionRecipe.StringSpan(value, set, bound)
         | ExpressionRecipe.StringSpanBack(value, set, bound) -> seq { value; set; bound }
+        | ExpressionRecipe.StringLastIndexOfBefore(value, set, bound) -> seq { value; set; bound }
         | ExpressionRecipe.ListSlice(list, start, stop) -> seq { list; start; stop }
         | ExpressionRecipe.ListSetAt(list, index, item)
         | ExpressionRecipe.ListInsertAt(list, index, item) -> seq { list; index; item }
@@ -264,6 +265,7 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.Float64Subtract(left, right)
         | ExpressionRecipe.Float64Multiply(left, right)
         | ExpressionRecipe.Float64Divide(left, right)
+        | ExpressionRecipe.Float64FloorModulo(left, right)
         | ExpressionRecipe.Float64Equal(left, right)
         | ExpressionRecipe.Float64LessThan(left, right)
         | ExpressionRecipe.Bits32Xor(left, right)
@@ -293,6 +295,7 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.MapUnion(left, right) -> seq { yield left; yield right }
         | ExpressionRecipe.ListFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.MapFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
+        | ExpressionRecipe.SetFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListEffectFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.UseResource(acquire, releaseCapability, _, _, context) ->
             seq { yield acquire; yield releaseCapability; yield! context |> Seq.map snd }
@@ -316,14 +319,17 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.MapFromList(source, _, context)
         | ExpressionRecipe.ListFilter(source, _, context)
         | ExpressionRecipe.MapFilter(source, _, context)
+        | ExpressionRecipe.SetFilter(source, _, context)
         | ExpressionRecipe.ListSortBy(source, _, context)
         | ExpressionRecipe.MapMapValues(source, _, context)
+        | ExpressionRecipe.SetMap(source, _, context)
         | ExpressionRecipe.OptionMap(source, _, context)
         | ExpressionRecipe.OptionAndThen(source, _, context)
         | ExpressionRecipe.ResultMap(source, _, context)
         | ExpressionRecipe.ResultMapErr(source, _, context)
         | ExpressionRecipe.ResultAndThen(source, _, context)
         | ExpressionRecipe.ListMinBy(source, _, context)
+        | ExpressionRecipe.ListMaxBy(source, _, context)
         | ExpressionRecipe.ListAny(source, _, context)
         | ExpressionRecipe.ListFindIndex(source, _, context)
         | ExpressionRecipe.ListAll(source, _, context) -> seq { yield source; yield! context |> Seq.map snd }

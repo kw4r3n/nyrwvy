@@ -436,6 +436,11 @@ module TypedSemanticIrSerializer =
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("setNodeId", StableId.value setNodeId)
             writer.WriteString("endNodeId", StableId.value endNodeId)
+        | TypedSemanticNodeKind.StringLastIndexOfBefore(valueNodeId, substringNodeId, endNodeId) ->
+            writer.WriteString("kind", "stringLastIndexOfBefore")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("substringNodeId", StableId.value substringNodeId)
+            writer.WriteString("endNodeId", StableId.value endNodeId)
         | TypedSemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId) ->
             writer.WriteString("kind", "stringLastIndexOf")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -547,6 +552,8 @@ module TypedSemanticIrSerializer =
             writeBinaryNode writer "float64Multiply" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Float64Divide(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "float64Divide" leftNodeId rightNodeId
+        | TypedSemanticNodeKind.Float64FloorModulo(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64FloorModulo" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Float64Equal(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "float64Equal" leftNodeId rightNodeId
         | TypedSemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId) ->
@@ -750,6 +757,12 @@ module TypedSemanticIrSerializer =
             writer.WriteString("seedNodeId", StableId.value seedNodeId)
             writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
             writeCallbackContext writer context
+        | TypedSemanticNodeKind.SetFold(sourceSetNodeId, seedNodeId, folderFunctionId, context) ->
+            writer.WriteString("kind", "setFold")
+            writer.WriteString("sourceSetNodeId", StableId.value sourceSetNodeId)
+            writer.WriteString("seedNodeId", StableId.value seedNodeId)
+            writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
+            writeCallbackContext writer context
         | TypedSemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
             writer.WriteString("kind", "listEffectFold")
             writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
@@ -840,10 +853,17 @@ module TypedSemanticIrSerializer =
             writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
             writer.WriteString("keepFunctionId", StableId.value keepFunctionId)
             writeCallbackContext writer context
+        | TypedSemanticNodeKind.SetFilter(sourceSetNodeId, predicateFunctionId, context) ->
+            writer.WriteString("kind", "setFilter")
+            writer.WriteString("sourceSetNodeId", StableId.value sourceSetNodeId)
+            writer.WriteString("predicateFunctionId", StableId.value predicateFunctionId)
+            writeCallbackContext writer context
         | TypedSemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
             writeListCallbackNode writer "listSortBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
         | TypedSemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->
             writeListCallbackNode writer "listMinBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
+        | TypedSemanticNodeKind.ListMaxBy(sourceListNodeId, lessThanFunctionId, context) ->
+            writeListCallbackNode writer "listMaxBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
         | TypedSemanticNodeKind.OptionMap(sourceNodeId, functionId, context) ->
             writer.WriteString("kind", "optionMap")
             writer.WriteString("sourceOptionNodeId", StableId.value sourceNodeId)
@@ -872,6 +892,11 @@ module TypedSemanticIrSerializer =
         | TypedSemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
             writer.WriteString("kind", "mapMapValues")
             writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value mapperFunctionId)
+            writeCallbackContext writer context
+        | TypedSemanticNodeKind.SetMap(sourceSetNodeId, mapperFunctionId, context) ->
+            writer.WriteString("kind", "setMap")
+            writer.WriteString("sourceSetNodeId", StableId.value sourceSetNodeId)
             writer.WriteString("mapperFunctionId", StableId.value mapperFunctionId)
             writeCallbackContext writer context
         | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->

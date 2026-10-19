@@ -75,6 +75,9 @@ module internal WireRecipeCommon =
         | "stringSpanBack" ->
             ensureFields "string-span-back recipe" [ "kind"; "value"; "set"; "end" ] [ "kind"; "value"; "set"; "end" ] element
             ExpressionRecipe.StringSpanBack(recipe (property "value" element), recipe (property "set" element), recipe (property "end" element)) |> Some
+        | "stringLastIndexOfBefore" ->
+            ensureFields "string-last-index-of-before recipe" [ "kind"; "value"; "substring"; "end" ] [ "kind"; "value"; "substring"; "end" ] element
+            ExpressionRecipe.StringLastIndexOfBefore(recipe (property "value" element), recipe (property "substring" element), recipe (property "end" element)) |> Some
         | "stringLastIndexOf" ->
             ensureFields "string-last-index-of recipe" [ "kind"; "value"; "substring" ] [ "kind"; "value"; "substring" ] element
             ExpressionRecipe.StringLastIndexOf(recipe (property "value" element), recipe (property "substring" element)) |> Some
@@ -142,6 +145,7 @@ module internal WireRecipeCommon =
         | "float64Subtract" -> binary "float64-subtract recipe" ExpressionRecipe.Float64Subtract |> Some
         | "float64Multiply" -> binary "float64-multiply recipe" ExpressionRecipe.Float64Multiply |> Some
         | "float64Divide" -> binary "float64-divide recipe" ExpressionRecipe.Float64Divide |> Some
+        | "float64FloorModulo" -> binary "float64-floor-modulo recipe" ExpressionRecipe.Float64FloorModulo |> Some
         | "float64Equal" -> binary "float64-equal recipe" ExpressionRecipe.Float64Equal |> Some
         | "float64LessThan" -> binary "float64-less-than recipe" ExpressionRecipe.Float64LessThan |> Some
         | "float64IsNaN" -> unary "float64-is-nan recipe" ExpressionRecipe.Float64IsNaN |> Some

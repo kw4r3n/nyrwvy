@@ -523,6 +523,11 @@ module SnapshotCodec =
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("setNodeId", StableId.value setNodeId)
             writer.WriteString("endNodeId", StableId.value endNodeId)
+        | SemanticNodeKind.StringLastIndexOfBefore(valueNodeId, substringNodeId, endNodeId) ->
+            writer.WriteString("kind", "stringLastIndexOfBefore")
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+            writer.WriteString("substringNodeId", StableId.value substringNodeId)
+            writer.WriteString("endNodeId", StableId.value endNodeId)
         | SemanticNodeKind.StringLastIndexOf(valueNodeId, substringNodeId) ->
             writer.WriteString("kind", "stringLastIndexOf")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
@@ -637,6 +642,8 @@ module SnapshotCodec =
             writeBinaryNode writer "float64Multiply" leftNodeId rightNodeId
         | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "float64Divide" leftNodeId rightNodeId
+        | SemanticNodeKind.Float64FloorModulo(leftNodeId, rightNodeId) ->
+            writeBinaryNode writer "float64FloorModulo" leftNodeId rightNodeId
         | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId) ->
             writeBinaryNode writer "float64Equal" leftNodeId rightNodeId
         | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId) ->
@@ -834,6 +841,12 @@ module SnapshotCodec =
             writer.WriteString("seedNodeId", StableId.value seedNodeId)
             writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
             writeCallbackContext writer context
+        | SemanticNodeKind.SetFold(sourceSetNodeId, seedNodeId, folderFunctionId, context) ->
+            writer.WriteString("kind", "setFold")
+            writer.WriteString("sourceSetNodeId", StableId.value sourceSetNodeId)
+            writer.WriteString("seedNodeId", StableId.value seedNodeId)
+            writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
+            writeCallbackContext writer context
         | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
             writer.WriteString("kind", "listEffectFold")
             writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
@@ -930,6 +943,11 @@ module SnapshotCodec =
             writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
             writer.WriteString("keepFunctionId", StableId.value keepFunctionId)
             writeCallbackContext writer context
+        | SemanticNodeKind.SetFilter(sourceSetNodeId, predicateFunctionId, context) ->
+            writer.WriteString("kind", "setFilter")
+            writer.WriteString("sourceSetNodeId", StableId.value sourceSetNodeId)
+            writer.WriteString("predicateFunctionId", StableId.value predicateFunctionId)
+            writeCallbackContext writer context
         | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
             writer.WriteString("kind", "optionGetOrDefault")
             writer.WriteString("optionNodeId", StableId.value optionNodeId)
@@ -984,10 +1002,17 @@ module SnapshotCodec =
             writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
             writer.WriteString("mapperFunctionId", StableId.value mapperFunctionId)
             writeCallbackContext writer context
+        | SemanticNodeKind.SetMap(sourceSetNodeId, mapperFunctionId, context) ->
+            writer.WriteString("kind", "setMap")
+            writer.WriteString("sourceSetNodeId", StableId.value sourceSetNodeId)
+            writer.WriteString("mapperFunctionId", StableId.value mapperFunctionId)
+            writeCallbackContext writer context
         | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
             writeListCallbackNode writer "listSortBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
         | SemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->
             writeListCallbackNode writer "listMinBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
+        | SemanticNodeKind.ListMaxBy(sourceListNodeId, lessThanFunctionId, context) ->
+            writeListCallbackNode writer "listMaxBy" sourceListNodeId "lessThanFunctionId" lessThanFunctionId context
         | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
             writeListCallbackNode writer "listAny" sourceListNodeId "predicateFunctionId" predicateFunctionId context
         | SemanticNodeKind.ListFindIndex(sourceListNodeId, predicateFunctionId, context) ->
@@ -1674,6 +1699,17 @@ module SnapshotCodec =
                     readId<GraphNodeTag> "setNodeId" element,
                     readId<GraphNodeTag> "endNodeId" element
                 )
+            | "stringLastIndexOfBefore" ->
+                ensureProperties
+                    "StringLastIndexOfBefore node"
+                    (set [ "id"; "kind"; "valueNodeId"; "substringNodeId"; "endNodeId" ])
+                    (set [ "id"; "kind"; "valueNodeId"; "substringNodeId"; "endNodeId" ])
+                    element
+                SemanticNodeKind.StringLastIndexOfBefore(
+                    readId<GraphNodeTag> "valueNodeId" element,
+                    readId<GraphNodeTag> "substringNodeId" element,
+                    readId<GraphNodeTag> "endNodeId" element
+                )
             | "stringLastIndexOf"
             | "stringStartsWith"
             | "stringEndsWith"
@@ -1800,6 +1836,8 @@ module SnapshotCodec =
                 readBinaryNode "Float64Multiply node" element (fun left right -> SemanticNodeKind.Float64Multiply(left, right))
             | "float64Divide" ->
                 readBinaryNode "Float64Divide node" element (fun left right -> SemanticNodeKind.Float64Divide(left, right))
+            | "float64FloorModulo" ->
+                readBinaryNode "Float64FloorModulo node" element (fun left right -> SemanticNodeKind.Float64FloorModulo(left, right))
             | "float64Equal" ->
                 readBinaryNode "Float64Equal node" element (fun left right -> SemanticNodeKind.Float64Equal(left, right))
             | "float64LessThan" ->
@@ -2099,6 +2137,9 @@ module SnapshotCodec =
             | "mapFold" ->
                 ensureProperties "MapFold node" (set [ "id"; "kind"; "sourceMapNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceMapNodeId"; "seedNodeId"; "folderFunctionId"; "context" ]) element
                 SemanticNodeKind.MapFold(readId<GraphNodeTag> "sourceMapNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element, readCallbackContext element)
+            | "setFold" ->
+                ensureProperties "SetFold node" (set [ "id"; "kind"; "sourceSetNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceSetNodeId"; "seedNodeId"; "folderFunctionId"; "context" ]) element
+                SemanticNodeKind.SetFold(readId<GraphNodeTag> "sourceSetNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element, readCallbackContext element)
             | "listEffectFold" ->
                 ensureProperties "ListEffectFold node" (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId"; "context" ]) element
                 SemanticNodeKind.ListEffectFold(readId<GraphNodeTag> "sourceListNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element, readCallbackContext element)
@@ -2181,6 +2222,9 @@ module SnapshotCodec =
             | "mapFilter" ->
                 ensureProperties "MapFilter node" (set [ "id"; "kind"; "sourceMapNodeId"; "keepFunctionId" ]) (set [ "id"; "kind"; "sourceMapNodeId"; "keepFunctionId"; "context" ]) element
                 SemanticNodeKind.MapFilter(readId<GraphNodeTag> "sourceMapNodeId" element, readId<FunctionTag> "keepFunctionId" element, readCallbackContext element)
+            | "setFilter" ->
+                ensureProperties "SetFilter node" (set [ "id"; "kind"; "sourceSetNodeId"; "predicateFunctionId" ]) (set [ "id"; "kind"; "sourceSetNodeId"; "predicateFunctionId"; "context" ]) element
+                SemanticNodeKind.SetFilter(readId<GraphNodeTag> "sourceSetNodeId" element, readId<FunctionTag> "predicateFunctionId" element, readCallbackContext element)
             | "listFilter" ->
                 readListCallbackNode "ListFilter node" "predicateFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListFilter(source, callback, context))
@@ -2190,9 +2234,15 @@ module SnapshotCodec =
             | "listMinBy" ->
                 readListCallbackNode "ListMinBy node" "lessThanFunctionId" element (fun source callback context ->
                     SemanticNodeKind.ListMinBy(source, callback, context))
+            | "listMaxBy" ->
+                readListCallbackNode "ListMaxBy node" "lessThanFunctionId" element (fun source callback context ->
+                    SemanticNodeKind.ListMaxBy(source, callback, context))
             | "mapMapValues" ->
                 ensureProperties "MapMapValues node" (set [ "id"; "kind"; "sourceMapNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceMapNodeId"; "mapperFunctionId"; "context" ]) element
                 SemanticNodeKind.MapMapValues(readId<GraphNodeTag> "sourceMapNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)
+            | "setMap" ->
+                ensureProperties "SetMap node" (set [ "id"; "kind"; "sourceSetNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceSetNodeId"; "mapperFunctionId"; "context" ]) element
+                SemanticNodeKind.SetMap(readId<GraphNodeTag> "sourceSetNodeId" element, readId<FunctionTag> "mapperFunctionId" element, readCallbackContext element)
             | "optionGetOrDefault" ->
                 ensureProperties
                     "OptionGetOrDefault node"

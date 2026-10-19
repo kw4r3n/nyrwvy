@@ -349,6 +349,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.StringIndexOf(value, substring, from) -> three ExpressionRecipe.StringIndexOf value substring from
             | ExpressionRecipe.StringSpan(value, set, from) -> three ExpressionRecipe.StringSpan value set from
             | ExpressionRecipe.StringSpanBack(value, set, stop) -> three ExpressionRecipe.StringSpanBack value set stop
+            | ExpressionRecipe.StringLastIndexOfBefore(value, set, stop) -> three ExpressionRecipe.StringLastIndexOfBefore value set stop
             | ExpressionRecipe.StringLastIndexOf(left, right) -> two ExpressionRecipe.StringLastIndexOf left right
             | ExpressionRecipe.StringStartsWith(left, right) -> two ExpressionRecipe.StringStartsWith left right
             | ExpressionRecipe.StringEndsWith(left, right) -> two ExpressionRecipe.StringEndsWith left right
@@ -399,6 +400,7 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Float64Subtract(left, right) -> two ExpressionRecipe.Float64Subtract left right
             | ExpressionRecipe.Float64Multiply(left, right) -> two ExpressionRecipe.Float64Multiply left right
             | ExpressionRecipe.Float64Divide(left, right) -> two ExpressionRecipe.Float64Divide left right
+            | ExpressionRecipe.Float64FloorModulo(left, right) -> two ExpressionRecipe.Float64FloorModulo left right
             | ExpressionRecipe.Float64Equal(left, right) -> two ExpressionRecipe.Float64Equal left right
             | ExpressionRecipe.Float64LessThan(left, right) -> two ExpressionRecipe.Float64LessThan left right
             | ExpressionRecipe.ListAppendItem(list, item) -> two ExpressionRecipe.ListAppendItem list item
@@ -444,6 +446,11 @@ module internal SignatureMigrationCore =
                 |> Result.bind (fun () -> two (fun (source, seed) -> source, seed) source seed)
                 |> Result.bind (fun (source, seed) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.MapFold(source, seed, folder, context)))
+            | ExpressionRecipe.SetFold(source, seed, folder, context) ->
+                nonCallTargetUse folder
+                |> Result.bind (fun () -> two (fun (source, seed) -> source, seed) source seed)
+                |> Result.bind (fun (source, seed) ->
+                    rewritePairs context |> Result.map (fun context -> ExpressionRecipe.SetFold(source, seed, folder, context)))
             | ExpressionRecipe.ListEffectFold(source, seed, folder, context) ->
                 nonCallTargetUse folder
                 |> Result.bind (fun () -> two (fun (source, seed) -> source, seed) source seed)
@@ -494,14 +501,17 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.MapFromList(source, functionId, context) -> callback ExpressionRecipe.MapFromList source functionId context
             | ExpressionRecipe.ListFilter(source, functionId, context) -> callback ExpressionRecipe.ListFilter source functionId context
             | ExpressionRecipe.MapFilter(source, functionId, context) -> callback ExpressionRecipe.MapFilter source functionId context
+            | ExpressionRecipe.SetFilter(source, functionId, context) -> callback ExpressionRecipe.SetFilter source functionId context
             | ExpressionRecipe.ListSortBy(source, functionId, context) -> callback ExpressionRecipe.ListSortBy source functionId context
             | ExpressionRecipe.MapMapValues(source, functionId, context) -> callback ExpressionRecipe.MapMapValues source functionId context
+            | ExpressionRecipe.SetMap(source, functionId, context) -> callback ExpressionRecipe.SetMap source functionId context
             | ExpressionRecipe.OptionMap(source, functionId, context) -> callback ExpressionRecipe.OptionMap source functionId context
             | ExpressionRecipe.OptionAndThen(source, functionId, context) -> callback ExpressionRecipe.OptionAndThen source functionId context
             | ExpressionRecipe.ResultMap(source, functionId, context) -> callback ExpressionRecipe.ResultMap source functionId context
             | ExpressionRecipe.ResultMapErr(source, functionId, context) -> callback ExpressionRecipe.ResultMapErr source functionId context
             | ExpressionRecipe.ResultAndThen(source, functionId, context) -> callback ExpressionRecipe.ResultAndThen source functionId context
             | ExpressionRecipe.ListMinBy(source, functionId, context) -> callback ExpressionRecipe.ListMinBy source functionId context
+            | ExpressionRecipe.ListMaxBy(source, functionId, context) -> callback ExpressionRecipe.ListMaxBy source functionId context
             | ExpressionRecipe.ListAny(source, functionId, context) -> callback ExpressionRecipe.ListAny source functionId context
             | ExpressionRecipe.ListFindIndex(source, functionId, context) -> callback ExpressionRecipe.ListFindIndex source functionId context
             | ExpressionRecipe.ListAll(source, functionId, context) -> callback ExpressionRecipe.ListAll source functionId context

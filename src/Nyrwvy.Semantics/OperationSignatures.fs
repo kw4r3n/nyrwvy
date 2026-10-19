@@ -113,6 +113,11 @@ module OperationSignatures =
               (Some "str.rfind")
           signature "stringSpan" [ operand "value" string; operand "set" string; operand "from" int64 ] int64 (Some "lstrip as a position")
           signature "stringSpanBack" [ operand "value" string; operand "set" string; operand "end" int64 ] int64 (Some "rstrip as a position")
+          signature
+              "stringLastIndexOfBefore"
+              [ operand "value" string; operand "substring" string; operand "end" int64 ]
+              (SignatureType.Option int64)
+              (Some "str.rfind(sub, 0, end)")
           signature "stringStartsWith" [ operandAs "value" "left" string; operandAs "prefix" "right" string ] bool None
           signature "stringEndsWith" [ operandAs "value" "left" string; operandAs "suffix" "right" string ] bool None
           signature
@@ -179,6 +184,7 @@ module OperationSignatures =
           binary "float64Subtract" float64 float64 None
           binary "float64Multiply" float64 float64 None
           binary "float64Divide" float64 float64 None
+          binary "float64FloorModulo" float64 float64 (Some "Python % on floats; NaN for a zero divisor")
           binary "float64Equal" float64 bool None
           binary "float64LessThan" float64 bool None
           unary "float64IsNaN" float64 bool None

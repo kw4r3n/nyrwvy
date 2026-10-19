@@ -589,20 +589,24 @@ module SnapshotValidator =
                 |> List.filter (fun parameter -> not (context |> List.exists (fun binding -> binding.TargetParameterId = parameter.Id))),
                 substitution
 
-            let validateListCallback
+            /// A pure callback with exactly one parameter not bound by context, receiving each item of
+            /// a List<T> or Set<T> source (`collection` names which).
+            let validateCallbackOver
+                (collection: BuiltinGenericType)
+                (collectionName: string)
                 (nodeId: GraphNodeId)
-                (sourceListNodeId: GraphNodeId)
+                (sourceNodeId: GraphNodeId)
                 (callbackFunctionId: FunctionId)
                 (context: ArgumentBinding list)
                 (predicateResultRequired: bool)
                 =
                 let sourceItemType =
-                    match nodeType sourceListNodeId with
-                    | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])) -> Some itemType
+                    match nodeType sourceNodeId with
+                    | Some(TypeRef.BuiltinGeneric(generic, [ itemType ])) when generic = collection -> Some itemType
                     | Some _ ->
                         add
                             "HigherOrderSourceTypeMismatch"
-                            $"Higher-order List node '{StableId.value nodeId}' requires List<T> input."
+                            $"Higher-order {collectionName} node '{StableId.value nodeId}' requires {collectionName}<T> input."
                         None
                     | None -> None
 
@@ -610,14 +614,14 @@ module SnapshotValidator =
                 | None ->
                     add
                         "UnknownCallbackFunction"
-                        $"Higher-order List node '{StableId.value nodeId}' references unknown callback function '{StableId.value callbackFunctionId}'."
+                        $"Higher-order {collectionName} node '{StableId.value nodeId}' references unknown callback function '{StableId.value callbackFunctionId}'."
                 | Some callback ->
                     let unbound, contextSubstitution = validateCallbackContext nodeId callback context
                     let mutable substitution = contextSubstitution
                     if unbound.Length <> 1 then
                         add
                             "CallbackArityMismatch"
-                            $"Higher-order List node '{StableId.value nodeId}' requires callback '{StableId.value callback.Id}' to have exactly one parameter not bound by context."
+                            $"Higher-order {collectionName} node '{StableId.value nodeId}' requires callback '{StableId.value callback.Id}' to have exactly one parameter not bound by context."
                     else
                         match sourceItemType with
                         | Some itemType ->
@@ -626,19 +630,22 @@ module SnapshotValidator =
                             | None ->
                                 add
                                     "CallbackParameterTypeMismatch"
-                                    $"Higher-order List node '{StableId.value nodeId}' callback parameter type does not match the source list item type."
+                                    $"Higher-order {collectionName} node '{StableId.value nodeId}' callback parameter type does not match the source {collectionName.ToLowerInvariant()} item type."
                         | None -> ()
 
                     if not (PureFunctions.isPure snapshot callback.Id) then
                         add
                             "CallbackEffectsNotAllowed"
-                            $"Higher-order List node '{StableId.value nodeId}' requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls."
+                            $"Higher-order {collectionName} node '{StableId.value nodeId}' requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls."
 
                     if predicateResultRequired
                        && TypeParameters.substitute substitution callback.ResultType <> TypeRef.Primitive PrimitiveType.Bool then
                         add
                             "PredicateResultTypeMismatch"
-                            $"Higher-order List node '{StableId.value nodeId}' predicate callback must return Bool."
+                            $"Higher-order {collectionName} node '{StableId.value nodeId}' predicate callback must return Bool."
+
+            let validateListCallback nodeId sourceListNodeId callbackFunctionId context predicateResultRequired =
+                validateCallbackOver BuiltinGenericType.List "List" nodeId sourceListNodeId callbackFunctionId context predicateResultRequired
 
             /// The ListSortBy and ListMinBy callback: exactly two parameters not bound by context,
             /// both receiving source items (left, right), returning Bool, with no required effects.
@@ -1070,6 +1077,22 @@ module SnapshotValidator =
                             $"StringIndexOf node '{StableId.value node.Id}' requires an Int64 from."
                             (TypeRef.Primitive PrimitiveType.Int64)
                             fromNodeId
+                    | SemanticNodeKind.StringLastIndexOfBefore(valueNodeId, substringNodeId, endNodeId) ->
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringLastIndexOfBefore node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringLastIndexOfBefore node '{StableId.value node.Id}' requires a String substring."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            substringNodeId
+                        requireNodeType
+                            "StringIntrinsicTypeMismatch"
+                            $"StringLastIndexOfBefore node '{StableId.value node.Id}' requires an Int64 end."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            endNodeId
                     | SemanticNodeKind.StringSpan(valueNodeId, setNodeId, boundNodeId)
                     | SemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, boundNodeId) ->
                         let name, boundRole =
@@ -1196,6 +1219,7 @@ module SnapshotValidator =
                     | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
+                    | SemanticNodeKind.Float64FloorModulo(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId)
                     | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId) ->
                         requireFloat64Operands node.Id leftNodeId rightNodeId
@@ -1633,6 +1657,38 @@ module SnapshotValidator =
                         validateMapEntryCallback "MapFilter" true node.Id sourceMapNodeId keepFunctionId context
                     | SemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
                         validateMapEntryCallback "MapMapValues" false node.Id sourceMapNodeId mapperFunctionId context
+                    | SemanticNodeKind.SetFold(sourceSetNodeId, seedNodeId, folderFunctionId, context) ->
+                        match nodeType sourceSetNodeId, nodeType seedNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ])), Some seedType ->
+                            match Map.tryFind folderFunctionId functionsById with
+                            | None -> add "UnknownCallbackFunction" $"SetFold node '{StableId.value node.Id}' references an unknown folder."
+                            | Some folder ->
+                                let unbound, contextSubstitution = validateCallbackContext node.Id folder context
+                                let mutable substitution = contextSubstitution
+                                if unbound.Length <> 2 then
+                                    add "CallbackArityMismatch" $"SetFold node '{StableId.value node.Id}' folder must have exactly two parameters not bound by context (accumulator, item)."
+                                else
+                                    match
+                                        TypeParameters.matchFrom substitution [ unbound.Head.Type, seedType; unbound.Tail.Head.Type, itemType ]
+                                    with
+                                    | Some extended -> substitution <- extended
+                                    | None -> add "CallbackParameterTypeMismatch" $"SetFold node '{StableId.value node.Id}' folder input types must match seed and set item types."
+                                if TypeParameters.substitute substitution folder.ResultType <> seedType then
+                                    add "CallbackResultTypeMismatch" $"SetFold node '{StableId.value node.Id}' folder must return the seed type."
+                                if not (PureFunctions.isPure snapshot folder.Id) then
+                                    add "CallbackEffectsNotAllowed" $"SetFold node '{StableId.value node.Id}' folder must be pure, including its transitive calls and ambient task or cancellation behavior."
+                        | Some _, Some _ -> add "SetInputTypeMismatch" $"SetFold node '{StableId.value node.Id}' requires a Set<T> input."
+                        | _ -> ()
+                    | SemanticNodeKind.SetFilter(sourceSetNodeId, predicateFunctionId, context) ->
+                        validateCallbackOver BuiltinGenericType.Set "Set" node.Id sourceSetNodeId predicateFunctionId context true
+                    | SemanticNodeKind.SetMap(sourceSetNodeId, mapperFunctionId, context) ->
+                        validateCallbackOver BuiltinGenericType.Set "Set" node.Id sourceSetNodeId mapperFunctionId context false
+                        match nodeType node.Id with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ])) when not (EquatableTypes.isEquatable snapshot.Types itemType) ->
+                            add
+                                "SetItemTypeNotEquatable"
+                                $"SetMap node '{StableId.value node.Id}' makes a Set of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                        | _ -> ()
                     | SemanticNodeKind.OptionMap(sourceNodeId, mapperFunctionId, context) ->
                         validateCaseCallback "OptionMap" "Option<T>" node.Id sourceNodeId mapperFunctionId context optionItem None
                     | SemanticNodeKind.OptionAndThen(sourceNodeId, binderFunctionId, context) ->
@@ -1894,6 +1950,8 @@ module SnapshotValidator =
                         validateLessThanCallback "ListSortBy" node.Id sourceListNodeId lessThanFunctionId context
                     | SemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->
                         validateLessThanCallback "ListMinBy" node.Id sourceListNodeId lessThanFunctionId context
+                    | SemanticNodeKind.ListMaxBy(sourceListNodeId, lessThanFunctionId, context) ->
+                        validateLessThanCallback "ListMaxBy" node.Id sourceListNodeId lessThanFunctionId context
                     | SemanticNodeKind.ListFilter(sourceListNodeId, predicateFunctionId, context)
                     | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context)
                     | SemanticNodeKind.ListFindIndex(sourceListNodeId, predicateFunctionId, context)
@@ -2523,6 +2581,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.Float64Subtract _
                 | SemanticNodeKind.Float64Multiply _
                 | SemanticNodeKind.Float64Divide _
+                | SemanticNodeKind.Float64FloorModulo _
                 | SemanticNodeKind.Float64Equal _
                 | SemanticNodeKind.Float64LessThan _
                 | SemanticNodeKind.Float64IsNaN _
@@ -2617,6 +2676,11 @@ module SnapshotValidator =
                 | SemanticNodeKind.ResultAndThen _
                 | SemanticNodeKind.MapMapValues _
                 | SemanticNodeKind.ListMinBy _
+                | SemanticNodeKind.ListMaxBy _
+                | SemanticNodeKind.SetFold _
+                | SemanticNodeKind.SetFilter _
+                | SemanticNodeKind.SetMap _
+                | SemanticNodeKind.StringLastIndexOfBefore _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListFindIndex _
                 | SemanticNodeKind.ListAll _

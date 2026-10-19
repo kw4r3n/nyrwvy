@@ -341,6 +341,15 @@ module internal WireSymbolic =
                 callback.Id,
                 callbackContext callback
             )
+        | "setFold" ->
+            ensureFields "set-fold recipe" [ "kind"; "set"; "seed"; "function"; "context" ] [ "kind"; "set"; "seed"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.SetFold(
+                recipe declarations parameterContext (property "set" element),
+                recipe declarations parameterContext (property "seed" element),
+                callback.Id,
+                callbackContext callback
+            )
         | "listEffectFold" ->
             ensureFields "list-effect-fold recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
@@ -406,6 +415,10 @@ module internal WireSymbolic =
             ensureFields "map-filter recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
             ExpressionRecipe.MapFilter(recipe declarations parameterContext (property "map" element), callback.Id, callbackContext callback)
+        | "setFilter" ->
+            ensureFields "set-filter recipe" [ "kind"; "set"; "function"; "context" ] [ "kind"; "set"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.SetFilter(recipe declarations parameterContext (property "set" element), callback.Id, callbackContext callback)
         | "optionMap" ->
             ensureFields "option-map recipe" [ "kind"; "option"; "function"; "context" ] [ "kind"; "option"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
@@ -430,6 +443,10 @@ module internal WireSymbolic =
             ensureFields "map-map-values recipe" [ "kind"; "map"; "function"; "context" ] [ "kind"; "map"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
             ExpressionRecipe.MapMapValues(recipe declarations parameterContext (property "map" element), callback.Id, callbackContext callback)
+        | "setMap" ->
+            ensureFields "set-map recipe" [ "kind"; "set"; "function"; "context" ] [ "kind"; "set"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.SetMap(recipe declarations parameterContext (property "set" element), callback.Id, callbackContext callback)
         | "listZipWith" ->
             ensureFields "list-zip-with recipe" [ "kind"; "left"; "right"; "function"; "context" ] [ "kind"; "left"; "right"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
@@ -444,6 +461,7 @@ module internal WireSymbolic =
         | "mapFromList"
         | "listSortBy"
         | "listMinBy"
+        | "listMaxBy"
         | "listFilter"
         | "listAny"
         | "listFindIndex"
@@ -459,6 +477,7 @@ module internal WireSymbolic =
             | "listFilter" -> ExpressionRecipe.ListFilter(source, callback.Id, context)
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, callback.Id, context)
             | "listMinBy" -> ExpressionRecipe.ListMinBy(source, callback.Id, context)
+            | "listMaxBy" -> ExpressionRecipe.ListMaxBy(source, callback.Id, context)
             | "listAny" -> ExpressionRecipe.ListAny(source, callback.Id, context)
             | "listFindIndex" -> ExpressionRecipe.ListFindIndex(source, callback.Id, context)
             | _ -> ExpressionRecipe.ListAll(source, callback.Id, context)

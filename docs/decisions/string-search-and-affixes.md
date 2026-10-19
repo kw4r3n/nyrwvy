@@ -14,6 +14,7 @@ Five pure builtins. All take Strings (and `from` an Int64), compare ordinally (e
 | --- | --- | --- |
 | `StringIndexOf(text, substring, from)` | `Option<Int64>`: first occurrence starting at or after `from` | `text.find(substring, from)`, `-1` as `None` |
 | `StringLastIndexOf(text, substring)` | `Option<Int64>`: last occurrence | `text.rfind(substring)`, `-1` as `None` |
+| `StringLastIndexOfBefore(text, substring, end)` (order 71, [decision](string-last-index-of-before.md)) | `Option<Int64>`: last occurrence ending at or before `end` | `text.rfind(substring, 0, end)`, `-1` as `None` |
 | `StringStartsWith(text, prefix)` | `Bool` | `text.startswith(prefix)` |
 | `StringEndsWith(text, suffix)` | `Bool` | `text.endswith(suffix)` |
 | `StringSplit(text, separator)` | `List<String>`: pieces between non-overlapping occurrences, left to right, empty pieces kept | `text.split(separator)` |

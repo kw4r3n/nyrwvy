@@ -149,6 +149,18 @@ module CSharpBackend =
         writer.Push()
         writer.Line("public static NyOption<long> RoundToInt64(double value) => ToInt64(System.Math.Round(value, System.MidpointRounding.AwayFromZero));")
         writer.Line("public static NyOption<long> FloorToInt64(double value) => ToInt64(System.Math.Floor(value));")
+        // FloorModulo is Python's float %: the truncated remainder (C# %, fmod) moved by one divisor when it
+        // is nonzero and signed unlike the divisor, and a zero remainder signed like the divisor. A zero
+        // divisor, an infinite dividend or a NaN operand gives NaN, as fmod does.
+        writer.Line("public static double FloorModulo(double dividend, double divisor)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var remainder = dividend % divisor;")
+        writer.Line("if (remainder != 0.0) { if ((divisor < 0.0) != (remainder < 0.0)) remainder += divisor; }")
+        writer.Line("else remainder = System.Math.CopySign(0.0, divisor);")
+        writer.Line("return remainder;")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("private static NyOption<long> ToInt64(double integral) =>")
         writer.Line("integral >= -9223372036854775808.0 && integral < 9223372036854775808.0 ? NyOption<long>.Some((long)integral) : NyOption<long>.None();")
         // Checked Int64 arithmetic computes the exact result in Int128, which holds any sum, difference or
@@ -274,7 +286,24 @@ module CSharpBackend =
         writer.Line("{")
         writer.Push()
         writer.Line("if (value.Length == 0) return NyOption<long>.Some(CodePointLength(text));")
-        writer.Line("var searchEnd = text.Length - 1;")
+        writer.Line("return LastMatchEndingBy(text, value, text.Length - 1);")
+        writer.Pop()
+        writer.Line("}")
+        // LastIndexOfBefore searches text[..end): the clamped end converts to a UTF-16 offset, and a match
+        // must end at or before it, which is what string.LastIndexOf(value, startIndex) bounds.
+        writer.Line("public static NyOption<long> LastIndexOfBefore(string text, string value, long end)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var stop = System.Math.Max(0L, end);")
+        writer.Line("var position = System.Math.Min(stop, CodePointLength(text));")
+        writer.Line("var offset = OffsetOf(text, position);")
+        writer.Line("if (value.Length == 0) return NyOption<long>.Some(position);")
+        writer.Line("return LastMatchEndingBy(text, value, offset - 1);")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("private static NyOption<long> LastMatchEndingBy(string text, string value, int searchEnd)")
+        writer.Line("{")
+        writer.Push()
         writer.Line("while (searchEnd >= value.Length - 1)")
         writer.Line("{")
         writer.Push()
@@ -923,6 +952,17 @@ module CSharpBackend =
         // Union appends the other set's new items after this set's; Intersection and Difference keep
         // this set's order.
         writer.Line("public NySet<T> Union(NySet<T> other) => other.Fold(this, (set, item) => set.Insert(item));")
+        // Filter removes the rejected items; Remove keeps the others' insertion numbers, so their order is kept.
+        writer.Line("public NySet<T> Filter(System.Func<T, bool> predicate) => Fold(this, (set, item) => predicate(item) ? set : set.Remove(item));")
+        // Map inserts each mapped item in insertion order, so a repeated result keeps its first position.
+        writer.Line("public NySet<U> Map<U>(System.Func<T, U> mapper) where U : notnull")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("var result = NySet<U>.Empty();")
+        writer.Line("foreach (var item in order.Values) result = result.Insert(mapper(item));")
+        writer.Line("return result;")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("public NySet<T> Intersection(NySet<T> other) => Fold(this, (set, item) => other.Contains(item) ? set : set.Remove(item));")
         // Difference removes the other set's items one by one when the other set is smaller; Remove keeps
         // the remaining items' insertion numbers, so either way gives the same set in the same order.
@@ -1352,6 +1392,8 @@ module CSharpBackend =
             writer.Line(target + " = NyText.Span(" + valueName sourceValueId + ", " + valueName setId + ", " + valueName fromId + ");")
         | ExecutionInstructionKind.StringSpanBack(sourceValueId, setId, endId) ->
             writer.Line(target + " = NyText.SpanBack(" + valueName sourceValueId + ", " + valueName setId + ", " + valueName endId + ");")
+        | ExecutionInstructionKind.StringLastIndexOfBefore(sourceValueId, substringId, endId) ->
+            writer.Line(target + " = NyText.LastIndexOfBefore(" + valueName sourceValueId + ", " + valueName substringId + ", " + valueName endId + ");")
         | ExecutionInstructionKind.StringLastIndexOf(sourceValueId, otherId) ->
             writer.Line(target + " = NyText.LastIndexOf(" + valueName sourceValueId + ", " + valueName otherId + ");")
         | ExecutionInstructionKind.StringStartsWith(sourceValueId, otherId) ->
@@ -1504,6 +1546,8 @@ module CSharpBackend =
             emitBinaryExpression writer target leftValueId "*" rightValueId false
         | ExecutionInstructionKind.Float64Divide(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId "/" rightValueId false
+        | ExecutionInstructionKind.Float64FloorModulo(leftValueId, rightValueId) ->
+            writer.Line(target + " = NyNumber.FloorModulo(" + valueName leftValueId + ", " + valueName rightValueId + ");")
         | ExecutionInstructionKind.Float64Equal(leftValueId, rightValueId) ->
             emitBinaryExpression writer target leftValueId "==" rightValueId false
         | ExecutionInstructionKind.Float64LessThan(leftValueId, rightValueId) ->
@@ -1663,6 +1707,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
         | ExecutionInstructionKind.MapFold(sourceMapValueId, seedValueId, folderFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceMapValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
+        | ExecutionInstructionKind.SetFold(sourceSetValueId, seedValueId, folderFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceSetValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
         | ExecutionInstructionKind.ListEffectFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
             if instruction.Result.Type = valueTypeOf seedValueId then
                 writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
@@ -1834,8 +1880,12 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceListValueId + ".Filter(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.MapFilter(sourceMapValueId, keepFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceMapValueId + ".Filter(" + callback keepFunctionId context + ");")
+        | ExecutionInstructionKind.SetFilter(sourceSetValueId, predicateFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceSetValueId + ".Filter(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.MapMapValues(sourceMapValueId, mapperFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceMapValueId + ".MapValues(" + callback mapperFunctionId context + ");")
+        | ExecutionInstructionKind.SetMap(sourceSetValueId, mapperFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceSetValueId + ".Map(" + callback mapperFunctionId context + ");")
         // Option and Result combinators use the same HasValue/Value and IsOk/OkValue/ErrorValue members
         // as MatchOption and MatchResult; the callback is invoked only in the matching case.
         | ExecutionInstructionKind.OptionMap(sourceValueId, mapperFunctionId, context) ->
@@ -1860,6 +1910,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName sourceListValueId + ".SortBy(" + callback lessThanFunctionId context + ");")
         | ExecutionInstructionKind.ListMinBy(sourceListValueId, lessThanFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".MinBy(" + callback lessThanFunctionId context + ");")
+        | ExecutionInstructionKind.ListMaxBy(sourceListValueId, lessThanFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".MaxBy(" + callback lessThanFunctionId context + ");")
         | ExecutionInstructionKind.ListAny(sourceListValueId, predicateFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Any(" + callback predicateFunctionId context + ");")
         | ExecutionInstructionKind.ListFindIndex(sourceListValueId, predicateFunctionId, context) ->
