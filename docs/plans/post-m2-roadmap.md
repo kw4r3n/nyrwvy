@@ -129,7 +129,7 @@ M6 remains intentionally conditional. Choose at most one workstream when a real 
 
 ## Legacy cutover (planned)
 
-**Status:** planned on 2026-10-18 (owner decision); not started. Retired and superseded constructs are removed in one breaking change instead of being kept indefinitely. The cutover waits until the other breaking changes in view are done, so that snapshots and examples are migrated once.
+**Status:** planned on 2026-10-18 (owner decision); step 1 implemented on 2026-10-19 (the [migration command](../specs/agent-authoring-session.md#snapshot-migration)); steps 2 and 3 remain outside this bounded command change. Legacy readers and examples remain available until migration coverage is established. Retired and superseded constructs are removed in one breaking change instead of being kept indefinitely. The cutover waits until the other breaking changes in view are done, so that snapshots and examples are migrated once.
 
 **What it removes.**
 
@@ -142,7 +142,7 @@ M6 remains intentionally conditional. Choose at most one workstream when a real 
 
 **Steps,** following the [deprecation policy](../specs/schema-evolution-policy.md#deprecation-policy):
 
-1. **Migration command.** `Nyrwvy.AuthoringSession migrate --snapshot <path>` rewrites a snapshot to the current schema: retired nodes become their replacements (`ValueEqual`, `OptionGetOrDefault` of `MapGet`, `Int64LessThan` with swapped operands or under `BoolNot`), legacy pins become retained content, every existing declaration is marked exported, each generic function gets its declared type-parameter list, a snapshot that sets the retired `FailureType` is rejected, and the version is raised. It keeps every stable ID, validates the result and records the fingerprints before and after, under the rules for [migration](../specs/schema-evolution-policy.md#migration-is-not-an-ordinary-semantic-edit).
+1. **Migration command** (done 2026-10-19, [snapshot migration](../specs/agent-authoring-session.md#snapshot-migration)). `Nyrwvy.AuthoringSession migrate --snapshot <path>` rewrites a snapshot to the current schema: retired nodes become their replacements (`ValueEqual`, `OptionGetOrDefault` of `MapGet`, `Int64LessThan` with swapped operands or under `BoolNot`), legacy pins become retained content, every existing declaration is marked exported, each generic function gets its declared type-parameter list, a snapshot that sets the retired `FailureType` is rejected, and the version is raised. It keeps every stable ID, validates the result and records the fingerprints before and after, under the rules for [migration](../specs/schema-evolution-policy.md#migration-is-not-an-ordinary-semantic-edit).
 2. **Examples.** The examples whose fixtures authenticate graph hashes or retained binaries of the old forms (the `member-*` and `offline-session-*` series and `offline-session-replay`) are frozen under an archive tag and removed from `main`, as the evaluation runners were; an example that is still useful as a current example is re-authored and its fixtures re-recorded instead.
 3. **Removal and replacement.** One change removes the retired kinds, `pin`, `FailureType` and the old schema readers, and brings in visibility, declared function type parameters and the review-kind rename, with a decision record.
 4. **Afterwards.** Anything retired later is removed at the next cutover, so retired constructs do not accumulate.

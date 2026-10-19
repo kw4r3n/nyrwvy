@@ -111,6 +111,10 @@ module SnapshotSchema =
     /// Every version the codecs read, oldest first.
     let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19; v20; v21 ]
 
+    /// The newest version: the one the migration command writes every snapshot at, whatever
+    /// constructs it uses (docs/specs/schema-evolution-policy.md, deprecation policy).
+    let current = v21
+
     /// The first version that writes function type parameters as a declared list and type
     /// parameter occurrences without display names; older documents derive the list on reading.
     let declaredFunctionTypeParameters = v21
