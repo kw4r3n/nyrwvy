@@ -32,7 +32,7 @@ module SnapshotMigrationTests =
         try run root
         finally Directory.Delete(root, true)
 
-    let private save path snapshot = File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap "serialize")
+    let private save path snapshot = File.WriteAllText(path, SnapshotCodec.serializeCanonical snapshot |> unwrap "serialize")
     let private manifestPath path = path + ".dependency.json"
     let private status (session: AuthoringSession) = session.Status() |> unwrap "status"
     let private migrate path = AuthoringSessionMigration.migrate path None |> unwrap "migrate"
@@ -385,7 +385,7 @@ module SnapshotMigrationTests =
             let source = Path.Combine(root, "source.json")
             let local = Path.Combine(root, "local.json")
             save source imported
-            File.WriteAllText(local, SnapshotCodec.serializeResolved imported (Snapshot.empty (id<SnapshotTag> "local")) |> unwrap "local")
+            File.WriteAllText(local, SnapshotCodec.serializeResolvedCanonical imported (Snapshot.empty (id<SnapshotTag> "local")) |> unwrap "local")
             File.WriteAllText(manifestPath local, JsonSerializer.Serialize(
                 {| path = source; snapshotId = StableId.value imported.Id
                    fingerprint = SnapshotFingerprint.compute imported |> unwrap "fingerprint" |> SnapshotFingerprint.value |}))
@@ -428,7 +428,7 @@ module SnapshotMigrationTests =
             let source = Path.Combine(root, "source.json")
             let local = Path.Combine(root, "local.json")
             save source imported
-            File.WriteAllText(local, SnapshotCodec.serializeResolved imported (Snapshot.empty (id<SnapshotTag> "moved")) |> unwrap "local")
+            File.WriteAllText(local, SnapshotCodec.serializeResolvedCanonical imported (Snapshot.empty (id<SnapshotTag> "moved")) |> unwrap "local")
             File.WriteAllText(manifestPath local, JsonSerializer.Serialize(
                 {| path = source; snapshotId = StableId.value imported.Id
                    fingerprint = SnapshotFingerprint.compute imported |> unwrap "fingerprint" |> SnapshotFingerprint.value |}))

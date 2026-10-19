@@ -61,16 +61,18 @@ module ActionableRunDiagnosticsTests =
             Assert.True(foreign.ExpectedType.IsNone))
 
     [<Fact>]
-    let ``expectation defect and scalar wire representation have distinct repair diagnostics`` () =
+    let ``expectation defect and typed scalar payload defect have distinct repair diagnostics`` () =
         withSession (fun session fn _ ->
             let issue = PureRun.inputIssue (session.Declarations()) fn.Id [ literal(PureRunValue.Int64 1L) ] (Some(literal(PureRunValue.Bool true))) |> Option.get
             Assert.Equal("expected", issue.Path.Head)
             let declarations = session.Declarations()
             let listFn = { fn with Parameters = [ { fn.Parameters.Head with Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ intType ]) } ] }
             let names = { declarations with Functions = [ listFn ] }
-            let issue = PureRun.inputIssue names fn.Id [ PureRunValue.ListValue(intType, [ PureRunValue.Int64 1L ]) ] None |> Option.get
-            Assert.Contains("itemKind", issue.Reason)
-            Assert.Equal<string list>([ "arguments"; "input" ], issue.Path))
+            Assert.True((PureRun.inputIssue names fn.Id [ PureRunValue.ListValue(intType, [ PureRunValue.Int64 1L ]) ] None).IsNone)
+            let issue = PureRun.inputIssue names fn.Id [ PureRunValue.ListValue(intType, [ PureRunValue.Bool true ]) ] None |> Option.get
+            Assert.Equal(Some intType, issue.ExpectedType)
+            Assert.Equal(Some(TypeRef.Primitive PrimitiveType.Bool), issue.ActualType)
+            Assert.Equal<string list>([ "arguments"; "input"; "items[0]" ], issue.Path))
 
     [<Fact>]
     let ``generic and task entry refusal never reports an input defect`` () =

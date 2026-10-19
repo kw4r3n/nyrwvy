@@ -333,9 +333,9 @@ module Float64Tests =
     [<Fact>]
     let ``JSON and Nyason preserve binary64 bits while canonicalizing external NaN payloads`` () =
         let fixture = createFixture ()
-        let json = SnapshotCodec.serialize fixture.Snapshot |> unwrap "JSON serialization"
+        let json = SnapshotCodec.serializeCanonical fixture.Snapshot |> unwrap "JSON serialization"
         let restoredJson = SnapshotCodec.deserialize json |> unwrap "JSON deserialization"
-        let nyason = NyasonCodec.serialize fixture.Snapshot |> unwrap "Nyason serialization"
+        let nyason = NyasonCodec.serializeCanonical fixture.Snapshot |> unwrap "Nyason serialization"
         let restoredNyason = NyasonCodec.deserialize nyason |> unwrap "Nyason deserialization"
 
         for restored in [ restoredJson; restoredNyason ] do
@@ -347,8 +347,8 @@ module Float64Tests =
             if not (List.contains Float64Bits.canonicalNaNBits values) then
                 failwith "Canonical NaN binary64 bits were not preserved."
 
-        let reserializedJson = SnapshotCodec.serialize restoredJson |> unwrap "JSON reserialization"
-        let reserializedNyason = NyasonCodec.serialize restoredNyason |> unwrap "Nyason reserialization"
+        let reserializedJson = SnapshotCodec.serializeCanonical restoredJson |> unwrap "JSON reserialization"
+        let reserializedNyason = NyasonCodec.serializeCanonical restoredNyason |> unwrap "Nyason reserialization"
         Assert.Equal(json, reserializedJson)
         Assert.Equal(nyason, reserializedNyason)
         Assert.Contains("\"schemaVersion\":9", json)

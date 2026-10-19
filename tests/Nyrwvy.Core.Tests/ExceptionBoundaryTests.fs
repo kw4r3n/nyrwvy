@@ -45,22 +45,22 @@ module ExceptionBoundaryTests =
         fixture (fun session path ->
             let original = snapshot path
             Assert.Empty(SnapshotValidator.validate original)
-            let json = SnapshotCodec.serialize original |> unwrap
+            let json = SnapshotCodec.serializeCanonical original |> unwrap
             Assert.Contains("\"schemaVersion\":16", json)
             Assert.True(Result.isError(SnapshotCodec.deserialize(json.Replace("\"schemaVersion\":16", "\"schemaVersion\":15"))))
-            let nyason = NyasonCodec.serialize original |> unwrap
+            let nyason = NyasonCodec.serializeCanonical original |> unwrap
             Assert.Contains("nayamnyam.snapshot.v12", nyason)
-            Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serialize |> unwrap)
+            Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serializeCanonical |> unwrap)
             Assert.True(Result.isError(NyasonCodec.deserialize(nyason.Replace("nayamnyam.snapshot.v12", "nayamnyam.snapshot.v11"))))
             let typed = TypedSemanticIr.project original |> unwrap
             Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
             Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
             session.Close()
             use reopened = AuthoringSession.openExisting path |> unwrap
-            Assert.Equal(json, snapshot path |> SnapshotCodec.serialize |> unwrap)
+            Assert.Equal(json, snapshot path |> SnapshotCodec.serializeCanonical |> unwrap)
             Assert.Contains("ExceptionDispatchInfo.Capture", (reopened.EmitCSharp CSharpBackendProfile.empty |> unwrap).Source)
             let old = Snapshot.empty (StableId.createForTesting<SnapshotTag> "exception-old")
-            Assert.Contains("\"schemaVersion\":9", SnapshotCodec.serialize old |> unwrap))
+            Assert.Contains("\"schemaVersion\":9", SnapshotCodec.serializeCanonical old |> unwrap))
 
     [<Fact>]
     let ``invalid callbacks and exception operands refuse publication independently of full validation`` () =
@@ -135,12 +135,12 @@ module ExceptionBoundaryTests =
             let node = ValueGraph.collectNodes fn.Body |> List.find (fun n -> match n.Kind with SemanticNodeKind.ExceptionIsCancellation _ -> true | _ -> false)
             Assert.False(SemanticNodeShape.isIntrinsicallyEffectful node)
             Assert.Empty(SnapshotValidator.validate original)
-            let json = SnapshotCodec.serialize original |> unwrap
+            let json = SnapshotCodec.serializeCanonical original |> unwrap
             Assert.Contains("\"schemaVersion\":17", json)
             Assert.True(Result.isError(SnapshotCodec.deserialize(json.Replace("\"schemaVersion\":17", "\"schemaVersion\":16"))))
-            let nyason = NyasonCodec.serialize original |> unwrap
+            let nyason = NyasonCodec.serializeCanonical original |> unwrap
             Assert.Contains("nayamnyam.snapshot.v13", nyason)
-            Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serialize |> unwrap)
+            Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serializeCanonical |> unwrap)
             Assert.True(Result.isError(NyasonCodec.deserialize(nyason.Replace("nayamnyam.snapshot.v13", "nayamnyam.snapshot.v12"))))
             let typed = TypedSemanticIr.project original |> unwrap
             Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)

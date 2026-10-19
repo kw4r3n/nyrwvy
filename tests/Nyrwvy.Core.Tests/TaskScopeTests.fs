@@ -325,7 +325,7 @@ module TaskScopeTests =
         withTeam (fun session path ->
             let snapshot = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap "decode"
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
+            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
             for tag in [ "task-scope"; "task-start"; "task-wait"; "task-cancel"; "task-type"; "task-scope-type" ] do
                 Assert.Contains(tag, nyason)
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize nyason |> unwrap "nyason decode"))
@@ -367,7 +367,7 @@ module TaskScopeTests =
             Assert.Contains("\"limitNodeId\"", File.ReadAllText path)
             Assert.Contains("limitValueId", ExecutionIrSerializer.serialize execution)
             // A limit operand selects newer schemas, so readers that predate limits reject it by version.
-            let stored = File.ReadAllText path
+            let stored = SnapshotCodec.serializeCanonical snapshot |> unwrap "canonical fixture"
             Assert.Contains("\"schemaVersion\":12", stored)
             Assert.True(SnapshotCodec.deserialize (stored.Replace("\"schemaVersion\":12", "\"schemaVersion\":11")) |> Result.isError)
             Assert.Contains("nayamnyam.snapshot.v8", nyason)

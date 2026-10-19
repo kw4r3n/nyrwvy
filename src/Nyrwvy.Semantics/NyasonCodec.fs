@@ -2330,14 +2330,13 @@ module NyasonCodec =
           Functions = decodeList (decodeFunction explicitVisibility) (require "functions" fields)
           Obligations = decodeList decodeObligation (require "obligations" fields) }
 
-    let serialize (snapshot: Snapshot): Result<string, NyasonCodecError> =
+    let private serializeAt (required: SnapshotSchemaVersion) (snapshot: Snapshot): Result<string, NyasonCodecError> =
         let tooDeep = Error(NyasonCodecError.MaximumDepthExceeded NyasonSyntax.maxDepth)
         if SnapshotCodec.nestsBeyondMaxDepth snapshot then tooDeep
         else
             match SnapshotValidator.validate snapshot with
             | issue :: rest -> Error(NyasonCodecError.InvalidSnapshot(issue :: rest))
             | [] ->
-                let required = SnapshotSchema.required snapshot
                 let legacyNames =
                     if required.Json < SnapshotSchema.declaredFunctionTypeParameters.Json then Some(TypeParameters.names snapshot) else None
                 let root =
@@ -2346,6 +2345,13 @@ module NyasonCodec =
                         [ "schema", text required.Nyason
                           "snapshot", withLegacyWriteNames legacyNames (fun () -> encodeSnapshot (SnapshotSchema.writesVisibility required) snapshot) ]
                 if NyasonSyntax.exceedsMaxDepth root then tooDeep else Ok(NyasonSyntax.render root)
+
+    let serialize (snapshot: Snapshot): Result<string, NyasonCodecError> =
+        serializeAt SnapshotSchema.current snapshot
+
+    /// Historical minimum-version encoding for compatibility fixtures, not ordinary persistence.
+    let internal serializeCanonical (snapshot: Snapshot): Result<string, NyasonCodecError> =
+        serializeAt (SnapshotSchema.required snapshot) snapshot
 
     let deserialize (source: string): Result<Snapshot, NyasonCodecError> =
         match NyasonSyntax.parse source with

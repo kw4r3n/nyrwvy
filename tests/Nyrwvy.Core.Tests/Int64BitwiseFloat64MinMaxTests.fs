@@ -82,13 +82,13 @@ module Int64BitwiseFloat64MinMaxTests =
             rejection call (create "badFields" [ "a", int64Type; "b", int64Type ] int64Type """{"kind":"int64ShiftRight","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}}""") |> ignore
             let snapshot = File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap "deserialize"
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let json = SnapshotCodec.serialize snapshot |> unwrap "serialize"
+            let json = SnapshotCodec.serializeCanonical snapshot |> unwrap "serialize"
             for kind in [ "int64BitAnd"; "int64BitOr"; "int64BitXor"; "int64BitNot"; "int64ShiftLeft"; "int64ShiftRight"; "float64Min"; "float64Max" ] do
                 Assert.Contains("\"" + kind + "\"", json)
             Assert.Contains("\"countNodeId\"", json)
             Assert.Contains("\"schemaVersion\":17", json)
             Assert.True(Result.isError (SnapshotCodec.deserialize (json.Replace("\"schemaVersion\":17", "\"schemaVersion\":16"))))
-            let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
+            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
             for tag in [ "int64-bit-and"; "int64-bit-or"; "int64-bit-xor"; "int64-bit-not"; "int64-shift-left"; "int64-shift-right"; "float64-min"; "float64-max" ] do
                 Assert.Contains(tag, nyason)
             Assert.Contains("nayamnyam.snapshot.v13", nyason)

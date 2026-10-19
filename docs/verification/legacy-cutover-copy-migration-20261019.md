@@ -106,3 +106,10 @@ Keep legacy support until these boundaries are handled together; do not call thi
 a completed breaking cutover. Migration's existing two-file rollback remains
 non-crash-atomic. The bounded Ponytail review favored the existing migration and
 runner paths over a new compatibility framework or silently rewriting old proofs.
+
+## Subsequent bounded code slice
+
+The [writer/value follow-up](current-schema-typed-values-20261019.md) resolves
+items 1 and the typed-input portion of item 2 above on a separate branch based on
+this checkpoint. It preserves legacy response shapes and readers. The external
+originals, unknown downstream support and reader-retirement gate remain open.

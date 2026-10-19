@@ -78,14 +78,14 @@ module ListMaxByTests =
 
             let snapshot = File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let json = SnapshotCodec.serialize snapshot |> unwrap
+            let json = SnapshotCodec.serializeCanonical snapshot |> unwrap
             Assert.Contains("\"kind\":\"listMaxBy\"", json)
             Assert.Contains("\"schemaVersion\":20", json)
-            let nyason = NyasonCodec.serialize snapshot |> unwrap
+            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap
             Assert.Contains("list-max-by", nyason)
             Assert.Contains("nayamnyam.snapshot.v16", nyason)
             let restored = NyasonCodec.deserialize nyason |> unwrap
-            Assert.Equal(json, SnapshotCodec.serialize restored |> unwrap)
+            Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap)
             let typed = TypedSemanticIr.project restored |> unwrap
             Assert.Contains("\"kind\":\"listMaxBy\"", TypedSemanticIrSerializer.serialize typed)
             let execution = ExecutionIr.lower typed |> unwrap

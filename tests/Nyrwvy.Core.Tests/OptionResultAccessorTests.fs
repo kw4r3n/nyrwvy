@@ -107,17 +107,17 @@ module OptionResultAccessorTests =
 
             let snapshot = File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap "deserialize"
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let json = SnapshotCodec.serialize snapshot |> unwrap "serialize"
+            let json = SnapshotCodec.serializeCanonical snapshot |> unwrap "serialize"
             Assert.Contains("\"schemaVersion\":19", json)
             for kind in [ "resultGetOrDefault"; "optionOkOr"; "resultOkValue"; "resultErrValue"; "optionIsSome"; "resultIsOk" ] do
                 Assert.Contains("\"" + kind + "\"", json)
-            let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
+            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
             for tag in [ "result-get-or-default"; "option-ok-or"; "result-ok-value"; "result-err-value"; "option-is-some"; "result-is-ok" ] do
                 Assert.Contains(tag, nyason)
             Assert.Contains("nayamnyam.snapshot.v15", nyason)
             let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
-            Assert.Equal(json, SnapshotCodec.serialize restored |> unwrap "serialize again")
+            Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap "serialize again")
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
             let typedJson = TypedSemanticIrSerializer.serialize typed
             Assert.Contains("\"optionOkOr\"", typedJson)

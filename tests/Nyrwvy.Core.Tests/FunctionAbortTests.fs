@@ -76,12 +76,12 @@ module FunctionAbortTests =
         withSession (fun session path ->
             let plain =
                 create session "plain" [] (result textType) [] (ok (str "value"))
-            let old = File.ReadAllText path
+            let old = SnapshotCodec.serializeCanonical (snapshot path) |> unwrap
             Assert.Contains("\"schemaVersion\":9", old)
             let oldTyped = TypedSemanticIr.project (snapshot path) |> unwrap
             Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize oldTyped)
             Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", ExecutionIrSerializer.serialize (ExecutionIr.lower oldTyped |> unwrap))
-            Assert.Equal(old, SnapshotCodec.serialize (snapshot path) |> unwrap)
+            Assert.Equal(old, SnapshotCodec.serializeCanonical (snapshot path) |> unwrap)
             let choose = ExpressionRecipe.Conditional(slot 0, abort "bad", str "normal")
             let fn =
                 create session "choose" [ "fail", boolType ] (result textType) [] (ExpressionRecipe.Bind(choose, ok (bound RecipePatternSlot.Value)))
@@ -92,11 +92,11 @@ module FunctionAbortTests =
             create session "match" [] (result textType) []
                 (ExpressionRecipe.MatchResult(ExpressionRecipe.ResultErr(textType, str "input"), ok (bound RecipePatternSlot.Value), ExpressionRecipe.Abort(bound RecipePatternSlot.Error))) |> ignore
             let graph = snapshot path
-            let encoded = File.ReadAllText path
+            let encoded = SnapshotCodec.serializeCanonical graph |> unwrap
             Assert.Contains("\"schemaVersion\":11", encoded)
-            let nyason = NyasonCodec.serialize graph |> unwrap
+            let nyason = NyasonCodec.serializeCanonical graph |> unwrap
             Assert.Contains("nayamnyam.snapshot.v7", nyason)
-            Assert.Equal(encoded, SnapshotCodec.serialize(NyasonCodec.deserialize nyason |> unwrap) |> unwrap)
+            Assert.Equal(encoded, SnapshotCodec.serializeCanonical(NyasonCodec.deserialize nyason |> unwrap) |> unwrap)
             for version in [ 9; 10 ] do
                 Assert.True(Result.isError(SnapshotCodec.deserialize(encoded.Replace("\"schemaVersion\":11", $"\"schemaVersion\":{version}"))))
             for version in [ 5; 6 ] do

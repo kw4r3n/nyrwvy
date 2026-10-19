@@ -1280,7 +1280,7 @@ module SnapshotCodec =
         writer.WriteEndObject()
 
     /// `atLeast` raises the written version above the smallest one the snapshot needs: the
-    /// migration command writes every document at the current version, with explicit visibility
+    /// ordinary writers and migration write every document at the current version, with explicit visibility
     /// markers and declared function type parameter lists, whatever constructs it uses.
     let rec private writeSnapshotBody (writer: Utf8JsonWriter) (atLeast: SnapshotSchemaVersion option) (dependencyMarker: (string * string) option) (snapshot: Snapshot) =
       let required =
@@ -1361,18 +1361,24 @@ module SnapshotCodec =
                 | [] -> writeSnapshot None snapshot
                 | issues -> Error(SnapshotCodecError.InvalidSnapshot issues))
 
-    let serialize (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCached snapshot
+    /// Frozen minimum-version encoding used by the v6 fingerprint domains, not persistence.
+    let internal serializeCanonical (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCached snapshot
 
     /// The snapshot written at the current schema version (`SnapshotSchema.current`) in its
     /// explicit form (visibility markers, declared function type parameter lists), whatever
-    /// constructs it uses. Used by the migration command; `serialize` keeps writing the smallest
-    /// version, so the snapshot's fingerprints are unchanged by this form.
-    let serializeCurrent (snapshot: Snapshot): Result<string, SnapshotCodecError> =
-        if nestsBeyondMaxDepth snapshot then Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
-        else
-            match SnapshotValidator.validate snapshot with
-            | [] -> writeSnapshotAt (Some SnapshotSchema.current) None snapshot
-            | issues -> Error(SnapshotCodecError.InvalidSnapshot issues)
+    /// constructs it uses. Fingerprints keep their frozen canonical encoding independently.
+    let private serializeCurrentCached: Snapshot -> Result<string, SnapshotCodecError> =
+        SnapshotComputationScope.Memoize("currentSerialization", fun snapshot ->
+            if nestsBeyondMaxDepth snapshot then Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
+            else
+                match SnapshotValidator.validate snapshot with
+                | [] -> writeSnapshotAt (Some SnapshotSchema.current) None snapshot
+                | issues -> Error(SnapshotCodecError.InvalidSnapshot issues))
+
+    let serializeCurrent (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCurrentCached snapshot
+
+    /// Ordinary persistence always writes the current schema, including after a later edit.
+    let serialize (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCurrent snapshot
 
     /// The `schemaVersion` a snapshot JSON document declares, before any decoding of its content.
     let declaredVersion (json: string): Result<SnapshotSchemaVersion, SnapshotCodecError> =
@@ -1424,6 +1430,10 @@ module SnapshotCodec =
                 |> Result.bind (fun digest -> writeSnapshotAt atLeast (Some(StableId.value dependency.Id, digest)) local)
 
     let serializeResolved (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
+        serializeResolvedAt (Some SnapshotSchema.current) dependency local
+
+    /// Minimum-version fixtures for legacy dependency compatibility; ordinary writes use current.
+    let internal serializeResolvedCanonical (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
         serializeResolvedAt None dependency local
 
     /// `serializeResolved` at the current schema version in its explicit form (see `serializeCurrent`).

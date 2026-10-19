@@ -486,7 +486,7 @@ public sealed class Broken : {capability}
             Assert.Equal(before, File.ReadAllText fixture.Path))
 
     [<Fact>]
-    let ``nested scalar Result fake rejection identifies the exact scripted response`` () =
+    let ``typed scalar Result fakes accept valid shapes and locate a wrong scripted payload`` () =
         withFixture (fun fixture ->
             let effect = fixture.Session.Declarations().Effects |> List.exactlyOne
             let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ stringType; stringType ])
@@ -502,7 +502,9 @@ public sealed class Broken : {capability}
             let declarations = fixture.Session.Declarations()
             let binding value = PureRunValue.FakeCapability(capability.Id,
                 [ { OperationId = read.Id; Cases = None; Responses = [ PureRunFakeResponse.Return value ] } ])
-            for value in [ PureRunValue.ResultOk(PureRunScalarKind.String, PureRunScalar.String "ok"); PureRunValue.ResultErr(PureRunScalarKind.String, PureRunScalar.String "error") ] do
+            for value in [ PureRunValue.ResultOk(PureRunScalarKind.String, PureRunScalar.String "ok"); PureRunValue.ResultErr(PureRunScalarKind.String, PureRunScalar.String "error")
+                           PureRunValue.ResultValue(stringType, stringType, true, PureRunValue.String "ok")
+                           PureRunValue.ResultValue(stringType, stringType, false, PureRunValue.String "error") ] do
                 Assert.True((PureRun.inputIssue declarations fn.Id [ binding value ] None).IsNone)
             let unitResultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ unitType; stringType ])
             let unitCapabilities =
@@ -522,7 +524,7 @@ public sealed class Broken : {capability}
                 let op (value: SemanticCapabilityOperation) = if names then "\"operation\":\"" + value.DisplayName + "\"" else "\"operationId\":\"" + StableId.value value.Id + "\""
                 let parameter = if names then "\"parameter\":\"key\"" else "\"capabilityParameterId\":\"" + StableId.value read.Parameters.Head.Id + "\""
                 let good = """{"kind":"return","value":{"kind":"result","okKind":"string","errorKind":"string","isOk":true,"value":"ok"}}"""
-                let bad = """{"kind":"return","value":{"kind":"result","okType":{"kind":"primitive","primitive":"string"},"errorType":{"kind":"primitive","primitive":"string"},"isOk":true,"value":{"kind":"string","value":"PRIVATE_SENTINEL"}}}"""
+                let bad = """{"kind":"return","value":{"kind":"result","okType":{"kind":"primitive","primitive":"string"},"errorType":{"kind":"primitive","primitive":"string"},"isOk":true,"value":{"kind":"list","itemKind":"string","items":["PRIVATE_SENTINEL"]}}}"""
                 let case key responses = $"""{{"arguments":[{{{parameter},"value":{{"kind":"string","value":"{key}"}}}}],"responses":[{responses}]}}"""
                 let line = $"""{{"id":"nested-scalar",{entry},"arguments":[{{"kind":"fakeCapability",{cap},"operations":[{{{op first},"responses":[]}},{{{op read},"cases":[{case "a" good},{case "b" (good + "," + bad)}]}}]}}]}}"""
                 use reply = AuthoringProtocol.executeLine fixture.Session line |> JsonDocument.Parse
@@ -530,7 +532,33 @@ public sealed class Broken : {capability}
                 Assert.Equal("RunContainerTypeMismatch", error.GetProperty("code").GetString())
                 let details = error.GetProperty("details")
                 let path = details.GetProperty("path").EnumerateArray() |> Seq.map (fun item -> item.GetString()) |> String.concat "."
-                Assert.Equal("arguments.source.operations[1].cases[1].responses[1].value", path)
-                Assert.Contains("flat okKind/errorKind", details.GetProperty("reason").GetString())
+                Assert.Equal("arguments.source.operations[1].cases[1].responses[1].value.ok", path)
+                Assert.Contains("type", details.GetProperty("reason").GetString())
                 Assert.DoesNotContain("PRIVATE_SENTINEL", reply.RootElement.GetRawText())
             Assert.Equal(before, File.ReadAllText fixture.Path))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``typed scalar fake case arguments and Result responses execute through the binding`` () =
+        withFixture (fun fixture ->
+            let effect = fixture.Session.Declarations().Effects |> List.exactlyOne
+            let strings = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])
+            let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ stringType; stringType ])
+            let operation: AgentCapabilityOperationIntent =
+                { DisplayName = "echo"; Parameters = [ { DisplayName = "items"; Type = strings } ]
+                  ResultType = resultType; FailureType = None; EffectId = effect.Id }
+            let capability = createCapability fixture.Session "TypedEcho" [ operation ]
+            let echo = capability.Operations |> List.exactlyOne
+            let parameter = echo.Parameters |> List.exactlyOne
+            let slot name = ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = name }
+            createFunction fixture.Session "typedEcho" [ "source", TypeRef.Capability capability.Id ] stringType [ effect.Id ]
+                (ExpressionRecipe.MatchResult(
+                    ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, echo.Id,
+                        [ parameter.Id, ExpressionRecipe.ListConstruct(stringType, [ ExpressionRecipe.StringLiteral "key" ]) ]),
+                    slot RecipePatternSlot.Value, slot RecipePatternSlot.Error))
+            let binding = PureRunValue.FakeCapability(capability.Id,
+                [ { OperationId = echo.Id; Responses = []
+                    Cases = Some [ { Arguments = [ parameter.Id, PureRunValue.ListValue(stringType, [ PureRunValue.String "key" ]) ]
+                                     Responses = [ PureRunFakeResponse.Return(PureRunValue.ResultValue(stringType, stringType, true, PureRunValue.String "echoed")) ] } ] } ])
+            let result = PureRun.run fixture.Session (fixture.Function "typedEcho").Id [ binding ] (Some(PureRunValue.String "echoed")) |> unwrap "typed fake"
+            Assert.Equal(Some true, result.Matches)
+            Assert.Single(result.Calls) |> ignore)

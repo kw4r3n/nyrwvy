@@ -58,7 +58,7 @@ module CapabilityImplementationTests =
             create session "join" [ "a", stringType; "b", stringType ] stringType "[]"
                 """{"kind":"stringConcat","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}}"""
             let oldBytes = File.ReadAllText path
-            Assert.Contains("\"schemaVersion\":9", oldBytes)
+            Assert.Contains("\"schemaVersion\":21", oldBytes)
             Assert.Equal(oldBytes, SnapshotCodec.serialize (snapshot path) |> unwrap)
             create session "low" [] capType "[]" (construct "ten")
             create session "high" [] capType "[]" (construct "twenty")
@@ -80,12 +80,12 @@ module CapabilityImplementationTests =
     let ``program implementations persist with reviewable semantic dependencies and explicit schema versions`` () =
         withFixture (fun session path ->
             let graph = snapshot path
-            let encoded = SnapshotCodec.serialize graph |> unwrap
+            let encoded = SnapshotCodec.serializeCanonical graph |> unwrap
             Assert.Contains("\"schemaVersion\":10", encoded)
-            let nyason = NyasonCodec.serialize graph |> unwrap
+            let nyason = NyasonCodec.serializeCanonical graph |> unwrap
             Assert.Contains("nayamnyam.snapshot.v6", nyason)
             let restored = NyasonCodec.deserialize nyason |> unwrap
-            Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
+            Assert.Equal(encoded, SnapshotCodec.serializeCanonical restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             Assert.True(Result.isError(SnapshotCodec.deserialize (encoded.Replace("\"schemaVersion\":10", "\"schemaVersion\":9"))))
             Assert.True(Result.isError(NyasonCodec.deserialize (nyason.Replace("nayamnyam.snapshot.v6", "nayamnyam.snapshot.v5"))))
@@ -115,7 +115,7 @@ module CapabilityImplementationTests =
             let reordered =
                 { graph with
                     Functions = graph.Functions |> List.map (fun fn -> { fn with Body = ValueGraph.mapNodes reverseImplementations fn.Body }) }
-            Assert.Equal(encoded, SnapshotCodec.serialize reordered |> unwrap))
+            Assert.Equal(encoded, SnapshotCodec.serializeCanonical reordered |> unwrap))
 
     [<Fact>]
     let ``invalid implementations and later edits cannot bypass the snapshot oracle`` () =
