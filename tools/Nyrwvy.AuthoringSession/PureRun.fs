@@ -159,7 +159,8 @@ type PureRunResult =
 
 /// Bounded T3 execution path: typed values, including nesting through List/Option layers,
 /// Product/Union fields and Result payloads. Capabilities use scripted fakes or explicitly registered
-/// host sources. Runs in a separate, bounded child process.
+/// host sources. Runs in the session's bounded runner worker (see PureRunWorker), or in a child
+/// process of its own when host sources are involved.
 [<RequireQualifiedAccess>]
 module PureRun =
     let private listType primitive = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Primitive primitive ])
@@ -1565,7 +1566,17 @@ module PureRun =
                         match GeneratedBuild.compileCached root sources 30000 with
                         | Error GeneratedBuild.TimedOut -> Error(diagnostic "RunTimeout" "The build exceeded its time limit of 30 s.")
                         | Error(GeneratedBuild.Rejected errors) -> Error(processFailure "" errors)
-                        | Ok assembly -> launchRaw "pure function" root [ assembly; inputPath ] 5000
+                        | Ok assembly ->
+                            // Arbitrary host C# may change process-wide state, so it runs in a process of
+                            // its own; generated programs with values and fakes share the session's worker.
+                            if not (List.isEmpty hostSources) then launchRaw "pure function" root [ assembly; inputPath ] 5000
+                            else
+                                match context.Worker.Run("pure function", assembly, Path.ChangeExtension(assembly, ".pdb"), inputPath, 5000) with
+                                | PureRunWorkerOutcome.Completed output ->
+                                    if output.Length > 1048576 then Error(diagnostic "RunOutputTooLarge" "The process produced more than 1 MiB of output.")
+                                    else Ok(0, output, "")
+                                | PureRunWorkerOutcome.Crashed(output, errors) -> Ok(1, output, errors)
+                                | PureRunWorkerOutcome.Failed(code, message) -> Error(diagnostic code message)
                         |> Result.bind (fun (exitCode, output, errors) ->
                             if exitCode = 0 then
                                 parseEnvelope declarations.Types fn.ResultType sites output

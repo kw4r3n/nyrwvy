@@ -90,12 +90,32 @@ module internal StructuralTransactionInternals =
         validateDeclaredTypeRefWith codePrefix typeIds capabilityIds Set.empty context typeRef
     let expressionAuthoringBounds = { MaxDepth = ExpressionRecipeBounds.maxDepth; MaxNodes = ExpressionRecipeBounds.maxNodes }
 
-    let private recipeCaseName (recipe: 'Recipe) =
-        if FSharpType.IsUnion(recipe.GetType(), true) then
-            let case, _ = FSharpValue.GetUnionFields(box recipe, recipe.GetType(), true)
-            case.Name
+    /// Union case names by runtime type, read through a precomputed tag reader: reflecting on every
+    /// node of every recipe and graph with `FSharpValue.GetUnionFields` dominated simulation time.
+    let private caseNameReaders = System.Collections.Concurrent.ConcurrentDictionary<System.Type, obj -> string>()
+
+    let private unionReaders = System.Collections.Concurrent.ConcurrentDictionary<System.Type, obj -> string>()
+
+    let private unionReader (unionType: System.Type): obj -> string =
+        let names = FSharpType.GetUnionCases(unionType, true) |> Array.map (fun case -> case.Tag, case.Name) |> dict
+        let tag = FSharpValue.PreComputeUnionTagReader(unionType, true)
+        fun item -> names[tag item]
+
+    /// A value's runtime type is its case's class, one per case, which derives from the union type;
+    /// one reader serves every case of the union.
+    let private caseNameReader (runtimeType: System.Type): obj -> string =
+        if not (FSharpType.IsUnion(runtimeType, true)) then fun _ -> runtimeType.Name
         else
-            recipe.GetType().Name
+            let unionType =
+                if not (isNull runtimeType.BaseType) && FSharpType.IsUnion(runtimeType.BaseType, true) then runtimeType.BaseType
+                else runtimeType
+            unionReaders.GetOrAdd(unionType, System.Func<System.Type, obj -> string>(unionReader))
+
+    let private caseNameOf (value: obj) =
+        let reader = caseNameReaders.GetOrAdd(value.GetType(), System.Func<System.Type, obj -> string>(caseNameReader))
+        reader value
+
+    let private recipeCaseName (recipe: 'Recipe) = caseNameOf (box recipe)
 
     /// Depth is checked before node count so the two diagnostic classes remain
     /// distinguishable for a recipe that violates both. A node-count failure reports
@@ -111,7 +131,10 @@ module internal StructuralTransactionInternals =
         let rec depthOf current =
             1 + (children current |> Seq.fold (fun deepest child -> max deepest (depthOf child)) 0)
 
-        // (size, path, case name) for every proper subtree, collected in one pass.
+        let rec count current = 1 + (children current |> Seq.sumBy count)
+
+        // (size, path, case name) for every proper subtree, collected in one pass; only a recipe over
+        // the limit needs them, so a recipe within it is only counted.
         let rec measure path current (subtrees: ResizeArray<int * string * string>) =
             let size =
                 children current
@@ -128,11 +151,12 @@ module internal StructuralTransactionInternals =
                     $"The structural recipe is deeper than {bounds.MaxDepth} nodes (it is {depthOf recipe} nodes deep)."
             )
         else
-            let subtrees = ResizeArray()
-            let total = measure "" recipe subtrees
+            let total = count recipe
             if total <= bounds.MaxNodes then
                 Ok()
             else
+                let subtrees = ResizeArray()
+                measure "" recipe subtrees |> ignore
                 // Largest subtrees that could become a helper within the limit; nested ones are skipped
                 // when an enclosing subtree is already listed.
                 let listed = ResizeArray<string>()
@@ -151,9 +175,7 @@ module internal StructuralTransactionInternals =
     let validateRecipeBounds children recipe =
         validateRecipeBoundsWith expressionAuthoringBounds children recipe
 
-    let private unionCaseName (kind: SemanticNodeKind) =
-        let case, _ = FSharpValue.GetUnionFields(box kind, typeof<SemanticNodeKind>)
-        case.Name
+    let private unionCaseName (kind: SemanticNodeKind) = caseNameOf (box kind)
 
     let private summaryExtra (node: SemanticNode) =
         match node.Kind with

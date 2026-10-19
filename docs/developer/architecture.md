@@ -164,9 +164,15 @@ See the [failure and obligation policy](../specs/failure-obligation-policy.md) f
 `SnapshotComputationScope` can reuse validation, canonical serialization and
 fingerprints for the exact same immutable snapshot object during a synchronous
 request/pass. AuthoringSession and its JSONL adapter establish this scope;
-nested calls share it and disposal clears retained snapshots. It is not a global
-snapshot-ID cache. Different snapshot objects still undergo full validation,
-including commit re-simulation results and semantic-fingerprint normalization.
+nested calls share it and disposal clears retained snapshots. Three small facts
+that depend on the snapshot alone, its validation issues and its snapshot and
+semantic fingerprints, are additionally retained in a weak table for as long as
+the snapshot object itself lives, so the committed base is not re-validated and
+re-fingerprinted by every request; a later reuse scope reports them as cache
+hits, and a no-reuse scope or a caller outside any scope still computes. It is
+not a global snapshot-ID cache. Different snapshot objects still undergo full
+validation, including commit re-simulation results and semantic-fingerprint
+normalization.
 No-scope callers use the uncached oracle. External-file/dependency checks and
 publication I/O are never memoized. Optional measurement/reuse-disable controls
 support the [authoring profiling probe](../../scripts/measure-authoring-passes.fsx),

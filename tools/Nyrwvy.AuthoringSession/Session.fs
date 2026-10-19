@@ -76,7 +76,9 @@ type internal AuthoringExecutionContext =
     { SnapshotId: SnapshotId
       Fingerprint: string
       Declarations: AuthoringDeclarations
-      Project: FunctionId -> Result<ExecutionProgram, AuthoringSessionError> }
+      Project: FunctionId -> Result<ExecutionProgram, AuthoringSessionError>
+      /// The session's long-lived runner process for compiled programs.
+      Worker: PureRunWorker }
 
 type AuthoringDependencyChange =
     { Kind: string
@@ -855,6 +857,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     let mutable persistedSource = initialPersistedSource
     let mutable invalidated = false
     let mutable closed = false
+    // Runs compiled runPure programs; it starts with the first run and dies with the session.
+    let worker = new PureRunWorker()
+    // Entry projections by workspace object; an entry's program dies with the workspace state it was projected from.
+    let entryProjections = System.Runtime.CompilerServices.ConditionalWeakTable<AgentWorkspace, Dictionary<FunctionId, Result<ExecutionProgram, AuthoringSessionError>>>()
 
     let ensureUsable () =
         if closed then Error AuthoringSessionError.SessionClosed
@@ -1390,11 +1396,23 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         | Error error -> Error(AuthoringSessionError.SemanticProjectionFailure error)
         | Ok typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure
 
+    /// The execution program of one entry over the committed snapshot. It is a pure function of the
+    /// workspace state and the entry, so it is kept with the workspace object, which every commit
+    /// replaces: repeated runs of one entry (every runPure case of an authoring step) select,
+    /// validate and lower it once.
     member internal _.ProjectEntryExecution(entry): Result<ExecutionProgram, AuthoringSessionError> =
-        use _scope = SnapshotComputationScope.Start()
-        AgentExecution.projectEntryTypedSemanticIr workspace entry
-        |> Result.mapError AuthoringSessionError.SemanticProjectionFailure
-        |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure)
+        let projections = entryProjections.GetValue(workspace, fun _ -> Dictionary<FunctionId, Result<ExecutionProgram, AuthoringSessionError>>())
+        lock projections (fun () ->
+            match projections.TryGetValue entry with
+            | true, projected -> projected
+            | _ ->
+                use _scope = SnapshotComputationScope.Start()
+                let projected =
+                    AgentExecution.projectEntryTypedSemanticIr workspace entry
+                    |> Result.mapError AuthoringSessionError.SemanticProjectionFailure
+                    |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure)
+                projections[entry] <- projected
+                projected)
 
     member internal this.ExecutionContext(proposalId: string option): Result<AuthoringExecutionContext, AuthoringSessionError> =
         let context snapshot =
@@ -1416,7 +1434,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     ExecutionCallGraph.forSnapshotEntry snapshot entry
                     |> TypedSemanticIr.project
                     |> Result.mapError AuthoringSessionError.SemanticProjectionFailure
-                    |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure) })
+                    |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure)
+                  Worker = worker })
         this.VerifyPersistedSource()
         |> Result.bind (fun () ->
             match proposalId with
@@ -1426,7 +1445,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     { SnapshotId = status.SnapshotId
                       Fingerprint = SnapshotFingerprint.value status.SnapshotFingerprint
                       Declarations = this.Declarations()
-                      Project = this.ProjectEntryExecution })
+                      Project = this.ProjectEntryExecution
+                      Worker = worker })
             | Some id ->
                 this.PendingProposalView id
                 |> Result.bind (fun view ->
@@ -1439,9 +1459,13 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         this.ProjectExecution()
         |> Result.bind (fun execution -> CSharpBackend.emit execution profile |> Result.mapError AuthoringSessionError.BackendFailure)
 
+    /// The session's runner worker, for tests of its lifetime.
+    member internal _.PureRunWorker = worker
+
     member _.Close() =
         if not closed then
             closed <- true
+            worker.Dispose()
             SessionStorage.releaseLock path lockHandle
 
     interface IDisposable with

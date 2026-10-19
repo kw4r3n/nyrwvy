@@ -57,9 +57,37 @@ module SnapshotComputationScopeTests =
             failwith "request failed"
         Assert.Throws<Exception>(Action(run)) |> ignore
         use next = SnapshotComputationScope.Start(measure = true)
+        // Validation issues are retained with the snapshot object itself, so the next request finds
+        // them without the failed request's scope; an equal but distinct object is computed afresh.
         SnapshotValidator.validate snapshot |> ignore
+        Assert.Equal(0, (metric "validation" next).Computations)
+        Assert.Equal(1, (metric "validation" next).CacheHits)
+        SnapshotValidator.validate { snapshot with Functions = snapshot.Functions } |> ignore
         Assert.Equal(1, (metric "validation" next).Computations)
-        Assert.Equal(0, (metric "validation" next).CacheHits)
+
+    [<Fact>]
+    let ``retained facts outlive the scope and a no-reuse scope bypasses them`` () =
+        let snapshot = (TestGraph.create()).Snapshot
+        let expected, semantic =
+            use first = SnapshotComputationScope.Start(measure = true)
+            let fingerprint = SnapshotFingerprint.compute snapshot |> unwrap
+            let semantic = SemanticFingerprint.compute snapshot |> unwrap
+            Assert.Equal(1, (metric "snapshotFingerprint" first).Computations)
+            Assert.Equal(1, (metric "semanticFingerprint" first).Computations)
+            fingerprint, semantic
+        do
+            use again = SnapshotComputationScope.Start(measure = true)
+            Assert.Equal(expected, SnapshotFingerprint.compute snapshot |> unwrap)
+            Assert.Equal(semantic, SemanticFingerprint.compute snapshot |> unwrap)
+            Assert.Equal(1, (metric "snapshotFingerprint" again).CacheHits)
+            Assert.Equal(0, (metric "snapshotFingerprint" again).Computations)
+            Assert.Equal(1, (metric "semanticFingerprint" again).CacheHits)
+            // Serialization is not retained, and the fingerprint hits did not need it.
+            Assert.False(again.Measurements |> List.exists (fun item -> item.Name = "serialization"))
+        use oracle = SnapshotComputationScope.Start(reuse = false, measure = true)
+        Assert.Equal(expected, SnapshotFingerprint.compute snapshot |> unwrap)
+        Assert.Equal(1, (metric "snapshotFingerprint" oracle).Computations)
+        Assert.Equal(0, (metric "snapshotFingerprint" oracle).CacheHits)
 
     [<Fact>]
     let ``concurrent readers sharing one request keep typed caches safe`` () =
