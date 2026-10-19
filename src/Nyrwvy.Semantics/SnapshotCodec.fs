@@ -1279,10 +1279,17 @@ module SnapshotCodec =
             writer.WriteString("resolutionValueNodeId", StableId.value resolution.ValueNodeId)
         writer.WriteEndObject()
 
-    let rec private writeSnapshotBody (writer: Utf8JsonWriter) (dependencyMarker: (string * string) option) (snapshot: Snapshot) =
-      let required = SnapshotSchema.required snapshot
+    /// `atLeast` raises the written version above the smallest one the snapshot needs: the
+    /// migration command writes every document at the current version, with explicit visibility
+    /// markers and declared function type parameter lists, whatever constructs it uses.
+    let rec private writeSnapshotBody (writer: Utf8JsonWriter) (atLeast: SnapshotSchemaVersion option) (dependencyMarker: (string * string) option) (snapshot: Snapshot) =
+      let required =
+          let minimal = SnapshotSchema.required snapshot
+          match atLeast with
+          | Some floor when floor.Json > minimal.Json -> floor
+          | _ -> minimal
       if required.Json < SnapshotSchema.declaredFunctionTypeParameters.Json && legacyWriteNames.Value.IsNone then
-        withLegacyWriteNames (Some(TypeParameters.names snapshot)) (fun () -> writeSnapshotBody writer dependencyMarker snapshot)
+        withLegacyWriteNames (Some(TypeParameters.names snapshot)) (fun () -> writeSnapshotBody writer atLeast dependencyMarker snapshot)
       else
         writer.WriteStartObject()
         let explicitVisibility = SnapshotSchema.writesVisibility required
@@ -1322,15 +1329,17 @@ module SnapshotCodec =
 
     /// A graph nested beyond `maxJsonDepth` is reported as `MaximumDepthExceeded`, never thrown,
     /// so that it cannot be saved and then fail to load.
-    let private writeSnapshot (dependencyMarker: (string * string) option) (snapshot: Snapshot): Result<string, SnapshotCodecError> =
+    let private writeSnapshotAt (atLeast: SnapshotSchemaVersion option) (dependencyMarker: (string * string) option) (snapshot: Snapshot): Result<string, SnapshotCodecError> =
         use stream = new MemoryStream()
         use writer = new Utf8JsonWriter(stream, JsonWriterOptions(MaxDepth = maxJsonDepth))
         try
-            writeSnapshotBody writer dependencyMarker snapshot
+            writeSnapshotBody writer atLeast dependencyMarker snapshot
             writer.Flush()
             Ok(Encoding.UTF8.GetString(stream.ToArray()))
         with :? InvalidOperationException when writer.CurrentDepth >= maxJsonDepth ->
             Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
+
+    let private writeSnapshot dependencyMarker snapshot = writeSnapshotAt None dependencyMarker snapshot
 
     /// Whether a function body nests graphs deeper than any encoding of `maxJsonDepth` can hold:
     /// every graph level costs at least three containers (graph, node list, node). Checked before
@@ -1354,6 +1363,35 @@ module SnapshotCodec =
 
     let serialize (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCached snapshot
 
+    /// The snapshot written at the current schema version (`SnapshotSchema.current`) in its
+    /// explicit form (visibility markers, declared function type parameter lists), whatever
+    /// constructs it uses. Used by the migration command; `serialize` keeps writing the smallest
+    /// version, so the snapshot's fingerprints are unchanged by this form.
+    let serializeCurrent (snapshot: Snapshot): Result<string, SnapshotCodecError> =
+        if nestsBeyondMaxDepth snapshot then Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
+        else
+            match SnapshotValidator.validate snapshot with
+            | [] -> writeSnapshotAt (Some SnapshotSchema.current) None snapshot
+            | issues -> Error(SnapshotCodecError.InvalidSnapshot issues)
+
+    /// The `schemaVersion` a snapshot JSON document declares, before any decoding of its content.
+    let declaredVersion (json: string): Result<SnapshotSchemaVersion, SnapshotCodecError> =
+        try
+            use document = JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth))
+            let root = document.RootElement
+            if root.ValueKind <> JsonValueKind.Object then Error(SnapshotCodecError.InvalidShape "Snapshot must be a JSON object.")
+            else
+                match root.TryGetProperty "schemaVersion" with
+                | true, version when version.ValueKind = JsonValueKind.Number ->
+                    let value = version.GetInt32()
+                    match SnapshotSchema.tryJson value with
+                    | Some declared -> Ok declared
+                    | None -> Error(SnapshotCodecError.UnsupportedSchemaVersion value)
+                | _ -> Error(SnapshotCodecError.InvalidShape "Snapshot property 'schemaVersion' must be an integer.")
+        with
+        | :? JsonException as error -> Error(SnapshotCodecError.InvalidJson error.Message)
+        | :? FormatException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
+
     /// The imported declarations retain their original IDs; duplicate IDs are
     /// rejected by the ordinary snapshot validator before any local publication.
     let resolveDependency (dependency: Snapshot) (local: Snapshot): Snapshot =
@@ -1375,7 +1413,7 @@ module SnapshotCodec =
 
     /// Encode local declarations only after validating their resolved graph with the
     /// selected dependency. The dependency is never written into the local snapshot.
-    let serializeResolved (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
+    let private serializeResolvedAt (atLeast: SnapshotSchemaVersion option) (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
         let resolved = resolveDependency dependency local
         if nestsBeyondMaxDepth resolved then Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
         else
@@ -1383,7 +1421,14 @@ module SnapshotCodec =
             | issue :: rest -> Error(SnapshotCodecError.InvalidSnapshot(issue :: rest))
             | [] ->
                 dependencyDigest dependency
-                |> Result.bind (fun digest -> writeSnapshot (Some(StableId.value dependency.Id, digest)) local)
+                |> Result.bind (fun digest -> writeSnapshotAt atLeast (Some(StableId.value dependency.Id, digest)) local)
+
+    let serializeResolved (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
+        serializeResolvedAt None dependency local
+
+    /// `serializeResolved` at the current schema version in its explicit form (see `serializeCurrent`).
+    let serializeResolvedCurrent (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
+        serializeResolvedAt (Some SnapshotSchema.current) dependency local
 
     let rec private readTypeRef (element: JsonElement): TypeRef =
         let kind = readString "kind" element

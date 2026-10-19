@@ -1,0 +1,23 @@
+{
+  "tool": "Nyrwvy.AuthoringSession migrate",
+  "toolVersion": "1.0.0\u002Bae35a02d88d036f8233d72b849417c3021355cd2",
+  "path": "/home/user/nyrwvy/.claude/worktrees/agent-a2a5c4a1ec37f43fa/examples/verification-planner/planner.snapshot.json",
+  "changed": true,
+  "sourceSchemaVersion": 9,
+  "sourceSchema": "nayamnyam.snapshot.v5",
+  "targetSchemaVersion": 21,
+  "targetSchema": "nayamnyam.snapshot.v17",
+  "before": {
+    "snapshotFingerprint": "sha256:e4db7fe9f40499d3508f1d51972fd95bcd3356af91611670c1a3156ef2e84b73",
+    "semanticFingerprint": "sha256:0e296a562ca07ba76d3eaa1e278d286989da1913297a6a21cbd9247e6d0102dc"
+  },
+  "after": {
+    "snapshotFingerprint": "sha256:e4db7fe9f40499d3508f1d51972fd95bcd3356af91611670c1a3156ef2e84b73",
+    "semanticFingerprint": "sha256:0e296a562ca07ba76d3eaa1e278d286989da1913297a6a21cbd9247e6d0102dc"
+  },
+  "semanticFingerprintExpectedEqual": true,
+  "rewrites": [],
+  "declarationsMarkedExported": 7,
+  "functionTypeParameterListsDeclared": 0,
+  "dependencies": []
+}

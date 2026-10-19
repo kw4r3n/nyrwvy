@@ -19,6 +19,17 @@ faults; the earliest-started faulted child wins even under reverse completion.
 The join helper masks its caller cancellation only while waiting; child scope
 tokens are already captured and stay linked to their original owner.
 
+`fixtures/task-outcomes.json` is the snapshot the probe run recorded (at
+schema 17; `fixtures/proof.json` names its original sha256). On 2026-10-19 it
+was rewritten in place to the current schema 21 by
+`Nyrwvy.AuthoringSession migrate --snapshot examples/task-cancellation-outcome/fixtures/task-outcomes.json`
+([snapshot migration](../../docs/specs/agent-authoring-session.md#snapshot-migration));
+`fixtures/task-outcomes.migration.json` is the report, which shows a
+representation-only migration with both fingerprints unchanged. The file's
+sha256 therefore differs from the one in `proof.json`, which refers to the
+bytes of the original run; the commands below author the program again and do
+not read the fixture.
+
 From the repository root, with the Release AuthoringSession built and locked
 Node dependencies installed, run each command serially in Nushell:
 

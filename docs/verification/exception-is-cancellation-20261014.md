@@ -104,7 +104,7 @@ the prior bounded proof. No whole-shutdown parity claim is made.
 
 Focused semantic tests passed 54 checks before aggregate verification. Final
 serial suite results, commands, local log/artifact hashes, oracle proofs and
-preserved checkout identities are in the [current closure](../../examples/member-snapshot-faults/fixtures/cancellation-closure.json).
+preserved checkout identities are in the [current closure](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-snapshot-faults/fixtures/cancellation-closure.json).
 
 | Final serial check | Result |
 | --- | --- |
@@ -115,7 +115,7 @@ preserved checkout identities are in the [current closure](../../examples/member
 | Partition / fish contract and syntax / whitespace | Pass |
 
 The generic [runtime expectations](../../examples/exception-boundary/runtime-expected.json)
-and [real snapshot observations](../../examples/member-snapshot-faults/fixtures/runtime-observations.json)
+and [real snapshot observations](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-snapshot-faults/fixtures/runtime-observations.json)
 are retained for inspection. Local complete transcripts/bundles are under
 `artifacts/cancellation-predicate/`.
 

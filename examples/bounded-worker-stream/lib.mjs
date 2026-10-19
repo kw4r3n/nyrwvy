@@ -39,7 +39,8 @@ export const direct = (fn, values) => ({ kind: 'directCall', function: fn, argum
 export const cond = (condition, whenTrue, whenFalse) => ({ kind: 'conditional', condition, whenTrue, whenFalse })
 export const matchOption = (input, someBody, noneBody) => ({ kind: 'matchOption', input, someBody, noneBody })
 export const concat = (...values) => values.reduce((left, right) => ({ kind: 'stringConcat', left, right }))
-export const eqStr = (left, right) => ({ kind: 'stringEqual', left, right }), eqInt = (left, right) => ({ kind: 'int64Equal', left, right })
+// String and Int64 are equatable: both comparisons are valueEqual (docs/decisions/retired-authoring-kinds.md).
+export const eqStr = (left, right) => ({ kind: 'valueEqual', left, right }), eqInt = (left, right) => ({ kind: 'valueEqual', left, right })
 export const invoke = (capabilityValue, capability, operation, values = {}) => ({ kind: 'capabilityInvoke', capabilityValue, capability, operation, arguments: Object.entries(values).map(([parameter, value]) => ({ parameter, value })) })
 export const cancellation = { kind: 'cancellationRequested' }
 // Run values

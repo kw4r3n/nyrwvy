@@ -60,8 +60,8 @@ regression results and all three independently reviewed regression passes at
 903c184 are reused, with provenance and hashes. Reviewed Node/AuthoringSession
 assets and installed compiler/reference/runtime remain reused; broad baseline
 builds/fast tests are not newly claimed. The original fixtures/evidence are
-preserved. New [focused proof](../../examples/offline-session-registry/fixtures/repair-proof.json)
-and [closure](../../examples/offline-session-registry/fixtures/repair-replay.json)
+preserved. New [focused proof](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-registry/fixtures/repair-proof.json)
+and [closure](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-registry/fixtures/repair-replay.json)
 separate the repaired executions from the original milestone proof.
 
 Limits remain one intact trusted single-writer domain, selected Linux windows,

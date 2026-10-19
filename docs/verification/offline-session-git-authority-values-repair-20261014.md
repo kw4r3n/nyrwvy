@@ -55,7 +55,7 @@ audit. Unaffected broad core/owner evidence is reused, not recounted.
 Author task root: `/home/kw4/Documents/Codex/2026-10-14/task-48`.
 Final evidence: `evidence/null-authority-repair/`; exact reviewed artifacts:
 `source-base/{original,moved}`. The final audit is byte-identical to
-[authority-values-repair.json](../../examples/offline-session-physical-git/fixtures/authority-values-repair.json).
+[authority-values-repair.json](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-physical-git/fixtures/authority-values-repair.json).
 Earlier author and independent reviewer evidence remains separate and unchanged.
 
 For a reviewer-owned fresh clone, audit/reopen retained graph seeds or author fresh

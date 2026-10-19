@@ -17,7 +17,7 @@ The isolated local checkout is `task-15/nyrwvy`, branch
 `verify/integration-error-matrix`, based on exact local `fb078f8`. Original
 `verify/raw-head-read`, `fix/raw-save-ledger` and `feat/raw-fault-cleanup` branches
 and checkouts remain unchanged. Exact pending `812bfe2` bundle/patch hashes are
-rechecked in the [summary](../../examples/member-controller/fixtures/verification-summary.json).
+rechecked in the [summary](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-controller/fixtures/verification-summary.json).
 No push, PR, export, merge, publication or alternate publication route ran.
 
 Ancestor/repository instructions and repository `.agents`/skill files were
@@ -87,7 +87,7 @@ apply, commit or either reverse operation.
 
 ## Verification and evidence
 
-The [baseline closure](../../examples/member-controller/fixtures/integration-boundary-verified-closure.json)
+The [baseline closure](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-controller/fixtures/integration-boundary-verified-closure.json)
 contains the nine virtual, real and independent Python per-request traces, source
 proofs and baseline artifact hashes. Baseline graph, Generated.cs and symbols
 are exactly the previous `task-14/head-fresh` bytes. Fresh ordinary graph proposals

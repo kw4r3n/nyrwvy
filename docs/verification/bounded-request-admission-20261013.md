@@ -36,7 +36,7 @@ not evidence that Python's lock serializes wait or the whole close drain.
 
 ## Composition and finite coverage
 
-The new [authoring recipe](../../examples/member-concurrency/author.mjs) extends
+The new [authoring recipe](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-concurrency/author.mjs) extends
 the existing controller in a separate entry. An immutable owner holds scoped
 state handoffs and request tickets. Mutation workers await predecessor state;
 independent supervisors join them and publish their retained state. A queued
@@ -81,7 +81,7 @@ ownership transfer. These mutate normalized records, not compiled graphs.
 
 ## Evidence and validation
 
-The [verified closure](../../examples/member-concurrency/fixtures/verified-closure.json)
+The [verified closure](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-concurrency/fixtures/verified-closure.json)
 contains baseline traces, source proofs, all six virtual/real/Python records,
 artifact hashes, reopen/moved identities, compiler evidence, retained audit
 counts and comparison controls. Fresh ordinary proposals are simulated,

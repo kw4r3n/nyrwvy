@@ -97,9 +97,9 @@ Supported and journal-disabled Program.cs agree after declared-symbol
 normalization. The graph's wireFold Boolean selects the journal or inherited
 path; storage and mutation bindings are shared.
 
-The [proof fixture](../../examples/offline-session-journal/fixtures/proof.json)
+The [proof fixture](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-journal/fixtures/proof.json)
 retains contract results and raw/source hashes. The
-[replay fixture](../../examples/offline-session-journal/fixtures/replay.json)
+[replay fixture](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-journal/fixtures/replay.json)
 retains artifact hashes and 31 transitive example-source hashes. Complete
 snapshots, transcripts, raw events and retained state remain in the local
 original/moved artifact directories. The external task31 audit checks their

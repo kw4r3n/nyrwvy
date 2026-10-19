@@ -12,7 +12,7 @@ by 1,008 ms without foreground HEAD, outcome or release. The input driver was
 inside `wireFold`, so it could observe the reader only after that call returned.
 SIGTERM released the fixture's held commit and permitted protected completion.
 
-The [continuation](../../examples/offline-session-reader-propagation/README.md)
+The [continuation](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-reader-propagation/README.md)
 uses the existing graph primitives. The dispatcher runs in an owned task; a
 second owned task waits on the reader with the dispatcher's result type.
 `TaskWait(any)` observes either worker while foreground work continues. An
@@ -67,10 +67,10 @@ fragmentation, task scheduling and timings have distinct roles; interleavings
 and timings can vary. Closure excludes mutable scenarios, transcript,
 tool/compiler/reference-pack binaries and environment state.
 
-Retained compact [proof](../../examples/offline-session-reader-propagation/fixtures/proof.json),
-[replay audit](../../examples/offline-session-reader-propagation/fixtures/replay.json),
-[restart gap](../../examples/offline-session-reader-propagation/fixtures/restart.json)
-and [verification manifest](../../examples/offline-session-reader-propagation/fixtures/verification.json)
+Retained compact [proof](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-reader-propagation/fixtures/proof.json),
+[replay audit](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-reader-propagation/fixtures/replay.json),
+[restart gap](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-reader-propagation/fixtures/restart.json)
+and [verification manifest](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-reader-propagation/fixtures/verification.json)
 identify the concrete runs. Complete evidence lives in
 `artifacts/reader-propagation/{final,moved}` in the implementation checkout.
 

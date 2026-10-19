@@ -9,12 +9,13 @@ type private StartupMode =
     | Open
     | Create
     | Pin
+    | Migrate
     | SelectionUpgrade of AuthoringDependencySelectionUpgrade * reviewFingerprint: string
     | Upgrades of AuthoringDependencyUpgrade list * reviewFingerprint: string
     | Upgrade of source: string * replaces: string option * expectedFingerprint: string
 
 module private CommandLine =
-    let usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> ...] [--allow-host-sources] (create may name several dependencies; pin takes at most one same-content source)\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --dependency <new-version-path> --expect <reviewed-fingerprint> [--replaces <snapshot-id>] [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --upgrades <JSON array of {source,replaces}> --review <reviewFingerprint> [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --selection <JSON {sources:[paths],replaces:[current SnapshotIds]}> --review <reviewFingerprint> [--allow-host-sources]\n--allow-host-sources lets runPure/runPureByName compile and run hostSources C# with your permissions; it is off by default."
+    let usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> ...] [--allow-host-sources] (create may name several dependencies; pin takes at most one same-content source)\n       Nyrwvy.AuthoringSession migrate --snapshot <snapshot-path> [--dependency <exact copy of a legacy pin's source>] (rewrites the snapshot and its dependency sidecar to the current schema, prints the migration report and exits; no session is started)\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --dependency <new-version-path> --expect <reviewed-fingerprint> [--replaces <snapshot-id>] [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --upgrades <JSON array of {source,replaces}> --review <reviewFingerprint> [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --selection <JSON {sources:[paths],replaces:[current SnapshotIds]}> --review <reviewFingerprint> [--allow-host-sources]\n--allow-host-sources lets runPure/runPureByName compile and run hostSources C# with your permissions; it is off by default."
 
     let rec private dependencies collected = function
         | [] -> Ok(List.rev collected)
@@ -29,6 +30,8 @@ module private CommandLine =
         | "create" :: "--snapshot" :: path :: rest -> dependencies [] rest |> Result.map (fun paths -> StartupMode.Create, path, paths)
         | [ "pin"; "--snapshot"; path ] -> Ok(StartupMode.Pin, path, [])
         | [ "pin"; "--snapshot"; path; "--dependency"; dependency ] -> Ok(StartupMode.Pin, path, [ dependency ])
+        | [ "migrate"; "--snapshot"; path ] -> Ok(StartupMode.Migrate, path, [])
+        | [ "migrate"; "--snapshot"; path; "--dependency"; dependency ] -> Ok(StartupMode.Migrate, path, [ dependency ])
         | [ "upgrade"; "--snapshot"; path; "--dependency"; source; "--expect"; fingerprint ] ->
             Ok(StartupMode.Upgrade(source, None, fingerprint), path, [])
         | [ "upgrade"; "--snapshot"; path; "--dependency"; source; "--expect"; fingerprint; "--replaces"; replaces ] ->
@@ -75,9 +78,18 @@ let main argv =
     | Error error ->
         Console.Error.WriteLine(error)
         2
+    | Ok(StartupMode.Migrate, path, dependency) ->
+        match AuthoringSessionMigration.migrate path (List.tryHead dependency) with
+        | Error error ->
+            Console.Error.WriteLine(WireEncode.startupMessage error)
+            2
+        | Ok report ->
+            Console.Out.WriteLine(AuthoringSessionMigration.reportJson report)
+            0
     | Ok(mode, path, dependency) ->
         let result =
             match mode with
+            | StartupMode.Migrate -> failwith "unreachable: migrate is handled above"
             | StartupMode.Open -> AuthoringSession.openExisting path
             | StartupMode.Create -> AuthoringSession.createNewWithDependencies path dependency
             | StartupMode.Pin -> AuthoringSession.pinExistingDependency path (List.tryHead dependency)

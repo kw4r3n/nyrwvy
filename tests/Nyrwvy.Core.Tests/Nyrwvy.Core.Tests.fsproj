@@ -125,6 +125,7 @@
     <Compile Include="UseResourceTests.fs" />
     <Compile Include="GenericFunctionTests.fs" />
     <Compile Include="DeclaredFunctionTypeParametersTests.fs" />
+    <Compile Include="SnapshotMigrationTests.fs" />
     <Compile Include="FunctionValueTests.fs" />
     <Compile Include="FunctionAbortTests.fs" />
     <Compile Include="CapabilityImplementationTests.fs" />

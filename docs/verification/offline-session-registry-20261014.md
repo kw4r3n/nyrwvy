@@ -1,6 +1,6 @@
 # Offline registry continuation — 2026-10-14
 
-The new [registry example](../../examples/offline-session-registry/README.md)
+The new [registry example](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-registry/README.md)
 addresses the separately reviewed restoration gap at PR401
 `e85df1c9469eb0110230d587dbbfdc43a6c65326`, tree
 `3cacca98e5658d5195a1dbaa844d0773404f9d4e`. Before this continuation, an

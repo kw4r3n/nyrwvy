@@ -31,6 +31,13 @@ public static class NyNumber
 {
     public static NyOption<long> RoundToInt64(double value) => ToInt64(System.Math.Round(value, System.MidpointRounding.AwayFromZero));
     public static NyOption<long> FloorToInt64(double value) => ToInt64(System.Math.Floor(value));
+    public static double FloorModulo(double dividend, double divisor)
+    {
+        var remainder = dividend % divisor;
+        if (remainder != 0.0) { if ((divisor < 0.0) != (remainder < 0.0)) remainder += divisor; }
+        else remainder = System.Math.CopySign(0.0, divisor);
+        return remainder;
+    }
     private static NyOption<long> ToInt64(double integral) =>
     integral >= -9223372036854775808.0 && integral < 9223372036854775808.0 ? NyOption<long>.Some((long)integral) : NyOption<long>.None();
     public static NyOption<long> CheckedAdd(long left, long right) => FitInt64((System.Int128)left + right);
@@ -121,7 +128,18 @@ public static class NyText
     public static NyOption<long> LastIndexOf(string text, string value)
     {
         if (value.Length == 0) return NyOption<long>.Some(CodePointLength(text));
-        var searchEnd = text.Length - 1;
+        return LastMatchEndingBy(text, value, text.Length - 1);
+    }
+    public static NyOption<long> LastIndexOfBefore(string text, string value, long end)
+    {
+        var stop = System.Math.Max(0L, end);
+        var position = System.Math.Min(stop, CodePointLength(text));
+        var offset = OffsetOf(text, position);
+        if (value.Length == 0) return NyOption<long>.Some(position);
+        return LastMatchEndingBy(text, value, offset - 1);
+    }
+    private static NyOption<long> LastMatchEndingBy(string text, string value, int searchEnd)
+    {
         while (searchEnd >= value.Length - 1)
         {
             var found = text.LastIndexOf(value, searchEnd, StringComparison.Ordinal);
@@ -181,6 +199,33 @@ public static class NyText
         Array.Resize(ref lines, count);
         return NyList<NyStr>.FromOwnedArray(lines);
     }
+    public static string Replace(string text, string pattern, string replacement)
+    {
+        if (pattern.Length == 0) return text;
+        var found = Find(text, pattern, 0);
+        if (found < 0) return text;
+        var builder = new System.Text.StringBuilder(text.Length);
+        var start = 0;
+        for (; found >= 0; found = Find(text, pattern, start))
+        {
+            builder.Append(text, start, found - start).Append(replacement);
+            start = found + pattern.Length;
+        }
+        return builder.Append(text, start, text.Length - start).ToString();
+    }
+    public static string Trim(string text) => TrimEnd(TrimStart(text));
+    public static string TrimStart(string text)
+    {
+        var start = 0;
+        while (start < text.Length && char.IsWhiteSpace(text[start])) start++;
+        return start == 0 ? text : text.Substring(start);
+    }
+    public static string TrimEnd(string text)
+    {
+        var end = text.Length;
+        while (end > 0 && char.IsWhiteSpace(text[end - 1])) end--;
+        return end == text.Length ? text : text.Substring(0, end);
+    }
     public static string ToLower(string text)
     {
         var builder = new System.Text.StringBuilder(text.Length);
@@ -217,6 +262,11 @@ public static class NyText
             bytes[count++] = unit <= '\u00FF' ? (byte)unit : (byte)0xFF;
         }
         return System.Text.Encoding.UTF8.GetString(bytes, 0, count);
+    }
+    public static string EncodeUtf8(string text)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        return string.Create(bytes.Length, bytes, static (span, source) => { for (var index = 0; index < source.Length; index++) span[index] = (char)source[index]; });
     }
     public static NyOption<NyStr> FromCodePoint(long code) =>
     code < 0L || code > 0x10FFFFL ? NyOption<NyStr>.None() : NyOption<NyStr>.Some(code < 0x10000L ? ((char)code).ToString() : char.ConvertFromUtf32((int)code));
@@ -455,7 +505,7 @@ public sealed class NyStr : IEquatable<NyStr>
     public static bool operator !=(NyStr? left, NyStr? right) => !(left == right);
 }
 
-public sealed class NyMap<K, V> where K : notnull
+public sealed class NyMap<K, V> : IEquatable<NyMap<K, V>> where K : notnull
 {
     private readonly System.Collections.Immutable.ImmutableDictionary<K, (long Order, V Value)> entries;
     private readonly System.Collections.Immutable.ImmutableSortedDictionary<long, K> order;
@@ -476,6 +526,24 @@ public sealed class NyMap<K, V> where K : notnull
     entries.TryGetValue(key, out var entry)
     ? new(entries.SetItem(key, (entry.Order, value)), order, next)
     : new(entries.SetItem(key, (next, value)), order.Add(next, key), next + 1L);
+    public NyMap<K, V> Union(NyMap<K, V> other) =>
+    other.entries.Count == 0 ? this : entries.Count == 0 ? other : other.Fold(this, (map, key, value) => map.Insert(key, value));
+    public bool Equals(NyMap<K, V>? other)
+    {
+        if (other is null) return false;
+        if (ReferenceEquals(this, other)) return true;
+        if (entries.Count != other.entries.Count) return false;
+        var values = System.Collections.Generic.EqualityComparer<V>.Default;
+        foreach (var pair in entries) if (!other.entries.TryGetValue(pair.Key, out var entry) || !values.Equals(pair.Value.Value, entry.Value)) return false;
+        return true;
+    }
+    public override bool Equals(object? obj) => obj is NyMap<K, V> other && Equals(other);
+    public override int GetHashCode()
+    {
+        var hash = 0;
+        foreach (var pair in entries) unchecked { hash += System.HashCode.Combine(pair.Key, pair.Value.Value); }
+        return hash;
+    }
     public NyMap<K, V> Remove(K key) =>
     entries.TryGetValue(key, out var entry) ? new(entries.Remove(key), order.Remove(entry.Order), next) : this;
     public S Fold<S>(S seed, System.Func<S, K, V, S> folder)
@@ -512,7 +580,7 @@ public sealed class NyMap<K, V> where K : notnull
     }
 }
 
-public sealed class NySet<T> where T : notnull
+public sealed class NySet<T> : IEquatable<NySet<T>> where T : notnull
 {
     private readonly System.Collections.Immutable.ImmutableDictionary<T, long> items;
     private readonly System.Collections.Immutable.ImmutableSortedDictionary<long, T> order;
@@ -531,8 +599,29 @@ public sealed class NySet<T> where T : notnull
     public NySet<T> Insert(T item) => items.ContainsKey(item) ? this : new(items.Add(item, next), order.Add(next, item), next + 1L);
     public NySet<T> Remove(T item) => items.TryGetValue(item, out var number) ? new(items.Remove(item), order.Remove(number), next) : this;
     public NySet<T> Union(NySet<T> other) => other.Fold(this, (set, item) => set.Insert(item));
+    public NySet<T> Filter(System.Func<T, bool> predicate) => Fold(this, (set, item) => predicate(item) ? set : set.Remove(item));
+    public NySet<U> Map<U>(System.Func<T, U> mapper) where U : notnull
+    {
+        var result = NySet<U>.Empty();
+        foreach (var item in order.Values) result = result.Insert(mapper(item));
+        return result;
+    }
     public NySet<T> Intersection(NySet<T> other) => Fold(this, (set, item) => other.Contains(item) ? set : set.Remove(item));
     public NySet<T> Difference(NySet<T> other) => other.Size < Size ? other.Fold(this, (set, item) => set.Remove(item)) : Fold(this, (set, item) => other.Contains(item) ? set.Remove(item) : set);
+    public bool IsSubsetOf(NySet<T> other)
+    {
+        if (items.Count > other.items.Count) return false;
+        foreach (var item in items.Keys) if (!other.items.ContainsKey(item)) return false;
+        return true;
+    }
+    public bool Equals(NySet<T>? other) => other is not null && (ReferenceEquals(this, other) || (items.Count == other.items.Count && IsSubsetOf(other)));
+    public override bool Equals(object? obj) => obj is NySet<T> other && Equals(other);
+    public override int GetHashCode()
+    {
+        var hash = 0;
+        foreach (var item in items.Keys) unchecked { hash += System.Collections.Generic.EqualityComparer<T>.Default.GetHashCode(item); }
+        return hash;
+    }
     public S Fold<S>(S seed, System.Func<S, T, S> folder)
     {
         var state = seed;
@@ -686,6 +775,51 @@ public sealed class NyList<T> : IEquatable<NyList<T>>
         if (from > _start && (to - from) * 2L < to) return FromOwnedArray(CopyRange(from, to));
         return Take(from, to);
     }
+    // SetAt copies the one leaf, or the tail, holding the index and the trie nodes on its path, so it is
+    // O(log32 n); an index outside [0, Length) returns the list itself.
+    public NyList<T> SetAt(long index, T item)
+    {
+        if (index < 0L || index >= Count) return this;
+        var at = _start + (int)index;
+        var trieCount = TrieCount;
+        if (at >= trieCount)
+        {
+            var tailCount = TailCount;
+            var next = new T[Width];
+            Array.Copy(_tail.Items, next, tailCount);
+            next[at - trieCount] = item;
+            return new(_start, _count, _shift, _root, new Store(next, tailCount));
+        }
+        var leaf = (T[])LeafFor(at).Items.Clone();
+        leaf[at & Mask] = item;
+        return new(_start, _count, _shift, SetLeaf(_root!, _shift, at, new Store(leaf, Width)), _tail);
+    }
+    // InsertAt clamps the index to [0, Length]; it shares the items before the index (a Slice) and
+    // appends the item and then the items from the index, so it is O(log32 n + Length - index).
+    public NyList<T> InsertAt(long index, T item)
+    {
+        var split = (int)System.Math.Clamp(index, 0L, (long)Count);
+        return Slice(0L, split).AppendItem(item).AppendFrom(this, _start + split);
+    }
+    // RemoveAt shares the items before the index and appends the items after it, so it is
+    // O(log32 n + Length - index); removing the first or last item is a Slice or DropLast. An index
+    // outside [0, Length) returns the list itself.
+    public NyList<T> RemoveAt(long index)
+    {
+        if (index < 0L || index >= Count) return this;
+        var split = (int)index;
+        if (split == Count - 1) return DropLast();
+        if (split == 0) return Slice(1L, Count);
+        return Slice(0L, split).AppendFrom(this, _start + split + 1);
+    }
+    // AppendFrom appends the source's items at trie positions [from, source._count) in order.
+    private NyList<T> AppendFrom(NyList<T> source, int from)
+    {
+        var result = this;
+        for (var at = from; at < source._count; at = Next(at))
+            foreach (var item in source.Segment(at)) result = result.AppendItem(item);
+        return result;
+    }
     // Reverse copies the items into a new list in the opposite order; 0 or 1 items return the list itself.
     public NyList<T> Reverse()
     {
@@ -754,6 +888,40 @@ public sealed class NyList<T> : IEquatable<NyList<T>>
         }
         return NyList<U>.FromOwnedArray(next);
     }
+    // ListZipWith: item i is combiner(this[i], other[i]) for every i below the shorter length, as
+    // Python zip; the extra items of the longer list are not visited.
+    public NyList<V> ZipWith<U, V>(NyList<U> other, Func<T, U, V> combiner)
+    {
+        var count = System.Math.Min(Count, other.Count);
+        var next = new V[count];
+        for (var i = 0; i < count; i++) next[i] = combiner(Get(_start + i), other.Get(other._start + i));
+        return NyList<V>.FromOwnedArray(next);
+    }
+    // ListFlatMap: the mapper's lists concatenated in source order. Each part is copied once into
+    // one buffer, so the time is linear in the output length rather than quadratic as repeated Concat.
+    public NyList<U> FlatMap<U>(Func<T, NyList<U>> mapper)
+    {
+        var parts = new NyList<U>[Count];
+        var total = 0;
+        var index = 0;
+        for (var at = _start; at < _count; at = Next(at))
+            foreach (var item in Segment(at))
+            {
+                var part = mapper(item);
+                parts[index++] = part;
+                total = checked(total + part.Count);
+            }
+        var next = new U[total];
+        var offset = 0;
+        foreach (var part in parts)
+            for (var at = part._start; at < part._count; at = Next(at))
+            {
+                var segment = part.Segment(at);
+                segment.CopyTo(next.AsSpan(offset));
+                offset += segment.Length;
+            }
+        return NyList<U>.FromOwnedArray(next);
+    }
     // ListSortBy: top-down merge sort, left half = length / 2, taking the right head only when
     // lessThan(right, left) holds. The algorithm fixes the result for any callback, so an
     // inconsistent callback still yields a deterministic permutation; a strict order is stable.
@@ -789,6 +957,19 @@ public sealed class NyList<T> : IEquatable<NyList<T>>
         }
         return NyOption<T>.Some(best);
     }
+    // ListMaxBy: the same scan replacing the best only when lessThan(best, item) holds, so the
+    // first of equal items wins, as Python max.
+    public NyOption<T> MaxBy(Func<T, T, bool> lessThan)
+    {
+        if (Count == 0) return NyOption<T>.None();
+        var best = Get(_start);
+        for (var at = _start; at < _count; at = Next(at))
+        {
+            var segment = Segment(at);
+            for (var i = at == _start ? 1 : 0; i < segment.Length; i++) if (lessThan(best, segment[i])) best = segment[i];
+        }
+        return NyOption<T>.Some(best);
+    }
     public NyList<T> Filter(Func<T, bool> predicate)
     {
         var buffer = new T[Count];
@@ -808,6 +989,7 @@ public sealed class NyList<T> : IEquatable<NyList<T>>
         return NyOption<long>.None();
     }
     public NyOption<long> IndexOf(T item) => FindIndex(candidate => NyEquality.Equal(candidate, item));
+    public bool Contains(T item) => IndexOf(item).HasValue;
     // LastIndexOf scans right to left, so an item near the end, as on a stack, is found in time proportional to its distance from the end.
     public NyOption<long> LastIndexOf(T item)
     {
