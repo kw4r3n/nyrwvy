@@ -28,7 +28,7 @@ module BoolOperatorTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session; DisplayName = name
+        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = effects; Body = body }
@@ -55,10 +55,10 @@ module BoolOperatorTests =
     let private publishWire (session: AuthoringSession) (response: JsonDocument) =
         session.Commit(response.RootElement.GetProperty("result").GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private io (session: AuthoringSession) =
-        session.SimulateCreateEffect { ExpectedBaseSnapshotId = current session; DisplayName = "IO" } |> unwrap |> publish session
+        session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO" } |> unwrap |> publish session
         let effect = session.Declarations().Effects |> List.exactlyOne
         session.SimulateCreateCapability
-            { ExpectedBaseSnapshotId = current session; DisplayName = "IO"
+            { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO"
               Operations =
                 [ { DisplayName = "mark"; Parameters = [ { DisplayName = "value"; Type = textType } ]
                     ResultType = textType; FailureType = None; EffectId = effect.Id } ] }
@@ -131,7 +131,7 @@ module BoolOperatorTests =
                   { Id = notId; Kind = SemanticNodeKind.BoolNot negatedId } ]
               ResultNodeId = notId }
         let fn: SemanticFunction =
-            { Id = StableId.createForTesting<FunctionTag> "function-bool-scope"
+            { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-bool-scope"
               TypeParameters = []
               DisplayName = "scope"; Parameters = []; ResultType = boolType; RequiredEffects = []; Body = body }
         let issues =
@@ -176,7 +176,7 @@ module BoolOperatorTests =
             let exact =
                 """{"kind":"boolOr","left":{"kind":"boolNot","value":{"kind":"parameterSlot","index":0}},"right":{"kind":"boolAnd","left":{"kind":"parameterSlot","index":0},"right":{"kind":"parameterSlot","index":1}}}"""
             use exactProposal =
-                send session (sprintf """{"id":"exact","op":"simulateCreateFunction","displayName":"implies","parameters":[{"displayName":"a","type":%s},{"displayName":"b","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}""" (primitive "bool") (primitive "bool") (primitive "bool") exact)
+                send session (sprintf """{"id":"exact","op":"simulateCreateFunction","exported":true,"displayName":"implies","parameters":[{"displayName":"a","type":%s},{"displayName":"b","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}""" (primitive "bool") (primitive "bool") (primitive "bool") exact)
             publishWire session exactProposal
             let named =
                 """{"kind":"boolAnd","left":{"kind":"boolOr","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}},"right":{"kind":"boolNot","value":{"kind":"boolAnd","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}}}}"""
@@ -185,7 +185,7 @@ module BoolOperatorTests =
             Assert.Contains("\"kind\":\"boolAnd\"", namedProposal.RootElement.GetRawText())
             publishWire session namedProposal
             use unknownName =
-                AuthoringProtocol.executeLine session (sprintf """{"id":"bad","op":"simulateCreateFunctionByName","displayName":"bad","parameters":[],"resultType":%s,"requiredEffects":[],"body":{"kind":"boolOr","left":{"kind":"boolLiteral","value":true},"right":{"kind":"parameter","name":"missing"}}}""" (primitive "bool")) |> JsonDocument.Parse
+                AuthoringProtocol.executeLine session (sprintf """{"id":"bad","op":"simulateCreateFunctionByName","exported":true,"displayName":"bad","parameters":[],"resultType":%s,"requiredEffects":[],"body":{"kind":"boolOr","left":{"kind":"boolLiteral","value":true},"right":{"kind":"parameter","name":"missing"}}}""" (primitive "bool")) |> JsonDocument.Parse
             Assert.False(unknownName.RootElement.GetProperty("ok").GetBoolean())
             let xor = find session "xor"
             let viewer = session.FocusFunction xor.Id |> unwrap |> ViewerProjection.focus

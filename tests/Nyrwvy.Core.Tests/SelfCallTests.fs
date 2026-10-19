@@ -21,7 +21,7 @@ module SelfCallTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session; DisplayName = name
+        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
@@ -104,7 +104,7 @@ module SelfCallTests =
             Assert.Contains("StringLength", reject (ExpressionRecipe.StringLength(selfCall [ 0, slot 0 ])))
             // By name, arguments resolve against the owner's parameter names.
             let unknownParameter = sumToNamed.Replace("\"parameter\":\"n\"", "\"parameter\":\"m\"")
-            Assert.Contains("parameter on sumTo", failure session (sprintf """{"id":"bad","op":"simulateCreateFunctionByName","displayName":"sumTo","parameters":[{"displayName":"n","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}""" int64Json int64Json unknownParameter)))
+            Assert.Contains("parameter on sumTo", failure session (sprintf """{"id":"bad","op":"simulateCreateFunctionByName","exported":true,"displayName":"sumTo","parameters":[{"displayName":"n","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}""" int64Json int64Json unknownParameter)))
 
     [<Fact>]
     let ``replacing an existing function body can call the function itself`` () =
@@ -189,7 +189,7 @@ module SelfCallTests =
             let callsBack =
                 sprintf """{"kind":"listLength","value":{"kind":"listMap","source":{"kind":"listConstruct","itemType":%s,"items":[{"kind":"parameter","name":"n"}]},"function":"step"}}""" int64Json
             let createStep body =
-                sprintf """{"id":"step","op":"simulateCreateFunctionByName","displayName":"step","parameters":[{"displayName":"n","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}""" int64Json int64Json body
+                sprintf """{"id":"step","op":"simulateCreateFunctionByName","exported":true,"displayName":"step","parameters":[{"displayName":"n","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}""" int64Json int64Json body
             for body in [ callsBack; """{"kind":"functionReference","function":"step"}""" ] do
                 let message =
                     (JsonDocument.Parse(failure session (createStep body))).RootElement.GetProperty("error").GetProperty("message").GetString()
@@ -241,7 +241,7 @@ module SelfCallTests =
             // keepUnlisted belongs to self calls only.
             let other =
                 """{"kind":"directCall","function":"sumAcc","keepUnlisted":true,"arguments":[{"parameter":"n","value":{"kind":"int64Literal","value":1}}]}"""
-            let message = failure session (sprintf """{"id":"other","op":"simulateCreateFunctionByName","displayName":"caller","parameters":[],"resultType":%s,"requiredEffects":[],"body":%s}""" int64Json other)
+            let message = failure session (sprintf """{"id":"other","op":"simulateCreateFunctionByName","exported":true,"displayName":"caller","parameters":[],"resultType":%s,"requiredEffects":[],"body":%s}""" int64Json other)
             Assert.Contains("keepUnlisted applies only to a call of the function being created or replaced", message)
             Assert.Empty(SnapshotValidator.validate (snapshot path)))
 
@@ -340,7 +340,7 @@ module SelfCallTests =
         // nest(value: T, n: Int64) = nest([value], n), written directly into a snapshot.
         let valueRefId, listId, countRefId, callId = nestNodeIds
         let nest: SemanticFunction =
-            { Id = nestFunctionId
+            { Exported = true; Id = nestFunctionId
               TypeParameters = [ polymorphicNestId<TypeParameterTag> "T", "T" ]
               DisplayName = "nest"
               Parameters =
@@ -362,7 +362,7 @@ module SelfCallTests =
         Assert.Contains("'nest'", issue.Message)
         // Another function's type parameter is still bound by matching: g<U>(value: U) called with List<T> is an ordinary generic call.
         let other: SemanticFunction =
-            { Id = polymorphicNestId<FunctionTag> "other"
+            { Exported = true; Id = polymorphicNestId<FunctionTag> "other"
               TypeParameters = [ polymorphicNestId<TypeParameterTag> "U", "U" ]
               DisplayName = "other"
               Parameters = [ { Id = polymorphicNestId<ParameterTag> "other-value"; DisplayName = "value"; Type = TypeRef.TypeParameter(polymorphicNestId<TypeParameterTag> "U") }; { Id = polymorphicNestId<ParameterTag> "other-n"; DisplayName = "n"; Type = intType } ]
@@ -458,7 +458,7 @@ module SelfCallTests =
         let nodeId = ancestorLoopId<GraphNodeTag>
         let loopId, nId = ancestorLoopId<FunctionTag> "fn", ancestorLoopId<ParameterTag> "n"
         let loop: SemanticFunction =
-            { Id = loopId
+            { Exported = true; Id = loopId
               TypeParameters = []
               DisplayName = "loop"
               Parameters = [ { Id = nId; DisplayName = "n"; Type = intType } ]

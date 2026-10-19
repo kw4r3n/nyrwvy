@@ -21,7 +21,7 @@ module ExceptionBoundaryTests =
         Assert.True(response.GetProperty("ok").GetBoolean(), response.ToString())
         response.GetProperty("result")
     let private propose session name parameters result body =
-        execute session "simulateCreateFunctionByName" ($"""{{"displayName":"{name}","parameters":{parameters},"resultType":{result},"requiredEffects":[],"body":{body}}}""")
+        execute session "simulateCreateFunctionByName" ($"""{{"exported":true,"displayName":"{name}","parameters":{parameters},"resultType":{result},"requiredEffects":[],"body":{body}}}""")
     let private create session name parameters result body =
         let proposal = propose session name parameters result body |> success
         Assert.Equal("semanticallyReady", proposal.GetProperty("review").GetProperty("readiness").GetProperty("kind").GetString())
@@ -85,9 +85,9 @@ module ExceptionBoundaryTests =
             let run = execute session "runPureByName" """{"function":"rethrow","arguments":[{"kind":"unit"}]}"""
             Assert.False(run.GetProperty("ok").GetBoolean())
             Assert.Contains("RunTaskTypeUnsupported", run.ToString())
-            let effect = execute session "simulateCreateEffect" """{"displayName":"IO"}""" |> success
+            let effect = execute session "simulateCreateEffect" """{"exported":true,"displayName":"IO"}""" |> success
             execute session "commit" ($"""{{"proposalId":"{effect.GetProperty("proposalId").GetString()}"}}""") |> success |> ignore
-            let response = execute session "simulateCreateCapabilityByName" ($"""{{"displayName":"Host","operations":[{{"displayName":"take","parameters":[{{"displayName":"fault","type":{exceptionType}}}],"resultType":{unitType},"effect":"IO"}}]}}""")
+            let response = execute session "simulateCreateCapabilityByName" ($"""{{"exported":true,"displayName":"Host","operations":[{{"displayName":"take","parameters":[{{"displayName":"fault","type":{exceptionType}}}],"resultType":{unitType},"effect":"IO"}}]}}""")
             Assert.False(response.GetProperty("ok").GetBoolean())
             Assert.Contains("TaskTypeAtCapabilityBoundary", response.ToString()))
 
@@ -112,12 +112,12 @@ module ExceptionBoundaryTests =
             let publish op arguments =
                 let proposal = execute session op arguments |> success
                 execute session "commit" ($"""{{"proposalId":"{proposal.GetProperty("proposalId").GetString()}"}}""") |> success |> ignore
-            publish "simulateCreateEffect" """{"displayName":"IO"}"""
-            publish "simulateCreateCapabilityByName" ($"""{{"displayName":"Host","operations":[{{"displayName":"step","parameters":[],"resultType":{resultType},"effect":"IO"}}]}}""")
+            publish "simulateCreateEffect" """{"exported":true,"displayName":"IO"}"""
+            publish "simulateCreateCapabilityByName" ($"""{{"exported":true,"displayName":"Host","operations":[{{"displayName":"step","parameters":[],"resultType":{resultType},"effect":"IO"}}]}}""")
             let hostType = """{"kind":"capability","name":"Host"}"""
             let invoke = """{"kind":"capabilityInvoke","capabilityValue":{"kind":"parameter","name":"host"},"capability":"Host","operation":"step","arguments":[]}"""
-            publish "simulateCreateFunctionByName" ($"""{{"displayName":"effectBody","parameters":[{{"displayName":"host","type":{hostType}}},{{"displayName":"item","type":{unitType}}}],"resultType":{resultType},"requiredEffects":["IO"],"body":{invoke}}}""")
-            publish "simulateCreateFunctionByName" ($"""{{"displayName":"effectHandler","parameters":[{{"displayName":"host","type":{hostType}}},{{"displayName":"exception","type":{exceptionType}}}],"resultType":{resultType},"requiredEffects":["IO"],"body":{invoke}}}""")
+            publish "simulateCreateFunctionByName" ($"""{{"exported":true,"displayName":"effectBody","parameters":[{{"displayName":"host","type":{hostType}}},{{"displayName":"item","type":{unitType}}}],"resultType":{resultType},"requiredEffects":["IO"],"body":{invoke}}}""")
+            publish "simulateCreateFunctionByName" ($"""{{"exported":true,"displayName":"effectHandler","parameters":[{{"displayName":"host","type":{hostType}}},{{"displayName":"exception","type":{exceptionType}}}],"resultType":{resultType},"requiredEffects":["IO"],"body":{invoke}}}""")
             let before = File.ReadAllBytes path
             for body in [ """{"kind":"exceptionCatch","body":"effectBody","bodyContext":[{"parameter":"host","value":{"kind":"parameter","name":"host"}}],"handler":"handler"}"""
                           """{"kind":"exceptionCatch","body":"body","handler":"effectHandler","handlerContext":[{"parameter":"host","value":{"kind":"parameter","name":"host"}}]}""" ] do

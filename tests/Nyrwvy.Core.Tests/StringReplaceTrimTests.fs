@@ -41,7 +41,7 @@ module StringReplaceTrimTests =
         let snapshot = Snapshot.empty (id<SnapshotTag> "base")
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               TypeParameters = None
               DisplayName = "edit"
               Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
@@ -119,7 +119,7 @@ module StringReplaceTrimTests =
             let author name (parameters: string list) body =
                 let parameterJson = parameters |> List.map (fun displayName -> sprintf """{"displayName":"%s","type":%s}""" displayName str) |> String.concat ","
                 let line =
-                    sprintf """{"id":"%s","op":"simulateCreateFunctionByName","displayName":"%s","parameters":[%s],"resultType":%s,"requiredEffects":[],"body":%s}"""
+                    sprintf """{"id":"%s","op":"simulateCreateFunctionByName","exported":true,"displayName":"%s","parameters":[%s],"resultType":%s,"requiredEffects":[],"body":%s}"""
                         name name parameterJson str body
                 use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
                 Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
@@ -139,7 +139,7 @@ module StringReplaceTrimTests =
             Assert.Equal(PureRunValue.String "　 x", run "stringTrimEnd" [ "　 x\u0085\t" ])
             let create name resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = None
                       DisplayName = name
                       Parameters = []

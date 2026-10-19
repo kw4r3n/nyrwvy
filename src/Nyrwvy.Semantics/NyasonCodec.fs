@@ -309,7 +309,26 @@ module NyasonCodec =
                   record "type-parameter-declaration" [ "id", encodeId "type-parameter" typeParameterId; "name", text displayName ])
               |> list ]
 
-    let private encodeType (item: SemanticType) =
+    /// Declaration visibility (`DeclarationVisibility`): from `nayamnyam.snapshot.v17` on an
+    /// exported declaration carries `exported true` and a private one omits the field; below that
+    /// schema nothing is written and every declaration reads as exported, so older bytes are kept.
+    let private visibilityFields (explicitVisibility: bool) (exported: bool) =
+        if explicitVisibility && exported then [ "exported", NyasonValue.Boolean true ] else []
+
+    let private visibilityOptional (explicitVisibility: bool) =
+        if explicitVisibility then [ "exported" ] else []
+
+    let private decodeVisibility (explicitVisibility: bool) (fields: Map<string, NyasonValue>) =
+        if not explicitVisibility then true
+        else
+            match optional "exported" fields with
+            | None -> false
+            | Some value ->
+                if not (decodeBoolean value) then shape "Field 'exported' must be true or omitted (a private declaration omits it)."
+                true
+
+    let private encodeType (explicitVisibility: bool) (item: SemanticType) =
+        let visibility = visibilityFields explicitVisibility item.Exported
         // Declaration order is semantic (it is the order of type arguments); absent when empty.
         let typeParameters = encodeTypeParameters item.TypeParameters
         match item.Kind with
@@ -317,15 +336,17 @@ module NyasonCodec =
             record
                 "product-type"
                 ([ "id", encodeId "type" item.Id
-                   "display-name", text item.DisplayName
-                   "fields", fields |> List.sortBy (fun field -> StableId.value field.Id) |> List.map encodeField |> list ]
+                   "display-name", text item.DisplayName ]
+                 @ visibility
+                 @ [ "fields", fields |> List.sortBy (fun field -> StableId.value field.Id) |> List.map encodeField |> list ]
                  @ typeParameters)
         | SemanticTypeKind.Union variants ->
             record
                 "union-type"
                 ([ "id", encodeId "type" item.Id
-                   "display-name", text item.DisplayName
-                   "variants", variants |> List.sortBy (fun variant -> StableId.value variant.Id) |> List.map encodeVariant |> list ]
+                   "display-name", text item.DisplayName ]
+                 @ visibility
+                 @ [ "variants", variants |> List.sortBy (fun variant -> StableId.value variant.Id) |> List.map encodeVariant |> list ]
                  @ typeParameters)
 
     let private decodeTypeParameters (fields: Map<string, NyasonValue>) =
@@ -339,30 +360,34 @@ module NyasonCodec =
             | [] -> shape "Field 'type-parameters' must be omitted rather than empty."
             | parameters -> parameters
 
-    let private decodeType value: SemanticType =
+    let private decodeType (explicitVisibility: bool) value: SemanticType =
+        let optionalFields = "type-parameters" :: visibilityOptional explicitVisibility
         match value with
         | NyasonValue.Record("product-type", _) ->
-            let fields = recordFields "product-type" [ "id"; "display-name"; "fields" ] [ "type-parameters" ] value
+            let fields = recordFields "product-type" [ "id"; "display-name"; "fields" ] optionalFields value
             { Id = decodeId<TypeTag> "type" (require "id" fields)
               DisplayName = decodeText (require "display-name" fields)
+              Exported = decodeVisibility explicitVisibility fields
               TypeParameters = decodeTypeParameters fields
               Kind = SemanticTypeKind.Product(decodeList decodeField (require "fields" fields)) }
         | NyasonValue.Record("union-type", _) ->
-            let fields = recordFields "union-type" [ "id"; "display-name"; "variants" ] [ "type-parameters" ] value
+            let fields = recordFields "union-type" [ "id"; "display-name"; "variants" ] optionalFields value
             { Id = decodeId<TypeTag> "type" (require "id" fields)
               DisplayName = decodeText (require "display-name" fields)
+              Exported = decodeVisibility explicitVisibility fields
               TypeParameters = decodeTypeParameters fields
               Kind = SemanticTypeKind.Union(decodeList decodeVariant (require "variants" fields)) }
         | NyasonValue.Record(tag, _) -> shape $"Unsupported semantic type tag '{tag}'."
         | _ -> shape "Expected semantic type record."
 
-    let private encodeEffect (effect: SemanticEffect) =
-        record "effect" [ "id", encodeId "effect" effect.Id; "display-name", text effect.DisplayName ]
+    let private encodeEffect (explicitVisibility: bool) (effect: SemanticEffect) =
+        record "effect" ([ "id", encodeId "effect" effect.Id; "display-name", text effect.DisplayName ] @ visibilityFields explicitVisibility effect.Exported)
 
-    let private decodeEffect value: SemanticEffect =
-        let fields = recordFields "effect" [ "id"; "display-name" ] [] value
+    let private decodeEffect (explicitVisibility: bool) value: SemanticEffect =
+        let fields = recordFields "effect" [ "id"; "display-name" ] (visibilityOptional explicitVisibility) value
         { Id = decodeId<EffectTag> "effect" (require "id" fields)
-          DisplayName = decodeText (require "display-name" fields) }
+          DisplayName = decodeText (require "display-name" fields)
+          Exported = decodeVisibility explicitVisibility fields }
 
     let private encodeCapabilityParameter (parameter: SemanticCapabilityParameter) =
         record
@@ -407,21 +432,23 @@ module NyasonCodec =
           FailureType = optional "failure-type" fields |> Option.map decodeTypeRef
           EffectId = decodeId<EffectTag> "effect" (require "effect" fields) }
 
-    let private encodeCapability (capability: SemanticCapability) =
+    let private encodeCapability (explicitVisibility: bool) (capability: SemanticCapability) =
         record
             "capability"
-            [ "id", encodeId "capability" capability.Id
-              "display-name", text capability.DisplayName
-              "operations",
-              capability.Operations
-              |> List.sortBy (fun operation -> StableId.value operation.Id)
-              |> List.map encodeCapabilityOperation
-              |> list ]
+            ([ "id", encodeId "capability" capability.Id
+               "display-name", text capability.DisplayName ]
+             @ visibilityFields explicitVisibility capability.Exported
+             @ [ "operations",
+                 capability.Operations
+                 |> List.sortBy (fun operation -> StableId.value operation.Id)
+                 |> List.map encodeCapabilityOperation
+                 |> list ])
 
-    let private decodeCapability value: SemanticCapability =
-        let fields = recordFields "capability" [ "id"; "display-name"; "operations" ] [] value
+    let private decodeCapability (explicitVisibility: bool) value: SemanticCapability =
+        let fields = recordFields "capability" [ "id"; "display-name"; "operations" ] (visibilityOptional explicitVisibility) value
         { Id = decodeId<CapabilityTag> "capability" (require "id" fields)
           DisplayName = decodeText (require "display-name" fields)
+          Exported = decodeVisibility explicitVisibility fields
           Operations = decodeList decodeCapabilityOperation (require "operations" fields) }
 
     let private encodeParameter (parameter: SemanticParameter) =
@@ -2156,30 +2183,31 @@ module NyasonCodec =
         | NyasonValue.Record(tag, _) -> shape $"Unsupported semantic node tag '{tag}'."
         | _ -> shape "Expected semantic node record."
 
-    let private encodeFunction (functionEntity: SemanticFunction) =
+    let private encodeFunction (explicitVisibility: bool) (functionEntity: SemanticFunction) =
         // Declared order; absent when empty, and absent before v17, where the parameter types
         // imply the list.
         let typeParameters = if legacyWriteNames.Value.IsSome then [] else encodeTypeParameters functionEntity.TypeParameters
         record
             "function"
             ([ "id", encodeId "function" functionEntity.Id
-               "display-name", text functionEntity.DisplayName
-               "parameters", functionEntity.Parameters |> List.map encodeParameter |> list
-               "result-type", encodeTypeRef functionEntity.ResultType
-               "required-effects",
-               functionEntity.RequiredEffects
-               |> List.sortBy StableId.value
-               |> List.map (encodeId "effect")
-               |> list
-               "body", encodeGraph functionEntity.Body ]
+               "display-name", text functionEntity.DisplayName ]
+             @ visibilityFields explicitVisibility functionEntity.Exported
+             @ [ "parameters", functionEntity.Parameters |> List.map encodeParameter |> list
+                 "result-type", encodeTypeRef functionEntity.ResultType
+                 "required-effects",
+                 functionEntity.RequiredEffects
+                 |> List.sortBy StableId.value
+                 |> List.map (encodeId "effect")
+                 |> list
+                 "body", encodeGraph functionEntity.Body ]
              @ typeParameters)
 
-    let private decodeFunction value: SemanticFunction =
+    let private decodeFunction (explicitVisibility: bool) value: SemanticFunction =
         let fields =
             recordFields
                 "function"
                 [ "id"; "display-name"; "parameters"; "result-type"; "required-effects"; "body" ]
-                [ "type-parameters" ]
+                (visibilityOptional explicitVisibility @ [ "type-parameters" ])
                 value
         let parameters = decodeList decodeParameter (require "parameters" fields)
         let typeParameters =
@@ -2201,6 +2229,7 @@ module NyasonCodec =
 
         { Id = decodeId<FunctionTag> "function" (require "id" fields)
           DisplayName = decodeText (require "display-name" fields)
+          Exported = decodeVisibility explicitVisibility fields
           TypeParameters = typeParameters
           Parameters = parameters
           ResultType = decodeTypeRef (require "result-type" fields)
@@ -2258,24 +2287,24 @@ module NyasonCodec =
         | NyasonValue.Record(tag, _) -> shape $"Unsupported obligation tag '{tag}'."
         | _ -> shape "Expected obligation record."
 
-    let private encodeSnapshot (snapshot: Snapshot) =
+    let private encodeSnapshot (explicitVisibility: bool) (snapshot: Snapshot) =
         let parentFields =
             match snapshot.ParentId with
             | Some parentId -> [ "parent", encodeId "snapshot" parentId ]
             | None -> []
 
         let collectionFields =
-            [ "types", snapshot.Types |> List.sortBy (fun item -> StableId.value item.Id) |> List.map encodeType |> list
-              "effects", snapshot.Effects |> List.sortBy (fun item -> StableId.value item.Id) |> List.map encodeEffect |> list
+            [ "types", snapshot.Types |> List.sortBy (fun item -> StableId.value item.Id) |> List.map (encodeType explicitVisibility) |> list
+              "effects", snapshot.Effects |> List.sortBy (fun item -> StableId.value item.Id) |> List.map (encodeEffect explicitVisibility) |> list
               "capabilities",
               snapshot.Capabilities
               |> List.sortBy (fun item -> StableId.value item.Id)
-              |> List.map encodeCapability
+              |> List.map (encodeCapability explicitVisibility)
               |> list
               "functions",
               snapshot.Functions
               |> List.sortBy (fun item -> StableId.value item.Id)
-              |> List.map encodeFunction
+              |> List.map (encodeFunction explicitVisibility)
               |> list
               "obligations",
               snapshot.Obligations
@@ -2285,7 +2314,7 @@ module NyasonCodec =
 
         record "snapshot" ([ "id", encodeId "snapshot" snapshot.Id ] @ parentFields @ collectionFields)
 
-    let private decodeSnapshot value: Snapshot =
+    let private decodeSnapshot (explicitVisibility: bool) value: Snapshot =
         let fields =
             recordFields
                 "snapshot"
@@ -2295,10 +2324,10 @@ module NyasonCodec =
 
         { Id = decodeId<SnapshotTag> "snapshot" (require "id" fields)
           ParentId = optional "parent" fields |> Option.map (decodeId<SnapshotTag> "snapshot")
-          Types = decodeList decodeType (require "types" fields)
-          Effects = decodeList decodeEffect (require "effects" fields)
-          Capabilities = decodeList decodeCapability (require "capabilities" fields)
-          Functions = decodeList decodeFunction (require "functions" fields)
+          Types = decodeList (decodeType explicitVisibility) (require "types" fields)
+          Effects = decodeList (decodeEffect explicitVisibility) (require "effects" fields)
+          Capabilities = decodeList (decodeCapability explicitVisibility) (require "capabilities" fields)
+          Functions = decodeList (decodeFunction explicitVisibility) (require "functions" fields)
           Obligations = decodeList decodeObligation (require "obligations" fields) }
 
     let serialize (snapshot: Snapshot): Result<string, NyasonCodecError> =
@@ -2315,7 +2344,7 @@ module NyasonCodec =
                     record
                         "nyason"
                         [ "schema", text required.Nyason
-                          "snapshot", withLegacyWriteNames legacyNames (fun () -> encodeSnapshot snapshot) ]
+                          "snapshot", withLegacyWriteNames legacyNames (fun () -> encodeSnapshot (SnapshotSchema.writesVisibility required) snapshot) ]
                 if NyasonSyntax.exceedsMaxDepth root then tooDeep else Ok(NyasonSyntax.render root)
 
     let deserialize (source: string): Result<Snapshot, NyasonCodecError> =
@@ -2330,10 +2359,12 @@ module NyasonCodec =
                     | Some declared -> declared
                     | None -> raise (NyasonSchemaException actualSchema)
 
+                // Version-gated defaults: below v17 every declaration reads as exported and each
+                // function's type parameter list is derived from its named occurrences.
                 let legacyNames =
                     if declared.Json < SnapshotSchema.declaredFunctionTypeParameters.Json then Some(System.Collections.Generic.Dictionary<TypeParameterId, string>())
                     else None
-                let snapshot = withLegacyReadNames legacyNames (fun () -> decodeSnapshot (require "snapshot" fields))
+                let snapshot = withLegacyReadNames legacyNames (fun () -> decodeSnapshot (SnapshotSchema.writesVisibility declared) (require "snapshot" fields))
                 match SnapshotSchema.firstUnsupported declared snapshot with
                 | Some(_, minimum, name) -> raise (NyasonShapeException $"{name} requires {minimum.Nyason}.")
                 | None -> ()

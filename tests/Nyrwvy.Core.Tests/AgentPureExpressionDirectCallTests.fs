@@ -23,7 +23,7 @@ module AgentPureExpressionDirectCallTests =
     let private int64Type = TypeRef.Primitive PrimitiveType.Int64
 
     let private functionWithBody id name parameters resultType resultNodeId kind: SemanticFunction =
-        { Id = id
+        { Exported = true; Id = id
           TypeParameters = []
           DisplayName = name
           Parameters = parameters
@@ -62,7 +62,7 @@ module AgentPureExpressionDirectCallTests =
                 (SemanticNodeKind.StringLiteral "result")
 
         let callEffect: SemanticEffect =
-            { Id = effectId "required"
+            { Exported = true; Id = effectId "required"
               DisplayName = "required" }
 
         let effectfulCallee =

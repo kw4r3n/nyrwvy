@@ -141,16 +141,21 @@ type SemanticTypeKind =
     | Product of SemanticField list
     | Union of SemanticVariant list
 
+/// A declaration is usable inside its own snapshot whatever its visibility; a snapshot that
+/// depends on this one may use it only when it is exported (`Exported = true`). New declarations
+/// are private unless the request exports them. See docs/decisions/declaration-visibility.md.
 type SemanticType =
     { Id: TypeId
       DisplayName: string
+      Exported: bool
       /// Declared type parameters in order; field types may mention them. Empty for a monomorphic type.
       TypeParameters: (TypeParameterId * string) list
       Kind: SemanticTypeKind }
 
 type SemanticEffect =
     { Id: EffectId
-      DisplayName: string }
+      DisplayName: string
+      Exported: bool }
 
 type SemanticCapabilityParameter =
     { Id: CapabilityParameterId
@@ -168,6 +173,7 @@ type SemanticCapabilityOperation =
 type SemanticCapability =
     { Id: CapabilityId
       DisplayName: string
+      Exported: bool
       Operations: SemanticCapabilityOperation list }
 
 type SemanticParameter =
@@ -710,6 +716,7 @@ and ValueGraph =
 type SemanticFunction =
     { Id: FunctionId
       DisplayName: string
+      Exported: bool
       /// Declared type parameters in order, each mentioned by at least one parameter type so a call
       /// can derive it by matching; empty for a monomorphic function. Order is the order of the
       /// backend's generic method type parameters. See docs/decisions/declared-function-type-parameters.md.

@@ -21,7 +21,7 @@ module ListFoldTests =
 
     let private create ws name parameters resultType body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
               TypeParameters = None
               DisplayName = name
               Parameters = parameters
@@ -46,7 +46,7 @@ module ListFoldTests =
 
     let private fixture () =
         let state: SemanticType =
-            { TypeParameters = []; Id = stateId
+            { Exported = true; TypeParameters = []; Id = stateId
               DisplayName = "LookupState"
               Kind = SemanticTypeKind.Product
                 [ { Id = keyId; DisplayName = "key"; Type = stringType }
@@ -111,7 +111,7 @@ module ListFoldTests =
         let itemId = id<FieldTag> "item"
         let stateType = TypeRef.Named(stateId, [])
         let state: SemanticType =
-            { TypeParameters = []; Id = stateId
+            { Exported = true; TypeParameters = []; Id = stateId
               DisplayName = "IndexState"
               Kind = SemanticTypeKind.Product
                 [ { Id = remainingId; DisplayName = "remaining"; Type = intType }
@@ -165,13 +165,13 @@ module ListFoldTests =
         let stateType = TypeRef.Named(stateId, [])
         let optionType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ stringType ])
         let entry: SemanticType =
-            { TypeParameters = []; Id = entryId
+            { Exported = true; TypeParameters = []; Id = entryId
               DisplayName = "Entry"
               Kind = SemanticTypeKind.Product
                 [ { Id = entryKeyId; DisplayName = "key"; Type = stringType }
                   { Id = entryValueId; DisplayName = "value"; Type = stringType } ] }
         let state: SemanticType =
-            { TypeParameters = []; Id = stateId
+            { Exported = true; TypeParameters = []; Id = stateId
               DisplayName = "FindState"
               Kind = SemanticTypeKind.Product
                 [ { Id = stateKeyId; DisplayName = "key"; Type = stringType }
@@ -394,7 +394,7 @@ module ListFoldTests =
         let initial = Snapshot.empty (id<SnapshotTag> "equality-initial")
         let ws = AgentWorkspace.create initial |> unwrap "workspace"
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = initial.Id
+            { Exported = true; ExpectedBaseSnapshotId = initial.Id
               TypeParameters = None
               DisplayName = "same"
               Parameters = [ parameter "left" stringType; parameter "right" stringType ]

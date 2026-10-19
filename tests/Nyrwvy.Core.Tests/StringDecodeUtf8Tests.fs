@@ -25,7 +25,7 @@ module StringDecodeUtf8Tests =
         let snapshot = Snapshot.empty (id<SnapshotTag> "base")
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               TypeParameters = None
               DisplayName = "decode"
               Parameters = [ { DisplayName = "bytes"; Type = parameterType } ]
@@ -84,7 +84,7 @@ module StringDecodeUtf8Tests =
             use proposed =
                 AuthoringProtocol.executeLine
                     session
-                    """{"id":"decode","op":"simulateCreateFunctionByName","displayName":"decode","parameters":[{"displayName":"bytes","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"kind":"stringDecodeUtf8Lossy","value":{"kind":"parameter","name":"bytes"}}}"""
+                    """{"id":"decode","op":"simulateCreateFunctionByName","exported":true,"displayName":"decode","parameters":[{"displayName":"bytes","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"kind":"stringDecodeUtf8Lossy","value":{"kind":"parameter","name":"bytes"}}}"""
                 |> JsonDocument.Parse
             Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
             let proposalId = proposed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
@@ -130,7 +130,7 @@ module StringDecodeUtf8Tests =
                   "â\U0001F600", "��" ]
             let decode = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "decode")
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                   TypeParameters = None
                   DisplayName = "table"
                   Parameters = []

@@ -67,7 +67,7 @@ module UnionVariantAdditionTests =
         let signature = parameters |> List.map (fun (displayName, typeRef) -> field displayName typeRef) |> String.concat ","
         publish
             session
-            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{signature}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{signature}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
         |> ignore
 
     /// Shape = Circle { radius } | Square { side } | Dot. `area(shape, scale)` matches Shape with a
@@ -85,11 +85,11 @@ module UnionVariantAdditionTests =
             try
                 publish
                     session
-                    $"""{{"id":"shape","op":"simulateCreateTypeByName","displayName":"Shape","typeKind":{{"kind":"union","variants":[{{"displayName":"Circle","fields":[{field "radius" int64Type}]}},{{"displayName":"Square","fields":[{field "side" int64Type}]}},{{"displayName":"Dot","fields":[]}}]}}}}"""
+                    $"""{{"id":"shape","op":"simulateCreateTypeByName","exported":true,"displayName":"Shape","typeKind":{{"kind":"union","variants":[{{"displayName":"Circle","fields":[{field "radius" int64Type}]}},{{"displayName":"Square","fields":[{field "side" int64Type}]}},{{"displayName":"Dot","fields":[]}}]}}}}"""
                 |> ignore
                 publish
                     session
-                    $"""{{"id":"maybe","op":"simulateCreateTypeByName","displayName":"Maybe","typeParameters":["T"],"typeKind":{{"kind":"union","variants":[{{"displayName":"Just","fields":[{field "value" (typeParameter "T")}]}},{{"displayName":"Nothing","fields":[]}}]}}}}"""
+                    $"""{{"id":"maybe","op":"simulateCreateTypeByName","exported":true,"displayName":"Maybe","typeParameters":["T"],"typeKind":{{"kind":"union","variants":[{{"displayName":"Just","fields":[{field "value" (typeParameter "T")}]}},{{"displayName":"Nothing","fields":[]}}]}}}}"""
                 |> ignore
                 let radius = """{"kind":"patternReference","scopeDepth":0,"slot":"field","type":"Shape","variant":"Circle","field":"radius"}"""
                 define session "area" [ "shape", named "Shape"; "scale", int64Type ] int64Type

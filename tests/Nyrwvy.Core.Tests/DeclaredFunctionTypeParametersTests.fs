@@ -28,6 +28,7 @@ module DeclaredFunctionTypeParametersTests =
     let private second (typeParameters: (TypeParameterId * string) list): SemanticFunction =
         let resultNodeId = id<GraphNodeTag> "second-result"
         { Id = id<FunctionTag> "second"
+          Exported = true
           DisplayName = "second"
           TypeParameters = typeParameters
           Parameters =
@@ -103,7 +104,7 @@ module DeclaredFunctionTypeParametersTests =
         Assert.Contains(SnapshotValidator.validate duplicateName, fun issue -> issue.Code = "DuplicateTypeParameterName")
         let shared =
             { snapshotOf (second [ tId, "T"; uId, "U" ]) with
-                Types = [ { Id = id<TypeTag> "box"; DisplayName = "Box"; TypeParameters = [ tId, "T" ]; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "content"; DisplayName = "content"; Type = t } ] } ] }
+                Types = [ { Exported = true; Id = id<TypeTag> "box"; DisplayName = "Box"; TypeParameters = [ tId, "T" ]; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "content"; DisplayName = "content"; Type = t } ] } ] }
         Assert.Contains(SnapshotValidator.validate shared, fun issue -> issue.Code = "TypeParameterSharedAcrossFunctions")
 
     [<Fact>]
@@ -184,3 +185,45 @@ module DeclaredFunctionTypeParametersTests =
             Assert.Contains("'V'", reject """["T","U","V"]""")
             Assert.Contains("FunctionCreationDuplicateTypeParameter", reject """["T","U","T"]""")
             Assert.Empty(session.Declarations().Functions))
+
+    [<Fact>]
+    let ``a snapshot using both schema-21 constructs round-trips in both codecs and legacy fingerprints stay unchanged`` () =
+        // Declared order (U, T) and a private helper beside an exported generic function: both
+        // `DeclaredFunctionTypeParameters` and `DeclarationVisibility` are in use.
+        let exportedReordered = second [ uId, "U"; tId, "T" ]
+        let helperResult = id<GraphNodeTag> "helper-result"
+        let privateHelper: SemanticFunction =
+            { Exported = false
+              Id = id<FunctionTag> "helper"
+              DisplayName = "helper"
+              TypeParameters = []
+              Parameters = []
+              ResultType = intType
+              RequiredEffects = []
+              Body = { Nodes = [ { Id = helperResult; Kind = SemanticNodeKind.Int64Literal 1L } ]; ResultNodeId = helperResult } }
+        let mixed = { Snapshot.empty (id<SnapshotTag> "mixed") with Functions = [ privateHelper; exportedReordered ] }
+        Assert.Empty(SnapshotValidator.validate mixed)
+        Assert.Equal<Set<SnapshotSchemaFeature>>(
+            Set.ofList [ SnapshotSchemaFeature.DeclaredFunctionTypeParameters; SnapshotSchemaFeature.DeclarationVisibility ],
+            SnapshotSchema.usedFeatures mixed)
+        Assert.Equal(21, (SnapshotSchema.required mixed).Json)
+        let json = SnapshotCodec.serialize mixed |> unwrap "json"
+        Assert.Contains("\"schemaVersion\":21", json)
+        Assert.Contains("\"exported\":true", json)
+        Assert.Contains("\"typeParameters\":[{\"typeParameterId\":\"declared-U\"", json)
+        Assert.DoesNotContain("\"displayName\":\"T\"}}", json)
+        Assert.Equal(mixed, SnapshotCodec.deserialize json |> unwrap "json restore")
+        let nyason = NyasonCodec.serialize mixed |> unwrap "nyason"
+        Assert.Contains("nayamnyam.snapshot.v17", nyason)
+        Assert.Equal(mixed, NyasonCodec.deserialize nyason |> unwrap "nyason restore")
+        // A legacy document (names on occurrences, no list, no visibility) still reads as the same
+        // all-exported snapshot and re-serializes to its own bytes, so both fingerprints are unchanged.
+        let legacy =
+            """{"schemaVersion":9,"snapshotId":"declared-legacy","types":[],"effects":[],"capabilities":[],"functions":[{"id":"declared-second","displayName":"second","parameters":[{"id":"declared-first","displayName":"first","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","typeParameterId":"declared-T","displayName":"T"}]}},{"id":"declared-second","displayName":"second","type":{"kind":"typeParameter","typeParameterId":"declared-U","displayName":"U"}}],"resultType":{"kind":"typeParameter","typeParameterId":"declared-U","displayName":"U"},"requiredEffects":[],"body":{"nodes":[{"id":"declared-second-result","kind":"parameterReference","parameterId":"declared-second"}],"resultNodeId":"declared-second-result"}}],"obligations":[]}"""
+        let restored = SnapshotCodec.deserialize legacy |> unwrap "legacy"
+        Assert.True(restored.Functions.Head.Exported)
+        Assert.Equal<(TypeParameterId * string) list>([ tId, "T"; uId, "U" ], restored.Functions.Head.TypeParameters)
+        Assert.Equal(legacy, SnapshotCodec.serialize restored |> unwrap "legacy reserialize")
+        let derivedTwin = { snapshotOf (second [ tId, "T"; uId, "U" ]) with Id = id<SnapshotTag> "legacy" }
+        Assert.Equal(SnapshotFingerprint.compute restored, SnapshotFingerprint.compute derivedTwin)
+        Assert.Equal(SemanticFingerprint.compute restored, SemanticFingerprint.compute derivedTwin)

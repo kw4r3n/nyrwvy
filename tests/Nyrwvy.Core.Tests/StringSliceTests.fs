@@ -22,7 +22,7 @@ module StringSliceTests =
         | Error error -> failwithf "%s: %A" label error
 
     let private caseType: SemanticType =
-        { TypeParameters = []; Id = caseTypeId
+        { Exported = true; TypeParameters = []; Id = caseTypeId
           DisplayName = "SliceCase"
           Kind =
             SemanticTypeKind.Product
@@ -35,7 +35,7 @@ module StringSliceTests =
         let snapshot = Snapshot.empty (id<SnapshotTag> "base")
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               TypeParameters = None
               DisplayName = "measure"
               Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
@@ -93,12 +93,12 @@ module StringSliceTests =
                 Assert.True(commit.RootElement.GetProperty("ok").GetBoolean(), commit.RootElement.ToString())
             let primitive name = sprintf """{"kind":"primitive","primitive":"%s"}""" name
             let field name = sprintf """{"kind":"fieldAccess","source":{"kind":"parameter","name":"case"},"type":"SliceCase","field":"%s"}""" name
-            create (sprintf """{"id":"measure","op":"simulateCreateFunctionByName","displayName":"measure","parameters":[{"displayName":"text","type":%s}],"resultType":%s,"requiredEffects":[],"body":{"kind":"stringLength","value":{"kind":"parameter","name":"text"}}}""" (primitive "string") (primitive "int64"))
-            create (sprintf """{"id":"cut","op":"simulateCreateFunctionByName","displayName":"cut","parameters":[{"displayName":"case","type":{"kind":"named","name":"SliceCase"}}],"resultType":%s,"requiredEffects":[],"body":{"kind":"stringSlice","value":%s,"start":%s,"end":%s}}""" (primitive "string") (field "text") (field "start") (field "end"))
+            create (sprintf """{"id":"measure","op":"simulateCreateFunctionByName","exported":true,"displayName":"measure","parameters":[{"displayName":"text","type":%s}],"resultType":%s,"requiredEffects":[],"body":{"kind":"stringLength","value":{"kind":"parameter","name":"text"}}}""" (primitive "string") (primitive "int64"))
+            create (sprintf """{"id":"cut","op":"simulateCreateFunctionByName","exported":true,"displayName":"cut","parameters":[{"displayName":"case","type":{"kind":"named","name":"SliceCase"}}],"resultType":%s,"requiredEffects":[],"body":{"kind":"stringSlice","value":%s,"start":%s,"end":%s}}""" (primitive "string") (field "text") (field "start") (field "end"))
             let functionId name = (session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)).Id
             let create' name parameters resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = None
                       DisplayName = name
                       Parameters = parameters |> List.map (fun parameterType -> { DisplayName = "items"; Type = parameterType })

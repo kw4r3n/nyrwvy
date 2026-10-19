@@ -19,8 +19,8 @@ module DependencyLocalRepairTests =
     let private library version valueType =
         let input, result = id<GraphNodeTag> "input", id<GraphNodeTag> "read"
         { Snapshot.empty (id<SnapshotTag> version) with
-            Types = [ { TypeParameters = []; Id = moneyId; DisplayName = "Money"; Kind = SemanticTypeKind.Product [ { Id = amountId; DisplayName = "amount"; Type = valueType } ] } ]
-            Functions = [ { Id = readId; DisplayName = "read"; Parameters = [ { Id = parameterId; DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
+            Types = [ { Exported = true; TypeParameters = []; Id = moneyId; DisplayName = "Money"; Kind = SemanticTypeKind.Product [ { Id = amountId; DisplayName = "amount"; Type = valueType } ] } ]
+            Functions = [ { Exported = true; Id = readId; DisplayName = "read"; Parameters = [ { Id = parameterId; DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
                             TypeParameters = []
                             ResultType = valueType; RequiredEffects = []
                             Body = { Nodes = [ { Id = input; Kind = SemanticNodeKind.ParameterReference parameterId }
@@ -29,7 +29,7 @@ module DependencyLocalRepairTests =
         session.Commit((unwrap proposal).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private create (session: AuthoringSession) name resultType body =
         session.SimulateCreateFunction
-            { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
+            { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
               TypeParameters = None
               Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
               ResultType = resultType; RequiredEffects = []; Body = body } |> publish session
@@ -119,12 +119,12 @@ module DependencyLocalRepairTests =
     [<Fact>]
     let ``local field and operation signature repairs retain field operation and parameter identities`` () =
         withApp (fun session path _ _ change repairs _ _ ->
-            session.SimulateCreateType { TypeParameters = []; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Local"
+            session.SimulateCreateType { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Local"
                                          Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "value"; Type = intType } ] } |> publish session
-            session.SimulateCreateEffect { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Record" } |> publish session
+            session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Record" } |> publish session
             let effect = session.Declarations().Effects.Head.Id
             session.SimulateCreateCapability
-                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Ledger"
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Ledger"
                   Operations = [ { DisplayName = "record"; Parameters = [ { DisplayName = "value"; Type = intType } ]; ResultType = intType; FailureType = None; EffectId = effect } ] } |> publish session
             let before = session.Declarations()
             let owner = before.Types |> List.find (fun t -> t.DisplayName = "Local")
@@ -267,7 +267,7 @@ module DependencyLocalRepairTests =
         withApp (fun session _ _ newPath _ _ relay entry ->
             let genericType = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "T")
             session.SimulateCreateFunction
-                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "generic"
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "generic"
                   TypeParameters = None
                   Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) }; { DisplayName = "extra"; Type = genericType } ]
                   ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.DirectCall(readId, [ parameterId, ExpressionRecipe.ParameterSlot 0 ]) } |> publish session

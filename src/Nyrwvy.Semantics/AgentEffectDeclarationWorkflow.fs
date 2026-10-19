@@ -4,7 +4,9 @@ open System
 
 type AgentCreateEffectDeclarationRequest =
     { ExpectedBaseSnapshotId: SnapshotId
-      DisplayName: string }
+      DisplayName: string
+      /// Whether snapshots that depend on this one may use the effect; private when false.
+      Exported: bool }
 
 type AgentEffectDeclarationReview =
     { RequestedChange: AgentCreateEffectDeclarationRequest
@@ -79,7 +81,8 @@ module AgentEffectDeclarationWorkflow =
 
     let private materialize (request: AgentCreateEffectDeclarationRequest): SemanticEffect =
         { Id = StableIdAllocator.newEffectId ()
-          DisplayName = request.DisplayName }
+          DisplayName = request.DisplayName
+          Exported = request.Exported }
 
     let simulate
         (workspace: AgentWorkspace)

@@ -10,7 +10,7 @@ module SemanticFactsTests =
     let private nodeId index = StableId.createForTesting<GraphNodeTag> $"node-facts-{index}"
 
     let private functionWith resultType nodes: SemanticFunction =
-        { Id = StableId.createForTesting<FunctionTag> "function-facts"
+        { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-facts"
           TypeParameters = []
           DisplayName = "facts"
           Parameters = []
@@ -129,14 +129,14 @@ module SemanticFactsTests =
         let revision suffix resultType =
             { snapshotWith [ { probe with Id = targetId; ResultType = resultType } ] with
                 Types =
-                    [ { TypeParameters = []; Id = StableId.createForTesting<TypeTag> "type-product"
+                    [ { Exported = true; TypeParameters = []; Id = StableId.createForTesting<TypeTag> "type-product"
                         DisplayName = "Product"
                         Kind = SemanticTypeKind.Product [ { Id = fieldId; DisplayName = "field"; Type = resultType } ] }
-                      { TypeParameters = []; Id = ownerId suffix
+                      { Exported = true; TypeParameters = []; Id = ownerId suffix
                         DisplayName = "Union"
                         Kind = SemanticTypeKind.Union [ { Id = variantId; DisplayName = "Case"; Fields = [] } ] } ]
                 Capabilities =
-                    [ { Id = StableId.createForTesting<CapabilityTag> "capability-facts"
+                    [ { Exported = true; Id = StableId.createForTesting<CapabilityTag> "capability-facts"
                         DisplayName = "Capability"
                         Operations =
                             [ { Id = operationId

@@ -20,7 +20,7 @@ module ResultTypeMigrationTests =
 
     let private create ws name (parameters: (string * TypeRef) list) resultType body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
               TypeParameters = None
               DisplayName = name
               Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })

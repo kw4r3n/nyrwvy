@@ -18,6 +18,8 @@ type AgentTypeDeclarationKindIntent =
 type AgentCreateTypeDeclarationRequest =
     { ExpectedBaseSnapshotId: SnapshotId
       DisplayName: string
+      /// Whether snapshots that depend on this one may use the type; private when false.
+      Exported: bool
       /// Request-local type parameters, in declaration order; field types name them with
       /// `TypeRef.TypeParameter`. Simulation gives each a fresh system-owned identity.
       TypeParameters: (TypeParameterId * string) list
@@ -29,6 +31,7 @@ type AgentCreateTypeDeclarationRequest =
 type AgentTypeDeclarationGroupMember =
     { Reference: TypeId
       DisplayName: string
+      Exported: bool
       /// Request-local type parameters, as for a single declaration.
       TypeParameters: (TypeParameterId * string) list
       Kind: AgentTypeDeclarationKindIntent }
@@ -314,6 +317,7 @@ module AgentTypeDeclarationWorkflow =
         let typeParameters, renameParameters = freshTypeParameters request.TypeParameters
         { Id = StableIdAllocator.newTypeId ()
           DisplayName = request.DisplayName
+          Exported = request.Exported
           TypeParameters = typeParameters
           Kind = materializeKind renameParameters request.Kind }
 
@@ -337,6 +341,7 @@ module AgentTypeDeclarationWorkflow =
             let typeParameters, renameParameters = freshTypeParameters item.TypeParameters
             { Id = allocated[item.Reference]
               DisplayName = item.DisplayName
+              Exported = item.Exported
               TypeParameters = typeParameters
               Kind = materializeKind (rewrite >> renameParameters) item.Kind })
 

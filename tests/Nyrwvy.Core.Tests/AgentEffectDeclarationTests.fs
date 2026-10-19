@@ -28,7 +28,7 @@ module AgentEffectDeclarationTests =
 
     let private untouchedFunction () =
         let resultId = nodeId "untouched-result"
-        { Id = functionId "untouched"
+        { Exported = true; Id = functionId "untouched"
           TypeParameters = []
           DisplayName = "untouched"
           Parameters = []
@@ -46,7 +46,7 @@ module AgentEffectDeclarationTests =
                 Functions = [ untouched ] }
         let ws0 = workspace snapshot
         let request: AgentCreateEffectDeclarationRequest =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               DisplayName = "io" }
 
         let proposal = simulate ws0 request
@@ -63,7 +63,7 @@ module AgentEffectDeclarationTests =
         Assert.Contains(AgentWorkspace.listFunctions ws1, fun functionEntity -> functionEntity = untouched)
 
         let functionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws1
+            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws1
               TypeParameters = None
               DisplayName = "uses_io"
               Parameters = []
@@ -91,7 +91,7 @@ module AgentEffectDeclarationTests =
         let snapshot = Snapshot.empty (snapshotId "invalid")
         let ws = workspace snapshot
         let request: AgentCreateEffectDeclarationRequest =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               DisplayName = " " }
 
         match AgentEffectDeclarationWorkflow.simulate ws request with
@@ -107,7 +107,7 @@ module AgentEffectDeclarationTests =
         let snapshot = Snapshot.empty (snapshotId "stale")
         let ws = workspace snapshot
         let request name: AgentCreateEffectDeclarationRequest =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               DisplayName = name }
 
         let first = simulate ws (request "first")
@@ -134,7 +134,8 @@ module AgentEffectDeclarationTests =
 
         Assert.Equal<(string * System.Type) list>(
             [ "ExpectedBaseSnapshotId", typeof<SnapshotId>
-              "DisplayName", typeof<string> ],
+              "DisplayName", typeof<string>
+              "Exported", typeof<bool> ],
             requestFields
         )
 

@@ -28,7 +28,7 @@ module FingerprintTests =
     let private genericSnapshot (typeParameterId, displayName) parameterType resultType body =
         { Snapshot.empty (id<SnapshotTag> "generic-snapshot") with
             Functions =
-                [ { Id = id<FunctionTag> "generic-function"
+                [ { Exported = true; Id = id<FunctionTag> "generic-function"
                     DisplayName = "generic"
                     TypeParameters = [ typeParameterId, displayName ]
                     Parameters =

@@ -22,7 +22,7 @@ module ListSortByTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session; DisplayName = name
+        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = effects; Body = body }
@@ -96,7 +96,7 @@ module ListSortByTests =
             let unknown = StableId.createForTesting<FunctionTag> "function-missing"
             Assert.Contains("PureExpressionCallbackNotFound", rejects session [ "items", listOf textType ] (listOf textType) (ExpressionRecipe.ListSortBy(slot 0, unknown, [])))
             // A comparator with required effects is rejected, as for ListFilter.
-            session.SimulateCreateEffect { ExpectedBaseSnapshotId = current session; DisplayName = "Clock" } |> unwrap |> publish session
+            session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "Clock" } |> unwrap |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
             let effectful = createWith session "effectfulLess" [ "left", textType; "right", textType ] boolType [ effect.Id ] (ExpressionRecipe.BoolLiteral true)
             Assert.Contains("PureExpressionCallbackEffectsNotAllowed", rejects session [ "items", listOf textType ] (listOf textType) (sortBy (slot 0) effectful))
@@ -116,7 +116,7 @@ module ListSortByTests =
         let parameter owner name t: SemanticParameter = { Id = StableId.createForTesting<ParameterTag> ("parameter-" + owner + "-" + name); DisplayName = name; Type = t }
         let effectId = StableId.createForTesting<EffectTag> "effect-sort-clock"
         let callback name parameterTypes resultType effects: SemanticFunction =
-            { Id = id name; DisplayName = name
+            { Exported = true; Id = id name; DisplayName = name
               TypeParameters = []
               Parameters = parameterTypes |> List.mapi (fun index t -> parameter name (string index) t)
               ResultType = resultType; RequiredEffects = effects
@@ -133,10 +133,10 @@ module ListSortByTests =
                 else fn)
         let validate nodes resultType resultNodeId =
             let fn: SemanticFunction =
-                { Id = id "entry"; DisplayName = "entry"; Parameters = []; ResultType = resultType; RequiredEffects = []
+                { Exported = true; Id = id "entry"; DisplayName = "entry"; Parameters = []; ResultType = resultType; RequiredEffects = []
                   TypeParameters = []
                   Body = { Nodes = nodes; ResultNodeId = resultNodeId } }
-            let effect: SemanticEffect = { Id = effectId; DisplayName = "Clock" }
+            let effect: SemanticEffect = { Exported = true; Id = effectId; DisplayName = "Clock" }
             SnapshotValidator.validate { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-sort") with Functions = fn :: fns; Effects = [ effect ] }
             |> List.map (fun issue -> issue.Code)
         let sortWith source sourceType callbackName =
@@ -169,7 +169,7 @@ module ListSortByTests =
             let texts = sprintf """{"kind":"builtinGeneric","generic":"list","arguments":[%s]}""" (primitive "string")
             let signature = sprintf """"parameters":[{"displayName":"items","type":%s}],"resultType":%s,"requiredEffects":[]""" texts texts
             use exactProposal =
-                send session (sprintf """{"id":"exact","op":"simulateCreateFunction","displayName":"sortExact",%s,"body":{"kind":"listSortBy","source":{"kind":"parameterSlot","index":0},"functionId":"%s"}}""" signature (StableId.value fns.TextLess.Id))
+                send session (sprintf """{"id":"exact","op":"simulateCreateFunction","exported":true,"displayName":"sortExact",%s,"body":{"kind":"listSortBy","source":{"kind":"parameterSlot","index":0},"functionId":"%s"}}""" signature (StableId.value fns.TextLess.Id))
             publishWire session exactProposal
             use namedProposal =
                 send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"detail":"full","displayName":"sortByName",%s,"body":{"kind":"listSortBy","source":{"kind":"parameter","name":"items"},"function":"shorterText"}}""" signature)
@@ -181,7 +181,7 @@ module ListSortByTests =
             Assert.Contains("\"kind\":\"stringLessThan\"", lessProposal.RootElement.GetRawText())
             publishWire session lessProposal
             use missingFunction =
-                AuthoringProtocol.executeLine session (sprintf """{"id":"bad","op":"simulateCreateFunction","displayName":"bad",%s,"body":{"kind":"listSortBy","source":{"kind":"parameterSlot","index":0}}}""" signature) |> JsonDocument.Parse
+                AuthoringProtocol.executeLine session (sprintf """{"id":"bad","op":"simulateCreateFunction","exported":true,"displayName":"bad",%s,"body":{"kind":"listSortBy","source":{"kind":"parameterSlot","index":0}}}""" signature) |> JsonDocument.Parse
             Assert.False(missingFunction.RootElement.GetProperty("ok").GetBoolean())
             let named = find session "sortByName"
             let viewer = session.FocusFunction named.Id |> unwrap |> ViewerProjection.focus
@@ -223,7 +223,7 @@ module ListSortByTests =
             let fns = callbacks session
             let row =
                 session.SimulateCreateType
-                    { TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = "Row"
+                    { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = "Row"
                       Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "role"; Type = textType }; { DisplayName = "count"; Type = intType } ] }
                 |> unwrap |> publish session
                 session.Declarations().Types |> List.find (fun item -> item.DisplayName = "Row")

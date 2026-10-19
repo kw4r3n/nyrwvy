@@ -40,27 +40,27 @@ module PureRunInnerNestingTests =
     let private levels =
         [ 1 .. 9 ] |> List.map (fun index ->
             let fieldType = if index = 9 then intType else TypeRef.Named(levelId (index + 1), [])
-            { TypeParameters = []; Id = levelId index; DisplayName = "Level" + string index
+            { Exported = true; TypeParameters = []; Id = levelId index; DisplayName = "Level" + string index
               Kind = SemanticTypeKind.Product [ { Id = levelFieldId index; DisplayName = "value"; Type = fieldType } ] })
 
     let private withSession run =
         let types: SemanticType list =
-            [ { TypeParameters = []; Id = itemId; DisplayName = "Item"
+            [ { Exported = true; TypeParameters = []; Id = itemId; DisplayName = "Item"
                 Kind = SemanticTypeKind.Product
                     [ { Id = labelId; DisplayName = "label"; Type = stringType }
                       { Id = tagsId; DisplayName = "tags"; Type = listType stringType }
                       { Id = scoreId; DisplayName = "score"; Type = optionType intType } ] }
-              { TypeParameters = []; Id = shapeId; DisplayName = "Shape"
+              { Exported = true; TypeParameters = []; Id = shapeId; DisplayName = "Shape"
                 Kind = SemanticTypeKind.Union
                     [ { Id = circleId; DisplayName = "Circle"; Fields = [ { Id = radiusId; DisplayName = "radius"; Type = intType } ] }
                       { Id = groupId; DisplayName = "Group"; Fields = [ { Id = membersId; DisplayName = "members"; Type = listType itemType } ] }
                       { Id = wrappedId; DisplayName = "Wrapped"; Fields = [ { Id = innerId; DisplayName = "inner"; Type = wrappedType } ] } ] }
-              { TypeParameters = []; Id = nodeId; DisplayName = "Node"
+              { Exported = true; TypeParameters = []; Id = nodeId; DisplayName = "Node"
                 Kind = SemanticTypeKind.Product [ { Id = nextId; DisplayName = "next"; Type = optionType (TypeRef.Named(nodeId, [])) } ] } ]
             @ levels
         let create ws name parameters resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
                   TypeParameters = None
                   DisplayName = name
                   Parameters = parameters |> List.map (fun itemType -> { DisplayName = "input"; Type = itemType })

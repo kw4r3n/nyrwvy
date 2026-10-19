@@ -42,7 +42,7 @@ module AgentParameterTypeMigrationTests =
               Type = stringType }
 
         let requestType: SemanticType =
-            { TypeParameters = []; Id = typeId "request"
+            { Exported = true; TypeParameters = []; Id = typeId "request"
               DisplayName = "ValidationRequest"
               Kind = SemanticTypeKind.Product [ emailField ] }
 
@@ -56,7 +56,7 @@ module AgentParameterTypeMigrationTests =
         let classifyResult = nodeId "classify-result"
 
         let classify: SemanticFunction =
-            { Id = functionId "classify"
+            { Exported = true; Id = functionId "classify"
               TypeParameters = []
               DisplayName = "classify"
               Parameters = [ classifyInput ]
@@ -85,7 +85,7 @@ module AgentParameterTypeMigrationTests =
         let processCall = nodeId "process-call"
 
         let processFunction: SemanticFunction =
-            { Id = functionId "process"
+            { Exported = true; Id = functionId "process"
               TypeParameters = []
               DisplayName = "process"
               Parameters = [ processInput ]
@@ -106,7 +106,7 @@ module AgentParameterTypeMigrationTests =
 
         let unrelatedResult = nodeId "unrelated-result"
         let unrelated: SemanticFunction =
-            { Id = functionId "unrelated"
+            { Exported = true; Id = functionId "unrelated"
               TypeParameters = []
               DisplayName = "unrelated"
               Parameters = []

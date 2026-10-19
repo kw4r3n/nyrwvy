@@ -80,16 +80,16 @@ module PinnedDependencyRecoveryTests =
             let nodeId = StableIdAllocator.newGraphNodeId ()
             let imported =
                 { Snapshot.empty (StableIdAllocator.newSnapshotId ()) with
-                    Types = [ { TypeParameters = []; Id = typeId; DisplayName = "Unused"; Kind = SemanticTypeKind.Product [] } ]
-                    Effects = [ { Id = effectId; DisplayName = "Notify" } ]
+                    Types = [ { Exported = true; TypeParameters = []; Id = typeId; DisplayName = "Unused"; Kind = SemanticTypeKind.Product [] } ]
+                    Effects = [ { Exported = true; Id = effectId; DisplayName = "Notify" } ]
                     Capabilities =
-                        [ { Id = capabilityId; DisplayName = "Notifier"
+                        [ { Exported = true; Id = capabilityId; DisplayName = "Notifier"
                             Operations =
                                 [ { Id = StableIdAllocator.newCapabilityOperationId (); DisplayName = "notify"
                                     Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Unit
                                     FailureType = None; EffectId = effectId } ] } ]
                     Functions =
-                        [ { Id = functionId; DisplayName = "constant"; Parameters = []
+                        [ { Exported = true; Id = functionId; DisplayName = "constant"; Parameters = []
                             TypeParameters = []
                             ResultType = TypeRef.Primitive PrimitiveType.Int64; RequiredEffects = []
                             Body = { Nodes = [ { Id = nodeId; Kind = SemanticNodeKind.Int64Literal 7L } ]; ResultNodeId = nodeId } } ] }
@@ -178,7 +178,7 @@ module PinnedDependencyRecoveryTests =
             use session = AuthoringSession.createNewWithDependency local (Some source) |> unwrap
             let before = File.ReadAllText local
             let proposal = session.SimulateCreateFunction
-                                { ExpectedBaseSnapshotId = (status session).SnapshotId
+                                { Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId
                                   TypeParameters = None
                                   DisplayName = "local"; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Int64
                                   RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 1L } |> unwrap

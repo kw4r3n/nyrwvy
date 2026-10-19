@@ -40,7 +40,7 @@ module AgentPureExpressionStructuredValueTests =
         let textFieldId = fieldId "message-text-value"
 
         let profileType: SemanticType =
-            { TypeParameters = []; Id = profileTypeId
+            { Exported = true; TypeParameters = []; Id = profileTypeId
               DisplayName = "Profile"
               Kind =
                 SemanticTypeKind.Product
@@ -52,7 +52,7 @@ module AgentPureExpressionStructuredValueTests =
                         Type = int64Type } ] }
 
         let messageType: SemanticType =
-            { TypeParameters = []; Id = messageTypeId
+            { Exported = true; TypeParameters = []; Id = messageTypeId
               DisplayName = "Message"
               Kind =
                 SemanticTypeKind.Union
@@ -68,7 +68,7 @@ module AgentPureExpressionStructuredValueTests =
 
         let stringResultId = nodeId "string-result"
         let stringTarget: SemanticFunction =
-            { Id = functionId "string-target"
+            { Exported = true; Id = functionId "string-target"
               TypeParameters = []
               DisplayName = "string_target"
               Parameters = []
@@ -82,7 +82,7 @@ module AgentPureExpressionStructuredValueTests =
         let oldScoreId = nodeId "profile-old-score"
         let oldProductId = nodeId "profile-old-product"
         let productTarget: SemanticFunction =
-            { Id = functionId "product-target"
+            { Exported = true; Id = functionId "product-target"
               TypeParameters = []
               DisplayName = "product_target"
               Parameters = []
@@ -103,7 +103,7 @@ module AgentPureExpressionStructuredValueTests =
 
         let oldUnionId = nodeId "message-old-union"
         let unionTarget: SemanticFunction =
-            { Id = functionId "union-target"
+            { Exported = true; Id = functionId "union-target"
               TypeParameters = []
               DisplayName = "union_target"
               Parameters = []
@@ -115,7 +115,7 @@ module AgentPureExpressionStructuredValueTests =
 
         let oldOptionId = nodeId "option-old-none"
         let optionTarget: SemanticFunction =
-            { Id = functionId "option-target"
+            { Exported = true; Id = functionId "option-target"
               TypeParameters = []
               DisplayName = "option_target"
               Parameters = []
@@ -128,7 +128,7 @@ module AgentPureExpressionStructuredValueTests =
         let oldErrorId = nodeId "result-old-error"
         let oldResultId = nodeId "result-old-result"
         let resultTarget: SemanticFunction =
-            { Id = functionId "result-target"
+            { Exported = true; Id = functionId "result-target"
               TypeParameters = []
               DisplayName = "result_target"
               Parameters = []

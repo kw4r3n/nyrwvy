@@ -34,7 +34,7 @@ module AuthoringEffectSessionTests =
                 use document =
                     AuthoringProtocol.executeLine
                         session
-                        """{"id":"effect","op":"simulateCreateEffect","displayName":"io"}"""
+                        """{"id":"effect","op":"simulateCreateEffect","exported":true,"displayName":"io"}"""
                     |> requireOk
                 let result: JsonElement = document.RootElement.GetProperty("result")
                 let createdEffect: JsonElement = result.GetProperty("review").GetProperty("createdEffect")

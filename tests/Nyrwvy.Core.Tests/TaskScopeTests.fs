@@ -64,7 +64,7 @@ module TaskScopeTests =
         let variant variantId name fields: SemanticVariant = { Id = variantId; DisplayName = name; Fields = fields }
         { Snapshot.empty (id<SnapshotTag> "initial") with
             Types =
-                [ { TypeParameters = []; Id = actionId
+                [ { Exported = true; TypeParameters = []; Id = actionId
                     DisplayName = "Action"
                     Kind =
                       SemanticTypeKind.Union
@@ -77,11 +77,11 @@ module TaskScopeTests =
                                   { Id = awaitWithinLimitId; DisplayName = "limit"; Type = intType } ]
                             variant waitAnyWithinId "WaitAnyWithin" [ { Id = waitAnyLimitId; DisplayName = "limit"; Type = intType } ]
                             variant finishId "Finish" [] ] } ]
-            Effects = [ { Id = effectId; DisplayName = "Team" } ]
+            Effects = [ { Exported = true; Id = effectId; DisplayName = "Team" } ]
             Capabilities =
-                [ { Id = leaderId; DisplayName = "Leader"; Operations = [ operation nextId "next" reportId "report" (TypeRef.Named(actionId, [])) ] }
-                  { Id = agentId; DisplayName = "Agent"; Operations = [ operation workId "work" workNameId "name" outcomeType ] }
-                  { Id = workspacesId
+                [ { Exported = true; Id = leaderId; DisplayName = "Leader"; Operations = [ operation nextId "next" reportId "report" (TypeRef.Named(actionId, [])) ] }
+                  { Exported = true; Id = agentId; DisplayName = "Agent"; Operations = [ operation workId "work" workNameId "name" outcomeType ] }
+                  { Exported = true; Id = workspacesId
                     DisplayName = "Workspaces"
                     Operations =
                       [ operation createId "create" createNameId "name" outcomeType
@@ -90,7 +90,7 @@ module TaskScopeTests =
     let private current (session: AuthoringSession) = (session.Status() |> unwrap "status").SnapshotId
 
     let private request (session: AuthoringSession) name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session
+        { Exported = true; ExpectedBaseSnapshotId = current session
           TypeParameters = None
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })
@@ -403,7 +403,7 @@ module TaskScopeTests =
             // JSONL recipes name the wait mode.
             let describe = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "describe")
             let line =
-                """{"id":"w","op":"simulateCreateFunctionByName","displayName":"waitAll","parameters":[{"displayName":"tasks","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"builtinGeneric","generic":"task","arguments":[{"kind":"builtinGeneric","generic":"result","arguments":[{"kind":"primitive","primitive":"string"},{"kind":"primitive","primitive":"string"}]}]}]}}],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"kind":"directCall","function":"describe","arguments":[{"parameter":"outcomes","value":{"kind":"taskWait","tasks":{"kind":"parameter","name":"tasks"},"mode":"all"}}]}}"""
+                """{"id":"w","op":"simulateCreateFunctionByName","exported":true,"displayName":"waitAll","parameters":[{"displayName":"tasks","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"builtinGeneric","generic":"task","arguments":[{"kind":"builtinGeneric","generic":"result","arguments":[{"kind":"primitive","primitive":"string"},{"kind":"primitive","primitive":"string"}]}]}]}}],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"kind":"directCall","function":"describe","arguments":[{"parameter":"outcomes","value":{"kind":"taskWait","tasks":{"kind":"parameter","name":"tasks"},"mode":"all"}}]}}"""
             use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
             Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
             let limited = line.Replace("\"mode\":\"all\"}", "\"mode\":\"all\",\"limit\":{\"kind\":\"optionNone\",\"itemType\":{\"kind\":\"primitive\",\"primitive\":\"int64\"}}}")

@@ -28,7 +28,7 @@ module StringSearchTests =
         let snapshot = Snapshot.empty (id<SnapshotTag> "base")
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               TypeParameters = None
               DisplayName = "search"
               Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
@@ -109,7 +109,7 @@ module StringSearchTests =
                 let parameterJson =
                     parameters |> List.map (fun (displayName, typeJson) -> sprintf """{"displayName":"%s","type":%s}""" displayName typeJson) |> String.concat ","
                 let line =
-                    sprintf """{"id":"%s","op":"simulateCreateFunctionByName","displayName":"%s","parameters":[%s],"resultType":%s,"requiredEffects":[],"body":%s}"""
+                    sprintf """{"id":"%s","op":"simulateCreateFunctionByName","exported":true,"displayName":"%s","parameters":[%s],"resultType":%s,"requiredEffects":[],"body":%s}"""
                         name name parameterJson resultType body
                 use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
                 Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
@@ -137,7 +137,7 @@ module StringSearchTests =
             Assert.Equal(PureRunValue.StringList [ "a"; "b"; ""; "c" ], run "split" [ PureRunValue.String "a,b,,c"; PureRunValue.String "," ])
             let create name resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = None
                       DisplayName = name
                       Parameters = []
@@ -240,7 +240,7 @@ module StringSearchTests =
             let slot = ExpressionRecipe.ParameterSlot
             let createOne name resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = None
                       DisplayName = name
                       Parameters = [ { DisplayName = "text"; Type = stringType } ]

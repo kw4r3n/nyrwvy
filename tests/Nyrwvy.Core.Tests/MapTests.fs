@@ -62,14 +62,14 @@ module MapTests =
             parameters |> List.map (fun (parameterName, parameterType) -> $"""{{"displayName":"{parameterName}","type":{parameterType}}}""") |> String.concat ","
         publish
             session
-            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{parameterList}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{parameterList}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
 
     let private simulateCode session (parameters: (string * string) list) resultType body =
         let parameterList =
             parameters |> List.map (fun (parameterName, parameterType) -> $"""{{"displayName":"{parameterName}","type":{parameterType}}}""") |> String.concat ","
         rejectionCode
             session
-            $"""{{"id":"bad","op":"simulateCreateFunctionByName","displayName":"bad","parameters":[{parameterList}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+            $"""{{"id":"bad","op":"simulateCreateFunctionByName","exported":true,"displayName":"bad","parameters":[{parameterList}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
 
     let private text (value: string) = $"""{{"kind":"string","value":{JsonSerializer.Serialize value}}}"""
     let private int64 (value: int64) = $"""{{"kind":"int64","value":"{value}"}}"""
@@ -163,7 +163,7 @@ module MapTests =
 
             publish
                 session
-                $"""{{"id":"t","op":"simulateCreateTypeByName","displayName":"Part","typeKind":{{"kind":"product","fields":[{{"displayName":"message","type":{str}}},{{"displayName":"index","type":{int64Type}}}]}}}}"""
+                $"""{{"id":"t","op":"simulateCreateTypeByName","exported":true,"displayName":"Part","typeKind":{{"kind":"product","fields":[{{"displayName":"message","type":{str}}},{{"displayName":"index","type":{int64Type}}}]}}}}"""
             let part = """{"kind":"named","name":"Part"}"""
             let partValue (message: string) (index: int64) =
                 $"""{{"kind":"product","type":"Part","fields":[{{"field":"message","value":{text message}}},{{"field":"index","value":{int64 index}}}]}}"""
@@ -241,7 +241,7 @@ module MapTests =
 
             publish
                 session
-                $"""{{"id":"t","op":"simulateCreateTypeByName","displayName":"Row","typeKind":{{"kind":"product","fields":[{{"displayName":"id","type":{str}}},{{"displayName":"n","type":{int64Type}}}]}}}}"""
+                $"""{{"id":"t","op":"simulateCreateTypeByName","exported":true,"displayName":"Row","typeKind":{{"kind":"product","fields":[{{"displayName":"id","type":{str}}},{{"displayName":"n","type":{int64Type}}}]}}}}"""
             let row = """{"kind":"named","name":"Row"}"""
             let rowValue (id: string) (n: int64) =
                 $"""{{"kind":"product","type":"Row","fields":[{{"field":"id","value":{text id}}},{{"field":"n","value":{int64 n}}}]}}"""

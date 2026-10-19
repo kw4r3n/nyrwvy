@@ -45,8 +45,24 @@ module internal WireOperation =
             { TargetObligationId = id<ObligationTag> "obligationId" element
               ResolutionValueNodeId = id<GraphNodeTag> "valueNodeId" element }
 
+    /// `setExported` names exactly one declaration by `typeId`, `functionId`, `effectId` or
+    /// `capabilityId` (exact form) or `type`, `function`, `effect` or `capability` (by name).
+    let private setExported (keys: (string * (unit -> AgentVisibilityTarget)) list) (element: JsonElement) =
+        let names = keys |> List.map fst
+        ensureFields "set-exported operation" ("kind" :: "exported" :: names) [ "kind"; "exported" ] element
+        match keys |> List.filter (fun (key, _) -> (tryProperty key element).IsSome) with
+        | [ _, target ] -> AgentOperationIntent.SetExported(target (), requiredBool "exported" element)
+        | _ -> fail ("A set-exported operation names exactly one declaration with one of " + String.concat ", " names + ".")
+
     let operation (element: JsonElement): AgentOperationIntent =
         match requiredString "kind" element with
+        | "setExported" ->
+            setExported
+                [ "typeId", (fun () -> AgentVisibilityTarget.Type(id<TypeTag> "typeId" element))
+                  "functionId", (fun () -> AgentVisibilityTarget.Function(id<FunctionTag> "functionId" element))
+                  "effectId", (fun () -> AgentVisibilityTarget.Effect(id<EffectTag> "effectId" element))
+                  "capabilityId", (fun () -> AgentVisibilityTarget.Capability(id<CapabilityTag> "capabilityId" element)) ]
+                element
         | "renameFunction" ->
             ensureFields "rename-function operation" [ "kind"; "functionId"; "displayName" ] [ "kind"; "functionId"; "displayName" ] element
             AgentOperationIntent.RenameDisplayName(
@@ -209,6 +225,13 @@ module internal WireOperation =
             ensureFields $"{kind} operation" ("kind" :: "displayName" :: keys) ("kind" :: "displayName" :: keys) element
             AgentOperationIntent.RenameDisplayName(target (), requiredString "displayName" element)
         match requiredString "kind" element with
+        | "setExported" ->
+            setExported
+                [ "type", (fun () -> AgentVisibilityTarget.Type (resolveType ()).Id)
+                  "function", (fun () -> AgentVisibilityTarget.Function (resolveFunction ()).Id)
+                  "effect", (fun () -> AgentVisibilityTarget.Effect (resolveEffect ()).Id)
+                  "capability", (fun () -> AgentVisibilityTarget.Capability (resolveCapability ()).Id) ]
+                element
         | "renameFunction" -> rename "rename-function" [ "function" ] (fun () -> AgentRenameTarget.Function (resolveFunction ()).Id)
         | "renameType" -> rename "rename-type" [ "type" ] (fun () -> AgentRenameTarget.Type (resolveType ()).Id)
         | "renameField" ->
@@ -296,7 +319,7 @@ module internal WireOperation =
             ensureFields "remove-union-variant operation" [ "kind"; "type"; "variant" ] [ "kind"; "type"; "variant" ] element
             AgentOperationIntent.RemoveUnionVariant (WireSymbolic.unionVariant (resolveType ()) (requiredString "variant" element)).Id
         | value ->
-            fail $"Unsupported name-resolved operation kind '{value}'. simulateOperationsByName accepts the rename operations (renameFunction, renameType, renameField, renameVariant, renameParameter, renameEffect, renameCapability, renameCapabilityOperation, renameCapabilityParameter), addFunctionParameter, addProductField, addCapabilityOperation, addUnionVariant, addRequiredEffect, removeRequiredEffect, resolveMissingArgument, removeProductField, removeFunctionParameter, removeUnionVariant, deleteFunction, deleteType, deleteEffect, deleteCapability and deleteCapabilityOperation, each naming its targets by display name."
+            fail $"Unsupported name-resolved operation kind '{value}'. simulateOperationsByName accepts the rename operations (renameFunction, renameType, renameField, renameVariant, renameParameter, renameEffect, renameCapability, renameCapabilityOperation, renameCapabilityParameter), setExported, addFunctionParameter, addProductField, addCapabilityOperation, addUnionVariant, addRequiredEffect, removeRequiredEffect, resolveMissingArgument, removeProductField, removeFunctionParameter, removeUnionVariant, deleteFunction, deleteType, deleteEffect, deleteCapability and deleteCapabilityOperation, each naming its targets by display name."
 
     /// Type parameter names in a new variant's field types resolve to the Union's own declared
     /// type parameters; a name the Union does not declare is rejected, since a variant cannot

@@ -18,7 +18,7 @@ module ProductUpdateTests =
     let private current (session: AuthoringSession) = (session.Status() |> unwrap).SnapshotId
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session; DisplayName = name
+        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
@@ -73,7 +73,7 @@ module ProductUpdateTests =
     let private fn session name (parameters: (string * string) list) result body =
         let parameters = parameters |> List.map (fun (name, t) -> obj [ "displayName", q name; "type", t ]) |> arr
         use response =
-            send session (sprintf """{"id":"%s","op":"simulateCreateFunctionByName","displayName":"%s","parameters":%s,"resultType":%s,"requiredEffects":[],"body":%s}""" name name parameters result body)
+            send session (sprintf """{"id":"%s","op":"simulateCreateFunctionByName","exported":true,"displayName":"%s","parameters":%s,"resultType":%s,"requiredEffects":[],"body":%s}""" name name parameters result body)
         commit session response |> ignore
 
     /// `State {name: String, count: Int64, tags: List<String>, done: Bool}` and `Other {name: String}`.
@@ -115,7 +115,7 @@ module ProductUpdateTests =
             Assert.NotEqual<string>("", rejects session [ "st", stateType; "name", textType ] textType (updateIds [ stateFields["name"], slot 1 ]))
             // By name, the fields resolve within the named type; another type's field is unknown there.
             let byName body =
-                sprintf """{"id":"c","op":"simulateCreateFunctionByName","displayName":"f","parameters":[{"displayName":"st","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}""" (N "State") (N "State") body
+                sprintf """{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"f","parameters":[{"displayName":"st","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}""" (N "State") (N "State") body
             use missing = execute session (byName (update (p "st") "State" [ "title", s "x" ]))
             Assert.False(missing.RootElement.GetProperty("ok").GetBoolean())
             use noSource = execute session (byName (node "productUpdate" [ "type", q "State"; "fields", fieldValues [ "name", s "x" ] ]))
@@ -127,10 +127,10 @@ module ProductUpdateTests =
         let foreignId = StableId.createForTesting<FieldTag> "field-update-foreign"
         let nodeId name = StableId.createForTesting<GraphNodeTag> ("node-update-" + name)
         let stateType: SemanticType =
-            { TypeParameters = []; Id = stateId; DisplayName = "State"
+            { Exported = true; TypeParameters = []; Id = stateId; DisplayName = "State"
               Kind = SemanticTypeKind.Product [ { Id = nameId; DisplayName = "name"; Type = textType }; { Id = countId; DisplayName = "count"; Type = intType } ] }
         let foreignType: SemanticType =
-            { TypeParameters = []; Id = StableId.createForTesting<TypeTag> "type-update-foreign"; DisplayName = "Foreign"
+            { Exported = true; TypeParameters = []; Id = StableId.createForTesting<TypeTag> "type-update-foreign"; DisplayName = "Foreign"
               Kind = SemanticTypeKind.Product [ { Id = foreignId; DisplayName = "x"; Type = textType } ] }
         let parameterId = StableId.createForTesting<ParameterTag> "parameter-update-st"
         let validate (source: SemanticNodeKind) (bindings: (FieldId * SemanticNodeKind) list) =
@@ -140,7 +140,7 @@ module ProductUpdateTests =
                 { Id = nodeId "update"
                   Kind = SemanticNodeKind.ProductUpdate(stateId, sourceNode.Id, List.map2 (fun (fieldId, _) (value: SemanticNode) -> { TargetFieldId = fieldId; ValueNodeId = value.Id }) bindings values) }
             let fn: SemanticFunction =
-                { Id = StableId.createForTesting<FunctionTag> "function-update-entry"; DisplayName = "entry"
+                { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-update-entry"; DisplayName = "entry"
                   TypeParameters = []
                   Parameters = [ { Id = parameterId; DisplayName = "st"; Type = TypeRef.Named(stateId, []) } ]
                   ResultType = TypeRef.Named(stateId, []); RequiredEffects = []

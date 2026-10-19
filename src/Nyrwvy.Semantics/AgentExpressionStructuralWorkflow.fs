@@ -617,6 +617,8 @@ module AgentExpressionStructuralWorkflow =
         type Request =
             { ExpectedBaseSnapshotId: SnapshotId
               DisplayName: string
+              /// Whether snapshots that depend on this one may use the function; private when false.
+              Exported: bool
               /// The function's type parameters in declared order, with request-local identities
               /// (wire: `"typeParameters": ["T"]`, each `{ "kind": "typeParameter", "name": "T" }` in a
               /// type naming one). `None` derives the list from the parameter types in
@@ -896,6 +898,7 @@ module AgentExpressionStructuralWorkflow =
                         let createdFunction: SemanticFunction =
                             { Id = functionId
                               DisplayName = request.DisplayName
+                              Exported = request.Exported
                               TypeParameters = preflight.TypeParameters
                               Parameters = parameters
                               ResultType = request.ResultType

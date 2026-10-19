@@ -21,7 +21,7 @@ module AgentExpressionBindTests =
     let private createSnapshot () =
         let fixture = MilestoneZeroGraph.create ()
         let target: SemanticFunction =
-            { Id = targetId
+            { Exported = true; Id = targetId
               TypeParameters = []
               DisplayName = "bound"
               Parameters =

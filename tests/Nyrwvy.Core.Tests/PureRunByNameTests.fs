@@ -37,12 +37,12 @@ module PureRunByNameTests =
                 | Ok value -> value
                 | Error error -> failwithf "Session creation failed: %A" error
             let effectId =
-                (publish session """{"id":"e","op":"simulateCreateEffect","displayName":"io"}""")
+                (publish session """{"id":"e","op":"simulateCreateEffect","exported":true,"displayName":"io"}""")
                     .GetProperty("review").GetProperty("createdEffect").GetProperty("id").GetString()
-            publish session $"""{{"id":"t1","op":"simulateCreateTypeByName","displayName":"Request","typeKind":{{"kind":"product","fields":[{{"displayName":"key","type":{str}}}]}}}}""" |> ignore
-            publish session $"""{{"id":"t2","op":"simulateCreateTypeByName","displayName":"Answer","typeKind":{{"kind":"union","variants":[{{"displayName":"Found","fields":[{{"displayName":"text","type":{str}}}]}},{{"displayName":"Missing","fields":[]}}]}}}}""" |> ignore
-            publish session $"""{{"id":"c","op":"simulateCreateCapabilityByName","displayName":"Provider","operations":[{{"displayName":"lookup","parameters":[{{"displayName":"key","type":{str}}}],"resultType":{{"kind":"named","name":"Answer"}},"effect":"io"}}]}}""" |> ignore
-            publish session """{"id":"f","op":"simulateCreateFunctionByName","displayName":"query","parameters":[{"displayName":"request","type":{"kind":"named","name":"Request"}},{"displayName":"provider","type":{"kind":"capability","name":"Provider"}}],"resultType":{"kind":"named","name":"Answer"},"requiredEffects":["io"],"body":{"kind":"capabilityInvoke","capabilityValue":{"kind":"parameter","name":"provider"},"capability":"Provider","operation":"lookup","arguments":[{"parameter":"key","value":{"kind":"fieldAccess","source":{"kind":"parameter","name":"request"},"type":"Request","field":"key"}}]}}""" |> ignore
+            publish session $"""{{"id":"t1","op":"simulateCreateTypeByName","exported":true,"displayName":"Request","typeKind":{{"kind":"product","fields":[{{"displayName":"key","type":{str}}}]}}}}""" |> ignore
+            publish session $"""{{"id":"t2","op":"simulateCreateTypeByName","exported":true,"displayName":"Answer","typeKind":{{"kind":"union","variants":[{{"displayName":"Found","fields":[{{"displayName":"text","type":{str}}}]}},{{"displayName":"Missing","fields":[]}}]}}}}""" |> ignore
+            publish session $"""{{"id":"c","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Provider","operations":[{{"displayName":"lookup","parameters":[{{"displayName":"key","type":{str}}}],"resultType":{{"kind":"named","name":"Answer"}},"effect":"io"}}]}}""" |> ignore
+            publish session """{"id":"f","op":"simulateCreateFunctionByName","exported":true,"displayName":"query","parameters":[{"displayName":"request","type":{"kind":"named","name":"Request"}},{"displayName":"provider","type":{"kind":"capability","name":"Provider"}}],"resultType":{"kind":"named","name":"Answer"},"requiredEffects":["io"],"body":{"kind":"capabilityInvoke","capabilityValue":{"kind":"parameter","name":"provider"},"capability":"Provider","operation":"lookup","arguments":[{"parameter":"key","value":{"kind":"fieldAccess","source":{"kind":"parameter","name":"request"},"type":"Request","field":"key"}}]}}""" |> ignore
             run session effectId
         finally
             Directory.Delete(root, true)
@@ -141,10 +141,10 @@ module PureRunByNameTests =
             // The exact-ID operation keeps its stable-ID vocabulary.
             protocolError """{"id":"x","op":"runPure","function":"query","arguments":[]}""" "function"
             // A duplicate capability name is refused by the convenience operation and by exact-ID creation.
-            protocolError $"""{{"id":"c2","op":"simulateCreateCapabilityByName","displayName":"Provider","operations":[]}}""" "Capability display name 'Provider' already exists"
-            protocolError $"""{{"id":"c3","op":"simulateCreateCapabilityByName","displayName":"Other","operations":[{{"displayName":"lookup","parameters":[],"resultType":{str},"effect":"absent"}}]}}""" "Unknown effect 'absent'"
+            protocolError $"""{{"id":"c2","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Provider","operations":[]}}""" "Capability display name 'Provider' already exists"
+            protocolError $"""{{"id":"c3","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Other","operations":[{{"displayName":"lookup","parameters":[],"resultType":{str},"effect":"absent"}}]}}""" "Unknown effect 'absent'"
             do
-                use reply = execute session $"""{{"id":"c4","op":"simulateCreateCapability","displayName":"Provider","operations":[{{"displayName":"lookup","parameters":[],"resultType":{str},"effectId":"{effectId}"}}]}}"""
+                use reply = execute session $"""{{"id":"c4","op":"simulateCreateCapability","exported":true,"displayName":"Provider","operations":[{{"displayName":"lookup","parameters":[],"resultType":{str},"effectId":"{effectId}"}}]}}"""
                 Assert.False(reply.RootElement.GetProperty("ok").GetBoolean())
                 Assert.Contains("CapabilityDeclarationDuplicateDisplayName", reply.RootElement.GetRawText())
             // Name resolution therefore stays unambiguous.
@@ -163,7 +163,7 @@ module PureRunByNameTests =
         let items = [ 0 .. count - 1 ] |> List.map string |> String.concat ","
         $"""{{"kind":"list","itemKind":"int64","items":[{items}]}}"""
     let private identity session name typeRef =
-        publish session $"""{{"id":"identity","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{{"displayName":"value","type":{typeRef}}}],"resultType":{typeRef},"requiredEffects":[],"body":{{"kind":"parameter","name":"value"}}}}""" |> ignore
+        publish session $"""{{"id":"identity","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{{"displayName":"value","type":{typeRef}}}],"resultType":{typeRef},"requiredEffects":[],"body":{{"kind":"parameter","name":"value"}}}}""" |> ignore
     let private runValue session name value =
         result session $"""{{"id":"budget","op":"runPureByName","function":"{name}","arguments":[{value}]}}"""
     let private budgetRejected session name value =
@@ -231,7 +231,7 @@ module PureRunByNameTests =
         let typeKind =
             if kind = "product" then $"""{{"kind":"product","fields":{fields}}}"""
             else $"""{{"kind":"union","variants":[{{"displayName":"Held","fields":{fields}}}]}}"""
-        publish session $"""{{"id":"holder","op":"simulateCreateTypeByName","displayName":"BudgetHolder","typeKind":{typeKind}}}""" |> ignore
+        publish session $"""{{"id":"holder","op":"simulateCreateTypeByName","exported":true,"displayName":"BudgetHolder","typeKind":{typeKind}}}""" |> ignore
     let private holderValue kind first second =
         let variant = if kind = "union" then ", \"variant\":\"Held\"" else ""
         $"""{{"kind":"{kind}","type":"BudgetHolder"{variant},"fields":[{{"field":"first","value":{scalarList first}}},{{"field":"second","value":{scalarList second}}},{{"field":"tag","value":{intValue 0}}}]}}"""
@@ -254,8 +254,8 @@ module PureRunByNameTests =
     let ``fake queues and keyed cases preserve payload and metadata budgets`` keyed =
         withSession (fun session _ ->
             createBudgetHolder session "product"
-            publish session """{"id":"cap","op":"simulateCreateCapabilityByName","displayName":"BudgetProvider","operations":[{"displayName":"get","parameters":[],"resultType":{"kind":"named","name":"BudgetHolder"},"effect":"io"}]}""" |> ignore
-            publish session """{"id":"fn","op":"simulateCreateFunctionByName","displayName":"budgetFake","parameters":[{"displayName":"provider","type":{"kind":"capability","name":"BudgetProvider"}}],"resultType":{"kind":"named","name":"BudgetHolder"},"requiredEffects":["io"],"body":{"kind":"capabilityInvoke","capabilityValue":{"kind":"parameter","name":"provider"},"capability":"BudgetProvider","operation":"get","arguments":[]}}""" |> ignore
+            publish session """{"id":"cap","op":"simulateCreateCapabilityByName","exported":true,"displayName":"BudgetProvider","operations":[{"displayName":"get","parameters":[],"resultType":{"kind":"named","name":"BudgetHolder"},"effect":"io"}]}""" |> ignore
+            publish session """{"id":"fn","op":"simulateCreateFunctionByName","exported":true,"displayName":"budgetFake","parameters":[{"displayName":"provider","type":{"kind":"capability","name":"BudgetProvider"}}],"resultType":{"kind":"named","name":"BudgetHolder"},"requiredEffects":["io"],"body":{"kind":"capabilityInvoke","capabilityValue":{"kind":"parameter","name":"provider"},"capability":"BudgetProvider","operation":"get","arguments":[]}}""" |> ignore
             let fake second =
                 let response = $"""{{"kind":"return","value":{holderValue "product" 4096 second}}}"""
                 let script = if keyed then $""""cases":[{{"arguments":[],"responses":[{response}]}}]""" else $""""responses":[{response}]"""
@@ -269,8 +269,8 @@ module PureRunByNameTests =
     let ``fake keyed arguments count their wrapper and tagged payload once`` () =
         withSession (fun session _ ->
             createBudgetHolder session "product"
-            publish session """{"id":"cap","op":"simulateCreateCapabilityByName","displayName":"BudgetEcho","operations":[{"displayName":"send","parameters":[{"displayName":"payload","type":{"kind":"named","name":"BudgetHolder"}}],"resultType":{"kind":"primitive","primitive":"unit"},"effect":"io"}]}""" |> ignore
-            publish session """{"id":"fn","op":"simulateCreateFunctionByName","displayName":"budgetEcho","parameters":[{"displayName":"payload","type":{"kind":"named","name":"BudgetHolder"}},{"displayName":"provider","type":{"kind":"capability","name":"BudgetEcho"}}],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":["io"],"body":{"kind":"capabilityInvoke","capabilityValue":{"kind":"parameter","name":"provider"},"capability":"BudgetEcho","operation":"send","arguments":[{"parameter":"payload","value":{"kind":"parameter","name":"payload"}}]}}""" |> ignore
+            publish session """{"id":"cap","op":"simulateCreateCapabilityByName","exported":true,"displayName":"BudgetEcho","operations":[{"displayName":"send","parameters":[{"displayName":"payload","type":{"kind":"named","name":"BudgetHolder"}}],"resultType":{"kind":"primitive","primitive":"unit"},"effect":"io"}]}""" |> ignore
+            publish session """{"id":"fn","op":"simulateCreateFunctionByName","exported":true,"displayName":"budgetEcho","parameters":[{"displayName":"payload","type":{"kind":"named","name":"BudgetHolder"}},{"displayName":"provider","type":{"kind":"capability","name":"BudgetEcho"}}],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":["io"],"body":{"kind":"capabilityInvoke","capabilityValue":{"kind":"parameter","name":"provider"},"capability":"BudgetEcho","operation":"send","arguments":[{"parameter":"payload","value":{"kind":"parameter","name":"payload"}}]}}""" |> ignore
             let payload = holderValue "product" 4096 4087 // 8187 genuine value nodes
             let fake second =
                 $"""{{"kind":"fakeCapability","capability":"BudgetEcho","operations":[{{"operation":"send","cases":[{{"arguments":[{{"parameter":"payload","value":{holderValue "product" 4096 second}}}],"responses":[{{"kind":"return","value":{{"kind":"unit"}}}}]}}]}}]}}"""
@@ -289,8 +289,8 @@ module PureRunByNameTests =
         withSession (fun session _ ->
             let operations = [ 0 .. 31 ] |> List.map (fun n ->
                 $"""{{"displayName":"op{n}","parameters":[],"resultType":{{"kind":"primitive","primitive":"unit"}},"effect":"io"}}""") |> String.concat ","
-            publish session $"""{{"id":"cap","op":"simulateCreateCapabilityByName","displayName":"ThrowBudget","operations":[{operations}]}}""" |> ignore
-            publish session """{"id":"fn","op":"simulateCreateFunctionByName","displayName":"ignoreThrows","parameters":[{"displayName":"provider","type":{"kind":"capability","name":"ThrowBudget"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"cancellationRequested"}}""" |> ignore
+            publish session $"""{{"id":"cap","op":"simulateCreateCapabilityByName","exported":true,"displayName":"ThrowBudget","operations":[{operations}]}}""" |> ignore
+            publish session """{"id":"fn","op":"simulateCreateFunctionByName","exported":true,"displayName":"ignoreThrows","parameters":[{"displayName":"provider","type":{"kind":"capability","name":"ThrowBudget"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"cancellationRequested"}}""" |> ignore
             let response = if delayed then """{"kind":"throw","message":"","delayMillis":1}""" else """{"kind":"throw","message":""}"""
             let script lastCount =
                 let ops = [ 0 .. 31 ] |> List.map (fun n ->

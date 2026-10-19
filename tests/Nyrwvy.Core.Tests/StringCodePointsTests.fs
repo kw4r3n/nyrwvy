@@ -23,7 +23,7 @@ module StringCodePointsTests =
         let snapshot = Snapshot.empty (id<SnapshotTag> "base")
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               TypeParameters = None
               DisplayName = "points"
               Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
@@ -86,7 +86,7 @@ module StringCodePointsTests =
             let primitive name = sprintf """{"kind":"primitive","primitive":"%s"}""" name
             let listType = sprintf """{"kind":"builtinGeneric","generic":"list","arguments":[%s]}""" (primitive "string")
             let line =
-                sprintf """{"id":"points","op":"simulateCreateFunctionByName","displayName":"points","parameters":[{"displayName":"text","type":%s}],"resultType":%s,"requiredEffects":[],"body":{"kind":"stringCodePoints","value":{"kind":"parameter","name":"text"}}}""" (primitive "string") listType
+                sprintf """{"id":"points","op":"simulateCreateFunctionByName","exported":true,"displayName":"points","parameters":[{"displayName":"text","type":%s}],"resultType":%s,"requiredEffects":[],"body":{"kind":"stringCodePoints","value":{"kind":"parameter","name":"text"}}}""" (primitive "string") listType
             use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
             Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
             let proposalId = proposed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
@@ -95,7 +95,7 @@ module StringCodePointsTests =
             let functionId name = (session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)).Id
             let create name parameters resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = None
                       DisplayName = name
                       Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })

@@ -320,7 +320,7 @@ module ViewerArtifactTests =
         try
             use session = AuthoringSession.createNew path |> unwrap
             use created =
-                send session """{"id":"create","op":"simulateCreateFunctionByName","displayName":"flag","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}"""
+                send session """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}"""
             let createdId = (ok created).GetProperty("proposalId").GetString()
             let createdPage = view session createdId
             Assert.Contains("Change Review — createFunction", createdPage)
@@ -341,7 +341,7 @@ module ViewerArtifactTests =
             Assert.Equal(replacedPage, view session replacedId)
 
             use typed =
-                send session """{"id":"type","op":"simulateCreateTypeByName","displayName":"Choice","typeKind":{"kind":"union","variants":[{"displayName":"Yes","fields":[]},{"displayName":"No","fields":[]}]}}"""
+                send session """{"id":"type","op":"simulateCreateTypeByName","exported":true,"displayName":"Choice","typeKind":{"kind":"union","variants":[{"displayName":"Yes","fields":[]},{"displayName":"No","fields":[]}]}}"""
             let typePage = view session ((ok typed).GetProperty("proposalId").GetString())
             Assert.Contains("Declarations created or updated", typePage)
             Assert.Contains("Choice", typePage)

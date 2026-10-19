@@ -25,7 +25,7 @@ module Float64ConversionTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session; DisplayName = name
+        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = effects; Body = body }
@@ -69,7 +69,7 @@ module Float64ConversionTests =
         let nodeId name = StableId.createForTesting<GraphNodeTag> ("node-float-" + name)
         let validate operand resultType =
             let fn: SemanticFunction =
-                { Id = StableId.createForTesting<FunctionTag> "function-float-entry"; DisplayName = "entry"; Parameters = []
+                { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-float-entry"; DisplayName = "entry"; Parameters = []
                   TypeParameters = []
                   ResultType = resultType; RequiredEffects = []
                   Body =
@@ -87,7 +87,7 @@ module Float64ConversionTests =
         withSession (fun session path ->
             let signature = sprintf """"parameters":[{"displayName":"value","type":%s}],"resultType":%s,"requiredEffects":[]""" (primitive "int64") (primitive "float64")
             use exact =
-                send session (sprintf """{"id":"exact","op":"simulateCreateFunction","displayName":"exact",%s,"body":{"kind":"int64ToFloat64","value":{"kind":"parameterSlot","index":0}}}""" signature)
+                send session (sprintf """{"id":"exact","op":"simulateCreateFunction","exported":true,"displayName":"exact",%s,"body":{"kind":"int64ToFloat64","value":{"kind":"parameterSlot","index":0}}}""" signature)
             publishWire session exact
             use named =
                 send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"detail":"full","displayName":"named",%s,"body":{"kind":"int64ToFloat64","value":{"kind":"parameter","name":"value"}}}""" signature)
@@ -175,7 +175,7 @@ module Float64ConversionTests =
         withSession (fun session path ->
             let stats =
                 session.SimulateCreateType
-                    { TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = "Stats"
+                    { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = "Stats"
                       Kind = AgentTypeDeclarationKindIntent.Product
                         [ { DisplayName = "median"; Type = floatType }; { DisplayName = "values"; Type = listOf floatType }; { DisplayName = "first"; Type = optionOf floatType } ] }
                 |> unwrap |> publish session
@@ -231,10 +231,10 @@ module Float64ConversionTests =
     [<Fact; Trait("Suite", "Extended")>]
     let ``fake capability cases key and log Float64 arguments bitwise`` () =
         withSession (fun session path ->
-            session.SimulateCreateEffect { ExpectedBaseSnapshotId = current session; DisplayName = "IO" } |> unwrap |> publish session
+            session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO" } |> unwrap |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
             session.SimulateCreateCapability
-                { ExpectedBaseSnapshotId = current session; DisplayName = "Scale"
+                { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "Scale"
                   Operations =
                     [ { DisplayName = "scale"; Parameters = [ { DisplayName = "value"; Type = floatType } ]
                         ResultType = floatType; FailureType = None; EffectId = effect.Id } ] }

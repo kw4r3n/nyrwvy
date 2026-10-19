@@ -28,7 +28,7 @@ module StringJoinListSliceTests =
         let snapshot = Snapshot.empty (id<SnapshotTag> "base")
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               TypeParameters = None
               DisplayName = "joinSlice"
               Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
@@ -118,12 +118,12 @@ module StringJoinListSliceTests =
             let I = """{"kind":"primitive","primitive":"int64"}"""
             let listWire item = """{"kind":"builtinGeneric","generic":"list","arguments":[""" + item + "]}"
             author (
-                """{"id":"join","op":"simulateCreateFunctionByName","displayName":"join","parameters":[{"displayName":"xs","type":"""
+                """{"id":"join","op":"simulateCreateFunctionByName","exported":true,"displayName":"join","parameters":[{"displayName":"xs","type":"""
                 + listWire S + """},{"displayName":"sep","type":""" + S + """}],"resultType":""" + S
                 + ""","requiredEffects":[],"body":{"kind":"stringJoin","list":{"kind":"parameter","name":"xs"},"separator":{"kind":"parameter","name":"sep"}}}"""
             )
             author (
-                """{"id":"slice","op":"simulateCreateFunctionByName","displayName":"slice","parameters":[{"displayName":"rows","type":"""
+                """{"id":"slice","op":"simulateCreateFunctionByName","exported":true,"displayName":"slice","parameters":[{"displayName":"rows","type":"""
                 + listWire (listWire S) + """},{"displayName":"start","type":""" + I + """},{"displayName":"end","type":""" + I
                 + """}],"resultType":""" + listWire (listWire S)
                 + ""","requiredEffects":[],"body":{"kind":"listSlice","list":{"kind":"parameter","name":"rows"},"start":{"kind":"parameter","name":"start"},"end":{"kind":"parameter","name":"end"}}}"""
@@ -147,7 +147,7 @@ module StringJoinListSliceTests =
             Assert.Equal(rows, run "slice" [ rows; PureRunValue.Int64 -9L; PureRunValue.Int64 9L ])
             let create name resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = None
                       DisplayName = name
                       Parameters = []

@@ -27,10 +27,10 @@ module AgentRequiredEffectsTests =
 
     let private createCallSnapshot () =
         let effect: SemanticEffect =
-            { Id = effectId
+            { Exported = true; Id = effectId
               DisplayName = "EditedEffect" }
         let callee: SemanticFunction =
-            { Id = calleeId
+            { Exported = true; Id = calleeId
               TypeParameters = []
               DisplayName = "callee"
               Parameters = []
@@ -40,7 +40,7 @@ module AgentRequiredEffectsTests =
                 { Nodes = [ { Id = calleeResultId; Kind = SemanticNodeKind.UnitLiteral } ]
                   ResultNodeId = calleeResultId } }
         let caller: SemanticFunction =
-            { Id = callerId
+            { Exported = true; Id = callerId
               TypeParameters = []
               DisplayName = "caller"
               Parameters = []

@@ -11,19 +11,19 @@ module ImportProvenanceSelectorTests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("selector-" + name)
     let private intType = TypeRef.Primitive PrimitiveType.Int64
     let private unwrap = function Ok v -> v | Error e -> failwithf "%A" e
-    let private sharedType = { TypeParameters = []; Id = id<TypeTag> "shared"; DisplayName = "Shared"; Kind = SemanticTypeKind.Product [] }
+    let private sharedType = { Exported = true; TypeParameters = []; Id = id<TypeTag> "shared"; DisplayName = "Shared"; Kind = SemanticTypeKind.Product [] }
     let private library version name number =
         let node = id<GraphNodeTag> name
-        let measure = { TypeParameters = []; Id = id<TypeTag> name; DisplayName = "Measure"; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> name; DisplayName = "value"; Type = intType } ] }
-        let effect = { Id = id<EffectTag> name; DisplayName = "Io" }
-        let capability = { Id = id<CapabilityTag> name; DisplayName = "Clock"
+        let measure = { Exported = true; TypeParameters = []; Id = id<TypeTag> name; DisplayName = "Measure"; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> name; DisplayName = "value"; Type = intType } ] }
+        let effect: SemanticEffect = { Id = id<EffectTag> name; DisplayName = "Io"; Exported = true }
+        let capability = { Exported = true; Id = id<CapabilityTag> name; DisplayName = "Clock"
                            Operations = [ { Id = id<CapabilityOperationTag> name; DisplayName = "read"; Parameters = []; ResultType = intType; FailureType = None; EffectId = effect.Id } ] }
         { Snapshot.empty (id<SnapshotTag> version) with
             Types = [ sharedType; measure ]
             Effects = [ effect ]
             Capabilities = [ capability ]
             Functions =
-                [ { Id = id<FunctionTag> name; DisplayName = "render"; Parameters = []; ResultType = intType; RequiredEffects = []
+                [ { Exported = true; Id = id<FunctionTag> name; DisplayName = "render"; Parameters = []; ResultType = intType; RequiredEffects = []
                     TypeParameters = []
                     Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.Int64Literal number } ]; ResultNodeId = node } } ] }
     let private withApp test =
@@ -150,7 +150,7 @@ module ImportProvenanceSelectorTests =
     let ``exact owner selector supports recursive replacement including keepUnlisted`` () =
         withApp (fun session path a _ aPath _ _ ->
             let create = session.SimulateCreateFunction
-                            { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "countdown"
+                            { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "countdown"
                               TypeParameters = None
                               Parameters = [ { DisplayName = "remaining"; Type = intType }; { DisplayName = "total"; Type = intType } ]
                               ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> unwrap

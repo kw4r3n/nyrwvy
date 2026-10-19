@@ -33,15 +33,15 @@ module SnapshotSchemaTests =
     let private initial: Snapshot =
         { Snapshot.empty (id<SnapshotTag> "snapshot-schema") with
             Types =
-                [ { TypeParameters = []; Id = shapeTypeId
+                [ { Exported = true; TypeParameters = []; Id = shapeTypeId
                     DisplayName = "Shape"
                     Kind =
                       SemanticTypeKind.Union
                           [ { Id = circleId; DisplayName = "Circle"; Fields = [] }
                             { Id = squareId; DisplayName = "Square"; Fields = [] } ] } ]
-            Effects = [ { Id = readEffectId; DisplayName = "Read" } ]
+            Effects = [ { Exported = true; Id = readEffectId; DisplayName = "Read" } ]
             Capabilities =
-                [ { Id = valuesId
+                [ { Exported = true; Id = valuesId
                     DisplayName = "Values"
                     Operations =
                       [ { Id = readOperationId
@@ -63,9 +63,10 @@ module SnapshotSchemaTests =
         try
             File.WriteAllText(path, SnapshotCodec.serialize initial |> unwrap "serialize initial")
             use session = AuthoringSession.openExisting path |> unwrap "open"
-            let createDeclared typeParameters name parameters resultType effects body =
+            let createDeclared (typeParameters: string list option) name parameters resultType effects body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true
+                      ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = typeParameters |> Option.map (List.map (fun (name: string) -> StableId.createForTesting<TypeParameterTag> name, name))
                       DisplayName = name
                       Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })
@@ -91,10 +92,6 @@ module SnapshotSchemaTests =
               create "has" [ "items", listOf int64Type; "item", int64Type ] boolType [] (ExpressionRecipe.ListContains(slot 0, slot 1)) |> ignore)
           "encode utf8", SnapshotSchemaFeature.StringEncodeUtf8, (fun create _ ->
               create "encode" [ "text", stringType ] stringType [] (ExpressionRecipe.StringEncodeUtf8(slot 0)) |> ignore)
-          "declared type parameter order", SnapshotSchemaFeature.DeclaredFunctionTypeParameters, (fun _ createDeclared ->
-              // The declared order (U, T) differs from the parameter types' first-appearance order (T, U).
-              let t, u = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "T"), TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "U")
-              createDeclared [ "U"; "T" ] "second" [ "first", t; "second", u ] u [] (slot 1) |> ignore)
           "set filter", SnapshotSchemaFeature.SetCallbacks, (fun create _ ->
               let notEmpty = create "notEmpty" [ "s", stringType ] boolType [] (ExpressionRecipe.BoolNot(ExpressionRecipe.StringIsEmpty(slot 0)))
               create "kept" [ "items", generic BuiltinGenericType.Set [ stringType ] ] (generic BuiltinGenericType.Set [ stringType ]) [] (ExpressionRecipe.SetFilter(slot 0, notEmpty.Id, [])) |> ignore)
@@ -197,7 +194,15 @@ module SnapshotSchemaTests =
         Assert.Equal(rows.Length, (Set.ofList rows).Count)
         // Generic types need a generic declaration, which `initial` cannot hold without gating every
         // case; GenericTypeTests checks their version and the rejection one version below.
-        let testedElsewhere = Set.ofList [ string SnapshotSchemaFeature.GenericTypes ]
+        // Declaration visibility needs a private declaration, which `create` never makes;
+        // DeclarationVisibilityTests checks its version and the rejection one version below, and
+        // DeclaredFunctionTypeParametersTests likewise: `initial` holds exported declarations, which
+        // version 21 spells out, so a relabelled document fails on visibility first.
+        let testedElsewhere =
+            Set.ofList
+                [ string SnapshotSchemaFeature.GenericTypes
+                  string SnapshotSchemaFeature.DeclarationVisibility
+                  string SnapshotSchemaFeature.DeclaredFunctionTypeParameters ]
         Assert.Equal<Set<string>>(features - testedElsewhere, cases |> List.map (fun (_, feature, _) -> string feature) |> Set.ofList)
         for _, minimum, _ in SnapshotSchema.minimumVersions do
             Assert.Contains(minimum, SnapshotSchema.supported)

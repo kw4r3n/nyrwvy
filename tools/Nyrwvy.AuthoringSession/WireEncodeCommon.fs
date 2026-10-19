@@ -83,7 +83,8 @@ module internal WireEncodeCommon =
     let private signatureFields (value: SemanticFunction) =
         let names = functionTypeParameterNames value
         [ "id", box (StableId.value value.Id)
-          "displayName", box value.DisplayName ]
+          "displayName", box value.DisplayName
+          "exported", box value.Exported ]
         @ typeParameters value.TypeParameters
         @ [ "parameters", value.Parameters |> List.map (parameter names) |> arrayValue
             "resultType", typeRefIn names value.ResultType
@@ -145,7 +146,8 @@ module internal WireEncodeCommon =
                         |> arrayValue ]
         objectValue
             ([ "id", box (StableId.value value.Id)
-               "displayName", box value.DisplayName ]
+               "displayName", box value.DisplayName
+               "exported", box value.Exported ]
              @ typeParameters value.TypeParameters
              @ [ "typeKind", kind ])
 
@@ -170,6 +172,7 @@ module internal WireEncodeCommon =
         objectValue
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName
+              "exported", box value.Exported
               "operations", value.Operations |> List.map capabilityOperation |> arrayValue ]
 
     let declarations (value: AuthoringDeclarations) =
@@ -178,7 +181,8 @@ module internal WireEncodeCommon =
             |> List.map (fun effect ->
                 objectValue
                     [ "id", box (StableId.value effect.Id)
-                      "displayName", box effect.DisplayName ])
+                      "displayName", box effect.DisplayName
+                      "exported", box effect.Exported ])
         let capabilities = value.Capabilities |> List.map capabilityEntity
         objectValue
             [ "provenance", value.Provenance |> List.map (fun p ->

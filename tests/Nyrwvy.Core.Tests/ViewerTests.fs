@@ -22,6 +22,7 @@ module ViewerTests =
               ProposedSnapshotId = model.SnapshotId
               Diff =
                 { Renames = []
+                  VisibilityChanges = []
                   ParametersAdded = []
                   ProductFieldsAdded = []
                   ProductFieldsBound = []
@@ -146,7 +147,7 @@ module ViewerTests =
               Kind = SemanticNodeKind.ListConstruct(floatType, [ leftId; leftId ]) }
 
         let functionEntity: SemanticFunction =
-            { Id = functionId
+            { Exported = true; Id = functionId
               TypeParameters = []
               DisplayName = "dependency_roles"
               Parameters = []

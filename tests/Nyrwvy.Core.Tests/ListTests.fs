@@ -45,7 +45,7 @@ module ListTests =
         let pipelineLengthNodeId = nodeId "pipeline-length"
 
         let pipeline: SemanticFunction =
-            { Id = functionId "pipeline-length"
+            { Exported = true; Id = functionId "pipeline-length"
               TypeParameters = []
               DisplayName = "pipeline_length"
               Parameters = []
@@ -73,7 +73,7 @@ module ListTests =
         let emptyListNodeId = nodeId "empty-list"
         let emptyLengthNodeId = nodeId "empty-length"
         let emptyLength: SemanticFunction =
-            { Id = functionId "empty-length"
+            { Exported = true; Id = functionId "empty-length"
               TypeParameters = []
               DisplayName = "empty_length"
               Parameters = []
@@ -89,7 +89,7 @@ module ListTests =
         let identityParameterId = parameterId "identity-input"
         let identityNodeId = nodeId "identity-input"
         let identity: SemanticFunction =
-            { Id = functionId "identity"
+            { Exported = true; Id = functionId "identity"
               TypeParameters = []
               DisplayName = "list_identity"
               Parameters =

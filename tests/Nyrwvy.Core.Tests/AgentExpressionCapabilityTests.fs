@@ -34,7 +34,7 @@ module AgentExpressionCapabilityTests =
               EffectId = ioEffectId }
         let functionWithBody id name parameters resultType effects kind: SemanticFunction =
             let resultNodeId = nodeId name
-            { Id = id
+            { Exported = true; Id = id
               TypeParameters = []
               DisplayName = name
               Parameters = parameters
@@ -48,11 +48,11 @@ module AgentExpressionCapabilityTests =
               ParentId = None
               Types = []
               Effects =
-                [ { Id = ioEffectId; DisplayName = "IO" }
-                  { Id = remoteEffectId; DisplayName = "Remote" } ]
+                [ { Exported = true; Id = ioEffectId; DisplayName = "IO" }
+                  { Exported = true; Id = remoteEffectId; DisplayName = "Remote" } ]
               Capabilities =
-                [ { Id = capabilityId; DisplayName = "Output"; Operations = [ operation ] }
-                  { Id = otherCapabilityId; DisplayName = "Other"; Operations = [] } ]
+                [ { Exported = true; Id = capabilityId; DisplayName = "Output"; Operations = [ operation ] }
+                  { Exported = true; Id = otherCapabilityId; DisplayName = "Other"; Operations = [] } ]
               Functions =
                 [ functionWithBody callerId "caller"
                       [ { Id = receiverId; DisplayName = "receiver"; Type = TypeRef.Capability capabilityId }

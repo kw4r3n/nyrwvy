@@ -445,11 +445,14 @@ module ViewerHtml =
         writer.Line("</div>")
         writer.Line("</section>")
 
+    /// A declaration's visibility across a dependency boundary, as a short label.
+    let private visibility (exported: bool) = if exported then "exported" else "private"
+
     let private emitTypeEntity (writer: HtmlWriter) (typeEntity: SemanticType) =
         let typeRefText = typeRefTextIn (Map.ofList typeEntity.TypeParameters)
         writer.Line(
             "<details><summary>" + html typeEntity.DisplayName + " — "
-            + code (StableIdText.typeId typeEntity.Id) + "</summary>")
+            + code (StableIdText.typeId typeEntity.Id) + " — " + visibility typeEntity.Exported + "</summary>")
         match typeEntity.Kind with
         | SemanticTypeKind.Product fields ->
             writer.Line("<p>Product fields</p><ul>")
@@ -471,7 +474,7 @@ module ViewerHtml =
         let typeRefText = typeRefTextIn Map.empty
         writer.Line(
             "<details><summary>" + html capability.DisplayName + " — "
-            + code (StableIdText.capabilityId capability.Id) + "</summary><ul>")
+            + code (StableIdText.capabilityId capability.Id) + " — " + visibility capability.Exported + "</summary><ul>")
         for operation in capability.Operations |> List.sortBy (fun item -> StableId.value item.Id) do
             writer.Line(
                 "<li>" + html operation.DisplayName + " — "
@@ -485,7 +488,7 @@ module ViewerHtml =
         for effect in effects do
             writer.Line(
                 "<li>" + html effect.DisplayName + " — "
-                + code (StableIdText.effectId effect.Id) + "</li>")
+                + code (StableIdText.effectId effect.Id) + " — " + visibility effect.Exported + "</li>")
         writer.Line("</ul>")
 
     let private emitDeclarations (writer: HtmlWriter) (model: ViewerFocusModel) =
@@ -553,6 +556,7 @@ module ViewerHtml =
         writer.Line("<h1>Function Focus — " + html model.Function.DisplayName + "</h1>")
         writer.Line("<p>Snapshot: " + code (StableIdText.snapshotId model.SnapshotId) + "</p>")
         writer.Line("<p>Function: " + code (StableIdText.functionId model.Function.FunctionId) + "</p>")
+        writer.Line("<p>Visibility: " + visibility model.Function.Exported + "</p>")
         writer.Line("<p>Result type: " + code (typeRefText model.Function.ResultType) + "</p>")
         writer.Line("</header>")
         writer.Line("<section><h2>Signature</h2>")
@@ -627,6 +631,13 @@ module ViewerHtml =
         writer.Line("</ul>")
 
         // Shown only when present, so reviews of other operations keep their exact earlier page.
+        if not (List.isEmpty diff.VisibilityChanges) then
+            writer.Line("<h3>Visibility changes</h3><ul>")
+            for item in diff.VisibilityChanges do
+                writer.Line(
+                    "<li>" + html item.Kind + " " + code item.Id + " " + html item.DisplayName
+                    + ": now " + visibility item.Exported + "</li>")
+            writer.Line("</ul>")
         if not (List.isEmpty diff.ParametersRemoved) then
             writer.Line("<h3>Parameters removed</h3><ul>")
             for item in diff.ParametersRemoved do

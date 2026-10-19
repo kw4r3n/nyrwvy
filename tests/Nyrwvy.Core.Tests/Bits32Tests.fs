@@ -27,7 +27,7 @@ module Bits32Tests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session; DisplayName = name
+        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
@@ -110,7 +110,7 @@ module Bits32Tests =
             rejects session [ "value", wordType ] intType (slot 0) |> ignore
             // Wire arity: binary kinds need left and right, shifts value and amount; nothing else is accepted.
             let signature = sprintf """"parameters":[{"displayName":"a","type":%s},{"displayName":"n","type":%s}],"resultType":%s,"requiredEffects":[]""" W I W
-            let create body = sprintf """{"id":"c","op":"simulateCreateFunctionByName","displayName":"f",%s,"body":%s}""" signature body
+            let create body = sprintf """{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"f",%s,"body":%s}""" signature body
             for body in
                 [ """{"kind":"bits32Xor","left":{"kind":"parameter","name":"a"}}"""
                   """{"kind":"bits32Not","value":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"a"}}"""
@@ -124,7 +124,7 @@ module Bits32Tests =
         let validate (nodes: SemanticNodeKind list) resultType =
             let body = nodes |> List.mapi (fun index kind -> ({ Id = nodeId (string index); Kind = kind }: SemanticNode))
             let fn: SemanticFunction =
-                { Id = StableId.createForTesting<FunctionTag> "function-bits-entry"; DisplayName = "entry"; Parameters = []
+                { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-bits-entry"; DisplayName = "entry"; Parameters = []
                   TypeParameters = []
                   ResultType = resultType; RequiredEffects = []
                   Body = { Nodes = body; ResultNodeId = (List.last body).Id } }
@@ -272,7 +272,7 @@ module Bits32Tests =
         let fn name (parameters: (string * string) list) result body =
             let parameters = parameters |> List.map (fun (name, t) -> obj [ "displayName", q name; "type", t ]) |> arr
             use response =
-                send session (sprintf """{"id":"%s","op":"simulateCreateFunctionByName","displayName":"%s","parameters":%s,"resultType":%s,"requiredEffects":[],"body":%s}""" name name parameters result body)
+                send session (sprintf """{"id":"%s","op":"simulateCreateFunctionByName","exported":true,"displayName":"%s","parameters":%s,"resultType":%s,"requiredEffects":[],"body":%s}""" name name parameters result body)
             nodes <- nodes + (commit response).GetProperty("review").GetProperty("createdFunction").GetProperty("body").GetProperty("nodeCount").GetInt32()
         let fields (items: (string * string) list) = items |> List.map (fun (name, t) -> obj [ "displayName", q name; "type", t ]) |> arr
         let productType name items = obj [ "displayName", q name; "typeKind", node "product" [ "fields", fields items ] ]
