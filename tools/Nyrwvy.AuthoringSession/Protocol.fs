@@ -667,11 +667,7 @@ module AuthoringProtocol =
             [ "displayName"; "parameters"; "resultType"; "failureType"; "effectId" ]
             [ "displayName"; "parameters"; "resultType"; "effectId" ]
             item
-        let failureType =
-            match tryProperty "failureType" item with
-            | None -> None
-            | Some value when value.ValueKind = JsonValueKind.Null -> None
-            | Some value -> Some(typeRef value)
+        let failureType = retiredFailureType item
         { DisplayName = requiredString "displayName" item
           Parameters = array "parameters" item |> List.map capabilityParameterIntent
           ResultType = typeRef (property "resultType" item)

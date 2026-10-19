@@ -24,9 +24,10 @@ handler scope, capture environment, mutable state, or continuation is introduced
 - Construction is pure. Invocation retains the operation's declared EffectId,
   even when the selected implementation is pure. No automatic effect elimination
   or widening occurs. Existing Bind/order checks still apply.
-- Expected failures use an explicit `Result` result type. `FailureType` does not
-  become an implicit Result or exception conversion; the C# backend continues to
-  reject nonempty `FailureType` as `UnsupportedCapabilityFailure`.
+- Expected failures use an explicit `Result` result type. `FailureType` is
+  [retired](../decisions/capability-failure-type-retired.md): authoring rejects
+  it, and the C# backend rejects an older snapshot that still carries one as
+  `UnsupportedCapabilityFailure`.
 - A value can be passed, returned, selected in a branch, or stored in existing
   immutable containers like other capability values. It carries no observable
   allocation identity. No equality operation is added.

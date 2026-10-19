@@ -557,3 +557,19 @@ module AuthoringSurfaceExtensionTests =
                     $"""{{"id":"run","op":"runPureByName","function":"area","arguments":[{{"kind":"union","type":"Shape","variant":"Ring","fields":[{{"field":"radius","value":{int64Value 3L}}},{{"field":"inner","value":{int64Value 1L}}}]}},{int64Value 1L}],"expected":{int64Value 3L}}}"""
             Assert.True(run.GetProperty("matches").GetBoolean(), run.GetRawText())
             Assert.Contains("Unknown variant on Shape", rejection session """{"id":"bad","op":"simulateAddUnionVariantLikeByName","type":"Shape","sourceVariant":"Nothing","displayName":"X"}""" |> snd))
+
+    [<Fact>]
+    let ``failureType is retired on new capability operations`` () =
+        withFixture (fun session _ ->
+            let failing = $"""{{"displayName":"read","parameters":[],"resultType":{int64Type},"failureType":{stringType},"effect":"io"}}"""
+            for line in
+                [ $"""{{"id":"c1","op":"simulateCreateCapabilityByName","displayName":"Reader","operations":[{failing}]}}"""
+                  operationsByName [ $"""{{"kind":"addCapabilityOperation","capability":"Host","displayName":"read","parameters":[],"resultType":{int64Type},"failureType":{stringType},"effect":"io","implementations":[]}}""" ] ] do
+                let code, message = rejection session line
+                Assert.Equal("ProtocolError", code)
+                Assert.Contains("failureType is retired", message)
+            // Absent or null keeps the old request shape.
+            publish
+                session
+                $"""{{"id":"c2","op":"simulateCreateCapabilityByName","displayName":"Reader","operations":[{{"displayName":"read","parameters":[],"resultType":{int64Type},"failureType":null,"effect":"io"}}]}}"""
+            |> ignore)

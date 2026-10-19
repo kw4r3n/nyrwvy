@@ -135,8 +135,9 @@ M6 remains intentionally conditional. Choose at most one workstream when a real 
 
 - The recipe kinds and node kinds [retired from the agent reference](../decisions/retired-authoring-kinds.md): `StringEqual`, `Int64Equal`, `MapGetOrDefault`, `Int64GreaterThan`, `Int64LessThanOrEqual` and `Int64GreaterThanOrEqual`, and whatever is retired later under that record.
 - `mode: "pin"` and legacy source-only dependency manifests ([pinned dependencies](../specs/agent-authoring-session.md#pinned-snapshot-dependencies)).
-- Reading snapshot JSON schemas below the version current at the cutover (today 9–19; see [snapshot schema versions](../specs/schema-evolution-policy.md#snapshot-schema-versions)); an older document gets a diagnostic that names the migration command.
+- Reading snapshot JSON schemas below the version current at the cutover (today 9–20; see [snapshot schema versions](../specs/schema-evolution-policy.md#snapshot-schema-versions)); an older document gets a diagnostic that names the migration command.
 - The legacy flat `runPure` value forms: `list` and `option` values with a scalar `itemKind`, and `result` values with scalar `okKind`/`errorKind` (the `runPure` paragraph of the [session contract](../specs/agent-authoring-session.md)), represented in `PureRunValue` by `StringList`/`BoolList`/`Int64List`, `StringOption`/`BoolOption`/`Int64Option` and `ResultOk`/`ResultErr` over `PureRunScalar` (`tools/Nyrwvy.AuthoringSession/PureRun.fs`). The typed run-value forms (`itemType`, `okType`/`errorType`) replace them.
+- `FailureType` on capability operations ([retired](../decisions/capability-failure-type-retired.md)); the migration command rejects a snapshot that sets it.
 - Code kept only for the removed surfaces, such as `AgentUnionVariantEvolutionWorkflow.simulate` (the fieldless-only form, used only by tests).
 
 **Steps,** following the [deprecation policy](../specs/schema-evolution-policy.md#deprecation-policy):
@@ -148,7 +149,6 @@ M6 remains intentionally conditional. Choose at most one workstream when a real 
 
 **Do first** (inferred candidates that may change persisted or runtime contracts; the list is revised when the cutover is scheduled):
 
-- typed capability failures (`FailureType`) in the C# backend;
 - declaration visibility or modules;
 - type-parameter constraints, if adopted;
 - any other change that needs a new snapshot schema version and could replace an existing form rather than add one.
@@ -453,7 +453,7 @@ Checked Int64 arithmetic had one observation (probe 20) and was an open candidat
 | 48 | **Done: `MapGetOrDefault`, `MapMapValues` and `ListMinBy`** (owner choice of 2026-10-04, after probe 21: small ordinary builtins ahead of further evidence) | [Probe 21](../verification/map-set-probes-summary.md#probe-21): get-or-default at every accumulating write, mapping a map's values once, the smallest item of a list once | `MapGetOrDefault(map, key, default)`, `MapMapValues(map, mapper)` keeping keys and order, and `ListMinBy(list, lessThan): Option<T>` keeping the first of equal items; [map](../decisions/map.md), [list-sort-and-string-ordering](../decisions/list-sort-and-string-ordering.md) |
 | 49 | **Done: tail self-calls as loops** (owner accepted the [loops design note](../../docs-archive/2026-10-decided-plans/loops.md)'s three recommendations on 2026-10-04) | Probe 15's event loop overflowed at 12,000–14,000 turns; probe 21's reachability and topological order ran as counted folds that could not stop early; a minimal `sumTo(n, acc)` overflowed between 50,000 and 100,000 calls | A self `DirectCall` in tail position (body result, `Bind` body, both `Conditional` branches, every match arm and `otherwise`, `BoolAnd`/`BoolOr` right operand) never grows the stack, as a language guarantee; Execution IR `tailCall` terminator, emitted as a parallel assignment of the parameter locals and a jump to the entry block; mutual recursion out of scope; [decision](../decisions/tail-self-calls.md) |
 
-Of the remaining semantic-independence gaps, pure capture-free function values, stateless program capability implementations, reporting derived body effect requirements, typed function abort, and the shared-capability contract under `ParallelAll` are implemented (see the general-purpose roadmap). Stateful program capability implementations follow without a fixed order; probe 6's stateful guard did not need them. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. Float64 run values are implemented (order 13); the remaining T3 non-support, `failureType` operations, is picked up only when a concrete consumer appears.
+Of the remaining semantic-independence gaps, pure capture-free function values, stateless program capability implementations, reporting derived body effect requirements, typed function abort, and the shared-capability contract under `ParallelAll` are implemented (see the general-purpose roadmap). Stateful program capability implementations follow without a fixed order; probe 6's stateful guard did not need them. Runtime state identity and per-declaration content hashes stay deferred until a use case needs them. Float64 run values are implemented (order 13); `failureType` on operations is [retired](../decisions/capability-failure-type-retired.md); expected failures are `Result` result types.
 
 Preserve these constraints:
 

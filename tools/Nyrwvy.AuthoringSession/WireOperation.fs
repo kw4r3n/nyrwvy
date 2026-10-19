@@ -37,11 +37,7 @@ module internal WireOperation =
             { ConstructNodeId = id<GraphNodeTag> "constructNodeId" plan
               ImplementationFunctionId = resolveFunction plan })
 
-    let private failureType (resolve: JsonElement -> TypeRef) (item: JsonElement) =
-        match tryProperty "failureType" item with
-        | None -> None
-        | Some value when value.ValueKind = JsonValueKind.Null -> None
-        | Some value -> Some(resolve value)
+    let private failureType (_: JsonElement -> TypeRef) (item: JsonElement) = retiredFailureType item
 
     let private resolveMissingArgument (element: JsonElement) =
         ensureFields "resolve-missing-argument operation" [ "kind"; "obligationId"; "valueNodeId" ] [ "kind"; "obligationId"; "valueNodeId" ] element

@@ -23,7 +23,7 @@ AgentCapabilityOperationIntent =
   DisplayName: string
   Parameters: AgentCapabilityParameterIntent list
   ResultType: TypeRef
-  FailureType: TypeRef option
+  FailureType: TypeRef option   // retired: wire requests must leave it absent or null
   EffectId: EffectId
 
 AgentCreateCapabilityDeclarationRequest =

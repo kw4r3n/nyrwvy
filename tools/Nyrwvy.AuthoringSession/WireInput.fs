@@ -62,6 +62,15 @@ module internal WireInput =
         | true, value -> Some value
         | false, _ -> None
 
+    /// `failureType` on a new capability operation is retired: it has no runtime meaning, and an
+    /// expected failure is the operation's `Result` result type ([decision](docs/decisions/capability-failure-type-retired.md)).
+    /// Absent or null is accepted so existing requests keep their shape.
+    let retiredFailureType (element: JsonElement) : TypeRef option =
+        match tryProperty "failureType" element with
+        | Some value when value.ValueKind <> JsonValueKind.Null ->
+            fail "failureType is retired; declare the operation's resultType as Result<T, F> to model an expected failure."
+        | _ -> None
+
     let requiredString (name: string) (element: JsonElement): string =
         let value = property name element
         if value.ValueKind <> JsonValueKind.String then fail $"Property '{name}' must be a JSON string."

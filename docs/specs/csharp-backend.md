@@ -46,7 +46,7 @@ Backend representation may vary while preserving the upstream semantic contract.
 - `List<T>` -> backend-local representation that preserves semantic ordering and the accepted immutable-value contract;
 - capabilities -> generated interfaces, with adapters only for supported backend-provided bindings.
 
-The concrete .NET storage class is not a language-semantic fact. The generated interface uses these same types for parameters and results, including products and `Result<T,E>`. A host implementation must honor the typed/non-null value contract. Expected domain failure can be returned as `Result.Err`; it is not silently inferred from a thrown host exception. `FailureType` metadata remains unsupported by this backend even for external implementations: it is not an exception-conversion policy, and the backend reports `UnsupportedCapabilityFailure` rather than dropping it. Runtime injection failures and unexpected host exceptions remain host/infrastructure failures, not program `Result` values.
+The concrete .NET storage class is not a language-semantic fact. The generated interface uses these same types for parameters and results, including products and `Result<T,E>`. A host implementation must honor the typed/non-null value contract. Expected domain failure can be returned as `Result.Err`; it is not silently inferred from a thrown host exception. `FailureType` is [retired](../decisions/capability-failure-type-retired.md); an older snapshot that still carries one is reported as `UnsupportedCapabilityFailure` rather than silently dropped. Runtime injection failures and unexpected host exceptions remain host/infrastructure failures, not program `Result` values.
 
 ## String equality
 
