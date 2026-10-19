@@ -241,7 +241,7 @@ module AgentExpressionBindTests =
             | Error(SnapshotCodecError.InvalidShape _) -> ()
             | other -> failwithf "Expected closed node schema, got %A" other
         let nyason = NyasonCodec.serialize published |> unwrap
-        Assert.Equal(Error(NyasonCodecError.UnsupportedSchema "nayamnyam.snapshot.v4"), NyasonCodec.deserialize (nyason.Replace(NyasonCodec.schemaId, "nayamnyam.snapshot.v4")))
+        Assert.Equal(Error(NyasonCodecError.UnsupportedSchema "nayamnyam.snapshot.v4"), NyasonCodec.deserialize (nyason.Replace(SnapshotSchema.current.Nyason, "nayamnyam.snapshot.v4")))
 
     [<Fact>]
     let ``Bind validation rejects forged scope type identity and cyclic dependencies`` () =
