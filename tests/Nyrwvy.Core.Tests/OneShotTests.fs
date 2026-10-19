@@ -44,13 +44,13 @@ module OneShotTests =
     let ``one-shot definition round trips with explicit schema and stable IDs, not live cell state`` () =
         withFixture (fun session path ->
             let snapshot = read path
-            let json = SnapshotCodec.serialize snapshot |> unwrap
+            let json = SnapshotCodec.serializeCanonical snapshot |> unwrap
             Assert.Contains("\"schemaVersion\":14", json)
             Assert.DoesNotContain("pendingValue", json)
             Assert.True(Result.isError(SnapshotCodec.deserialize(json.Replace("\"schemaVersion\":14", "\"schemaVersion\":13"))))
-            let nyason = NyasonCodec.serialize snapshot |> unwrap
+            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap
             Assert.Contains("nayamnyam.snapshot.v10", nyason)
-            Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serialize |> unwrap)
+            Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serializeCanonical |> unwrap)
             let typed = TypedSemanticIr.project snapshot |> unwrap
             Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
             let lowered = session.ProjectExecution() |> unwrap
@@ -61,9 +61,9 @@ module OneShotTests =
             Assert.Equal<FunctionId list>(beforeIds, (read path).Functions |> List.map (fun f -> f.Id))
             reopened.EmitCSharp CSharpBackendProfile.empty |> unwrap |> ignore
             let old = Snapshot.empty (StableId.createForTesting<SnapshotTag> "one-shot-old")
-            let oldJson = SnapshotCodec.serialize old |> unwrap
+            let oldJson = SnapshotCodec.serializeCanonical old |> unwrap
             Assert.Contains("\"schemaVersion\":9", oldJson)
-            Assert.Equal(oldJson, SnapshotCodec.deserialize oldJson |> unwrap |> SnapshotCodec.serialize |> unwrap))
+            Assert.Equal(oldJson, SnapshotCodec.deserialize oldJson |> unwrap |> SnapshotCodec.serializeCanonical |> unwrap))
 
     [<Fact>]
     let ``one-shot type used only by a local empty container still selects the new IR versions`` () =
@@ -72,7 +72,7 @@ module OneShotTests =
             let snapshot = read path
             let localOnly = { snapshot with Functions = snapshot.Functions |> List.filter (fun f -> f.DisplayName = "emptyLength") }
             Assert.Empty(SnapshotValidator.validate localOnly)
-            Assert.Contains("\"schemaVersion\":14", SnapshotCodec.serialize localOnly |> unwrap)
+            Assert.Contains("\"schemaVersion\":14", SnapshotCodec.serializeCanonical localOnly |> unwrap)
             let typed = TypedSemanticIr.project localOnly |> unwrap
             Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
             let execution = ExecutionIr.lower typed |> unwrap

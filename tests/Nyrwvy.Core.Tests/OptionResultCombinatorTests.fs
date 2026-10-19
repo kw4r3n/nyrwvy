@@ -119,11 +119,11 @@ module OptionResultCombinatorTests =
                 """{"kind":"optionGetOrDefault","option":{"kind":"parameter","name":"option"},"default":{"kind":"stringLiteral","value":"x"}}""" "PureExpressionOperandTypeMismatch"
             let snapshot = File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap "deserialize"
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let json = SnapshotCodec.serialize snapshot |> unwrap "serialize"
+            let json = SnapshotCodec.serializeCanonical snapshot |> unwrap "serialize"
             Assert.Contains("\"schemaVersion\":17", json)
             for kind in [ "optionGetOrDefault"; "optionMap"; "optionAndThen"; "resultMap"; "resultMapErr"; "resultAndThen" ] do
                 Assert.Contains("\"" + kind + "\"", json)
-            let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
+            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
             for tag in [ "option-get-or-default"; "option-map"; "option-and-then"; "result-map"; "result-map-err"; "result-and-then" ] do
                 Assert.Contains(tag, nyason)
             Assert.Contains("nayamnyam.snapshot.v13", nyason)

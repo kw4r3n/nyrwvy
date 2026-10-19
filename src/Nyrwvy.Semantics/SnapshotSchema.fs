@@ -77,10 +77,10 @@ type SnapshotSchemaVersion =
     { Json: int
       Nyason: string }
 
-/// The one place that says which snapshot schema each persisted construct needs. Both codecs
-/// write the smallest version that holds every construct a snapshot uses, so a snapshot keeps its
-/// version and bytes until it uses something newer, and both reject a document whose declared
-/// version is lower than a construct in it needs. A new persisted construct gets a row here,
+/// The one place that says which snapshot schema each persisted construct needs. Ordinary writes
+/// use the current version; the frozen fingerprint encoding uses each graph's minimum version.
+/// Both codecs reject a document whose declared version is lower than a construct in it needs.
+/// A new persisted construct gets a row here,
 /// normally with a new version; `featureOfNodeKind` has no wildcard, so a new node kind does
 /// not compile until it is assigned. See docs/specs/schema-evolution-policy.md.
 [<RequireQualifiedAccess>]
@@ -111,7 +111,7 @@ module SnapshotSchema =
     /// Every version the codecs read, oldest first.
     let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19; v20; v21 ]
 
-    /// The newest version: the one the migration command writes every snapshot at, whatever
+    /// The newest version: the one ordinary writers and migration write every snapshot at, whatever
     /// constructs it uses (docs/specs/schema-evolution-policy.md, deprecation policy).
     let current = v21
 
