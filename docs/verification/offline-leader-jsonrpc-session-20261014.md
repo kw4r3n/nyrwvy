@@ -5,7 +5,7 @@ until merged.** This separate feature does not merge PR395. No probe-9 script or
 snapshot was found in repository/history; only its verification document is
 tracked there. The parser/binding boundary was explicitly re-authored.
 
-[`examples/offline-leader-jsonrpc`](../../examples/offline-leader-jsonrpc/README.md)
+[`examples/offline-leader-jsonrpc`](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-leader-jsonrpc/README.md)
 documents the supported protocol, limits and reproduction commands. Ordinary
 graph recipes own JSON syntax recognition, envelope validation, keyword binding,
 dispatch choice, ID quoting/serialization and terminal notification. Validated
@@ -49,7 +49,7 @@ The final retained bundle is `artifacts/wire/proof-bundle`, with moved replay in
 declarations, cases, host, compiled assembly, observations and transcript hashes,
 and also hashes the authoring/proof source files. `artifacts/wire/checks.json`
 records successful check counts and log hashes. The checked-in
-[`fixtures/proof.json`](../../examples/offline-leader-jsonrpc/fixtures/proof.json)
+[`fixtures/proof.json`](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-leader-jsonrpc/fixtures/proof.json)
 retains the compact observations, identities and both hash records. Fresh
 authoring assigns new semantic IDs; these hashes identify this particular run.
 

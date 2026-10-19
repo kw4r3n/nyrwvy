@@ -35,7 +35,7 @@ async function author() {
  await create('newCell',{scope,witness:t},generic('oneShot',t),{kind:'oneShotCreate',scope:p('scope'),valueType:t},[])
  await create('publishValue',{cell:generic('oneShot',t),value:t},bool,complete(p('cell'),p('value')),[])
  await create('deliver',{a:cell,b:cell,response:named('Response')},bool,
-  choose(binary('stringEqual',field(p('response'),'Response','id'),text('a')),direct('publishValue',{cell:p('a'),value:ok(field(p('response'),'Response','payload'))}),choose(binary('stringEqual',field(p('response'),'Response','id'),text('b')),direct('publishValue',{cell:p('b'),value:ok(field(p('response'),'Response','payload'))}),{kind:'boolLiteral',value:false})),[])
+  choose(binary('valueEqual',field(p('response'),'Response','id'),text('a')),direct('publishValue',{cell:p('a'),value:ok(field(p('response'),'Response','payload'))}),choose(binary('valueEqual',field(p('response'),'Response','id'),text('b')),direct('publishValue',{cell:p('b'),value:ok(field(p('response'),'Response','payload'))}),{kind:'boolLiteral',value:false})),[])
  await create('requestWorker',{cell,id:string,limit:int},outcome,
   bind({kind:'oneShotWait',cell:p('cell'),limit:{kind:'optionSome',value:p('limit')}},choose(cancellation,err(text('cancelled')),matchOption(pattern(),pattern(),err(text('timeout'))))),[])
  await create('receiver',{wire:cap('Wire'),a:cell,b:cell,item:unit},outcome,

@@ -1,5 +1,17 @@
 # Task-local cancellation to Result
 
+## Snapshot migration checkpoint
+
+`fixtures/task-outcomes.json` is the fixed-identity schema-21 copy produced by
+`migrate`; `fixtures/task-outcomes.json.migration.json` records unchanged
+snapshot/semantic fingerprints (the report's display path is repository-relative).
+`fixtures/current-proof.json` records fresh replay of this migrated snapshot:
+12 virtual controls and 44 real compiled controls, with unedited emitted C#.
+The older proof/identity/verification/runtime records authenticate the original
+snapshot bytes and remain at tag `archive/legacy-examples-pre-cutover-20261019`;
+they were not relabeled as evidence for the migrated bytes. No fresh moved-assembly
+byte-equivalence claim is made by this checkpoint.
+
 This bounded fixture uses existing `ExceptionCatch` and `ExceptionIsCancellation`
 inside a `TaskStart` worker. The program chooses `Err("stopped-by-program")` of
 `Result<String,String>` for an OCE (including subclasses); ordinary exceptions

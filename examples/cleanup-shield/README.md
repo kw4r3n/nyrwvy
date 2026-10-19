@@ -4,8 +4,9 @@ This offline probe implements the mutation tail of pinned rrawrlet
 `Team.integrate` using a generic [lexical cancellation shield](../../docs/specs/cancellation-shield.md).
 The graph decides apply/commit/rollback order, HEAD capture, ledger assignment,
 failure precedence and post-cleanup cancellation. The host supplies typed mock
-effects and gates. Existing Member integration fixtures are unchanged; this
-probe has no dependency on unmerged PR383.
+effects and gates. Historical Member integration fixtures remain at tag
+`archive/legacy-examples-pre-cutover-20261019`; this probe has no dependency on them
+or on unmerged PR383.
 
 Fourteen cases compare exact phase order, per-phase cancellation observations,
 parent pending state before gate release, and final ledger/result. Both patch

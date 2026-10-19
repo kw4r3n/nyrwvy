@@ -129,6 +129,6 @@ tests. No actual user project, provider, remote Git, network, credentials, activ
 application state, push, main update or merge was used. No denied/pending/uncertain
 execution action remains; publication is stopped for independent re-review.
 
-Retained summaries: [repair proof](../../examples/offline-session-physical-git/fixtures/mode-repair-proof.json),
-[repair closure](../../examples/offline-session-physical-git/fixtures/mode-repair-replay.json),
-[metadata probes](../../examples/offline-session-physical-git/fixtures/mode-metadata.json).
+Retained summaries: [repair proof](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/mode-repair-proof.json),
+[repair closure](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/mode-repair-replay.json),
+[metadata probes](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/mode-metadata.json).

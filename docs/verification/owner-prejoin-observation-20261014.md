@@ -28,7 +28,7 @@ Those original logs, script, template, graph and runtime records are preserved
 under `artifacts/owner-prejoin/original-review`; their hashes are in the new
 closure. That graph is distinct from the freshly authored default bundle.
 
-The maintained [proof runner](../../examples/member-owner-cancellation/prove-prejoin.mjs)
+The maintained [proof runner](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-owner-cancellation/prove-prejoin.mjs)
 executes the same unedited Generated.cs in three real scheduling variants:
 
 | Schedule | Script and barrier | Required observation |
@@ -72,7 +72,7 @@ node examples/member-owner-cancellation/run.mjs --replay /tmp/owner-joined
 node --experimental-strip-types --test --test-concurrency=1 .opencode/tests/nyrwvy-authoring-member-owner-cancellation.test.mjs
 ```
 
-The [closure](../../examples/member-owner-cancellation/fixtures/prejoin-verified-closure.json)
+The [closure](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-owner-cancellation/fixtures/prejoin-verified-closure.json)
 records serial regression results, Python source proofs, unchanged emission
 identities, original failure evidence, same/moved replay and artifact hashes.
 The independent review checkpoint records the exact local commit and tree.

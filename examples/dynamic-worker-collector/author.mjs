@@ -56,7 +56,7 @@ export async function author(s) {
   await s.create('collect',{tail:cell,seen:state,log:string},R,
     matchOption(wait(p('tail')),
       cond(eqStr(F(pat(),'kind'),text('stop')),ok(p('log')),
-        bind({kind:'mapGetOrDefault',map:p('seen'),key:F(pat(),'id'),default:integer(-1)},
+        bind({kind:'optionGetOrDefault',option:{kind:'mapGet',map:p('seen'),key:F(pat(),'id')},default:integer(-1)},
           cond(or(registration,continuation),
             collect(F(linkAt(),'next'),{kind:'mapInsert',map:p('seen'),key:id(),value:cond(terminal,integer(-2),add(seq(),integer(1)))},
               concat(p('log'),id(),text(':'),kind(),text(':'),{kind:'int64ToString',value:seq()},text(';'))),
@@ -78,7 +78,7 @@ export async function author(s) {
             cond(cancellation,err(text('cancelled')),bind(publish('final',3),cond(pat(),ok(text('done')),failed()))),
             bind(publish('error',3),err(text('worker failed')))))),failed()))),err(text('join failed'))))
   await s.create('startWorkers',{host:cap('Host'),scope,head:cell,count:int,index:int,started:workers},workers,
-    cond({kind:'int64GreaterThan',left:p('index'),right:p('count')},p('started'),
+    cond({kind:'int64LessThan',left:p('count'),right:p('index')},p('started'),
       bind(start('worker',concat(text('w'),{kind:'int64ToString',value:p('index')}),{host,scope:p('scope'),head:p('head')}),
         loop('startWorkers',{index:add(p('index'),integer(1)),started:{kind:'listConcat',left:p('started'),right:tasks(pat())}}))))
   await s.create('cancelWorker',{host:cap('Host'),target:task(R),item:unit},R,
@@ -118,7 +118,7 @@ export async function author(s) {
     matchResult({kind:'taskScope',body:'scopeBody',context:fields({host,count:p('count'),mode:p('mode')}).map(({displayName,type})=>({parameter:displayName,value:type}))},
       direct('reconcile',{host,packet:pat(),mode:p('mode')}),err(pat('error'))))
   await s.create('run',{host:cap('Host'),count:int,mode:string},R,
-    cond(or({kind:'int64LessThan',left:p('count'),right:integer(2)},{kind:'int64GreaterThan',left:p('count'),right:integer(4)}),err(text('worker count must be 2..4')),
+    cond(or({kind:'int64LessThan',left:p('count'),right:integer(2)},{kind:'int64LessThan',left:integer(4),right:p('count')}),err(text('worker count must be 2..4')),
       {kind:'useResource',acquire:io('open'),releaseCapability:host,capability:'Host',releaseOperation:'close',body:'resourceBody',context:fields({host,count:p('count'),mode:p('mode')}).map(({displayName,type})=>({parameter:displayName,value:type}))}))
   const declarations=await s.call('inspect',{view:'declarations'})
   const artifact=await s.call('request',{op:'emitCSharp',arguments:{profile:{kind:'externalImplementations',operationIds:declarations.capabilities.flatMap(c=>c.operations.map(o=>o.id)),concurrentCapabilityIds:declarations.capabilities.map(c=>c.id)}}})

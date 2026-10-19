@@ -200,7 +200,7 @@ try {
     await call("request", { op: "reject", arguments: { proposalId: proposal.proposalId } })
     evidence.stages.push({ name, synthetic: true, evidence: result, structuralReadiness: proposal.review.readiness })
   }
-  const gapBody = { kind: "conditional", condition: { kind: "stringEqual", left: parameter("request"), right: text("delta-outside") }, whenTrue: text("wrong\n"), whenFalse: improvedBody }
+  const gapBody = { kind: "conditional", condition: { kind: "valueEqual", left: parameter("request"), right: text("delta-outside") }, whenTrue: text("wrong\n"), whenFalse: improvedBody }
   const gap = await call("replace", { function: "missingLine", replacement: gapBody })
   const sampled = await verify(gap, intendedCases, "coverage-gap-sampled")
   assert.ok(sampled.evidence.cases.every(item => item.status === "intended-change-tested"))

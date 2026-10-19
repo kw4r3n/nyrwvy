@@ -20,7 +20,7 @@ What a plain default arm would give up is the [exhaustiveness principle](../../d
 
 ## Invariant to keep
 
-After a variant is added to a union, every `MatchUnion` over that union is invalid until someone decides, for that match, which body the new variant takes. The [fieldless variant evolution workflow](../../src/Nyrwvy.Semantics/AgentFieldlessUnionVariantEvolutionWorkflow.fs) already makes that decision explicit, by copying a named source variant's arm.
+After a variant is added to a union, every `MatchUnion` over that union is invalid until someone decides, for that match, which body the new variant takes. The [fieldless variant evolution workflow](../../src/Nyrwvy.Semantics/AgentUnionVariantEvolutionWorkflow.fs) already makes that decision explicit, by copying a named source variant's arm.
 
 ## Options
 

@@ -23,7 +23,7 @@ Disposition performs inspection and its own receipt publication only. It cannot
 execute Git, resume a command, synthesize success/cancellation or release startup
 admission. Actual continuation completion excludes this decision and stays exact.
 New mutation admission and public language-composed recovery remain missing.
-The [procedure](../../examples/offline-session-physical-git/INTERRUPTION.md)
+The [procedure](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/INTERRUPTION.md)
 documents the bounded silent-command/owner and intact-storage contracts. Core,
 runtime, backend, saved registry graph and generic storage/task/shield semantics
 are unchanged.
@@ -83,7 +83,7 @@ reviewer controls and audits remain intact and separately pinned. Their broader
 core, graph, owner and authority evidence is reused; no fresh broad F# build/test,
 live provider or actual user-repository recovery is claimed.
 
-The committed [proof](../../examples/offline-session-physical-git/fixtures/interruption-proof.json)
+The committed [proof](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/interruption-proof.json)
 pins final sources, artifacts, fresh raw/proof hashes and retained audits. The
 full local package is `/home/kw4/Documents/Codex/2026-10-14/task-55/evidence`:
 `reuse.json`, `probe-authorized`, original/moved suite directories, `logs` and

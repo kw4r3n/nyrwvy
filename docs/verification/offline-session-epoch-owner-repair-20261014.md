@@ -49,7 +49,7 @@ Nine repaired original/moved artifacts match. Seven graph/compiler artifacts
 remain equal to the initial reviewed head; only binding Program.cs and its
 compiled Runtime.dll change. All nine default-parent artifacts still match
 reviewed hashes after reopen/re-emission and offline compilation. Generated.cs
-is unedited. See the [focused proof](../../examples/offline-session-epoch/fixtures/owner-repair-proof.json).
+is unedited. See the [focused proof](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-epoch/fixtures/owner-repair-proof.json).
 
 The independent reviewer audit is pinned at SHA256
 `815d9e0a776105f95c06698836a4e42a30ba21bd88957494ae6c2fb092d0571c`.

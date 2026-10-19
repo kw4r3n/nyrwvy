@@ -1,5 +1,12 @@
 # Mini Work Planner
 
+Migration checkpoint: `planner.snapshot.json` was migrated on a preserved copy
+from schema 9 to 21; `planner.snapshot.json.migration.json` records unchanged
+fingerprints (display path normalized relative to the repository). Every existing
+stable ID is retained. `runner/Generated.cs` was regenerated through `emitCSharp`
+and the documented 13-case check passed. The pre-cutover snapshot is preserved
+at tag `archive/legacy-examples-pre-cutover-20261019`.
+
 A tool, created and maintained with a Nyrwvy maintained AuthoringSession, that decides the next action for a single work item.
 
 The semantic source is `planner.snapshot.json`. The CLI does not interpret the snapshot directly; it is only an adapter that calls C# generated from the public `declarations` and `emitCSharp.symbols`.
