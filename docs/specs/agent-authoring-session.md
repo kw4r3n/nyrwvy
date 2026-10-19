@@ -1,5 +1,8 @@
 # Snapshot-backed agent authoring session
 
+For measured full-review CPU/allocation costs, complete structured saved reviews and the
+remaining limits of bounded wire paging, see the [encoding measurements](../verification/review-encoding-cost-20261020.md).
+
 **Status:** Current
 
 This specification defines the Milestone 3 maintained authoring boundary tracked by issue #153. It composes the existing semantic query, reviewed mutation, structural expression, persistence, execution-projection, and backend APIs. Later declaration-authoring slices join this same session boundary without creating another workspace authority.

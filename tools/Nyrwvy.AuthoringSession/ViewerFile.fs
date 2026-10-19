@@ -82,7 +82,10 @@ module ViewerFile =
 
     let private engineReview (proposal: AuthoringProposal) =
         let options = JsonSerializerOptions(MaxDepth = WireJson.responseMaxJsonDepth, WriteIndented = true)
-        JsonSerializer.Serialize(WireEncode.proposal proposal, options)
+        // Keep every review detail in the durable HTML, without recursively printing nested
+        // graphs again inside each node's debug string.
+        let complete = WireEncode.proposalWith "full" WireGraph.functionEntity WireGraph.focus proposal
+        JsonSerializer.Serialize(complete, options)
 
     let private proposalKind (review: AuthoringProposalReview) =
         match review with

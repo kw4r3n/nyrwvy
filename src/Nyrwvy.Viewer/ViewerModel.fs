@@ -127,8 +127,8 @@ type ViewerProposalFunction =
       ProposedVersion: ViewerFocusModel }
 
 /// Change Review of a pending structural proposal (replacement, creation, migration,
-/// declaration). The engine's review is kept verbatim as `EngineReview`, the JSON the
-/// authoring session returned to the agent; the page adds before/after focus beside it and
+/// declaration). The complete structured engine review is retained as `EngineReview`;
+/// the page adds before/after focus beside it and
 /// reconstructs nothing from either.
 type ViewerProposalReviewModel =
     { TransactionId: TransactionId
