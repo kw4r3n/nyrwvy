@@ -103,6 +103,7 @@ module AgentCapabilityDeclarationTests =
         let writeParameter = List.exactlyOne writeOperation.Parameters
         let functionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws2
+              TypeParameters = None
               DisplayName = "write_message"
               Parameters =
                 [ { DisplayName = "console"

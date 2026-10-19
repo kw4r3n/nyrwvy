@@ -53,6 +53,7 @@ module AgentTypeDeclarationTests =
     let private untouchedFunction () =
         let resultId = nodeId "untouched-result"
         { Id = functionId "untouched"
+          TypeParameters = []
           DisplayName = "untouched"
           Parameters = []
           ResultType = unitType
@@ -126,6 +127,7 @@ module AgentTypeDeclarationTests =
 
         let makeProductRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws2
+              TypeParameters = None
               DisplayName = "make_record"
               Parameters = []
               ResultType = TypeRef.Named(productType.Id, [])
@@ -145,6 +147,7 @@ module AgentTypeDeclarationTests =
 
         let accessProductRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws3
+              TypeParameters = None
               DisplayName = "record_name"
               Parameters =
                 [ { DisplayName = "record"
@@ -160,6 +163,7 @@ module AgentTypeDeclarationTests =
 
         let makeUnionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws4
+              TypeParameters = None
               DisplayName = "make_number"
               Parameters = []
               ResultType = TypeRef.Named(unionType.Id, [])
@@ -173,6 +177,7 @@ module AgentTypeDeclarationTests =
 
         let matchUnionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws5
+              TypeParameters = None
               DisplayName = "choice_value"
               Parameters =
                 [ { DisplayName = "choice"

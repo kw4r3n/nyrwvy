@@ -42,6 +42,7 @@ module Int64Tests =
         let right = { Id = rightId; Kind = SemanticNodeKind.Int64Literal rightValue }
         let result = { Id = resultId; Kind = kind leftId rightId }
         { Id = functionId name
+          TypeParameters = []
           DisplayName = name
           Parameters = []
           ResultType = resultType

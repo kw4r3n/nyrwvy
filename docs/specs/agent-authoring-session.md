@@ -466,7 +466,7 @@ After commit, `readFunction` returns the published graph. `nodeCount` counts eve
 
 ### Create-function review projection
 
-The Core function-creation proposal retains its full review model. The JSON-lines review of `simulateCreateFunction` returns the receipt/readiness, `createdFunction`, `bodyEffectRequirements` and `aborts`. It does not repeat the body through `materializedBody` or `proposedFocus`; at `detail: "full"`, `createdFunction` carries the complete body.
+`simulateCreateFunction` (and `…ByName`) takes `displayName`, `parameters`, `resultType`, `requiredEffects`, `body` and an optional `typeParameters`: the function's type parameter names in declared order (`["T", "U"]`), each named in the types as `{ "kind": "typeParameter", "name": "T" }`. Without `typeParameters` the list is derived from the parameter types in first-appearance order; with it, every type parameter the request mentions must be listed and every listed one must be mentioned by a parameter type ([expression authoring](expression-authoring.md), generic functions). `declarations` and `readFunction` show a generic function's `typeParameters` (`typeParameterId`, `displayName`) in that order, and type parameter occurrences in its signature and body carry the owner's `displayName`. The Core function-creation proposal retains its full review model. The JSON-lines review of `simulateCreateFunction` returns the receipt/readiness, `createdFunction`, `bodyEffectRequirements` and `aborts`. It does not repeat the body through `materializedBody` or `proposedFocus`; at `detail: "full"`, `createdFunction` carries the complete body.
 
 ### Replace-body review projection
 
@@ -514,7 +514,7 @@ For example, use `{kind:"directCall",function:{name:"render",dependencySnapshotI
 
 The stable-ID operations remain the exact-identity surface for callers that already hold semantic identities. The name-resolved layer exists to remove incidental plumbing such as repeatedly discovering `TypeId`, `FieldId`, `VariantId`, `FunctionId`, `ParameterId`, or the current whole-body result node merely to express an otherwise unambiguous graph edit.
 
-Within a named whole-body or targeted replacement, an explicit `{"kind":"typeParameter","name":"T"}` binds to the target function's already declared type parameter, including inside nested List/Option/Result types and scoped bodies. It keeps that parameter's stable identity; an unknown name is rejected instead of introducing a new parameter. The same owner binding applies to named Capability signature-repair bodies and signatures. New function creation still allocates fresh identities for type parameters introduced by its parameter types.
+Within a named whole-body or targeted replacement, an explicit `{"kind":"typeParameter","name":"T"}` binds to the target function's already declared type parameter, including inside nested List/Option/Result types and scoped bodies. It keeps that parameter's stable identity; an unknown name is rejected instead of introducing a new parameter. The same owner binding applies to named Capability signature-repair bodies and signatures. New function creation still allocates fresh identities for the type parameters it declares (listed in `typeParameters`, or derived from its parameter types).
 
 Name-resolved `TypeRef` uses `{"kind":"named","name":"ChangeRequest"}` and `{"kind":"capability","name":"Console"}`. Expression recipes retain the existing structural vocabulary, but semantic references use explicit owner/name selectors. For example:
 

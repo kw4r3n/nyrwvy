@@ -22,6 +22,7 @@ module SelfCallTests =
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = current session; DisplayName = name
+          TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
     let private create session name parameters resultType body =
@@ -245,12 +246,12 @@ module SelfCallTests =
             Assert.Empty(SnapshotValidator.validate (snapshot path)))
 
     /// A request-local type parameter; creation replaces the placeholder identity.
-    let private requestT = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "self-call-request-T", "T")
+    let private requestT = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "T")
     let private listOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
     /// The function's own type parameter, as its persisted signature names it.
     let private ownTypeParameter (fn: SemanticFunction) =
-        let id, name = TypeParameters.ofFunction fn |> List.exactlyOne
-        TypeRef.TypeParameter(id, name)
+        let id, _ = TypeParameters.ofFunction fn |> List.exactlyOne
+        TypeRef.TypeParameter id
     let private parameter (fn: SemanticFunction) name = fn.Parameters |> List.find (fun parameter -> parameter.DisplayName = name)
     let private replaceBody (session: AuthoringSession) (fn: SemanticFunction) replacement =
         session.SimulateReplaceBody
@@ -304,7 +305,7 @@ module SelfCallTests =
             Assert.Contains("PureExpressionCallArgumentTypeMismatch", wireMessage)
             Assert.Contains("there is no polymorphic recursion", wireMessage)
             // Swapping two type parameters is a non-identity substitution too, although each argument is a type parameter.
-            let swap = create session "swap" [ "a", requestT; "b", TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "self-call-request-U", "U") ] intType (int 0L)
+            let swap = create session "swap" [ "a", requestT; "b", TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "U") ] intType (int 0L)
             let a, b = parameter swap "a", parameter swap "b"
             let swapped = ExpressionRecipe.DirectCall(swap.Id, [ a.Id, ExpressionRecipe.Parameter b.Id; b.Id, ExpressionRecipe.Parameter a.Id ])
             let swapMessage = rejectsReplacement session swap swapped
@@ -312,10 +313,10 @@ module SelfCallTests =
             Assert.Contains("requires T, but the recipe produces U", swapMessage)
             // Review 2026-10-05 E-3: two type parameters of one display name (here the owner's T and a
             // T of another identity, as the ID-keyed wire `typeRef` can carry) read differently.
-            let foreignT = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "self-call-foreign-T", "T")
+            let foreignT = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "T")
             let foreignMessage = rejectsReplacement session nest (nestBody nest (ExpressionRecipe.ListConstruct(foreignT, [ ExpressionRecipe.Parameter value.Id ])))
             Assert.Contains("PureExpressionOperandTypeMismatch", foreignMessage)
-            Assert.Contains("requires T (type parameter self-call-foreign-T), but the recipe produces T (type parameter ", foreignMessage)
+            Assert.Contains("requires T (type parameter T), but the recipe produces T (type parameter ", foreignMessage)
             // The same call at the owner's own types is accepted, persists as a DirectCall and loops.
             replaceBody session nest (nestBody nest (ExpressionRecipe.Parameter value.Id)) |> unwrap |> publish session
             let looping = find session "nest"
@@ -331,7 +332,7 @@ module SelfCallTests =
     let private nestFunctionId = polymorphicNestId<FunctionTag> "fn"
     let private nestValueId = polymorphicNestId<ParameterTag> "value"
     let private nestCountId = polymorphicNestId<ParameterTag> "n"
-    let private nestT = TypeRef.TypeParameter(polymorphicNestId<TypeParameterTag> "T", "T")
+    let private nestT = TypeRef.TypeParameter(polymorphicNestId<TypeParameterTag> "T")
     let private nestNodeIds = polymorphicNestId<GraphNodeTag> "value-ref", polymorphicNestId<GraphNodeTag> "list", polymorphicNestId<GraphNodeTag> "n-ref", polymorphicNestId<GraphNodeTag> "call"
 
     [<Fact>]
@@ -340,6 +341,7 @@ module SelfCallTests =
         let valueRefId, listId, countRefId, callId = nestNodeIds
         let nest: SemanticFunction =
             { Id = nestFunctionId
+              TypeParameters = [ polymorphicNestId<TypeParameterTag> "T", "T" ]
               DisplayName = "nest"
               Parameters =
                 [ { Id = nestValueId; DisplayName = "value"; Type = nestT }
@@ -361,8 +363,9 @@ module SelfCallTests =
         // Another function's type parameter is still bound by matching: g<U>(value: U) called with List<T> is an ordinary generic call.
         let other: SemanticFunction =
             { Id = polymorphicNestId<FunctionTag> "other"
+              TypeParameters = [ polymorphicNestId<TypeParameterTag> "U", "U" ]
               DisplayName = "other"
-              Parameters = [ { Id = polymorphicNestId<ParameterTag> "other-value"; DisplayName = "value"; Type = TypeRef.TypeParameter(polymorphicNestId<TypeParameterTag> "U", "U") }; { Id = polymorphicNestId<ParameterTag> "other-n"; DisplayName = "n"; Type = intType } ]
+              Parameters = [ { Id = polymorphicNestId<ParameterTag> "other-value"; DisplayName = "value"; Type = TypeRef.TypeParameter(polymorphicNestId<TypeParameterTag> "U") }; { Id = polymorphicNestId<ParameterTag> "other-n"; DisplayName = "n"; Type = intType } ]
               ResultType = intType
               RequiredEffects = []
               Body = { Nodes = [ { Id = polymorphicNestId<GraphNodeTag> "zero"; Kind = SemanticNodeKind.Int64Literal 0L } ]; ResultNodeId = polymorphicNestId<GraphNodeTag> "zero" } }
@@ -383,6 +386,7 @@ module SelfCallTests =
         let node id kind nodeType: TypedSemanticNode = { OriginNodeId = id; Completion = GraphCompletion.Normal nodeType; Kind = kind }
         let nest: TypedSemanticFunction =
             { Id = nestFunctionId
+              TypeParameters = [ polymorphicNestId<TypeParameterTag> "T", "T" ]
               Parameters = [ { Id = nestValueId; Type = nestT }; { Id = nestCountId; Type = intType } ]
               ResultType = intType
               RequiredEffects = []
@@ -455,6 +459,7 @@ module SelfCallTests =
         let loopId, nId = ancestorLoopId<FunctionTag> "fn", ancestorLoopId<ParameterTag> "n"
         let loop: SemanticFunction =
             { Id = loopId
+              TypeParameters = []
               DisplayName = "loop"
               Parameters = [ { Id = nId; DisplayName = "n"; Type = intType } ]
               ResultType = intType

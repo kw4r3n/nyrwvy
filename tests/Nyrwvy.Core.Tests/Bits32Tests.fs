@@ -28,6 +28,7 @@ module Bits32Tests =
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = current session; DisplayName = name
+          TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
     let private create session name parameters resultType body =
@@ -124,6 +125,7 @@ module Bits32Tests =
             let body = nodes |> List.mapi (fun index kind -> ({ Id = nodeId (string index); Kind = kind }: SemanticNode))
             let fn: SemanticFunction =
                 { Id = StableId.createForTesting<FunctionTag> "function-bits-entry"; DisplayName = "entry"; Parameters = []
+                  TypeParameters = []
                   ResultType = resultType; RequiredEffects = []
                   Body = { Nodes = body; ResultNodeId = (List.last body).Id } }
             SnapshotValidator.validate { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-bits") with Functions = [ fn ] }

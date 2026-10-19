@@ -32,6 +32,7 @@ module DisplayNameUniquenessTests =
         | other -> failwithf "Duplicate capability name was accepted: %A" other
         let functionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = baseId
+              TypeParameters = None
               DisplayName = "main"
               Parameters = []
               ResultType = TypeRef.Primitive PrimitiveType.Bool

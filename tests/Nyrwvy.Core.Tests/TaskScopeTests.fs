@@ -91,6 +91,7 @@ module TaskScopeTests =
 
     let private request (session: AuthoringSession) name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = current session
+          TypeParameters = None
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })
           ResultType = resultType

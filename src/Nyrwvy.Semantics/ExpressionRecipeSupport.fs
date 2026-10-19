@@ -31,6 +31,8 @@ module internal ExpressionRecipeSupport =
           ParameterSlots: ParameterSlotContext list option
           RequiredEffects: EffectId list
           ResultType: TypeRef
+          /// The owner's declared type parameters, which name its occurrences in diagnostics.
+          TypeParameters: (TypeParameterId * string) list
           /// The owner's own identity; None only while a new function is preflighted.
           SelfFunctionId: FunctionId option
           /// The owner's parameters in declaration order, addressed by SelfCall slots.
@@ -45,6 +47,7 @@ module internal ExpressionRecipeSupport =
           ParameterSlots = None
           RequiredEffects = target.RequiredEffects
           ResultType = target.ResultType
+          TypeParameters = target.TypeParameters
           SelfFunctionId = Some target.Id
           SelfParameters =
             target.Parameters

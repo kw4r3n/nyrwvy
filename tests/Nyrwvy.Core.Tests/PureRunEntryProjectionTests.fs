@@ -45,6 +45,7 @@ module PureRunEntryProjectionTests =
                 let session = fixtureRef.Value.Session
                 session.SimulateCreateFunction
                     { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
+                      TypeParameters = None
                       Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
                       ResultType = result; RequiredEffects = effects; Body = body }
                 |> unwrap |> fun proposal -> session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
@@ -165,6 +166,7 @@ module PureRunEntryProjectionTests =
             let bytes = File.ReadAllBytes fixture.Path
             let refused = session.SimulateCreateFunction
                               { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "unfinishedCandidate"
+                                TypeParameters = None
                                 Parameters = [ { DisplayName = "values"; Type = TypeRef.Capability fixture.Capability } ]
                                 ResultType = intType; RequiredEffects = [ fixture.Effect ]
                                 Body = ExpressionRecipe.Int64WrappingAdd(invoke, invoke) }

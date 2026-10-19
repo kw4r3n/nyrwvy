@@ -354,6 +354,7 @@ module StructuralRenameAndRemovalTests =
             { Snapshot.empty snapshotId with
                 Functions =
                     [ { Id = functionId
+                        TypeParameters = []
                         DisplayName = "f"
                         Parameters = [ { Id = keep; DisplayName = "keep"; Type = TypeRef.Primitive PrimitiveType.Int64 } ]
                         ResultType = TypeRef.Primitive PrimitiveType.Int64

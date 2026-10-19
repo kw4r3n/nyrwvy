@@ -22,6 +22,22 @@ module NyasonCodec =
 
     let private shape message = raise (NyasonShapeException message)
 
+    /// Before `nayamnyam.snapshot.v17` a type parameter occurrence carried its name and a function
+    /// listed no type parameters (the parameter types implied the list). The form is fixed once per
+    /// document; see the same device in `SnapshotCodec`.
+    let private legacyWriteNames = new System.Threading.ThreadLocal<Map<TypeParameterId, string> option>(fun () -> None)
+    let private legacyReadNames = new System.Threading.ThreadLocal<System.Collections.Generic.Dictionary<TypeParameterId, string> option>(fun () -> None)
+
+    let private withLegacyWriteNames (names: Map<TypeParameterId, string> option) (action: unit -> 'T) =
+        let previous = legacyWriteNames.Value
+        legacyWriteNames.Value <- names
+        try action () finally legacyWriteNames.Value <- previous
+
+    let private withLegacyReadNames (names: System.Collections.Generic.Dictionary<TypeParameterId, string> option) (action: unit -> 'T) =
+        let previous = legacyReadNames.Value
+        legacyReadNames.Value <- names
+        try action () finally legacyReadNames.Value <- previous
+
     let private record tag fields = NyasonValue.Record(tag, fields)
     let private list values = NyasonValue.List values
     let private text value = NyasonValue.Text value
@@ -124,8 +140,10 @@ module NyasonCodec =
             record "function-type" [ "parameters", NyasonValue.List(List.map encodeTypeRef arguments); "result", encodeTypeRef result ]
         | TypeRef.Named(typeId, arguments) ->
             record "named-type" ([ "id", encodeId "type" typeId ] @ encodeTypeArguments "arguments" arguments)
-        | TypeRef.TypeParameter(typeParameterId, displayName) ->
-            record "type-parameter" [ "id", encodeId "type-parameter" typeParameterId; "name", text displayName ]
+        | TypeRef.TypeParameter typeParameterId ->
+            match legacyWriteNames.Value with
+            | Some names -> record "type-parameter" [ "id", encodeId "type-parameter" typeParameterId; "name", text (TypeParameters.nameIn names typeParameterId) ]
+            | None -> record "type-parameter" [ "id", encodeId "type-parameter" typeParameterId ]
         | TypeRef.Capability capabilityId ->
             record "capability-type" [ "capability", encodeId "capability" capabilityId ]
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]) ->
@@ -192,8 +210,19 @@ module NyasonCodec =
             let fields = recordFields "function-type" [ "parameters"; "result" ] [] value
             TypeRef.Function(decodeList decodeTypeRef (require "parameters" fields), decodeTypeRef (require "result" fields))
         | NyasonValue.Record("type-parameter", _) ->
-            let fields = recordFields "type-parameter" [ "id"; "name" ] [] value
-            TypeRef.TypeParameter(decodeId<TypeParameterTag> "type-parameter" (require "id" fields), decodeText (require "name" fields))
+            match legacyReadNames.Value with
+            | Some names ->
+                // The name is optional so that a newer document relabelled with an older schema
+                // fails on the construct it needs (`firstUnsupported`), not on this shape.
+                let fields = recordFields "type-parameter" [ "id" ] [ "name" ] value
+                let typeParameterId = decodeId<TypeParameterTag> "type-parameter" (require "id" fields)
+                match optional "name" fields with
+                | Some name when not (names.ContainsKey typeParameterId) -> names.[typeParameterId] <- decodeText name
+                | _ -> ()
+                TypeRef.TypeParameter typeParameterId
+            | None ->
+                let fields = recordFields "type-parameter" [ "id" ] [] value
+                TypeRef.TypeParameter(decodeId<TypeParameterTag> "type-parameter" (require "id" fields))
         | NyasonValue.Record("named-type", _) ->
             let fields = recordFields "named-type" [ "id" ] [ "arguments" ] value
             TypeRef.Named(decodeId<TypeTag> "type" (require "id" fields), decodeTypeArguments "arguments" fields)
@@ -271,16 +300,18 @@ module NyasonCodec =
           DisplayName = decodeText (require "display-name" fields)
           Fields = decodeList decodeField (require "fields" fields) }
 
+    let private encodeTypeParameters (typeParameters: (TypeParameterId * string) list) =
+        if List.isEmpty typeParameters then []
+        else
+            [ "type-parameters",
+              typeParameters
+              |> List.map (fun (typeParameterId, displayName) ->
+                  record "type-parameter-declaration" [ "id", encodeId "type-parameter" typeParameterId; "name", text displayName ])
+              |> list ]
+
     let private encodeType (item: SemanticType) =
         // Declaration order is semantic (it is the order of type arguments); absent when empty.
-        let typeParameters =
-            if List.isEmpty item.TypeParameters then []
-            else
-                [ "type-parameters",
-                  item.TypeParameters
-                  |> List.map (fun (typeParameterId, displayName) ->
-                      record "type-parameter-declaration" [ "id", encodeId "type-parameter" typeParameterId; "name", text displayName ])
-                  |> list ]
+        let typeParameters = encodeTypeParameters item.TypeParameters
         match item.Kind with
         | SemanticTypeKind.Product fields ->
             record
@@ -2126,30 +2157,52 @@ module NyasonCodec =
         | _ -> shape "Expected semantic node record."
 
     let private encodeFunction (functionEntity: SemanticFunction) =
+        // Declared order; absent when empty, and absent before v17, where the parameter types
+        // imply the list.
+        let typeParameters = if legacyWriteNames.Value.IsSome then [] else encodeTypeParameters functionEntity.TypeParameters
         record
             "function"
-            [ "id", encodeId "function" functionEntity.Id
-              "display-name", text functionEntity.DisplayName
-              "parameters", functionEntity.Parameters |> List.map encodeParameter |> list
-              "result-type", encodeTypeRef functionEntity.ResultType
-              "required-effects",
-              functionEntity.RequiredEffects
-              |> List.sortBy StableId.value
-              |> List.map (encodeId "effect")
-              |> list
-              "body", encodeGraph functionEntity.Body ]
+            ([ "id", encodeId "function" functionEntity.Id
+               "display-name", text functionEntity.DisplayName
+               "parameters", functionEntity.Parameters |> List.map encodeParameter |> list
+               "result-type", encodeTypeRef functionEntity.ResultType
+               "required-effects",
+               functionEntity.RequiredEffects
+               |> List.sortBy StableId.value
+               |> List.map (encodeId "effect")
+               |> list
+               "body", encodeGraph functionEntity.Body ]
+             @ typeParameters)
 
     let private decodeFunction value: SemanticFunction =
         let fields =
             recordFields
                 "function"
                 [ "id"; "display-name"; "parameters"; "result-type"; "required-effects"; "body" ]
-                []
+                [ "type-parameters" ]
                 value
+        let parameters = decodeList decodeParameter (require "parameters" fields)
+        let typeParameters =
+            match legacyReadNames.Value with
+            | None -> decodeTypeParameters fields
+            | Some _ when (optional "type-parameters" fields).IsSome ->
+                // An explicit list in an older document is read so that `firstUnsupported` can name
+                // the construct and the schema it needs.
+                decodeTypeParameters fields
+            | Some names ->
+                // Before v17 the list was implied: the parameters' type parameters in
+                // first-appearance order, each named as its occurrences spelled it.
+                TypeParameters.derived (parameters |> List.map (fun parameter -> parameter.Type))
+                |> List.map (fun id ->
+                    id,
+                    (match names.TryGetValue id with
+                     | true, name -> name
+                     | _ -> StableId.value id))
 
         { Id = decodeId<FunctionTag> "function" (require "id" fields)
           DisplayName = decodeText (require "display-name" fields)
-          Parameters = decodeList decodeParameter (require "parameters" fields)
+          TypeParameters = typeParameters
+          Parameters = parameters
           ResultType = decodeTypeRef (require "result-type" fields)
           RequiredEffects = decodeList (decodeId<EffectTag> "effect") (require "required-effects" fields)
           Body = decodeGraph (require "body" fields) }
@@ -2255,11 +2308,14 @@ module NyasonCodec =
             match SnapshotValidator.validate snapshot with
             | issue :: rest -> Error(NyasonCodecError.InvalidSnapshot(issue :: rest))
             | [] ->
+                let required = SnapshotSchema.required snapshot
+                let legacyNames =
+                    if required.Json < SnapshotSchema.declaredFunctionTypeParameters.Json then Some(TypeParameters.names snapshot) else None
                 let root =
                     record
                         "nyason"
-                        [ "schema", text (SnapshotSchema.required snapshot).Nyason
-                          "snapshot", encodeSnapshot snapshot ]
+                        [ "schema", text required.Nyason
+                          "snapshot", withLegacyWriteNames legacyNames (fun () -> encodeSnapshot snapshot) ]
                 if NyasonSyntax.exceedsMaxDepth root then tooDeep else Ok(NyasonSyntax.render root)
 
     let deserialize (source: string): Result<Snapshot, NyasonCodecError> =
@@ -2274,7 +2330,10 @@ module NyasonCodec =
                     | Some declared -> declared
                     | None -> raise (NyasonSchemaException actualSchema)
 
-                let snapshot = decodeSnapshot (require "snapshot" fields)
+                let legacyNames =
+                    if declared.Json < SnapshotSchema.declaredFunctionTypeParameters.Json then Some(System.Collections.Generic.Dictionary<TypeParameterId, string>())
+                    else None
+                let snapshot = withLegacyReadNames legacyNames (fun () -> decodeSnapshot (require "snapshot" fields))
                 match SnapshotSchema.firstUnsupported declared snapshot with
                 | Some(_, minimum, name) -> raise (NyasonShapeException $"{name} requires {minimum.Nyason}.")
                 | None -> ()

@@ -27,6 +27,7 @@ module AgentFunctionCreationTests =
 
     let private request (snapshot: Snapshot) displayName parameters resultType requiredEffects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = snapshot.Id
+          TypeParameters = None
           DisplayName = displayName
           Parameters = parameters
           ResultType = resultType
@@ -149,6 +150,7 @@ module AgentFunctionCreationTests =
         let existingFunctionId = functionId "existing"
         let existingFunction: SemanticFunction =
             { Id = existingFunctionId
+              TypeParameters = []
               DisplayName = "existing"
               Parameters =
                 [ { Id = existingParameterId
@@ -222,6 +224,7 @@ module AgentFunctionCreationTests =
         let calleeId = functionId "effect-callee"
         let callee: SemanticFunction =
             { Id = calleeId
+              TypeParameters = []
               DisplayName = "effectful"
               Parameters = []
               ResultType = unitType
@@ -259,6 +262,7 @@ module AgentFunctionCreationTests =
         let existingFunctionId = functionId "stale-existing"
         let existingFunction: SemanticFunction =
             { Id = existingFunctionId
+              TypeParameters = []
               DisplayName = "existing"
               Parameters = []
               ResultType = unitType
@@ -302,6 +306,7 @@ module AgentFunctionCreationTests =
         let expected =
             [ "ExpectedBaseSnapshotId", typeof<SnapshotId>
               "DisplayName", typeof<string>
+              "TypeParameters", typeof<(TypeParameterId * string) list option>
               "Parameters", typeof<AgentExpressionStructuralWorkflow.FunctionCreation.ParameterIntent list>
               "ResultType", typeof<TypeRef>
               "RequiredEffects", typeof<EffectId list>

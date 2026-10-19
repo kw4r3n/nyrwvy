@@ -307,7 +307,7 @@ module AgentTypeDeclarationWorkflow =
     /// Fresh system-owned identities for request-local type parameters, keeping their names.
     let private freshTypeParameters (typeParameters: (TypeParameterId * string) list) =
         let fresh = typeParameters |> List.map (fun (_, name) -> StableIdAllocator.newTypeParameterId (), name)
-        let substitution = List.zip typeParameters fresh |> List.map (fun ((old, _), parameter) -> old, TypeRef.TypeParameter parameter) |> Map.ofList
+        let substitution = List.zip typeParameters fresh |> List.map (fun ((old, _), (freshId, _)) -> old, TypeRef.TypeParameter freshId) |> Map.ofList
         fresh, TypeParameters.substitute substitution
 
     let private materialize (request: AgentCreateTypeDeclarationRequest): SemanticType =

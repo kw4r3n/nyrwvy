@@ -26,6 +26,7 @@ module ProductFieldTypeMigrationTests =
     let private create ws name parameterType resultType body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+              TypeParameters = None
               DisplayName = name
               Parameters = [ { DisplayName = "input"; Type = parameterType } ]
               ResultType = resultType
@@ -140,7 +141,7 @@ module ProductFieldTypeMigrationTests =
         Assert.Equal("FieldTypeMigrationUnknownCapabilityType", rejects ws { valid with NewFieldType = TypeRef.Capability(id<CapabilityTag> "missing") })
         Assert.Equal(
             "FieldTypeMigrationTypeParameterNotAllowed",
-            rejects ws { valid with NewFieldType = TypeRef.TypeParameter(id<TypeParameterTag> "t", "T") })
+            rejects ws { valid with NewFieldType = TypeRef.TypeParameter(id<TypeParameterTag> "t") })
         Assert.Equal(
             "FieldTypeMigrationBuiltinGenericArityMismatch",
             rejects ws { valid with NewFieldType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ intType; intType ]) })

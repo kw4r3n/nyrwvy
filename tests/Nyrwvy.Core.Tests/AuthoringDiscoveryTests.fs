@@ -27,6 +27,7 @@ module AuthoringDiscoveryTests =
             let snapshotId = (session.Status() |> unwrap "session status").SnapshotId
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = snapshotId
+                  TypeParameters = None
                   DisplayName = "increment"
                   Parameters =
                     [ { DisplayName = "value"

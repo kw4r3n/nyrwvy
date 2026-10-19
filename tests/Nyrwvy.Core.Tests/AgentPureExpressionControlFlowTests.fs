@@ -59,6 +59,7 @@ module AgentPureExpressionControlFlowTests =
         let resultNodeId = nodeId "old-result"
         let target: SemanticFunction =
             { Id = targetId
+              TypeParameters = []
               DisplayName = "target"
               Parameters = [ optionParameter; unionParameter ]
               ResultType = int64Type

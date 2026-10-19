@@ -24,6 +24,7 @@ module ListCallbackPurityTests =
         let callback name parameterTypes (body: SemanticFunction -> SemanticNode list * GraphNodeId) =
             let shell: SemanticFunction =
                 { Id = id name; DisplayName = name
+                  TypeParameters = []
                   Parameters = parameterTypes |> List.mapi (fun index t -> parameter name index t)
                   ResultType = boolType; RequiredEffects = []
                   Body = { Nodes = []; ResultNodeId = nodeId (name + "-unused") } }
@@ -54,6 +55,7 @@ module ListCallbackPurityTests =
             let result = nodeId "result"
             let entry: SemanticFunction =
                 { Id = id "entry"; DisplayName = "entry"; Parameters = []; ResultType = resultType; RequiredEffects = []
+                  TypeParameters = []
                   Body =
                     { Nodes =
                         [ node "source" (SemanticNodeKind.ListEmpty textType)
@@ -85,6 +87,7 @@ module ListCallbackPurityTests =
             let slot = ExpressionRecipe.ParameterSlot
             let request name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = (session.Status() |> unwrap).SnapshotId; DisplayName = name
+                  TypeParameters = None
                   Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
                   ResultType = resultType; RequiredEffects = []; Body = body }
             let create name parameters resultType body =

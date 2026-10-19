@@ -64,6 +64,7 @@ module SnapshotCodecTests =
         { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-deep") with
             Functions =
                 [ { Id = StableId.createForTesting<FunctionTag> "function-deep"
+                    TypeParameters = []
                     DisplayName = "deep"
                     Parameters = []
                     ResultType = TypeRef.Primitive PrimitiveType.Bool
@@ -190,6 +191,7 @@ module SnapshotCodecTests =
         let nodeId = StableId.createForTesting<GraphNodeTag> "node-lone-surrogate"
         let literal: SemanticFunction =
             { Id = StableId.createForTesting<FunctionTag> "function-lone-surrogate"
+              TypeParameters = []
               DisplayName = "lone"
               Parameters = []
               ResultType = TypeRef.Primitive PrimitiveType.String

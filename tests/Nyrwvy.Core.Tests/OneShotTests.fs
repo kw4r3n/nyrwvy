@@ -126,7 +126,7 @@ module OneShotTests =
             let factory = snapshot.Functions |> List.find (fun f -> f.DisplayName = "genericMake")
             let parameterIds = TypeParameters.ofFunction factory |> List.map fst
             Assert.Single(parameterIds) |> ignore
-            let constructType = ValueGraph.collectNodes factory.Body |> List.choose (fun n -> match n.Kind with SemanticNodeKind.OneShotCreate(_, TypeRef.TypeParameter(id, _)) -> Some id | _ -> None)
+            let constructType = ValueGraph.collectNodes factory.Body |> List.choose (fun n -> match n.Kind with SemanticNodeKind.OneShotCreate(_, TypeRef.TypeParameter(id)) -> Some id | _ -> None)
             Assert.Equal<TypeParameterId list>(parameterIds, constructType)
             Assert.Empty(SnapshotValidator.validate snapshot)
             let artifact = session.EmitCSharp CSharpBackendProfile.empty |> unwrap

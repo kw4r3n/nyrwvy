@@ -147,6 +147,7 @@ module ViewerTests =
 
         let functionEntity: SemanticFunction =
             { Id = functionId
+              TypeParameters = []
               DisplayName = "dependency_roles"
               Parameters = []
               ResultType = floatType

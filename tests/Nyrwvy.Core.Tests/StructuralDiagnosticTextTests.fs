@@ -18,7 +18,7 @@ module StructuralDiagnosticTextTests =
         let ownerId, otherId = diagnosticOwnerId<FunctionTag> "owner", diagnosticOwnerId<FunctionTag> "other"
         let input, result, otherResult = diagnosticOwnerId<GraphNodeTag> "input", diagnosticOwnerId<GraphNodeTag> "result", diagnosticOwnerId<GraphNodeTag> "other-result"
         let make functionId resultType nodes resultId =
-            { Id = functionId; DisplayName = "summary"; Parameters = []; ResultType = resultType; RequiredEffects = []; Body = { Nodes = nodes; ResultNodeId = resultId } }
+            { TypeParameters = []; Id = functionId; DisplayName = "summary"; Parameters = []; ResultType = resultType; RequiredEffects = []; Body = { Nodes = nodes; ResultNodeId = resultId } }
         let owner = make ownerId (TypeRef.Primitive PrimitiveType.String)
                         [ { Id = input; Kind = SemanticNodeKind.StringLiteral(StableId.value otherId) }
                           { Id = result; Kind = SemanticNodeKind.Int64ToString input } ] result
@@ -50,6 +50,7 @@ module StructuralDiagnosticTextTests =
         let int64Function functionId name (parameters: (string * TypeRef) list): SemanticFunction =
             let resultNodeId = id<GraphNodeTag> (name + "-result")
             { Id = functionId
+              TypeParameters = []
               DisplayName = name
               Parameters =
                 parameters

@@ -28,6 +28,7 @@ module ResultFoldTests =
     let private parameter (fn: SemanticFunction) name = (fn.Parameters |> List.find (fun item -> item.DisplayName = name)).Id
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = current session
+          TypeParameters = None
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
           ResultType = resultType

@@ -183,10 +183,10 @@ module internal WireOperation =
         let declared = TypeParameters.ofFunction fn
         let substitution =
             TypeParameters.occurring typeRef
-            |> List.choose (fun (id, name) ->
+            |> List.choose (fun id ->
                 declared
-                |> List.tryFind (fun (_, declaredName) -> declaredName = name)
-                |> Option.map (fun (declaredId, declaredName) -> id, TypeRef.TypeParameter(declaredId, declaredName)))
+                |> List.tryFind (fun (_, declaredName) -> declaredName = StableId.value id)
+                |> Option.map (fun (declaredId, _) -> id, TypeRef.TypeParameter declaredId))
             |> Map.ofList
         TypeParameters.substitute substitution typeRef
 
@@ -304,9 +304,10 @@ module internal WireOperation =
     let private bindUnionTypeParameters (owner: SemanticType) (typeRef: TypeRef) =
         let substitution =
             TypeParameters.occurring typeRef
-            |> List.map (fun (id, name) ->
+            |> List.map (fun id ->
+                let name = StableId.value id
                 match owner.TypeParameters |> List.tryFind (fun (_, declaredName) -> declaredName = name) with
-                | Some(declaredId, declaredName) -> id, TypeRef.TypeParameter(declaredId, declaredName)
+                | Some(declaredId, _) -> id, TypeRef.TypeParameter declaredId
                 | None -> fail $"Union '{owner.DisplayName}' declares no type parameter named '{name}'; a new variant's field types may use only the Union's own type parameters.")
             |> Map.ofList
         TypeParameters.substitute substitution typeRef

@@ -62,6 +62,7 @@ module StandardOperationChoiceTests =
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request (types: TypeRef list) result: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = mode
               Parameters = types |> List.mapi (fun index parameterType -> { DisplayName = $"p{index}"; Type = parameterType })
               ResultType = result

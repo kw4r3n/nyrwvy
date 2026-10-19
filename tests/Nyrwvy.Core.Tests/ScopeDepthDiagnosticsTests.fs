@@ -43,6 +43,7 @@ module ScopeDepthDiagnosticsTests =
               ResultNodeId = nodeId }
         let target: SemanticFunction =
             { Id = targetId
+              TypeParameters = []
               DisplayName = "target"
               Parameters =
                 [ { Id = actionParameterId; DisplayName = "action"; Type = TypeRef.Named(actionTypeId, []) }
@@ -52,6 +53,7 @@ module ScopeDepthDiagnosticsTests =
               Body = { literalBody "unused" with Nodes = [ { Id = resultNodeId; Kind = SemanticNodeKind.StringLiteral "" } ]; ResultNodeId = resultNodeId } }
         let other: SemanticFunction =
             { Id = otherId
+              TypeParameters = []
               DisplayName = "other"
               Parameters = [ { Id = foreignParameterId; DisplayName = "foreign"; Type = stringType } ]
               ResultType = stringType
@@ -197,6 +199,7 @@ module ScopeDepthDiagnosticsTests =
         let workspace = AgentWorkspace.create snapshot |> function Ok value -> value | Error issues -> failwithf "%A" issues
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = "fresh"
               Parameters = [ { DisplayName = "text"; Type = stringType } ]
               ResultType = stringType

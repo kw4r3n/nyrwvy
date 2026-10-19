@@ -222,8 +222,8 @@ module internal WireInput =
         | None -> []
         | Some _ -> array name element |> List.map argument
 
-    /// A type declaration's optional `typeParameters`: request-local names that its field types
-    /// refer to as `{"kind":"typeParameter","name":...}`; creation allocates their identities.
+    /// A declaration's optional `typeParameters`: request-local names that its field or parameter
+    /// types refer to as `{"kind":"typeParameter","name":...}`; creation allocates their identities.
     let typeParameterNames (element: JsonElement) : (TypeParameterId * string) list =
         match tryProperty "typeParameters" element with
         | None -> []
@@ -234,6 +234,13 @@ module internal WireInput =
                 let name = item.GetString()
                 if System.String.IsNullOrWhiteSpace name then fail "Type parameter names must not be blank."
                 stableId<TypeParameterTag> "typeParameters" name, name)
+
+    /// A function creation's optional `typeParameters`, in declared order; absent derives the list
+    /// from the parameter types in first-appearance order.
+    let functionTypeParameters (element: JsonElement) : (TypeParameterId * string) list option =
+        match tryProperty "typeParameters" element with
+        | None -> None
+        | Some _ -> Some(typeParameterNames element)
 
     let rec typeRef (element: JsonElement): TypeRef =
         match requiredString "kind" element with
@@ -249,14 +256,17 @@ module internal WireInput =
             ensureFields "capability type" [ "kind"; "capabilityId" ] [ "kind"; "capabilityId" ] element
             TypeRef.Capability(id<CapabilityTag> "capabilityId" element)
         | "typeParameter" when (tryProperty "name" element).IsSome ->
-            // A request-local name; function creation replaces it with a fresh system-owned identity.
+            // A request-local name, spelled as its own identity; function creation replaces it with a
+            // fresh system-owned identity under that name.
             ensureFields "type parameter" [ "kind"; "name" ] [ "kind"; "name" ] element
             let name = requiredString "name" element
             if System.String.IsNullOrWhiteSpace name then fail "Type parameter names must not be blank."
-            TypeRef.TypeParameter(id<TypeParameterTag> "name" element, name)
+            TypeRef.TypeParameter(id<TypeParameterTag> "name" element)
         | "typeParameter" ->
-            ensureFields "type parameter" [ "kind"; "typeParameterId"; "displayName" ] [ "kind"; "typeParameterId"; "displayName" ] element
-            TypeRef.TypeParameter(id<TypeParameterTag> "typeParameterId" element, requiredString "displayName" element)
+            // An existing declaration's type parameter; `displayName` is accepted and ignored, since
+            // the name lives with the declaring function or type.
+            ensureFields "type parameter" [ "kind"; "typeParameterId"; "displayName" ] [ "kind"; "typeParameterId" ] element
+            TypeRef.TypeParameter(id<TypeParameterTag> "typeParameterId" element)
         | "builtinGeneric" ->
             builtinGenericType typeRef element
         | value -> fail $"Unsupported type kind '{value}'."

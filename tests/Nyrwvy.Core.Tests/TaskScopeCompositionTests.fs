@@ -55,6 +55,7 @@ module TaskScopeCompositionTests =
             let create name parameters resultType effects body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                      TypeParameters = None
                       DisplayName = name
                       Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })
                       ResultType = resultType
@@ -149,6 +150,7 @@ module TaskScopeCompositionTests =
         let node name kind: SemanticNode = { Id = id<GraphNodeTag> name; Kind = kind }
         let fn: SemanticFunction =
             { Id = id<FunctionTag> "abort-with-cancel"
+              TypeParameters = []
               DisplayName = "abortWithCancel"
               Parameters = [ { Id = parameterId; DisplayName = "task"; Type = taskType } ]
               ResultType = outcomeType

@@ -11,6 +11,7 @@ module EntrySelectionFastTests =
     let private unitType = TypeRef.Primitive PrimitiveType.Unit
     let private fn name nodes: SemanticFunction =
         { Id = id name; DisplayName = name; Parameters = []; ResultType = unitType; RequiredEffects = []
+          TypeParameters = []
           Body = { Nodes = nodes; ResultNodeId = nodes.Head.Id } }
     let private node name kind: SemanticNode = { Id = id name; Kind = kind }
     let private executionUnit name =
@@ -18,6 +19,7 @@ module EntrySelectionFastTests =
         let typed: TypedSemanticProgram =
             { SourceSnapshotId = id "snapshot"; Types = []; Effects = []; Capabilities = []
               Functions = [ { Id = id name; Parameters = []; ResultType = unitType; RequiredEffects = []
+                              TypeParameters = []
                               Body = { Nodes = [ unitNode ]; ResultNodeId = unitNode.OriginNodeId } } ] }
         match ExecutionIr.lower typed with
         | Ok program -> program.Functions.Head

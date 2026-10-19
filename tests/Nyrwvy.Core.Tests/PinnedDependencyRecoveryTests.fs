@@ -90,6 +90,7 @@ module PinnedDependencyRecoveryTests =
                                     FailureType = None; EffectId = effectId } ] } ]
                     Functions =
                         [ { Id = functionId; DisplayName = "constant"; Parameters = []
+                            TypeParameters = []
                             ResultType = TypeRef.Primitive PrimitiveType.Int64; RequiredEffects = []
                             Body = { Nodes = [ { Id = nodeId; Kind = SemanticNodeKind.Int64Literal 7L } ]; ResultNodeId = nodeId } } ] }
             let source = Path.Combine(root, "source.json")
@@ -178,6 +179,7 @@ module PinnedDependencyRecoveryTests =
             let before = File.ReadAllText local
             let proposal = session.SimulateCreateFunction
                                 { ExpectedBaseSnapshotId = (status session).SnapshotId
+                                  TypeParameters = None
                                   DisplayName = "local"; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Int64
                                   RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 1L } |> unwrap
             File.AppendAllText(manifestPath local, " ")

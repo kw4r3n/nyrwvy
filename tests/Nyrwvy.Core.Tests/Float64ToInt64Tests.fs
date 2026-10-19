@@ -30,6 +30,7 @@ module Float64ToInt64Tests =
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = mode
               Parameters = [ { DisplayName = "value"; Type = parameterType } ]
               ResultType = resultType

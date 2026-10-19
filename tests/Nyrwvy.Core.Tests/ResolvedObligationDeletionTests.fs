@@ -18,8 +18,10 @@ module ResolvedObligationDeletionTests =
         let unitId, valueId, callId = StableIdAllocator.newGraphNodeId(), StableIdAllocator.newGraphNodeId(), StableIdAllocator.newGraphNodeId()
         let unitType = TypeRef.Primitive PrimitiveType.Unit
         { Callee = { Id=calleeId; DisplayName=name+"Callee"; Parameters=[]; ResultType=unitType; RequiredEffects=[]
+                     TypeParameters = []
                      Body={Nodes=[{Id=unitId;Kind=SemanticNodeKind.UnitLiteral}];ResultNodeId=unitId} }
           Caller = { Id=callerId; DisplayName=name+"Caller"; Parameters=[]; ResultType=unitType; RequiredEffects=[]
+                     TypeParameters = []
                      Body={Nodes=[{Id=valueId;Kind=SemanticNodeKind.Int64Literal 1L};{Id=callId;Kind=SemanticNodeKind.DirectCall(calleeId,[])}];ResultNodeId=callId} }
           Call=callId; Value=valueId; Parameter=StableIdAllocator.newParameterId(); Obligation=StableIdAllocator.newObligationId() }
 

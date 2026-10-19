@@ -202,6 +202,7 @@ static class Runner
             let create name parameters resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                      TypeParameters = None
                       DisplayName = name
                       Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })
                       ResultType = resultType

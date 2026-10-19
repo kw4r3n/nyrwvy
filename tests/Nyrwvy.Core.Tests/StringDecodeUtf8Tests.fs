@@ -26,6 +26,7 @@ module StringDecodeUtf8Tests =
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = "decode"
               Parameters = [ { DisplayName = "bytes"; Type = parameterType } ]
               ResultType = resultType
@@ -130,6 +131,7 @@ module StringDecodeUtf8Tests =
             let decode = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "decode")
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                  TypeParameters = None
                   DisplayName = "table"
                   Parameters = []
                   ResultType = listOf stringType

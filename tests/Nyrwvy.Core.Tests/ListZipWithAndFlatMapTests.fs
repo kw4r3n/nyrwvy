@@ -42,6 +42,7 @@ module ListZipWithAndFlatMapTests =
             let find name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
             let request name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                  TypeParameters = None
                   DisplayName = name
                   Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })
                   ResultType = resultType

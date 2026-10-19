@@ -43,6 +43,7 @@ module AgentPureExpressionStructuralWorkflowTests =
 
     let private functionWithBody id name parameters resultType resultNodeId kind: SemanticFunction =
         { Id = id
+          TypeParameters = []
           DisplayName = name
           Parameters = parameters
           ResultType = resultType

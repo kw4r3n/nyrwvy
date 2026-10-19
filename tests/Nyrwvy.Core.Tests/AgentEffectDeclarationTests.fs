@@ -29,6 +29,7 @@ module AgentEffectDeclarationTests =
     let private untouchedFunction () =
         let resultId = nodeId "untouched-result"
         { Id = functionId "untouched"
+          TypeParameters = []
           DisplayName = "untouched"
           Parameters = []
           ResultType = unitType
@@ -63,6 +64,7 @@ module AgentEffectDeclarationTests =
 
         let functionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws1
+              TypeParameters = None
               DisplayName = "uses_io"
               Parameters = []
               ResultType = unitType

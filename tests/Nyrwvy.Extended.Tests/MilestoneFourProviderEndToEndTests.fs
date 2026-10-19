@@ -92,6 +92,7 @@ module MilestoneFourProviderEndToEndTests =
         =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = currentSnapshotId session
+              TypeParameters = None
               DisplayName = displayName
               Parameters = parameters
               ResultType = resultType

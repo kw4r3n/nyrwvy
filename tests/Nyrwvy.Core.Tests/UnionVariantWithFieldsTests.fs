@@ -31,6 +31,7 @@ module UnionVariantWithFieldsTests =
         let ws = AgentWorkspace.create { Snapshot.empty (id<SnapshotTag> "base") with Types = [ shape ] } |> unwrap "workspace"
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+              TypeParameters = None
               DisplayName = displayName
               Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
               ResultType = resultType

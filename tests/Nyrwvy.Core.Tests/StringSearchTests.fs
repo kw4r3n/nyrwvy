@@ -29,6 +29,7 @@ module StringSearchTests =
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = "search"
               Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
               ResultType = resultType
@@ -137,6 +138,7 @@ module StringSearchTests =
             let create name resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                      TypeParameters = None
                       DisplayName = name
                       Parameters = []
                       ResultType = resultType
@@ -239,6 +241,7 @@ module StringSearchTests =
             let createOne name resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                      TypeParameters = None
                       DisplayName = name
                       Parameters = [ { DisplayName = "text"; Type = stringType } ]
                       ResultType = resultType

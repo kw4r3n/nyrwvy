@@ -25,11 +25,12 @@ module FingerprintTests =
     let private nestedTypeRef typeParameter =
         resultOf (listOf (optionOf typeParameter)) (optionOf (listOf typeParameter))
 
-    let private genericSnapshot parameterType resultType body =
+    let private genericSnapshot (typeParameterId, displayName) parameterType resultType body =
         { Snapshot.empty (id<SnapshotTag> "generic-snapshot") with
             Functions =
                 [ { Id = id<FunctionTag> "generic-function"
                     DisplayName = "generic"
+                    TypeParameters = [ typeParameterId, displayName ]
                     Parameters =
                         [ { Id = id<ParameterTag> "value"
                             DisplayName = "value"
@@ -59,7 +60,7 @@ module FingerprintTests =
     [<InlineData(true)>]
     let ``function signature type parameter names are presentation only`` (nested: bool) =
         let createSnapshot typeParameterId displayName =
-            let typeParameter = TypeRef.TypeParameter(typeParameterId, displayName)
+            let typeParameter = TypeRef.TypeParameter typeParameterId
             let valueType = if nested then nestedTypeRef typeParameter else typeParameter
             let resultNodeId = id<GraphNodeTag> "identity-result"
             let body: ValueGraph =
@@ -67,7 +68,7 @@ module FingerprintTests =
                     [ { Id = resultNodeId
                         Kind = SemanticNodeKind.ParameterReference(id<ParameterTag> "value") } ]
                   ResultNodeId = resultNodeId }
-            genericSnapshot valueType valueType body
+            genericSnapshot (typeParameterId, displayName) valueType valueType body
 
         assertTypeParameterMetadata createSnapshot
 
@@ -79,7 +80,7 @@ module FingerprintTests =
     [<InlineData("result-err")>]
     let ``nested graph node type parameter names are presentation only`` (nodeKind: string) =
         let createSnapshot typeParameterId displayName =
-            let itemType = TypeRef.TypeParameter(typeParameterId, displayName) |> nestedTypeRef
+            let itemType = TypeRef.TypeParameter typeParameterId |> nestedTypeRef
             let inputNodeId = id<GraphNodeTag> "input"
             let conditionNodeId = id<GraphNodeTag> "condition"
             let resultNodeId = id<GraphNodeTag> "conditional-result"
@@ -103,7 +104,7 @@ module FingerprintTests =
                       { Id = resultNodeId
                         Kind = SemanticNodeKind.Conditional(conditionNodeId, branch "when-true", branch "when-false") } ]
                   ResultNodeId = resultNodeId }
-            genericSnapshot itemType resultType body
+            genericSnapshot (typeParameterId, displayName) itemType resultType body
 
         assertTypeParameterMetadata createSnapshot
 
@@ -113,7 +114,7 @@ module FingerprintTests =
     [<InlineData("match-result")>]
     let ``pattern binding type parameter names are presentation only`` (nodeKind: string) =
         let createSnapshot typeParameterId displayName =
-            let itemType = TypeRef.TypeParameter(typeParameterId, displayName) |> nestedTypeRef
+            let itemType = TypeRef.TypeParameter typeParameterId |> nestedTypeRef
             let inputNodeId = id<GraphNodeTag> "input"
             let resultNodeId = id<GraphNodeTag> "match-result"
             let binding name: PatternBinding =
@@ -150,7 +151,7 @@ module FingerprintTests =
                         Kind = SemanticNodeKind.ParameterReference(id<ParameterTag> "value") }
                       { Id = resultNodeId; Kind = kind } ]
                   ResultNodeId = resultNodeId }
-            genericSnapshot parameterType (listOf itemType) body
+            genericSnapshot (typeParameterId, displayName) parameterType (listOf itemType) body
 
         assertTypeParameterMetadata createSnapshot
 

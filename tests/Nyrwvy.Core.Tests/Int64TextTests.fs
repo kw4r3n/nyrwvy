@@ -24,6 +24,7 @@ module Int64TextTests =
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = "convert"
               Parameters = [ { DisplayName = "input"; Type = parameterType } ]
               ResultType = resultType
@@ -81,6 +82,7 @@ module Int64TextTests =
             let createMap name parameterType resultType mapper =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                      TypeParameters = None
                       DisplayName = name
                       Parameters = [ { DisplayName = "items"; Type = parameterType } ]
                       ResultType = resultType

@@ -14,6 +14,7 @@ module CSharpBackendTests =
         let nodeId = StableId.createForTesting<GraphNodeTag> "node-backend-literal-probe"
         let functionEntity: SemanticFunction =
             { Id = literalProbeFunctionId
+              TypeParameters = []
               DisplayName = "literal_probe"
               Parameters = []
               ResultType = TypeRef.Primitive PrimitiveType.String

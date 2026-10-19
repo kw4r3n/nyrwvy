@@ -24,6 +24,7 @@ module ImportProvenanceSelectorTests =
             Capabilities = [ capability ]
             Functions =
                 [ { Id = id<FunctionTag> name; DisplayName = "render"; Parameters = []; ResultType = intType; RequiredEffects = []
+                    TypeParameters = []
                     Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.Int64Literal number } ]; ResultNodeId = node } } ] }
     let private withApp test =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-selector-" + Guid.NewGuid().ToString("N"))
@@ -150,6 +151,7 @@ module ImportProvenanceSelectorTests =
         withApp (fun session path a _ aPath _ _ ->
             let create = session.SimulateCreateFunction
                             { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "countdown"
+                              TypeParameters = None
                               Parameters = [ { DisplayName = "remaining"; Type = intType }; { DisplayName = "total"; Type = intType } ]
                               ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> unwrap
             session.Commit(create.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore

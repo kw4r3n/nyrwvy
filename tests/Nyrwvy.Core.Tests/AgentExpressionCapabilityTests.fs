@@ -35,6 +35,7 @@ module AgentExpressionCapabilityTests =
         let functionWithBody id name parameters resultType effects kind: SemanticFunction =
             let resultNodeId = nodeId name
             { Id = id
+              TypeParameters = []
               DisplayName = name
               Parameters = parameters
               ResultType = resultType

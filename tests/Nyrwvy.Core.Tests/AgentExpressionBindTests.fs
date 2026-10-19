@@ -22,6 +22,7 @@ module AgentExpressionBindTests =
         let fixture = MilestoneZeroGraph.create ()
         let target: SemanticFunction =
             { Id = targetId
+              TypeParameters = []
               DisplayName = "bound"
               Parameters =
                 [ { Id = consoleParameterId

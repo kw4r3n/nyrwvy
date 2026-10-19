@@ -1076,6 +1076,7 @@ module ExecutionIr =
                 ResultList.traverse finalizeBlock orderedBlocks
                 |> Result.map (fun finalizedBlocks ->
                     { SemanticFunctionId = functionEntity.Id
+                      TypeParameters = functionEntity.TypeParameters
                       Parameters = executionParameters
                       ResultType = functionEntity.ResultType
                       RequiredEffects = functionEntity.RequiredEffects |> List.sortBy StableId.value

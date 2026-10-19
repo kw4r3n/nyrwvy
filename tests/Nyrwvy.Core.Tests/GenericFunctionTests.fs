@@ -15,8 +15,8 @@ module GenericFunctionTests =
     let private intType = TypeRef.Primitive PrimitiveType.Int64
     let private listOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
     let private optionOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ])
-    /// A request-local type parameter; creation replaces the placeholder identity.
-    let private t = TypeRef.TypeParameter(id<TypeParameterTag> "request-T", "T")
+    /// A request-local type parameter, spelled as its name; creation replaces the identity.
+    let private t = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "T")
     let private unwrap label result =
         match result with
         | Ok value -> value
@@ -24,6 +24,7 @@ module GenericFunctionTests =
 
     let private request ws name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+          TypeParameters = None
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
           ResultType = resultType
@@ -65,7 +66,7 @@ module GenericFunctionTests =
         let count, orElse, emptyOf = find ws "count", find ws "orElse", find ws "emptyOf"
         let countParameters = TypeParameters.ofFunction count
         Assert.Equal(1, countParameters.Length)
-        Assert.NotEqual(id<TypeParameterTag> "request-T", fst countParameters.Head)
+        Assert.NotEqual(StableId.createForTesting<TypeParameterTag> "T", fst countParameters.Head)
         Assert.Equal("T", snd countParameters.Head)
         // Each function owns distinct type parameters, and a body type reuses the signature's one.
         Assert.NotEqual(fst countParameters.Head, fst (TypeParameters.ofFunction orElse).Head)
@@ -75,7 +76,7 @@ module GenericFunctionTests =
                 match node.Kind with
                 | SemanticNodeKind.ListEmpty itemType -> Some itemType
                 | _ -> None)
-        Assert.Equal(TypeRef.TypeParameter(emptyOfParameter, "T"), bodyItemType)
+        Assert.Equal(TypeRef.TypeParameter(emptyOfParameter), bodyItemType)
         Assert.Equal(stringType, (find ws "defaultName").ResultType)
         let json = SnapshotCodec.serialize snapshot |> unwrap "json"
         Assert.Contains("\"typeParameter\"", json)
@@ -107,7 +108,7 @@ module GenericFunctionTests =
             { snapshot with
                 Functions = snapshot.Functions |> List.map (fun fn ->
                     if fn.DisplayName <> "countTwice" then fn
-                    else { fn with Parameters = fn.Parameters |> List.map (fun parameter -> { parameter with Type = countParameter }) }) }
+                    else { fn with TypeParameters = (find ws "count").TypeParameters; Parameters = fn.Parameters |> List.map (fun parameter -> { parameter with Type = countParameter }) }) }
         Assert.Contains(SnapshotValidator.validate shared, fun issue -> issue.Code = "TypeParameterSharedAcrossFunctions")
         let declared =
             { snapshot with
@@ -119,7 +120,7 @@ module GenericFunctionTests =
             { snapshot with
                 Functions = snapshot.Functions |> List.map (fun fn ->
                     if fn.DisplayName <> "defaultName" then fn
-                    else { fn with ResultType = TypeRef.TypeParameter(id<TypeParameterTag> "unintroduced", "U") }) }
+                    else { fn with ResultType = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "U") }) }
         let issues = SnapshotValidator.validate undeclared
         Assert.Contains(issues, fun issue ->
             issue.Code = "TypeParameterNotDeclared" && issue.Message.Contains("'defaultName'") && issue.Message.Contains("'U'"))
@@ -160,8 +161,8 @@ module GenericFunctionTests =
             Assert.Equal<ParameterId list>(before.Parameters |> List.map (fun p -> p.Id), after.Parameters |> List.map (fun p -> p.Id))
             Assert.Equal<(TypeParameterId * string) list>(declared, TypeParameters.ofFunction after)
             let nodes = ValueGraph.collectNodes after.Body
-            let ownerT = TypeRef.TypeParameter(fst declared.[0], "T")
-            let ownerU = TypeRef.TypeParameter(fst declared.[1], "U")
+            let ownerT = TypeRef.TypeParameter(fst declared.[0])
+            let ownerU = TypeRef.TypeParameter(fst declared.[1])
             Assert.Contains(nodes, fun n -> match n.Kind with SemanticNodeKind.OptionNone item -> item = listOf ownerT | _ -> false)
             Assert.Contains(nodes, fun n -> match n.Kind with SemanticNodeKind.ListEmpty item -> item = ownerT | _ -> false)
             Assert.Contains(nodes, fun n -> match n.Kind with SemanticNodeKind.ResultOk(errorType, _) -> errorType = ownerU | _ -> false)
@@ -189,7 +190,7 @@ module GenericFunctionTests =
             let previousIds = ValueGraph.collectNodes before.Body |> List.map (fun n -> n.Id) |> Set.ofList
             let currentIds = ValueGraph.collectNodes after.Body |> List.map (fun n -> n.Id) |> Set.ofList
             Assert.True((previousIds = currentIds), "Targeted editing must preserve the surrounding scoped graph identities.")
-            Assert.Contains(ValueGraph.collectNodes after.Body, fun n -> match n.Kind with SemanticNodeKind.ListConstruct(item, []) -> item = TypeRef.TypeParameter(fst (TypeParameters.ofFunction before).Head, "T") | _ -> false))
+            Assert.Contains(ValueGraph.collectNodes after.Body, fun n -> match n.Kind with SemanticNodeKind.ListConstruct(item, []) -> item = TypeRef.TypeParameter(fst (TypeParameters.ofFunction before).Head) | _ -> false))
 
     [<Fact>]
     let ``existing monomorphic owner cannot gain a type parameter through a named recipe`` () =
@@ -229,6 +230,6 @@ module GenericFunctionTests =
             use committed = AuthoringProtocol.executeLine session (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId) |> JsonDocument.Parse
             Assert.True(committed.RootElement.GetProperty("ok").GetBoolean(), committed.RootElement.ToString())
             let firstOr = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "firstOr")
-            Assert.Equal<(TypeParameterId * string) list>(TypeParameters.occurring firstOr.ResultType, TypeParameters.ofFunction firstOr)
+            Assert.Equal<TypeParameterId list>(TypeParameters.occurring firstOr.ResultType, TypeParameters.ofFunction firstOr |> List.map fst)
         finally
             if Directory.Exists root then Directory.Delete(root, true)

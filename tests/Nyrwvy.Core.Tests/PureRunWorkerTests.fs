@@ -21,6 +21,7 @@ module PureRunWorkerTests =
     let private create (session: AuthoringSession) name parameters resultType effects body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = current session; DisplayName = name
+              TypeParameters = None
               Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
               ResultType = resultType; RequiredEffects = effects; Body = body }
         session.SimulateCreateFunction request |> unwrap |> publish session

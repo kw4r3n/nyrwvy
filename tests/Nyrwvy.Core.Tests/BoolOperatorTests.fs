@@ -29,6 +29,7 @@ module BoolOperatorTests =
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = current session; DisplayName = name
+          TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = effects; Body = body }
     let private create session name parameters resultType effects body =
@@ -131,6 +132,7 @@ module BoolOperatorTests =
               ResultNodeId = notId }
         let fn: SemanticFunction =
             { Id = StableId.createForTesting<FunctionTag> "function-bool-scope"
+              TypeParameters = []
               DisplayName = "scope"; Parameters = []; ResultType = boolType; RequiredEffects = []; Body = body }
         let issues =
             SnapshotValidator.validate

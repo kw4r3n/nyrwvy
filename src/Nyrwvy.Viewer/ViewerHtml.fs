@@ -20,7 +20,10 @@ module ViewerHtml =
 
     let private html (value: string): string = WebUtility.HtmlEncode(value)
     let private code (value: string): string = "<code>" + html value + "</code>"
-    let rec private typeRefText (typeRef: TypeRef): string =
+    /// Type parameter display names come from the declaring function or type, never from an
+    /// occurrence; a focus document collects them from every declaration it shows.
+    let rec private typeRefTextIn (names: Map<TypeParameterId, string>) (typeRef: TypeRef): string =
+        let typeRefText = typeRefTextIn names
         match typeRef with
         | TypeRef.Primitive PrimitiveType.String -> "String"
         | TypeRef.Primitive PrimitiveType.Bool -> "Bool"
@@ -32,7 +35,7 @@ module ViewerHtml =
         | TypeRef.Named(typeId, arguments) -> StableIdText.typeId typeId + "<" + (arguments |> List.map typeRefText |> String.concat ", ") + ">"
         | TypeRef.Capability capabilityId -> StableIdText.capabilityId capabilityId
         | TypeRef.Function(arguments, result) -> "(" + (arguments |> List.map typeRefText |> String.concat ", ") + ") -> " + typeRefText result
-        | TypeRef.TypeParameter(_, displayName) -> displayName
+        | TypeRef.TypeParameter id -> TypeParameters.nameIn names id
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
             "Option<" + typeRefText item + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
@@ -325,7 +328,8 @@ module ViewerHtml =
         writer.Line("</body>")
         writer.Line("</html>")
 
-    let private emitParameters (writer: HtmlWriter) (parameters: SemanticParameter list) =
+    let private emitParameters (writer: HtmlWriter) (names: Map<TypeParameterId, string>) (parameters: SemanticParameter list) =
+        let typeRefText = typeRefTextIn names
         writer.Line("<table>")
         writer.Line("<thead><tr><th>Parameter</th><th>Type</th><th>Stable ID</th></tr></thead>")
         writer.Line("<tbody>")
@@ -402,7 +406,8 @@ module ViewerHtml =
                     + code (StableIdText.graphNodeId dependency.NodeId) + "</li>")
             writer.Line("</ul>")
 
-    let rec private emitGraph (writer: HtmlWriter) (graph: ViewerGraph) =
+    let rec private emitGraph (writer: HtmlWriter) (names: Map<TypeParameterId, string>) (graph: ViewerGraph) =
+        let typeRefText = typeRefTextIn names
         writer.Line("<section class=\"graph\" aria-label=\"value graph\">")
         writer.Line("<p>Graph result: " + code (StableIdText.graphNodeId graph.ResultNodeId) + "</p>")
         writer.Line("<div class=\"nodes\">")
@@ -433,7 +438,7 @@ module ViewerHtml =
                             + "; type " + code (typeRefText binding.Type)
                             + sourceField + "</li>")
                     writer.Line("</ul>")
-                emitGraph writer branch.Graph
+                emitGraph writer names branch.Graph
                 writer.Line("</section>")
             writer.Line("</article>")
         writer.Pop()
@@ -441,6 +446,7 @@ module ViewerHtml =
         writer.Line("</section>")
 
     let private emitTypeEntity (writer: HtmlWriter) (typeEntity: SemanticType) =
+        let typeRefText = typeRefTextIn (Map.ofList typeEntity.TypeParameters)
         writer.Line(
             "<details><summary>" + html typeEntity.DisplayName + " — "
             + code (StableIdText.typeId typeEntity.Id) + "</summary>")
@@ -462,6 +468,7 @@ module ViewerHtml =
         writer.Line("</details>")
 
     let private emitCapability (writer: HtmlWriter) (capability: SemanticCapability) =
+        let typeRefText = typeRefTextIn Map.empty
         writer.Line(
             "<details><summary>" + html capability.DisplayName + " — "
             + code (StableIdText.capabilityId capability.Id) + "</summary><ul>")
@@ -536,6 +543,12 @@ module ViewerHtml =
         writer.Line("</section>")
 
     let private emitFocusBody (writer: HtmlWriter) (model: ViewerFocusModel) =
+        let names =
+            [ yield! model.Function.TypeParameters
+              for signature in model.RelatedFunctionSignatures do yield! signature.TypeParameters
+              for typeEntity in model.ReferencedTypes do yield! typeEntity.TypeParameters ]
+            |> Map.ofList
+        let typeRefText = typeRefTextIn names
         writer.Line("<header>")
         writer.Line("<h1>Function Focus — " + html model.Function.DisplayName + "</h1>")
         writer.Line("<p>Snapshot: " + code (StableIdText.snapshotId model.SnapshotId) + "</p>")
@@ -543,7 +556,7 @@ module ViewerHtml =
         writer.Line("<p>Result type: " + code (typeRefText model.Function.ResultType) + "</p>")
         writer.Line("</header>")
         writer.Line("<section><h2>Signature</h2>")
-        emitParameters writer model.Function.Parameters
+        emitParameters writer names model.Function.Parameters
         emitRequiredEffects writer model.Function.RequiredEffects
         writer.Line("</section>")
         emitBodyEffects writer model.BodyEffectRequirements
@@ -560,14 +573,14 @@ module ViewerHtml =
         emitObligations writer model.OpenObligations
         emitMissing writer model
         writer.Line("<section><h2>Structured graph</h2>")
-        emitGraph writer model.Graph
+        emitGraph writer names model.Graph
         writer.Line("</section>")
         emitDeclarations writer model
         writer.Line("<details><summary>Related function signatures</summary>")
         for signature in model.RelatedFunctionSignatures do
             writer.Line("<article><h4>" + html signature.DisplayName + "</h4>")
             writer.Line("<p>" + code (StableIdText.functionId signature.FunctionId) + "</p>")
-            emitParameters writer signature.Parameters
+            emitParameters writer names signature.Parameters
             writer.Line("<p>Result: " + code (typeRefText signature.ResultType) + "</p>")
             emitRequiredEffects writer signature.RequiredEffects
             writer.Line("</article>")
@@ -580,7 +593,8 @@ module ViewerHtml =
         emitDocumentEnd writer
         writer.ToString()
 
-    let private emitDiff (writer: HtmlWriter) (diff: SemanticDiff) =
+    let private emitDiff (writer: HtmlWriter) (names: Map<TypeParameterId, string>) (diff: SemanticDiff) =
+        let typeRefText = typeRefTextIn names
         writer.Line("<section><h2>Semantic change summary</h2>")
         writer.Line("<h3>Renames</h3><ul>")
         for rename in diff.Renames do
@@ -733,7 +747,13 @@ module ViewerHtml =
         writer.Line("<p>Base snapshot: " + code (StableIdText.snapshotId model.BaseSnapshotId) + "</p>")
         writer.Line("<p>Proposed snapshot: " + code (StableIdText.snapshotId model.ProposedSnapshotId) + "</p>")
         writer.Line("<p class=\"status\">Readiness: " + html (readinessLabel model.Readiness) + "</p></header>")
-        emitDiff writer model.Diff
+        // The affected functions' focus views name the type parameters an added parameter may use.
+        let names =
+            [ for focus in model.FunctionFocus do
+                  yield! focus.Function.TypeParameters
+                  for signature in focus.RelatedFunctionSignatures do yield! signature.TypeParameters ]
+            |> Map.ofList
+        emitDiff writer names model.Diff
         writer.Line("<section><h2>Affected stable identities</h2><ul>")
         for id in model.AffectedFunctionIds do
             writer.Line("<li>" + code (StableIdText.functionId id) + "</li>")

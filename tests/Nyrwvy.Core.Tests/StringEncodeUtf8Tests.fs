@@ -49,6 +49,7 @@ module StringEncodeUtf8Tests =
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = "encode"
               Parameters = [ { DisplayName = "text"; Type = parameterType } ]
               ResultType = resultType
@@ -112,6 +113,7 @@ module StringEncodeUtf8Tests =
             let define name parameters resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                      TypeParameters = None
                       DisplayName = name
                       Parameters = parameters
                       ResultType = resultType

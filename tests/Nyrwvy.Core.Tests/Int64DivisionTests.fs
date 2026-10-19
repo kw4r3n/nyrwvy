@@ -22,6 +22,7 @@ module Int64DivisionTests =
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = current session; DisplayName = name
+          TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
     let private create session name parameters resultType body =

@@ -23,6 +23,7 @@ module StringConcatTests =
             | Error errors -> failwithf "Invalid fixture: %A" errors
         let request body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = "join"
               Parameters = [ parameter "left"; parameter "right" ]
               ResultType = stringType

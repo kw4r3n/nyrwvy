@@ -81,7 +81,7 @@ module internal OneShotPayloadRequirements =
         let rec visit current =
             match current with
             | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) ->
-                arguments |> List.collect TypeParameters.occurring |> List.map fst |> Set.ofList
+                arguments |> List.collect TypeParameters.occurring |> Set.ofList
             | TypeRef.BuiltinGeneric(_, arguments)
             | TypeRef.Named(_, arguments) -> arguments |> List.map visit |> Set.unionMany
             | TypeRef.Function(arguments, result) -> (result :: arguments) |> List.map visit |> Set.unionMany
@@ -108,7 +108,7 @@ module internal OneShotPayloadRequirements =
                 for owner, _, reference, substitution in calls do
                     let inherited =
                         Map.find reference.FunctionId requirements |> Seq.choose (fun id -> Map.tryFind id substitution)
-                        |> Seq.collect TypeParameters.occurring |> Seq.map fst |> Set.ofSeq
+                        |> Seq.collect TypeParameters.occurring |> Set.ofSeq
                     let previous = Map.find owner requirements
                     let next = Set.union previous inherited
                     if next <> previous then

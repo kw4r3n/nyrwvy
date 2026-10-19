@@ -47,6 +47,7 @@ module TestGraph =
 
         let validateFunction: SemanticFunction =
             { Id = validateFunctionId
+              TypeParameters = []
               DisplayName = "validate_user"
               Parameters = [ validateInput ]
               ResultType = stringType
@@ -83,6 +84,7 @@ module TestGraph =
 
         let runFunction: SemanticFunction =
             { Id = runFunctionId
+              TypeParameters = []
               DisplayName = "run"
               Parameters = [ runInput; runPolicy ]
               ResultType = stringType

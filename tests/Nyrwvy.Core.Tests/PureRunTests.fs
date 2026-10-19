@@ -21,6 +21,7 @@ module PureRunTests =
         let create ws name parameterType resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                  TypeParameters = None
                   DisplayName = name
                   Parameters =
                     [ { DisplayName = "left"; Type = parameterType }

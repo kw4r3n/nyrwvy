@@ -36,6 +36,7 @@ module PureRunNestedTests =
         let create ws name itemType resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                  TypeParameters = None
                   DisplayName = name; Parameters = [ { DisplayName = "input"; Type = itemType } ]
                   ResultType = resultType; RequiredEffects = []; Body = body }
             let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request |> unwrap

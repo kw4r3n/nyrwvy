@@ -266,6 +266,7 @@ module ExecutionIrTests =
                 ) }
         let functionEntity: TypedSemanticFunction =
             { Id = fixture.MainFunctionId
+              TypeParameters = []
               Parameters = [ { Id = parameterId; Type = unitType } ]
               ResultType = unitType
               RequiredEffects = [ fixture.ConsoleEffectId ]

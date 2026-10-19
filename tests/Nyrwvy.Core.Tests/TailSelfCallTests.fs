@@ -85,6 +85,7 @@ module TailSelfCallTests =
             let createWith effects name parameters result body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = current session
+                      TypeParameters = None
                       DisplayName = name
                       Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
                       ResultType = result
@@ -185,7 +186,7 @@ module TailSelfCallTests =
                 (ExpressionRecipe.ListFold(slot 0, int 0L, (find "countDown").Id, []))
             // Generic: repeatLength<T>(items: List<T>, n, acc) = if n <= 0 then acc else repeatLength(items, n - 1, acc + length(items)).
             // The self call is at the owner's own type parameter, so it is a jump like any other (review 2026-10-05 E-1).
-            let t = TypeRef.TypeParameter(id<TypeParameterTag> "request-T", "T")
+            let t = TypeRef.TypeParameter(id<TypeParameterTag> "request-T")
             create "repeatLength" [ "items", listType t; "n", intType; "acc", intType ] intType
                 (ExpressionRecipe.Conditional(
                     atMost (slot 1) (int 0L),

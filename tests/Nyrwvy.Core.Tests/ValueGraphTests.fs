@@ -52,6 +52,7 @@ module ValueGraphTests =
 
         let functionEntity: SemanticFunction =
             { Id = functionId
+              TypeParameters = []
               DisplayName = "round_trip_name"
               Parameters = [ parameter ]
               ResultType = stringType
@@ -134,6 +135,7 @@ module ValueGraphTests =
 
         let functionEntity: SemanticFunction =
             { Id = functionId
+              TypeParameters = []
               DisplayName = "render_error"
               Parameters = [ parameter ]
               ResultType = stringType
@@ -262,6 +264,7 @@ module ValueGraphTests =
 
         let functionEntity: SemanticFunction =
             { Id = functionId
+              TypeParameters = []
               DisplayName = "option_scope"
               Parameters =
                 [ { Id = parameterId

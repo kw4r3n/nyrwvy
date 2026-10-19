@@ -48,6 +48,7 @@ module Float64Tests =
         let right = { Id = rightId; Kind = SemanticNodeKind.Float64Literal rightBits }
         let result = { Id = resultId; Kind = kind leftId rightId }
         { Id = functionId name
+          TypeParameters = []
           DisplayName = name
           Parameters = []
           ResultType = resultType
@@ -69,6 +70,7 @@ module Float64Tests =
         let value = { Id = valueId; Kind = SemanticNodeKind.Float64Literal valueBits }
         let result = { Id = resultId; Kind = kind valueId }
         { Id = functionId name
+          TypeParameters = []
           DisplayName = name
           Parameters = []
           ResultType = boolType

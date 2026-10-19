@@ -241,6 +241,7 @@ module MilestoneZeroGraph =
 
         let validateFunction: SemanticFunction =
             { Id = validateFunctionId
+              TypeParameters = []
               DisplayName = "validate_user"
               Parameters = [ validateInputParameter ]
               ResultType = validationResultType
@@ -388,6 +389,7 @@ module MilestoneZeroGraph =
 
         let reportFunction: SemanticFunction =
             { Id = reportFunctionId
+              TypeParameters = []
               DisplayName = "report_validation"
               Parameters = [ reportResultParameter; reportConsoleParameter ]
               ResultType = unitType
@@ -455,6 +457,7 @@ module MilestoneZeroGraph =
 
         let mainFunction: SemanticFunction =
             { Id = mainFunctionId
+              TypeParameters = []
               DisplayName = "main"
               Parameters = [ mainInputParameter; mainPolicyParameter; mainConsoleParameter ]
               ResultType = unitType

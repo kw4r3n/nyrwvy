@@ -49,6 +49,9 @@ module SnapshotValidator =
     let private validateUncached (snapshot: Snapshot): ValidationIssue list =
         let issues = ResizeArray<ValidationIssue>()
         let add code message = issues.Add({ Code = code; Message = message })
+        // Display names of every declared type parameter; occurrences carry none.
+        let typeParameterNames = TypeParameters.names snapshot
+        let typeParameterName id = TypeParameters.nameIn typeParameterNames id
         let oneShotPayloadRequirements = lazy (OneShotPayloadRequirements.derive snapshot)
         for nodeId in OneShotPayloadRequirements.invalidCallbackUses snapshot do
             add "OneShotScopePayloadUnsupported" $"Callback node '{StableId.value nodeId}' instantiates a OneShot payload with a type containing TaskScope."
@@ -232,10 +235,8 @@ module SnapshotValidator =
             match typeRef with
             | TypeRef.Function(arguments, result) -> (arguments @ [ result ]) |> List.iter (validateTypeRef context)
             | TypeRef.Primitive _ -> ()
-            | TypeRef.TypeParameter(_, displayName) ->
-                // Function scope is checked per function; declarations reject type parameters.
-                if String.IsNullOrWhiteSpace displayName then
-                    add "TypeParameterDisplayNameBlank" $"{context} uses a type parameter with a blank display name."
+            // Ownership is checked per function and per type below; capabilities reject type parameters.
+            | TypeRef.TypeParameter _ -> ()
             | TypeRef.Named(typeId, arguments) ->
                 match Map.tryFind typeId typesById with
                 | None -> add "UnknownNamedType" $"{context} references unknown type '{StableId.value typeId}'."
@@ -289,7 +290,7 @@ module SnapshotValidator =
                 else if not (EquatableTypes.isEquatable snapshot.Types arguments.Head) then
                     add
                         "SetItemTypeNotEquatable"
-                        $"{context} uses a Set whose item type is not equatable: {EquatableTypes.explain snapshot.Types arguments.Head}"
+                        $"{context} uses a Set whose item type is not equatable: {EquatableTypes.explainIn typeParameterNames snapshot.Types arguments.Head}"
                 arguments |> List.iter (validateTypeRef context)
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, arguments) ->
                 if arguments.Length <> 2 then
@@ -299,7 +300,7 @@ module SnapshotValidator =
                 else if not (EquatableTypes.isEquatable snapshot.Types arguments.Head) then
                     add
                         "MapKeyTypeNotEquatable"
-                        $"{context} uses a Map whose key type is not equatable: {EquatableTypes.explain snapshot.Types arguments.Head}"
+                        $"{context} uses a Map whose key type is not equatable: {EquatableTypes.explainIn typeParameterNames snapshot.Types arguments.Head}"
                 arguments |> List.iter (validateTypeRef context)
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, arguments) ->
                 if not arguments.IsEmpty then add "BuiltinGenericArityMismatch" $"{context} uses Exception with type arguments; none are allowed."
@@ -375,9 +376,9 @@ module SnapshotValidator =
             if declared.Count <> typeEntity.TypeParameters.Length then
                 add "DuplicateTypeParameterId" $"Type {StableId.describe typeEntity.DisplayName typeEntity.Id} declares one type parameter more than once."
             for field in fieldsOf typeEntity do
-                for id, name in TypeParameters.occurring field.Type do
+                for id in TypeParameters.occurring field.Type do
                     if not (Set.contains id declared) then
-                        add "TypeParameterNotDeclared" $"Field {StableId.describe field.DisplayName field.Id} uses type parameter '{name}', which its type {StableId.describe typeEntity.DisplayName typeEntity.Id} does not declare."
+                        add "TypeParameterNotDeclared" $"Field {StableId.describe field.DisplayName field.Id} uses type parameter '{typeParameterName id}', which its type {StableId.describe typeEntity.DisplayName typeEntity.Id} does not declare."
                 // Regular recursion: a reference back into the type's own recursive group passes plain
                 // type parameters, so the instantiations a value can reach stay finite.
                 let rec checkRecursion typeRef =
@@ -409,31 +410,48 @@ module SnapshotValidator =
             // not inside a declared type that holds a task.
             if types |> List.exists (TaskTypes.bearing snapshot.Types) then
                 add "TaskTypeAtCapabilityBoundary" $"Capability operation {StableId.describe operation.DisplayName operation.Id} uses Task, OneShot or TaskScope, directly or through a declared type, which cannot cross a capability boundary."
-        // Each type parameter belongs to one function, keeps one display name, and is introduced by
-        // that function's parameter types before its result or body can use it.
+        // Each type parameter is declared by exactly one function or type. A function declares its
+        // list explicitly; every type parameter its signature or body mentions is in that list, and
+        // every listed one is mentioned by a parameter type, so a call can derive it by matching.
         let typeParameterOwners =
             (snapshot.Functions
-             |> List.collect (fun functionEntity -> TypeParameters.ofFunction functionEntity |> List.map (fun (id, name) -> id, ("function:" + StableId.value functionEntity.Id, name))))
+             |> List.collect (fun functionEntity -> functionEntity.TypeParameters |> List.map (fun (id, _) -> id, "function:" + StableId.value functionEntity.Id)))
             @ (snapshot.Types
-               |> List.collect (fun typeEntity -> typeEntity.TypeParameters |> List.map (fun (id, name) -> id, ("type:" + StableId.value typeEntity.Id, name))))
+               |> List.collect (fun typeEntity -> typeEntity.TypeParameters |> List.map (fun (id, _) -> id, "type:" + StableId.value typeEntity.Id)))
         typeParameterOwners
         |> List.groupBy fst
         |> List.iter (fun (id, owners) ->
-            if (owners |> List.map (snd >> fst) |> List.distinct).Length > 1 then
-                add "TypeParameterSharedAcrossFunctions" $"Type parameter '{StableId.value id}' is declared by more than one function or type."
-            if (owners |> List.map (snd >> snd) |> List.distinct).Length > 1 then
-                add "TypeParameterDisplayNameConflict" $"Type parameter '{StableId.value id}' has more than one display name.")
+            if (owners |> List.map snd |> List.distinct).Length > 1 then
+                add "TypeParameterSharedAcrossFunctions" $"Type parameter '{StableId.value id}' is declared by more than one function or type.")
         for functionEntity in snapshot.Functions do
-            let declared = TypeParameters.ofFunction functionEntity |> List.map fst |> Set.ofList
+            let label = StableId.describe functionEntity.DisplayName functionEntity.Id
+            for _, displayName in functionEntity.TypeParameters do
+                if String.IsNullOrWhiteSpace displayName then
+                    add "TypeParameterDisplayNameBlank" $"Function {label} declares a type parameter with a blank display name."
+            functionEntity.TypeParameters
+            |> List.countBy snd
+            |> List.filter (fun (_, count) -> count > 1)
+            |> List.iter (fun (name, _) ->
+                add "DuplicateTypeParameterName" $"Function {label} declares type parameter '{name}' more than once.")
+            let declared = functionEntity.TypeParameters |> List.map fst |> Set.ofList
+            if declared.Count <> functionEntity.TypeParameters.Length then
+                add "DuplicateTypeParameterId" $"Function {label} declares one type parameter more than once."
+            let parameterTypes = functionEntity.Parameters |> List.map (fun parameter -> parameter.Type)
+            let introduced = TypeParameters.derived parameterTypes |> Set.ofList
+            for id, name in functionEntity.TypeParameters do
+                if not (Set.contains id introduced) then
+                    add
+                        "TypeParameterNotInferable"
+                        $"Function {label} declares type parameter '{name}' that none of its parameter types mentions, so a call could not determine it."
             let bodyTypes =
                 (SemanticFacts.collectPatternBindings functionEntity.Body |> List.map (fun binding -> binding.Type))
                 @ (ValueGraph.collectNodes functionEntity.Body |> List.collect SemanticNodeShape.payloadTypeRefs)
-            for typeRef in functionEntity.ResultType :: bodyTypes do
-                for id, name in TypeParameters.occurring typeRef do
+            for typeRef in functionEntity.ResultType :: parameterTypes @ bodyTypes do
+                for id in TypeParameters.occurring typeRef do
                     if not (Set.contains id declared) then
                         add
                             "TypeParameterNotDeclared"
-                            $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} uses type parameter '{name}' that none of its parameter types introduces."
+                            $"Function {label} uses type parameter '{typeParameterName id}' that it does not declare."
 
         for functionEntity in snapshot.Functions do
             functionEntity.RequiredEffects
@@ -1180,12 +1198,12 @@ module SnapshotValidator =
                         | Some leftType, Some rightType when leftType <> rightType ->
                             add
                                 "ValueEqualOperandTypeMismatch"
-                                $"ValueEqual node '{StableId.value node.Id}' requires operands of one type, but its left operand is {EquatableTypes.describe snapshot.Types leftType} and its right operand is {EquatableTypes.describe snapshot.Types rightType}."
+                                $"ValueEqual node '{StableId.value node.Id}' requires operands of one type, but its left operand is {EquatableTypes.describeIn typeParameterNames snapshot.Types leftType} and its right operand is {EquatableTypes.describeIn typeParameterNames snapshot.Types rightType}."
                         | Some operandType, _
                         | None, Some operandType when not (EquatableTypes.isEquatable snapshot.Types operandType) ->
                             add
                                 "ValueEqualTypeNotEquatable"
-                                $"ValueEqual node '{StableId.value node.Id}' compares values of a type that is not equatable: {EquatableTypes.explain snapshot.Types operandType}"
+                                $"ValueEqual node '{StableId.value node.Id}' compares values of a type that is not equatable: {EquatableTypes.explainIn typeParameterNames snapshot.Types operandType}"
                         | _ -> ()
                     | SemanticNodeKind.StringConcat(leftNodeId, rightNodeId) ->
                         requireBinaryOperands
@@ -1321,7 +1339,7 @@ module SnapshotValidator =
                             if not (EquatableTypes.isEquatable snapshot.Types itemType) then
                                 add
                                     "ListIndexOfItemTypeNotEquatable"
-                                    $"ListIndexOf node '{StableId.value node.Id}' compares items of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                                    $"ListIndexOf node '{StableId.value node.Id}' compares items of a type that is not equatable: {EquatableTypes.explainIn typeParameterNames snapshot.Types itemType}"
                             requireNodeType
                                 "ListIndexOfItemTypeMismatch"
                                 $"ListIndexOf node '{StableId.value node.Id}' requires an item of the list's item type."
@@ -1338,7 +1356,7 @@ module SnapshotValidator =
                             if not (EquatableTypes.isEquatable snapshot.Types itemType) then
                                 add
                                     "ListLastIndexOfItemTypeNotEquatable"
-                                    $"ListLastIndexOf node '{StableId.value node.Id}' compares items of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                                    $"ListLastIndexOf node '{StableId.value node.Id}' compares items of a type that is not equatable: {EquatableTypes.explainIn typeParameterNames snapshot.Types itemType}"
                             requireNodeType
                                 "ListLastIndexOfItemTypeMismatch"
                                 $"ListLastIndexOf node '{StableId.value node.Id}' requires an item of the list's item type."
@@ -1355,7 +1373,7 @@ module SnapshotValidator =
                             if not (EquatableTypes.isEquatable snapshot.Types itemType) then
                                 add
                                     "ListContainsItemTypeNotEquatable"
-                                    $"ListContains node '{StableId.value node.Id}' compares items of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                                    $"ListContains node '{StableId.value node.Id}' compares items of a type that is not equatable: {EquatableTypes.explainIn typeParameterNames snapshot.Types itemType}"
                             requireNodeType
                                 "ListContainsItemTypeMismatch"
                                 $"ListContains node '{StableId.value node.Id}' requires an item of the list's item type."
@@ -1395,7 +1413,7 @@ module SnapshotValidator =
                             if not (EquatableTypes.isEquatable snapshot.Types itemType) then
                                 add
                                     "SetItemTypeNotEquatable"
-                                    $"SetFromList node '{StableId.value node.Id}' makes a Set of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                                    $"SetFromList node '{StableId.value node.Id}' makes a Set of a type that is not equatable: {EquatableTypes.explainIn typeParameterNames snapshot.Types itemType}"
                         | Some _ -> add "HigherOrderSourceTypeMismatch" $"SetFromList node '{StableId.value node.Id}' requires List<T> input."
                         | None -> ()
                     | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) ->
@@ -1687,7 +1705,7 @@ module SnapshotValidator =
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ])) when not (EquatableTypes.isEquatable snapshot.Types itemType) ->
                             add
                                 "SetItemTypeNotEquatable"
-                                $"SetMap node '{StableId.value node.Id}' makes a Set of a type that is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                                $"SetMap node '{StableId.value node.Id}' makes a Set of a type that is not equatable: {EquatableTypes.explainIn typeParameterNames snapshot.Types itemType}"
                         | _ -> ()
                     | SemanticNodeKind.OptionMap(sourceNodeId, mapperFunctionId, context) ->
                         validateCaseCallback "OptionMap" "Option<T>" node.Id sourceNodeId mapperFunctionId context optionItem None
@@ -1944,7 +1962,7 @@ module SnapshotValidator =
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; _ ])) when not (EquatableTypes.isEquatable snapshot.Types keyType) ->
                             add
                                 "MapKeyTypeNotEquatable"
-                                $"MapFromList node '{StableId.value node.Id}' makes keys of a type that is not equatable: {EquatableTypes.explain snapshot.Types keyType}"
+                                $"MapFromList node '{StableId.value node.Id}' makes keys of a type that is not equatable: {EquatableTypes.explainIn typeParameterNames snapshot.Types keyType}"
                         | _ -> ()
                     | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
                         validateLessThanCallback "ListSortBy" node.Id sourceListNodeId lessThanFunctionId context
@@ -2019,7 +2037,7 @@ module SnapshotValidator =
                                     if valueType <> parameter.Type then
                                         add
                                             "PolymorphicSelfCallUnsupported"
-                                            $"Call node '{StableId.value node.Id}' calls its own function {StableId.describe functionEntity.DisplayName functionEntity.Id} with a value of type {EquatableTypes.describe snapshot.Types valueType} for parameter {StableId.describe parameter.DisplayName parameter.Id} of type {EquatableTypes.describe snapshot.Types parameter.Type}; a function calls itself at its own parameter types."
+                                            $"Call node '{StableId.value node.Id}' calls its own function {StableId.describe functionEntity.DisplayName functionEntity.Id} with a value of type {EquatableTypes.describeIn typeParameterNames snapshot.Types valueType} for parameter {StableId.describe parameter.DisplayName parameter.Id} of type {EquatableTypes.describeIn typeParameterNames snapshot.Types parameter.Type}; a function calls itself at its own parameter types."
                             else
                                 match TypeParameters.matchAll (pairs |> List.map (fun (parameter, valueType) -> parameter.Type, valueType)) with
                                 | None ->

@@ -27,6 +27,7 @@ module AuthoringDependencySetTests =
         let parameter = id<ParameterTag> (name + "-input")
         let node = id<GraphNodeTag> (name + "-node")
         { Id = id<FunctionTag> name
+          TypeParameters = []
           DisplayName = name
           Parameters = [ { Id = parameter; DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
           ResultType = TypeRef.Named(moneyId, [])
@@ -76,6 +77,7 @@ module AuthoringDependencySetTests =
             Assert.Equal<Set<string>>(set [ "keep"; "pass" ], functions)
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                  TypeParameters = None
                   DisplayName = "both"
                   Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
                   ResultType = TypeRef.Named(moneyId, [])
@@ -134,6 +136,7 @@ module AuthoringDependencySetTests =
             let mid = AuthoringSession.createNewWithDependencies midPath [ basePath ] |> unwrap "mid"
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = (mid.Status() |> unwrap "status").SnapshotId
+                  TypeParameters = None
                   DisplayName = "grow"
                   Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
                   ResultType = TypeRef.Named(moneyId, [])
@@ -170,6 +173,7 @@ module AuthoringDependencySetTests =
         let session = AuthoringSession.createNewWithDependencies path [ a ] |> unwrap "create"
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+              TypeParameters = None
               DisplayName = "wrap"
               Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
               ResultType = TypeRef.Named(moneyId, [])
@@ -308,6 +312,7 @@ module AuthoringDependencySetTests =
                     """{"id":"create","op":"simulateCreateFunctionByName","displayName":"keep","parameters":[],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"int64Literal","value":1}}""")
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = session.SnapshotId
+                  TypeParameters = None
                   DisplayName = "keep"
                   Parameters = []
                   ResultType = intType

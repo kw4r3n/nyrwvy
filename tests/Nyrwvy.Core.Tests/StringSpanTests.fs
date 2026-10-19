@@ -27,6 +27,7 @@ module StringSpanTests =
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = "span"
               Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
               ResultType = resultType
@@ -129,6 +130,7 @@ module StringSpanTests =
             let create name resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                      TypeParameters = None
                       DisplayName = name
                       Parameters = []
                       ResultType = resultType

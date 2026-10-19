@@ -73,6 +73,7 @@ module ExternalCapabilityBindingTests =
                 ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Error })
         let functionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = current session
+              TypeParameters = None
               DisplayName = "query"
               Parameters =
                 [ { DisplayName = "request"; Type = TypeRef.Named(requestType.Id, []) }

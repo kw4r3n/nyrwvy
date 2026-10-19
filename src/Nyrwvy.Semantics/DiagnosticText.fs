@@ -8,8 +8,8 @@ namespace Nyrwvy.Core
 module DiagnosticText =
     /// `withTypeParameterIds` appends a type parameter's ID to its display name, for a message that
     /// compares two type parameters of one name.
-    let rec private render (snapshot: Snapshot) (withTypeParameterIds: bool) (value: TypeRef): string =
-        let render = render snapshot withTypeParameterIds
+    let rec private render (names: Map<TypeParameterId, string>) (snapshot: Snapshot) (withTypeParameterIds: bool) (value: TypeRef): string =
+        let render = render names snapshot withTypeParameterIds
         let generic name (arguments: TypeRef list) =
             name + "<" + (arguments |> List.map render |> String.concat ", ") + ">"
         match value with
@@ -32,8 +32,8 @@ module DiagnosticText =
             | None -> $"capability '{StableId.value capabilityId}'"
         | TypeRef.Function(parameters, result) ->
             "(" + (parameters |> List.map render |> String.concat ", ") + ") -> " + render result
-        | TypeRef.TypeParameter(id, displayName) when withTypeParameterIds -> $"{displayName} (type parameter {StableId.value id})"
-        | TypeRef.TypeParameter(_, displayName) -> displayName
+        | TypeRef.TypeParameter id when withTypeParameterIds -> $"{TypeParameters.nameIn names id} (type parameter {StableId.value id})"
+        | TypeRef.TypeParameter id -> TypeParameters.nameIn names id
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, []) -> "Exception"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> "TaskScope"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, arguments) -> generic "Option" arguments
@@ -47,17 +47,32 @@ module DiagnosticText =
             invalidOp $"Exception unexpectedly has {arguments.Length} type arguments."
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, arguments) -> generic "TaskScope" arguments
 
-    let typeRef (snapshot: Snapshot) (value: TypeRef): string = render snapshot false value
+    /// The display names of the snapshot's type parameters plus `extra`, the declared list of a
+    /// function that is not (yet) in the snapshot, such as one being created.
+    let private namesIn (extra: (TypeParameterId * string) list) (snapshot: Snapshot) =
+        let declared = TypeParameters.names snapshot
+        extra |> List.fold (fun names (id, name) -> Map.add id name names) declared
+
+    /// Renders a type; `extra` names the type parameters of a function outside the snapshot.
+    let typeRefIn (extra: (TypeParameterId * string) list) (snapshot: Snapshot): TypeRef -> string =
+        let names = namesIn extra snapshot
+        render names snapshot false
+
+    let typeRef (snapshot: Snapshot): TypeRef -> string = typeRefIn [] snapshot
 
     /// Two types of a mismatch, rendered so that they read differently: when their display texts
     /// agree although the types differ (two type parameters named `T`, one of another function or
     /// of the request itself), every type parameter carries its ID.
-    let typeRefPair (snapshot: Snapshot) (expected: TypeRef) (actual: TypeRef): string * string =
-        let expectedText, actualText = typeRef snapshot expected, typeRef snapshot actual
-        if expectedText = actualText && expected <> actual then
-            render snapshot true expected, render snapshot true actual
-        else
-            expectedText, actualText
+    let typeRefPairIn (extra: (TypeParameterId * string) list) (snapshot: Snapshot): TypeRef -> TypeRef -> string * string =
+        let names = namesIn extra snapshot
+        fun expected actual ->
+            let expectedText, actualText = render names snapshot false expected, render names snapshot false actual
+            if expectedText = actualText && expected <> actual then
+                render names snapshot true expected, render names snapshot true actual
+            else
+                expectedText, actualText
+
+    let typeRefPair (snapshot: Snapshot) (expected: TypeRef) (actual: TypeRef): string * string = typeRefPairIn [] snapshot expected actual
 
     /// A named type with its ID, for messages that compare two named types.
     let namedType (snapshot: Snapshot) (typeId: TypeId) =
@@ -87,10 +102,12 @@ module DiagnosticText =
     let functionName (functionEntity: SemanticFunction) =
         StableId.describe functionEntity.DisplayName functionEntity.Id
 
-    /// A function's declared signature: `(line: String, acc: Int64) -> Int64`.
+    /// A function's declared signature: `(line: String, acc: Int64) -> Int64`; type parameters are
+    /// named from the function's own declared list.
     let signature (snapshot: Snapshot) (functionEntity: SemanticFunction) =
+        let typeRef = typeRefIn functionEntity.TypeParameters snapshot
         let parameters =
             functionEntity.Parameters
-            |> List.map (fun parameter -> $"{parameter.DisplayName}: {typeRef snapshot parameter.Type}")
+            |> List.map (fun parameter -> $"{parameter.DisplayName}: {typeRef parameter.Type}")
             |> String.concat ", "
-        $"({parameters}) -> {typeRef snapshot functionEntity.ResultType}"
+        $"({parameters}) -> {typeRef functionEntity.ResultType}"

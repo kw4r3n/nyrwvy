@@ -43,6 +43,7 @@ module AuthoringSessionTests =
         body
         : AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = (status session).SnapshotId
+          TypeParameters = None
           DisplayName = displayName
           Parameters = parameters
           ResultType = resultType

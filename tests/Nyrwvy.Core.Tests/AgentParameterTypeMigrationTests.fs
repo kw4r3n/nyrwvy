@@ -57,6 +57,7 @@ module AgentParameterTypeMigrationTests =
 
         let classify: SemanticFunction =
             { Id = functionId "classify"
+              TypeParameters = []
               DisplayName = "classify"
               Parameters = [ classifyInput ]
               ResultType = boolType
@@ -85,6 +86,7 @@ module AgentParameterTypeMigrationTests =
 
         let processFunction: SemanticFunction =
             { Id = functionId "process"
+              TypeParameters = []
               DisplayName = "process"
               Parameters = [ processInput ]
               ResultType = boolType
@@ -105,6 +107,7 @@ module AgentParameterTypeMigrationTests =
         let unrelatedResult = nodeId "unrelated-result"
         let unrelated: SemanticFunction =
             { Id = functionId "unrelated"
+              TypeParameters = []
               DisplayName = "unrelated"
               Parameters = []
               ResultType = boolType

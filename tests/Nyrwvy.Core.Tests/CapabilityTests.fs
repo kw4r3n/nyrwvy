@@ -85,6 +85,7 @@ module CapabilityTests =
 
         let functionEntity: SemanticFunction =
             { Id = functionId
+              TypeParameters = []
               DisplayName = "report"
               Parameters = [ messageParameter; consoleParameter ]
               ResultType = unitType
@@ -232,6 +233,7 @@ module CapabilityTests =
 
         let caller: SemanticFunction =
             { Id = callerId
+              TypeParameters = []
               DisplayName = "caller"
               Parameters = [ callerMessageParameter; callerConsoleParameter ]
               ResultType = TypeRef.Primitive PrimitiveType.Unit
@@ -274,6 +276,7 @@ module CapabilityTests =
 
         let functionEntity: SemanticFunction =
             { Id = functionId
+              TypeParameters = []
               DisplayName = "contains"
               Parameters =
                 [ { Id = valueParameterId; DisplayName = "value"; Type = stringType }

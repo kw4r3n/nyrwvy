@@ -137,6 +137,7 @@ module ListPositionalUpdateTests =
                   ResultNodeId = nodeId "op" }
             let fn: SemanticFunction =
                 { Id = StableId.createForTesting<FunctionTag> "function-list-positional"
+                  TypeParameters = []
                   DisplayName = "update"; Parameters = []; ResultType = listOfText; RequiredEffects = []; Body = body }
             SnapshotValidator.validate { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-list-positional") with Functions = [ fn ] }
             |> List.map (fun issue -> issue.Code)

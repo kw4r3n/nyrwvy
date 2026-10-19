@@ -276,7 +276,7 @@ module UnionVariantAdditionTests =
             let pair = variantNamed session "Maybe" "Pair"
             let declaredParameter = maybe.TypeParameters |> List.exactlyOne |> fst
             // The declaration keeps the Union's own type parameter; the arm binds Int64, the input's argument.
-            Assert.All(pair.Fields, fun item -> Assert.Equal(TypeRef.TypeParameter(declaredParameter, "T"), item.Type))
+            Assert.All(pair.Fields, fun item -> Assert.Equal(TypeRef.TypeParameter(declaredParameter), item.Type))
             let _, arms = matchNode (fn session "orDefault")
             let pairArm = arms |> List.find (fun item -> item.VariantIds = [ pair.Id ])
             Assert.All(pairArm.FieldBindings, fun item -> Assert.Equal(TypeRef.Primitive PrimitiveType.Int64, item.Binding.Type))

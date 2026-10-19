@@ -60,7 +60,7 @@ module CSharpBackend =
         | TypeRef.Capability capabilityId -> CSharpBackendNames.capabilityName capabilityId
         | TypeRef.Function(arguments, result) ->
             "NyFunction" + string arguments.Length + "<" + (arguments @ [ result ] |> List.map formatType |> String.concat ", ") + ">"
-        | TypeRef.TypeParameter(typeParameterId, _) -> CSharpBackendNames.typeParameterName typeParameterId
+        | TypeRef.TypeParameter typeParameterId -> CSharpBackendNames.typeParameterName typeParameterId
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]) ->
             "NyOption<" + formatType itemType + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
@@ -2037,10 +2037,9 @@ module CSharpBackend =
                 + CSharpBackendNames.parameterName parameter.SemanticParameterId)
             |> String.concat ", "
 
+        // The generic method's type parameters follow the function's declared order.
         let typeParameters =
-            functionEntity.Parameters
-            |> List.collect (fun parameter -> TypeParameters.occurring parameter.Value.Type)
-            |> List.distinctBy fst
+            functionEntity.TypeParameters
             |> List.map (fst >> CSharpBackendNames.typeParameterName)
         let generic = if List.isEmpty typeParameters then "" else "<" + String.concat ", " typeParameters + ">"
         let visibility = if consumeCaptures then "private" else "public"

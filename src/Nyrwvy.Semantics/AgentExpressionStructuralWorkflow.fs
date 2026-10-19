@@ -617,10 +617,25 @@ module AgentExpressionStructuralWorkflow =
         type Request =
             { ExpectedBaseSnapshotId: SnapshotId
               DisplayName: string
+              /// The function's type parameters in declared order, with request-local identities
+              /// (wire: `"typeParameters": ["T"]`, each `{ "kind": "typeParameter", "name": "T" }` in a
+              /// type naming one). `None` derives the list from the parameter types in
+              /// first-appearance order, the rule that held before lists were declared.
+              TypeParameters: (TypeParameterId * string) list option
               Parameters: ParameterIntent list
               ResultType: TypeRef
               RequiredEffects: EffectId list
               Body: ExpressionRecipe }
+
+        /// The type parameter list a request's parameter types imply: first-appearance order, each
+        /// request-local identity spelled as its name.
+        let derivedTypeParameters (parameters: ParameterIntent list): (TypeParameterId * string) list =
+            TypeParameters.derived (parameters |> List.map (fun parameter -> parameter.Type))
+            |> List.map (fun id -> id, StableId.value id)
+
+        /// The request's declared type parameters, or the derived list when it gives none.
+        let declaredTypeParameters (request: Request) =
+            request.TypeParameters |> Option.defaultWith (fun () -> derivedTypeParameters request.Parameters)
 
         type Review =
             { RequestedChange: Request
@@ -640,6 +655,7 @@ module AgentExpressionStructuralWorkflow =
 
         type private Preflight =
             { CanonicalRequiredEffects: EffectId list
+              TypeParameters: (TypeParameterId * string) list
               Owner: ExpressionOwnerContext }
 
         type private ProposalState =
@@ -664,6 +680,44 @@ module AgentExpressionStructuralWorkflow =
         type CommitResult =
             | Rejected of TransactionDiagnostic list
             | Committed of AgentWorkspace * PublishedTransaction
+
+        /// The declared list (explicit or derived) checked as the validator will check the function:
+        /// nonblank distinct names, distinct identities, every type parameter the signature or body
+        /// mentions declared, and every declared one mentioned by a parameter type, so a call can
+        /// derive it by matching.
+        let private validateTypeParameters (request: Request) =
+            let declared = declaredTypeParameters request
+            let names = declared |> Map.ofList
+            let parameterTypes = request.Parameters |> List.map (fun parameter -> parameter.Type)
+            let mentioned =
+                TypeParameters.occurringIn (request.ResultType :: parameterTypes @ ExpressionRecipeTypes.collect request.Body)
+            let introduced = TypeParameters.derived parameterTypes |> Set.ofList
+            let spell id = TypeParameters.nameIn names id
+            if declared |> List.exists (fun (_, name) -> System.String.IsNullOrWhiteSpace name) then
+                Error(diagnostic "FunctionCreationTypeParameterNameBlank" "Type parameter names must not be blank.")
+            else
+                match declared |> List.countBy snd |> List.tryFind (fun (_, count) -> count > 1) with
+                | Some(name, _) -> Error(diagnostic "FunctionCreationDuplicateTypeParameter" $"Type parameter '{name}' is declared more than once.")
+                | None ->
+                    match declared |> List.countBy fst |> List.tryFind (fun (_, count) -> count > 1) with
+                    | Some(id, _) -> Error(diagnostic "FunctionCreationDuplicateTypeParameter" $"Type parameter '{spell id}' is declared more than once.")
+                    | None ->
+                        match mentioned |> List.tryFind (fun id -> not (Map.containsKey id names)) with
+                        | Some id ->
+                            Error(
+                                diagnostic
+                                    "FunctionCreationTypeParameterNotDeclared"
+                                    $"The function uses type parameter '{spell id}', which its typeParameters list does not declare."
+                            )
+                        | None ->
+                            match declared |> List.tryFind (fun (id, _) -> not (Set.contains id introduced)) with
+                            | Some(_, name) ->
+                                Error(
+                                    diagnostic
+                                        "FunctionCreationTypeParameterNotInferable"
+                                        $"Type parameter '{name}' is mentioned by no parameter type, so a call could not determine it; a type parameter must appear in at least one parameter type."
+                                )
+                            | None -> Ok declared
 
         let private validatePreflight (requireUniqueName: bool) (request: Request) (index: SnapshotIndex) =
             let baseSnapshot = index.Snapshot
@@ -699,6 +753,9 @@ module AgentExpressionStructuralWorkflow =
                             $"Parameter at index {index} must have a nonblank display name."
                     )
                 | None ->
+                    match validateTypeParameters request with
+                    | Error error -> Error error
+                    | Ok typeParameters ->
                     let typeRefs =
                         request.ResultType
                         :: (request.Parameters |> List.map (fun parameter -> parameter.Type))
@@ -754,6 +811,7 @@ module AgentExpressionStructuralWorkflow =
                                       ParameterSlots = Some slots
                                       RequiredEffects = canonicalEffects
                                       ResultType = request.ResultType
+                                      TypeParameters = typeParameters
                                       SelfFunctionId = None
                                       SelfParameters = slots
                                       Description = "the function being created" }
@@ -772,22 +830,21 @@ module AgentExpressionStructuralWorkflow =
                                     | Ok _ ->
                                         Ok
                                             { CanonicalRequiredEffects = canonicalEffects
+                                              TypeParameters = typeParameters
                                               Owner = owner }
 
-        /// A new function owns its type parameters: every type parameter named in the request
-        /// receives a fresh system-owned identity, keeping its display name.
+        /// A new function owns its type parameters: every declared type parameter receives a fresh
+        /// system-owned identity, keeping its display name and declared position. A request that
+        /// declares none gets the derived list first, so the list is explicit from here on.
         let private withFreshTypeParameters (request: Request): Request =
-            let named =
-                (request.ResultType :: (request.Parameters |> List.map (fun parameter -> parameter.Type)))
-                @ ExpressionRecipeTypes.collect request.Body
-                |> List.collect TypeParameters.occurring
-                |> List.distinctBy fst
-            if List.isEmpty named then request
+            let declared = declaredTypeParameters request
+            if List.isEmpty declared then { request with TypeParameters = Some [] }
             else
-                let fresh =
-                    named |> List.map (fun (id, name) -> id, TypeRef.TypeParameter(StableIdAllocator.newTypeParameterId (), name)) |> Map.ofList
-                let mapType = TypeParameters.substitute fresh
+                let fresh = declared |> List.map (fun (id, name) -> id, (StableIdAllocator.newTypeParameterId (), name))
+                let substitution = fresh |> List.map (fun (id, (freshId, _)) -> id, TypeRef.TypeParameter freshId) |> Map.ofList
+                let mapType = TypeParameters.substitute substitution
                 { request with
+                    TypeParameters = Some(fresh |> List.map snd)
                     Parameters = request.Parameters |> List.map (fun parameter -> { parameter with Type = mapType parameter.Type })
                     ResultType = mapType request.ResultType
                     Body = ExpressionRecipeTypes.map mapType request.Body }
@@ -797,6 +854,10 @@ module AgentExpressionStructuralWorkflow =
             (workspace: AgentWorkspace)
             (request: Request)
             : Result<Proposal, AgentStructuralWorkflowError> =
+            // Undeclared or uninferable type parameters are reported on the request's own names.
+            match validateTypeParameters request with
+            | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
+            | Ok _ ->
             let request = withFreshTypeParameters request
             simulateStructural
                 workspace
@@ -835,6 +896,7 @@ module AgentExpressionStructuralWorkflow =
                         let createdFunction: SemanticFunction =
                             { Id = functionId
                               DisplayName = request.DisplayName
+                              TypeParameters = preflight.TypeParameters
                               Parameters = parameters
                               ResultType = request.ResultType
                               RequiredEffects = preflight.CanonicalRequiredEffects

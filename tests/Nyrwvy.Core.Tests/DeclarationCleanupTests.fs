@@ -40,6 +40,7 @@ module DeclarationCleanupTests =
         let invocationId = id<GraphNodeTag> "invocation"
         let fn: SemanticFunction =
             { Id = functionId
+              TypeParameters = []
               DisplayName = "useNotifier"
               Parameters = [ targetParameter; textParameter ]
               ResultType = unitType

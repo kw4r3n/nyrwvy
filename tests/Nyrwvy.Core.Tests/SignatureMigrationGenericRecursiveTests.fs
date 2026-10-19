@@ -11,8 +11,8 @@ module SignatureMigrationGenericRecursiveTests =
     let private intType = TypeRef.Primitive PrimitiveType.Int64
     let private listOf itemType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])
     let private optionOf itemType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ])
-    /// Creation mints its own identities, so the requested identity of a type parameter is irrelevant.
-    let private typeParameter name = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> ("requested-" + name), name)
+    /// A request-local type parameter is spelled as its name; creation mints the identity.
+    let private typeParameter name = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> name)
     let private int (value: int64) = ExpressionRecipe.Int64Literal value
     let private slot = ExpressionRecipe.ParameterSlot
     let private parameter (fn: SemanticFunction) index = ExpressionRecipe.Parameter (List.item index fn.Parameters).Id
@@ -28,6 +28,7 @@ module SignatureMigrationGenericRecursiveTests =
     let private create ws name (parameters: (string * TypeRef) list) resultType body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+              TypeParameters = None
               DisplayName = name
               Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
               ResultType = resultType
@@ -44,7 +45,7 @@ module SignatureMigrationGenericRecursiveTests =
     /// The type parameter a generic function declares through its first parameter.
     let private ownTypeParameter (fn: SemanticFunction) =
         match TypeParameters.ofFunction fn with
-        | [ id, name ] -> TypeRef.TypeParameter(id, name)
+        | [ id, _ ] -> TypeRef.TypeParameter id
         | other -> failwithf "%s declares %A" fn.DisplayName other
 
     let private commitParameterMigration ws request =

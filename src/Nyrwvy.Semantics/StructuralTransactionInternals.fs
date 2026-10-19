@@ -31,9 +31,10 @@ module internal StructuralTransactionInternals =
         let rec validate current =
             match current with
             | TypeRef.Primitive _ -> Ok()
-            | TypeRef.TypeParameter(id, _) when Set.contains id typeParameters -> Ok()
-            | TypeRef.TypeParameter(_, name) ->
-                Error(diagnostic $"{codePrefix}TypeParameterNotAllowed" $"{context} cannot use type parameter '{name}'; only the declaring type's own type parameters may occur.")
+            | TypeRef.TypeParameter id when Set.contains id typeParameters -> Ok()
+            | TypeRef.TypeParameter id ->
+                // A request-local type parameter is spelled as its name.
+                Error(diagnostic $"{codePrefix}TypeParameterNotAllowed" $"{context} cannot use type parameter '{StableId.value id}'; only the declaring type's own type parameters may occur.")
             | TypeRef.Named(typeId, arguments) when Set.contains typeId typeIds ->
                 arguments |> List.fold (fun state arg -> state |> Result.bind (fun () -> validate arg)) (Ok())
             | TypeRef.Named(typeId, _) ->

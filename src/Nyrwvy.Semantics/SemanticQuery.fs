@@ -18,6 +18,7 @@ type QueryOpenObligation =
 type QueryFunctionSignature =
     { FunctionId: FunctionId
       DisplayName: string
+      TypeParameters: (TypeParameterId * string) list
       Parameters: SemanticParameter list
       ResultType: TypeRef
       RequiredEffects: EffectId list }
@@ -439,6 +440,7 @@ module SemanticQuery =
     let private signatureOf (functionEntity: SemanticFunction): QueryFunctionSignature =
         { FunctionId = functionEntity.Id
           DisplayName = functionEntity.DisplayName
+          TypeParameters = functionEntity.TypeParameters
           Parameters = functionEntity.Parameters
           ResultType = functionEntity.ResultType
           RequiredEffects = functionEntity.RequiredEffects }

@@ -51,6 +51,7 @@ module PureRunUnionTests =
         let create ws name parameters resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                 { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                  TypeParameters = None
                   DisplayName = name
                   Parameters = parameters |> List.map (fun itemType -> { DisplayName = "input"; Type = itemType })
                   ResultType = resultType; RequiredEffects = []; Body = body }

@@ -23,6 +23,7 @@ module ListSortByTests =
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = current session; DisplayName = name
+          TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = effects; Body = body }
     let private createWith session name parameters resultType effects body =
@@ -116,6 +117,7 @@ module ListSortByTests =
         let effectId = StableId.createForTesting<EffectTag> "effect-sort-clock"
         let callback name parameterTypes resultType effects: SemanticFunction =
             { Id = id name; DisplayName = name
+              TypeParameters = []
               Parameters = parameterTypes |> List.mapi (fun index t -> parameter name (string index) t)
               ResultType = resultType; RequiredEffects = effects
               Body = { Nodes = [ { Id = nodeId (name + "-body"); Kind = SemanticNodeKind.BoolLiteral true } ]; ResultNodeId = nodeId (name + "-body") } }
@@ -132,6 +134,7 @@ module ListSortByTests =
         let validate nodes resultType resultNodeId =
             let fn: SemanticFunction =
                 { Id = id "entry"; DisplayName = "entry"; Parameters = []; ResultType = resultType; RequiredEffects = []
+                  TypeParameters = []
                   Body = { Nodes = nodes; ResultNodeId = resultNodeId } }
             let effect: SemanticEffect = { Id = effectId; DisplayName = "Clock" }
             SnapshotValidator.validate { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-sort") with Functions = fn :: fns; Effects = [ effect ] }

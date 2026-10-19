@@ -558,7 +558,8 @@ module Transaction =
                                 snapshot.Functions
                                 |> List.map (fun functionEntity ->
                                     if functionEntity.Id = targetFunction.Id then
-                                        { functionEntity with Parameters = functionEntity.Parameters @ [ newParameter ] }
+                                        // A type parameter the new type introduces joins the declared list last.
+                                        TypeParameters.reconcile { functionEntity with Parameters = functionEntity.Parameters @ [ newParameter ] }
                                     else
                                         functionEntity)
 
@@ -1119,7 +1120,9 @@ module Transaction =
                                     if fn.Id = owner.Id then
                                         fn.Parameters |> List.filter (fun item -> item.Id <> parameterId)
                                     else fn.Parameters
-                                { fn with Parameters = parameters; Body = ValueGraph.mapNodes dropBinding fn.Body })
+                                // A type parameter no remaining parameter type mentions leaves the declared list;
+                                // a result or body that still uses it fails validation (TypeParameterNotDeclared).
+                                TypeParameters.reconcile { fn with Parameters = parameters; Body = ValueGraph.mapNodes dropBinding fn.Body })
                         let retired, kept = snapshot.Obligations |> List.partition (fun item -> item.ParameterId = parameterId)
                         let removed: ParameterRemoved =
                             { OwnerFunctionId = owner.Id

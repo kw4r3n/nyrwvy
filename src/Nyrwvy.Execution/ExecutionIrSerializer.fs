@@ -13,7 +13,7 @@ open System.Text.Json
 /// Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
 module ExecutionIrSerializer =
-    let schemaVersion = 13
+    let schemaVersion = 14
 
     let private quote (value: string): string =
         JsonSerializer.Serialize(value)
@@ -50,11 +50,10 @@ module ExecutionIrSerializer =
             objectValue [ property "kind" (quote "primitiveFloat64") ]
         | TypeRef.Primitive PrimitiveType.Bits32 ->
             objectValue [ property "kind" (quote "primitiveBits32") ]
-        | TypeRef.TypeParameter(typeParameterId, displayName) ->
+        | TypeRef.TypeParameter typeParameterId ->
             objectValue
                 [ property "kind" (quote "typeParameter")
-                  property "typeParameterId" (quote (StableId.value typeParameterId))
-                  property "displayName" (quote displayName) ]
+                  property "typeParameterId" (quote (StableId.value typeParameterId)) ]
         | TypeRef.Function(arguments, result) ->
             objectValue [ property "kind" (quote "function"); property "parameters" (arrayValue (List.map writeTypeRef arguments)); property "resultType" (writeTypeRef result) ]
         | TypeRef.Named(typeId, arguments) ->
@@ -155,16 +154,19 @@ module ExecutionIrSerializer =
                    |> List.map writeField
                    |> arrayValue) ]
 
+    /// Declaration order is the order of type arguments (and of a generic method's type parameters);
+    /// absent for a monomorphic declaration.
+    let private writeTypeParameters (typeParameters: (TypeParameterId * string) list) =
+        if List.isEmpty typeParameters then []
+        else
+            [ property
+                  "typeParameters"
+                  (typeParameters
+                   |> List.map (fun (id, name) -> objectValue [ property "typeParameterId" (quote (StableId.value id)); property "displayName" (quote name) ])
+                   |> arrayValue) ]
+
     let private writeType (typeEntity: ExecutionType): string =
-        // Declaration order is the order of type arguments; absent for a monomorphic type.
-        let typeParameters =
-            if List.isEmpty typeEntity.TypeParameters then []
-            else
-                [ property
-                      "typeParameters"
-                      (typeEntity.TypeParameters
-                       |> List.map (fun (id, name) -> objectValue [ property "typeParameterId" (quote (StableId.value id)); property "displayName" (quote name) ])
-                       |> arrayValue) ]
+        let typeParameters = writeTypeParameters typeEntity.TypeParameters
         match typeEntity.Kind with
         | ExecutionTypeKind.Product fields ->
             objectValue
@@ -980,9 +982,8 @@ module ExecutionIrSerializer =
               property "value" (writeValue parameter.Value) ]
 
     let private writeFunction (functionEntity: ExecutionFunction): string =
-        objectValue
-            [ property "semanticFunctionId" (stableIdValue functionEntity.SemanticFunctionId)
-              property "parameters" (functionEntity.Parameters |> List.map writeParameter |> arrayValue)
+        let rest =
+            [ property "parameters" (functionEntity.Parameters |> List.map writeParameter |> arrayValue)
               property "resultType" (writeTypeRef functionEntity.ResultType)
               property
                   "requiredEffects"
@@ -997,6 +998,10 @@ module ExecutionIrSerializer =
                    |> List.sortBy (fun block -> ExecutionBlockId.value block.Id)
                    |> List.map writeBlock
                    |> arrayValue) ]
+        objectValue
+            ([ property "semanticFunctionId" (stableIdValue functionEntity.SemanticFunctionId) ]
+             @ writeTypeParameters functionEntity.TypeParameters
+             @ rest)
 
     let serialize (program: ExecutionProgram): string =
         objectValue

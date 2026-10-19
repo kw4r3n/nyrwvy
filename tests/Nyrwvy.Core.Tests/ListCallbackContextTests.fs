@@ -20,6 +20,7 @@ module ListCallbackContextTests =
 
     let private request ws name (parameters: (string * TypeRef) list) resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+          TypeParameters = None
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
           ResultType = resultType

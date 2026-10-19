@@ -35,6 +35,7 @@ module ParallelAllTests =
 
     let private creation (session: AuthoringSession) name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = current session
+          TypeParameters = None
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
           ResultType = resultType

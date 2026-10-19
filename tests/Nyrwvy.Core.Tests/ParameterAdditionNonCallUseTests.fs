@@ -16,6 +16,7 @@ module ParameterAdditionNonCallUseTests =
         let parameterId = id<ParameterTag> "double-x"
         let resultId = id<GraphNodeTag> "double-result"
         { Id = targetId
+          TypeParameters = []
           DisplayName = "double"
           Parameters = [ { Id = parameterId; DisplayName = "x"; Type = int64Type } ]
           ResultType = int64Type
@@ -25,6 +26,7 @@ module ParameterAdditionNonCallUseTests =
     let private user name parameters resultType (nodes: (string * SemanticNodeKind) list) : SemanticFunction =
         let nodes = nodes |> List.map (fun (key, kind) -> { Id = id<GraphNodeTag> (name + "-" + key); Kind = kind })
         { Id = id<FunctionTag> name
+          TypeParameters = []
           DisplayName = name
           Parameters = parameters
           ResultType = resultType

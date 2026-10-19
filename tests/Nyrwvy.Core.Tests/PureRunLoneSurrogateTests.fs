@@ -62,6 +62,7 @@ module PureRunLoneSurrogateTests =
     let private createFunction (session: AuthoringSession) name parameters resultType effects body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
             { ExpectedBaseSnapshotId = current session
+              TypeParameters = None
               DisplayName = name
               Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
               ResultType = resultType
@@ -134,6 +135,7 @@ module PureRunLoneSurrogateTests =
             let proposal =
                 session.SimulateCreateFunction
                     { ExpectedBaseSnapshotId = current session; DisplayName = "paged"; Parameters = []
+                      TypeParameters = None
                       ResultType = stringType; RequiredEffects = []; Body = ExpressionRecipe.StringLiteral text }
                 |> unwrap "create"
             let id = proposal.ProposalId

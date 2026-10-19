@@ -84,6 +84,7 @@ and ViewerGraph =
 type ViewerFunctionSignature =
     { FunctionId: FunctionId
       DisplayName: string
+      TypeParameters: (TypeParameterId * string) list
       Parameters: SemanticParameter list
       ResultType: TypeRef
       RequiredEffects: EffectId list }
@@ -275,6 +276,7 @@ module ViewerProjection =
           Function =
             { FunctionId = source.Function.Id
               DisplayName = source.Function.DisplayName
+              TypeParameters = source.Function.TypeParameters
               Parameters = source.Function.Parameters
               ResultType = source.Function.ResultType
               RequiredEffects = source.Function.RequiredEffects }

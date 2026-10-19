@@ -28,6 +28,7 @@ module ValueEqualTests =
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         { ExpectedBaseSnapshotId = current session; DisplayName = name
+          TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
     let private create session name parameters resultType body =
@@ -113,7 +114,7 @@ module ValueEqualTests =
             for t in
                 [ floatType; optionOf floatType; TypeRef.Function([ intType ], intType); taskType
                   TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])
-                  TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "t", "T")
+                  TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "t")
                   TypeRef.Named(types.Holder.Id, []); resultOf intType (TypeRef.Named(types.Holder.Id, [])) ] do
                 Assert.False(equatable t, sprintf "%A" t)
             match EquatableTypes.firstNotEquatable all (optionOf (TypeRef.Named(types.Holder.Id, []))) with
@@ -153,7 +154,7 @@ module ValueEqualTests =
             let functionType = TypeRef.Function([ intType ], intType)
             Assert.Contains(notEquatable, rejects session "functions" [ "a", listOf functionType; "b", listOf functionType ] (equal (slot 0) (slot 1)))
             Assert.Contains(notEquatable, rejects session "tasks" [ "a", optionOf taskType; "b", optionOf taskType ] (equal (slot 0) (slot 1)))
-            let typeParameter = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "request-T", "T")
+            let typeParameter = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "T")
             Assert.Contains(notEquatable, rejects session "generic" [ "a", typeParameter; "b", typeParameter ] (equal (slot 0) (slot 1)))
             // Operands of different types are an operand mismatch, as for other constructs.
             Assert.Contains("PureExpressionOperandTypeMismatch", rejects session "mixed" [ "a", textType; "b", intType ] (equal (slot 0) (slot 1)))
@@ -173,6 +174,7 @@ module ValueEqualTests =
                       ResultNodeId = nodeId "equal" }
                 let fn: SemanticFunction =
                     { Id = StableId.createForTesting<FunctionTag> "function-value-equal"
+                      TypeParameters = []
                       DisplayName = "equal"; Parameters = []; ResultType = boolType; RequiredEffects = []; Body = body }
                 SnapshotValidator.validate { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-value-equal") with Functions = [ fn ] }
                 |> List.map (fun issue -> issue.Code)

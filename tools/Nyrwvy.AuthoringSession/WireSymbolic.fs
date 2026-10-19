@@ -135,7 +135,7 @@ module internal WireSymbolic =
             ensureFields "type parameter" [ "kind"; "name" ] [ "kind"; "name" ] element
             let name = requiredString "name" element
             if System.String.IsNullOrWhiteSpace name then fail "Type parameter names must not be blank."
-            TypeRef.TypeParameter(id<TypeParameterTag> "name" element, name)
+            TypeRef.TypeParameter(id<TypeParameterTag> "name" element)
         | value -> fail $"Unsupported symbolic type kind '{value}'."
 
     let typeRef declarations element = typeRefIn Map.empty declarations element
@@ -663,9 +663,10 @@ module internal WireSymbolic =
         let declared = TypeParameters.ofFunction fn
         let substitution =
             TypeParameters.occurring current
-            |> List.map (fun (id, name) ->
-                let originalId, originalName = exactOne $"type parameter on {fn.DisplayName}" name declared snd
-                id, TypeRef.TypeParameter(originalId, originalName))
+            |> List.map (fun id ->
+                // A request-local type parameter is spelled as its name.
+                let originalId, _ = exactOne $"type parameter on {fn.DisplayName}" (StableId.value id) declared snd
+                id, TypeRef.TypeParameter originalId)
             |> Map.ofList
         TypeParameters.substitute substitution current
 

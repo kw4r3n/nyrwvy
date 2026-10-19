@@ -1024,7 +1024,7 @@ module AuthoringProtocol =
             | "simulateCreateFunction" ->
                 ensureFields
                     "simulateCreateFunction request"
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
                 let parameters =
@@ -1048,6 +1048,7 @@ module AuthoringProtocol =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = requiredString "displayName" root
+                      TypeParameters = WireInput.functionTypeParameters root
                       Parameters = parameters
                       ResultType = typeRef (property "resultType" root)
                       RequiredEffects = requiredEffects
@@ -1056,7 +1057,7 @@ module AuthoringProtocol =
             | "simulateCreateFunctionByName" ->
                 ensureFields
                     "simulateCreateFunctionByName request"
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
                 let declarations = session.Declarations()
@@ -1067,6 +1068,7 @@ module AuthoringProtocol =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = displayName
+                      TypeParameters = WireInput.functionTypeParameters root
                       Parameters = parameters
                       ResultType = WireSymbolic.typeRef declarations (property "resultType" root)
                       RequiredEffects = WireSymbolic.requiredEffects declarations root

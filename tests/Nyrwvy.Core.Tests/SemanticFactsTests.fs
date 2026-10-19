@@ -11,6 +11,7 @@ module SemanticFactsTests =
 
     let private functionWith resultType nodes: SemanticFunction =
         { Id = StableId.createForTesting<FunctionTag> "function-facts"
+          TypeParameters = []
           DisplayName = "facts"
           Parameters = []
           ResultType = resultType
