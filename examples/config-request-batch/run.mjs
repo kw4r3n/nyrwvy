@@ -65,14 +65,15 @@ const invoke = (operation, values) => ({ kind: "capabilityInvoke", capabilityVal
   arguments: Object.entries(values).map(([parameter, value]) => ({ parameter, value })) })
 const summary = (succeeded, failed, contents) => ({ kind: "productConstruct", type: "BatchSummary",
   fields: [{ field: "succeeded", value: succeeded }, { field: "failed", value: failed }, { field: "contents", value: contents }] })
-async function create(displayName, parameters, resultType, body, effects = ["FileIO"]) {
-  await publish(await call("create_function", { displayName, parameters, resultType, requiredEffects: effects, body }))
+async function create(displayName, parameters, resultType, body, effects = ["FileIO"], exported = false) {
+  await publish(await call("create_function", { displayName, parameters, resultType, requiredEffects: effects, body, exported }))
 }
 
 async function author() {
   const library = join(output, "format-library.json")
   await call("open", { mode: "create", snapshot: library })
-  await create("normalizeValue", [parameter("value", string)], string, { kind: "stringToUpper", value: p("value") }, [])
+  // A declaration is private unless exported; the batch depends on this library function.
+  await create("normalizeValue", [parameter("value", string)], string, { kind: "stringToUpper", value: p("value") }, [], true)
   await call("close")
   await call("open", { mode: "create", snapshot: join(original, "batch.json"), dependency: library })
   for (const [displayName, fields] of [
@@ -101,7 +102,7 @@ async function author() {
     choose({ kind: "cancellationRequested" }, err(text("cancelled"), string),
       match(invoke("fetch", { handle: p("handle"), request: p("request"), attempt: p("attempt") }),
         ok(direct("normalizeValue", { value: pattern() })),
-        choose(binary("boolAnd", binary("stringEqual", pattern("error"), text("missing")),
+        choose(binary("boolAnd", binary("valueEqual", pattern("error"), text("missing")),
           binary("int64LessThan", p("attempt"), p("limit"))),
           { kind: "directCall", function: "fetchWithRetry", keepUnlisted: true,
             arguments: [{ parameter: "attempt", value: add(p("attempt"), integer(1)) }] },

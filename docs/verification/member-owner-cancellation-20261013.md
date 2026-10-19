@@ -68,7 +68,7 @@ is retained as observable evidence.
 
 ## Minimal adaptation and deterministic bounds
 
-[The authoring recipe](../../examples/member-owner-cancellation/author.mjs)
+[The authoring recipe](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-owner-cancellation/author.mjs)
 imports the existing composition unchanged. Four probe functions own it as one
 task and inject linked parent cancellation through ordinary TaskCancel. The
 adaptation adds `ownerCancellationRun`, which checks the restored owner token
@@ -101,9 +101,9 @@ composition still rejects admission before close drain finishes.
 
 ## Evidence and verification
 
-Separate committed fixtures retain [baseline C#](../../examples/member-owner-cancellation/fixtures/nyrwvy-baseline.json),
-[adapted C#](../../examples/member-owner-cancellation/fixtures/nyrwvy-adapted.json)
-and [independent Python](../../examples/member-owner-cancellation/fixtures/oracle-expected.json).
+Separate committed fixtures retain [baseline C#](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-owner-cancellation/fixtures/nyrwvy-baseline.json),
+[adapted C#](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-owner-cancellation/fixtures/nyrwvy-adapted.json)
+and [independent Python](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-owner-cancellation/fixtures/oracle-expected.json).
 Comparison checks exact request outcomes, nine-field registry views, mutation
 order within each request, Member cleanup/snapshot/check order and required
 happens-before. It permits independent reply order. Twelve controls mutate
@@ -119,10 +119,10 @@ restore. Virtual and real paths share the unchanged C# emitter/runtime;
 independent language evidence comes from pinned Python. The maintained Node
 regression reproduces the complete adaptation and records the six divergences.
 
-The [verified closure](../../examples/member-owner-cancellation/fixtures/verified-closure.json)
+The [verified closure](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-owner-cancellation/fixtures/verified-closure.json)
 contains final hashes, source proofs, baseline/adapted classifications, compiler
 evidence, retained regression counts and aggregate results. Reproduction commands
-are in the [example README](../../examples/member-owner-cancellation/README.md).
+are in the [example README](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-owner-cancellation/README.md).
 
 | Check | Result |
 | --- | --- |

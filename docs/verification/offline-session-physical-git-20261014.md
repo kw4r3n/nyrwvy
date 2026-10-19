@@ -20,7 +20,7 @@ unreachable commit, after a ref write, and after index/worktree synchronization.
 Only the unchanged physical domain is an absence candidate. No crash was used
 in those four preliminary rows.
 
-The new [example](../../examples/offline-session-physical-git/README.md) composes
+The new [example](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/README.md) composes
 the unchanged registry graph with a bounded physical Git binding. Its plan binds
 repository/worktree identity, pre-HEAD, all refs/objects, raw pre-index bytes,
 index entries/worktree file hashes and selected commit/tree/patch to the request
@@ -154,6 +154,6 @@ recovery protocol and Git child ownership before expanding to interruption while
 commands run. Real workspace creation/discard and provider effects remain separate.
 Independent review must precede feature publication/main integration.
 
-Supporting retained summaries: [preliminary probes](../../examples/offline-session-physical-git/fixtures/probe.json),
-[runtime proof](../../examples/offline-session-physical-git/fixtures/proof.json),
-[artifact/source closure](../../examples/offline-session-physical-git/fixtures/replay.json).
+Supporting retained summaries: [preliminary probes](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/probe.json),
+[runtime proof](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/proof.json),
+[artifact/source closure](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/replay.json).

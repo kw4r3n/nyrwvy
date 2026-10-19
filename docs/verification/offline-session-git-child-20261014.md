@@ -100,9 +100,9 @@ Evidence under `/home/kw4/Documents/Codex/2026-10-14/task-39/` includes
 `candidate/artifacts/child/{original,moved}`, `evidence/logs`, `evidence/reuse.json`
 and `evidence/final-audit.json`. `prepare.mjs`, `validate-child.nu` and
 `audit-child.mjs` reproduce asset auditing and serialized verification. Summaries
-are [physical proof](../../examples/offline-session-physical-git/fixtures/child-physical-proof.json),
-[child proof](../../examples/offline-session-physical-git/fixtures/child-lifetime-proof.json)
-and [closure](../../examples/offline-session-physical-git/fixtures/child-replay.json).
+are [physical proof](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/child-physical-proof.json),
+[child proof](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/child-lifetime-proof.json)
+and [closure](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/child-replay.json).
 
 The initial sandbox `spawnSync EPERM` occurred after Git init reported success.
 That empty initialized fixture was inspected and preserved. Narrow offline

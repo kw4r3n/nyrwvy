@@ -119,7 +119,7 @@ Task-root reproducibility files: `prepare-review-repair.mjs`,
 `validate-review-repair.nu`, `validate-review-repair-final.nu`,
 `audit-review-repair.mjs`; evidence in `evidence/review-repair/{reuse,audit}.json`,
 `{original,moved,direct-owner,owner-failures,old-owner-control}`, logs and preserved
-preparatory locations. The checked-in [repair proof](../../examples/offline-session-physical-git/fixtures/disposition-review-repair.json)
+preparatory locations. The checked-in [repair proof](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/disposition-review-repair.json)
 pins raw/source/artifact/log hashes and counts. New output directories are required;
 adapt task-root paths for independent re-review without altering author evidence.
 

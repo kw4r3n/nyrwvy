@@ -14,7 +14,7 @@ Dependencies were copied from the pending checkout without installation.
 
 ## RED evidence
 
-The [four baseline traces](../../examples/member-controller/fixtures/raw-save-baseline-red.json)
+The [four baseline traces](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-controller/fixtures/raw-save-baseline-red.json)
 contain virtual, unedited real C# and independent Python observations. Every
 baseline Nyrwvy case returns `err:raw save fault`, but its immediate inspection
 loses the integrated HEAD. Retry repeats the full integration, including save.
@@ -83,7 +83,7 @@ not been copied; copying those installed local files resolved it. No dependency
 or repository configuration changed.
 
 Final artifact hashes and source proofs are in the maintained
-[summary](../../examples/member-controller/fixtures/verification-summary.json).
+[summary](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-controller/fixtures/verification-summary.json).
 Fresh authoring allocates new semantic IDs; saved-bundle replay preserves them.
 
 ## Limits and next bounded probe

@@ -1,5 +1,12 @@
 # Verification Planner
 
+Migration checkpoint: `planner.snapshot.json` was migrated on a preserved copy
+from schema 9 to 21; `planner.snapshot.json.migration.json` records unchanged
+fingerprints (display path normalized relative to the repository). Every existing
+stable ID is retained. `runner/Generated.cs` was regenerated through `emitCSharp`
+and the documented `--test --maintained` check passed all 1,024 cases. The original
+snapshot is preserved at tag `archive/legacy-examples-pre-cutover-20261019`.
+
 A small pure program created with a maintained AuthoringSession. The semantic authority is the session that opened `planner.snapshot.json`; the JSON was neither edited nor read directly. `runner/Generated.cs` is the unedited output of the public `emitCSharp` for the current snapshot content, regenerated with the emitter of the repository revision that last changed the program.
 
 ## Running

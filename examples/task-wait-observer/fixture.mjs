@@ -6,7 +6,7 @@ const scope = gen('taskScope'), host = { kind: 'capability', name: 'Probe' }
 const list = (type, ...items) => ({ kind: 'listConstruct', itemType: type, items })
 const none = type => ({ kind: 'optionNone', itemType: type })
 const poll = { kind: 'optionSome', value: { kind: 'int64Literal', value: '0' } }
-const eq = value => ({ kind: 'stringEqual', left: p('policy'), right: text(value) })
+const eq = value => ({ kind: 'valueEqual', left: p('policy'), right: text(value) })
 const io = (operation, values = {}) => ({ kind: 'capabilityInvoke', capabilityValue: p('host'), capability: 'Probe', operation, arguments: ctx(values) })
 const start = (worker, item, values) => ({ kind: 'taskStart', scope: p('scope'), worker, item, context: ctx(values) })
 const obsTask = gen('task', observed)
@@ -57,7 +57,7 @@ export async function defineController(create) {
   await createIo('startCaller', { host, scope, tasks: memberTasks, monitor: obsTask, signal: gen('oneShot', states), policy: string }, outcome,
     bind(start('awaitTaskObservation', unitValue, { signal: p('signal'), limit: none(int), noValueError: text('unobserved') }), coordinate({ caller: pat() })))
   await createIo('startMonitor', { host, scope, tasks: memberTasks, signal: gen('oneShot', states), mode: string, limit: gen('option', int), policy: string }, outcome,
-    bind(cond({ kind: 'stringEqual', left: p('mode'), right: text('any') },
+    bind(cond({ kind: 'valueEqual', left: p('mode'), right: text('any') },
       start('observeTasks_any', unitValue, { tasks: p('tasks'), signal: p('signal'), limit: p('limit') }),
       start('observeTasks_all', unitValue, { tasks: p('tasks'), signal: p('signal'), limit: p('limit') })),
       direct('startCaller', { host: p('host'), scope: p('scope'), tasks: p('tasks'), signal: p('signal'), monitor: pat(), policy: p('policy') })))

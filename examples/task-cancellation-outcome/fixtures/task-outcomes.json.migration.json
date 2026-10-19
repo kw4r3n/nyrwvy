@@ -1,0 +1,23 @@
+{
+  "tool": "Nyrwvy.AuthoringSession migrate",
+  "toolVersion": "1.0.0+0913a1b6db48386301a638d7a4d3c75f47832e4a",
+  "path": "examples/task-cancellation-outcome/fixtures/task-outcomes.json",
+  "changed": true,
+  "sourceSchemaVersion": 17,
+  "sourceSchema": "nayamnyam.snapshot.v13",
+  "targetSchemaVersion": 21,
+  "targetSchema": "nayamnyam.snapshot.v17",
+  "before": {
+    "snapshotFingerprint": "sha256:4de8659d9ea419916209031c3e0d8b4a4fd2bd9216d98ace2bf6d898920f00a5",
+    "semanticFingerprint": "sha256:1223e03f0553ced64d371fe8e5a9f6ceaa761954b1cbb57e58624b659e10c2a2"
+  },
+  "after": {
+    "snapshotFingerprint": "sha256:4de8659d9ea419916209031c3e0d8b4a4fd2bd9216d98ace2bf6d898920f00a5",
+    "semanticFingerprint": "sha256:1223e03f0553ced64d371fe8e5a9f6ceaa761954b1cbb57e58624b659e10c2a2"
+  },
+  "semanticFingerprintExpectedEqual": true,
+  "rewrites": [],
+  "declarationsMarkedExported": 32,
+  "functionTypeParameterListsDeclared": 0,
+  "dependencies": []
+}

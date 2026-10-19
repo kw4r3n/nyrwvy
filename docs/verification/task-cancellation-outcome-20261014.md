@@ -58,7 +58,7 @@ Save/close/reopen re-emits identical source and symbols. A copied bundle reopens
 at a moved path without changing its snapshot, emitted source or symbols, and
 repeats the virtual and real observations. The maintained Node regression also
 compares deterministic compiled assembly bytes. The saved snapshot and hashed
-proof are retained in [the fixture evidence](../../examples/task-cancellation-outcome/fixtures/proof.json).
+proof are retained in [the frozen fixture evidence](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/task-cancellation-outcome/fixtures/proof.json).
 
 Virtual and real execution share the C# emitter/runtime. Fake throws are
 ordinary synthetic exceptions and do not establish cancellation-class proof.
@@ -70,7 +70,7 @@ they do not introduce a nominal stopped-state type or automatic host policy.
 ## Verification record
 
 Final serial aggregate results and file/log hashes are retained in
-[verification.json](../../examples/task-cancellation-outcome/fixtures/verification.json).
+[verification.json](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/task-cancellation-outcome/fixtures/verification.json).
 
 | Final check | Observed result |
 | --- | --- |

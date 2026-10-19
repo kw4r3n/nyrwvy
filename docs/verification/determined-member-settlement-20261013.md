@@ -124,7 +124,7 @@ precedence and recovery of completed immutable State remain covered. Expanded
 local execution supports installed SDK writes, Node child waits and test
 sockets. No automatic approval review rejected an action. Aggregate suites run
 serially; final counts, log hashes and source/bundle hashes are in the
-[verified closure](../../examples/member-determined-settlement/fixtures/verified-closure.json).
+[verified closure](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-determined-settlement/fixtures/verified-closure.json).
 
 | Serial aggregate | Result |
 | --- | --- |
@@ -143,7 +143,7 @@ Committed before/after/Python/proof fixtures are in
 `examples/member-determined-settlement/fixtures/`; full local transcripts,
 runtime bundles, replay identities and suite logs are under
 `artifacts/determined-settlement/`. Reproduction commands are in the
-[example README](../../examples/member-determined-settlement/README.md).
+[example README](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-determined-settlement/README.md).
 
 This repairs the bounded determined token/cleanup gap. It does not establish
 whole Python shutdown equivalence. Python converts snapshot errors to failed

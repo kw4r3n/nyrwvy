@@ -20,7 +20,7 @@ export async function author(s) {
   ]}}))
   await s.create('newCursor',{scope},cell,fresh(),[])
   await s.create('cursorWorker',{host:cap('Host'),scope,cursor:cell,count:int,index:int,worker:int},R,
-    cond({kind:'int64GreaterThanOrEqual',left:p('index'),right:p('count')},
+    cond({kind:'boolNot',value:{kind:'int64LessThan',left:p('index'),right:p('count')}},
       bind(invoke(p('host'),'Host','checkpoint',{worker:p('worker'),count:p('index')}),ok(p('index'))),
       bind(fresh(),bind({kind:'oneShotComplete',cell:p('cursor'),value:construct('Link',{next:pat(),sequence:p('index')})},
         loop('cursorWorker',{cursor:pat('value',1),index:add(p('index'),integer(1))})))))
