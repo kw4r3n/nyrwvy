@@ -127,7 +127,7 @@ module AuthoringSessionMigration =
                     |> Result.bind (fun after ->
                         verifyContinuity (SnapshotMigration.representationOnly outcome) before after
                         |> Result.bind (fun () ->
-                        PinnedDependency.embedWith SnapshotCodec.serializeCurrent selected.SourcePath outcome.Snapshot
+                        PinnedDependency.embedWith SnapshotCodec.serialize selected.SourcePath outcome.Snapshot
                         |> Result.map (fun pinned ->
                             pinned,
                             { SnapshotId = StableId.value selected.Imported.Id
@@ -190,8 +190,8 @@ module AuthoringSessionMigration =
             let! before = fingerprints resolvedBefore
             let! migratedSource =
                 match migratedSelection with
-                | None -> SnapshotCodec.serializeCurrent outcome.Snapshot
-                | Some(combined, _) -> SnapshotCodec.serializeResolvedCurrent combined.Imported outcome.Snapshot
+                | None -> SnapshotCodec.serialize outcome.Snapshot
+                | Some(combined, _) -> SnapshotCodec.serializeResolved combined.Imported outcome.Snapshot
                 |> Result.mapError (function
                     | SnapshotCodecError.InvalidSnapshot issues -> AuthoringSessionError.WorkspaceValidationFailure issues
                     | other -> AuthoringSessionError.SnapshotCodecFailure other)

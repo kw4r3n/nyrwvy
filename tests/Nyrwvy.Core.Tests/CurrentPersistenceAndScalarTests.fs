@@ -113,6 +113,25 @@ module CurrentPersistenceAndScalarTests =
             let legacy = $"""{{"kind":"list","itemType":{optionInt},"items":[{{"kind":"option","itemKind":"int64","hasValue":true,"value":"2"}}]}}"""
             check "nested" typed legacy)
 
+    /// Fast-suite guard for the typed scalar acceptance path; the Extended case covers every kind and shape.
+    [<Fact>]
+    let ``a typed scalar List and Result run and match their legacy forms`` () =
+        withDirectory (fun root ->
+            use session = AuthoringSession.createNew (Path.Combine(root, "run.json")) |> unwrap
+            let text = primitive "string"
+            identity session "strings" (container "list" [ text ])
+            identity session "textResult" (container "result" [ text; text ])
+            let check name typed legacy =
+                for argument, expected in [ typed, legacy; legacy, typed ] do
+                    let result = request session $"""{{"id":"run","op":"runPureByName","function":"{name}","arguments":[{argument}],"expected":{expected}}}"""
+                    Assert.True(result.GetProperty("matches").GetBoolean(), result.GetRawText())
+            check "strings"
+                $"""{{"kind":"list","itemType":{text},"items":[{{"kind":"string","value":"a"}}]}}"""
+                """{"kind":"list","itemKind":"string","items":["a"]}"""
+            check "textResult"
+                $"""{{"kind":"result","okType":{text},"errorType":{text},"isOk":false,"value":{{"kind":"string","value":"e"}}}}"""
+                """{"kind":"result","okKind":"string","errorKind":"string","isOk":false,"value":"e"}""")
+
     [<Fact>]
     let ``typed scalar payload mismatches and mixed legacy fields fail before execution`` () =
         withDirectory (fun root ->
