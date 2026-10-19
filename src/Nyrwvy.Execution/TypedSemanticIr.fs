@@ -731,6 +731,8 @@ module TypedSemanticNodeKind =
 
 type TypedSemanticFunction =
     { Id: FunctionId
+      /// Declared type parameters in order; empty for a monomorphic function.
+      TypeParameters: (TypeParameterId * string) list
       Parameters: TypedSemanticParameter list
       ResultType: TypeRef
       RequiredEffects: EffectId list
@@ -1348,6 +1350,7 @@ module TypedSemanticIr =
                     { Id = parameter.Id
                       Type = parameter.Type })
               ResultType = functionEntity.ResultType
+              TypeParameters = functionEntity.TypeParameters
               RequiredEffects = functionEntity.RequiredEffects |> List.sortBy StableId.value
               Body = body })
 

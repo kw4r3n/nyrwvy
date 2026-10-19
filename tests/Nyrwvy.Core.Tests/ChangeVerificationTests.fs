@@ -36,9 +36,9 @@ module ChangeVerificationTests =
             let publish text =
                 let proposal = (wire text).GetProperty("proposalId").GetString()
                 session.Commit(proposal, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
-            publish """{"id":"type","op":"simulateCreateTypeByName","displayName":"Box","typeKind":{"kind":"product","fields":[{"displayName":"amount","type":{"kind":"primitive","primitive":"int64"}}]}}"""
-            publish """{"id":"echo","op":"simulateCreateFunctionByName","displayName":"echo","parameters":[{"displayName":"input","type":{"kind":"named","name":"Box"}}],"resultType":{"kind":"named","name":"Box"},"requiredEffects":[],"body":{"kind":"parameter","name":"input"}}"""
-            publish """{"id":"make","op":"simulateCreateFunctionByName","displayName":"make","parameters":[],"resultType":{"kind":"named","name":"Box"},"requiredEffects":[],"body":{"kind":"productConstruct","type":"Box","fields":[{"field":"amount","value":{"kind":"int64Literal","value":"1"}}]}}"""
+            publish """{"id":"type","op":"simulateCreateTypeByName","exported":true,"displayName":"Box","typeKind":{"kind":"product","fields":[{"displayName":"amount","type":{"kind":"primitive","primitive":"int64"}}]}}"""
+            publish """{"id":"echo","op":"simulateCreateFunctionByName","exported":true,"displayName":"echo","parameters":[{"displayName":"input","type":{"kind":"named","name":"Box"}}],"resultType":{"kind":"named","name":"Box"},"requiredEffects":[],"body":{"kind":"parameter","name":"input"}}"""
+            publish """{"id":"make","op":"simulateCreateFunctionByName","exported":true,"displayName":"make","parameters":[],"resultType":{"kind":"named","name":"Box"},"requiredEffects":[],"body":{"kind":"productConstruct","type":"Box","fields":[{"field":"amount","value":{"kind":"int64Literal","value":"1"}}]}}"""
             let box = session.Declarations().Types |> List.find (fun t -> t.DisplayName = "Box")
             let field = match box.Kind with SemanticTypeKind.Product fields -> fields.Head | _ -> failwith "fixture"
             let echo, make = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "echo"), session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "make")
@@ -76,8 +76,8 @@ module ChangeVerificationTests =
     [<Fact>]
     let ``wire review never decorates generic entry refusal as an input defect`` () =
         withSession (fun session ->
-            let t = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "review-diagnostic-T", "T")
-            let created = session.SimulateCreateFunction { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "generic"; Parameters = [ { DisplayName = "value"; Type = t } ]; ResultType = t; RequiredEffects = []; Body = ExpressionRecipe.ParameterSlot 0 } |> unwrap
+            let t = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "T")
+            let created = session.SimulateCreateFunction { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "generic"; TypeParameters = None; Parameters = [ { DisplayName = "value"; Type = t } ]; ResultType = t; RequiredEffects = []; Body = ExpressionRecipe.ParameterSlot 0 } |> unwrap
             session.Commit(created.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             let fn = session.Declarations().Functions |> List.exactlyOne
             let proposal = session.SimulateReplaceBody { TargetFunctionId = fn.Id; ExpectedBaseSnapshotId = session.SnapshotId; ExpectedCurrentResultNodeId = fn.Body.ResultNodeId; Replacement = ExpressionRecipe.Parameter fn.Parameters.Head.Id } |> unwrap
@@ -97,10 +97,10 @@ module ChangeVerificationTests =
             let libraryPath = Path.Combine(Path.GetDirectoryName rootSession.Path, "library.json")
             use library = AuthoringSession.createNew libraryPath |> unwrap
             let publish proposal = library.Commit((unwrap proposal).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
-            library.SimulateCreateType { TypeParameters = []; ExpectedBaseSnapshotId = library.SnapshotId; DisplayName = "Box"; Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "amount"; Type = TypeRef.Primitive PrimitiveType.Int64 } ] } |> publish
+            library.SimulateCreateType { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = library.SnapshotId; DisplayName = "Box"; Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "amount"; Type = TypeRef.Primitive PrimitiveType.Int64 } ] } |> publish
             let box = library.Declarations().Types.Head
             let field = match box.Kind with SemanticTypeKind.Product fields -> fields.Head | _ -> failwith "fixture"
-            library.SimulateCreateFunction { ExpectedBaseSnapshotId = library.SnapshotId; DisplayName = "echo"; Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(box.Id, []) } ]; ResultType = TypeRef.Named(box.Id, []); RequiredEffects = []; Body = ExpressionRecipe.ParameterSlot 0 } |> publish
+            library.SimulateCreateFunction { Exported = true; ExpectedBaseSnapshotId = library.SnapshotId; DisplayName = "echo"; TypeParameters = None; Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(box.Id, []) } ]; ResultType = TypeRef.Named(box.Id, []); RequiredEffects = []; Body = ExpressionRecipe.ParameterSlot 0 } |> publish
             let fn, oldPin = library.Declarations().Functions.Head, library.SnapshotId
             use session = AuthoringSession.createNewWithDependencies (Path.Combine(Path.GetDirectoryName rootSession.Path, "consumer.json")) [ libraryPath ] |> unwrap
             library.SimulateOperations [ AgentOperationIntent.RenameDisplayName(AgentRenameTarget.Type box.Id, "RenamedBox") ] |> publish
@@ -170,7 +170,8 @@ module ChangeVerificationTests =
     let ``review separates structural readiness from prominent behavioral summary`` status expectedSummary =
         withSession (fun session ->
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = session.SnapshotId
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId
+                  TypeParameters = None
                   DisplayName = "unitValue"
                   Parameters = []
                   ResultType = TypeRef.Primitive PrimitiveType.Unit
@@ -206,17 +207,18 @@ module ChangeVerificationTests =
         withSession (fun session ->
             let publish (proposal: AuthoringProposal) =
                 session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
-            session.SimulateCreateEffect { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "io" } |> unwrap |> publish
+            session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "io" } |> unwrap |> publish
             let effect = session.Declarations().Effects |> List.exactlyOne
             session.SimulateCreateCapability
-                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Provider"
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Provider"
                   Operations = [ { DisplayName = "read"; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Int64; FailureType = None; EffectId = effect.Id } ] }
             |> unwrap |> publish
             let capability = session.Declarations().Capabilities |> List.exactlyOne
             let operation = capability.Operations |> List.exactlyOne
             let invoke value = ExpressionRecipe.CapabilityInvoke(value, operation.Id, [])
             session.SimulateCreateFunction
-                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "query"
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "query"
+                  TypeParameters = None
                   Parameters = [ { DisplayName = "provider"; Type = TypeRef.Capability capability.Id } ]
                   ResultType = TypeRef.Primitive PrimitiveType.Int64; RequiredEffects = [ effect.Id ]
                   Body = invoke (ExpressionRecipe.ParameterSlot 0) }
@@ -353,7 +355,8 @@ module ChangeVerificationTests =
     let ``review distinguishes impact from direct case entry points`` () =
         withSession (fun session ->
             let proposal = session.SimulateCreateFunction
-                               { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "unitValue"; Parameters = []
+                               { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "unitValue"; Parameters = []
+                                 TypeParameters = None
                                  ResultType = TypeRef.Primitive PrimitiveType.Unit; RequiredEffects = []; Body = ExpressionRecipe.UnitLiteral } |> unwrap
             let view = session.PendingProposalView proposal.ProposalId |> unwrap
             let other = StableId.createForTesting<FunctionTag> "affected-caller"
@@ -376,7 +379,7 @@ module ChangeVerificationTests =
             let integer = TypeRef.Primitive PrimitiveType.Int64
             let field name itemType: AgentTypeFieldIntent = { DisplayName = name; Type = itemType }
             let createType name kind =
-                session.SimulateCreateType { TypeParameters = []; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name; Kind = kind } |> unwrap |> publish
+                session.SimulateCreateType { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name; Kind = kind } |> unwrap |> publish
                 session.Declarations().Types |> List.find (fun item -> item.DisplayName = name)
             let pair = createType "Pair" (AgentTypeDeclarationKindIntent.Product [ field "a" integer; field "b" integer ])
             let answer = createType "Answer" (AgentTypeDeclarationKindIntent.Union
@@ -396,7 +399,8 @@ module ChangeVerificationTests =
             let envelopeValue reverse wrong = product envelope reverse (Map.ofList [ "answer", unionValue reverse wrong; "pairs", sprintf "{\"kind\":\"list\",\"itemType\":{\"kind\":\"named\",\"typeId\":\"%s\"},\"items\":[%s]}" (StableId.value pair.Id) (pairValue reverse false) ])
             for t, value in [ pair, pairValue; answer, unionValue; envelope, envelopeValue ] do
                 session.SimulateCreateFunction
-                    { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "identity" + t.DisplayName
+                    { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "identity" + t.DisplayName
+                      TypeParameters = None
                       Parameters = [ { DisplayName = "value"; Type = TypeRef.Named(t.Id, []) } ]; ResultType = TypeRef.Named(t.Id, [])
                       RequiredEffects = []; Body = ExpressionRecipe.ParameterSlot 0 } |> unwrap |> publish
                 let fn = session.Declarations().Functions |> List.find (fun item -> item.DisplayName = "identity" + t.DisplayName)
@@ -424,16 +428,17 @@ module ChangeVerificationTests =
         withSession (fun session ->
             let publish (proposal: AuthoringProposal) = session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             let integer = TypeRef.Primitive PrimitiveType.Int64
-            session.SimulateCreateEffect { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "io" } |> unwrap |> publish
+            session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "io" } |> unwrap |> publish
             let effect = session.Declarations().Effects |> List.exactlyOne
             session.SimulateCreateCapability
-                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Provider"
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Provider"
                   Operations = [ { DisplayName = "read"; Parameters = [ { DisplayName = "key"; Type = integer } ]; ResultType = integer; FailureType = None; EffectId = effect.Id } ] }
             |> unwrap |> publish
             let capability = session.Declarations().Capabilities |> List.exactlyOne
             let operation = capability.Operations |> List.exactlyOne
             session.SimulateCreateFunction
-                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "query"
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "query"
+                  TypeParameters = None
                   Parameters = [ { DisplayName = "provider"; Type = TypeRef.Capability capability.Id } ]
                   ResultType = integer; RequiredEffects = [ effect.Id ]
                   Body = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, operation.Id, [ operation.Parameters.Head.Id, ExpressionRecipe.Int64Literal 1L ]) }
@@ -463,7 +468,8 @@ module ChangeVerificationTests =
         withSession (fun session ->
             let publish (proposal: AuthoringProposal) = session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             session.SimulateCreateFunction
-                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "value"; Parameters = []
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "value"; Parameters = []
+                  TypeParameters = None
                   ResultType = TypeRef.Primitive PrimitiveType.Unit; RequiredEffects = []; Body = ExpressionRecipe.UnitLiteral } |> unwrap |> publish
             let fn = session.Declarations().Functions |> List.exactlyOne
             let propose () = session.SimulateReplaceBody

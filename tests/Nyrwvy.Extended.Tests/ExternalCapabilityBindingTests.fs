@@ -25,7 +25,7 @@ module ExternalCapabilityBindingTests =
 
     let private createType session name fieldName =
         let request: AgentCreateTypeDeclarationRequest =
-            { TypeParameters = []; ExpectedBaseSnapshotId = current session
+            { Exported = false; TypeParameters = []; ExpectedBaseSnapshotId = current session
               DisplayName = name
               Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = fieldName; Type = stringType } ] }
         session.SimulateCreateType request |> unwrap "create type" |> publish session
@@ -38,12 +38,12 @@ module ExternalCapabilityBindingTests =
         let requestType, key = createType session "LookupRequest" "key"
         let responseType, value = createType session "LookupResponse" "value"
         let effectRequest: AgentCreateEffectDeclarationRequest =
-            { ExpectedBaseSnapshotId = current session; DisplayName = "ExternalRead" }
+            { Exported = false; ExpectedBaseSnapshotId = current session; DisplayName = "ExternalRead" }
         session.SimulateCreateEffect effectRequest |> unwrap "create effect" |> publish session
         let effect = session.Declarations().Effects |> List.exactlyOne
         let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.Named(responseType.Id, []); stringType ])
         let capabilityRequest: AgentCreateCapabilityDeclarationRequest =
-            { ExpectedBaseSnapshotId = current session
+            { Exported = false; ExpectedBaseSnapshotId = current session
               DisplayName = "LookupProvider"
               Operations =
                 [ { DisplayName = "lookup"
@@ -72,7 +72,8 @@ module ExternalCapabilityBindingTests =
                     value.Id),
                 ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Error })
         let functionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = current session
+            { Exported = false; ExpectedBaseSnapshotId = current session
+              TypeParameters = None
               DisplayName = "query"
               Parameters =
                 [ { DisplayName = "request"; Type = TypeRef.Named(requestType.Id, []) }

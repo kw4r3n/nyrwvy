@@ -57,7 +57,8 @@ module ListHigherOrderTests =
             { Id = parameterNodeId
               Kind = SemanticNodeKind.ParameterReference parameter.Id }
         let bodyNodes, resultNodeId = buildBody parameterNodeId
-        { Id = functionId name
+        { Exported = true; Id = functionId name
+          TypeParameters = []
           DisplayName = name
           Parameters = [ parameter ]
           ResultType = resultType
@@ -105,7 +106,8 @@ module ListHigherOrderTests =
               DisplayName = "second"
               Type = int64Type }
         let resultId = nodeId "two-result"
-        { Id = functionId "two-parameter"
+        { Exported = true; Id = functionId "two-parameter"
+          TypeParameters = []
           DisplayName = "two_parameter"
           Parameters = [ first; second ]
           ResultType = boolType
@@ -143,7 +145,8 @@ module ListHigherOrderTests =
         let anyNodeId = nodeId "showcase-any"
         let allNodeId = nodeId "showcase-all"
         let showcase: SemanticFunction =
-            { Id = functionId "showcase"
+            { Exported = true; Id = functionId "showcase"
+              TypeParameters = []
               DisplayName = "higher_order_showcase"
               Parameters = []
               ResultType = boolType
@@ -169,7 +172,8 @@ module ListHigherOrderTests =
         let filteredId = nodeId "filtered-length-filter"
         let filteredLengthId = nodeId "filtered-length-result"
         let filteredLength: SemanticFunction =
-            { Id = functionId "filtered-length"
+            { Exported = true; Id = functionId "filtered-length"
+              TypeParameters = []
               DisplayName = "filtered_length"
               Parameters = []
               ResultType = int64Type
@@ -184,7 +188,8 @@ module ListHigherOrderTests =
         let predicateFunction name constructor =
             let nodes, sourceId = sourceNodes name
             let resultId = nodeId (name + "-result")
-            { Id = functionId name
+            { Exported = true; Id = functionId name
+              TypeParameters = []
               DisplayName = name
               Parameters = []
               ResultType = boolType
@@ -200,7 +205,8 @@ module ListHigherOrderTests =
         let mappedAnyListId = nodeId "mapped-any-map"
         let mappedAnyResultId = nodeId "mapped-any-result"
         let mappedAny: SemanticFunction =
-            { Id = functionId "mapped-any"
+            { Exported = true; Id = functionId "mapped-any"
+              TypeParameters = []
               DisplayName = "mapped_any"
               Parameters = []
               ResultType = boolType
@@ -215,7 +221,8 @@ module ListHigherOrderTests =
         let emptyPredicateFunction name constructor =
             let emptyId = nodeId (name + "-empty")
             let resultId = nodeId (name + "-result")
-            { Id = functionId name
+            { Exported = true; Id = functionId name
+              TypeParameters = []
               DisplayName = name
               Parameters = []
               ResultType = boolType
@@ -233,7 +240,7 @@ module ListHigherOrderTests =
             { Id = StableId.createForTesting<SnapshotTag> "snapshot-list-higher-order"
               ParentId = None
               Types = []
-              Effects = [ { Id = effectId; DisplayName = "test_effect" } ]
+              Effects = [ { Exported = true; Id = effectId; DisplayName = "test_effect" } ]
               Capabilities = []
               Functions =
                 [ positive

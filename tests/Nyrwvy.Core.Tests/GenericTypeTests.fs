@@ -55,15 +55,15 @@ module GenericTypeTests =
         parameters |> List.map (fun (name, typeRef) -> field name typeRef) |> String.concat ","
 
     let private createLine name parameters resultType body =
-        $"""{{"id":"{name}","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{signature parameters}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+        $"""{{"id":"{name}","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{signature parameters}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
 
     let private define session name parameters resultType body = publish session (createLine name parameters resultType body)
 
     /// Box<T> { value: T }, Maybe<T> = Just(value: T) | Nothing, Tree<T> { value: T, children: List<Tree<T>> }.
     let private defineTypes session =
-        publish session $"""{{"id":"box","op":"simulateCreateTypeByName","displayName":"Box","typeParameters":["T"],"typeKind":{{"kind":"product","fields":[{field "value" (typeParameter "T")}]}}}}"""
-        publish session $"""{{"id":"maybe","op":"simulateCreateTypeByName","displayName":"Maybe","typeParameters":["T"],"typeKind":{{"kind":"union","variants":[{{"displayName":"Just","fields":[{field "value" (typeParameter "T")}]}},{{"displayName":"Nothing","fields":[]}}]}}}}"""
-        publish session $"""{{"id":"tree","op":"simulateCreateTypeByName","displayName":"Tree","typeParameters":["T"],"typeKind":{{"kind":"product","fields":[{field "value" (typeParameter "T")},{field "children" (listOf (named "Tree" [ typeParameter "T" ]))}]}}}}"""
+        publish session $"""{{"id":"box","op":"simulateCreateTypeByName","exported":true,"displayName":"Box","typeParameters":["T"],"typeKind":{{"kind":"product","fields":[{field "value" (typeParameter "T")}]}}}}"""
+        publish session $"""{{"id":"maybe","op":"simulateCreateTypeByName","exported":true,"displayName":"Maybe","typeParameters":["T"],"typeKind":{{"kind":"union","variants":[{{"displayName":"Just","fields":[{field "value" (typeParameter "T")}]}},{{"displayName":"Nothing","fields":[]}}]}}}}"""
+        publish session $"""{{"id":"tree","op":"simulateCreateTypeByName","exported":true,"displayName":"Tree","typeParameters":["T"],"typeKind":{{"kind":"product","fields":[{field "value" (typeParameter "T")},{field "children" (listOf (named "Tree" [ typeParameter "T" ]))}]}}}}"""
 
     let private boxOf item = named "Box" [ item ]
     let private maybeOf item = named "Maybe" [ item ]
@@ -118,12 +118,12 @@ module GenericTypeTests =
             // Recursion into the type's own group passes plain type parameters only.
             Assert.Contains(
                 "IrregularRecursiveType",
-                rejectionText session $"""{{"id":"nest","op":"simulateCreateTypeByName","displayName":"Nest","typeParameters":["T"],"typeKind":{{"kind":"union","variants":[{{"displayName":"Leaf","fields":[{field "value" (typeParameter "T")}]}},{{"displayName":"Deeper","fields":[{field "inner" (named "Nest" [ listOf (typeParameter "T") ])}]}}]}}}}"""
+                rejectionText session $"""{{"id":"nest","op":"simulateCreateTypeByName","exported":true,"displayName":"Nest","typeParameters":["T"],"typeKind":{{"kind":"union","variants":[{{"displayName":"Leaf","fields":[{field "value" (typeParameter "T")}]}},{{"displayName":"Deeper","fields":[{field "inner" (named "Nest" [ listOf (typeParameter "T") ])}]}}]}}}}"""
             )
             // A field may use only its own type's type parameters.
             Assert.Contains(
                 "TypeParameterNotAllowed",
-                rejectionText session $"""{{"id":"loose","op":"simulateCreateTypeByName","displayName":"Loose","typeKind":{{"kind":"product","fields":[{field "value" (typeParameter "T")}]}}}}"""
+                rejectionText session $"""{{"id":"loose","op":"simulateCreateTypeByName","exported":true,"displayName":"Loose","typeKind":{{"kind":"product","fields":[{field "value" (typeParameter "T")}]}}}}"""
             )
             defineFunctions session
 

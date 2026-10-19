@@ -61,7 +61,8 @@ module StandardOperationChoiceTests =
         let snapshot = Snapshot.empty (id<SnapshotTag> ("base-" + mode))
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request (types: TypeRef list) result: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = mode
               Parameters = types |> List.mapi (fun index parameterType -> { DisplayName = $"p{index}"; Type = parameterType })
               ResultType = result
@@ -144,7 +145,7 @@ module StandardOperationChoiceTests =
             |> String.concat ","
         let proposal =
             call (
-                """{"id":"define","op":"simulateCreateFunctionByName","displayName":""" + "\"" + name + "\""
+                """{"id":"define","op":"simulateCreateFunctionByName","exported":true,"displayName":""" + "\"" + name + "\""
                 + ""","parameters":[""" + parameterList + """],"resultType":""" + resultType
                 + ""","requiredEffects":[],"body":""" + body + "}")
         call ("""{"id":"commit","op":"commit","proposalId":""" + "\"" + proposal.GetProperty("proposalId").GetString() + "\"}") |> ignore

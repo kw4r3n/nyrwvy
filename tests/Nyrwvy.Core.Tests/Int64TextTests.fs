@@ -23,7 +23,8 @@ module Int64TextTests =
         let snapshot = Snapshot.empty (id<SnapshotTag> "base")
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = "convert"
               Parameters = [ { DisplayName = "input"; Type = parameterType } ]
               ResultType = resultType
@@ -74,13 +75,14 @@ module Int64TextTests =
                 Assert.True(commit.RootElement.GetProperty("ok").GetBoolean(), commit.RootElement.ToString())
             let primitive name = sprintf """{"kind":"primitive","primitive":"%s"}""" name
             let optionOfInt = sprintf """{"kind":"builtinGeneric","generic":"option","arguments":[%s]}""" (primitive "int64")
-            create (sprintf """{"id":"render","op":"simulateCreateFunctionByName","displayName":"render","parameters":[{"displayName":"n","type":%s}],"resultType":%s,"requiredEffects":[],"body":{"kind":"int64ToString","value":{"kind":"parameter","name":"n"}}}""" (primitive "int64") (primitive "string"))
-            create (sprintf """{"id":"parse","op":"simulateCreateFunctionByName","displayName":"parse","parameters":[{"displayName":"text","type":%s}],"resultType":%s,"requiredEffects":[],"body":{"kind":"stringParseInt64","value":{"kind":"parameter","name":"text"}}}""" (primitive "string") optionOfInt)
+            create (sprintf """{"id":"render","op":"simulateCreateFunctionByName","exported":true,"displayName":"render","parameters":[{"displayName":"n","type":%s}],"resultType":%s,"requiredEffects":[],"body":{"kind":"int64ToString","value":{"kind":"parameter","name":"n"}}}""" (primitive "int64") (primitive "string"))
+            create (sprintf """{"id":"parse","op":"simulateCreateFunctionByName","exported":true,"displayName":"parse","parameters":[{"displayName":"text","type":%s}],"resultType":%s,"requiredEffects":[],"body":{"kind":"stringParseInt64","value":{"kind":"parameter","name":"text"}}}""" (primitive "string") optionOfInt)
             let functionId name = (session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)).Id
             let listRecipe name source = ExpressionRecipe.ListMap(source, functionId name, [])
             let createMap name parameterType resultType mapper =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                      TypeParameters = None
                       DisplayName = name
                       Parameters = [ { DisplayName = "items"; Type = parameterType } ]
                       ResultType = resultType

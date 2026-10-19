@@ -36,7 +36,7 @@ module CapabilityTests =
         let invokeNodeId = StableId.createForTesting<GraphNodeTag> "node-write-line"
 
         let effect: SemanticEffect =
-            { Id = effectId
+            { Exported = true; Id = effectId
               DisplayName = "ConsoleOutput" }
 
         let operationParameter: SemanticCapabilityParameter =
@@ -53,7 +53,7 @@ module CapabilityTests =
               EffectId = effectId }
 
         let capability: SemanticCapability =
-            { Id = capabilityId
+            { Exported = true; Id = capabilityId
               DisplayName = "Console"
               Operations = [ operation ] }
 
@@ -84,7 +84,8 @@ module CapabilityTests =
               Kind = SemanticNodeKind.CapabilityInvoke(consoleNodeId, operationId, [ argument ]) }
 
         let functionEntity: SemanticFunction =
-            { Id = functionId
+            { Exported = true; Id = functionId
+              TypeParameters = []
               DisplayName = "report"
               Parameters = [ messageParameter; consoleParameter ]
               ResultType = unitType
@@ -134,7 +135,7 @@ module CapabilityTests =
         let fixture = createConsoleFixture ()
         let otherCapabilityId = StableId.createForTesting<CapabilityTag> "capability-other"
         let otherCapability: SemanticCapability =
-            { Id = otherCapabilityId
+            { Exported = true; Id = otherCapabilityId
               DisplayName = "OtherCapability"
               Operations = [] }
 
@@ -231,7 +232,8 @@ module CapabilityTests =
                 ) }
 
         let caller: SemanticFunction =
-            { Id = callerId
+            { Exported = true; Id = callerId
+              TypeParameters = []
               DisplayName = "caller"
               Parameters = [ callerMessageParameter; callerConsoleParameter ]
               ResultType = TypeRef.Primitive PrimitiveType.Unit
@@ -273,7 +275,8 @@ module CapabilityTests =
               Kind = SemanticNodeKind.StringIsEmpty valueNodeId }
 
         let functionEntity: SemanticFunction =
-            { Id = functionId
+            { Exported = true; Id = functionId
+              TypeParameters = []
               DisplayName = "contains"
               Parameters =
                 [ { Id = valueParameterId; DisplayName = "value"; Type = stringType }

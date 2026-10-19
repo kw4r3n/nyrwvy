@@ -66,7 +66,13 @@ module internal WireEncode =
     /// Lists only reviews of the corresponding operations contain, appended only when non-empty so
     /// that every review without them keeps its exact earlier shape.
     let private conditionalDiffFields (value: SemanticDiff) =
-        (if List.isEmpty value.ParametersRemoved then [] else
+        (if List.isEmpty value.VisibilityChanges then [] else
+            [ "visibilityChanges",
+              value.VisibilityChanges
+              |> List.map (fun item ->
+                  objectValue [ "kind", box item.Kind; "id", box item.Id; "displayName", box item.DisplayName; "exported", box item.Exported ])
+              |> arrayValue ])
+        @ (if List.isEmpty value.ParametersRemoved then [] else
             [ "parametersRemoved",
               value.ParametersRemoved
               |> List.map (fun item ->
@@ -420,7 +426,7 @@ module internal WireEncode =
                       "createdTypes", item.CreatedTypes |> List.map semanticType |> arrayValue ]
             | AuthoringProposalReview.UnionVariantEvolution item ->
                 withRewritten
-                    [ "kind", box "fieldlessUnionVariantEvolution"
+                    [ "kind", box "unionVariantEvolution"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "updatedType", semanticType item.UpdatedType

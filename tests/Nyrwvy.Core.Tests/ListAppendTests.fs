@@ -201,7 +201,8 @@ static class Runner
             let findFunction name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
             let create name parameters resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                      TypeParameters = None
                       DisplayName = name
                       Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })
                       ResultType = resultType

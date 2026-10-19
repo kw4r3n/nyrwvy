@@ -108,7 +108,8 @@ module MilestoneOneGraph =
                           ResultNodeId = isErrorTrueNodeId } }
                 ) }
         let isValidationErrorFunction: SemanticFunction =
-            { Id = functionId "is-validation-error"
+            { Exported = true; Id = functionId "is-validation-error"
+              TypeParameters = []
               DisplayName = "is_validation_error"
               Parameters = [ isErrorParameter ]
               ResultType = boolType
@@ -124,7 +125,8 @@ module MilestoneOneGraph =
         let validateUsersInputNodeId = nodeId "validate-users-inputs"
         let validateUsersMapNodeId = nodeId "validate-users-map"
         let validateUsersFunction: SemanticFunction =
-            { Id = functionId "validate-users"
+            { Exported = true; Id = functionId "validate-users"
+              TypeParameters = []
               DisplayName = "validate_users"
               Parameters = [ validateUsersInputParameter ]
               ResultType = validationResultListType
@@ -144,7 +146,8 @@ module MilestoneOneGraph =
         let countResultsParameterNodeId = nodeId "count-results-values"
         let countResultsLengthNodeId = nodeId "count-results-length"
         let countResultsFunction: SemanticFunction =
-            { Id = functionId "count-results"
+            { Exported = true; Id = functionId "count-results"
+              TypeParameters = []
               DisplayName = "count_results"
               Parameters = [ countResultsParameter ]
               ResultType = int64Type
@@ -165,7 +168,8 @@ module MilestoneOneGraph =
         let countInvalidFilterNodeId = nodeId "count-invalid-results-filter"
         let countInvalidLengthNodeId = nodeId "count-invalid-results-length"
         let countInvalidResultsFunction: SemanticFunction =
-            { Id = functionId "count-invalid-results"
+            { Exported = true; Id = functionId "count-invalid-results"
+              TypeParameters = []
               DisplayName = "count_invalid_results"
               Parameters = [ countInvalidParameter ]
               ResultType = int64Type
@@ -265,7 +269,8 @@ module MilestoneOneGraph =
               ResultNodeId = reportAnyErrorsNodeId }
 
         let reportResultsFunction: SemanticFunction =
-            { Id = functionId "report-results"
+            { Exported = true; Id = functionId "report-results"
+              TypeParameters = []
               DisplayName = "report_results"
               Parameters = [ reportResultsParameter; reportConsoleParameter ]
               ResultType = unitType
@@ -317,7 +322,8 @@ module MilestoneOneGraph =
         let mainValidateUsersNodeId = nodeId "main-validate-users"
         let mainReportResultsNodeId = nodeId "main-report-results"
         let mainFunction: SemanticFunction =
-            { Id = functionId "main"
+            { Exported = true; Id = functionId "main"
+              TypeParameters = []
               DisplayName = "m1_main"
               Parameters = [ mainInputsParameter; mainConsoleParameter ]
               ResultType = unitType

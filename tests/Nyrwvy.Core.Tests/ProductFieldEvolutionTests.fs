@@ -24,7 +24,7 @@ module ProductFieldEvolutionTests =
 
     let private fixture () =
         let product: SemanticType =
-            { TypeParameters = []; Id = productId
+            { Exported = true; TypeParameters = []; Id = productId
               DisplayName = "Record"
               Kind = SemanticTypeKind.Product
                 [ { Id = originalFieldId; DisplayName = "original"; Type = stringType } ] }
@@ -32,7 +32,8 @@ module ProductFieldEvolutionTests =
         let directParameter: SemanticParameter =
             { Id = stable<ParameterTag> "direct-parameter"; DisplayName = "input"; Type = stringType }
         let direct: SemanticFunction =
-            { Id = directId
+            { Exported = true; Id = directId
+              TypeParameters = []
               DisplayName = "direct"
               Parameters = [ directParameter ]
               ResultType = resultType
@@ -63,7 +64,8 @@ module ProductFieldEvolutionTests =
         let conditionId = stable<GraphNodeTag> "condition"
         let resultId = stable<GraphNodeTag> "result"
         let nested: SemanticFunction =
-            { Id = nestedId
+            { Exported = true; Id = nestedId
+              TypeParameters = []
               DisplayName = "nested"
               Parameters = [ nestedParameter ]
               ResultType = resultType
@@ -196,7 +198,8 @@ module ProductFieldEvolutionTests =
         let sourceId = stable<GraphNodeTag> "access-source"
         let accessId = stable<GraphNodeTag> "access"
         let accessor: SemanticFunction =
-            { Id = stable<FunctionTag> "accessor"
+            { Exported = true; Id = stable<FunctionTag> "accessor"
+              TypeParameters = []
               DisplayName = "accessor"
               Parameters = [ productInput ]
               ResultType = stringType
@@ -222,7 +225,7 @@ module ProductFieldEvolutionTests =
         let effectId = stable<EffectTag> "observable"
         let withEffects =
             { initial with
-                Effects = [ { Id = effectId; DisplayName = "observable" } ]
+                Effects = [ { Exported = true; Id = effectId; DisplayName = "observable" } ]
                 Functions =
                     initial.Functions
                     |> List.map (fun fn ->

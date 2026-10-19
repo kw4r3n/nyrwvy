@@ -8,6 +8,8 @@ open System
 type AgentCreateCapabilityDeclarationRequest =
     { ExpectedBaseSnapshotId: SnapshotId
       DisplayName: string
+      /// Whether snapshots that depend on this one may use the capability; private when false.
+      Exported: bool
       Operations: AgentCapabilityOperationIntent list }
 
 type AgentCapabilityDeclarationReview =
@@ -170,6 +172,7 @@ module AgentCapabilityDeclarationWorkflow =
         : SemanticCapability =
         { Id = StableIdAllocator.newCapabilityId ()
           DisplayName = request.DisplayName
+          Exported = request.Exported
           Operations = request.Operations |> List.map materializeOperation }
 
     let simulate

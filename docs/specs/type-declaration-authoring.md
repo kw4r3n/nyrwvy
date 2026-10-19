@@ -30,9 +30,12 @@ AgentTypeDeclarationKindIntent =
 AgentCreateTypeDeclarationRequest =
   ExpectedBaseSnapshotId: SnapshotId
   DisplayName: string
+  Exported: bool
   TypeParameters: (TypeParameterId * string) list
   Kind: AgentTypeDeclarationKindIntent
 ```
+
+`Exported` is the type's [visibility](../decisions/declaration-visibility.md): whether snapshots that depend on this one may use it. The wire form is optional `"exported": true`; a type is private otherwise, and `setExported` changes it later.
 
 The request never contains a production `TypeId`, `VariantId`, `FieldId` or `TypeParameterId`. `TypeParameters` are request-local (the wire form is `"typeParameters": ["T"]`, and field types name them as `{"kind":"typeParameter","name":"T"}`); materialization gives each a fresh identity in declaration order, which is the order of a reference's type arguments. Field types may use only the declaring type's own type parameters (`TypeDeclarationTypeParameterNotAllowed`), names must be nonblank and distinct (`TypeDeclarationTypeParameterNameBlank`, `TypeDeclarationDuplicateTypeParameter`). See [generic types](../decisions/generic-types.md).
 

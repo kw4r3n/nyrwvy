@@ -37,7 +37,8 @@ module ListEffectFoldTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
 
     let private creation (session: AuthoringSession) name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session
+        { Exported = true; ExpectedBaseSnapshotId = current session
+          TypeParameters = None
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
           ResultType = resultType
@@ -50,12 +51,12 @@ module ListEffectFoldTests =
         let path = Path.Combine(root, "workspace.json")
         try
             let session = AuthoringSession.createNew path |> unwrap "session"
-            let effectRequest: AgentCreateEffectDeclarationRequest = { ExpectedBaseSnapshotId = current session; DisplayName = "Write" }
+            let effectRequest: AgentCreateEffectDeclarationRequest = { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "Write" }
             session.SimulateCreateEffect effectRequest |> unwrap "effect" |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
             let capability name operation parameter resultType =
                 let request: AgentCreateCapabilityDeclarationRequest =
-                    { ExpectedBaseSnapshotId = current session
+                    { Exported = true; ExpectedBaseSnapshotId = current session
                       DisplayName = name
                       Operations =
                         [ { DisplayName = operation

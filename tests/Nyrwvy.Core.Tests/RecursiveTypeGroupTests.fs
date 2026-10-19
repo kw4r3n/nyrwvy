@@ -16,15 +16,15 @@ module RecursiveTypeGroupTests =
     let private field displayName typeRef: AgentTypeFieldIntent = { DisplayName = displayName; Type = typeRef }
     let private variant displayName fields: AgentTypeVariantIntent = { DisplayName = displayName; Fields = fields }
     let private product name fields: AgentTypeDeclarationGroupMember =
-        { TypeParameters = []; Reference = reference name; DisplayName = name; Kind = AgentTypeDeclarationKindIntent.Product fields }
+        { Exported = true; TypeParameters = []; Reference = reference name; DisplayName = name; Kind = AgentTypeDeclarationKindIntent.Product fields }
     let private union name variants: AgentTypeDeclarationGroupMember =
-        { TypeParameters = []; Reference = reference name; DisplayName = name; Kind = AgentTypeDeclarationKindIntent.Union variants }
+        { Exported = true; TypeParameters = []; Reference = reference name; DisplayName = name; Kind = AgentTypeDeclarationKindIntent.Union variants }
     let private named name = TypeRef.Named(reference name, [])
 
     let private workspace () =
         let snapshot =
             { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-type-group") with
-                Types = [ { TypeParameters = []; Id = StableId.createForTesting<TypeTag> "type-group-existing"; DisplayName = "Existing"; Kind = SemanticTypeKind.Product [] } ] }
+                Types = [ { Exported = true; TypeParameters = []; Id = StableId.createForTesting<TypeTag> "type-group-existing"; DisplayName = "Existing"; Kind = SemanticTypeKind.Product [] } ] }
         match AgentWorkspace.create snapshot with
         | Ok value -> value, snapshot.Id
         | Error issues -> failwithf "Invalid fixture: %A" issues
@@ -120,14 +120,14 @@ module RecursiveTypeGroupTests =
     let ``recursive types are declared by name, reviewed as a group and run like any recursive type`` () =
         withSession (fun session ->
             let tree =
-                publish session $"""{{"id":"t","op":"simulateCreateTypeByName","displayName":"Tree","typeKind":{{"kind":"union","variants":[{{"displayName":"Leaf","fields":[{{"displayName":"label","type":{str}}}]}},{{"displayName":"Node","fields":[{{"displayName":"children","type":{{"kind":"builtinGeneric","generic":"list","arguments":[{{"kind":"named","name":"Tree"}}]}}}}]}}]}}}}"""
+                publish session $"""{{"id":"t","op":"simulateCreateTypeByName","exported":true,"displayName":"Tree","typeKind":{{"kind":"union","variants":[{{"displayName":"Leaf","fields":[{{"displayName":"label","type":{str}}}]}},{{"displayName":"Node","fields":[{{"displayName":"children","type":{{"kind":"builtinGeneric","generic":"list","arguments":[{{"kind":"named","name":"Tree"}}]}}}}]}}]}}}}"""
             Assert.Equal("createTypes", tree.GetProperty("kind").GetString())
-            let plain = publish session $"""{{"id":"p","op":"simulateCreateTypeByName","displayName":"Plain","typeKind":{{"kind":"product","fields":[{{"displayName":"value","type":{str}}}]}}}}"""
+            let plain = publish session $"""{{"id":"p","op":"simulateCreateTypeByName","exported":true,"displayName":"Plain","typeKind":{{"kind":"product","fields":[{{"displayName":"value","type":{str}}}]}}}}"""
             Assert.Equal("createType", plain.GetProperty("kind").GetString())
             let group =
                 publish session $"""{{"id":"g","op":"simulateCreateTypesByName","types":[{{"displayName":"Json","typeKind":{{"kind":"union","variants":[{{"displayName":"Str","fields":[{{"displayName":"value","type":{str}}}]}},{{"displayName":"Obj","fields":[{{"displayName":"members","type":{{"kind":"builtinGeneric","generic":"list","arguments":[{{"kind":"named","name":"Member"}}]}}}}]}}]}}}},{{"displayName":"Member","typeKind":{{"kind":"product","fields":[{{"displayName":"key","type":{str}}},{{"displayName":"value","type":{{"kind":"named","name":"Json"}}}}]}}}}]}}"""
             Assert.Equal(2, group.GetProperty("createdTypes").GetArrayLength())
-            publish session """{"id":"f","op":"simulateCreateFunctionByName","displayName":"single","parameters":[{"displayName":"key","type":{"kind":"primitive","primitive":"string"}},{"displayName":"value","type":{"kind":"named","name":"Json"}}],"resultType":{"kind":"named","name":"Json"},"requiredEffects":[],"body":{"kind":"unionConstruct","type":"Json","variant":"Obj","fields":[{"field":"members","value":{"kind":"listConstruct","itemType":{"kind":"named","name":"Member"},"items":[{"kind":"productConstruct","type":"Member","fields":[{"field":"key","value":{"kind":"parameter","name":"key"}},{"field":"value","value":{"kind":"parameter","name":"value"}}]}]}}]}}"""
+            publish session """{"id":"f","op":"simulateCreateFunctionByName","exported":true,"displayName":"single","parameters":[{"displayName":"key","type":{"kind":"primitive","primitive":"string"}},{"displayName":"value","type":{"kind":"named","name":"Json"}}],"resultType":{"kind":"named","name":"Json"},"requiredEffects":[],"body":{"kind":"unionConstruct","type":"Json","variant":"Obj","fields":[{"field":"members","value":{"kind":"listConstruct","itemType":{"kind":"named","name":"Member"},"items":[{"kind":"productConstruct","type":"Member","fields":[{"field":"key","value":{"kind":"parameter","name":"key"}},{"field":"value","value":{"kind":"parameter","name":"value"}}]}]}}]}}"""
             |> ignore
             let members items = $"""{{"field":"members","value":{{"kind":"list","itemType":{{"kind":"named","name":"Member"}},"items":[{items}]}}}}"""
             let pair key value = $"""{{"kind":"product","type":"Member","fields":[{{"field":"key","value":{{"kind":"string","value":"{key}"}}}},{{"field":"value","value":{value}}}]}}"""

@@ -9,7 +9,8 @@ module RecipeBoundsTests =
     let private createFixture () =
         let resultNodeId = StableId.createForTesting<GraphNodeTag> "node-recipe-bounds-result"
         let target: SemanticFunction =
-            { Id = StableId.createForTesting<FunctionTag> "function-recipe-bounds-target"
+            { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-recipe-bounds-target"
+              TypeParameters = []
               DisplayName = "target"
               Parameters = []
               ResultType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ float64Type ])
@@ -101,7 +102,8 @@ module RecipeBoundsTests =
         let nodeId name = StableId.createForTesting<GraphNodeTag> ("node-recipe-bounds-targeted-" + name)
         let leftId, rightId, resultId = nodeId "left", nodeId "right", nodeId "result"
         let target: SemanticFunction =
-            { Id = StableId.createForTesting<FunctionTag> "function-recipe-bounds-targeted"
+            { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-recipe-bounds-targeted"
+              TypeParameters = []
               DisplayName = "targeted"
               Parameters = []
               ResultType = float64List

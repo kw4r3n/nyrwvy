@@ -20,13 +20,14 @@ module AuthoringDependencySetTests =
     let private amountId = id<FieldTag> "amount"
 
     let private money name: SemanticType =
-        { TypeParameters = []; Id = moneyId; DisplayName = name; Kind = SemanticTypeKind.Product [ { Id = amountId; DisplayName = "amount"; Type = intType } ] }
+        { Exported = true; TypeParameters = []; Id = moneyId; DisplayName = name; Kind = SemanticTypeKind.Product [ { Id = amountId; DisplayName = "amount"; Type = intType } ] }
 
     /// A function `name : Money -> Money` that returns its input.
     let private identity name: SemanticFunction =
         let parameter = id<ParameterTag> (name + "-input")
         let node = id<GraphNodeTag> (name + "-node")
-        { Id = id<FunctionTag> name
+        { Exported = true; Id = id<FunctionTag> name
+          TypeParameters = []
           DisplayName = name
           Parameters = [ { Id = parameter; DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
           ResultType = TypeRef.Named(moneyId, [])
@@ -75,7 +76,8 @@ module AuthoringDependencySetTests =
             let functions = session.Declarations().Functions |> List.map (fun fn -> fn.DisplayName) |> Set.ofList
             Assert.Equal<Set<string>>(set [ "keep"; "pass" ], functions)
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                  TypeParameters = None
                   DisplayName = "both"
                   Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
                   ResultType = TypeRef.Named(moneyId, [])
@@ -133,7 +135,8 @@ module AuthoringDependencySetTests =
             let midPath = Path.Combine(root, "mid.json")
             let mid = AuthoringSession.createNewWithDependencies midPath [ basePath ] |> unwrap "mid"
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = (mid.Status() |> unwrap "status").SnapshotId
+                { Exported = true; ExpectedBaseSnapshotId = (mid.Status() |> unwrap "status").SnapshotId
+                  TypeParameters = None
                   DisplayName = "grow"
                   Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
                   ResultType = TypeRef.Named(moneyId, [])
@@ -169,7 +172,8 @@ module AuthoringDependencySetTests =
         let path = Path.Combine(root, "local.json")
         let session = AuthoringSession.createNewWithDependencies path [ a ] |> unwrap "create"
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+            { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+              TypeParameters = None
               DisplayName = "wrap"
               Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
               ResultType = TypeRef.Named(moneyId, [])
@@ -194,11 +198,11 @@ module AuthoringDependencySetTests =
             let session = AuthoringSession.openExisting path |> unwrap "open"
             let preview = session.PreviewDependencyUpgrade(compatible, None) |> unwrap "preview"
             Assert.Empty(preview.Issues)
-            Assert.Equal<AuthoringDependencyChange list>([ { Kind = "function"; Id = StableId.value (id<FunctionTag> "extra") } ], preview.Added)
+            Assert.Equal<AuthoringDependencyChange list>([ { Kind = "function"; Id = StableId.value (id<FunctionTag> "extra"); Exported = true } ], preview.Added)
             Assert.Empty(preview.Removed)
             let breaking = session.PreviewDependencyUpgrade(incompatible, None) |> unwrap "breaking preview"
             Assert.NotEmpty(breaking.Issues)
-            Assert.Contains({ Kind = "function"; Id = StableId.value (id<FunctionTag> "keep") }, breaking.Removed)
+            Assert.Contains({ Kind = "function"; Id = StableId.value (id<FunctionTag> "keep"); Exported = true }, breaking.Removed)
             match session.PreviewDependencyUpgrade(a, None) with
             | Error(AuthoringSessionError.DependencyFailure _) -> ()
             | other -> failwithf "Same-version upgrade was previewed: %A" other
@@ -270,7 +274,7 @@ module AuthoringDependencySetTests =
     let ``the same declaration with reordered Product fields is a conflict, not a merge`` () =
         let currencyId = id<FieldTag> "currency"
         let withFields fields: SemanticType =
-            { TypeParameters = []; Id = moneyId; DisplayName = "Money"; Kind = SemanticTypeKind.Product fields }
+            { Exported = true; TypeParameters = []; Id = moneyId; DisplayName = "Money"; Kind = SemanticTypeKind.Product fields }
         let amount: SemanticField = { Id = amountId; DisplayName = "amount"; Type = intType }
         let currency: SemanticField = { Id = currencyId; DisplayName = "currency"; Type = TypeRef.Primitive PrimitiveType.String }
         let first = library "ordered" [ withFields [ amount; currency ] ] []
@@ -305,9 +309,10 @@ module AuthoringDependencySetTests =
             Assert.Contains(
                 "already exists",
                 protocolError
-                    """{"id":"create","op":"simulateCreateFunctionByName","displayName":"keep","parameters":[],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"int64Literal","value":1}}""")
+                    """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"keep","parameters":[],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"int64Literal","value":1}}""")
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = session.SnapshotId
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId
+                  TypeParameters = None
                   DisplayName = "keep"
                   Parameters = []
                   ResultType = intType
@@ -355,7 +360,7 @@ module AuthoringDependencySetTests =
                     | other -> failwithf "Mixed old/new diamond accepted: %A" other
                 let review = session.PreviewDependencyUpgrades upgrades |> unwrap "batch preview"
                 Assert.Empty(review.Issues)
-                Assert.Contains({ Kind = "type"; Id = StableId.value moneyId }, review.Changed)
+                Assert.Contains({ Kind = "type"; Id = StableId.value moneyId; Exported = true }, review.Changed)
                 let request = JsonSerializer.Serialize({| id = "batch"; op = "previewDependencyUpgrades"; upgrades = upgrades |> List.map (fun item -> {| source = item.Source; replaces = item.Replaces |}) |})
                 use wire = JsonDocument.Parse(AuthoringProtocol.executeLine session request)
                 Assert.True(wire.RootElement.GetProperty("ok").GetBoolean(), wire.RootElement.ToString())

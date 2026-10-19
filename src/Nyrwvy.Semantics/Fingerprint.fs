@@ -45,6 +45,13 @@ module SemanticFingerprint =
     let private domain = "nayamnyam.semantic-fingerprint.v6"
     let private displayPlaceholder = "_"
 
+    /// Declared type parameter names are presentation, but the normalized snapshot must still
+    /// validate, which requires distinct names per declaration: the first keeps the bare
+    /// placeholder (so earlier fingerprints of single-parameter declarations are unchanged) and
+    /// the others are numbered by position.
+    let private normalizeTypeParameters (typeParameters: (TypeParameterId * string) list) =
+        typeParameters |> List.mapi (fun index (id, _) -> id, (if index = 0 then displayPlaceholder else displayPlaceholder + string index))
+
     let private stable<'Kind> text: StableId<'Kind> =
         match StableId.tryCreate<'Kind> text with
         | Ok value -> value
@@ -56,7 +63,7 @@ module SemanticFingerprint =
     let rec private normalizeTypeRef (typeRef: TypeRef): TypeRef =
         match typeRef with
         | TypeRef.Function(arguments, result) -> TypeRef.Function(List.map normalizeTypeRef arguments, normalizeTypeRef result)
-        | TypeRef.TypeParameter(id, _) -> TypeRef.TypeParameter(id, displayPlaceholder)
+        | TypeRef.TypeParameter _ -> typeRef
         | TypeRef.BuiltinGeneric(generic, arguments) ->
             TypeRef.BuiltinGeneric(generic, arguments |> List.map normalizeTypeRef)
         | TypeRef.Named(typeId, arguments) -> TypeRef.Named(typeId, arguments |> List.map normalizeTypeRef)
@@ -83,7 +90,7 @@ module SemanticFingerprint =
 
         { semanticType with
             DisplayName = displayPlaceholder
-            TypeParameters = semanticType.TypeParameters |> List.map (fun (id, _) -> id, displayPlaceholder)
+            TypeParameters = normalizeTypeParameters semanticType.TypeParameters
             Kind = kind }
 
     let private normalizeEffect (effect: SemanticEffect) =
@@ -116,16 +123,21 @@ module SemanticFingerprint =
             DisplayName = None
             Type = normalizeTypeRef binding.Type }
 
-    /// Type-parameter display names live in payload types and pattern bindings; the two shared
-    /// shape functions enumerate both for every node kind.
+    /// Pattern binding names live in nested scopes; the two shared shape functions enumerate
+    /// payload types and bindings for every node kind.
     let private normalizeNode (node: SemanticNode) =
         node
         |> SemanticNodeShape.mapPayloadTypeRefs normalizeTypeRef
         |> SemanticNodeShape.mapNested normalizePatternBinding id
 
+    /// Type parameter names are neutralized in the declared list. A list that is exactly the one
+    /// the parameter types imply is written in the pre-21 form by the codec, so a snapshot read
+    /// from an older schema keeps the fingerprint it had before function type parameters were
+    /// declared explicitly; only a list that differs from that rule enters the fingerprint.
     let private normalizeFunction (functionEntity: SemanticFunction) =
         { functionEntity with
             DisplayName = displayPlaceholder
+            TypeParameters = normalizeTypeParameters functionEntity.TypeParameters
             Parameters = functionEntity.Parameters |> List.map normalizeParameter
             ResultType = normalizeTypeRef functionEntity.ResultType
             Body = functionEntity.Body |> ValueGraph.mapNodes normalizeNode }

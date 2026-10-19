@@ -10,7 +10,8 @@ module EntrySelectionFastTests =
     let private id<'Tag> value = StableId.createForTesting<'Tag> value
     let private unitType = TypeRef.Primitive PrimitiveType.Unit
     let private fn name nodes: SemanticFunction =
-        { Id = id name; DisplayName = name; Parameters = []; ResultType = unitType; RequiredEffects = []
+        { Exported = true; Id = id name; DisplayName = name; Parameters = []; ResultType = unitType; RequiredEffects = []
+          TypeParameters = []
           Body = { Nodes = nodes; ResultNodeId = nodes.Head.Id } }
     let private node name kind: SemanticNode = { Id = id name; Kind = kind }
     let private executionUnit name =
@@ -18,6 +19,7 @@ module EntrySelectionFastTests =
         let typed: TypedSemanticProgram =
             { SourceSnapshotId = id "snapshot"; Types = []; Effects = []; Capabilities = []
               Functions = [ { Id = id name; Parameters = []; ResultType = unitType; RequiredEffects = []
+                              TypeParameters = []
                               Body = { Nodes = [ unitNode ]; ResultNodeId = unitNode.OriginNodeId } } ] }
         match ExecutionIr.lower typed with
         | Ok program -> program.Functions.Head
@@ -46,7 +48,7 @@ module EntrySelectionFastTests =
         let obligation name call: MissingArgumentObligation =
             { Id = id name; OriginTransactionId = id "transaction"; CallNodeId = id call; ParameterId = id "parameter"; Status = ObligationStatus.Open }
         let snapshot: Snapshot =
-            { Id = id "snapshot"; ParentId = Some(id "parent"); Types = []; Effects = [ { Id = id "effect"; DisplayName = "effect" } ]
+            { Id = id "snapshot"; ParentId = Some(id "parent"); Types = []; Effects = [ { Exported = true; Id = id "effect"; DisplayName = "effect" } ]
               Capabilities = []; Functions = functions @ [ unrelated ]
               Obligations = [ obligation "reachable" "direct-call"; obligation "unreachable" "unrelated-call" ] }
         let selected = ExecutionCallGraph.forSnapshotEntry snapshot entry

@@ -18,17 +18,18 @@ module CapabilityOperationSignatureMigrationTests =
             use session = AuthoringSession.createNew path |> unwrap
             let commit (p: AuthoringProposal) = session.Commit(p.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             let current () = (session.Status() |> unwrap).SnapshotId
-            session.SimulateCreateEffect { ExpectedBaseSnapshotId = current (); DisplayName = "Read" } |> unwrap |> commit
+            session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = "Read" } |> unwrap |> commit
             let effect = session.Declarations().Effects.Head.Id
             session.SimulateCreateCapability
-                { ExpectedBaseSnapshotId = current (); DisplayName = "Values"
+                { Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = "Values"
                   Operations = [ { DisplayName = "read"; Parameters = [ { DisplayName = "input"; Type = intType } ]; ResultType = intType; FailureType = None; EffectId = effect } ] }
             |> unwrap |> commit
             let cap = session.Declarations().Capabilities.Head
             let op = cap.Operations.Head
             let create name parameters result effects body =
                 session.SimulateCreateFunction
-                    { ExpectedBaseSnapshotId = current (); DisplayName = name; Parameters = parameters
+                    { Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = name; Parameters = parameters
+                      TypeParameters = None
                       ResultType = result; RequiredEffects = effects; Body = body }
                 |> unwrap |> commit
             create "implementation" [ { DisplayName = "input"; Type = intType } ] intType [] (ExpressionRecipe.ParameterSlot 0)
@@ -192,7 +193,8 @@ module CapabilityOperationSignatureMigrationTests =
     let ``unrelated signature edits cannot seed an operation repair set`` () =
         fixture (fun session path cap op ->
             let unrelated = session.SimulateCreateFunction
-                                { ExpectedBaseSnapshotId = (session.Status() |> unwrap).SnapshotId
+                                { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap).SnapshotId
+                                  TypeParameters = None
                                   DisplayName = "unrelated"; Parameters = []; ResultType = intType
                                   RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> unwrap
             session.Commit(unrelated.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
@@ -214,10 +216,11 @@ module CapabilityOperationSignatureMigrationTests =
             File.WriteAllText(target, SnapshotCodec.serialize { graph with Functions = [] } |> unwrap)
             use session = AuthoringSession.openExisting target |> unwrap
             let proposal = session.SimulateCreateFunction
-                              { ExpectedBaseSnapshotId = (session.Status() |> unwrap).SnapshotId
+                              { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap).SnapshotId
+                                TypeParameters = None
                                 DisplayName = "genericInvoke"
                                 Parameters = [ { DisplayName = "values"; Type = TypeRef.Capability cap.Id }
-                                               { DisplayName = "extra"; Type = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "request-T", "T") } ]
+                                               { DisplayName = "extra"; Type = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "T") } ]
                                 ResultType = intType; RequiredEffects = [ op.EffectId ]
                                 Body = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, op.Id, [ op.Parameters.Head.Id, ExpressionRecipe.Int64Literal 7L ]) } |> unwrap
             session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
@@ -230,5 +233,5 @@ module CapabilityOperationSignatureMigrationTests =
             Assert.Equal<(TypeParameterId * string) list>(TypeParameters.ofFunction before, TypeParameters.ofFunction after)
             Assert.Contains(ValueGraph.collectNodes after.Body, fun node ->
                 match node.Kind with
-                | SemanticNodeKind.OptionNone(TypeRef.TypeParameter(id, "T")) -> id = fst (TypeParameters.ofFunction before).Head
+                | SemanticNodeKind.OptionNone(TypeRef.TypeParameter(id)) -> id = fst (TypeParameters.ofFunction before).Head
                 | _ -> false))

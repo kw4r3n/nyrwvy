@@ -88,9 +88,13 @@ type internal AuthoringExecutionContext =
       /// The session's long-lived runner process for compiled programs.
       Worker: PureRunWorker }
 
+/// One imported declaration an upgrade adds, removes or changes. `Exported` is its visibility in
+/// the new version (for a removed declaration, in the replaced one); exported changes are listed
+/// first, since only they can affect a dependent, and private ones follow as secondary information.
 type AuthoringDependencyChange =
     { Kind: string
-      Id: string }
+      Id: string
+      Exported: bool }
 
 /// The reviewed impact of replacing one pinned dependency with a new version.
 type AuthoringDependencyUpgradePreview =
@@ -287,6 +291,15 @@ module private ProposalSummary =
         let operation intent =
             match intent with
             | AgentOperationIntent.RenameDisplayName(target, newName) -> $"{rename target} to {quote newName}"
+            | AgentOperationIntent.SetExported(target, exported) ->
+                let subject =
+                    match target with
+                    | AgentVisibilityTarget.Type id -> ty id
+                    | AgentVisibilityTarget.Function id -> fn id
+                    | AgentVisibilityTarget.Effect id -> named effects id
+                    | AgentVisibilityTarget.Capability id -> named capabilities id
+                let visibility = if exported then "exported" else "private"
+                $"setExported {subject} to {visibility}"
             | AgentOperationIntent.AddFunctionParameter item -> $"addFunctionParameter {quote item.NewParameterDisplayName} to {fn item.TargetFunctionId}"
             | AgentOperationIntent.AddProductField item -> $"addProductField {quote item.NewFieldDisplayName} to {ty item.TargetTypeId}"
             | AgentOperationIntent.RemoveProductField id -> "removeProductField " + named fields id
@@ -338,7 +351,7 @@ module private ProposalSummary =
         | AuthoringProposalReview.ProductFieldTypeMigration _ -> "productFieldTypeMigration"
         | AuthoringProposalReview.CreateType _ -> "createType"
         | AuthoringProposalReview.CreateTypeGroup _ -> "createTypes"
-        | AuthoringProposalReview.UnionVariantEvolution _ -> "fieldlessUnionVariantEvolution"
+        | AuthoringProposalReview.UnionVariantEvolution _ -> "unionVariantEvolution"
         | AuthoringProposalReview.CreateEffect _ -> "createEffect"
         | AuthoringProposalReview.CreateCapability _ -> "createCapability"
 
@@ -676,22 +689,39 @@ module private PinnedDependency =
           Local: Snapshot
           Preview: AuthoringDependencyUpgradePreview }
 
+    /// The declarations an upgrade adds, removes or changes, exported ones first in each list: a
+    /// private declaration cannot be referred to by a dependent, so its change is secondary
+    /// information. A visibility change alone counts as a change.
     let private declarationChanges (before: Snapshot) (after: Snapshot) =
         let entries (snapshot: Snapshot) =
-            (snapshot.Types |> List.map (fun item -> ("type", StableId.value item.Id), box item))
-            @ (snapshot.Effects |> List.map (fun item -> ("effect", StableId.value item.Id), box item))
-            @ (snapshot.Capabilities |> List.map (fun item -> ("capability", StableId.value item.Id), box item))
-            @ (snapshot.Functions |> List.map (fun item -> ("function", StableId.value item.Id), box item))
+            (snapshot.Types |> List.map (fun item -> ("type", StableId.value item.Id), (box item, item.Exported)))
+            @ (snapshot.Effects |> List.map (fun item -> ("effect", StableId.value item.Id), (box item, item.Exported)))
+            @ (snapshot.Capabilities |> List.map (fun item -> ("capability", StableId.value item.Id), (box item, item.Exported)))
+            @ (snapshot.Functions |> List.map (fun item -> ("function", StableId.value item.Id), (box item, item.Exported)))
             |> Map.ofList
         let oldEntries, newEntries = entries before, entries after
-        let change ((kind, id), _) = { Kind = kind; Id = id }
-        let added = newEntries |> Map.toList |> List.filter (fun (key, _) -> not (Map.containsKey key oldEntries)) |> List.map change
-        let removed = oldEntries |> Map.toList |> List.filter (fun (key, _) -> not (Map.containsKey key newEntries)) |> List.map change
+        let change ((kind, id), (_, exported)) = { Kind = kind; Id = id; Exported = exported }
+        let exportedFirst (items: AuthoringDependencyChange list) = items |> List.sortBy (fun item -> not item.Exported)
+        let added = newEntries |> Map.toList |> List.filter (fun (key, _) -> not (Map.containsKey key oldEntries)) |> List.map change |> exportedFirst
+        let removed = oldEntries |> Map.toList |> List.filter (fun (key, _) -> not (Map.containsKey key newEntries)) |> List.map change |> exportedFirst
         let changed =
             newEntries |> Map.toList
-            |> List.filter (fun (key, item) -> Map.tryFind key oldEntries |> Option.exists (fun old -> old <> item))
+            |> List.filter (fun (key, (item, _)) -> Map.tryFind key oldEntries |> Option.exists (fun (old, _) -> old <> item))
             |> List.map change
+            |> exportedFirst
         added, removed, changed
+
+    /// The validation issues of a local graph against a selection, plus one
+    /// `ImportedDeclarationNotExported` issue per private imported declaration the local
+    /// declarations refer to: an existing reference to a declaration the new version no longer
+    /// exports makes the upgrade incompatible.
+    let private compatibilityIssues (selection: PinnedDependencySelection) (local: Snapshot) =
+        let resolved = SnapshotCodec.resolveDependency selection.Imported local
+        SnapshotValidator.validate resolved
+        @ (DeclarationVisibility.hiddenReferences selection.Imported resolved
+           |> List.map (fun hidden ->
+               { Code = DeclarationVisibility.notExportedCode
+                 Message = DeclarationVisibility.describe [ hidden ] }))
 
     /// Plans replacing one pinned dependency (the only one, or the member whose SnapshotId is
     /// `replaces`) with the exact content of `sourcePath`, and validates the local graph against it.
@@ -729,7 +759,7 @@ module private PinnedDependency =
                                   Added = added
                                   Removed = removed
                                   Changed = changed
-                                  Issues = SnapshotValidator.validate (SnapshotCodec.resolveDependency selection.Imported local) } }))))
+                                  Issues = compatibilityIssues selection local } }))))
 
     type UpgradesPlan =
         { Selection: PinnedDependencySelection
@@ -768,7 +798,7 @@ module private PinnedDependency =
                         SnapshotCodec.deserializeResolved current.Imported localSource
                         |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
                         |> Result.map (fun local ->
-                            let issues = SnapshotValidator.validate (SnapshotCodec.resolveDependency selection.Imported local)
+                            let issues = compatibilityIssues selection local
                             let previews = replacements |> List.map (fun (target, replacement) ->
                                 let added, removed, changed = declarationChanges target.Imported replacement.Imported
                                 { ReplacedSnapshotId = StableId.value target.Imported.Id
@@ -819,7 +849,7 @@ module private PinnedDependency =
                         SnapshotCodec.deserializeResolved current.Imported localSource
                         |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
                         |> Result.map (fun local ->
-                            let issues = SnapshotValidator.validate (SnapshotCodec.resolveDependency selection.Imported local)
+                            let issues = compatibilityIssues selection local
                             let added, removed, changed = declarationChanges current.Imported selection.Imported
                             let replaced = members |> List.filter (fun item -> List.contains (StableId.value item.Imported.Id) request.Replaces)
                             let describe item = { SnapshotId = StableId.value item.Imported.Id; Fingerprint = item.Fingerprint }
@@ -832,7 +862,26 @@ module private PinnedDependency =
                                           Upgrades = []; Replaced = List.map describe replaced; Selected = List.map describe selected
                                           Added = added; Removed = removed; Changed = changed; Issues = issues } })))
 
+    /// The declarations a dependent may see: its own, and the exported ones of its dependency.
+    /// A dependency's private declarations stay in the resolved graph (an exported function may
+    /// call one) but leave name resolution, `declarations` and new references.
+    let private visible (selection: PinnedDependencySelection option) (declarations: AuthoringDeclarations) =
+        match selection with
+        | None -> declarations
+        | Some current ->
+            let imported = current.Imported
+            let hiddenFunctions = imported.Functions |> List.filter (fun item -> not item.Exported) |> List.map (fun item -> item.Id) |> Set.ofList
+            let hiddenTypes = imported.Types |> List.filter (fun item -> not item.Exported) |> List.map (fun item -> item.Id) |> Set.ofList
+            let hiddenEffects = imported.Effects |> List.filter (fun item -> not item.Exported) |> List.map (fun item -> item.Id) |> Set.ofList
+            let hiddenCapabilities = imported.Capabilities |> List.filter (fun item -> not item.Exported) |> List.map (fun item -> item.Id) |> Set.ofList
+            { declarations with
+                Functions = declarations.Functions |> List.filter (fun item -> not (Set.contains item.Id hiddenFunctions))
+                Types = declarations.Types |> List.filter (fun item -> not (Set.contains item.Id hiddenTypes))
+                Effects = declarations.Effects |> List.filter (fun item -> not (Set.contains item.Id hiddenEffects))
+                Capabilities = declarations.Capabilities |> List.filter (fun item -> not (Set.contains item.Id hiddenCapabilities)) }
+
     let withProvenance selection (declarations: AuthoringDeclarations) =
+        let declarations = visible selection declarations
         let entries (functions: SemanticFunction list) (types: SemanticType list) (effects: SemanticEffect list) (capabilities: SemanticCapability list) =
             (functions |> List.map (fun f -> "function", StableId.value f.Id))
             @ (types |> List.map (fun t -> "type", StableId.value t.Id))
@@ -883,13 +932,30 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         dependency |> Option.map (fun snapshot -> snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList)
         |> Option.defaultValue Set.empty
 
-    let registerWith (proposedFunctions: SemanticFunction list) transactionId pending review =
+    /// Registers a proposal simulated against `imported` (the current dependency, or the new
+    /// selection of a dependency upgrade). Edits of imported declarations are rejected as
+    /// `ImportedDeclarationModified`; a local reference to a private imported declaration is
+    /// rejected as `ImportedDeclarationNotExported`, so a dependent uses only what its
+    /// dependency exports.
+    let registerAgainst (imported: Snapshot option) (proposedFunctions: SemanticFunction list) transactionId pending review =
         let functions, types = ProposalReview.touched review
+        // An operations proposal keeps its candidate out of the review pages, but the check reads it.
+        let candidate =
+            match pending with
+            | PendingProposal.Operations proposal -> Some(AgentChangeProposal.proposedSnapshot proposal)
+            | other -> PendingProposal.proposedSnapshot other
+        let hiddenReferences =
+            match imported, candidate with
+            | Some imported, Some candidate -> DeclarationVisibility.hiddenReferences imported candidate
+            | _ -> []
         let changesImportedDeclaration =
-            match review, dependency with
+            match review, imported with
             | AuthoringProposalReview.Operations item, Some imported ->
                 (item.ResultingChange.Diff.EffectsRemoved |> List.exists (fun removed ->
                     imported.Effects |> List.exists (fun effect -> effect.Id = removed.EffectId)))
+                || (item.ResultingChange.Diff.VisibilityChanges |> List.exists (fun change ->
+                    (change.Kind = "effect" && imported.Effects |> List.exists (fun effect -> StableId.value effect.Id = change.Id))
+                    || (change.Kind = "capability" && imported.Capabilities |> List.exists (fun capability -> StableId.value capability.Id = change.Id))))
                 || (item.ResultingChange.Diff.CapabilitiesRemoved |> List.exists (fun removed ->
                     imported.Capabilities |> List.exists (fun capability -> capability.Id = removed.CapabilityId)))
                 || (item.ResultingChange.Diff.CapabilityOperationsRemoved |> List.exists (fun removed ->
@@ -912,6 +978,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
            || changesImportedDeclaration then
             Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidSnapshot
                 [ { Code = "ImportedDeclarationModified"; Message = "Dependency declarations are read-only; no proposal was registered." } ]))
+        elif not (List.isEmpty hiddenReferences) then
+            Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidSnapshot
+                [ { Code = DeclarationVisibility.notExportedCode
+                    Message = DeclarationVisibility.describe hiddenReferences + " No proposal was registered." } ]))
         else
             let proposalId = StableId.value transactionId
             proposals.Add(proposalId, (transactionId, pending))
@@ -920,6 +990,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             let proposal = { ProposalId = proposalId; Review = review; RewrittenFunctions = rewritten }
             registered.Add(proposalId, (proposal, AgentWorkspace.currentSnapshotId workspace))
             Ok proposal
+
+    let registerWith proposedFunctions transactionId pending review = registerAgainst dependency proposedFunctions transactionId pending review
 
     let register transactionId pending review = registerWith [] transactionId pending review
 
@@ -1046,7 +1118,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                             let review = AgentDependencyUpgradeProposal.review proposal
                             let proposed = AgentDependencyUpgradeProposal.proposedSnapshot proposal
                             let provenance = PinnedDependency.withProvenance (Some plan.Selection) { Functions = proposed.Functions; Types = proposed.Types; Effects = proposed.Effects; Capabilities = proposed.Capabilities; Provenance = [] }
-                            registerWith review.ChangedFunctions review.Receipt.TransactionId
+                            registerAgainst (Some plan.Selection.Imported) review.ChangedFunctions review.Receipt.TransactionId
                                 (PendingProposal.DependencyUpgrade(proposal, request, plan.Preview.ReviewFingerprint, provenance.Provenance))
                                 (AuthoringProposalReview.DependencyUpgrade { Upgrade = plan.Preview; Repair = review }))))
 

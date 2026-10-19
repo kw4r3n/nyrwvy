@@ -29,17 +29,18 @@ module PureRunRecursiveTests =
 
     let private withSession run =
         let types: SemanticType list =
-            [ { TypeParameters = []; Id = nodeId; DisplayName = "Node"
+            [ { Exported = true; TypeParameters = []; Id = nodeId; DisplayName = "Node"
                 Kind = SemanticTypeKind.Product
                     [ { Id = valueId; DisplayName = "value"; Type = intType }
                       { Id = nextId; DisplayName = "next"; Type = optionType nodeType } ] }
-              { TypeParameters = []; Id = treeId; DisplayName = "Tree"
+              { Exported = true; TypeParameters = []; Id = treeId; DisplayName = "Tree"
                 Kind = SemanticTypeKind.Union
                     [ { Id = leafId; DisplayName = "Leaf"; Fields = [ { Id = leafValueId; DisplayName = "value"; Type = intType } ] }
                       { Id = branchId; DisplayName = "Branch"; Fields = [ { Id = childrenId; DisplayName = "children"; Type = listType treeType } ] } ] } ]
         let create ws name parameterType resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                  TypeParameters = None
                   DisplayName = name
                   Parameters = [ { DisplayName = "input"; Type = parameterType } ]
                   ResultType = resultType; RequiredEffects = []; Body = body }

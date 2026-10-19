@@ -21,7 +21,8 @@ module Int64DivisionTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session; DisplayName = name
+        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
+          TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
     let private create session name parameters resultType body =
@@ -83,7 +84,7 @@ module Int64DivisionTests =
             let exact =
                 """{"kind":"int64FloorDivide","left":{"kind":"parameterSlot","index":0},"right":{"kind":"parameterSlot","index":1}}"""
             use exactProposal =
-                send session (sprintf """{"id":"exact","op":"simulateCreateFunction","displayName":"quotient","parameters":%s,"resultType":%s,"requiredEffects":[],"body":%s}""" parameters int64 exact)
+                send session (sprintf """{"id":"exact","op":"simulateCreateFunction","exported":true,"displayName":"quotient","parameters":%s,"resultType":%s,"requiredEffects":[],"body":%s}""" parameters int64 exact)
             publishWire session exactProposal
             let named =
                 """{"kind":"int64FloorModulo","left":{"kind":"parameter","name":"left"},"right":{"kind":"parameter","name":"right"}}"""

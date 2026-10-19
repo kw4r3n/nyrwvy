@@ -19,7 +19,8 @@ module StringLastIndexOfBeforeTests =
     let private current (session: AuthoringSession) = (session.Status() |> unwrap).SnapshotId
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session; DisplayName = name
+        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
+          TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
     let private create (session: AuthoringSession) name parameters resultType body =
@@ -52,7 +53,7 @@ module StringLastIndexOfBeforeTests =
             rejects session parameters intType (before (slot 0) (slot 1) (slot 2)) |> ignore
             // The wire form names the operands value, substring and end, as stringIndexOf does with from.
             let wire =
-                """{"id":"wire","op":"simulateCreateFunctionByName","displayName":"rfindWire","parameters":[{"displayName":"text","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]},"requiredEffects":[],"body":{"kind":"stringLastIndexOfBefore","value":{"kind":"parameter","name":"text"},"substring":{"kind":"stringLiteral","value":"a"},"end":{"kind":"int64Literal","value":"2"}}}"""
+                """{"id":"wire","op":"simulateCreateFunctionByName","exported":true,"displayName":"rfindWire","parameters":[{"displayName":"text","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]},"requiredEffects":[],"body":{"kind":"stringLastIndexOfBefore","value":{"kind":"parameter","name":"text"},"substring":{"kind":"stringLiteral","value":"a"},"end":{"kind":"int64Literal","value":"2"}}}"""
             use proposed = AuthoringProtocol.executeLine session wire |> JsonDocument.Parse
             Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
             session.Close()

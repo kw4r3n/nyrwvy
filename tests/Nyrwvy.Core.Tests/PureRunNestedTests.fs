@@ -27,15 +27,16 @@ module PureRunNestedTests =
         let snapshot =
             { Snapshot.empty (id<SnapshotTag> "initial") with
                 Types =
-                    [ { TypeParameters = []; Id = productId; DisplayName = "Entry"
+                    [ { Exported = true; TypeParameters = []; Id = productId; DisplayName = "Entry"
                         Kind = SemanticTypeKind.Product
                             [ { Id = textId; DisplayName = "text"; Type = stringType }
                               { Id = numberId; DisplayName = "number"; Type = intType } ] }
-                      { TypeParameters = []; Id = unionId; DisplayName = "Choice"
+                      { Exported = true; TypeParameters = []; Id = unionId; DisplayName = "Choice"
                         Kind = SemanticTypeKind.Union [ { Id = variantId; DisplayName = "Empty"; Fields = [] } ] } ] }
         let create ws name itemType resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                  TypeParameters = None
                   DisplayName = name; Parameters = [ { DisplayName = "input"; Type = itemType } ]
                   ResultType = resultType; RequiredEffects = []; Body = body }
             let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request |> unwrap

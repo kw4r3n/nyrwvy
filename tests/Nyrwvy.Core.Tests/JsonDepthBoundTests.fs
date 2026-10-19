@@ -45,7 +45,7 @@ module JsonDepthBoundTests =
 
     let private createFunction body =
         sprintf
-            """{"id":"create","op":"simulateCreateFunction","displayName":"deep","parameters":[{"displayName":"n","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}"""
+            """{"id":"create","op":"simulateCreateFunction","exported":true,"displayName":"deep","parameters":[{"displayName":"n","type":%s}],"resultType":%s,"requiredEffects":[],"body":%s}"""
             int64Type int64Type body
 
     let private errorOf (session: AuthoringSession) line =
@@ -123,7 +123,7 @@ module JsonDepthBoundTests =
                   ResultNodeId = bind }
         let functionId = fresh<FunctionTag> ()
         let deep: SemanticFunction =
-            { Id = functionId; DisplayName = "deep"; Parameters = []; ResultType = int64; RequiredEffects = []; Body = nested 240 }
+            { Exported = true; TypeParameters = []; Id = functionId; DisplayName = "deep"; Parameters = []; ResultType = int64; RequiredEffects = []; Body = nested 240 }
         let snapshot = { Snapshot.empty (fresh<SnapshotTag> ()) with Functions = [ deep ] }
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-json-depth-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(root) |> ignore

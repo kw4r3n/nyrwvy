@@ -18,9 +18,9 @@ module DeclarationCleanupTests =
     let private unitType = TypeRef.Primitive PrimitiveType.Unit
 
     let private fixture () =
-        let effect: SemanticEffect = { Id = effectId; DisplayName = "Notify" }
+        let effect: SemanticEffect = { Exported = true; Id = effectId; DisplayName = "Notify" }
         let capability: SemanticCapability =
-            { Id = capabilityId
+            { Exported = true; Id = capabilityId
               DisplayName = "Notifier"
               Operations =
                 [ { Id = operationId
@@ -39,7 +39,8 @@ module DeclarationCleanupTests =
         let textNodeId = id<GraphNodeTag> "text-reference"
         let invocationId = id<GraphNodeTag> "invocation"
         let fn: SemanticFunction =
-            { Id = functionId
+            { Exported = true; Id = functionId
+              TypeParameters = []
               DisplayName = "useNotifier"
               Parameters = [ targetParameter; textParameter ]
               ResultType = unitType
@@ -118,7 +119,7 @@ module DeclarationCleanupTests =
             { initial with
                 Functions = []
                 Types =
-                    [ { TypeParameters = []; Id = typeId
+                    [ { Exported = true; TypeParameters = []; Id = typeId
                         DisplayName = "Holder"
                         Kind = SemanticTypeKind.Product
                             [ { Id = id<FieldTag> "nested-capability"
@@ -199,7 +200,7 @@ module DeclarationCleanupTests =
     let private withUnusedType (snapshot: Snapshot) =
         { snapshot with
             Types =
-                [ { TypeParameters = []; Id = unusedTypeId
+                [ { Exported = true; TypeParameters = []; Id = unusedTypeId
                     DisplayName = "Unused"
                     Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "unused-field"; DisplayName = "text"; Type = stringType } ] } ] }
 

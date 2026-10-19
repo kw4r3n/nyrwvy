@@ -14,7 +14,7 @@ module ActionableRunDiagnosticsTests =
     let private amountId, leftId, rightId = id<FieldTag> "amount", id<FieldTag> "left", id<FieldTag> "right"
     let private exprType = TypeRef.Named(exprId, [])
     let private expr =
-        { TypeParameters = []; Id = exprId; DisplayName = "Expr"
+        { Exported = true; TypeParameters = []; Id = exprId; DisplayName = "Expr"
           Kind = SemanticTypeKind.Union
               [ { Id = literalId; DisplayName = "Literal"; Fields = [ { Id = amountId; DisplayName = "amount"; Type = intType } ] }
                 { Id = pairId; DisplayName = "Pair"; Fields = [ { Id = leftId; DisplayName = "left"; Type = exprType }; { Id = rightId; DisplayName = "right"; Type = exprType } ] } ] }
@@ -25,7 +25,8 @@ module ActionableRunDiagnosticsTests =
         try
             let path = Path.Combine(root, "graph.json")
             let parameter, node = id<ParameterTag> "input", id<GraphNodeTag> "input"
-            let fn = { Id = id<FunctionTag> "identity"; DisplayName = "identity"; Parameters = [ { Id = parameter; DisplayName = "input"; Type = exprType } ]; ResultType = exprType; RequiredEffects = []
+            let fn = { Exported = true; Id = id<FunctionTag> "identity"; DisplayName = "identity"; Parameters = [ { Id = parameter; DisplayName = "input"; Type = exprType } ]; ResultType = exprType; RequiredEffects = []
+                       TypeParameters = []
                        Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.ParameterReference parameter } ]; ResultNodeId = node } }
             File.WriteAllText(path, SnapshotCodec.serialize { Snapshot.empty (id<SnapshotTag> "base") with Types = [ expr ]; Functions = [ fn ] } |> unwrap)
             use session = AuthoringSession.openExisting path |> unwrap
@@ -75,12 +76,13 @@ module ActionableRunDiagnosticsTests =
     let ``generic and task entry refusal never reports an input defect`` () =
         withSession (fun session _ path ->
             let publish p = session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
-            let genericType = TypeRef.TypeParameter(id<TypeParameterTag> "T", "T")
+            let genericType = TypeRef.TypeParameter(id<TypeParameterTag> "T")
             for name, parameterType, resultType, body, code in
                 [ "generic", genericType, genericType, ExpressionRecipe.ParameterSlot 0, "RunGenericEntryUnsupported"
                   "task", TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ intType ]), intType, ExpressionRecipe.Int64Literal 0L, "RunTaskTypeUnsupported" ] do
                 session.SimulateCreateFunction
-                    { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
+                    { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
+                      TypeParameters = None
                       Parameters = [ { DisplayName = "x"; Type = parameterType } ]; ResultType = resultType
                       RequiredEffects = []; Body = body } |> publish
                 let before = File.ReadAllBytes path
@@ -96,10 +98,11 @@ module ActionableRunDiagnosticsTests =
         withSession (fun session _ _ ->
             let publish p = session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             session.SimulateCreateType
-                { TypeParameters = []; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Money"
+                { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Money"
                   Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "amount"; Type = intType } ] } |> publish
             session.SimulateCreateFunction
-                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "mixed"
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "mixed"
+                  TypeParameters = None
                   Parameters = [ { DisplayName = "xs"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ intType ]) }
                                  { DisplayName = "p"; Type = TypeRef.Named((session.Declarations().Types |> List.find (fun t -> t.DisplayName = "Money")).Id, []) } ]
                   ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> publish
@@ -112,7 +115,8 @@ module ActionableRunDiagnosticsTests =
             let money = (session.Declarations().Types |> List.find (fun t -> t.DisplayName = "Money")).Id
             let optionType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Named(money, []) ])
             session.SimulateCreateFunction
-                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "nestedMixed"
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "nestedMixed"
+                  TypeParameters = None
                   Parameters = [ { DisplayName = "xs"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ optionType ]) } ]
                   ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> publish
             let fn = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "nestedMixed")
@@ -132,14 +136,15 @@ module ActionableRunDiagnosticsTests =
     let ``lowering diagnostic retains IDs names operands and explicit Bind repair`` () =
         withSession (fun session _ path ->
             let publish p = session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
-            session.SimulateCreateEffect { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Io" } |> publish
+            session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Io" } |> publish
             let effect = session.Declarations().Effects.Head.Id
-            session.SimulateCreateCapability { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Values"
+            session.SimulateCreateCapability { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Values"
                                                Operations = [ { DisplayName = "read"; Parameters = []; ResultType = intType; FailureType = None; EffectId = effect } ] } |> publish
             let cap = session.Declarations().Capabilities.Head
             let invoke = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, cap.Operations.Head.Id, [])
             let creation: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = session.SnapshotId
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId
+                  TypeParameters = None
                   DisplayName = "unordered"
                   Parameters = [ { DisplayName = "values"; Type = TypeRef.Capability cap.Id } ]
                   ResultType = intType

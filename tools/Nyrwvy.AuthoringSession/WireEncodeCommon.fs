@@ -11,7 +11,11 @@ module internal WireEncodeCommon =
         | Some item -> encode item
         | None -> null
 
-    let rec typeRef = function
+    /// A type in wire `TypeRef` notation. A type parameter occurrence carries its ID and, when
+    /// `names` (the declaring function's or type's list) knows it, its `displayName`.
+    let rec typeRefIn (names: Map<TypeParameterId, string>) (value: TypeRef): obj =
+        let typeRef = typeRefIn names
+        match value with
         | TypeRef.Primitive primitive ->
             let name =
                 match primitive with
@@ -30,8 +34,12 @@ module internal WireEncodeCommon =
             objectValue [ "kind", box "named"; "typeId", box (StableId.value typeId); "arguments", arguments |> List.map typeRef |> arrayValue ]
         | TypeRef.Capability capabilityId ->
             objectValue [ "kind", box "capability"; "capabilityId", box (StableId.value capabilityId) ]
-        | TypeRef.TypeParameter(typeParameterId, displayName) ->
-            objectValue [ "kind", box "typeParameter"; "typeParameterId", box (StableId.value typeParameterId); "displayName", box displayName ]
+        | TypeRef.TypeParameter typeParameterId ->
+            objectValue
+                ([ "kind", box "typeParameter"; "typeParameterId", box (StableId.value typeParameterId) ]
+                 @ (match Map.tryFind typeParameterId names with
+                    | Some displayName -> [ "displayName", box displayName ]
+                    | None -> []))
         | TypeRef.BuiltinGeneric(generic, arguments) ->
             let name =
                 match generic with
@@ -49,19 +57,40 @@ module internal WireEncodeCommon =
                   "generic", box name
                   "arguments", arguments |> List.map typeRef |> arrayValue ]
 
-    let private parameter (value: SemanticParameter) =
-        objectValue
-            [ "id", box (StableId.value value.Id)
-              "displayName", box value.DisplayName
-              "type", typeRef value.Type ]
+    /// A type outside any declaration (run values, migration diffs): type parameters carry their ID only.
+    let typeRef (value: TypeRef): obj = typeRefIn Map.empty value
 
-    let private functionDeclaration (value: SemanticFunction) =
+    /// The display names of a function's own type parameters.
+    let functionTypeParameterNames (value: SemanticFunction) = Map.ofList value.TypeParameters
+
+    /// Declared type parameters, in order, only for a generic declaration, so other output is unchanged.
+    let private typeParameters (value: (TypeParameterId * string) list) =
+        if List.isEmpty value then []
+        else
+            [ "typeParameters",
+              value
+              |> List.map (fun (id, name) -> objectValue [ "typeParameterId", box (StableId.value id); "displayName", box name ])
+              |> arrayValue ]
+
+    let private parameter names (value: SemanticParameter) =
         objectValue
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName
-              "parameters", value.Parameters |> List.map parameter |> arrayValue
-              "resultType", typeRef value.ResultType
-              "requiredEffects", value.RequiredEffects |> List.map (StableId.value >> box) |> arrayValue ]
+              "type", typeRefIn names value.Type ]
+
+    /// A function's signature fields: `id`, `displayName`, `typeParameters` (generic functions only),
+    /// `parameters`, `resultType`, `requiredEffects`.
+    let private signatureFields (value: SemanticFunction) =
+        let names = functionTypeParameterNames value
+        [ "id", box (StableId.value value.Id)
+          "displayName", box value.DisplayName
+          "exported", box value.Exported ]
+        @ typeParameters value.TypeParameters
+        @ [ "parameters", value.Parameters |> List.map (parameter names) |> arrayValue
+            "resultType", typeRefIn names value.ResultType
+            "requiredEffects", value.RequiredEffects |> List.map (StableId.value >> box) |> arrayValue ]
+
+    let private functionDeclaration (value: SemanticFunction) = objectValue (signatureFields value)
 
     let functionEntity (value: SemanticFunction) =
         let nodes =
@@ -71,38 +100,35 @@ module internal WireEncodeCommon =
                     [ "id", box (StableId.value node.Id)
                       "kind", runString (sprintf "%A" node.Kind) ])
         objectValue
-            [ "id", box (StableId.value value.Id)
-              "displayName", box value.DisplayName
-              "parameters", value.Parameters |> List.map parameter |> arrayValue
-              "resultType", typeRef value.ResultType
-              "requiredEffects", value.RequiredEffects |> List.map (StableId.value >> box) |> arrayValue
-              "body",
-                objectValue
-                    [ "nodes", arrayValue nodes
-                      "resultNodeId", box (StableId.value value.Body.ResultNodeId) ] ]
+            (signatureFields value
+             @ [ "body",
+                 objectValue
+                     [ "nodes", arrayValue nodes
+                       "resultNodeId", box (StableId.value value.Body.ResultNodeId) ] ])
 
     /// Compact review form of a function: the full signature with display names and the
     /// body's result node and node count, without the per-node graph.
     let functionSummary (value: SemanticFunction) =
         objectValue
-            [ "id", box (StableId.value value.Id)
-              "displayName", box value.DisplayName
-              "parameters", value.Parameters |> List.map parameter |> arrayValue
-              "resultType", typeRef value.ResultType
-              "requiredEffects", value.RequiredEffects |> List.map (StableId.value >> box) |> arrayValue
-              "body",
-                objectValue
-                    [ "resultNodeId", box (StableId.value value.Body.ResultNodeId)
-                      "nodeCount", box (ValueGraph.collectNodes value.Body |> List.length) ] ]
+            (signatureFields value
+             @ [ "body",
+                 objectValue
+                     [ "resultNodeId", box (StableId.value value.Body.ResultNodeId)
+                       "nodeCount", box (ValueGraph.collectNodes value.Body |> List.length) ] ])
 
-    /// One Product or variant field, as `declarations` and the reviews show it.
-    let field (value: SemanticField) =
+    /// One Product or variant field, as `declarations` and the reviews show it; `names` are the
+    /// owning type's type parameters.
+    let fieldIn (names: Map<TypeParameterId, string>) (value: SemanticField) =
         objectValue
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName
-              "type", typeRef value.Type ]
+              "type", typeRefIn names value.Type ]
+
+    /// A field shown without its owning type; a type parameter occurrence carries its ID only.
+    let field (value: SemanticField) = fieldIn Map.empty value
 
     let semanticType (value: SemanticType) =
+        let field = fieldIn (Map.ofList value.TypeParameters)
         let kind =
             match value.Kind with
             | SemanticTypeKind.Product fields ->
@@ -118,18 +144,11 @@ module internal WireEncodeCommon =
                                   "displayName", box variant.DisplayName
                                   "fields", variant.Fields |> List.map field |> arrayValue ])
                         |> arrayValue ]
-        // Type parameters, in declaration order, only for a generic type, so other output is unchanged.
-        let typeParameters =
-            if List.isEmpty value.TypeParameters then []
-            else
-                [ "typeParameters",
-                  value.TypeParameters
-                  |> List.map (fun (id, name) -> objectValue [ "typeParameterId", box (StableId.value id); "displayName", box name ])
-                  |> arrayValue ]
         objectValue
             ([ "id", box (StableId.value value.Id)
-               "displayName", box value.DisplayName ]
-             @ typeParameters
+               "displayName", box value.DisplayName
+               "exported", box value.Exported ]
+             @ typeParameters value.TypeParameters
              @ [ "typeKind", kind ])
 
     /// One Capability operation with its parameters, as `declarations` and the reviews show it.
@@ -153,6 +172,7 @@ module internal WireEncodeCommon =
         objectValue
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName
+              "exported", box value.Exported
               "operations", value.Operations |> List.map capabilityOperation |> arrayValue ]
 
     let declarations (value: AuthoringDeclarations) =
@@ -161,7 +181,8 @@ module internal WireEncodeCommon =
             |> List.map (fun effect ->
                 objectValue
                     [ "id", box (StableId.value effect.Id)
-                      "displayName", box effect.DisplayName ])
+                      "displayName", box effect.DisplayName
+                      "exported", box effect.Exported ])
         let capabilities = value.Capabilities |> List.map capabilityEntity
         objectValue
             [ "provenance", value.Provenance |> List.map (fun p ->
@@ -253,6 +274,7 @@ module internal WireEncodeCommon =
                   "dependentContinuationNodeIds", item.DependentContinuationNodeIds |> List.map (StableId.value >> box) |> arrayValue ]) |> arrayValue
 
     let private focusFields encodeFunction includeNodeTypes (value: FunctionFocusView) =
+        let typeRef = typeRefIn (functionTypeParameterNames value.Function)
         [ yield "snapshotId", box (StableId.value value.SnapshotId)
           yield "function", encodeFunction value.Function
           yield "bodyEffectRequirements", bodyEffectRequirements value.BodyEffectRequirements

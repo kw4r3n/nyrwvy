@@ -25,8 +25,9 @@ module internal ExpressionRecipeInference =
         let productFieldsById = index.ProductFieldsById
         let oneShotPayloadRequirements = lazy (OneShotPayloadRequirements.derive snapshot)
 
-        let ty = DiagnosticText.typeRef snapshot
-        let tyPair = DiagnosticText.typeRefPair snapshot
+        let typeParameterNames = TypeParameters.names snapshot |> fun declared -> owner.TypeParameters |> List.fold (fun names (id, name) -> Map.add id name names) declared
+        let ty = DiagnosticText.typeRefIn owner.TypeParameters snapshot
+        let tyPair = DiagnosticText.typeRefPairIn owner.TypeParameters snapshot
         let callbackName = DiagnosticText.functionName
         let callbackSignature = DiagnosticText.signature snapshot
 
@@ -54,12 +55,12 @@ module internal ExpressionRecipeInference =
         let setItemNotEquatable itemType =
             diagnostic
                 "SetItemTypeNotEquatable"
-                $"Set item type is not equatable: {EquatableTypes.explain snapshot.Types itemType}"
+                $"Set item type is not equatable: {EquatableTypes.explainIn typeParameterNames snapshot.Types itemType}"
 
         let mapKeyNotEquatable keyType =
             diagnostic
                 "MapKeyTypeNotEquatable"
-                $"Map key type is not equatable: {EquatableTypes.explain snapshot.Types keyType}"
+                $"Map key type is not equatable: {EquatableTypes.explainIn typeParameterNames snapshot.Types keyType}"
 
         /// The first of `effects` that the owner does not declare.
         let missingEffect effects =
@@ -269,7 +270,7 @@ module internal ExpressionRecipeInference =
                             "PureExpressionOperandTypeMismatch"
                             $"{role} {side} operand requires {expected}, but the recipe produces {ty actual}."
                     | OperationSignatures.OperandFailure.NotEquatable(constraintEntry, itemType) ->
-                        diagnostic constraintEntry.Code (constraintEntry.Message + EquatableTypes.explain snapshot.Types itemType)
+                        diagnostic constraintEntry.Code (constraintEntry.Message + EquatableTypes.explainIn typeParameterNames snapshot.Types itemType)
                 OperationSignatures.check
                     (infer frames)
                     (EquatableTypes.isEquatable snapshot.Types)
@@ -658,7 +659,7 @@ module internal ExpressionRecipeInference =
                         Error(
                             diagnostic
                                 "ValueEqualTypeNotEquatable"
-                                $"ValueEqual compares values of a type that is not equatable: {EquatableTypes.explain snapshot.Types leftType}"
+                                $"ValueEqual compares values of a type that is not equatable: {EquatableTypes.explainIn typeParameterNames snapshot.Types leftType}"
                         )
                     | Ok _ -> Ok boolType
             | ExpressionRecipe.ListEmpty itemType ->

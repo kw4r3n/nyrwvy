@@ -29,7 +29,8 @@ module Float64ToInt64Tests =
         let snapshot = Snapshot.empty (id<SnapshotTag> ("base-" + mode))
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = mode
               Parameters = [ { DisplayName = "value"; Type = parameterType } ]
               ResultType = resultType
@@ -90,7 +91,7 @@ module Float64ToInt64Tests =
                 response.RootElement.GetProperty("result").Clone()
             let proposal =
                 call
-                    """{"id":"both","op":"simulateCreateFunctionByName","displayName":"both","parameters":[{"displayName":"value","type":{"kind":"primitive","primitive":"float64"}}],"resultType":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]}]},"requiredEffects":[],"body":{"kind":"listConstruct","itemType":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]},"items":[{"kind":"float64RoundToInt64","value":{"kind":"parameter","name":"value"}},{"kind":"float64FloorToInt64","value":{"kind":"parameter","name":"value"}}]}}"""
+                    """{"id":"both","op":"simulateCreateFunctionByName","exported":true,"displayName":"both","parameters":[{"displayName":"value","type":{"kind":"primitive","primitive":"float64"}}],"resultType":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]}]},"requiredEffects":[],"body":{"kind":"listConstruct","itemType":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]},"items":[{"kind":"float64RoundToInt64","value":{"kind":"parameter","name":"value"}},{"kind":"float64FloorToInt64","value":{"kind":"parameter","name":"value"}}]}}"""
             call ("""{"id":"commit","op":"commit","proposalId":""" + "\"" + proposal.GetProperty("proposalId").GetString() + "\"}") |> ignore
             let option (value: string) =
                 if isNull value then """{"kind":"option","itemKind":"int64","hasValue":false}"""

@@ -58,7 +58,7 @@ module TailSelfCallTests =
         let path = Path.Combine(root, "workspace.json")
         try
             let types: SemanticType list =
-                [ { TypeParameters = []; Id = stepId; DisplayName = "Step"
+                [ { Exported = true; TypeParameters = []; Id = stepId; DisplayName = "Step"
                     Kind = SemanticTypeKind.Union
                         [ { Id = evenId; DisplayName = "Even"; Fields = [] }
                           { Id = oddId; DisplayName = "Odd"; Fields = [] }
@@ -66,11 +66,11 @@ module TailSelfCallTests =
             let ws = AgentWorkspace.create { Snapshot.empty (id<SnapshotTag> "initial") with Types = types } |> unwrap "workspace"
             File.WriteAllText(path, AgentWorkspace.serializeCurrentSnapshot ws |> unwrap "serialize")
             let session = AuthoringSession.openExisting path |> unwrap "session"
-            let effectRequest: AgentCreateEffectDeclarationRequest = { ExpectedBaseSnapshotId = current session; DisplayName = "Write" }
+            let effectRequest: AgentCreateEffectDeclarationRequest = { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "Write" }
             session.SimulateCreateEffect effectRequest |> unwrap "effect" |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
             let logRequest: AgentCreateCapabilityDeclarationRequest =
-                { ExpectedBaseSnapshotId = current session
+                { Exported = true; ExpectedBaseSnapshotId = current session
                   DisplayName = "Log"
                   Operations =
                     [ { DisplayName = "write"
@@ -84,7 +84,8 @@ module TailSelfCallTests =
             let find name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
             let createWith effects name parameters result body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = current session
+                    { Exported = true; ExpectedBaseSnapshotId = current session
+                      TypeParameters = None
                       DisplayName = name
                       Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
                       ResultType = result
@@ -185,7 +186,7 @@ module TailSelfCallTests =
                 (ExpressionRecipe.ListFold(slot 0, int 0L, (find "countDown").Id, []))
             // Generic: repeatLength<T>(items: List<T>, n, acc) = if n <= 0 then acc else repeatLength(items, n - 1, acc + length(items)).
             // The self call is at the owner's own type parameter, so it is a jump like any other (review 2026-10-05 E-1).
-            let t = TypeRef.TypeParameter(id<TypeParameterTag> "request-T", "T")
+            let t = TypeRef.TypeParameter(id<TypeParameterTag> "request-T")
             create "repeatLength" [ "items", listType t; "n", intType; "acc", intType ] intType
                 (ExpressionRecipe.Conditional(
                     atMost (slot 1) (int 0L),

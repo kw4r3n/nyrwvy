@@ -56,7 +56,7 @@ module MapSetEqualityTests =
         parameters |> List.map (fun (name, typeRef) -> $"""{{"displayName":"{name}","type":{typeRef}}}""") |> String.concat ","
 
     let private createLine name parameters resultType body =
-        $"""{{"id":"{name}","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{signature parameters}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+        $"""{{"id":"{name}","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{signature parameters}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
 
     let private define session name parameters resultType body = publish session (createLine name parameters resultType body)
 

@@ -23,7 +23,7 @@ module Int64BitwiseFloat64MinMaxTests =
     let private parameter name = """{"kind":"parameter","name":""" + "\"" + name + "\"}"
 
     let private create name parameters resultType body =
-        """{"id":"create","op":"simulateCreateFunctionByName","displayName":""" + "\"" + name + "\""
+        """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":""" + "\"" + name + "\""
         + ""","parameters":[""" + (parameters |> List.map (fun (n, t) -> """{"displayName":""" + "\"" + n + "\"" + ""","type":""" + t + "}") |> String.concat ",")
         + """],"resultType":""" + resultType + ""","requiredEffects":[],"body":""" + body + "}"
 

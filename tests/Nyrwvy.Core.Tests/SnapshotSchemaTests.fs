@@ -33,15 +33,15 @@ module SnapshotSchemaTests =
     let private initial: Snapshot =
         { Snapshot.empty (id<SnapshotTag> "snapshot-schema") with
             Types =
-                [ { TypeParameters = []; Id = shapeTypeId
+                [ { Exported = true; TypeParameters = []; Id = shapeTypeId
                     DisplayName = "Shape"
                     Kind =
                       SemanticTypeKind.Union
                           [ { Id = circleId; DisplayName = "Circle"; Fields = [] }
                             { Id = squareId; DisplayName = "Square"; Fields = [] } ] } ]
-            Effects = [ { Id = readEffectId; DisplayName = "Read" } ]
+            Effects = [ { Exported = true; Id = readEffectId; DisplayName = "Read" } ]
             Capabilities =
-                [ { Id = valuesId
+                [ { Exported = true; Id = valuesId
                     DisplayName = "Values"
                     Operations =
                       [ { Id = readOperationId
@@ -52,18 +52,22 @@ module SnapshotSchemaTests =
                           EffectId = readEffectId } ] } ] }
 
     type private Create = string -> (string * TypeRef) list -> TypeRef -> EffectId list -> ExpressionRecipe -> SemanticFunction
+    /// `Create` with an explicit type parameter list (request-local names) instead of the derived one.
+    type private CreateDeclared = string list -> Create
 
     /// Publishes the functions `define` creates on top of `initial` and returns the stored snapshot.
-    let private build (define: Create -> unit): Snapshot =
+    let private build (define: Create -> CreateDeclared -> unit): Snapshot =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-snapshot-schema-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory root |> ignore
         let path = Path.Combine(root, "workspace.json")
         try
             File.WriteAllText(path, SnapshotCodec.serialize initial |> unwrap "serialize initial")
             use session = AuthoringSession.openExisting path |> unwrap "open"
-            let create name parameters resultType effects body =
+            let createDeclared (typeParameters: string list option) name parameters resultType effects body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true
+                      ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                      TypeParameters = typeParameters |> Option.map (List.map (fun (name: string) -> StableId.createForTesting<TypeParameterTag> name, name))
                       DisplayName = name
                       Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })
                       ResultType = resultType
@@ -72,111 +76,111 @@ module SnapshotSchemaTests =
                 let proposal = session.SimulateCreateFunction request |> unwrap ("create " + name)
                 session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap ("commit " + name) |> ignore
                 session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
-            define create
+            define (createDeclared None) (fun typeParameters -> createDeclared (Some typeParameters))
             session.Close()
             SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap "read back"
         finally
             Directory.Delete(root, true)
 
     /// One program per gated construct (two for the types that can appear without their nodes).
-    let private cases: (string * SnapshotSchemaFeature * (Create -> unit)) list =
-        [ "option get or default", SnapshotSchemaFeature.OptionResultCombinators, (fun create ->
+    let private cases: (string * SnapshotSchemaFeature * (Create -> CreateDeclared -> unit)) list =
+        [ "option get or default", SnapshotSchemaFeature.OptionResultCombinators, (fun create _ ->
               create "getOr" [ "option", optionOf stringType; "fallback", stringType ] stringType [] (ExpressionRecipe.OptionGetOrDefault(slot 0, slot 1)) |> ignore)
-          "result is ok", SnapshotSchemaFeature.OptionResultAccessors, (fun create ->
+          "result is ok", SnapshotSchemaFeature.OptionResultAccessors, (fun create _ ->
               create "isOk" [ "result", generic BuiltinGenericType.Result [ stringType; int64Type ] ] boolType [] (ExpressionRecipe.ResultIsOk(slot 0)) |> ignore)
-          "list contains", SnapshotSchemaFeature.ListContains, (fun create ->
+          "list contains", SnapshotSchemaFeature.ListContains, (fun create _ ->
               create "has" [ "items", listOf int64Type; "item", int64Type ] boolType [] (ExpressionRecipe.ListContains(slot 0, slot 1)) |> ignore)
-          "encode utf8", SnapshotSchemaFeature.StringEncodeUtf8, (fun create ->
+          "encode utf8", SnapshotSchemaFeature.StringEncodeUtf8, (fun create _ ->
               create "encode" [ "text", stringType ] stringType [] (ExpressionRecipe.StringEncodeUtf8(slot 0)) |> ignore)
-          "set filter", SnapshotSchemaFeature.SetCallbacks, (fun create ->
+          "set filter", SnapshotSchemaFeature.SetCallbacks, (fun create _ ->
               let notEmpty = create "notEmpty" [ "s", stringType ] boolType [] (ExpressionRecipe.BoolNot(ExpressionRecipe.StringIsEmpty(slot 0)))
               create "kept" [ "items", generic BuiltinGenericType.Set [ stringType ] ] (generic BuiltinGenericType.Set [ stringType ]) [] (ExpressionRecipe.SetFilter(slot 0, notEmpty.Id, [])) |> ignore)
-          "largest by", SnapshotSchemaFeature.ListMaxBy, (fun create ->
+          "largest by", SnapshotSchemaFeature.ListMaxBy, (fun create _ ->
               let less = create "less" [ "a", int64Type; "b", int64Type ] boolType [] (ExpressionRecipe.Int64LessThan(slot 0, slot 1))
               create "largest" [ "items", listOf int64Type ] (optionOf int64Type) [] (ExpressionRecipe.ListMaxBy(slot 0, less.Id, [])) |> ignore)
-          "float floor modulo", SnapshotSchemaFeature.Float64FloorModulo, (fun create ->
+          "float floor modulo", SnapshotSchemaFeature.Float64FloorModulo, (fun create _ ->
               create "remainder" [ "left", float64Type; "right", float64Type ] float64Type [] (ExpressionRecipe.Float64FloorModulo(slot 0, slot 1)) |> ignore)
-          "last index before", SnapshotSchemaFeature.StringLastIndexOfBefore, (fun create ->
+          "last index before", SnapshotSchemaFeature.StringLastIndexOfBefore, (fun create _ ->
               create "rfind" [ "text", stringType; "sub", stringType; "end", int64Type ] (optionOf int64Type) [] (ExpressionRecipe.StringLastIndexOfBefore(slot 0, slot 1, slot 2)) |> ignore)
-          "option ok or", SnapshotSchemaFeature.OptionResultAccessors, (fun create ->
+          "option ok or", SnapshotSchemaFeature.OptionResultAccessors, (fun create _ ->
               create "okOr" [ "option", optionOf stringType; "error", int64Type ] (generic BuiltinGenericType.Result [ stringType; int64Type ]) [] (ExpressionRecipe.OptionOkOr(slot 0, slot 1)) |> ignore)
-          "exception classification", SnapshotSchemaFeature.ExceptionIsCancellation, (fun create ->
+          "exception classification", SnapshotSchemaFeature.ExceptionIsCancellation, (fun create _ ->
               create "isCancellation" [ "exception", generic BuiltinGenericType.Exception [] ] boolType [] (ExpressionRecipe.ExceptionIsCancellation(slot 0)) |> ignore)
-          "exception node", SnapshotSchemaFeature.ExceptionBoundary, (fun create ->
+          "exception node", SnapshotSchemaFeature.ExceptionBoundary, (fun create _ ->
               let result = generic BuiltinGenericType.Result [ stringType; stringType ]
               let body = create "body" [ "item", TypeRef.Primitive PrimitiveType.Unit ] result [] (ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.StringLiteral "ok"))
               let handler = create "handler" [ "exception", generic BuiltinGenericType.Exception [] ] result [] (ExpressionRecipe.ExceptionRethrow(slot 0, result))
               create "caught" [] result [] (ExpressionRecipe.ExceptionCatch(body.Id, [], handler.Id, [])) |> ignore)
-          "exception type only", SnapshotSchemaFeature.ExceptionBoundary, (fun create ->
+          "exception type only", SnapshotSchemaFeature.ExceptionBoundary, (fun create _ ->
               let exceptionType = generic BuiltinGenericType.Exception []
               create "sameException" [ "exception", exceptionType ] exceptionType [] (slot 0) |> ignore)
-          "cancellation shield", SnapshotSchemaFeature.CancellationShield, (fun create ->
+          "cancellation shield", SnapshotSchemaFeature.CancellationShield, (fun create _ ->
               let result = generic BuiltinGenericType.Result [ boolType; stringType ]
               let body = create "body" [ "item", TypeRef.Primitive PrimitiveType.Unit ] result [] (ExpressionRecipe.ResultOk(stringType, ExpressionRecipe.CancellationRequested))
               create "shield" [] result [] (ExpressionRecipe.CancellationShield(body.Id, [])) |> ignore)
-          "capability construction", SnapshotSchemaFeature.CapabilityConstruct, (fun create ->
+          "capability construction", SnapshotSchemaFeature.CapabilityConstruct, (fun create _ ->
               let ten = create "ten" [] int64Type [] (ExpressionRecipe.Int64Literal 10L)
               create "values" [] (TypeRef.Capability valuesId) [] (ExpressionRecipe.CapabilityConstruct(valuesId, [ readOperationId, ten.Id ])) |> ignore)
-          "one-shot node", SnapshotSchemaFeature.OneShot, (fun create ->
+          "one-shot node", SnapshotSchemaFeature.OneShot, (fun create _ ->
               create "cell" [ "scope", generic BuiltinGenericType.TaskScope [] ] (generic BuiltinGenericType.OneShot [ stringType ]) [] (ExpressionRecipe.OneShotCreate(slot 0, stringType)) |> ignore)
-          "one-shot type only", SnapshotSchemaFeature.OneShot, (fun create ->
+          "one-shot type only", SnapshotSchemaFeature.OneShot, (fun create _ ->
               let cell = generic BuiltinGenericType.OneShot [ stringType ]
               create "sameCell" [ "cell", cell ] cell [] (slot 0) |> ignore)
-          "abort", SnapshotSchemaFeature.FunctionAbort, (fun create ->
+          "abort", SnapshotSchemaFeature.FunctionAbort, (fun create _ ->
               let result = generic BuiltinGenericType.Result [ stringType; stringType ]
               create "stop" [] result [] (ExpressionRecipe.Abort(ExpressionRecipe.StringLiteral "stop")) |> ignore)
-          "timed task wait", SnapshotSchemaFeature.TimedTaskWait, (fun create ->
+          "timed task wait", SnapshotSchemaFeature.TimedTaskWait, (fun create _ ->
               let tasks = listOf (generic BuiltinGenericType.Task [ int64Type ])
               create "waitAll" [ "tasks", tasks; "limit", optionOf int64Type ] (listOf (optionOf int64Type)) []
                   (ExpressionRecipe.TaskWait(slot 0, TaskWaitMode.All, Some(slot 1))) |> ignore)
-          "checked add", SnapshotSchemaFeature.CheckedInt64Arithmetic, (fun create ->
+          "checked add", SnapshotSchemaFeature.CheckedInt64Arithmetic, (fun create _ ->
               create "add" [ "a", int64Type; "b", int64Type ] (optionOf int64Type) [] (ExpressionRecipe.Int64CheckedAdd(slot 0, slot 1)) |> ignore)
-          "shared match arm", SnapshotSchemaFeature.SharedUnionMatchArm, (fun create ->
+          "shared match arm", SnapshotSchemaFeature.SharedUnionMatchArm, (fun create _ ->
               create "isShape" [ "shape", TypeRef.Named(shapeTypeId, []) ] boolType []
                   (ExpressionRecipe.MatchUnion(slot 0, [ [ circleId; squareId ], ExpressionRecipe.BoolLiteral true ])) |> ignore)
-          "upper case", SnapshotSchemaFeature.StringToUpper, (fun create ->
+          "upper case", SnapshotSchemaFeature.StringToUpper, (fun create _ ->
               create "upper" [ "text", stringType ] stringType [] (ExpressionRecipe.StringToUpper(slot 0)) |> ignore)
-          "string replace", SnapshotSchemaFeature.StringReplaceAndTrim, (fun create ->
+          "string replace", SnapshotSchemaFeature.StringReplaceAndTrim, (fun create _ ->
               create "replace" [ "text", stringType ] stringType []
                   (ExpressionRecipe.StringReplace(slot 0, ExpressionRecipe.StringLiteral "a", ExpressionRecipe.StringLiteral "b")) |> ignore)
-          "string trim", SnapshotSchemaFeature.StringReplaceAndTrim, (fun create ->
+          "string trim", SnapshotSchemaFeature.StringReplaceAndTrim, (fun create _ ->
               create "trim" [ "text", stringType ] stringType [] (ExpressionRecipe.StringTrimEnd(slot 0)) |> ignore)
-          "round to digits", SnapshotSchemaFeature.Float64Round, (fun create ->
+          "round to digits", SnapshotSchemaFeature.Float64Round, (fun create _ ->
               create "round" [ "value", float64Type; "digits", int64Type ] float64Type [] (ExpressionRecipe.Float64Round(slot 0, slot 1)) |> ignore)
-          "map node", SnapshotSchemaFeature.Map, (fun create ->
+          "map node", SnapshotSchemaFeature.Map, (fun create _ ->
               create "emptyMap" [] (generic BuiltinGenericType.Map [ stringType; int64Type ]) [] (ExpressionRecipe.MapEmpty(stringType, int64Type)) |> ignore)
-          "map type only", SnapshotSchemaFeature.Map, (fun create ->
+          "map type only", SnapshotSchemaFeature.Map, (fun create _ ->
               let counts = generic BuiltinGenericType.Map [ stringType; int64Type ]
               create "same" [ "counts", optionOf counts ] (optionOf counts) [] (slot 0) |> ignore)
-          "set node", SnapshotSchemaFeature.Set, (fun create ->
+          "set node", SnapshotSchemaFeature.Set, (fun create _ ->
               create "emptySet" [] (generic BuiltinGenericType.Set [ int64Type ]) [] (ExpressionRecipe.SetEmpty int64Type) |> ignore)
-          "set type only", SnapshotSchemaFeature.Set, (fun create ->
+          "set type only", SnapshotSchemaFeature.Set, (fun create _ ->
               let seen = generic BuiltinGenericType.Set [ int64Type ]
               create "same" [ "seen", listOf seen ] (listOf seen) [] (slot 0) |> ignore)
-          "minimum by", SnapshotSchemaFeature.ListMinBy, (fun create ->
+          "minimum by", SnapshotSchemaFeature.ListMinBy, (fun create _ ->
               let less = create "less" [ "a", int64Type; "b", int64Type ] boolType [] (ExpressionRecipe.Int64LessThan(slot 0, slot 1))
               create "smallest" [ "items", listOf int64Type ] (optionOf int64Type) [] (ExpressionRecipe.ListMinBy(slot 0, less.Id, [])) |> ignore)
-          "last item", SnapshotSchemaFeature.ListLastAndDropLast, (fun create ->
+          "last item", SnapshotSchemaFeature.ListLastAndDropLast, (fun create _ ->
               create "last" [ "items", listOf int64Type ] (optionOf int64Type) [] (ExpressionRecipe.ListLast(slot 0)) |> ignore)
-          "index of", SnapshotSchemaFeature.ListIndexSearch, (fun create ->
+          "index of", SnapshotSchemaFeature.ListIndexSearch, (fun create _ ->
               create "find" [ "items", listOf int64Type; "item", int64Type ] (optionOf int64Type) [] (ExpressionRecipe.ListIndexOf(slot 0, slot 1)) |> ignore)
-          "set subset", SnapshotSchemaFeature.SetIsSubsetAndMapUnion, (fun create ->
+          "set subset", SnapshotSchemaFeature.SetIsSubsetAndMapUnion, (fun create _ ->
               let seen = generic BuiltinGenericType.Set [ int64Type ]
               create "subset" [ "left", seen; "right", seen ] boolType [] (ExpressionRecipe.SetIsSubset(slot 0, slot 1)) |> ignore)
-          "map union", SnapshotSchemaFeature.SetIsSubsetAndMapUnion, (fun create ->
+          "map union", SnapshotSchemaFeature.SetIsSubsetAndMapUnion, (fun create _ ->
               let counts = generic BuiltinGenericType.Map [ stringType; int64Type ]
               create "merge" [ "left", counts; "right", counts ] counts [] (ExpressionRecipe.MapUnion(slot 0, slot 1)) |> ignore)
-          "int64 shift", SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax, (fun create ->
+          "int64 shift", SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax, (fun create _ ->
               create "shift" [ "value", int64Type; "count", int64Type ] int64Type [] (ExpressionRecipe.Int64ShiftRight(slot 0, slot 1)) |> ignore)
-          "float64 minimum", SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax, (fun create ->
+          "float64 minimum", SnapshotSchemaFeature.Int64BitwiseAndFloat64MinMax, (fun create _ ->
               create "least" [ "a", float64Type; "b", float64Type ] float64Type [] (ExpressionRecipe.Float64Min(slot 0, slot 1)) |> ignore)
-          "positional update", SnapshotSchemaFeature.ListPositionalUpdate, (fun create ->
+          "positional update", SnapshotSchemaFeature.ListPositionalUpdate, (fun create _ ->
               create "replace" [ "items", listOf int64Type; "index", int64Type; "item", int64Type ] (listOf int64Type) []
                   (ExpressionRecipe.ListSetAt(slot 0, slot 1, slot 2)) |> ignore)
-          "zip with", SnapshotSchemaFeature.ListZipWithAndFlatMap, (fun create ->
+          "zip with", SnapshotSchemaFeature.ListZipWithAndFlatMap, (fun create _ ->
               let add = create "add" [ "a", int64Type; "b", int64Type ] int64Type [] (ExpressionRecipe.Int64WrappingAdd(slot 0, slot 1))
               create "sums" [ "xs", listOf int64Type; "ys", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListZipWith(slot 0, slot 1, add.Id, [])) |> ignore)
-          "flat map", SnapshotSchemaFeature.ListZipWithAndFlatMap, (fun create ->
+          "flat map", SnapshotSchemaFeature.ListZipWithAndFlatMap, (fun create _ ->
               let twice = create "twice" [ "a", int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListConstruct(int64Type, [ slot 0; slot 0 ]))
               create "doubled" [ "xs", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListFlatMap(slot 0, twice.Id, [])) |> ignore) ]
 
@@ -190,7 +194,15 @@ module SnapshotSchemaTests =
         Assert.Equal(rows.Length, (Set.ofList rows).Count)
         // Generic types need a generic declaration, which `initial` cannot hold without gating every
         // case; GenericTypeTests checks their version and the rejection one version below.
-        let testedElsewhere = Set.ofList [ string SnapshotSchemaFeature.GenericTypes ]
+        // Declaration visibility needs a private declaration, which `create` never makes;
+        // DeclarationVisibilityTests checks its version and the rejection one version below, and
+        // DeclaredFunctionTypeParametersTests likewise: `initial` holds exported declarations, which
+        // version 21 spells out, so a relabelled document fails on visibility first.
+        let testedElsewhere =
+            Set.ofList
+                [ string SnapshotSchemaFeature.GenericTypes
+                  string SnapshotSchemaFeature.DeclarationVisibility
+                  string SnapshotSchemaFeature.DeclaredFunctionTypeParameters ]
         Assert.Equal<Set<string>>(features - testedElsewhere, cases |> List.map (fun (_, feature, _) -> string feature) |> Set.ofList)
         for _, minimum, _ in SnapshotSchema.minimumVersions do
             Assert.Contains(minimum, SnapshotSchema.supported)
@@ -201,7 +213,7 @@ module SnapshotSchemaTests =
 
     [<Fact>]
     let ``a snapshot that uses no gated construct keeps the baseline version`` () =
-        let snapshot = build (fun create -> create "plain" [ "text", stringType ] stringType [] (ExpressionRecipe.StringToLower(slot 0)) |> ignore)
+        let snapshot = build (fun create _ -> create "plain" [ "text", stringType ] stringType [] (ExpressionRecipe.StringToLower(slot 0)) |> ignore)
         Assert.Empty(SnapshotSchema.usedFeatures snapshot)
         Assert.Contains($"\"schemaVersion\":{SnapshotSchema.baseline.Json}", SnapshotCodec.serialize snapshot |> unwrap "json")
         Assert.Contains(SnapshotSchema.baseline.Nyason, NyasonCodec.serialize snapshot |> unwrap "nyason")

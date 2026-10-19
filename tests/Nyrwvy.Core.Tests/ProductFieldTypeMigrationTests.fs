@@ -25,7 +25,8 @@ module ProductFieldTypeMigrationTests =
 
     let private create ws name parameterType resultType body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+              TypeParameters = None
               DisplayName = name
               Parameters = [ { DisplayName = "input"; Type = parameterType } ]
               ResultType = resultType
@@ -41,11 +42,11 @@ module ProductFieldTypeMigrationTests =
     /// `make` constructs Item; `describe` and `total` read its Int64 quantity; `unrelated` does neither.
     let private fixture () =
         let types: SemanticType list =
-            [ { TypeParameters = []; Id = itemId; DisplayName = "Item"
+            [ { Exported = true; TypeParameters = []; Id = itemId; DisplayName = "Item"
                 Kind = SemanticTypeKind.Product
                     [ { Id = quantityId; DisplayName = "quantity"; Type = intType }
                       { Id = labelId; DisplayName = "label"; Type = stringType } ] }
-              { TypeParameters = []; Id = tagId; DisplayName = "Tag"
+              { Exported = true; TypeParameters = []; Id = tagId; DisplayName = "Tag"
                 Kind = SemanticTypeKind.Union [ { Id = id<VariantTag> "named"; DisplayName = "Named"; Fields = [ { Id = tagNameId; DisplayName = "name"; Type = stringType } ] } ] } ]
         let ws = AgentWorkspace.create { Snapshot.empty (id<SnapshotTag> "base") with Types = types } |> unwrap "workspace"
         let input = ExpressionRecipe.ParameterSlot 0
@@ -140,7 +141,7 @@ module ProductFieldTypeMigrationTests =
         Assert.Equal("FieldTypeMigrationUnknownCapabilityType", rejects ws { valid with NewFieldType = TypeRef.Capability(id<CapabilityTag> "missing") })
         Assert.Equal(
             "FieldTypeMigrationTypeParameterNotAllowed",
-            rejects ws { valid with NewFieldType = TypeRef.TypeParameter(id<TypeParameterTag> "t", "T") })
+            rejects ws { valid with NewFieldType = TypeRef.TypeParameter(id<TypeParameterTag> "t") })
         Assert.Equal(
             "FieldTypeMigrationBuiltinGenericArityMismatch",
             rejects ws { valid with NewFieldType = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ intType; intType ]) })
@@ -309,7 +310,7 @@ module ProductFieldTypeMigrationTests =
     let ``ambiguous Product owner names bind the field only after an exact owner selector`` () =
         let original = AgentWorkspace.snapshotForStructuralEditing (fixture ())
         let other: SemanticType =
-            { TypeParameters = []; Id = id<TypeTag> "other-item"; DisplayName = "Item"
+            { Exported = true; TypeParameters = []; Id = id<TypeTag> "other-item"; DisplayName = "Item"
               Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "other-quantity"; DisplayName = "quantity"; Type = stringType } ] }
         let ws = AgentWorkspace.create { original with Types = other :: original.Types } |> unwrap "ambiguous types"
         withSession ws (fun session ->

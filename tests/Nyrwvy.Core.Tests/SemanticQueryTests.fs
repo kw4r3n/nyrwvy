@@ -148,12 +148,12 @@ module SemanticQueryTests =
         let outerParameterId = StableId.createForTesting<ParameterTag> "parameter-query-outer"
 
         let innerType: SemanticType =
-            { TypeParameters = []; Id = innerTypeId
+            { Exported = true; TypeParameters = []; Id = innerTypeId
               DisplayName = "QueryInner"
               Kind = SemanticTypeKind.Product [] }
 
         let outerType: SemanticType =
-            { TypeParameters = []; Id = outerTypeId
+            { Exported = true; TypeParameters = []; Id = outerTypeId
               DisplayName = "QueryOuter"
               Kind =
                 SemanticTypeKind.Product

@@ -25,7 +25,8 @@ module StringCaseTests =
         let snapshot = Snapshot.empty (id<SnapshotTag> "base")
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = "case"
               Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
               ResultType = resultType
@@ -96,7 +97,7 @@ module StringCaseTests =
             let author name resultType kind =
                 let line =
                     sprintf
-                        """{"id":"%s","op":"simulateCreateFunctionByName","displayName":"%s","parameters":[{"displayName":"text","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"primitive","primitive":"%s"},"requiredEffects":[],"body":{"kind":"%s","value":{"kind":"parameter","name":"text"}}}"""
+                        """{"id":"%s","op":"simulateCreateFunctionByName","exported":true,"displayName":"%s","parameters":[{"displayName":"text","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"primitive","primitive":"%s"},"requiredEffects":[],"body":{"kind":"%s","value":{"kind":"parameter","name":"text"}}}"""
                         name name resultType kind
                 use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
                 Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
@@ -112,7 +113,8 @@ module StringCaseTests =
             Assert.Equal(PureRunValue.Int64 4L, run "utf8" [ PureRunValue.String "😀" ])
             let create name resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                      TypeParameters = None
                       DisplayName = name
                       Parameters = []
                       ResultType = resultType

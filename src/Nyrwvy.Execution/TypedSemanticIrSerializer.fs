@@ -13,7 +13,7 @@ open System.Text.Json
 /// Do not persist this output or parse it as an interchange format.
 [<RequireQualifiedAccess>]
 module TypedSemanticIrSerializer =
-    let schemaVersion = 13
+    let schemaVersion = 14
 
     let rec private writeTypeRef (writer: Utf8JsonWriter) (typeRef: TypeRef) =
         writer.WriteStartObject()
@@ -47,10 +47,9 @@ module TypedSemanticIrSerializer =
                 writer.WriteStartArray()
                 arguments |> List.iter (writeTypeRef writer)
                 writer.WriteEndArray()
-        | TypeRef.TypeParameter(typeParameterId, displayName) ->
+        | TypeRef.TypeParameter typeParameterId ->
             writer.WriteString("kind", "typeParameter")
             writer.WriteString("typeParameterId", StableId.value typeParameterId)
-            writer.WriteString("displayName", displayName)
         | TypeRef.Capability capabilityId ->
             writer.WriteString("kind", "capability")
             writer.WriteString("capabilityId", StableId.value capabilityId)
@@ -125,19 +124,23 @@ module TypedSemanticIrSerializer =
         writer.WriteEndArray()
         writer.WriteEndObject()
 
-    let private writeType (writer: Utf8JsonWriter) (typeEntity: TypedSemanticType) =
-        writer.WriteStartObject()
-        writer.WriteString("id", StableId.value typeEntity.Id)
-        // Declaration order is the order of type arguments; absent for a monomorphic type.
-        if not (List.isEmpty typeEntity.TypeParameters) then
+    /// Declaration order is the order of type arguments (and of a generic method's type parameters);
+    /// absent for a monomorphic declaration.
+    let private writeTypeParameters (writer: Utf8JsonWriter) (typeParameters: (TypeParameterId * string) list) =
+        if not (List.isEmpty typeParameters) then
             writer.WritePropertyName("typeParameters")
             writer.WriteStartArray()
-            for id, name in typeEntity.TypeParameters do
+            for id, name in typeParameters do
                 writer.WriteStartObject()
                 writer.WriteString("typeParameterId", StableId.value id)
                 writer.WriteString("displayName", name)
                 writer.WriteEndObject()
             writer.WriteEndArray()
+
+    let private writeType (writer: Utf8JsonWriter) (typeEntity: TypedSemanticType) =
+        writer.WriteStartObject()
+        writer.WriteString("id", StableId.value typeEntity.Id)
+        writeTypeParameters writer typeEntity.TypeParameters
         match typeEntity.Kind with
         | TypedSemanticTypeKind.Product fields ->
             writer.WriteString("kind", "product")
@@ -1040,6 +1043,7 @@ module TypedSemanticIrSerializer =
     let private writeFunction (writer: Utf8JsonWriter) (functionEntity: TypedSemanticFunction) =
         writer.WriteStartObject()
         writer.WriteString("id", StableId.value functionEntity.Id)
+        writeTypeParameters writer functionEntity.TypeParameters
         writer.WritePropertyName("parameters")
         writer.WriteStartArray()
         functionEntity.Parameters |> List.iter (writeParameter writer)

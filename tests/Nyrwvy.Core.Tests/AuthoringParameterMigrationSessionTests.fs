@@ -29,7 +29,8 @@ module AuthoringParameterMigrationSessionTests =
 
     let private createFunction session displayName parameters resultType body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = currentSnapshotId session
+            { Exported = true; ExpectedBaseSnapshotId = currentSnapshotId session
+              TypeParameters = None
               DisplayName = displayName
               Parameters = parameters
               ResultType = resultType
@@ -59,7 +60,7 @@ module AuthoringParameterMigrationSessionTests =
             use session = AuthoringSession.createNew path |> unwrap "session creation"
 
             let typeRequest: AgentCreateTypeDeclarationRequest =
-                { TypeParameters = []; ExpectedBaseSnapshotId = currentSnapshotId session
+                { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = currentSnapshotId session
                   DisplayName = "ValidationRequest"
                   Kind =
                     AgentTypeDeclarationKindIntent.Product

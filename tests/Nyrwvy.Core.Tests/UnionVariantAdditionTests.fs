@@ -67,7 +67,7 @@ module UnionVariantAdditionTests =
         let signature = parameters |> List.map (fun (displayName, typeRef) -> field displayName typeRef) |> String.concat ","
         publish
             session
-            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{signature}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{signature}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
         |> ignore
 
     /// Shape = Circle { radius } | Square { side } | Dot. `area(shape, scale)` matches Shape with a
@@ -85,11 +85,11 @@ module UnionVariantAdditionTests =
             try
                 publish
                     session
-                    $"""{{"id":"shape","op":"simulateCreateTypeByName","displayName":"Shape","typeKind":{{"kind":"union","variants":[{{"displayName":"Circle","fields":[{field "radius" int64Type}]}},{{"displayName":"Square","fields":[{field "side" int64Type}]}},{{"displayName":"Dot","fields":[]}}]}}}}"""
+                    $"""{{"id":"shape","op":"simulateCreateTypeByName","exported":true,"displayName":"Shape","typeKind":{{"kind":"union","variants":[{{"displayName":"Circle","fields":[{field "radius" int64Type}]}},{{"displayName":"Square","fields":[{field "side" int64Type}]}},{{"displayName":"Dot","fields":[]}}]}}}}"""
                 |> ignore
                 publish
                     session
-                    $"""{{"id":"maybe","op":"simulateCreateTypeByName","displayName":"Maybe","typeParameters":["T"],"typeKind":{{"kind":"union","variants":[{{"displayName":"Just","fields":[{field "value" (typeParameter "T")}]}},{{"displayName":"Nothing","fields":[]}}]}}}}"""
+                    $"""{{"id":"maybe","op":"simulateCreateTypeByName","exported":true,"displayName":"Maybe","typeParameters":["T"],"typeKind":{{"kind":"union","variants":[{{"displayName":"Just","fields":[{field "value" (typeParameter "T")}]}},{{"displayName":"Nothing","fields":[]}}]}}}}"""
                 |> ignore
                 let radius = """{"kind":"patternReference","scopeDepth":0,"slot":"field","type":"Shape","variant":"Circle","field":"radius"}"""
                 define session "area" [ "shape", named "Shape"; "scale", int64Type ] int64Type
@@ -276,7 +276,7 @@ module UnionVariantAdditionTests =
             let pair = variantNamed session "Maybe" "Pair"
             let declaredParameter = maybe.TypeParameters |> List.exactlyOne |> fst
             // The declaration keeps the Union's own type parameter; the arm binds Int64, the input's argument.
-            Assert.All(pair.Fields, fun item -> Assert.Equal(TypeRef.TypeParameter(declaredParameter, "T"), item.Type))
+            Assert.All(pair.Fields, fun item -> Assert.Equal(TypeRef.TypeParameter(declaredParameter), item.Type))
             let _, arms = matchNode (fn session "orDefault")
             let pairArm = arms |> List.find (fun item -> item.VariantIds = [ pair.Id ])
             Assert.All(pairArm.FieldBindings, fun item -> Assert.Equal(TypeRef.Primitive PrimitiveType.Int64, item.Binding.Type))

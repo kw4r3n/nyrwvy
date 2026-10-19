@@ -577,6 +577,8 @@ type ExecutionBlock =
 
 type ExecutionFunction =
     { SemanticFunctionId: FunctionId
+      /// Declared type parameters in order: the order of the emitted generic method's type parameters.
+      TypeParameters: (TypeParameterId * string) list
       Parameters: ExecutionParameter list
       ResultType: TypeRef
       RequiredEffects: EffectId list

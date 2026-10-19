@@ -84,6 +84,9 @@ and ViewerGraph =
 type ViewerFunctionSignature =
     { FunctionId: FunctionId
       DisplayName: string
+      /// Whether snapshots that depend on this one may use the function.
+      Exported: bool
+      TypeParameters: (TypeParameterId * string) list
       Parameters: SemanticParameter list
       ResultType: TypeRef
       RequiredEffects: EffectId list }
@@ -275,6 +278,8 @@ module ViewerProjection =
           Function =
             { FunctionId = source.Function.Id
               DisplayName = source.Function.DisplayName
+              Exported = source.Function.Exported
+              TypeParameters = source.Function.TypeParameters
               Parameters = source.Function.Parameters
               ResultType = source.Function.ResultType
               RequiredEffects = source.Function.RequiredEffects }

@@ -32,7 +32,8 @@ module UseResourceTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
 
     let private creation (session: AuthoringSession) name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session
+        { Exported = true; ExpectedBaseSnapshotId = current session
+          TypeParameters = None
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
           ResultType = resultType
@@ -45,7 +46,7 @@ module UseResourceTests =
         let path = Path.Combine(root, "workspace.json")
         try
             let session = AuthoringSession.createNew path |> unwrap "session"
-            let effectRequest: AgentCreateEffectDeclarationRequest = { ExpectedBaseSnapshotId = current session; DisplayName = "IO" }
+            let effectRequest: AgentCreateEffectDeclarationRequest = { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO" }
             session.SimulateCreateEffect effectRequest |> unwrap "effect" |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
             let operation name parameter resultType: AgentCapabilityOperationIntent =
@@ -55,7 +56,7 @@ module UseResourceTests =
                   FailureType = None
                   EffectId = effect.Id }
             let capability name operations =
-                let request: AgentCreateCapabilityDeclarationRequest = { ExpectedBaseSnapshotId = current session; DisplayName = name; Operations = operations }
+                let request: AgentCreateCapabilityDeclarationRequest = { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name; Operations = operations }
                 session.SimulateCreateCapability request |> unwrap name |> publish session
                 session.Declarations().Capabilities |> List.find (fun item -> item.DisplayName = name)
             let files =

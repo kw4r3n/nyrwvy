@@ -13,6 +13,14 @@ type AgentRenameTarget =
     | CapabilityOperation of CapabilityOperationId
     | CapabilityParameter of CapabilityParameterId
 
+/// A type, function, effect or capability whose visibility `SetExported` changes.
+[<RequireQualifiedAccess>]
+type AgentVisibilityTarget =
+    | Type of TypeId
+    | Function of FunctionId
+    | Effect of EffectId
+    | Capability of CapabilityId
+
 [<RequireQualifiedAccess>]
 type AgentCallPlan =
     | BindExistingValue of callNodeId: GraphNodeId * valueNodeId: GraphNodeId
@@ -75,6 +83,8 @@ type AgentAddUnionVariantIntent =
 [<RequireQualifiedAccess>]
 type AgentOperationIntent =
     | RenameDisplayName of AgentRenameTarget * newDisplayName: string
+    /// Marks a declaration exported (usable from snapshots that depend on this one) or private.
+    | SetExported of AgentVisibilityTarget * exported: bool
     | AddFunctionParameter of AgentAddFunctionParameterIntent
     | AddProductField of AgentAddProductFieldIntent
     | RemoveProductField of FieldId
@@ -116,6 +126,8 @@ module AgentChangeProposal =
     let review (proposal: AgentChangeProposal): AgentChangeReview = proposal.Review
     let transactionId (proposal: AgentChangeProposal): TransactionId = proposal.Request.Id
     let proposedSnapshotId (proposal: AgentChangeProposal): SnapshotId = proposal.Request.ProposedSnapshotId
+    /// The proposed snapshot, read-only, for policy checks of the authoring surface.
+    let proposedSnapshot (proposal: AgentChangeProposal): Snapshot = proposal.Preview.Simulation.ProposedSnapshot
 
 [<RequireQualifiedAccess>]
 module AgentWorkspace =
@@ -250,10 +262,19 @@ module AgentWorkflow =
         | AgentRenameTarget.CapabilityOperation id -> RenameTarget.CapabilityOperationTarget id
         | AgentRenameTarget.CapabilityParameter id -> RenameTarget.CapabilityParameterTarget id
 
+    let private visibilityTarget target =
+        match target with
+        | AgentVisibilityTarget.Type id -> VisibilityTarget.TypeTarget id
+        | AgentVisibilityTarget.Function id -> VisibilityTarget.FunctionTarget id
+        | AgentVisibilityTarget.Effect id -> VisibilityTarget.EffectTarget id
+        | AgentVisibilityTarget.Capability id -> VisibilityTarget.CapabilityTarget id
+
     let private materializeOperation intent =
         match intent with
         | AgentOperationIntent.RenameDisplayName(target, newDisplayName) ->
             SemanticOperation.RenameDisplayName(renameTarget target, newDisplayName)
+        | AgentOperationIntent.SetExported(target, exported) ->
+            SemanticOperation.SetExported(visibilityTarget target, exported)
         | AgentOperationIntent.AddFunctionParameter request ->
             SemanticOperation.AddFunctionParameter
                 { TargetFunctionId = request.TargetFunctionId

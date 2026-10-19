@@ -102,7 +102,8 @@ module EffectClassificationConsistencyTests =
     let private typedCases = FSharpType.GetUnionCases(typeof<TypedSemanticNodeKind>, true)
 
     let private semanticFunction id effects body: SemanticFunction =
-        { Id = id
+        { Exported = true; Id = id
+          TypeParameters = []
           DisplayName = StableId.value id
           Parameters = []
           ResultType = unitType
@@ -124,6 +125,7 @@ module EffectClassificationConsistencyTests =
 
     let private typedFunction id effects body: TypedSemanticFunction =
         { Id = id
+          TypeParameters = []
           Parameters = []
           ResultType = unitType
           RequiredEffects = effects

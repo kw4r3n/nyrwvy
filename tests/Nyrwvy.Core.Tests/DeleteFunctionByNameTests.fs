@@ -24,7 +24,7 @@ module DeleteFunctionByNameTests =
     let private call name = $"""{{"kind":"directCall","function":"{name}","arguments":[{{"parameter":"flag","value":{flag}}}]}}"""
     let private create (session: AuthoringSession) name body =
         let line =
-            $"""{{"id":"create","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{{"displayName":"flag","type":{primitive "bool"}}}],"resultType":{primitive "bool"},"requiredEffects":[],"body":{body}}}"""
+            $"""{{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{{"displayName":"flag","type":{primitive "bool"}}}],"resultType":{primitive "bool"},"requiredEffects":[],"body":{body}}}"""
         let result = send session line
         session.Commit(result.GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private deleteByName (operations: string list) =

@@ -97,10 +97,10 @@ type TypeRef =
     /// Pure, capture-free callable; parameter order is semantic, parameter identities are not.
     | Function of parameters: TypeRef list * resultType: TypeRef
     | BuiltinGeneric of BuiltinGenericType * TypeRef list
-    /// A type parameter of the function whose parameter types mention it, or of the Product or Union
-    /// that declares it. Its identity is system-owned; the display name is fixed with it and carried
-    /// for presentation only.
-    | TypeParameter of id: TypeParameterId * displayName: string
+    /// A type parameter of the function or of the Product or Union that declares it
+    /// (`SemanticFunction.TypeParameters`, `SemanticType.TypeParameters`). Its identity is
+    /// system-owned; its display name lives with the declaring list, never on an occurrence.
+    | TypeParameter of id: TypeParameterId
 
 /// Completion is a derived control-flow fact, never a language value type.
 [<RequireQualifiedAccess>]
@@ -141,16 +141,21 @@ type SemanticTypeKind =
     | Product of SemanticField list
     | Union of SemanticVariant list
 
+/// A declaration is usable inside its own snapshot whatever its visibility; a snapshot that
+/// depends on this one may use it only when it is exported (`Exported = true`). New declarations
+/// are private unless the request exports them. See docs/decisions/declaration-visibility.md.
 type SemanticType =
     { Id: TypeId
       DisplayName: string
+      Exported: bool
       /// Declared type parameters in order; field types may mention them. Empty for a monomorphic type.
       TypeParameters: (TypeParameterId * string) list
       Kind: SemanticTypeKind }
 
 type SemanticEffect =
     { Id: EffectId
-      DisplayName: string }
+      DisplayName: string
+      Exported: bool }
 
 type SemanticCapabilityParameter =
     { Id: CapabilityParameterId
@@ -168,6 +173,7 @@ type SemanticCapabilityOperation =
 type SemanticCapability =
     { Id: CapabilityId
       DisplayName: string
+      Exported: bool
       Operations: SemanticCapabilityOperation list }
 
 type SemanticParameter =
@@ -710,6 +716,11 @@ and ValueGraph =
 type SemanticFunction =
     { Id: FunctionId
       DisplayName: string
+      Exported: bool
+      /// Declared type parameters in order, each mentioned by at least one parameter type so a call
+      /// can derive it by matching; empty for a monomorphic function. Order is the order of the
+      /// backend's generic method type parameters. See docs/decisions/declared-function-type-parameters.md.
+      TypeParameters: (TypeParameterId * string) list
       Parameters: SemanticParameter list
       ResultType: TypeRef
       RequiredEffects: EffectId list
@@ -2404,19 +2415,21 @@ module Snapshot =
 /// Task and OneShot handles and captured Exceptions exist only inside one run. Declared fields may hold these handles
 /// but not TaskScope, which is lexical. Runtime-bearing types, including through declared types,
 /// never cross a capability or runPure boundary.
-/// Type parameters of functions and of declared types. A function's type parameters are those
-/// occurring in its parameter types; a Product's or Union's are the ones it declares. At a call or
-/// callback, a function's type arguments are derived by matching each parameter type against the
-/// concrete argument type, so no inference beyond structural matching is involved. A named type's
-/// field types are read through `instantiate`, which replaces its type parameters by the arguments.
+/// Type parameters of functions and of declared types. A function declares its type parameters in
+/// order (`SemanticFunction.TypeParameters`), each mentioned by at least one of its parameter types;
+/// a Product's or Union's are the ones it declares. At a call or callback, a function's type
+/// arguments are derived by matching each parameter type against the concrete argument type, so no
+/// inference beyond structural matching is involved. A named type's field types are read through
+/// `instantiate`, which replaces its type parameters by the arguments. Occurrences carry no display
+/// name; `names` collects the declared names of a snapshot for presentation.
 [<RequireQualifiedAccess>]
 module TypeParameters =
     /// Type parameters occurring in a type, in first-occurrence order.
-    let occurring (typeRef: TypeRef): (TypeParameterId * string) list =
-        let rec collect (collected: (TypeParameterId * string) list) current =
+    let occurring (typeRef: TypeRef): TypeParameterId list =
+        let rec collect (collected: TypeParameterId list) current =
             match current with
-            | TypeRef.TypeParameter(id, _) when collected |> List.exists (fun (seen, _) -> seen = id) -> collected
-            | TypeRef.TypeParameter(id, name) -> collected @ [ id, name ]
+            | TypeRef.TypeParameter id when List.contains id collected -> collected
+            | TypeRef.TypeParameter id -> collected @ [ id ]
             | TypeRef.Function(arguments, result) -> (arguments @ [ result ]) |> List.fold collect collected
             | TypeRef.BuiltinGeneric(_, arguments)
             | TypeRef.Named(_, arguments) -> arguments |> List.fold collect collected
@@ -2424,15 +2437,48 @@ module TypeParameters =
             | TypeRef.Capability _ -> collected
         collect [] typeRef
 
-    /// Type parameters declared by a function's parameter types, in first-occurrence order.
-    let ofFunction (functionEntity: SemanticFunction): (TypeParameterId * string) list =
-        functionEntity.Parameters
-        |> List.collect (fun parameter -> occurring parameter.Type)
-        |> List.distinctBy fst
+    /// Type parameters occurring in several types, in first-occurrence order across them.
+    let occurringIn (typeRefs: TypeRef list): TypeParameterId list =
+        typeRefs |> List.collect occurring |> List.distinct
+
+    /// The type parameter list a function's parameter types imply: first-appearance order. This
+    /// was the only rule before snapshot schema 21 and is still the default a creation request
+    /// gets when it lists none; a snapshot whose functions all follow it keeps its older schema.
+    let derived (parameterTypes: TypeRef list): TypeParameterId list = occurringIn parameterTypes
+
+    /// A function's declared type parameters, in order.
+    let ofFunction (functionEntity: SemanticFunction): (TypeParameterId * string) list = functionEntity.TypeParameters
+
+    /// Whether a function's declared list is exactly the one its parameter types imply.
+    let isDerived (functionEntity: SemanticFunction) =
+        (functionEntity.TypeParameters |> List.map fst) = derived (functionEntity.Parameters |> List.map (fun parameter -> parameter.Type))
+
+    /// Keeps the declared type parameters that a parameter type still mentions, in declared order,
+    /// and appends those the parameter types newly mention, named by their ID text (a request-local
+    /// identity is its name). Used after a signature edit changes the parameter types.
+    let reconcile (functionEntity: SemanticFunction): SemanticFunction =
+        let occurring = derived (functionEntity.Parameters |> List.map (fun parameter -> parameter.Type))
+        let kept = functionEntity.TypeParameters |> List.filter (fun (id, _) -> List.contains id occurring)
+        let added =
+            occurring
+            |> List.filter (fun id -> not (kept |> List.exists (fun (kept, _) -> kept = id)))
+            |> List.map (fun id -> id, StableId.value id)
+        { functionEntity with TypeParameters = kept @ added }
+
+    /// Display names of every type parameter a snapshot declares, by identity.
+    let names (snapshot: Snapshot): Map<TypeParameterId, string> =
+        [ for typeEntity in snapshot.Types do yield! typeEntity.TypeParameters
+          for functionEntity in snapshot.Functions do yield! functionEntity.TypeParameters ]
+        |> Map.ofList
+
+    /// The display name of a type parameter, or its ID text when the names do not list it (a
+    /// request-local identity is spelled as its name).
+    let nameIn (names: Map<TypeParameterId, string>) (id: TypeParameterId) =
+        Map.tryFind id names |> Option.defaultValue (StableId.value id)
 
     let rec substitute (substitution: Map<TypeParameterId, TypeRef>) (typeRef: TypeRef): TypeRef =
         match typeRef with
-        | TypeRef.TypeParameter(id, _) -> Map.tryFind id substitution |> Option.defaultValue typeRef
+        | TypeRef.TypeParameter id -> Map.tryFind id substitution |> Option.defaultValue typeRef
         | TypeRef.Function(arguments, result) -> TypeRef.Function(arguments |> List.map (substitute substitution), substitute substitution result)
         | TypeRef.BuiltinGeneric(kind, arguments) -> TypeRef.BuiltinGeneric(kind, arguments |> List.map (substitute substitution))
         | TypeRef.Named(typeId, arguments) -> TypeRef.Named(typeId, arguments |> List.map (substitute substitution))
@@ -2445,7 +2491,7 @@ module TypeParameters =
             List.zip declaredArguments actualArguments
             |> List.fold (fun state (declared, actual) -> state |> Option.bind (fun current -> matchType current declared actual)) (Some substitution)
         match declared, actual with
-        | TypeRef.TypeParameter(id, _), _ ->
+        | TypeRef.TypeParameter id, _ ->
             match Map.tryFind id substitution with
             | Some bound when bound = actual -> Some substitution
             | Some _ -> None
@@ -2542,9 +2588,10 @@ module TaskTypes =
 /// always concrete and a generic function cannot take or return `Set<T>` or `Map<T, _>`.
 [<RequireQualifiedAccess>]
 module EquatableTypes =
-    /// Presentation text of a type using display names; unknown named types show their StableId.
-    let rec describe (types: SemanticType list) (typeRef: TypeRef) =
-        let go = describe types
+    /// Presentation text of a type using display names; unknown named types show their StableId,
+    /// and a type parameter outside `names` (and the declared types) its ID text.
+    let rec describeIn (names: Map<TypeParameterId, string>) (types: SemanticType list) (typeRef: TypeRef) =
+        let go = describeIn names types
         match typeRef with
         | TypeRef.Primitive primitive -> string primitive
         | TypeRef.Named(typeId, arguments) ->
@@ -2560,7 +2607,17 @@ module EquatableTypes =
         | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, arguments) -> "OneShot<" + (arguments |> List.map go |> String.concat ", ") + ">"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, _) -> "TaskScope"
         | TypeRef.BuiltinGeneric(kind, arguments) -> $"{kind}<" + (arguments |> List.map go |> String.concat ", ") + ">"
-        | TypeRef.TypeParameter(_, displayName) -> displayName
+        | TypeRef.TypeParameter id ->
+            match Map.tryFind id names with
+            | Some displayName -> displayName
+            | None ->
+                types
+                |> List.tryPick (fun item -> item.TypeParameters |> List.tryFind (fun (declared, _) -> declared = id))
+                |> Option.map snd
+                |> Option.defaultValue (StableId.value id)
+
+    /// `describeIn` with only the declared types' type parameter names.
+    let describe (types: SemanticType list) (typeRef: TypeRef) = describeIn Map.empty types typeRef
 
     /// The first part that makes the type not equatable, as a path of display-name steps from the
     /// type to that part (empty when the type itself is the part) and the offending type; `None`
@@ -2614,8 +2671,10 @@ module EquatableTypes =
     let isEquatable (types: SemanticType list) (typeRef: TypeRef) =
         (firstNotEquatable types typeRef).IsNone
 
-    /// Diagnostic text: why the type is not equatable, naming the path to the offending part.
-    let explain (types: SemanticType list) (typeRef: TypeRef) =
+    /// Diagnostic text: why the type is not equatable, naming the path to the offending part;
+    /// `names` gives the display names of function type parameters.
+    let explainIn (names: Map<TypeParameterId, string>) (types: SemanticType list) (typeRef: TypeRef) =
+        let describe = describeIn names
         match firstNotEquatable types typeRef with
         | None -> $"{describe types typeRef} is equatable."
         | Some(path, offending) ->
@@ -2632,3 +2691,5 @@ module EquatableTypes =
                 | [] -> ""
                 | steps -> " at " + String.concat " -> " steps
             $"{describe types typeRef} is not equatable: {describe types offending}{location}; {reason}."
+
+    let explain (types: SemanticType list) (typeRef: TypeRef) = explainIn Map.empty types typeRef

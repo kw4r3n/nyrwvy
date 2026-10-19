@@ -42,7 +42,7 @@ module AgentCapabilityDeclarationTests =
 
     let private publishEffect ws displayName =
         let request: AgentCreateEffectDeclarationRequest =
-            { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
               DisplayName = displayName }
         let proposal =
             match AgentEffectDeclarationWorkflow.simulate ws request with
@@ -60,7 +60,7 @@ module AgentCapabilityDeclarationTests =
         let ws1, ioEffect = publishEffect ws0 "io"
 
         let request: AgentCreateCapabilityDeclarationRequest =
-            { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws1
+            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws1
               DisplayName = "Console"
               Operations =
                 [ operation
@@ -102,7 +102,8 @@ module AgentCapabilityDeclarationTests =
         let writeOperation = created.Operations |> List.find (fun item -> item.DisplayName = "write")
         let writeParameter = List.exactlyOne writeOperation.Parameters
         let functionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws2
+            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws2
+              TypeParameters = None
               DisplayName = "write_message"
               Parameters =
                 [ { DisplayName = "console"
@@ -138,7 +139,7 @@ module AgentCapabilityDeclarationTests =
     [<Fact>]
     let ``invalid capability declaration intent rejects without publication`` () =
         let knownEffect: SemanticEffect =
-            { Id = effectId "known"
+            { Exported = true; Id = effectId "known"
               DisplayName = "known" }
         let snapshot =
             { Snapshot.empty (snapshotId "invalid") with
@@ -153,27 +154,27 @@ module AgentCapabilityDeclarationTests =
                 Assert.Equal(expected, diagnostic.Code)
             | result -> failwithf "Expected %s rejection, got %A" expected result
 
-        { ExpectedBaseSnapshotId = snapshot.Id
+        { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
           DisplayName = " "
           Operations = [] }
         |> assertRejected "CapabilityDeclarationDisplayNameBlank"
 
-        { ExpectedBaseSnapshotId = snapshot.Id
+        { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
           DisplayName = "Cap"
           Operations = [ operation " " [] unitType None knownEffect.Id ] }
         |> assertRejected "CapabilityDeclarationOperationDisplayNameBlank"
 
-        { ExpectedBaseSnapshotId = snapshot.Id
+        { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
           DisplayName = "Cap"
           Operations = [ operation "op" [ parameter " " stringType ] unitType None knownEffect.Id ] }
         |> assertRejected "CapabilityDeclarationParameterDisplayNameBlank"
 
-        { ExpectedBaseSnapshotId = snapshot.Id
+        { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
           DisplayName = "Cap"
           Operations = [ operation "op" [] unitType None unknownEffect ] }
         |> assertRejected "CapabilityDeclarationUnknownEffect"
 
-        { ExpectedBaseSnapshotId = snapshot.Id
+        { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
           DisplayName = "Cap"
           Operations = [ operation "op" [ parameter "value" (TypeRef.Named(unknownType, [])) ] unitType None knownEffect.Id ] }
         |> assertRejected "CapabilityDeclarationUnknownNamedType"
@@ -184,14 +185,14 @@ module AgentCapabilityDeclarationTests =
     [<Fact>]
     let ``capability declaration review binds exact result and stale proposal cannot publish`` () =
         let effect: SemanticEffect =
-            { Id = effectId "stale"
+            { Exported = true; Id = effectId "stale"
               DisplayName = "effect" }
         let snapshot =
             { Snapshot.empty (snapshotId "stale") with
                 Effects = [ effect ] }
         let ws = workspace snapshot
         let request name: AgentCreateCapabilityDeclarationRequest =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               DisplayName = name
               Operations = [] }
 
@@ -221,6 +222,7 @@ module AgentCapabilityDeclarationTests =
         Assert.Equal<(string * System.Type) list>(
             [ "ExpectedBaseSnapshotId", typeof<SnapshotId>
               "DisplayName", typeof<string>
+              "Exported", typeof<bool>
               "Operations", typeof<AgentCapabilityOperationIntent list> ],
             requestFields
         )

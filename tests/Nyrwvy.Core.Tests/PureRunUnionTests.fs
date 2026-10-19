@@ -31,7 +31,7 @@ module PureRunUnionTests =
 
     let private withSession run =
         let types: SemanticType list =
-            [ { TypeParameters = []; Id = unionId; DisplayName = "Choice"
+            [ { Exported = true; TypeParameters = []; Id = unionId; DisplayName = "Choice"
                 Kind = SemanticTypeKind.Union
                     [ { Id = payloadId; DisplayName = "Choice"
                         Fields =
@@ -41,16 +41,17 @@ module PureRunUnionTests =
                               { Id = numberId; DisplayName = "value"; Type = TypeRef.Primitive PrimitiveType.Int64 } ] }
                       { Id = emptyId; DisplayName = "Choice"; Fields = [] }
                       { Id = otherEmptyId; DisplayName = "Choice"; Fields = [] } ] }
-              { TypeParameters = []; Id = foreignId; DisplayName = "Choice"
+              { Exported = true; TypeParameters = []; Id = foreignId; DisplayName = "Choice"
                 Kind = SemanticTypeKind.Union [ { Id = foreignVariantId; DisplayName = "Choice"; Fields = [] } ] }
-              { TypeParameters = []; Id = nestedId; DisplayName = "Nested"
+              { Exported = true; TypeParameters = []; Id = nestedId; DisplayName = "Nested"
                 Kind = SemanticTypeKind.Union
                     [ { Id = id<VariantTag> "nested-empty"; DisplayName = "Empty"; Fields = [] }
                       { Id = id<VariantTag> "nested-data"; DisplayName = "Data"
                         Fields = [ { Id = id<FieldTag> "nested-data"; DisplayName = "inner"; Type = TypeRef.Named(unionId, []) } ] } ] } ]
         let create ws name parameters resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                  TypeParameters = None
                   DisplayName = name
                   Parameters = parameters |> List.map (fun itemType -> { DisplayName = "input"; Type = itemType })
                   ResultType = resultType; RequiredEffects = []; Body = body }

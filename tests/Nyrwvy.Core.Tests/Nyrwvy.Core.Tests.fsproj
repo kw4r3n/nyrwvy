@@ -17,6 +17,7 @@
     <Compile Include="SnapshotCodecTests.fs" />
     <Compile Include="SnapshotSchemaTests.fs" />
     <Compile Include="FingerprintTests.fs" />
+    <Compile Include="DeclarationVisibilityTests.fs" />
     <Compile Include="ValueGraphTests.fs" />
     <Compile Include="CapabilityTests.fs" />
     <Compile Include="TransactionTests.fs" />
@@ -123,6 +124,7 @@
     <Compile Include="ResultFoldTests.fs" />
     <Compile Include="UseResourceTests.fs" />
     <Compile Include="GenericFunctionTests.fs" />
+    <Compile Include="DeclaredFunctionTypeParametersTests.fs" />
     <Compile Include="FunctionValueTests.fs" />
     <Compile Include="FunctionAbortTests.fs" />
     <Compile Include="CapabilityImplementationTests.fs" />

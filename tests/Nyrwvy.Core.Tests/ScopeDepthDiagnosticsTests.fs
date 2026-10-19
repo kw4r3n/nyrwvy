@@ -29,7 +29,7 @@ module ScopeDepthDiagnosticsTests =
 
     let private snapshot =
         let action: SemanticType =
-            { TypeParameters = []; Id = actionTypeId
+            { Exported = true; TypeParameters = []; Id = actionTypeId
               DisplayName = "Action"
               Kind =
                 SemanticTypeKind.Union
@@ -42,7 +42,8 @@ module ScopeDepthDiagnosticsTests =
             { Nodes = [ ({ Id = nodeId; Kind = SemanticNodeKind.StringLiteral "" }: SemanticNode) ]
               ResultNodeId = nodeId }
         let target: SemanticFunction =
-            { Id = targetId
+            { Exported = true; Id = targetId
+              TypeParameters = []
               DisplayName = "target"
               Parameters =
                 [ { Id = actionParameterId; DisplayName = "action"; Type = TypeRef.Named(actionTypeId, []) }
@@ -51,7 +52,8 @@ module ScopeDepthDiagnosticsTests =
               RequiredEffects = []
               Body = { literalBody "unused" with Nodes = [ { Id = resultNodeId; Kind = SemanticNodeKind.StringLiteral "" } ]; ResultNodeId = resultNodeId } }
         let other: SemanticFunction =
-            { Id = otherId
+            { Exported = true; Id = otherId
+              TypeParameters = []
               DisplayName = "other"
               Parameters = [ { Id = foreignParameterId; DisplayName = "foreign"; Type = stringType } ]
               ResultType = stringType
@@ -196,7 +198,8 @@ module ScopeDepthDiagnosticsTests =
     let ``a parameter slot out of range lists the requested parameters by name`` () =
         let workspace = AgentWorkspace.create snapshot |> function Ok value -> value | Error issues -> failwithf "%A" issues
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
+              TypeParameters = None
               DisplayName = "fresh"
               Parameters = [ { DisplayName = "text"; Type = stringType } ]
               ResultType = stringType
@@ -223,7 +226,7 @@ module ScopeDepthDiagnosticsTests =
                 let reference =
                     sprintf """{"kind":"patternReference","scopeDepth":%d,"slot":"field","type":"Action","variant":"Stop","field":"member"}""" depth
                 sprintf
-                    """{"id":"create","op":"simulateCreateFunctionByName","displayName":"describe","parameters":[{"displayName":"action","type":{"kind":"named","name":"Action"}},{"displayName":"maybe","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]}}],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"kind":"matchUnion","type":"Action","input":{"kind":"parameter","name":"action"},"arms":[{"variant":"Stop","body":{"kind":"matchOption","input":{"kind":"parameter","name":"maybe"},"someBody":{"kind":"stringLiteral","value":"some"},"noneBody":%s}},{"variant":"Go","body":{"kind":"stringLiteral","value":"go"}}]}}"""
+                    """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"describe","parameters":[{"displayName":"action","type":{"kind":"named","name":"Action"}},{"displayName":"maybe","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]}}],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"kind":"matchUnion","type":"Action","input":{"kind":"parameter","name":"action"},"arms":[{"variant":"Stop","body":{"kind":"matchOption","input":{"kind":"parameter","name":"maybe"},"someBody":{"kind":"stringLiteral","value":"some"},"noneBody":%s}},{"variant":"Go","body":{"kind":"stringLiteral","value":"go"}}]}}"""
                     reference
             use rejected = AuthoringProtocol.executeLine session (request 0) |> JsonDocument.Parse
             let text = rejected.RootElement.ToString()

@@ -69,7 +69,7 @@ module AuthoringSurfaceExtensionTests =
         let required = effects |> List.map (fun effect -> "\"" + effect + "\"") |> String.concat ","
         publish
             session
-            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{signature}],"resultType":{resultType},"requiredEffects":[{required}],"body":{body}}}"""
+            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{signature}],"resultType":{resultType},"requiredEffects":[{required}],"body":{body}}}"""
         |> ignore
 
     let private call name (arguments: (string * string) list) =
@@ -93,16 +93,16 @@ module AuthoringSurfaceExtensionTests =
                 let field name = $"""{{"displayName":"{name}","type":{int64Type}}}"""
                 publish
                     session
-                    $"""{{"id":"shape","op":"simulateCreateTypeByName","displayName":"Shape","typeKind":{{"kind":"union","variants":[{{"displayName":"Circle","fields":[{field "radius"}]}},{{"displayName":"Square","fields":[{field "side"}]}},{{"displayName":"Dot","fields":[]}}]}}}}"""
+                    $"""{{"id":"shape","op":"simulateCreateTypeByName","exported":true,"displayName":"Shape","typeKind":{{"kind":"union","variants":[{{"displayName":"Circle","fields":[{field "radius"}]}},{{"displayName":"Square","fields":[{field "side"}]}},{{"displayName":"Dot","fields":[]}}]}}}}"""
                 |> ignore
                 publish
                     session
-                    $"""{{"id":"point","op":"simulateCreateTypeByName","displayName":"Point","typeKind":{{"kind":"product","fields":[{field "x"},{field "y"}]}}}}"""
+                    $"""{{"id":"point","op":"simulateCreateTypeByName","exported":true,"displayName":"Point","typeKind":{{"kind":"product","fields":[{field "x"},{field "y"}]}}}}"""
                 |> ignore
-                publish session """{"id":"io","op":"simulateCreateEffect","displayName":"io"}""" |> ignore
+                publish session """{"id":"io","op":"simulateCreateEffect","exported":true,"displayName":"io"}""" |> ignore
                 publish
                     session
-                    $"""{{"id":"host","op":"simulateCreateCapabilityByName","displayName":"Host","operations":[{{"displayName":"step","parameters":[{{"displayName":"count","type":{int64Type}}},{{"displayName":"limit","type":{int64Type}}}],"resultType":{unitType},"effect":"io"}},{{"displayName":"stop","parameters":[],"resultType":{unitType},"effect":"io"}}]}}"""
+                    $"""{{"id":"host","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Host","operations":[{{"displayName":"step","parameters":[{{"displayName":"count","type":{int64Type}}},{{"displayName":"limit","type":{int64Type}}}],"resultType":{unitType},"effect":"io"}},{{"displayName":"stop","parameters":[],"resultType":{unitType},"effect":"io"}}]}}"""
                 |> ignore
                 let areaBody =
                     $"""{{"kind":"matchUnion","type":"Shape","input":{parameter "shape"},"arms":[{{"variant":"Circle","body":{{"kind":"patternReference","scopeDepth":0,"slot":"field","type":"Shape","variant":"Circle","field":"radius"}}}},{{"variants":["Square","Dot"],"body":{literal 0}}}]}}"""
@@ -344,7 +344,7 @@ module AuthoringSurfaceExtensionTests =
             Assert.Equal(idText session.SnapshotId, renameEntry.GetProperty("baseSnapshotId").GetString())
             Assert.Equal("renameType 'Point' to 'Coordinate'; deleteFunction 'useAdd'", renameEntry.GetProperty("summary").GetString())
             let evolutionEntry = entries[evolution.GetProperty("proposalId").GetString()]
-            Assert.Equal("fieldlessUnionVariantEvolution", evolutionEntry.GetProperty("kind").GetString())
+            Assert.Equal("unionVariantEvolution", evolutionEntry.GetProperty("kind").GetString())
             Assert.Equal("addUnionVariantLike 'Blank' on 'Shape' (1 matches repaired)", evolutionEntry.GetProperty("summary").GetString())
             commit session evolution
             Assert.Equal(1, (status ()).GetProperty("pendingProposalCount").GetInt32())
@@ -523,7 +523,7 @@ module AuthoringSurfaceExtensionTests =
             // A created type is visible to the candidate expectation of a name-resolved case.
             let created =
                 result session
-                    $"""{{"id":"wrap","op":"simulateCreateTypeByName","displayName":"Wrapper","typeKind":{{"kind":"product","fields":[{{"displayName":"value","type":{int64Type}}}]}}}}"""
+                    $"""{{"id":"wrap","op":"simulateCreateTypeByName","exported":true,"displayName":"Wrapper","typeKind":{{"kind":"product","fields":[{{"displayName":"value","type":{int64Type}}}]}}}}"""
             commit session created
             define session "wrap" [ "n", int64Type ] (named "Wrapper") [] $"""{{"kind":"productConstruct","type":"Wrapper","fields":[{{"field":"value","value":{parameter "n"}}}]}}"""
             let edit = result session $"""{{"id":"edit","op":"simulateReplaceBodyByName","function":"wrap","replacement":{{"kind":"productConstruct","type":"Wrapper","fields":[{{"field":"value","value":{literal 1}}}]}}}}"""
@@ -541,7 +541,7 @@ module AuthoringSurfaceExtensionTests =
                 result session
                     $"""{{"id":"ring","op":"simulateAddUnionVariantLikeByName","type":"Shape","sourceVariant":"Circle","displayName":"Ring","additionalFields":[{{"displayName":"inner","type":{int64Type}}}]}}"""
             let review = proposal.GetProperty("review")
-            Assert.Equal("fieldlessUnionVariantEvolution", review.GetProperty("kind").GetString())
+            Assert.Equal("unionVariantEvolution", review.GetProperty("kind").GetString())
             Assert.Equal("Ring", review.GetProperty("addedVariantDisplayName").GetString())
             Assert.Equal(1, review.GetProperty("repairedMatchCount").GetInt32())
             let variants = review.GetProperty("updatedType").GetProperty("typeKind").GetProperty("variants")
@@ -563,7 +563,7 @@ module AuthoringSurfaceExtensionTests =
         withFixture (fun session _ ->
             let failing = $"""{{"displayName":"read","parameters":[],"resultType":{int64Type},"failureType":{stringType},"effect":"io"}}"""
             for line in
-                [ $"""{{"id":"c1","op":"simulateCreateCapabilityByName","displayName":"Reader","operations":[{failing}]}}"""
+                [ $"""{{"id":"c1","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Reader","operations":[{failing}]}}"""
                   operationsByName [ $"""{{"kind":"addCapabilityOperation","capability":"Host","displayName":"read","parameters":[],"resultType":{int64Type},"failureType":{stringType},"effect":"io","implementations":[]}}""" ] ] do
                 let code, message = rejection session line
                 Assert.Equal("ProtocolError", code)
@@ -571,5 +571,5 @@ module AuthoringSurfaceExtensionTests =
             // Absent or null keeps the old request shape.
             publish
                 session
-                $"""{{"id":"c2","op":"simulateCreateCapabilityByName","displayName":"Reader","operations":[{{"displayName":"read","parameters":[],"resultType":{int64Type},"failureType":null,"effect":"io"}}]}}"""
+                $"""{{"id":"c2","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Reader","operations":[{{"displayName":"read","parameters":[],"resultType":{int64Type},"failureType":null,"effect":"io"}}]}}"""
             |> ignore)

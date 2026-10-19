@@ -18,11 +18,11 @@ module TypeDeletionTests =
 
     let private fixture () =
         let obsolete: SemanticType =
-            { TypeParameters = []; Id = removedTypeId
+            { Exported = true; TypeParameters = []; Id = removedTypeId
               DisplayName = "Obsolete"
               Kind = SemanticTypeKind.Product [ { Id = fieldId; DisplayName = "value"; Type = stringType } ] }
         let retained: SemanticType =
-            { TypeParameters = []; Id = retainedTypeId
+            { Exported = true; TypeParameters = []; Id = retainedTypeId
               DisplayName = "Retained"
               Kind = SemanticTypeKind.Product [] }
         let parameter: SemanticParameter =
@@ -30,7 +30,8 @@ module TypeDeletionTests =
         let inputId = id<GraphNodeTag> "input"
         let constructId = id<GraphNodeTag> "construct"
         let obsoleteFn: SemanticFunction =
-            { Id = obsoleteFunctionId
+            { Exported = true; Id = obsoleteFunctionId
+              TypeParameters = []
               DisplayName = "createObsolete"
               Parameters = [ parameter ]
               ResultType = TypeRef.Named(removedTypeId, [])
@@ -43,7 +44,8 @@ module TypeDeletionTests =
                             [ { TargetFieldId = fieldId; ValueNodeId = inputId } ]) } ]
                   ResultNodeId = constructId } }
         let retainedFn: SemanticFunction =
-            { Id = retainedFunctionId
+            { Exported = true; Id = retainedFunctionId
+              TypeParameters = []
               DisplayName = "keep"
               Parameters = []
               ResultType = stringType
@@ -130,7 +132,7 @@ module TypeDeletionTests =
         let variantId = id<VariantTag> "unused-variant"
         let unionFieldId = id<FieldTag> "unused-union-field"
         let union: SemanticType =
-            { TypeParameters = []; Id = unionId
+            { Exported = true; TypeParameters = []; Id = unionId
               DisplayName = "UnusedUnion"
               Kind = SemanticTypeKind.Union
                 [ { Id = variantId

@@ -28,7 +28,7 @@ module MilestoneFourProviderEndToEndTests =
 
     let private createOutcomeType (session: AuthoringSession) =
         let request: AgentCreateTypeDeclarationRequest =
-            { TypeParameters = []; ExpectedBaseSnapshotId = currentSnapshotId session
+            { Exported = false; TypeParameters = []; ExpectedBaseSnapshotId = currentSnapshotId session
               DisplayName = "ValidationOutcome"
               Kind =
                 AgentTypeDeclarationKindIntent.Union
@@ -54,7 +54,7 @@ module MilestoneFourProviderEndToEndTests =
 
     let private createOutputEffect (session: AuthoringSession) =
         let request: AgentCreateEffectDeclarationRequest =
-            { ExpectedBaseSnapshotId = currentSnapshotId session
+            { Exported = false; ExpectedBaseSnapshotId = currentSnapshotId session
               DisplayName = "ConsoleOutput" }
 
         session.SimulateCreateEffect request
@@ -66,7 +66,7 @@ module MilestoneFourProviderEndToEndTests =
 
     let private createConsoleCapability (session: AuthoringSession) effectId =
         let request: AgentCreateCapabilityDeclarationRequest =
-            { ExpectedBaseSnapshotId = currentSnapshotId session
+            { Exported = false; ExpectedBaseSnapshotId = currentSnapshotId session
               DisplayName = "Console"
               Operations =
                 [ { DisplayName = "write_line"
@@ -91,7 +91,8 @@ module MilestoneFourProviderEndToEndTests =
         body
         =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = currentSnapshotId session
+            { Exported = false; ExpectedBaseSnapshotId = currentSnapshotId session
+              TypeParameters = None
               DisplayName = displayName
               Parameters = parameters
               ResultType = resultType

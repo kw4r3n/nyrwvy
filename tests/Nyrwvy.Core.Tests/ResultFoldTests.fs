@@ -27,7 +27,8 @@ module ResultFoldTests =
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private parameter (fn: SemanticFunction) name = (fn.Parameters |> List.find (fun item -> item.DisplayName = name)).Id
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session
+        { Exported = true; ExpectedBaseSnapshotId = current session
+          TypeParameters = None
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
           ResultType = resultType
@@ -105,7 +106,7 @@ module ResultFoldTests =
             Assert.NotNull(rejection session "bad" [ "items", stringList; "text", stringType ] intType (fold (ExpressionRecipe.Int64Literal 0L)))
             // Over the wire a pure listEffectFold needs no requiredEffects either.
             let line =
-                """{"id":"create","op":"simulateCreateFunctionByName","displayName":"countWire","parameters":[{"displayName":"items","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"primitive","primitive":"string"}]}},{"displayName":"text","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"builtinGeneric","generic":"result","arguments":[{"kind":"primitive","primitive":"int64"},{"kind":"primitive","primitive":"string"}]},"requiredEffects":[],"body":{"kind":"listEffectFold","source":{"kind":"parameter","name":"items"},"seed":{"kind":"int64Literal","value":0},"function":"count","context":[{"parameter":"text","value":{"kind":"parameter","name":"text"}}]}}"""
+                """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"countWire","parameters":[{"displayName":"items","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"primitive","primitive":"string"}]}},{"displayName":"text","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"builtinGeneric","generic":"result","arguments":[{"kind":"primitive","primitive":"int64"},{"kind":"primitive","primitive":"string"}]},"requiredEffects":[],"body":{"kind":"listEffectFold","source":{"kind":"parameter","name":"items"},"seed":{"kind":"int64Literal","value":0},"function":"count","context":[{"parameter":"text","value":{"kind":"parameter","name":"text"}}]}}"""
             use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
             Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString()))
 

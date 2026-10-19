@@ -27,7 +27,8 @@ module ValueEqualTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session; DisplayName = name
+        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
+          TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
     let private create session name parameters resultType body =
@@ -55,7 +56,7 @@ module ValueEqualTests =
 
     let private field name t: AgentTypeFieldIntent = { DisplayName = name; Type = t }
     let private createType (session: AuthoringSession) name kind =
-        session.SimulateCreateType { TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = name; Kind = kind } |> unwrap |> publish session
+        session.SimulateCreateType { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = name; Kind = kind } |> unwrap |> publish session
         session.Declarations().Types |> List.find (fun item -> item.DisplayName = name)
     let private product session name fields = createType session name (AgentTypeDeclarationKindIntent.Product(fields |> List.map (fun (n, t) -> field n t)))
     let private fieldOf (typeEntity: SemanticType) name =
@@ -113,7 +114,7 @@ module ValueEqualTests =
             for t in
                 [ floatType; optionOf floatType; TypeRef.Function([ intType ], intType); taskType
                   TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])
-                  TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "t", "T")
+                  TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "t")
                   TypeRef.Named(types.Holder.Id, []); resultOf intType (TypeRef.Named(types.Holder.Id, [])) ] do
                 Assert.False(equatable t, sprintf "%A" t)
             match EquatableTypes.firstNotEquatable all (optionOf (TypeRef.Named(types.Holder.Id, []))) with
@@ -124,7 +125,7 @@ module ValueEqualTests =
             // A recursive type is not equatable when a field anywhere on the cycle is not.
             let recursiveId = StableId.createForTesting<TypeTag> "type-tree"
             let tree payload: SemanticType =
-                { TypeParameters = []; Id = recursiveId; DisplayName = "Tree"
+                { Exported = true; TypeParameters = []; Id = recursiveId; DisplayName = "Tree"
                   Kind =
                     SemanticTypeKind.Product
                         [ { Id = StableId.createForTesting<FieldTag> "field-children"; DisplayName = "children"; Type = listOf (TypeRef.Named(recursiveId, [])) }
@@ -153,7 +154,7 @@ module ValueEqualTests =
             let functionType = TypeRef.Function([ intType ], intType)
             Assert.Contains(notEquatable, rejects session "functions" [ "a", listOf functionType; "b", listOf functionType ] (equal (slot 0) (slot 1)))
             Assert.Contains(notEquatable, rejects session "tasks" [ "a", optionOf taskType; "b", optionOf taskType ] (equal (slot 0) (slot 1)))
-            let typeParameter = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "request-T", "T")
+            let typeParameter = TypeRef.TypeParameter(StableId.createForTesting<TypeParameterTag> "T")
             Assert.Contains(notEquatable, rejects session "generic" [ "a", typeParameter; "b", typeParameter ] (equal (slot 0) (slot 1)))
             // Operands of different types are an operand mismatch, as for other constructs.
             Assert.Contains("PureExpressionOperandTypeMismatch", rejects session "mixed" [ "a", textType; "b", intType ] (equal (slot 0) (slot 1)))
@@ -172,7 +173,8 @@ module ValueEqualTests =
                           { Id = nodeId "equal"; Kind = SemanticNodeKind.ValueEqual(nodeId "left", nodeId "right") } ]
                       ResultNodeId = nodeId "equal" }
                 let fn: SemanticFunction =
-                    { Id = StableId.createForTesting<FunctionTag> "function-value-equal"
+                    { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-value-equal"
+                      TypeParameters = []
                       DisplayName = "equal"; Parameters = []; ResultType = boolType; RequiredEffects = []; Body = body }
                 SnapshotValidator.validate { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-value-equal") with Functions = [ fn ] }
                 |> List.map (fun issue -> issue.Code)
@@ -190,14 +192,14 @@ module ValueEqualTests =
             let optionText = sprintf """{"kind":"builtinGeneric","generic":"option","arguments":[%s]}""" (primitive "string")
             let signature = sprintf """"parameters":[{"displayName":"a","type":%s},{"displayName":"b","type":%s}],"resultType":%s,"requiredEffects":[]""" optionText optionText (primitive "bool")
             use exactProposal =
-                send session (sprintf """{"id":"exact","op":"simulateCreateFunction","displayName":"same",%s,"body":{"kind":"valueEqual","left":{"kind":"parameterSlot","index":0},"right":{"kind":"parameterSlot","index":1}}}""" signature)
+                send session (sprintf """{"id":"exact","op":"simulateCreateFunction","exported":true,"displayName":"same",%s,"body":{"kind":"valueEqual","left":{"kind":"parameterSlot","index":0},"right":{"kind":"parameterSlot","index":1}}}""" signature)
             publishWire session exactProposal
             use namedProposal =
                 send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"detail":"full","displayName":"sameByName",%s,"body":{"kind":"valueEqual","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}}}""" signature)
             Assert.Contains("\"kind\":\"valueEqual\"", namedProposal.RootElement.GetRawText())
             publishWire session namedProposal
             use missingRight =
-                AuthoringProtocol.executeLine session (sprintf """{"id":"bad","op":"simulateCreateFunction","displayName":"bad",%s,"body":{"kind":"valueEqual","left":{"kind":"parameterSlot","index":0}}}""" signature) |> JsonDocument.Parse
+                AuthoringProtocol.executeLine session (sprintf """{"id":"bad","op":"simulateCreateFunction","exported":true,"displayName":"bad",%s,"body":{"kind":"valueEqual","left":{"kind":"parameterSlot","index":0}}}""" signature) |> JsonDocument.Parse
             Assert.False(missingRight.RootElement.GetProperty("ok").GetBoolean())
             let named = find session "sameByName"
             let viewer = session.FocusFunction named.Id |> unwrap |> ViewerProjection.focus

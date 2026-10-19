@@ -18,20 +18,21 @@ module DisplayNameUniquenessTests =
     let ``creating a declaration with a taken display name is rejected per kind`` () =
         let fixture, workspace = workspace ()
         let baseId = AgentWorkspace.currentSnapshotId workspace
-        match AgentTypeDeclarationWorkflow.simulate workspace { TypeParameters = []; ExpectedBaseSnapshotId = baseId; DisplayName = "ValidUser"; Kind = AgentTypeDeclarationKindIntent.Product [] } with
+        match AgentTypeDeclarationWorkflow.simulate workspace { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = baseId; DisplayName = "ValidUser"; Kind = AgentTypeDeclarationKindIntent.Product [] } with
         | Error(AgentTypeDeclarationWorkflowError.SimulationRejected diagnostics) ->
             Assert.Equal<string list>([ "TypeDeclarationDuplicateDisplayName" ], codes diagnostics)
         | other -> failwithf "Duplicate type name was accepted: %A" other
-        match AgentEffectDeclarationWorkflow.simulate workspace { ExpectedBaseSnapshotId = baseId; DisplayName = "ConsoleOutput" } with
+        match AgentEffectDeclarationWorkflow.simulate workspace { Exported = true; ExpectedBaseSnapshotId = baseId; DisplayName = "ConsoleOutput" } with
         | Error(AgentEffectDeclarationWorkflowError.SimulationRejected diagnostics) ->
             Assert.Equal<string list>([ "EffectDeclarationDuplicateDisplayName" ], codes diagnostics)
         | other -> failwithf "Duplicate effect name was accepted: %A" other
-        match AgentCapabilityDeclarationWorkflow.simulate workspace { ExpectedBaseSnapshotId = baseId; DisplayName = "Console"; Operations = [] } with
+        match AgentCapabilityDeclarationWorkflow.simulate workspace { Exported = true; ExpectedBaseSnapshotId = baseId; DisplayName = "Console"; Operations = [] } with
         | Error(AgentCapabilityDeclarationWorkflowError.SimulationRejected diagnostics) ->
             Assert.Equal<string list>([ "CapabilityDeclarationDuplicateDisplayName" ], codes diagnostics)
         | other -> failwithf "Duplicate capability name was accepted: %A" other
         let functionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = baseId
+            { Exported = true; ExpectedBaseSnapshotId = baseId
+              TypeParameters = None
               DisplayName = "main"
               Parameters = []
               ResultType = TypeRef.Primitive PrimitiveType.Bool

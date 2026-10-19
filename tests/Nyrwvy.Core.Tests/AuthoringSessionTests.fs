@@ -42,7 +42,8 @@ module AuthoringSessionTests =
         resultType
         body
         : AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = (status session).SnapshotId
+        { Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId
+          TypeParameters = None
           DisplayName = displayName
           Parameters = parameters
           ResultType = resultType
@@ -506,8 +507,8 @@ module AuthoringSessionTests =
                 [ """{"id":"first","id":"second","op":"status"}"""
                   sprintf """{"id":"commit","op":"reject","op":"commit","proposalId":"%s"}""" proposal.ProposalId
                   sprintf """{"id":"commit","op":"commit","proposalId":"missing","proposalId":"%s"}""" proposal.ProposalId
-                  """{"id":"nested","op":"simulateCreateFunctionByName","displayName":"nested","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true,"value":false}}"""
-                  """{"id":"type","op":"simulateCreateTypeByName","displayName":"Record","typeKind":{"kind":"product","fields":[{"displayName":"first","displayName":"second","type":{"kind":"primitive","primitive":"bool"}}]}}""" ]
+                  """{"id":"nested","op":"simulateCreateFunctionByName","exported":true,"displayName":"nested","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true,"value":false}}"""
+                  """{"id":"type","op":"simulateCreateTypeByName","exported":true,"displayName":"Record","typeKind":{"kind":"product","fields":[{"displayName":"first","displayName":"second","type":{"kind":"primitive","primitive":"bool"}}]}}""" ]
 
             for request in requests do
                 use response = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
@@ -531,7 +532,7 @@ module AuthoringSessionTests =
             use session = createSession path
             let before = status session
             let creation (body: string) =
-                sprintf """{"id":"typed","op":"simulateCreateFunctionByName","displayName":"typed","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":%s}""" body
+                sprintf """{"id":"typed","op":"simulateCreateFunctionByName","exported":true,"displayName":"typed","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":%s}""" body
             let requests =
                 [ creation """{"kind":"parameterSlot","index":"1"}"""
                   creation "5"
@@ -557,7 +558,7 @@ module AuthoringSessionTests =
                 else
                     sprintf """{"kind":"conditional","condition":{"kind":"boolLiteral","value":true},"whenTrue":%s,"whenFalse":{"kind":"boolLiteral","value":false}}""" (body (depth - 1))
             let request =
-                sprintf """{"id":"deep","op":"simulateCreateFunctionByName","displayName":"deep","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":%s}""" (body 20)
+                sprintf """{"id":"deep","op":"simulateCreateFunctionByName","exported":true,"displayName":"deep","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":%s}""" (body 20)
             use proposed =
                 JsonDocument.Parse(AuthoringProtocol.executeLine session request, JsonDocumentOptions(MaxDepth = 256))
             Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
@@ -589,7 +590,7 @@ module AuthoringSessionTests =
         try
             use session = createSession path
             let request =
-                """{"id":"same","op":"simulateCreateFunctionByName","displayName":"same","parameters":[{"displayName":"left","type":{"kind":"primitive","primitive":"string"}},{"displayName":"right","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"stringEqual","left":{"kind":"parameter","name":"left"},"right":{"kind":"parameter","name":"right"}}}"""
+                """{"id":"same","op":"simulateCreateFunctionByName","exported":true,"displayName":"same","parameters":[{"displayName":"left","type":{"kind":"primitive","primitive":"string"}},{"displayName":"right","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"stringEqual","left":{"kind":"parameter","name":"left"},"right":{"kind":"parameter","name":"right"}}}"""
             use proposed = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
             Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
             let proposalId = proposed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
@@ -626,11 +627,11 @@ module AuthoringSessionTests =
                 use _response = send (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId)
                 ()
             let proposalId =
-                use response = send """{"id":"folder","op":"simulateCreateFunctionByName","displayName":"sum_step","parameters":[{"displayName":"acc","type":{"kind":"primitive","primitive":"int64"}},{"displayName":"item","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"int64WrappingAdd","left":{"kind":"parameter","name":"acc"},"right":{"kind":"parameter","name":"item"}}}"""
+                use response = send """{"id":"folder","op":"simulateCreateFunctionByName","exported":true,"displayName":"sum_step","parameters":[{"displayName":"acc","type":{"kind":"primitive","primitive":"int64"}},{"displayName":"item","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"int64WrappingAdd","left":{"kind":"parameter","name":"acc"},"right":{"kind":"parameter","name":"item"}}}"""
                 response.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
             commitProposal proposalId
             let proposalId =
-                use response = send """{"id":"fold","op":"simulateCreateFunctionByName","displayName":"sum","parameters":[],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"listFold","source":{"kind":"listConstruct","itemType":{"kind":"primitive","primitive":"int64"},"items":[{"kind":"int64Literal","value":1},{"kind":"int64Literal","value":2}]},"seed":{"kind":"int64Literal","value":0},"function":"sum_step"}}"""
+                use response = send """{"id":"fold","op":"simulateCreateFunctionByName","exported":true,"displayName":"sum","parameters":[],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"listFold","source":{"kind":"listConstruct","itemType":{"kind":"primitive","primitive":"int64"},"items":[{"kind":"int64Literal","value":1},{"kind":"int64Literal","value":2}]},"seed":{"kind":"int64Literal","value":0},"function":"sum_step"}}"""
                 response.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
             commitProposal proposalId
             session.Close()
@@ -659,7 +660,7 @@ module AuthoringSessionTests =
                 use document =
                     exchange
                         tool
-                        """{"id":"type","op":"simulateCreateTypeByName","displayName":"ChangeRequest","typeKind":{"kind":"product","fields":[{"displayName":"agentInteraction","type":{"kind":"primitive","primitive":"bool"}},{"displayName":"environmentDependent","type":{"kind":"primitive","primitive":"bool"}}]}}"""
+                        """{"id":"type","op":"simulateCreateTypeByName","exported":true,"displayName":"ChangeRequest","typeKind":{"kind":"product","fields":[{"displayName":"agentInteraction","type":{"kind":"primitive","primitive":"bool"}},{"displayName":"environmentDependent","type":{"kind":"primitive","primitive":"bool"}}]}}"""
                     |> requireOk
                 document.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
             commitResponse typeProposalId
@@ -668,7 +669,7 @@ module AuthoringSessionTests =
                 use document =
                     exchange
                         tool
-                        """{"id":"function","op":"simulateCreateFunctionByName","displayName":"requires_live","parameters":[{"displayName":"request","type":{"kind":"named","name":"ChangeRequest"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"conditional","condition":{"kind":"fieldAccess","source":{"kind":"parameter","name":"request"},"type":"ChangeRequest","field":"agentInteraction"},"whenTrue":{"kind":"boolLiteral","value":true},"whenFalse":{"kind":"fieldAccess","source":{"kind":"parameter","name":"request"},"type":"ChangeRequest","field":"environmentDependent"}}}"""
+                        """{"id":"function","op":"simulateCreateFunctionByName","exported":true,"displayName":"requires_live","parameters":[{"displayName":"request","type":{"kind":"named","name":"ChangeRequest"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"conditional","condition":{"kind":"fieldAccess","source":{"kind":"parameter","name":"request"},"type":"ChangeRequest","field":"agentInteraction"},"whenTrue":{"kind":"boolLiteral","value":true},"whenFalse":{"kind":"fieldAccess","source":{"kind":"parameter","name":"request"},"type":"ChangeRequest","field":"environmentDependent"}}}"""
                     |> requireOk
                 document.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
             commitResponse functionProposalId
@@ -708,7 +709,7 @@ module AuthoringSessionTests =
                 use document =
                     exchange
                         first
-                        """{"id":"create","op":"simulateCreateFunction","displayName":"seven","parameters":[],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"int64Literal","value":7}}"""
+                        """{"id":"create","op":"simulateCreateFunction","exported":true,"displayName":"seven","parameters":[],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"int64Literal","value":7}}"""
                     |> requireOk
                 let result = document.RootElement.GetProperty("result")
                 let review = result.GetProperty("review")
@@ -826,12 +827,12 @@ module AuthoringSessionTests =
             Assert.Equal("StructuralExpectedBaseMismatch", rejectedDiagnosticCode session (replace (snapshot inspected)))
             Assert.Equal(
                 "EffectDeclarationExpectedBaseMismatch",
-                rejectedDiagnosticCode session $"""{{"id":"effect","op":"simulateCreateEffect","displayName":"Clock"{snapshot inspected}}}""")
+                rejectedDiagnosticCode session $"""{{"id":"effect","op":"simulateCreateEffect","exported":true,"displayName":"Clock"{snapshot inspected}}}""")
             Assert.Equal(
                 "TypeDeclarationExpectedBaseMismatch",
                 rejectedDiagnosticCode
                     session
-                    $"""{{"id":"type","op":"simulateCreateTypeByName","displayName":"Flag","typeKind":{{"kind":"product","fields":[]}}{snapshot inspected}}}""")
+                    $"""{{"id":"type","op":"simulateCreateTypeByName","exported":true,"displayName":"Flag","typeKind":{{"kind":"product","fields":[]}}{snapshot inspected}}}""")
             Assert.Equal(
                 "StaleBaseSnapshot",
                 rejectedDiagnosticCode
