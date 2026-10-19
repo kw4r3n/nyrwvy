@@ -667,6 +667,7 @@ module internal WireEncode =
                   "operationId", box (StableId.value operationId) ])
         | AuthoringSessionError.BackendFailure other -> "BackendFailure", sprintf "%A" other, None
         | AuthoringSessionError.DependencyFailure message -> "DependencyFailure", message, None
+        | AuthoringSessionError.MigrationRejected message -> "MigrationRejected", message, None
 
     /// The one-line stderr text for a session that could not start.
     let startupMessage (value: AuthoringSessionError) =

@@ -31,7 +31,7 @@ Rejecting the kinds at the wire boundary would make every example that authors t
 ## Consequences
 
 - `RecipeKindConsistencyTests` checks that a retired kind is accepted by both readers and absent from the reference.
-- Removing the node kinds entirely would need a snapshot migration that rewrites existing nodes, and new hashes for the examples that author them.
+- Removing the node kinds entirely would need a snapshot migration that rewrites existing nodes, and new hashes for the examples that author them. That migration is `Nyrwvy.AuthoringSession migrate` ([snapshot migration](../specs/agent-authoring-session.md#snapshot-migration), 2026-10-19), which rewrites each retired node to the replacement in the table above while keeping its ID.
 
 ## Revisit conditions
 
