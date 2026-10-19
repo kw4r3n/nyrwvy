@@ -2710,7 +2710,7 @@ module SnapshotValidator =
         |> Seq.sortBy (fun issue -> issue.Code, issue.Message)
         |> List.ofSeq
 
-    let private validateCached = SnapshotComputationScope.Memoize("validation", validateUncached)
+    let private validateCached = SnapshotComputationScope.Memoize("validation", validateUncached, retain = true)
     let validate (snapshot: Snapshot): ValidationIssue list = validateCached snapshot
 
     /// Validates a snapshot proposed on top of `baseline`: full validation, plus the runtime
