@@ -7,7 +7,7 @@ draft PR396, stacked on unmerged PR395.** The parent independent review approved
 only finite decoded-text sessions; this continuation measures the next boundary
 without merging or publishing either dependency.
 
-The [example](../../examples/offline-session-transport/README.md) adds an ordinary
+The [example](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-transport/README.md) adds an ordinary
 `Transport.readLine` capability and a tail-recursive graph input loop. EOF
 returns the retained owner to the inherited finish path. `sessionInput` composes
 that loop into the existing resource/close-latch lifetime rather than creating
@@ -81,7 +81,7 @@ Corrected local evidence is retained in `artifacts/transport/revision-bundle` an
 `artifacts/transport/revision-moved`: `pipe-proof.json`, `pipe-raw.json`,
 `verified.json`, the authoring transcript/snapshot, source/symbol/declaration
 files, host, assembly/runtime configuration, cases and compilation record.
-[`fixtures/proof.json`](../../examples/offline-session-transport/fixtures/proof.json)
+[`fixtures/proof.json`](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-transport/fixtures/proof.json)
 retains corrected compact proof, verification and check/log hash records. The
 original rejected evidence remains in `artifacts/transport/proof-bundle` and
 `artifacts/transport/proof-moved`. Hash closure means the declared artifact and

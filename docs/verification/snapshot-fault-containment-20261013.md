@@ -101,7 +101,7 @@ Ordinary create/review/commit tools author the graph. Saved/reopened emission
 and symbols match. Same-path and copied-path replays preserve graph, source,
 symbols and cases. Installed Roslyn compiles emitted Generated.cs unedited,
 without restore. Committed before/after/Python/proof fixtures and the independent
-oracle are in [the example](../../examples/member-snapshot-faults/README.md).
+oracle are in [the example](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-snapshot-faults/README.md).
 Complete local transcripts, runtime bundles, replays and serial suite logs are
 under `artifacts/snapshot-faults/`. The closure records their hashes and commands.
 
@@ -109,7 +109,7 @@ Fresh retained controller, admission, recovery and determined examples exercise
 the unchanged defaults and previous cancellation boundaries. The existing
 close-intent, exception and other Node regressions also run in the serial
 aggregate. Final suite counts and log hashes are in the
-[verified closure](../../examples/member-snapshot-faults/fixtures/verified-closure.json).
+[verified closure](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-snapshot-faults/fixtures/verified-closure.json).
 
 The first Node aggregate passed 45 of 46 tests. Its CLI contract failed because
 the local dependency copy omitted the MCP workspace's separate node_modules.

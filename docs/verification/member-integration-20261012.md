@@ -80,7 +80,7 @@ runtime or random race coverage.
 
 ## Artifacts and reproduction
 
-[Example commands](../../examples/member-integration/README.md#reproduce) support
+[Example commands](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-integration/README.md#reproduce) support
 fresh ordinary authoring or exact frozen materialization. All functions were
 created/reviewed/committed through ordinary tools; graph JSON was never authored
 or edited directly. Reopening preserves symbol identities and re-emits identical

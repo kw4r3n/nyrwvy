@@ -5,7 +5,7 @@ admission, Member lifecycle, integration and cleanup through ordinary graph
 authoring on base `7f4dc33a33db3c9079359b04a851dc7010f0d784`. No generic expressive
 gap was found and no core/runtime/schema changes were required.
 
-[`examples/offline-leader-team`](../../examples/offline-leader-team/README.md)
+[`examples/offline-leader-team`](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-leader-team/README.md)
 contains the authoring recipes and reproduction commands. `sessionRun` accepts
 typed Leader turns. `sessionTurn` reports the current graph registry and folds
 requests through the maintained admission functions. The graph owns all Member

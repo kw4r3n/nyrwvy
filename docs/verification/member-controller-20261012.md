@@ -22,7 +22,7 @@ gap as expected. A required-parity assertion rejects both saved baseline sides:
 Git effects stop at commit, reverse-check/reverse-apply are absent, and the owner
 faults and drains its running peer before later requests can execute. Python
 runs rollback, returns the raw fault to the serialized caller, and continues.
-The maintained [summary](../../examples/member-controller/fixtures/verification-summary.json)
+The maintained [summary](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-controller/fixtures/verification-summary.json)
 retains both baseline traces, Python's observations and artifact hashes.
 
 The independent oracle remains rrawrlet
@@ -119,7 +119,7 @@ Sandbox Node child waits/VSTest sockets required approved local execution.
 | Symbols | `be93db744fb56b2d5d08c34f3ca43555398e06e01da2ed9d449517e167e23cee` |
 | Independent expected fixture | `a120fbb9b72a1d8547722bf69b474e1bd2019a03355a9833b11e56b6de9ecc53` |
 
-[Reproduction commands](../../examples/member-controller/README.md) and the
+[Reproduction commands](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-controller/README.md) and the
 maintained summary preserve source proofs, baseline/final traces and hashes.
 Fresh authoring allocates new IDs; saved-bundle replay preserves them.
 

@@ -4,6 +4,8 @@ Small, self-contained programs that exercise the maintained authoring tools. Eac
 
 The snapshot files are the programs; `runner/Generated.cs` files are projections written by `emitCSharp` and are never edited by hand. Most directories below are probes: each was authored through the ordinary tools to check one contract, and its README states the base commit and what it does and does not establish. Directories marked *(fast)* are exercised by the fast suite (`scripts/tests`) and those marked *(extended)* by the local extended suite (`.opencode/tests-extended`); the others are run only through their own documented commands.
 
+Every example authors in the current forms: no authoring script uses a [retired recipe kind](../docs/decisions/retired-authoring-kinds.md) or a legacy `pin`, and each committed snapshot is written at the current schema by the [migration command](../docs/specs/agent-authoring-session.md#snapshot-migration), whose report is committed beside it as `<snapshot>.migration.json` (the legacy cutover of 2026-10-19, see [removed examples](#removed-examples)).
+
 ## Start here
 
 - [`function-abort/`](function-abort/README.md): a deterministic script that authors `readValidated(path, files)` through the `nyrwvy_*` tool handlers, reviews and commits, reopens the snapshot and runs three scenarios with `runPure`.
@@ -25,33 +27,20 @@ The snapshot files are the programs; `runner/Generated.cs` files are projections
 - [`cleanup-shield/`](cleanup-shield/README.md) *(extended)*: parent cancellation during finish and rollback, using a lexical cancellation shield for the mutation tail of an integration.
 - [`bounded-stream/`](bounded-stream/README.md): a minimal regression probe that discarded heads of advancing OneShot cursors are collected while their workers and owner stay live.
 - [`bounded-worker-stream/`](bounded-worker-stream/README.md): two long-lived producers with independent OneShot chains and acknowledgement-bounded input.
-- [`dynamic-worker-collector/`](dynamic-worker-collector/README.md): two to four workers that register after a running collector has started, with failure, individual cancellation and shutdown cases.
+- [`dynamic-worker-collector/`](dynamic-worker-collector/README.md): two to four workers that register after a running collector has started, with failure, individual cancellation and shutdown cases; its `lib.mjs` is the recipe helper library the other task examples share.
 
-## Member lifecycle (offline port of a Python Team controller)
+## Removed examples
 
-- [`member-lifecycle/`](member-lifecycle/README.md): bounded offline Member lifecycle controller, actual Python Team differential oracle, unedited C# runtime checks, and explicit cancellation/fault fidelity gaps.
-- [`member-lifecycle-followup/`](member-lifecycle-followup/README.md): no-core cancellable observer and tagged provider-effect adaptations, with raw-fault controls retained.
-- [`member-integration/`](member-integration/README.md): bounded sequential integration/rollback policy over observed facts, synthetic Git effects, and unchanged Python Team comparison.
-- [`member-controller/`](member-controller/README.md) *(extended)*: serialized offline lifecycle/integration composition, 22 independent oracle matches and an explicit raw commit-fault gap.
-- [`member-snapshot-faults/`](member-snapshot-faults/README.md) *(extended)*: opt-in snapshot-only ExceptionCatch composition, retained failed Final and an explicit Python cancellation-class divergence.
-- [`member-concurrency/`](member-concurrency/README.md) *(extended)*: bounded concurrent Member admission under the unchanged Python Team's lock policy.
-- [`member-owner-cancellation/`](member-owner-cancellation/README.md) *(extended)*: whole-owner cancellation and shutdown, including the pre-join repair.
-- [`member-determined-settlement/`](member-determined-settlement/README.md) *(extended)*: Member status captured after the provider scope and published under a cancellation shield.
-- [`member-close-intent/`](member-close-intent/README.md) *(extended)*: close intent after cancellation, with the close latch owned by a separate shielded scope.
+The Member lifecycle series (an offline port of a Python Team controller) and its Offline Leader and session continuations were removed from `main` on 2026-10-19 by step 2 of the [legacy cutover](../docs/plans/post-m2-roadmap.md#legacy-cutover-planned), as the evaluation runners were ([tools](../tools/README.md#evaluation-runners)). They remain reproducible from commit `bca45b30053b68abbfd071480e7c062735f410e6`, the last `main` commit that contains them; no archive tag was created. Their [verification records](../docs/verification/README.md#offline-teammember-reconstruction) are unchanged and link to that commit.
 
-## Offline Leader and session (continuations of the Member series)
+They could not be re-recorded honestly: their fixtures authenticate graph hashes computed from authoring scripts that use the retired kinds (`stringEqual`, `int64Equal`, `mapGetOrDefault`, `int64GreaterThan`), their committed snapshots (schema 13 and 14) hold those nodes, their oracles compare against a pinned Python Team checkout that is not part of this repository, and `offline-session-replay` retains compiled binaries and authenticated ancestor inputs of parent sessions. Each later example in the series authors on top of the earlier ones (`member-lifecycle` → `member-controller` → `member-concurrency` → `member-owner-cancellation` → … → `offline-leader-team` → `offline-leader-jsonrpc` → `offline-session-*`), so the chain goes together. The committed Python oracle expectations were left with them.
 
-- [`offline-leader-team/`](offline-leader-team/README.md) *(extended)*: scripted Leader turns compose the maintained typed relay, admission, Member defaults, integration and joined shutdown; moved replay, per-request effects and compiled boundary controls.
-- [`offline-leader-jsonrpc/`](offline-leader-jsonrpc/README.md) *(extended)*: the JSON parser, envelope checks and serialization re-authored as graph recipes in front of the Leader/Team/Member session.
-- [`offline-session-transport/`](offline-session-transport/README.md) *(extended)*: the same session over actual child-process stdin/stdout pipes.
-- [`offline-session-owned-io/`](offline-session-owned-io/README.md) *(extended)*: an owned graph reader and ordered dispatcher over Linux pipes, cancellation without peer EOF, observable output failure, causal controls and moved replay.
-- [`offline-session-bounded-input/`](offline-session-bounded-input/README.md) *(extended)*: graph-supplied byte policy, bounded framing before strict UTF-8 decoding, exact-limit/cancellation probes, relaxed-policy controls and moved replay.
-- [`offline-session-reader-propagation/`](offline-session-reader-propagation/README.md) *(extended)*: owned reader failure propagation while foreground work is held.
-- [`offline-session-journal/`](offline-session-journal/README.md) *(extended)*: durable integration requests and pending-intent reconciliation.
-- [`offline-session-registry/`](offline-session-registry/README.md) *(extended)*: a durable registry and integrated HEAD restoration.
-- [`offline-session-physical-git/`](offline-session-physical-git/README.md) *(extended)*: the reviewed durable registry graph bound to disposable local commit/ref/index/worktree effects, subprocess-exit crash reconciliation, exact retained outcomes, negative controls and moved byte/hash replay.
-- [`offline-session-epoch/`](offline-session-epoch/README.md): one explicit graph-authored renewed admission epoch, blocked predecessor identities and one fresh once-only integration in controlled offline physical fixtures.
-- [`offline-session-epoch-disposition/`](offline-session-epoch-disposition/README.md): explicit applied fresh-tail disposition, three retained unknowns and closed startup.
-- [`offline-session-additional-admission/`](offline-session-additional-admission/README.md) *(extended)*: one explicit additional admission and selected Member/integration with three old unknowns retained.
-- [`offline-session-additional-disposition/`](offline-session-additional-disposition/README.md): terminal applied-tail disposition, four unknowns, bounded evidence encoding and the [finite acceptance index](../docs/verification/offline-terminal-milestone-20261015.md).
-- [`offline-session-replay/`](offline-session-replay/README.md) *(fast: input pack only)*: Git-tracked authenticated ancestor inputs and one-command opt-in reproduction of the four latest finite offline session oracles above; no private parent artifacts required.
+| Removed directory | Last recorded as |
+| --- | --- |
+| `member-lifecycle`, `member-lifecycle-followup`, `member-integration` | committed snapshots at schema 14, 14 and 13 with retired nodes; Python Team differential oracles |
+| `member-controller`, `member-snapshot-faults`, `member-concurrency`, `member-owner-cancellation`, `member-determined-settlement`, `member-close-intent` | authored at run time on top of `member-lifecycle`; fixtures record graph hashes and Python oracle expectations |
+| `offline-leader-team`, `offline-leader-jsonrpc` | authored on top of `member-concurrency`; proof fixtures record graph hashes |
+| `offline-session-transport`, `offline-session-owned-io`, `offline-session-bounded-input`, `offline-session-reader-propagation`, `offline-session-journal`, `offline-session-registry`, `offline-session-physical-git`, `offline-session-epoch`, `offline-session-epoch-disposition`, `offline-session-additional-admission`, `offline-session-additional-disposition` | authored on top of `offline-leader-jsonrpc`; proof fixtures record graph and bundle hashes |
+| `offline-session-replay` | retained compiled binaries and authenticated ancestor inputs of the four latest offline session oracles |
+
+The removed extended tests were `.opencode/tests-extended/nyrwvy-authoring-member-*.test.mjs` and `nyrwvy-authoring-offline-*.test.mjs`, and the fast test `scripts/tests/retained-offline-inputs.test.mjs`.

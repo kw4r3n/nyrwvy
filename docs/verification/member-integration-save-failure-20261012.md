@@ -31,10 +31,10 @@ emitted C#: nonempty/empty patches with one, two or three requests. All other
 30 scenarios agreed. On request one, both return `Err("save")`, but only Python
 retains HEAD. On retry, the old graph repeats effects; Python returns `Ok(HEAD)`
 with the same effect trace. The committed
-[baseline observations](../../examples/member-integration/fixtures/baseline-comparison.json)
+[baseline observations](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-integration/fixtures/baseline-comparison.json)
 retain both sides, including the first error before the later successful result.
 The historical frozen pre-fix graph also reproduces those same six disagreements
-through the [baseline materializer](../../examples/member-integration/README.md).
+through the [baseline materializer](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-integration/README.md).
 Fresh authoring and the historical fixture allocate different stable IDs.
 
 ## Implementation and request observations
@@ -93,7 +93,7 @@ The filename remained **`integration.json`**. This does not claim filename-renam
 coverage. Graph bytes, snapshot/semantic fingerprints, symbols and re-emitted
 C# remained equal. All graph changes were authored/reviewed/committed through
 ordinary tools; saved graph JSON and emitted C# were not edited by hand.
-The [fixture summary](../../examples/member-integration/fixtures/verification-summary.json)
+The [fixture summary](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-integration/fixtures/verification-summary.json)
 records sanitized per-request observations and artifact hashes.
 
 | Artifact | SHA-256 |

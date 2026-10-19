@@ -7,8 +7,8 @@ The candidate starts at reviewed epoch commit
 `29544f5e2b4725df4c3e381b85b7d80cc105804a`, tree
 `d3f8e644d7cc7b85574efb74733f1f145afdacc3`, on a separate
 `feat/interrupted-fresh-epoch-disposition` branch. The source task-58 checkout
-remains clean at that head/tree. The [example contract](../../examples/offline-session-epoch-disposition/README.md)
-defines the finite case and the [proof manifest](../../examples/offline-session-epoch-disposition/fixtures/proof.json)
+remains clean at that head/tree. The [example contract](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-epoch-disposition/README.md)
+defines the finite case and the [proof manifest](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-epoch-disposition/fixtures/proof.json)
 pins final artifacts and raw evidence.
 
 An offline paired probe first reproduced the existing policy gap: the unchanged

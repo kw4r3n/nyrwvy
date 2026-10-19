@@ -8,7 +8,7 @@ Reviewed base: `b655d24ff70f67334cdbc9d43c40a0ddf64d1fe8`, tree
 dependencies. Candidate branch: `feat/offline-session-owned-io` in an isolated
 local clone. No push, PR creation or merge is part of this result.
 
-The [example](../../examples/offline-session-owned-io/README.md) adds a separate
+The [example](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-owned-io/README.md) adds a separate
 graph reader task with acknowledged `OneShot` frame links and an ordered driver.
 The inherited parser, command fold, admission, Member workers, integration ledger,
 shielded mutation tail, close intent, joins and application release are reused.
@@ -118,7 +118,7 @@ regressions. The retained cancellation cases closed in approximately **12–32 m
 after SIGTERM; the retained stalled write expired after **251 ms** against its
 250 ms budget. These are measurements from this run, not scheduling guarantees.
 The check records and final observed results are retained with
-[`fixtures/proof.json`](../../examples/offline-session-owned-io/fixtures/proof.json).
+[`fixtures/proof.json`](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-owned-io/fixtures/proof.json).
 
 The reviewed **864/864 fast .NET suite**, clean Release build and **47/47 prior
 aggregate** remain reused evidence. They are not fresh candidate runs. Read-only
@@ -148,7 +148,7 @@ hashes**. Closure excludes transcripts,
 mutable scenario files, tool binaries, compiler/reference-pack bytes and general
 environment state.
 
-The [capability checklist](../../examples/offline-session-owned-io/README.md#capability-checklist)
+The [capability checklist](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-owned-io/README.md#capability-checklist)
 retains the important boundaries: EOF behind queued work waits for dispatch;
 frame size before decoding is unbounded; OS writes have no peer acknowledgement;
 durable result retention/restart reconciliation is absent; arbitrary simultaneous

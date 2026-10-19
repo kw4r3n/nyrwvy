@@ -15,14 +15,14 @@ publication remains separately coordinated by the parent task.
 
 | Contract | Index |
 | --- | --- |
-| Original physical integration, retention and explicit continuation | [Physical example](../../examples/offline-session-physical-git/README.md), [continuation](../../examples/offline-session-physical-git/CONTINUATION.md), [interruption disposition](../../examples/offline-session-physical-git/INTERRUPTION.md) |
-| One fresh epoch | [Epoch](../../examples/offline-session-epoch/README.md) |
-| Three-unknown first-fresh disposition | [Disposition](../../examples/offline-session-epoch-disposition/README.md) |
-| One additional admission/Member/integration | [Additional admission](../../examples/offline-session-additional-admission/README.md), [authenticated historical proof](../../examples/offline-session-additional-admission/fixtures/proof.json) |
-| Four-unknown terminal disposition | [Terminal example](../../examples/offline-session-additional-disposition/README.md), [fixed oracle proof](../../examples/offline-session-additional-disposition/fixtures/proof.json) |
-| Unique finite state/authority policy | [22-state acceptance manifest](../../examples/offline-session-additional-disposition/fixtures/acceptance-manifest.json) |
-| Complete bounded encoding and large-request refusal | [Encoding proof](../../examples/offline-session-additional-disposition/fixtures/encoding.json) |
-| Authenticated base/ancestor and moved artifact hashes | [Bundle verifier](../../examples/offline-session-additional-disposition/verify-bundles.mjs), [proof hashes](../../examples/offline-session-additional-disposition/fixtures/proof.json) |
+| Original physical integration, retention and explicit continuation | [Physical example](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-physical-git/README.md), [continuation](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-physical-git/CONTINUATION.md), [interruption disposition](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-physical-git/INTERRUPTION.md) |
+| One fresh epoch | [Epoch](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-epoch/README.md) |
+| Three-unknown first-fresh disposition | [Disposition](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-epoch-disposition/README.md) |
+| One additional admission/Member/integration | [Additional admission](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-additional-admission/README.md), [authenticated historical proof](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-additional-admission/fixtures/proof.json) |
+| Four-unknown terminal disposition | [Terminal example](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-additional-disposition/README.md), [fixed oracle proof](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-additional-disposition/fixtures/proof.json) |
+| Unique finite state/authority policy | [22-state acceptance manifest](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-additional-disposition/fixtures/acceptance-manifest.json) |
+| Complete bounded encoding and large-request refusal | [Encoding proof](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-additional-disposition/fixtures/encoding.json) |
+| Authenticated base/ancestor and moved artifact hashes | [Bundle verifier](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-additional-disposition/verify-bundles.mjs), [proof hashes](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-additional-disposition/fixtures/proof.json) |
 
 The manifest assigns each state one policy: no acceptance, exact explicit
 administrative completion, closed/refusal, saved actual-result replay, or a

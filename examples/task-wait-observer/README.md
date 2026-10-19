@@ -10,7 +10,7 @@ shows the callback, concrete graph assembly and local execution.
 
 This composes existing TaskWait and OneShot operations. It preserves the current
 TaskWait contract and adds no runtime primitive, dependency or fault catcher.
-The earlier [Member follow-up](../member-lifecycle-followup/README.md) established
+The earlier [Member follow-up](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-lifecycle-followup/README.md) established
 the pattern; these helpers contain no Member, provider, workspace or Team policy.
 
 ## Ownership and usage
