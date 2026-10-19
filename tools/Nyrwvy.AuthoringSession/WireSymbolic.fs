@@ -188,11 +188,7 @@ module internal WireSymbolic =
             [ "displayName"; "parameters"; "resultType"; "failureType"; "effect" ]
             [ "displayName"; "parameters"; "resultType"; "effect" ]
             item
-        let failureType =
-            match tryProperty "failureType" item with
-            | None -> None
-            | Some value when value.ValueKind = JsonValueKind.Null -> None
-            | Some value -> Some(typeRef declarations value)
+        let failureType = retiredFailureType item
         { DisplayName = requiredString "displayName" item
           Parameters =
             array "parameters" item
