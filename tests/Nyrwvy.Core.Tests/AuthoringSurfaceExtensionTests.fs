@@ -344,7 +344,7 @@ module AuthoringSurfaceExtensionTests =
             Assert.Equal(idText session.SnapshotId, renameEntry.GetProperty("baseSnapshotId").GetString())
             Assert.Equal("renameType 'Point' to 'Coordinate'; deleteFunction 'useAdd'", renameEntry.GetProperty("summary").GetString())
             let evolutionEntry = entries[evolution.GetProperty("proposalId").GetString()]
-            Assert.Equal("fieldlessUnionVariantEvolution", evolutionEntry.GetProperty("kind").GetString())
+            Assert.Equal("unionVariantEvolution", evolutionEntry.GetProperty("kind").GetString())
             Assert.Equal("addUnionVariantLike 'Blank' on 'Shape' (1 matches repaired)", evolutionEntry.GetProperty("summary").GetString())
             commit session evolution
             Assert.Equal(1, (status ()).GetProperty("pendingProposalCount").GetInt32())
@@ -541,7 +541,7 @@ module AuthoringSurfaceExtensionTests =
                 result session
                     $"""{{"id":"ring","op":"simulateAddUnionVariantLikeByName","type":"Shape","sourceVariant":"Circle","displayName":"Ring","additionalFields":[{{"displayName":"inner","type":{int64Type}}}]}}"""
             let review = proposal.GetProperty("review")
-            Assert.Equal("fieldlessUnionVariantEvolution", review.GetProperty("kind").GetString())
+            Assert.Equal("unionVariantEvolution", review.GetProperty("kind").GetString())
             Assert.Equal("Ring", review.GetProperty("addedVariantDisplayName").GetString())
             Assert.Equal(1, review.GetProperty("repairedMatchCount").GetInt32())
             let variants = review.GetProperty("updatedType").GetProperty("typeKind").GetProperty("variants")

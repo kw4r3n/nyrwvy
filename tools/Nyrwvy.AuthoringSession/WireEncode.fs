@@ -420,7 +420,7 @@ module internal WireEncode =
                       "createdTypes", item.CreatedTypes |> List.map semanticType |> arrayValue ]
             | AuthoringProposalReview.UnionVariantEvolution item ->
                 withRewritten
-                    [ "kind", box "fieldlessUnionVariantEvolution"
+                    [ "kind", box "unionVariantEvolution"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "updatedType", semanticType item.UpdatedType

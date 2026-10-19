@@ -174,7 +174,7 @@ module AuthoringTypeSessionTests =
                     |> requireOk
                 let result = document.RootElement.GetProperty("result")
                 let review = result.GetProperty("review")
-                Assert.Equal("fieldlessUnionVariantEvolution", review.GetProperty("kind").GetString())
+                Assert.Equal("unionVariantEvolution", review.GetProperty("kind").GetString())
                 Assert.Equal(1, review.GetProperty("repairedMatchCount").GetInt32())
                 let repairedFunctionIds = review.GetProperty("repairedFunctionIds")
                 Assert.Equal(1, repairedFunctionIds.GetArrayLength())

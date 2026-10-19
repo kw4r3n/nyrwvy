@@ -97,7 +97,7 @@ module ViewerFile =
         | AuthoringProposalReview.ProductFieldTypeMigration _ -> "productFieldTypeMigration"
         | AuthoringProposalReview.CreateType _ -> "createType"
         | AuthoringProposalReview.CreateTypeGroup _ -> "createTypes"
-        | AuthoringProposalReview.UnionVariantEvolution _ -> "fieldlessUnionVariantEvolution"
+        | AuthoringProposalReview.UnionVariantEvolution _ -> "unionVariantEvolution"
         | AuthoringProposalReview.CreateEffect _ -> "createEffect"
         | AuthoringProposalReview.CreateCapability _ -> "createCapability"
 
