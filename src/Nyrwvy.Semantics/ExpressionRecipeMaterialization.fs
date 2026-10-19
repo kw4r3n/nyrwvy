@@ -185,6 +185,14 @@ module internal ExpressionRecipeMaterialization =
             valueNodes @ substringNodes @ fromNodes
             @ [ { Id = nodeId; Kind = SemanticNodeKind.StringIndexOf(valueResult, substringResult, fromResult) } ],
             nodeId
+        | ExpressionRecipe.StringLastIndexOfBefore(value, substring, bound) ->
+            let valueNodes, valueResult = materializeRecipe value
+            let substringNodes, substringResult = materializeRecipe substring
+            let boundNodes, boundResult = materializeRecipe bound
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            valueNodes @ substringNodes @ boundNodes
+            @ [ { Id = nodeId; Kind = SemanticNodeKind.StringLastIndexOfBefore(valueResult, substringResult, boundResult) } ],
+            nodeId
         | ExpressionRecipe.StringSpan(value, set, bound)
         | ExpressionRecipe.StringSpanBack(value, set, bound) ->
             let valueNodes, valueResult = materializeRecipe value
@@ -243,6 +251,7 @@ module internal ExpressionRecipeMaterialization =
         | ExpressionRecipe.Float64Subtract(left, right) -> binary SemanticNodeKind.Float64Subtract left right
         | ExpressionRecipe.Float64Multiply(left, right) -> binary SemanticNodeKind.Float64Multiply left right
         | ExpressionRecipe.Float64Divide(left, right) -> binary SemanticNodeKind.Float64Divide left right
+        | ExpressionRecipe.Float64FloorModulo(left, right) -> binary SemanticNodeKind.Float64FloorModulo left right
         | ExpressionRecipe.Float64Equal(left, right) -> binary SemanticNodeKind.Float64Equal left right
         | ExpressionRecipe.Float64LessThan(left, right) -> binary SemanticNodeKind.Float64LessThan left right
         | ExpressionRecipe.Float64IsNaN value -> unary SemanticNodeKind.Float64IsNaN value
@@ -354,6 +363,12 @@ module internal ExpressionRecipeMaterialization =
             let contextNodes, contextBindings = materializeContext folderFunctionId context
             let nodeId = StableIdAllocator.newGraphNodeId ()
             sourceNodes @ seedNodes @ contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.MapFold(sourceResult, seedResult, folderFunctionId, contextBindings) } ], nodeId
+        | ExpressionRecipe.SetFold(source, seed, folderFunctionId, context) ->
+            let sourceNodes, sourceResult = materializeRecipe source
+            let seedNodes, seedResult = materializeRecipe seed
+            let contextNodes, contextBindings = materializeContext folderFunctionId context
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            sourceNodes @ seedNodes @ contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.SetFold(sourceResult, seedResult, folderFunctionId, contextBindings) } ], nodeId
         | ExpressionRecipe.ListEffectFold(source, seed, folderFunctionId, context) ->
             let sourceNodes, sourceResult = materializeRecipe source
             let seedNodes, seedResult = materializeRecipe seed
@@ -421,7 +436,9 @@ module internal ExpressionRecipeMaterialization =
         | ExpressionRecipe.MapFromList(source, keyOfFunctionId, context) -> listCallback SemanticNodeKind.MapFromList source keyOfFunctionId context
         | ExpressionRecipe.ListFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFilter source predicateFunctionId context
         | ExpressionRecipe.MapFilter(source, keepFunctionId, context) -> listCallback SemanticNodeKind.MapFilter source keepFunctionId context
+        | ExpressionRecipe.SetFilter(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.SetFilter source predicateFunctionId context
         | ExpressionRecipe.MapMapValues(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.MapMapValues source mapperFunctionId context
+        | ExpressionRecipe.SetMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.SetMap source mapperFunctionId context
         | ExpressionRecipe.OptionMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.OptionMap source mapperFunctionId context
         | ExpressionRecipe.OptionAndThen(source, binderFunctionId, context) -> listCallback SemanticNodeKind.OptionAndThen source binderFunctionId context
         | ExpressionRecipe.ResultMap(source, mapperFunctionId, context) -> listCallback SemanticNodeKind.ResultMap source mapperFunctionId context
@@ -429,6 +446,7 @@ module internal ExpressionRecipeMaterialization =
         | ExpressionRecipe.ResultAndThen(source, binderFunctionId, context) -> listCallback SemanticNodeKind.ResultAndThen source binderFunctionId context
         | ExpressionRecipe.ListSortBy(source, lessThanFunctionId, context) -> listCallback SemanticNodeKind.ListSortBy source lessThanFunctionId context
         | ExpressionRecipe.ListMinBy(source, lessThanFunctionId, context) -> listCallback SemanticNodeKind.ListMinBy source lessThanFunctionId context
+        | ExpressionRecipe.ListMaxBy(source, lessThanFunctionId, context) -> listCallback SemanticNodeKind.ListMaxBy source lessThanFunctionId context
         | ExpressionRecipe.ListAny(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAny source predicateFunctionId context
         | ExpressionRecipe.ListFindIndex(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListFindIndex source predicateFunctionId context
         | ExpressionRecipe.ListAll(source, predicateFunctionId, context) -> listCallback SemanticNodeKind.ListAll source predicateFunctionId context

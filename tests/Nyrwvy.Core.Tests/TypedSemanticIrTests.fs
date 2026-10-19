@@ -61,6 +61,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.StringIndexOf _
                 | TypedSemanticNodeKind.StringSpan _
                 | TypedSemanticNodeKind.StringSpanBack _
+                | TypedSemanticNodeKind.StringLastIndexOfBefore _
                 | TypedSemanticNodeKind.StringLastIndexOf _
                 | TypedSemanticNodeKind.StringStartsWith _
                 | TypedSemanticNodeKind.StringEndsWith _
@@ -104,6 +105,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.Float64Subtract _
                 | TypedSemanticNodeKind.Float64Multiply _
                 | TypedSemanticNodeKind.Float64Divide _
+                | TypedSemanticNodeKind.Float64FloorModulo _
                 | TypedSemanticNodeKind.Float64Equal _
                 | TypedSemanticNodeKind.Float64LessThan _
                 | TypedSemanticNodeKind.Float64IsNaN _
@@ -168,6 +170,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ListConcat _
                 | TypedSemanticNodeKind.ListFold _
                 | TypedSemanticNodeKind.MapFold _
+                | TypedSemanticNodeKind.SetFold _
                 | TypedSemanticNodeKind.ListEffectFold _
                 | TypedSemanticNodeKind.UseResource _
                 | TypedSemanticNodeKind.ParallelAll _
@@ -190,6 +193,7 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.MapFromList _
                 | TypedSemanticNodeKind.ListFilter _
                 | TypedSemanticNodeKind.MapFilter _
+                | TypedSemanticNodeKind.SetFilter _
                 | TypedSemanticNodeKind.ListSortBy _
                 | TypedSemanticNodeKind.OptionMap _
                 | TypedSemanticNodeKind.OptionAndThen _
@@ -197,7 +201,9 @@ module TypedSemanticIrTests =
                 | TypedSemanticNodeKind.ResultMapErr _
                 | TypedSemanticNodeKind.ResultAndThen _
                 | TypedSemanticNodeKind.MapMapValues _
+                | TypedSemanticNodeKind.SetMap _
                 | TypedSemanticNodeKind.ListMinBy _
+                | TypedSemanticNodeKind.ListMaxBy _
                 | TypedSemanticNodeKind.ListAny _
                 | TypedSemanticNodeKind.ListFindIndex _
                 | TypedSemanticNodeKind.ListAll _

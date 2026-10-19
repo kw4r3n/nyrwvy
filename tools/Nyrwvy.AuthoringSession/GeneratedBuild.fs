@@ -9,7 +9,8 @@ open Microsoft.CodeAnalysis.Emit
 
 /// Compiles a generated runner in this process with Roslyn, with the options `dotnet build -c Release`
 /// gave the generated project: an executable for the running .NET major version, nullable enabled
-/// and warnings as errors. Only compilation moves in process; the program still runs as a child.
+/// and warnings as errors. Only compilation moves in process; the program still runs in a child
+/// process, the session's runner worker.
 module internal GeneratedBuild =
     type Failure =
         | TimedOut
@@ -70,7 +71,7 @@ module internal GeneratedBuild =
     /// Compiles `sources` (file name, text) into an assembly and its portable PDB in memory. Errors are
     /// reported in the compiler's `file(line,col): error CSnnnn: message` form, one per line, with the
     /// file names placed in `directory`.
-    let private emit (directory: string) (sources: (string * string) list) (timeoutMs: int) =
+    let emit (directory: string) (sources: (string * string) list) (timeoutMs: int) =
         use cancellation = new CancellationTokenSource(timeoutMs)
         try
             let trees =
@@ -91,7 +92,9 @@ module internal GeneratedBuild =
             else Ok(peStream.ToArray(), pdbStream.ToArray())
         with :? OperationCanceledException -> Error TimedOut
 
-    let private install directory (assembly: byte[], symbols: byte[]) =
+    /// Writes a built assembly, its PDB and a runtime configuration into `directory` and returns the
+    /// assembly path.
+    let install directory (assembly: byte[], symbols: byte[]) =
         let path = Path.Combine(directory, "Generated.dll")
         File.WriteAllBytes(path, assembly)
         File.WriteAllBytes(Path.Combine(directory, "Generated.pdb"), symbols)

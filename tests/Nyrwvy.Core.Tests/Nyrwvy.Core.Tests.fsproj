@@ -89,6 +89,10 @@
     <Compile Include="OptionResultCombinatorTests.fs" />
     <Compile Include="OptionResultAccessorTests.fs" />
     <Compile Include="ListContainsTests.fs" />
+    <Compile Include="SetCallbackTests.fs" />
+    <Compile Include="ListMaxByTests.fs" />
+    <Compile Include="Float64FloorModuloTests.fs" />
+    <Compile Include="StringLastIndexOfBeforeTests.fs" />
     <Compile Include="StringEncodeUtf8Tests.fs" />
     <Compile Include="StandardOperationChoiceTests.fs" />
     <Compile Include="MatchUnionSharedArmTests.fs" />
@@ -111,6 +115,7 @@
     <Compile Include="ResultTypeMigrationTests.fs" />
     <Compile Include="SignatureMigrationGenericRecursiveTests.fs" />
     <Compile Include="UnionVariantWithFieldsTests.fs" />
+    <Compile Include="UnionVariantAdditionTests.fs" />
     <Compile Include="ProductFieldTypeMigrationTests.fs" />
     <Compile Include="CapabilityOperationSignatureMigrationTests.fs" />
     <Compile Include="ListCallbackContextTests.fs" />
@@ -156,6 +161,7 @@
     <Compile Include="GeneratedBuildTests.fs" />
     <Compile Include="PureRunBindingTests.fs" />
     <Compile Include="PureRunBuildCacheTests.fs" />
+    <Compile Include="PureRunWorkerTests.fs" />
     <Compile Include="PureRunLoneSurrogateTests.fs" />
     <Compile Include="PureRunByNameTests.fs" />
     <Compile Include="RecursiveTypeGroupTests.fs" />

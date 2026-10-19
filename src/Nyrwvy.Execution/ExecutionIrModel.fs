@@ -116,6 +116,7 @@ type ExecutionInstructionKind =
     | StringSpan of valueId: ExecutionValueId * setId: ExecutionValueId * fromId: ExecutionValueId
     /// Least code-point position p <= `end` (clamped) with every code point in [p, end) in `set`.
     | StringSpanBack of valueId: ExecutionValueId * setId: ExecutionValueId * endId: ExecutionValueId
+    | StringLastIndexOfBefore of valueId: ExecutionValueId * substringId: ExecutionValueId * endId: ExecutionValueId
     | StringLastIndexOf of valueId: ExecutionValueId * substringId: ExecutionValueId
     | StringStartsWith of valueId: ExecutionValueId * prefixId: ExecutionValueId
     | StringEndsWith of valueId: ExecutionValueId * suffixId: ExecutionValueId
@@ -162,6 +163,7 @@ type ExecutionInstructionKind =
     | Float64Subtract of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64Multiply of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64Divide of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
+    | Float64FloorModulo of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64Equal of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64LessThan of leftValueId: ExecutionValueId * rightValueId: ExecutionValueId
     | Float64IsNaN of valueId: ExecutionValueId
@@ -227,6 +229,7 @@ type ExecutionInstructionKind =
     /// `context` binds callback parameters to values computed before iteration.
     | ListFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | MapFold of sourceMapValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
+    | SetFold of sourceSetValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ParallelAll of sourceListValueId: ExecutionValueId * workerFunctionId: FunctionId * context: ExecutionCallArgument list
     | CancellationRequested
     | ExceptionCatch of bodyFunctionId: FunctionId * bodyContext: ExecutionCallArgument list * handlerFunctionId: FunctionId * handlerContext: ExecutionCallArgument list
@@ -249,11 +252,14 @@ type ExecutionInstructionKind =
     | MapFromList of sourceListValueId: ExecutionValueId * keyOfFunctionId: FunctionId * context: ExecutionCallArgument list
     | ListFilter of sourceListValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     | MapFilter of sourceMapValueId: ExecutionValueId * keepFunctionId: FunctionId * context: ExecutionCallArgument list
+    | SetFilter of sourceSetValueId: ExecutionValueId * predicateFunctionId: FunctionId * context: ExecutionCallArgument list
     /// Stable top-down merge sort under a pure less-than callback (see SemanticNodeKind.ListSortBy).
     | ListSortBy of sourceListValueId: ExecutionValueId * lessThanFunctionId: FunctionId * context: ExecutionCallArgument list
     /// First smallest item under a pure less-than callback (see SemanticNodeKind.ListMinBy).
     | ListMinBy of sourceListValueId: ExecutionValueId * lessThanFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ListMaxBy of sourceListValueId: ExecutionValueId * lessThanFunctionId: FunctionId * context: ExecutionCallArgument list
     | MapMapValues of sourceMapValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
+    | SetMap of sourceSetValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
     | OptionMap of sourceOptionValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
     | OptionAndThen of sourceOptionValueId: ExecutionValueId * binderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ResultMap of sourceResultValueId: ExecutionValueId * mapperFunctionId: FunctionId * context: ExecutionCallArgument list
@@ -314,20 +320,24 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.DirectCall(functionId, _) -> [ callback FunctionReferenceRole.DirectCall functionId ]
         | ExecutionInstructionKind.ListFold(_, _, functionId, _)
         | ExecutionInstructionKind.MapFold(_, _, functionId, _)
+        | ExecutionInstructionKind.SetFold(_, _, functionId, _)
         | ExecutionInstructionKind.ListZipWith(_, _, functionId, _)
         | ExecutionInstructionKind.ListFlatMap(_, functionId, _)
         | ExecutionInstructionKind.ListMap(_, functionId, _)
         | ExecutionInstructionKind.MapFromList(_, functionId, _)
         | ExecutionInstructionKind.ListFilter(_, functionId, _)
         | ExecutionInstructionKind.MapFilter(_, functionId, _)
+        | ExecutionInstructionKind.SetFilter(_, functionId, _)
         | ExecutionInstructionKind.ListSortBy(_, functionId, _)
         | ExecutionInstructionKind.MapMapValues(_, functionId, _)
+        | ExecutionInstructionKind.SetMap(_, functionId, _)
         | ExecutionInstructionKind.OptionMap(_, functionId, _)
         | ExecutionInstructionKind.OptionAndThen(_, functionId, _)
         | ExecutionInstructionKind.ResultMap(_, functionId, _)
         | ExecutionInstructionKind.ResultMapErr(_, functionId, _)
         | ExecutionInstructionKind.ResultAndThen(_, functionId, _)
         | ExecutionInstructionKind.ListMinBy(_, functionId, _)
+        | ExecutionInstructionKind.ListMaxBy(_, functionId, _)
         | ExecutionInstructionKind.ListAny(_, functionId, _)
         | ExecutionInstructionKind.ListFindIndex(_, functionId, _)
         | ExecutionInstructionKind.ListAll(_, functionId, _) -> [ callback FunctionReferenceRole.PureListCallback functionId ]
@@ -390,6 +400,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.StringIndexOf _
         | ExecutionInstructionKind.StringSpan _
         | ExecutionInstructionKind.StringSpanBack _
+        | ExecutionInstructionKind.StringLastIndexOfBefore _
         | ExecutionInstructionKind.StringLastIndexOf _
         | ExecutionInstructionKind.StringStartsWith _
         | ExecutionInstructionKind.StringEndsWith _
@@ -433,6 +444,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.Float64Subtract _
         | ExecutionInstructionKind.Float64Multiply _
         | ExecutionInstructionKind.Float64Divide _
+        | ExecutionInstructionKind.Float64FloorModulo _
         | ExecutionInstructionKind.Float64Equal _
         | ExecutionInstructionKind.Float64LessThan _
         | ExecutionInstructionKind.Float64IsNaN _

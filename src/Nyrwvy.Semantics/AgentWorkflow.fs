@@ -63,6 +63,15 @@ type AgentAddCapabilityOperationIntent =
       Operation: AgentCapabilityOperationIntent
       ImplementationPlans: AgentCapabilityImplementationPlan list }
 
+/// Adds one variant with arbitrary fields to an existing Union. `Variant` carries the system-owned
+/// variant and field IDs because the arm plans already bind the fields; `AgentUnionVariantArmPlans`
+/// allocates them and materializes each arm recipe in its match's scope. Every `matchUnion` over
+/// the Union needs exactly one arm plan, so every match stays exhaustive in the reviewed change.
+type AgentAddUnionVariantIntent =
+    { TargetTypeId: TypeId
+      Variant: SemanticVariant
+      ArmPlans: UnionVariantArmPlan list }
+
 [<RequireQualifiedAccess>]
 type AgentOperationIntent =
     | RenameDisplayName of AgentRenameTarget * newDisplayName: string
@@ -80,6 +89,7 @@ type AgentOperationIntent =
     | RemoveFunctionRequiredEffect of AgentFunctionRequiredEffectIntent
     | RemoveFunctionParameter of ParameterId
     | RemoveUnionVariant of VariantId
+    | AddUnionVariant of AgentAddUnionVariantIntent
 
 type AgentWorkspace = private { Workspace: WorkspaceState }
 
@@ -302,6 +312,11 @@ module AgentWorkflow =
             SemanticOperation.RemoveFunctionParameter parameterId
         | AgentOperationIntent.RemoveUnionVariant variantId ->
             SemanticOperation.RemoveUnionVariant variantId
+        | AgentOperationIntent.AddUnionVariant request ->
+            SemanticOperation.AddUnionVariant
+                { TargetTypeId = request.TargetTypeId
+                  Variant = request.Variant
+                  ArmPlans = request.ArmPlans }
 
     /// Simulates against the current snapshot on behalf of a caller that inspected
     /// `expectedBaseSnapshotId`; a different current snapshot rejects with `StaleBaseSnapshot`.

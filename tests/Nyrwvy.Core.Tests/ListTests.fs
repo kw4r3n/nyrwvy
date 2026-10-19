@@ -204,17 +204,17 @@ module ListTests =
         let viewer = ViewerProjection.focus focus
         let roles = viewer.Graph.Nodes |> List.map (fun node -> node.Role)
         for role in
-            [ ViewerNodeRole.ListConstruct
-              ViewerNodeRole.ListAppendItem
-              ViewerNodeRole.ListConcat
-              ViewerNodeRole.ListLength ] do
+            [ ViewerNodeRole.Operation "ListConstruct"
+              ViewerNodeRole.Operation "ListAppendItem"
+              ViewerNodeRole.Operation "ListConcat"
+              ViewerNodeRole.Operation "ListLength" ] do
             Assert.Contains(role, roles)
 
         let emptyViewer =
             SemanticQuery.focusFunction fixture.Snapshot fixture.EmptyLengthFunctionId
             |> unwrap "empty focus"
             |> ViewerProjection.focus
-        Assert.Contains(ViewerNodeRole.ListEmpty, emptyViewer.Graph.Nodes |> List.map (fun node -> node.Role))
+        Assert.Contains(ViewerNodeRole.Operation "ListEmpty", emptyViewer.Graph.Nodes |> List.map (fun node -> node.Role))
 
         let html = ViewerHtml.renderFocusDocument viewer
         Assert.Contains("List construct", html)

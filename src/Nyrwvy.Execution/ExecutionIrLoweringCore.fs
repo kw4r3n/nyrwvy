@@ -364,6 +364,9 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringSpanBack(valueNodeId, setNodeId, boundNodeId) ->
                             lowerTernaryNode node valueNodeId setNodeId boundNodeId (fun valueId setId boundId ->
                                 ExecutionInstructionKind.StringSpanBack(valueId, setId, boundId))
+                        | TypedSemanticNodeKind.StringLastIndexOfBefore(valueNodeId, substringNodeId, boundNodeId) ->
+                            lowerTernaryNode node valueNodeId substringNodeId boundNodeId (fun valueId substringId boundId ->
+                                ExecutionInstructionKind.StringLastIndexOfBefore(valueId, substringId, boundId))
                         | TypedSemanticNodeKind.StringLastIndexOf(valueNodeId, otherNodeId) ->
                             lowerBinaryNode node valueNodeId otherNodeId (fun value other -> ExecutionInstructionKind.StringLastIndexOf(value, other))
                         | TypedSemanticNodeKind.StringStartsWith(valueNodeId, otherNodeId) ->
@@ -451,6 +454,8 @@ module ExecutionIr =
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Multiply(left, right))
                         | TypedSemanticNodeKind.Float64Divide(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Divide(left, right))
+                        | TypedSemanticNodeKind.Float64FloorModulo(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64FloorModulo(left, right))
                         | TypedSemanticNodeKind.Float64Equal(leftNodeId, rightNodeId) ->
                             lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.Float64Equal(left, right))
                         | TypedSemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId) ->
@@ -612,6 +617,12 @@ module ExecutionIr =
                             | Ok lowered ->
                                 lowerBinaryNode node sourceMapNodeId seedNodeId (fun source seed ->
                                     ExecutionInstructionKind.MapFold(source, seed, folderFunctionId, lowered))
+                        | TypedSemanticNodeKind.SetFold(sourceSetNodeId, seedNodeId, folderFunctionId, context) ->
+                            match lowerCallArguments context with
+                            | Error error -> Error error
+                            | Ok lowered ->
+                                lowerBinaryNode node sourceSetNodeId seedNodeId (fun source seed ->
+                                    ExecutionInstructionKind.SetFold(source, seed, folderFunctionId, lowered))
                         | TypedSemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                             match lowerCallArguments context with
                             | Error error -> Error error
@@ -698,12 +709,18 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, context) ->
                             lowerListCallbackNode node sourceMapNodeId keepFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.MapFilter(source, callback, lowered))
+                        | TypedSemanticNodeKind.SetFilter(sourceSetNodeId, predicateFunctionId, context) ->
+                            lowerListCallbackNode node sourceSetNodeId predicateFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.SetFilter(source, callback, lowered))
                         | TypedSemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId lessThanFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListSortBy(source, callback, lowered))
                         | TypedSemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId lessThanFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListMinBy(source, callback, lowered))
+                        | TypedSemanticNodeKind.ListMaxBy(sourceListNodeId, lessThanFunctionId, context) ->
+                            lowerListCallbackNode node sourceListNodeId lessThanFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.ListMaxBy(source, callback, lowered))
                         | TypedSemanticNodeKind.OptionMap(sourceNodeId, functionId, context) ->
                             lowerListCallbackNode node sourceNodeId functionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.OptionMap(source, callback, lowered))
@@ -722,6 +739,9 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
                             lowerListCallbackNode node sourceMapNodeId mapperFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.MapMapValues(source, callback, lowered))
+                        | TypedSemanticNodeKind.SetMap(sourceSetNodeId, mapperFunctionId, context) ->
+                            lowerListCallbackNode node sourceSetNodeId mapperFunctionId context (fun source callback lowered ->
+                                ExecutionInstructionKind.SetMap(source, callback, lowered))
                         | TypedSemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
                             lowerListCallbackNode node sourceListNodeId predicateFunctionId context (fun source callback lowered ->
                                 ExecutionInstructionKind.ListAny(source, callback, lowered))

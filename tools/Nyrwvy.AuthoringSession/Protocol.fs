@@ -1013,8 +1013,9 @@ module AuthoringProtocol =
                     [ "id"; "op"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "operations" ]
                     root
-                let operations = array "operations" root |> List.map operation
-                proposalResponse (session.SimulateOperations(operations, expectedSnapshotId ()))
+                let declarations = session.Declarations()
+                let operations = array "operations" root |> List.map (WireOperation.operationRequest declarations)
+                proposalResponse (session.SimulateOperationRequests(operations, expectedSnapshotId ()))
             | "simulateOperationsByName" ->
                 ensureFields
                     "simulateOperationsByName request"
@@ -1022,8 +1023,8 @@ module AuthoringProtocol =
                     [ "id"; "op"; "operations" ]
                     root
                 let declarations = session.Declarations()
-                let operations = array "operations" root |> List.map (WireOperation.operationByName declarations)
-                proposalResponse (session.SimulateOperations(operations, expectedSnapshotId ()))
+                let operations = array "operations" root |> List.map (WireOperation.operationRequestByName declarations)
+                proposalResponse (session.SimulateOperationRequests(operations, expectedSnapshotId ()))
             | "simulateCreateFunction" ->
                 ensureFields
                     "simulateCreateFunction request"

@@ -58,6 +58,22 @@ type AddCapabilityOperationRequest =
       Operation: SemanticCapabilityOperation
       ImplementationPlans: CapabilityImplementationPlan list }
 
+/// The arm one `MatchUnion` node gains for a newly added variant: pattern bindings for the new
+/// variant's fields (in field order, at the match input's type arguments) and a body already
+/// materialized in the arm's lexical scope with system-owned node and binding IDs.
+type UnionVariantArmPlan =
+    { MatchNodeId: GraphNodeId
+      FieldBindings: PatternFieldBinding list
+      Body: ValueGraph }
+
+/// Adds one variant (with system-owned variant and field IDs) to an existing Union. Every
+/// `MatchUnion` over that Union must plan an arm for it, so every match stays exhaustive in one
+/// publication; constructing the new variant is ordinary later authoring.
+type AddUnionVariantRequest =
+    { TargetTypeId: TypeId
+      Variant: SemanticVariant
+      ArmPlans: UnionVariantArmPlan list }
+
 type SemanticOperation =
     | RenameDisplayName of RenameTarget * string
     | AddFunctionParameter of AddFunctionParameterRequest
@@ -74,6 +90,7 @@ type SemanticOperation =
     | RemoveFunctionRequiredEffect of FunctionRequiredEffectRequest
     | RemoveFunctionParameter of ParameterId
     | RemoveUnionVariant of VariantId
+    | AddUnionVariant of AddUnionVariantRequest
 
 type TransactionRequest =
     { Id: TransactionId
@@ -123,6 +140,18 @@ type UnionVariantRemoved =
       DisplayName: string
       RemovedFieldIds: FieldId list
       AffectedMatchNodeIds: GraphNodeId list }
+
+/// One variant added to an existing Union; its variant and field IDs are new.
+type UnionVariantAdded =
+    { OwnerTypeId: TypeId
+      Variant: SemanticVariant }
+
+/// One `MatchUnion` node that gained an arm for an added variant.
+type UnionMatchArmAdded =
+    { OwnerFunctionId: FunctionId
+      MatchNodeId: GraphNodeId
+      VariantId: VariantId
+      PatternBindingIds: PatternBindingId list }
 
 type ProductFieldRemoved =
     { OwnerTypeId: TypeId
@@ -223,7 +252,9 @@ type SemanticDiff =
       ObligationsResolved: MissingArgumentResolved list
       FunctionRequiredEffectsChanged: FunctionRequiredEffectChange list
       ParametersRemoved: ParameterRemoved list
-      UnionVariantsRemoved: UnionVariantRemoved list }
+      UnionVariantsRemoved: UnionVariantRemoved list
+      UnionVariantsAdded: UnionVariantAdded list
+      UnionMatchArmsAdded: UnionMatchArmAdded list }
 
 [<Struct>]
 type TransactionDiagnostic =
@@ -257,7 +288,9 @@ type private ChangeAccumulator =
       ObligationsResolved: MissingArgumentResolved list
       FunctionRequiredEffectsChanged: FunctionRequiredEffectChange list
       ParametersRemoved: ParameterRemoved list
-      UnionVariantsRemoved: UnionVariantRemoved list }
+      UnionVariantsRemoved: UnionVariantRemoved list
+      UnionVariantsAdded: UnionVariantAdded list
+      UnionMatchArmsAdded: UnionMatchArmAdded list }
 
 [<RequireQualifiedAccess>]
 module Transaction =
@@ -281,7 +314,9 @@ module Transaction =
           ObligationsResolved = []
           FunctionRequiredEffectsChanged = []
           ParametersRemoved = []
-          UnionVariantsRemoved = [] }
+          UnionVariantsRemoved = []
+          UnionVariantsAdded = []
+          UnionMatchArmsAdded = [] }
 
     let private renameType id newDisplayName (snapshot: Snapshot) =
         match snapshot.Types |> List.tryFind (fun item -> item.Id = id) with
@@ -1120,6 +1155,9 @@ module Transaction =
                 | SemanticTypeKind.Product _ -> None)
         match target with
         | None -> Error("TargetNotFound", "The Union variant to remove was not found.")
+        | Some _ when changes.UnionVariantsAdded |> List.exists (fun added -> added.Variant.Id = variantId) ->
+            // The variant ID is system-owned, so a batch cannot name a variant it adds; the review does.
+            Error("UnionVariantCreatedInTransaction", "The Union variant to remove was added in this transaction; leave it out of the batch instead.")
         | Some(owner, variants, variant) ->
             let describe = describeFunction snapshot
             let subject = $"Variant {StableId.describe variant.DisplayName variantId} of Union {StableId.describe owner.DisplayName owner.Id}"
@@ -1217,6 +1255,122 @@ module Transaction =
                               AffectedMatchNodeIds =
                                 matches |> List.map (fun (_, nodeId, _) -> nodeId) |> List.sortBy StableId.value }
                         safe, { changes with UnionVariantsRemoved = removed :: changes.UnionVariantsRemoved })
+
+    let private addUnionVariant
+        (request: AddUnionVariantRequest)
+        (snapshot: Snapshot)
+        (changes: ChangeAccumulator)
+        : Result<Snapshot * ChangeAccumulator, string * string> =
+        let variant = request.Variant
+        match snapshot.Types |> List.tryFind (fun item -> item.Id = request.TargetTypeId) with
+        | None -> Error("TargetNotFound", "The target type was not found.")
+        | Some { Kind = SemanticTypeKind.Product _ } -> Error("TargetNotUnion", "The target type of addUnionVariant must be a Union.")
+        | Some({ Kind = SemanticTypeKind.Union variants } as owner) ->
+            let describe = describeFunction snapshot
+            let unionVariantIds = variants |> List.map (fun item -> item.Id) |> Set.ofList
+            let existingVariantIds =
+                snapshot.Types
+                |> List.collect (fun item ->
+                    match item.Kind with
+                    | SemanticTypeKind.Union items -> items |> List.map (fun item -> item.Id)
+                    | SemanticTypeKind.Product _ -> [])
+                |> Set.ofList
+            let existingFieldIds =
+                snapshot.Types
+                |> List.collect (fun item ->
+                    match item.Kind with
+                    | SemanticTypeKind.Union items -> items |> List.collect (fun item -> item.Fields |> List.map (fun field -> field.Id))
+                    | SemanticTypeKind.Product fields -> fields |> List.map (fun field -> field.Id))
+                |> Set.ofList
+            let fieldNames = variant.Fields |> List.map (fun field -> field.DisplayName)
+            let fieldIds = variant.Fields |> List.map (fun field -> field.Id)
+            // Every exhaustive match over the Union, with its owner and its input's type arguments.
+            // Each arm names variants of exactly one Union, so one arm identifies the matched Union.
+            let affected =
+                snapshot.Functions
+                |> List.collect (fun fn ->
+                    let inputType = SemanticFacts.createNodeTypeResolver snapshot fn
+                    ValueGraph.collectNodes fn.Body
+                    |> List.choose (fun node ->
+                        match node.Kind with
+                        | SemanticNodeKind.MatchUnion(inputNodeId, arms) when
+                            arms |> List.exists (fun arm -> arm.VariantIds |> List.exists (fun id -> Set.contains id unionVariantIds)) ->
+                            let arguments =
+                                match inputType inputNodeId with
+                                | Some(TypeRef.Named(_, arguments)) -> arguments
+                                | _ -> []
+                            Some(fn, node.Id, arguments)
+                        | _ -> None))
+            let affectedIds = affected |> List.map (fun (_, nodeId, _) -> nodeId) |> Set.ofList
+            let plannedIds = request.ArmPlans |> List.map (fun plan -> plan.MatchNodeId)
+            let plansById = request.ArmPlans |> List.map (fun plan -> plan.MatchNodeId, plan) |> Map.ofList
+            if String.IsNullOrWhiteSpace variant.DisplayName then
+                Error("InvalidDisplayName", "The new variant display name cannot be blank.")
+            elif variants |> List.exists (fun item -> item.DisplayName = variant.DisplayName) then
+                Error("DuplicateUnionVariantDisplayName", $"Union '{owner.DisplayName}' already has a variant named '{variant.DisplayName}'; variant display names must be unique within their Union.")
+            elif fieldNames |> List.exists String.IsNullOrWhiteSpace then
+                Error("InvalidDisplayName", "Variant field display names cannot be blank.")
+            elif List.distinct fieldNames <> fieldNames then
+                Error("DuplicateFieldDisplayName", "Variant field display names must be distinct within their variant.")
+            elif Set.contains variant.Id existingVariantIds
+                 || fieldIds |> List.exists (fun id -> Set.contains id existingFieldIds)
+                 || (List.distinct fieldIds).Length <> fieldIds.Length then
+                Error("DuplicateUnionVariantId", "The new variant or field ID already exists.")
+            elif plannedIds.Length <> affectedIds.Count || Set.ofList plannedIds <> affectedIds then
+                let matches =
+                    affected
+                    |> List.map (fun (fn, nodeId, _) -> $"'{StableId.value nodeId}' in function {describe fn.Id}")
+                    |> String.concat ", "
+                let listed = if List.isEmpty affected then "there are none" else matches
+                Error(
+                    "UnionMatchArmPlanMismatch",
+                    $"Every match (matchUnion) over Union '{owner.DisplayName}' requires exactly one arm plan for the new variant; the matches are: {listed}."
+                )
+            else
+                // Each plan binds every new field exactly once, at the field type the match input's
+                // type arguments give it, as the validator will check the published arm.
+                let invalidPlan =
+                    affected
+                    |> List.tryPick (fun (fn, nodeId, arguments) ->
+                        let plan = Map.find nodeId plansById
+                        let site = $"match '{StableId.value nodeId}' in function {describe fn.Id}"
+                        let expected = variant.Fields |> List.map (fun field -> field.Id, TypeParameters.instantiate owner arguments field.Type) |> List.sortBy (fst >> StableId.value)
+                        let actual = plan.FieldBindings |> List.map (fun item -> item.SourceFieldId, item.Binding.Type) |> List.sortBy (fst >> StableId.value)
+                        if (actual |> List.map fst) <> (expected |> List.map fst) then
+                            Some("UnionMatchArmPlanFieldMismatch", $"The arm plan for {site} must bind each field of the new variant exactly once.")
+                        elif actual <> expected then
+                            Some("UnionMatchArmBindingTypeMismatch", $"The arm plan for {site} binds a field at a type other than the one the match input gives it.")
+                        else None)
+                match invalidPlan with
+                | Some error -> Error error
+                | None ->
+                    let updatedTypes =
+                        snapshot.Types
+                        |> List.map (fun item ->
+                            if item.Id = owner.Id then { item with Kind = SemanticTypeKind.Union(variants @ [ variant ]) } else item)
+                    let extend (node: SemanticNode) =
+                        match node.Kind, Map.tryFind node.Id plansById with
+                        | SemanticNodeKind.MatchUnion(inputNodeId, arms), Some plan ->
+                            let arm: UnionMatchArm = { VariantIds = [ variant.Id ]; FieldBindings = plan.FieldBindings; Body = plan.Body }
+                            { node with Kind = SemanticNodeKind.MatchUnion(inputNodeId, arms @ [ arm ]) }
+                        | _ -> node
+                    let updatedFunctions =
+                        snapshot.Functions
+                        |> List.map (fun fn -> if affected |> List.exists (fun (owner, _, _) -> owner.Id = fn.Id) then { fn with Body = ValueGraph.mapNodes extend fn.Body } else fn)
+                    let added: UnionVariantAdded = { OwnerTypeId = owner.Id; Variant = variant }
+                    let arms =
+                        affected
+                        |> List.map (fun (fn, nodeId, _) ->
+                            { OwnerFunctionId = fn.Id
+                              MatchNodeId = nodeId
+                              VariantId = variant.Id
+                              PatternBindingIds = (Map.find nodeId plansById).FieldBindings |> List.map (fun item -> item.Binding.Id) })
+                    Ok(
+                        { snapshot with Types = updatedTypes; Functions = updatedFunctions },
+                        { changes with
+                            UnionVariantsAdded = added :: changes.UnionVariantsAdded
+                            UnionMatchArmsAdded = arms @ changes.UnionMatchArmsAdded }
+                    )
 
     let private resolveMissingArgument
         (transactionId: TransactionId)
@@ -1371,6 +1525,7 @@ module Transaction =
         | RemoveFunctionRequiredEffect request -> changeFunctionRequiredEffect false request snapshot changes
         | RemoveFunctionParameter parameterId -> removeFunctionParameter parameterId snapshot changes
         | RemoveUnionVariant variantId -> removeUnionVariant transactionId variantId snapshot changes
+        | AddUnionVariant request -> addUnionVariant request snapshot changes
 
     let private netRenames (baseSnapshot: Snapshot) (proposedSnapshot: Snapshot) =
         let changed (before: Map<StableId<'Kind>, string>) id name rename =
@@ -1571,6 +1726,12 @@ module Transaction =
             UnionVariantsRemoved =
                 changes.UnionVariantsRemoved
                 |> List.sortBy (fun item -> StableId.value item.OwnerTypeId, StableId.value item.RemovedVariantId)
+            UnionVariantsAdded =
+                changes.UnionVariantsAdded
+                |> List.sortBy (fun item -> StableId.value item.OwnerTypeId, StableId.value item.Variant.Id)
+            UnionMatchArmsAdded =
+                changes.UnionMatchArmsAdded
+                |> List.sortBy (fun item -> StableId.value item.OwnerFunctionId, StableId.value item.MatchNodeId, StableId.value item.VariantId)
             ArgumentsAttached =
                 changes.ArgumentsAttached
                 |> List.sortBy (fun item -> StableId.value item.CallNodeId, StableId.value item.TargetParameterId)
@@ -1673,7 +1834,13 @@ module Transaction =
                           ObligationsResolved = changes.ObligationsResolved
                           FunctionRequiredEffectsChanged = netRequiredEffectChanges baseSnapshot proposed changes
                           ParametersRemoved = changes.ParametersRemoved
-                          UnionVariantsRemoved = changes.UnionVariantsRemoved }
+                          UnionVariantsRemoved = changes.UnionVariantsRemoved
+                          UnionVariantsAdded =
+                              changes.UnionVariantsAdded
+                              |> List.filter (fun item -> proposed.Types |> List.exists (fun item2 -> item2.Id = item.OwnerTypeId))
+                          UnionMatchArmsAdded =
+                              changes.UnionMatchArmsAdded
+                              |> List.filter (fun item -> proposed.Functions |> List.exists (fun fn -> fn.Id = item.OwnerFunctionId)) }
 
                     let hasChanges =
                         not (List.isEmpty diff.Renames)
@@ -1694,6 +1861,8 @@ module Transaction =
                         || not (List.isEmpty diff.FunctionRequiredEffectsChanged)
                         || not (List.isEmpty diff.ParametersRemoved)
                         || not (List.isEmpty diff.UnionVariantsRemoved)
+                        || not (List.isEmpty diff.UnionVariantsAdded)
+                        || not (List.isEmpty diff.UnionMatchArmsAdded)
 
                     if not hasChanges then
                         reject "NoChange" "The transaction has no net semantic change."

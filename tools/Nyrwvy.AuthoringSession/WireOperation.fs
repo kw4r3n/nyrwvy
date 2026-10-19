@@ -300,4 +300,85 @@ module internal WireOperation =
             ensureFields "remove-union-variant operation" [ "kind"; "type"; "variant" ] [ "kind"; "type"; "variant" ] element
             AgentOperationIntent.RemoveUnionVariant (WireSymbolic.unionVariant (resolveType ()) (requiredString "variant" element)).Id
         | value ->
-            fail $"Unsupported name-resolved operation kind '{value}'. simulateOperationsByName accepts the rename operations (renameFunction, renameType, renameField, renameVariant, renameParameter, renameEffect, renameCapability, renameCapabilityOperation, renameCapabilityParameter), addFunctionParameter, addProductField, addCapabilityOperation, addRequiredEffect, removeRequiredEffect, resolveMissingArgument, removeProductField, removeFunctionParameter, removeUnionVariant, deleteFunction, deleteType, deleteEffect, deleteCapability and deleteCapabilityOperation, each naming its targets by display name."
+            fail $"Unsupported name-resolved operation kind '{value}'. simulateOperationsByName accepts the rename operations (renameFunction, renameType, renameField, renameVariant, renameParameter, renameEffect, renameCapability, renameCapabilityOperation, renameCapabilityParameter), addFunctionParameter, addProductField, addCapabilityOperation, addUnionVariant, addRequiredEffect, removeRequiredEffect, resolveMissingArgument, removeProductField, removeFunctionParameter, removeUnionVariant, deleteFunction, deleteType, deleteEffect, deleteCapability and deleteCapabilityOperation, each naming its targets by display name."
+
+    /// Type parameter names in a new variant's field types resolve to the Union's own declared
+    /// type parameters; a name the Union does not declare is rejected, since a variant cannot
+    /// introduce one.
+    let private bindUnionTypeParameters (owner: SemanticType) (typeRef: TypeRef) =
+        let substitution =
+            TypeParameters.occurring typeRef
+            |> List.map (fun (id, name) ->
+                match owner.TypeParameters |> List.tryFind (fun (_, declaredName) -> declaredName = name) with
+                | Some(declaredId, declaredName) -> id, TypeRef.TypeParameter(declaredId, declaredName)
+                | None -> fail $"Union '{owner.DisplayName}' declares no type parameter named '{name}'; a new variant's field types may use only the Union's own type parameters.")
+            |> Map.ofList
+        TypeParameters.substitute substitution typeRef
+
+    let private unionOwner (owner: SemanticType) =
+        match owner.Kind with
+        | SemanticTypeKind.Union _ -> owner
+        | SemanticTypeKind.Product _ -> fail $"Type '{owner.DisplayName}' is a Product; addUnionVariant targets a Union."
+
+    /// The new variant of `addUnionVariant`, with its system-owned variant and field IDs allocated here.
+    let private newVariant (owner: SemanticType) (fieldType: JsonElement -> TypeRef) (element: JsonElement) =
+        let fields =
+            array "fields" element
+            |> List.map (fun field ->
+                ensureFields "variant field" [ "displayName"; "type" ] [ "displayName"; "type" ] field
+                ({ DisplayName = requiredString "displayName" field
+                   Type = fieldType (property "type" field) |> bindUnionTypeParameters owner }: AgentTypeFieldIntent))
+        AgentUnionVariantArmPlans.allocateVariant (requiredString "displayName" element) fields
+
+    /// The arm plans of `addUnionVariant`: one `{ matchNodeId, body }` per `matchUnion` over the Union.
+    let private armRecipes (body: GraphNodeId -> JsonElement -> ExpressionRecipe) (element: JsonElement): AgentUnionVariantArmRecipe list =
+        array "arms" element
+        |> List.map (fun arm ->
+            ensureFields "union match arm plan" [ "matchNodeId"; "body" ] [ "matchNodeId"; "body" ] arm
+            let matchNodeId = id<GraphNodeTag> "matchNodeId" arm
+            { MatchNodeId = matchNodeId; Body = body matchNodeId (property "body" arm) })
+
+    /// `{ "kind": "addUnionVariant", "typeId", "displayName", "fields": [{ "displayName", "type" }],
+    /// "arms": [{ "matchNodeId", "body": <recipe> }] }`. The variant and field IDs are allocated here
+    /// (system-owned); an arm body names a new field in a pattern reference by `"field": "<name>"`
+    /// in place of `fieldId`. Every other kind is the ordinary exact-ID operation.
+    let operationRequest (declarations: AuthoringDeclarations) (element: JsonElement): AuthoringOperationRequest =
+        match requiredString "kind" element with
+        | "addUnionVariant" ->
+            ensureFields "add-union-variant operation" [ "kind"; "typeId"; "displayName"; "fields"; "arms" ] [ "kind"; "typeId"; "displayName"; "fields"; "arms" ] element
+            let typeId = id<TypeTag> "typeId" element
+            let owner =
+                declarations.Types
+                |> List.tryFind (fun item -> item.Id = typeId)
+                |> Option.defaultWith (fun () -> fail $"Unknown type '{StableId.value typeId}'.")
+                |> unionOwner
+            let variant = newVariant owner typeRef element
+            AuthoringOperationRequest.AddUnionVariant(owner.Id, variant, armRecipes (fun _ body -> WireRecipe.recipeWithNewFields variant.Fields body) element)
+        | _ -> AuthoringOperationRequest.Intent(operation element)
+
+    /// The name-resolved `addUnionVariant`: `type` selects the Union, field types and arm bodies are
+    /// name-resolved, and an arm body names a new field as `{ "type", "variant": <new>, "field" }`,
+    /// since the recipe is resolved against the declarations with the new variant already present.
+    /// Parameter names in an arm body resolve against the function that owns the match node.
+    let operationRequestByName (declarations: AuthoringDeclarations) (element: JsonElement): AuthoringOperationRequest =
+        match requiredString "kind" element with
+        | "addUnionVariant" ->
+            ensureFields "add-union-variant operation" [ "kind"; "type"; "displayName"; "fields"; "arms" ] [ "kind"; "type"; "displayName"; "fields"; "arms" ] element
+            let owner = WireSymbolic.resolveTypeAt declarations "type" element |> unionOwner
+            let variant = newVariant owner (WireSymbolic.typeRef declarations) element
+            let extended =
+                { declarations with
+                    Types =
+                        declarations.Types
+                        |> List.map (fun item ->
+                            match item.Kind with
+                            | SemanticTypeKind.Union variants when item.Id = owner.Id -> { item with Kind = SemanticTypeKind.Union(variants @ [ variant ]) }
+                            | _ -> item) }
+            let body matchNodeId element =
+                let fn =
+                    declarations.Functions
+                    |> List.tryFind (fun fn -> ValueGraph.collectNodes fn.Body |> List.exists (fun node -> node.Id = matchNodeId))
+                    |> Option.defaultWith (fun () -> fail $"Unknown match node '{StableId.value matchNodeId}'; arm plans name an existing matchUnion node by its exact ID.")
+                WireSymbolic.recipeForExistingFunction extended fn element
+            AuthoringOperationRequest.AddUnionVariant(owner.Id, variant, armRecipes body element)
+        | _ -> AuthoringOperationRequest.Intent(operationByName declarations element)

@@ -30,206 +30,20 @@ type ViewerRelation =
     { Kind: ViewerRelationKind
       Target: ViewerTarget }
 
+/// What a node is, as the viewer shows it. A node's operands are already shown through its value
+/// dependencies, so only the kinds whose display needs more than their name (literals and their
+/// payload, the task-wait mode, a capability construction's implementations) have a case of their
+/// own; every other kind is `Operation` named by its semantic kind (`SemanticNodeKind.name`, e.g.
+/// "ListContains"), so adding a builtin needs no viewer change.
 [<RequireQualifiedAccess>]
 type ViewerNodeRole =
-    | ParameterReference
-    | PatternReference
     | StringLiteral of string
     | BoolLiteral of bool
-    | UnitLiteral
     | Int64Literal of int64
     | Float64Literal of Float64Bits
-    | StringIsEmpty
-    | Int64ToString
-    | Int64ToHexString
-    | StringParseInt64
-    | StringParseInt64Hex
-    | Float64ToString
-    | StringParseFloat64
-    | StringCodePoints
-    | StringToLower
-    | StringToUpper
-    | StringDecodeUtf8Lossy
-    | StringEncodeUtf8
-    | Float64RoundToInt64
-    | Float64FloorToInt64
-    | Float64Sqrt
-    | Float64Abs
-    | Float64Negate
-    | Float64Floor
-    | Float64Ceiling
-    | Float64Truncate
-    | StringUtf8ByteCount
-    | StringFromCodePoint
-    | StringToCodePoint
-    | StringLength
-    | StringSlice
-    | StringContains
-    | StringIndexOf
-    | StringSpan
-    | StringSpanBack
-    | StringLastIndexOf
-    | StringStartsWith
-    | StringEndsWith
-    | StringSplit
-    | StringSplitLines
-    | StringReplace
-    | StringTrim
-    | StringTrimStart
-    | StringTrimEnd
-    | StringJoin
-    | StringEqual
-    | StringLessThan
-    | ValueEqual
-    | StringConcat
-    | Int64WrappingAdd
-    | Int64WrappingSubtract
-    | Int64WrappingMultiply
-    | Int64FloorDivide
-    | Int64FloorModulo
-    | Int64Min
-    | Int64Max
-    | Int64BitAnd
-    | Int64BitOr
-    | Int64BitXor
-    | Int64ShiftLeft
-    | Int64ShiftRight
-    | Int64CheckedAdd
-    | Int64CheckedSubtract
-    | Int64CheckedMultiply
-    | ListRange
-    | StringRepeat
-    | Float64Round
-    | Int64Equal
-    | Int64LessThan
-    | Int64LessThanOrEqual
-    | Int64GreaterThan
-    | Int64GreaterThanOrEqual
-    | Float64Add
-    | Float64Min
-    | Float64Max
-    | Float64Subtract
-    | Float64Multiply
-    | Float64Divide
-    | Float64Equal
-    | Float64LessThan
-    | Float64IsNaN
-    | Float64IsFinite
-    | Float64IsInfinite
-    | Int64ToFloat64
-    | Int64WrappingAbs
-    | Int64BitNot
-    | Bits32FromInt64
-    | Bits32ToInt64
-    | Bits32Xor
-    | Bits32And
-    | Bits32Or
-    | Bits32Not
-    | Bits32Add
-    | Bits32RotateRight
-    | Bits32ShiftRight
-    | Bits32ShiftLeft
-    | ListEmpty
-    | SetEmpty
-    | MapEmpty
-    | ListConstruct
-    | ListLength
-    | MapValues
-    | MapKeys
-    | SetToList
-    | MapSize
-    | SetFromList
-    | SetSize
-    | ListReverse
-    | ListLast
-    | ListDropLast
-    | ListAppendItem
-    | ListItemAt
-    | MapRemove
-    | SetInsert
-    | SetRemove
-    | SetUnion
-    | SetIntersection
-    | SetDifference
-    | SetIsSubset
-    | MapUnion
-    | MapContainsKey
-    | SetContains
-    | ListIndexOf
-    | ListLastIndexOf
-    | ListContains
-    | MapGet
-    | MapGetOrDefault
-    | ListSlice
-    | ListSetAt
-    | ListInsertAt
-    | ListRemoveAt
-    | MapInsert
-    | ListConcat
-    | ListFold
-    | MapFold
-    | ListEffectFold
-    | UseResource
-    | ParallelAll
-    | CancellationRequested
-    | ExceptionCatch
-    | ExceptionIsCancellation
-    | ExceptionMessage
-    | ExceptionRethrow
-    | CancellationShield
-    | TaskScope
-    | TaskStart
     | TaskWait of mode: TaskWaitMode
-    | TaskCancel
-    | OneShotCreate
-    | OneShotComplete
-    | OneShotWait
-    | ListMap
-    | ListZipWith
-    | ListFlatMap
-    | MapFromList
-    | ListFilter
-    | MapFilter
-    | ListSortBy
-    | ListMinBy
-    | MapMapValues
-    | OptionGetOrDefault
-    | ResultGetOrDefault
-    | OptionOkOr
-    | ResultOkValue
-    | ResultErrValue
-    | OptionIsSome
-    | ResultIsOk
-    | OptionMap
-    | OptionAndThen
-    | ResultMap
-    | ResultMapErr
-    | ResultAndThen
-    | ListAny
-    | ListFindIndex
-    | ListAll
     | CapabilityConstruct of CapabilityId * (CapabilityOperationId * FunctionId) list
-    | FunctionReference
-    | FunctionInvoke
-    | DirectCall
-    | CapabilityInvoke
-    | ProductConstruct
-    | FieldAccess
-    | ProductUpdate
-    | UnionConstruct
-    | OptionNone
-    | OptionSome
-    | ResultOk
-    | Abort
-    | ResultErr
-    | BoolNot
-    | BoolAnd
-    | BoolOr
-    | Conditional
-    | MatchUnion
-    | Bind
-    | MatchOption
-    | MatchResult
+    | Operation of kind: string
 
 [<RequireQualifiedAccess>]
 type ViewerBranchRole =
@@ -328,243 +142,44 @@ type ViewerProposalReviewModel =
 
 [<RequireQualifiedAccess>]
 module ViewerProjection =
-    let private roleAndSemanticRelations (node: SemanticNode): ViewerNodeRole * ViewerRelation list =
+    let private role (node: SemanticNode): ViewerNodeRole =
+        match node.Kind with
+        | SemanticNodeKind.StringLiteral value -> ViewerNodeRole.StringLiteral value
+        | SemanticNodeKind.BoolLiteral value -> ViewerNodeRole.BoolLiteral value
+        | SemanticNodeKind.Int64Literal value -> ViewerNodeRole.Int64Literal value
+        | SemanticNodeKind.Float64Literal bits -> ViewerNodeRole.Float64Literal bits
+        | SemanticNodeKind.TaskWait(_, mode, _) -> ViewerNodeRole.TaskWait mode
+        | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
+            ViewerNodeRole.CapabilityConstruct(capabilityId, List.sortBy fst implementations)
+        | kind -> ViewerNodeRole.Operation(SemanticNodeKind.name kind)
+
+    /// The declarations and control inputs a node names beyond its value dependencies and the
+    /// functions `SemanticNodeShape.functionReferences` lists.
+    let private semanticRelations (node: SemanticNode): ViewerRelation list =
+        let relation kind target = [ { Kind = kind; Target = target } ]
         match node.Kind with
         | SemanticNodeKind.ParameterReference parameterId ->
-            ViewerNodeRole.ParameterReference,
-            [ { Kind = ViewerRelationKind.ReadsParameter
-                Target = ViewerTarget.Parameter parameterId } ]
+            relation ViewerRelationKind.ReadsParameter (ViewerTarget.Parameter parameterId)
         | SemanticNodeKind.PatternReference bindingId ->
-            ViewerNodeRole.PatternReference,
-            [ { Kind = ViewerRelationKind.ReadsPatternBinding
-                Target = ViewerTarget.PatternBinding bindingId } ]
-        | SemanticNodeKind.StringLiteral value -> ViewerNodeRole.StringLiteral value, []
-        | SemanticNodeKind.BoolLiteral value -> ViewerNodeRole.BoolLiteral value, []
-        | SemanticNodeKind.UnitLiteral -> ViewerNodeRole.UnitLiteral, []
-        | SemanticNodeKind.Int64Literal value -> ViewerNodeRole.Int64Literal value, []
-        | SemanticNodeKind.Float64Literal bits -> ViewerNodeRole.Float64Literal bits, []
-        | SemanticNodeKind.StringIsEmpty _ -> ViewerNodeRole.StringIsEmpty, []
-        | SemanticNodeKind.Int64ToString _ -> ViewerNodeRole.Int64ToString, []
-        | SemanticNodeKind.Int64ToHexString _ -> ViewerNodeRole.Int64ToHexString, []
-        | SemanticNodeKind.StringParseInt64 _ -> ViewerNodeRole.StringParseInt64, []
-        | SemanticNodeKind.StringParseInt64Hex _ -> ViewerNodeRole.StringParseInt64Hex, []
-        | SemanticNodeKind.Float64ToString _ -> ViewerNodeRole.Float64ToString, []
-        | SemanticNodeKind.StringParseFloat64 _ -> ViewerNodeRole.StringParseFloat64, []
-        | SemanticNodeKind.StringCodePoints _ -> ViewerNodeRole.StringCodePoints, []
-        | SemanticNodeKind.StringToLower _ -> ViewerNodeRole.StringToLower, []
-        | SemanticNodeKind.StringToUpper _ -> ViewerNodeRole.StringToUpper, []
-        | SemanticNodeKind.StringDecodeUtf8Lossy _ -> ViewerNodeRole.StringDecodeUtf8Lossy, []
-        | SemanticNodeKind.StringEncodeUtf8 _ -> ViewerNodeRole.StringEncodeUtf8, []
-        | SemanticNodeKind.Float64RoundToInt64 _ -> ViewerNodeRole.Float64RoundToInt64, []
-        | SemanticNodeKind.Float64FloorToInt64 _ -> ViewerNodeRole.Float64FloorToInt64, []
-        | SemanticNodeKind.Float64Sqrt _ -> ViewerNodeRole.Float64Sqrt, []
-        | SemanticNodeKind.Float64Abs _ -> ViewerNodeRole.Float64Abs, []
-        | SemanticNodeKind.Float64Negate _ -> ViewerNodeRole.Float64Negate, []
-        | SemanticNodeKind.Float64Floor _ -> ViewerNodeRole.Float64Floor, []
-        | SemanticNodeKind.Float64Ceiling _ -> ViewerNodeRole.Float64Ceiling, []
-        | SemanticNodeKind.Float64Truncate _ -> ViewerNodeRole.Float64Truncate, []
-        | SemanticNodeKind.StringUtf8ByteCount _ -> ViewerNodeRole.StringUtf8ByteCount, []
-        | SemanticNodeKind.StringFromCodePoint _ -> ViewerNodeRole.StringFromCodePoint, []
-        | SemanticNodeKind.StringToCodePoint _ -> ViewerNodeRole.StringToCodePoint, []
-        | SemanticNodeKind.StringLength _ -> ViewerNodeRole.StringLength, []
-        | SemanticNodeKind.StringSlice _ -> ViewerNodeRole.StringSlice, []
-        | SemanticNodeKind.StringContains _ -> ViewerNodeRole.StringContains, []
-        | SemanticNodeKind.StringIndexOf _ -> ViewerNodeRole.StringIndexOf, []
-        | SemanticNodeKind.StringSpan _ -> ViewerNodeRole.StringSpan, []
-        | SemanticNodeKind.StringSpanBack _ -> ViewerNodeRole.StringSpanBack, []
-        | SemanticNodeKind.StringLastIndexOf _ -> ViewerNodeRole.StringLastIndexOf, []
-        | SemanticNodeKind.StringStartsWith _ -> ViewerNodeRole.StringStartsWith, []
-        | SemanticNodeKind.StringEndsWith _ -> ViewerNodeRole.StringEndsWith, []
-        | SemanticNodeKind.StringSplit _ -> ViewerNodeRole.StringSplit, []
-        | SemanticNodeKind.StringSplitLines _ -> ViewerNodeRole.StringSplitLines, []
-        | SemanticNodeKind.StringReplace _ -> ViewerNodeRole.StringReplace, []
-        | SemanticNodeKind.StringTrim _ -> ViewerNodeRole.StringTrim, []
-        | SemanticNodeKind.StringTrimStart _ -> ViewerNodeRole.StringTrimStart, []
-        | SemanticNodeKind.StringTrimEnd _ -> ViewerNodeRole.StringTrimEnd, []
-        | SemanticNodeKind.StringJoin _ -> ViewerNodeRole.StringJoin, []
-        | SemanticNodeKind.StringEqual _ -> ViewerNodeRole.StringEqual, []
-        | SemanticNodeKind.StringLessThan _ -> ViewerNodeRole.StringLessThan, []
-        | SemanticNodeKind.ValueEqual _ -> ViewerNodeRole.ValueEqual, []
-        | SemanticNodeKind.StringConcat _ -> ViewerNodeRole.StringConcat, []
-        | SemanticNodeKind.Int64WrappingAdd _ -> ViewerNodeRole.Int64WrappingAdd, []
-        | SemanticNodeKind.Int64WrappingSubtract _ -> ViewerNodeRole.Int64WrappingSubtract, []
-        | SemanticNodeKind.Int64WrappingMultiply _ -> ViewerNodeRole.Int64WrappingMultiply, []
-        | SemanticNodeKind.Int64FloorDivide _ -> ViewerNodeRole.Int64FloorDivide, []
-        | SemanticNodeKind.Int64FloorModulo _ -> ViewerNodeRole.Int64FloorModulo, []
-        | SemanticNodeKind.Int64Min _ -> ViewerNodeRole.Int64Min, []
-        | SemanticNodeKind.Int64Max _ -> ViewerNodeRole.Int64Max, []
-        | SemanticNodeKind.Int64BitAnd _ -> ViewerNodeRole.Int64BitAnd, []
-        | SemanticNodeKind.Int64BitOr _ -> ViewerNodeRole.Int64BitOr, []
-        | SemanticNodeKind.Int64BitXor _ -> ViewerNodeRole.Int64BitXor, []
-        | SemanticNodeKind.Int64ShiftLeft _ -> ViewerNodeRole.Int64ShiftLeft, []
-        | SemanticNodeKind.Int64ShiftRight _ -> ViewerNodeRole.Int64ShiftRight, []
-        | SemanticNodeKind.Int64CheckedAdd _ -> ViewerNodeRole.Int64CheckedAdd, []
-        | SemanticNodeKind.Int64CheckedSubtract _ -> ViewerNodeRole.Int64CheckedSubtract, []
-        | SemanticNodeKind.Int64CheckedMultiply _ -> ViewerNodeRole.Int64CheckedMultiply, []
-        | SemanticNodeKind.ListRange _ -> ViewerNodeRole.ListRange, []
-        | SemanticNodeKind.StringRepeat _ -> ViewerNodeRole.StringRepeat, []
-        | SemanticNodeKind.Float64Round _ -> ViewerNodeRole.Float64Round, []
-        | SemanticNodeKind.Int64Equal _ -> ViewerNodeRole.Int64Equal, []
-        | SemanticNodeKind.Int64LessThan _ -> ViewerNodeRole.Int64LessThan, []
-        | SemanticNodeKind.Int64LessThanOrEqual _ -> ViewerNodeRole.Int64LessThanOrEqual, []
-        | SemanticNodeKind.Int64GreaterThan _ -> ViewerNodeRole.Int64GreaterThan, []
-        | SemanticNodeKind.Int64GreaterThanOrEqual _ -> ViewerNodeRole.Int64GreaterThanOrEqual, []
-        | SemanticNodeKind.Float64Add _ -> ViewerNodeRole.Float64Add, []
-        | SemanticNodeKind.Float64Min _ -> ViewerNodeRole.Float64Min, []
-        | SemanticNodeKind.Float64Max _ -> ViewerNodeRole.Float64Max, []
-        | SemanticNodeKind.Float64Subtract _ -> ViewerNodeRole.Float64Subtract, []
-        | SemanticNodeKind.Float64Multiply _ -> ViewerNodeRole.Float64Multiply, []
-        | SemanticNodeKind.Float64Divide _ -> ViewerNodeRole.Float64Divide, []
-        | SemanticNodeKind.Float64Equal _ -> ViewerNodeRole.Float64Equal, []
-        | SemanticNodeKind.Float64LessThan _ -> ViewerNodeRole.Float64LessThan, []
-        | SemanticNodeKind.Float64IsNaN _ -> ViewerNodeRole.Float64IsNaN, []
-        | SemanticNodeKind.Float64IsFinite _ -> ViewerNodeRole.Float64IsFinite, []
-        | SemanticNodeKind.Float64IsInfinite _ -> ViewerNodeRole.Float64IsInfinite, []
-        | SemanticNodeKind.Int64ToFloat64 _ -> ViewerNodeRole.Int64ToFloat64, []
-        | SemanticNodeKind.Int64WrappingAbs _ -> ViewerNodeRole.Int64WrappingAbs, []
-        | SemanticNodeKind.Int64BitNot _ -> ViewerNodeRole.Int64BitNot, []
-        | SemanticNodeKind.Bits32FromInt64 _ -> ViewerNodeRole.Bits32FromInt64, []
-        | SemanticNodeKind.Bits32ToInt64 _ -> ViewerNodeRole.Bits32ToInt64, []
-        | SemanticNodeKind.Bits32Xor _ -> ViewerNodeRole.Bits32Xor, []
-        | SemanticNodeKind.Bits32And _ -> ViewerNodeRole.Bits32And, []
-        | SemanticNodeKind.Bits32Or _ -> ViewerNodeRole.Bits32Or, []
-        | SemanticNodeKind.Bits32Not _ -> ViewerNodeRole.Bits32Not, []
-        | SemanticNodeKind.Bits32Add _ -> ViewerNodeRole.Bits32Add, []
-        | SemanticNodeKind.Bits32RotateRight _ -> ViewerNodeRole.Bits32RotateRight, []
-        | SemanticNodeKind.Bits32ShiftRight _ -> ViewerNodeRole.Bits32ShiftRight, []
-        | SemanticNodeKind.Bits32ShiftLeft _ -> ViewerNodeRole.Bits32ShiftLeft, []
-        | SemanticNodeKind.ListEmpty _ -> ViewerNodeRole.ListEmpty, []
-        | SemanticNodeKind.SetEmpty _ -> ViewerNodeRole.SetEmpty, []
-        | SemanticNodeKind.MapEmpty _ -> ViewerNodeRole.MapEmpty, []
-        | SemanticNodeKind.ListConstruct _ -> ViewerNodeRole.ListConstruct, []
-        | SemanticNodeKind.ListLength _ -> ViewerNodeRole.ListLength, []
-        | SemanticNodeKind.MapValues _ -> ViewerNodeRole.MapValues, []
-        | SemanticNodeKind.MapKeys _ -> ViewerNodeRole.MapKeys, []
-        | SemanticNodeKind.SetToList _ -> ViewerNodeRole.SetToList, []
-        | SemanticNodeKind.MapSize _ -> ViewerNodeRole.MapSize, []
-        | SemanticNodeKind.SetFromList _ -> ViewerNodeRole.SetFromList, []
-        | SemanticNodeKind.SetSize _ -> ViewerNodeRole.SetSize, []
-        | SemanticNodeKind.ListReverse _ -> ViewerNodeRole.ListReverse, []
-        | SemanticNodeKind.ListLast _ -> ViewerNodeRole.ListLast, []
-        | SemanticNodeKind.ListDropLast _ -> ViewerNodeRole.ListDropLast, []
-        | SemanticNodeKind.ListAppendItem _ -> ViewerNodeRole.ListAppendItem, []
-        | SemanticNodeKind.ListItemAt _ -> ViewerNodeRole.ListItemAt, []
-        | SemanticNodeKind.MapRemove _ -> ViewerNodeRole.MapRemove, []
-        | SemanticNodeKind.SetInsert _ -> ViewerNodeRole.SetInsert, []
-        | SemanticNodeKind.SetRemove _ -> ViewerNodeRole.SetRemove, []
-        | SemanticNodeKind.SetUnion _ -> ViewerNodeRole.SetUnion, []
-        | SemanticNodeKind.SetIntersection _ -> ViewerNodeRole.SetIntersection, []
-        | SemanticNodeKind.SetDifference _ -> ViewerNodeRole.SetDifference, []
-        | SemanticNodeKind.SetIsSubset _ -> ViewerNodeRole.SetIsSubset, []
-        | SemanticNodeKind.MapUnion _ -> ViewerNodeRole.MapUnion, []
-        | SemanticNodeKind.MapContainsKey _ -> ViewerNodeRole.MapContainsKey, []
-        | SemanticNodeKind.SetContains _ -> ViewerNodeRole.SetContains, []
-        | SemanticNodeKind.ListIndexOf _ -> ViewerNodeRole.ListIndexOf, []
-        | SemanticNodeKind.ListLastIndexOf _ -> ViewerNodeRole.ListLastIndexOf, []
-        | SemanticNodeKind.ListContains _ -> ViewerNodeRole.ListContains, []
-        | SemanticNodeKind.MapGet _ -> ViewerNodeRole.MapGet, []
-        | SemanticNodeKind.MapGetOrDefault _ -> ViewerNodeRole.MapGetOrDefault, []
-        | SemanticNodeKind.ListSlice _ -> ViewerNodeRole.ListSlice, []
-        | SemanticNodeKind.ListSetAt _ -> ViewerNodeRole.ListSetAt, []
-        | SemanticNodeKind.ListInsertAt _ -> ViewerNodeRole.ListInsertAt, []
-        | SemanticNodeKind.ListRemoveAt _ -> ViewerNodeRole.ListRemoveAt, []
-        | SemanticNodeKind.MapInsert _ -> ViewerNodeRole.MapInsert, []
-        | SemanticNodeKind.ListConcat _ -> ViewerNodeRole.ListConcat, []
-        | SemanticNodeKind.ListFold _ -> ViewerNodeRole.ListFold, []
-        | SemanticNodeKind.MapFold _ -> ViewerNodeRole.MapFold, []
-        | SemanticNodeKind.ListEffectFold _ -> ViewerNodeRole.ListEffectFold, []
-        | SemanticNodeKind.UseResource _ -> ViewerNodeRole.UseResource, []
-        | SemanticNodeKind.ParallelAll _ -> ViewerNodeRole.ParallelAll, []
-        | SemanticNodeKind.CancellationRequested -> ViewerNodeRole.CancellationRequested, []
-        | SemanticNodeKind.ExceptionCatch _ -> ViewerNodeRole.ExceptionCatch, []
-        | SemanticNodeKind.ExceptionIsCancellation _ -> ViewerNodeRole.ExceptionIsCancellation, []
-        | SemanticNodeKind.ExceptionMessage _ -> ViewerNodeRole.ExceptionMessage, []
-        | SemanticNodeKind.ExceptionRethrow _ -> ViewerNodeRole.ExceptionRethrow, []
-        | SemanticNodeKind.CancellationShield _ -> ViewerNodeRole.CancellationShield, []
-        | SemanticNodeKind.TaskScope _ -> ViewerNodeRole.TaskScope, []
-        | SemanticNodeKind.TaskStart _ -> ViewerNodeRole.TaskStart, []
-        | SemanticNodeKind.TaskWait(_, mode, _) -> ViewerNodeRole.TaskWait mode, []
-        | SemanticNodeKind.OneShotCreate _ -> ViewerNodeRole.OneShotCreate, []
-        | SemanticNodeKind.OneShotComplete _ -> ViewerNodeRole.OneShotComplete, []
-        | SemanticNodeKind.OneShotWait _ -> ViewerNodeRole.OneShotWait, []
-        | SemanticNodeKind.TaskCancel _ -> ViewerNodeRole.TaskCancel, []
-        | SemanticNodeKind.ListMap _ -> ViewerNodeRole.ListMap, []
-        | SemanticNodeKind.ListZipWith _ -> ViewerNodeRole.ListZipWith, []
-        | SemanticNodeKind.ListFlatMap _ -> ViewerNodeRole.ListFlatMap, []
-        | SemanticNodeKind.MapFromList _ -> ViewerNodeRole.MapFromList, []
-        | SemanticNodeKind.ListFilter _ -> ViewerNodeRole.ListFilter, []
-        | SemanticNodeKind.MapFilter _ -> ViewerNodeRole.MapFilter, []
-        | SemanticNodeKind.ListSortBy _ -> ViewerNodeRole.ListSortBy, []
-        | SemanticNodeKind.ListMinBy _ -> ViewerNodeRole.ListMinBy, []
-        | SemanticNodeKind.MapMapValues _ -> ViewerNodeRole.MapMapValues, []
-        | SemanticNodeKind.OptionGetOrDefault _ -> ViewerNodeRole.OptionGetOrDefault, []
-        | SemanticNodeKind.ResultGetOrDefault _ -> ViewerNodeRole.ResultGetOrDefault, []
-        | SemanticNodeKind.OptionOkOr _ -> ViewerNodeRole.OptionOkOr, []
-        | SemanticNodeKind.ResultOkValue _ -> ViewerNodeRole.ResultOkValue, []
-        | SemanticNodeKind.ResultErrValue _ -> ViewerNodeRole.ResultErrValue, []
-        | SemanticNodeKind.OptionIsSome _ -> ViewerNodeRole.OptionIsSome, []
-        | SemanticNodeKind.ResultIsOk _ -> ViewerNodeRole.ResultIsOk, []
-        | SemanticNodeKind.OptionMap _ -> ViewerNodeRole.OptionMap, []
-        | SemanticNodeKind.OptionAndThen _ -> ViewerNodeRole.OptionAndThen, []
-        | SemanticNodeKind.ResultMap _ -> ViewerNodeRole.ResultMap, []
-        | SemanticNodeKind.ResultMapErr _ -> ViewerNodeRole.ResultMapErr, []
-        | SemanticNodeKind.ResultAndThen _ -> ViewerNodeRole.ResultAndThen, []
-        | SemanticNodeKind.ListAny _ -> ViewerNodeRole.ListAny, []
-        | SemanticNodeKind.ListFindIndex _ -> ViewerNodeRole.ListFindIndex, []
-        | SemanticNodeKind.ListAll _ -> ViewerNodeRole.ListAll, []
-        | SemanticNodeKind.CapabilityConstruct(capabilityId, implementations) ->
-            ViewerNodeRole.CapabilityConstruct(capabilityId, List.sortBy fst implementations), []
-        | SemanticNodeKind.FunctionReference _ -> ViewerNodeRole.FunctionReference, []
-        | SemanticNodeKind.FunctionInvoke _ -> ViewerNodeRole.FunctionInvoke, []
-        | SemanticNodeKind.DirectCall _ -> ViewerNodeRole.DirectCall, []
+            relation ViewerRelationKind.ReadsPatternBinding (ViewerTarget.PatternBinding bindingId)
         | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
-            ViewerNodeRole.CapabilityInvoke,
-            [ { Kind = ViewerRelationKind.InvokesCapabilityOperation
-                Target = ViewerTarget.CapabilityOperation operationId } ]
-        | SemanticNodeKind.ProductConstruct(typeId, _, _) ->
-            ViewerNodeRole.ProductConstruct,
-            [ { Kind = ViewerRelationKind.ConstructsType
-                Target = ViewerTarget.Type typeId } ]
-        | SemanticNodeKind.FieldAccess(_, fieldId) ->
-            ViewerNodeRole.FieldAccess,
-            [ { Kind = ViewerRelationKind.AccessesField
-                Target = ViewerTarget.Field fieldId } ]
+            relation ViewerRelationKind.InvokesCapabilityOperation (ViewerTarget.CapabilityOperation operationId)
+        | SemanticNodeKind.ProductConstruct(typeId, _, _)
         | SemanticNodeKind.ProductUpdate(typeId, _, _) ->
-            ViewerNodeRole.ProductUpdate,
-            [ { Kind = ViewerRelationKind.ConstructsType
-                Target = ViewerTarget.Type typeId } ]
+            relation ViewerRelationKind.ConstructsType (ViewerTarget.Type typeId)
+        | SemanticNodeKind.FieldAccess(_, fieldId) ->
+            relation ViewerRelationKind.AccessesField (ViewerTarget.Field fieldId)
         | SemanticNodeKind.UnionConstruct(variantId, _, _) ->
-            ViewerNodeRole.UnionConstruct,
-            [ { Kind = ViewerRelationKind.ConstructsVariant
-                Target = ViewerTarget.Variant variantId } ]
-        | SemanticNodeKind.OptionNone _ -> ViewerNodeRole.OptionNone, []
-        | SemanticNodeKind.OptionSome _ -> ViewerNodeRole.OptionSome, []
-        | SemanticNodeKind.ResultOk _ -> ViewerNodeRole.ResultOk, []
-        | SemanticNodeKind.Abort _ -> ViewerNodeRole.Abort, []
-        | SemanticNodeKind.ResultErr _ -> ViewerNodeRole.ResultErr, []
-        | SemanticNodeKind.BoolNot _ -> ViewerNodeRole.BoolNot, []
-        | SemanticNodeKind.BoolAnd _ -> ViewerNodeRole.BoolAnd, []
-        | SemanticNodeKind.BoolOr _ -> ViewerNodeRole.BoolOr, []
+            relation ViewerRelationKind.ConstructsVariant (ViewerTarget.Variant variantId)
         | SemanticNodeKind.Conditional(conditionNodeId, _, _) ->
-            ViewerNodeRole.Conditional,
-            [ { Kind = ViewerRelationKind.BranchCondition
-                Target = ViewerTarget.Node conditionNodeId } ]
-        | SemanticNodeKind.MatchUnion(inputNodeId, _) ->
-            ViewerNodeRole.MatchUnion,
-            [ { Kind = ViewerRelationKind.MatchInput
-                Target = ViewerTarget.Node inputNodeId } ]
-        | SemanticNodeKind.Bind(inputNodeId, _) ->
-            ViewerNodeRole.Bind,
-            [ { Kind = ViewerRelationKind.BindInput
-                Target = ViewerTarget.Node inputNodeId } ]
-        | SemanticNodeKind.MatchOption(inputNodeId, _, _) ->
-            ViewerNodeRole.MatchOption,
-            [ { Kind = ViewerRelationKind.MatchInput
-                Target = ViewerTarget.Node inputNodeId } ]
+            relation ViewerRelationKind.BranchCondition (ViewerTarget.Node conditionNodeId)
+        | SemanticNodeKind.MatchUnion(inputNodeId, _)
+        | SemanticNodeKind.MatchOption(inputNodeId, _, _)
         | SemanticNodeKind.MatchResult(inputNodeId, _, _) ->
-            ViewerNodeRole.MatchResult,
-            [ { Kind = ViewerRelationKind.MatchInput
-                Target = ViewerTarget.Node inputNodeId } ]
+            relation ViewerRelationKind.MatchInput (ViewerTarget.Node inputNodeId)
+        | SemanticNodeKind.Bind(inputNodeId, _) ->
+            relation ViewerRelationKind.BindInput (ViewerTarget.Node inputNodeId)
+        | _ -> []
 
     let private patternBinding sourceFieldId (binding: PatternBinding): ViewerPatternBinding =
         { Id = binding.Id
@@ -582,7 +197,8 @@ module ViewerProjection =
               Graph = projectGraph nodeTypes body }
 
         let projectNode (node: SemanticNode): ViewerNode =
-            let role, semanticRelations = roleAndSemanticRelations node
+            let role = role node
+            let semanticRelations = semanticRelations node
             // SemanticNodeShape is the one source of the functions a node names.
             let functionRelations =
                 SemanticNodeShape.functionReferences node

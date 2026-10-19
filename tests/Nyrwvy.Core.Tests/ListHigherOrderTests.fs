@@ -346,7 +346,7 @@ module ListHigherOrderTests =
 
         let viewer = ViewerProjection.focus focus
         let roles = viewer.Graph.Nodes |> List.map (fun node -> node.Role)
-        for role in [ ViewerNodeRole.ListMap; ViewerNodeRole.ListFilter; ViewerNodeRole.ListAny; ViewerNodeRole.ListAll ] do
+        for role in [ ViewerNodeRole.Operation "ListMap"; ViewerNodeRole.Operation "ListFilter"; ViewerNodeRole.Operation "ListAny"; ViewerNodeRole.Operation "ListAll" ] do
             Assert.Contains(role, roles)
 
         let mapViewer = viewer.Graph.Nodes |> List.find (fun node -> node.Id = fixture.MapNodeId)

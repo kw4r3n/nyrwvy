@@ -202,7 +202,7 @@ module ValueEqualTests =
             let named = find session "sameByName"
             let viewer = session.FocusFunction named.Id |> unwrap |> ViewerProjection.focus
             let node = viewer.Graph.Nodes |> List.find (fun item -> item.Id = named.Body.ResultNodeId)
-            Assert.Equal(ViewerNodeRole.ValueEqual, node.Role)
+            Assert.Equal(ViewerNodeRole.Operation "ValueEqual", node.Role)
             Assert.Equal<ValueDependencyRole list>([ ValueDependencyRole.LeftOperand; ValueDependencyRole.RightOperand ], node.ValueDependencies |> List.map (fun item -> item.Role))
             Assert.Contains("value equal", ViewerHtml.renderFocusDocument viewer)
             session.Close()

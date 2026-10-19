@@ -6,7 +6,12 @@ open Nyrwvy.Core
 module internal WireRecipe =
     open WireInput
 
-    let rec recipe (element: JsonElement): ExpressionRecipe =
+    /// `resolveNewField` names a field that has no ID yet on the wire: an `addUnionVariant` arm
+    /// body references the new variant's fields by display name (`"field"` in place of `"fieldId"`
+    /// on a pattern reference), since their IDs are system-owned and allocated by the session.
+    let rec private recipeIn (resolveNewField: string -> FieldId) (element: JsonElement): ExpressionRecipe =
+        let recipe = recipeIn resolveNewField
+
         let fieldValues name =
             array name element
             |> List.map (fun item ->
@@ -41,12 +46,16 @@ module internal WireRecipe =
             ensureFields "parameter-slot recipe" [ "kind"; "index" ] [ "kind"; "index" ] element
             ExpressionRecipe.ParameterSlot(requiredInt "index" element)
         | "patternReference" ->
-            ensureFields "pattern-reference recipe" [ "kind"; "scopeDepth"; "slot"; "fieldId" ] [ "kind"; "scopeDepth"; "slot" ] element
+            ensureFields "pattern-reference recipe" [ "kind"; "scopeDepth"; "slot"; "fieldId"; "field" ] [ "kind"; "scopeDepth"; "slot" ] element
             let slot =
                 match requiredString "slot" element with
                 | "value" -> RecipePatternSlot.Value
                 | "error" -> RecipePatternSlot.Error
-                | "field" -> RecipePatternSlot.Field(id<FieldTag> "fieldId" element)
+                | "field" ->
+                    match tryProperty "fieldId" element, tryProperty "field" element with
+                    | Some _, None -> RecipePatternSlot.Field(id<FieldTag> "fieldId" element)
+                    | None, Some _ -> RecipePatternSlot.Field(resolveNewField (requiredString "field" element))
+                    | _ -> fail "A field pattern reference takes exactly one of fieldId and field."
                 | value -> fail $"Unsupported pattern slot '{value}'."
             ExpressionRecipe.PatternReference { ScopeDepth = requiredInt "scopeDepth" element; Slot = slot }
         | "listEmpty" ->
@@ -67,6 +76,9 @@ module internal WireRecipe =
         | "mapFold" ->
             ensureFields "map-fold recipe" [ "kind"; "map"; "seed"; "functionId"; "context" ] [ "kind"; "map"; "seed"; "functionId" ] element
             ExpressionRecipe.MapFold(recipe (property "map" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "setFold" ->
+            ensureFields "set-fold recipe" [ "kind"; "set"; "seed"; "functionId"; "context" ] [ "kind"; "set"; "seed"; "functionId" ] element
+            ExpressionRecipe.SetFold(recipe (property "set" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "listEffectFold" ->
             ensureFields "list-effect-fold recipe" [ "kind"; "source"; "seed"; "functionId"; "context" ] [ "kind"; "source"; "seed"; "functionId" ] element
             ExpressionRecipe.ListEffectFold(recipe (property "source" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
@@ -105,6 +117,9 @@ module internal WireRecipe =
         | "mapFilter" ->
             ensureFields "map-filter recipe" [ "kind"; "map"; "functionId"; "context" ] [ "kind"; "map"; "functionId" ] element
             ExpressionRecipe.MapFilter(recipe (property "map" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "setFilter" ->
+            ensureFields "set-filter recipe" [ "kind"; "set"; "functionId"; "context" ] [ "kind"; "set"; "functionId" ] element
+            ExpressionRecipe.SetFilter(recipe (property "set" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "optionMap" ->
             ensureFields "option-map recipe" [ "kind"; "option"; "functionId"; "context" ] [ "kind"; "option"; "functionId" ] element
             ExpressionRecipe.OptionMap(recipe (property "option" element), id<FunctionTag> "functionId" element, callbackContext ())
@@ -123,6 +138,9 @@ module internal WireRecipe =
         | "mapMapValues" ->
             ensureFields "map-map-values recipe" [ "kind"; "map"; "functionId"; "context" ] [ "kind"; "map"; "functionId" ] element
             ExpressionRecipe.MapMapValues(recipe (property "map" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "setMap" ->
+            ensureFields "set-map recipe" [ "kind"; "set"; "functionId"; "context" ] [ "kind"; "set"; "functionId" ] element
+            ExpressionRecipe.SetMap(recipe (property "set" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "listZipWith" ->
             ensureFields "list-zip-with recipe" [ "kind"; "left"; "right"; "functionId"; "context" ] [ "kind"; "left"; "right"; "functionId" ] element
             ExpressionRecipe.ListZipWith(recipe (property "left" element), recipe (property "right" element), id<FunctionTag> "functionId" element, callbackContext ())
@@ -131,6 +149,7 @@ module internal WireRecipe =
         | "mapFromList"
         | "listSortBy"
         | "listMinBy"
+        | "listMaxBy"
         | "listFilter"
         | "listAny"
         | "listFindIndex"
@@ -146,6 +165,7 @@ module internal WireRecipe =
             | "listFilter" -> ExpressionRecipe.ListFilter(source, functionId, context)
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, functionId, context)
             | "listMinBy" -> ExpressionRecipe.ListMinBy(source, functionId, context)
+            | "listMaxBy" -> ExpressionRecipe.ListMaxBy(source, functionId, context)
             | "listAny" -> ExpressionRecipe.ListAny(source, functionId, context)
             | "listFindIndex" -> ExpressionRecipe.ListFindIndex(source, functionId, context)
             | _ -> ExpressionRecipe.ListAll(source, functionId, context)
@@ -201,3 +221,19 @@ module internal WireRecipe =
             match WireRecipeCommon.tryReferenceFree recipe element value with
             | Some decoded -> decoded
             | None -> fail $"Unsupported expression recipe kind '{value}'."
+
+    /// An exact-ID recipe; a field pattern reference by `field` name is not available here.
+    let recipe (element: JsonElement): ExpressionRecipe =
+        recipeIn (fun name -> fail $"Pattern reference by field name '{name}' is available only in an addUnionVariant arm body; use fieldId.") element
+
+    /// An exact-ID recipe whose field pattern references may name one of `newFields` by display
+    /// name: the arm bodies of `addUnionVariant`, whose field IDs do not exist on the wire yet.
+    let recipeWithNewFields (newFields: SemanticField list) (element: JsonElement): ExpressionRecipe =
+        recipeIn
+            (fun name ->
+                match newFields |> List.tryFind (fun field -> field.DisplayName = name) with
+                | Some field -> field.Id
+                | None ->
+                    let known = newFields |> List.map (fun field -> field.DisplayName) |> String.concat ", "
+                    fail $"Unknown new variant field '{name}' in a pattern reference; the new variant's fields are: {known}.")
+            element

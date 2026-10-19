@@ -86,9 +86,17 @@ type SnapshotComputationScope private (context: SnapshotComputationContext, owns
     /// of one context: a computation that waited on other threads using the same (flowed)
     /// context would deadlock. Switch to per-key lazies computed outside the lock before
     /// fanning snapshot computations out across threads.
-    static member internal Memoize(name, compute: Snapshot -> 'Result): Snapshot -> 'Result =
+    ///
+    /// With `retain`, a result is also kept for as long as the snapshot object itself is alive,
+    /// across scopes and requests, and a later scope reports it as a cache hit. Only for a fact that
+    /// is small and depends on the snapshot alone, such as its validation issues or a fingerprint:
+    /// the committed snapshot stays the same object from one request to the next, so without it
+    /// every simulation re-validated and re-fingerprinted the base. Only a scope with reuse reads
+    /// and fills the retained results; a scope without reuse and a caller outside any scope compute.
+    static member internal Memoize(name, compute: Snapshot -> 'Result, ?retain: bool): Snapshot -> 'Result =
         let slot = obj() // One private typed table per computation, per scope.
-        fun snapshot ->
+        let retained = if defaultArg retain false then Some(System.Runtime.CompilerServices.ConditionalWeakTable<Snapshot, System.Runtime.CompilerServices.StrongBox<'Result>>()) else None
+        let scoped snapshot =
             match SnapshotComputationContext.current.Value with
             | None -> compute snapshot
             | Some context ->
@@ -111,6 +119,27 @@ type SnapshotComputationScope private (context: SnapshotComputationContext, owns
                             let result = SnapshotComputationContext.measure context name (fun () -> compute snapshot)
                             table[snapshot] <- result
                             result)
+        match retained with
+        | None -> scoped
+        | Some retained ->
+            fun snapshot ->
+                let reuse =
+                    match SnapshotComputationContext.current.Value with
+                    | Some context when context.Active -> context.Reuse
+                    | _ -> false
+                if not reuse then scoped snapshot
+                else
+                    match retained.TryGetValue snapshot with
+                    | true, result ->
+                        match SnapshotComputationContext.current.Value with
+                        | Some context when context.Active && context.Measure ->
+                            lock context (fun () -> SnapshotComputationContext.record context name 0 1 0L 0L)
+                        | _ -> ()
+                        result.Value
+                    | _ ->
+                        let result = scoped snapshot
+                        retained.AddOrUpdate(snapshot, System.Runtime.CompilerServices.StrongBox result)
+                        result
 
     interface IDisposable with
         member _.Dispose() =

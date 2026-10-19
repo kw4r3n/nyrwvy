@@ -56,6 +56,7 @@ ExpressionRecipe =
   | StringIndexOf(value, substring, from)
   | StringSpan(value, set, from)
   | StringSpanBack(value, set, end)
+  | StringLastIndexOfBefore(value, substring, end)
   | StringLastIndexOf(value, substring)
   | StringStartsWith(value, prefix)
   | StringEndsWith(value, suffix)
@@ -91,6 +92,7 @@ ExpressionRecipe =
   | Float64Subtract(left, right)
   | Float64Multiply(left, right)
   | Float64Divide(left, right)
+  | Float64FloorModulo(left, right)
   | Float64Equal(left, right)
   | Float64LessThan(left, right)
   | Float64IsNaN(expr)
@@ -123,8 +125,10 @@ ExpressionRecipe =
   | MapInsert(map, key, value) | MapGet(map, key) | MapContainsKey(map, key) | MapRemove(map, key)
   | MapSize(map) | MapKeys(map) | MapValues(map) | MapUnion(left, right)
   | MapFold(map, seed, folderFunctionId, context) | MapFromList(source, keyOfFunctionId, context)
+  | SetFold(set, seed, folderFunctionId, context)
   | MapFilter(map, keepFunctionId, context) | MapGetOrDefault(map, key, default)
   | MapMapValues(map, mapperFunctionId, context)
+  | SetFilter(set, predicateFunctionId, context) | SetMap(set, mapperFunctionId, context)
   | SetEmpty(itemType) | SetFromList(list) | SetInsert(set, item) | SetContains(set, item)
   | SetRemove(set, item) | SetSize(set) | SetToList(set)
   | SetUnion(left, right) | SetIntersection(left, right) | SetDifference(left, right)
@@ -148,6 +152,7 @@ ExpressionRecipe =
   | ListFilter(source, predicateFunctionId, context)
   | ListSortBy(source, lessThanFunctionId, context)
   | ListMinBy(source, lessThanFunctionId, context)
+  | ListMaxBy(source, lessThanFunctionId, context)
   | ListIndexOf(list, item)
   | ListContains(list, item)
   | ListLastIndexOf(list, item)
@@ -341,7 +346,7 @@ for purity, persistence, dependency and host-boundary contracts.
 
 ## Higher-order List callbacks
 
-`ListFold`, `ListMap`, `ListZipWith`, `ListFlatMap`, `ListFilter`, `ListSortBy`, `ListMinBy`, `ListFindIndex`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
+`ListFold`, `ListMap`, `ListZipWith`, `ListFlatMap`, `ListFilter`, `ListSortBy`, `ListMinBy`, `ListMaxBy`, `ListFindIndex`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
 
 For a source `List<T>`:
 
@@ -352,6 +357,7 @@ For a source `List<T>`:
 - `ListFilter(source, p)` requires a pure unary `p : T -> Bool` and produces `List<T>`;
 - `ListSortBy(source, lessThan)` requires a pure binary `lessThan : (T, T) -> Bool` receiving `(left, right)` and produces `List<T>` in stable merge-sort order (see the [language subset](../reference/language-subset.md#immutable-ordered-listt)); wire `listSortBy`, Nyason `list-sort-by`, persisted callback field `lessThanFunctionId`. A callback with another number of unbound parameters reports `PureExpressionCallbackArityMismatch`, one whose parameters do not both match the item type `PureExpressionCallbackInputTypeMismatch`, a non-Bool result `PureExpressionCallbackResultTypeMismatch`, and required effects `PureExpressionCallbackEffectsNotAllowed`; persisted graphs report `CallbackArityMismatch`, `CallbackParameterTypeMismatch`, `PredicateResultTypeMismatch` and `CallbackEffectsNotAllowed`;
 - `ListMinBy(source, lessThan)` takes the same callback as `ListSortBy` and produces `Option<T>`: `None` for the empty list, otherwise the first smallest item of a left-to-right scan that replaces the best so far only when `lessThan(item, best)` holds; wire `listMinBy`, Nyason `list-min-by`, persisted callback field `lessThanFunctionId`, with the same diagnostics as `ListSortBy`;
+- `ListMaxBy(source, lessThan)` is the counterpart: the first largest item, replacing the best so far only when `lessThan(best, item)` holds, as Python `max`; wire `listMaxBy`, Nyason `list-max-by`, persisted callback field `lessThanFunctionId`, the same diagnostics ([decision](../decisions/list-max-by.md));
 - `ListFindIndex(source, predicate)` (wire `listFindIndex`, Nyason `list-find-index`) takes the same callback as `ListAny` and produces `Option<Int64>`: the zero-based index of the first item for which the predicate is true, or `None`.
 - `ListIndexOf(list, item)` (wire `listIndexOf` with the fields `list` and `item`, Nyason `list-index-of`) takes no callback: it produces the index of the first item equal to `item` as `ValueEqual` compares, or `None`. The item must have the list's item type (`ListIndexOfItemTypeMismatch`), and that type must be equatable (`ListIndexOfItemTypeNotEquatable`; a Float64 list uses `ListFindIndex`).
 - `ListLastIndexOf(list, item)` (wire `listLastIndexOf` with the fields `list` and `item`, Nyason `list-last-index-of`) is `ListIndexOf` scanning from the end: the index of the last equal item, or `None`, with the same rules and the diagnostics `ListLastIndexOfItemTypeMismatch` and `ListLastIndexOfItemTypeNotEquatable`.
@@ -411,6 +417,8 @@ The node yields `Result<T, E>`. If acquisition is `Err`, it is returned; the bod
 
 `SetEmpty(itemType)` (wire `setEmpty` with the field `itemType`) produces `Set<T>`. `SetInsert`, `SetContains` and `SetRemove` (wire `setInsert`, `setContains`, `setRemove`: `set`, `item`) take a set and an item of its item type. `SetFromList`, `SetSize` and `SetToList` (wire `setFromList`, `setSize`, `setToList`) take their operand in the field `value`. `SetUnion`, `SetIntersection`, `SetDifference` and `SetIsSubset` (wire `setUnion`, `setIntersection`, `setDifference`, `setIsSubset`: `left`, `right`) take two sets of the same type; `SetIsSubset` gives `Bool`. Nyason uses the kebab-case tags. An item type that is not equatable reports `SetItemTypeNotEquatable`; a mistyped operand reports `PureExpressionOperandTypeMismatch`, and a persisted graph reports `SetInputTypeMismatch` or `SetItemTypeMismatch`. `runPure` takes and returns `{"kind": "set", "itemType", "items": [...]}` in iteration order, with each item once. Semantics are in the [language subset](../reference/language-subset.md#immutable-insertion-ordered-sett).
 
+`SetFold(set, seed, folderFunctionId, context)` (wire `setFold`: `set`, `seed`, `function` or `functionId`, `context`; Nyason `set-fold`; persisted `sourceSetNodeId`, `seedNodeId`, `folderFunctionId`) takes a pure `(S, T) -> S` folder with two parameters not bound by context and yields `S`. `SetFilter(set, predicateFunctionId, context)` (wire `setFilter`: `set`, `function` or `functionId`, `context`; Nyason `set-filter`; persisted `predicateFunctionId`) takes a pure `T -> Bool` callback and yields the same `Set<T>`. `SetMap(set, mapperFunctionId, context)` (wire `setMap`; Nyason `set-map`; persisted `mapperFunctionId`) takes a pure `T -> U` callback and yields `Set<U>`; a `U` that is not equatable reports `SetItemTypeNotEquatable`. A non-Set operand reports `PureExpressionOperandTypeMismatch`; callback problems report the same `PureExpressionCallback*` codes as the List callbacks. A persisted graph reports `SetInputTypeMismatch` for a fold over a non-set, `HigherOrderSourceTypeMismatch` for a filter or map over one, and the List callbacks' `Callback*` and `PredicateResultTypeMismatch` codes ([decision](../decisions/set-callbacks.md)).
+
 ## Structured declaration bindings
 
 `ProductConstruct` and `UnionConstruct` accept field values as `(FieldId, ExpressionRecipe)` pairs. They deliberately do not expose persistent `FieldValueBinding`, because that type contains production `GraphNodeId` references.
@@ -446,6 +454,8 @@ The accessors are fixed-signature operations checked from the `OperationSignatur
 ## String search and split
 
 `StringIndexOf(value, substring, from)` (wire `stringIndexOf` with `value`, `substring`, `from`; Nyason `string-index-of`) and `StringLastIndexOf(value, substring)` (`stringLastIndexOf`, `string-last-index-of`) produce `Option<Int64>` code-point positions. `StringStartsWith(value, prefix)` (`stringStartsWith`, `string-starts-with`) and `StringEndsWith(value, suffix)` (`stringEndsWith`, `string-ends-with`) produce Bool. `StringSplit(value, separator)` (`stringSplit`, `string-split`) produces `List<String>`. Every text operand is a String and `from` is an Int64; another type reports `PureExpressionOperandTypeMismatch`, and `StringIntrinsicTypeMismatch` in a persisted graph. The semantics (ordinal, code-point positions, `from` clamped like `StringSlice`, an empty separator giving `[value]`, never failing) are defined in the [language subset](../reference/language-subset.md) and the [decision](../decisions/string-search-and-affixes.md).
+
+`StringLastIndexOfBefore(value, substring, end)` (wire `stringLastIndexOfBefore` with `value`, `substring`, `end`; Nyason `string-last-index-of-before`; persisted `valueNodeId`, `substringNodeId`, `endNodeId`) is `StringLastIndexOf` bounded to the matches that end at or before `end`, Python `rfind(sub, 0, end)`, with `end` clamped like `from`; it is a separate kind so that existing `StringLastIndexOf` nodes keep their shape ([decision](../decisions/string-last-index-of-before.md)). The `end` operand carries the `SliceEnd` dependency role. The same types and diagnostics apply.
 
 ## StringSpan and StringSpanBack
 
@@ -492,6 +502,8 @@ The accessors are fixed-signature operations checked from the `OperationSignatur
 ## Float64 unary operations
 
 `Float64Sqrt`, `Float64Abs`, `Float64Negate`, `Float64Floor`, `Float64Ceiling` and `Float64Truncate` (wire `float64Sqrt`, `float64Abs`, `float64Negate`, `float64Floor`, `float64Ceiling`, `float64Truncate`; Nyason `float64-sqrt`, `float64-abs`, `float64-negate`, `float64-floor`, `float64-ceiling`, `float64-truncate`) take a Float64 in the wire field `value` and produce a Float64. They are the IEEE 754 operations described in the [language subset](../reference/language-subset.md#float64) and never fail. An operand of another type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Float64OperandTypeMismatch`.
+
+`Float64FloorModulo(left, right)` (wire `float64FloorModulo` with the fields `left` and `right`; Nyason `float64-floor-modulo`) takes two Float64 values and produces a Float64, Python's float `%` with IEEE NaN where Python raises ([decision](../decisions/float64-floor-modulo.md)); it is a fixed-signature operation with `Float64Divide`'s diagnostics.
 
 `Float64Min(left, right)` and `Float64Max(left, right)` (wire `float64Min`, `float64Max` with the fields `left` and `right`; Nyason `float64-min`, `float64-max`) take two Float64 values and produce a Float64, the IEEE 754-2019 `minimum` and `maximum` ([decision](../decisions/int64-bitwise-and-float64-min-max.md)). An operand of another type reports `PureExpressionOperandTypeMismatch` from the recipe preflight; a persisted graph reports `Float64OperandTypeMismatch`.
 

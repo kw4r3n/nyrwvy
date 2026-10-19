@@ -98,8 +98,8 @@ module Int64DivisionTests =
                 (viewer.Graph.Nodes |> List.find (fun node -> node.Id = fn.Body.ResultNodeId)).Role, ViewerHtml.renderFocusDocument viewer
             let divideRole, divideHtml = roleOf quotient
             let moduloRole, moduloHtml = roleOf remainder
-            Assert.Equal(ViewerNodeRole.Int64FloorDivide, divideRole)
-            Assert.Equal(ViewerNodeRole.Int64FloorModulo, moduloRole)
+            Assert.Equal(ViewerNodeRole.Operation "Int64FloorDivide", divideRole)
+            Assert.Equal(ViewerNodeRole.Operation "Int64FloorModulo", moduloRole)
             Assert.Contains("Int64 floor divide", divideHtml)
             Assert.Contains("Int64 floor modulo", moduloHtml)
             session.Close()

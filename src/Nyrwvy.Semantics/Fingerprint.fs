@@ -30,9 +30,9 @@ module SnapshotFingerprint =
     let private domain = "nayamnyam.snapshot-fingerprint.v6"
 
     let private computeCached: Snapshot -> Result<SnapshotFingerprint, SnapshotCodecError> =
-        SnapshotComputationScope.Memoize("snapshotFingerprint", fun snapshot ->
+        SnapshotComputationScope.Memoize("snapshotFingerprint", (fun snapshot ->
             SnapshotCodec.serialize snapshot
-            |> Result.map (FingerprintHash.sha256 domain >> SnapshotFingerprint))
+            |> Result.map (FingerprintHash.sha256 domain >> SnapshotFingerprint)), retain = true)
 
     let compute (snapshot: Snapshot): Result<SnapshotFingerprint, SnapshotCodecError> = computeCached snapshot
 
@@ -178,7 +178,7 @@ module SemanticFingerprint =
         SnapshotCodec.serialize normalized
         |> Result.map (FingerprintHash.sha256 domain >> SemanticFingerprint)
 
-    let private computeCached = SnapshotComputationScope.Memoize("semanticFingerprint", computeUncached)
+    let private computeCached = SnapshotComputationScope.Memoize("semanticFingerprint", computeUncached, retain = true)
     let compute (snapshot: Snapshot): Result<SemanticFingerprint, SnapshotCodecError> = computeCached snapshot
 
     let value (SemanticFingerprint value) = value
