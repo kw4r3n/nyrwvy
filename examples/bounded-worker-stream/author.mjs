@@ -6,7 +6,7 @@ import {string,int,bool,unit,cap,scope,task,oneShot,named,result,list,option,
 export async function author(s) {
   const link=named('Link'),cell=oneShot(link),ack=oneShot(bool),gate=oneShot(unit),receipt=named('Receipt'),step=named('Step'),state=named('CollectorState'),R=result(string),RS=result(step),RR=result(receipt),RC=result(cell)
   const host=p('host'),fields=o=>Object.entries(o).map(([displayName,type])=>({displayName,type})),ctx=o=>Object.entries(o).map(([parameter,value])=>({parameter,value}))
-  const add=(a,b)=>({kind:'int64WrappingAdd',left:a,right:b}),ge=(a,b)=>({kind:'int64GreaterThanOrEqual',left:a,right:b}),and=(a,b)=>({kind:'boolAnd',left:a,right:b}),or=(a,b)=>({kind:'boolOr',left:a,right:b})
+  const add=(a,b)=>({kind:'int64WrappingAdd',left:a,right:b}),ge=(a,b)=>({kind:'boolNot',value:{kind:'int64LessThan',left:a,right:b}}),and=(a,b)=>({kind:'boolAnd',left:a,right:b}),or=(a,b)=>({kind:'boolOr',left:a,right:b})
   const loop=(fn,args)=>({...direct(fn,args),keepUnlisted:true}),match=(input,okBody,errBody)=>({kind:'matchResult',input,okBody,errBody})
   const fresh=t=>({kind:'oneShotCreate',scope:p('scope'),valueType:t}),wait=x=>({kind:'oneShotWait',cell:x}),complete=(cell,value)=>({kind:'oneShotComplete',cell,value})
   const F=(x,f)=>field(x,'Link',f),P=(x,f)=>field(x,'Receipt',f),S=(x,f)=>field(x,'Step',f),io=(operation,args={})=>invoke(host,'Host',operation,args)

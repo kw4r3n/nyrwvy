@@ -1,0 +1,23 @@
+{
+  "tool": "Nyrwvy.AuthoringSession migrate",
+  "toolVersion": "1.0.0\u002Bae35a02d88d036f8233d72b849417c3021355cd2",
+  "path": "/home/user/nyrwvy/.claude/worktrees/agent-a2a5c4a1ec37f43fa/examples/mini-work-planner/planner.snapshot.json",
+  "changed": true,
+  "sourceSchemaVersion": 9,
+  "sourceSchema": "nayamnyam.snapshot.v5",
+  "targetSchemaVersion": 21,
+  "targetSchema": "nayamnyam.snapshot.v17",
+  "before": {
+    "snapshotFingerprint": "sha256:da8f0cb02d124506c83d1bce7cb1b1021782259e067746d5d8f83013e0967218",
+    "semanticFingerprint": "sha256:889ec5f7383b508ba834d0903defac6a485a0986449035ab591b3a859760e529"
+  },
+  "after": {
+    "snapshotFingerprint": "sha256:da8f0cb02d124506c83d1bce7cb1b1021782259e067746d5d8f83013e0967218",
+    "semanticFingerprint": "sha256:889ec5f7383b508ba834d0903defac6a485a0986449035ab591b3a859760e529"
+  },
+  "semanticFingerprintExpectedEqual": true,
+  "rewrites": [],
+  "declarationsMarkedExported": 8,
+  "functionTypeParameterListsDeclared": 0,
+  "dependencies": []
+}

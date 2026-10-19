@@ -1,8 +1,59 @@
 {
+  "provenance": [
+    {
+      "kind": "function",
+      "id": "01a0b47e-2f60-7990-8ccb-d2bb808c5bb6",
+      "ownership": "local",
+      "sources": []
+    },
+    {
+      "kind": "function",
+      "id": "01a0b47e-adcf-7f06-803c-4161bf607760",
+      "ownership": "local",
+      "sources": []
+    },
+    {
+      "kind": "function",
+      "id": "01a0b47e-e891-7328-b978-efe6ab27f911",
+      "ownership": "local",
+      "sources": []
+    },
+    {
+      "kind": "type",
+      "id": "01a0b47d-678a-753f-83b9-c8ef6fb7be04",
+      "ownership": "local",
+      "sources": []
+    },
+    {
+      "kind": "type",
+      "id": "01a0b47d-8ca6-7384-a7f5-58eb9d8fef8c",
+      "ownership": "local",
+      "sources": []
+    },
+    {
+      "kind": "type",
+      "id": "01a0b47d-b387-7f63-b621-44bba320b392",
+      "ownership": "local",
+      "sources": []
+    },
+    {
+      "kind": "type",
+      "id": "01a0b47d-e0d2-782d-be1e-005437c80441",
+      "ownership": "local",
+      "sources": []
+    },
+    {
+      "kind": "type",
+      "id": "01a0b47e-0520-73e0-825f-b2865b2d6f67",
+      "ownership": "local",
+      "sources": []
+    }
+  ],
   "functions": [
     {
       "id": "01a0b47e-2f60-7990-8ccb-d2bb808c5bb6",
       "displayName": "can_retry",
+      "exported": true,
       "parameters": [
         {
           "id": "01a0b47e-2f60-78af-a902-a140315111bb",
@@ -30,6 +81,7 @@
     {
       "id": "01a0b47e-adcf-7f06-803c-4161bf607760",
       "displayName": "next_action",
+      "exported": true,
       "parameters": [
         {
           "id": "01a0b47e-adcf-73bf-8f59-ce99592bbf06",
@@ -49,6 +101,7 @@
     {
       "id": "01a0b47e-e891-7328-b978-efe6ab27f911",
       "displayName": "action_label",
+      "exported": true,
       "parameters": [
         {
           "id": "01a0b47e-e891-7e17-9e70-3ff5f260abe7",
@@ -70,6 +123,7 @@
     {
       "id": "01a0b47d-678a-753f-83b9-c8ef6fb7be04",
       "displayName": "PrerequisiteState",
+      "exported": true,
       "typeKind": {
         "kind": "union",
         "variants": [
@@ -94,6 +148,7 @@
     {
       "id": "01a0b47d-8ca6-7384-a7f5-58eb9d8fef8c",
       "displayName": "ExecutionState",
+      "exported": true,
       "typeKind": {
         "kind": "union",
         "variants": [
@@ -128,6 +183,7 @@
     {
       "id": "01a0b47d-b387-7f63-b621-44bba320b392",
       "displayName": "ValidationState",
+      "exported": true,
       "typeKind": {
         "kind": "union",
         "variants": [
@@ -157,6 +213,7 @@
     {
       "id": "01a0b47d-e0d2-782d-be1e-005437c80441",
       "displayName": "WorkItem",
+      "exported": true,
       "typeKind": {
         "kind": "product",
         "fields": [
@@ -206,6 +263,7 @@
     {
       "id": "01a0b47e-0520-73e0-825f-b2865b2d6f67",
       "displayName": "NextAction",
+      "exported": true,
       "typeKind": {
         "kind": "union",
         "variants": [
