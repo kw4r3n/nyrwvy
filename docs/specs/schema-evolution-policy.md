@@ -229,7 +229,7 @@ When a schema becomes obsolete:
 4. remove support only in an explicit change with documentation;
 5. never silently reinterpret an obsolete version as the newest schema.
 
-The next removal is the planned [legacy cutover](../plans/post-m2-roadmap.md#legacy-cutover-planned).
+The next removal is the planned [legacy cutover](../plans/post-m2-roadmap.md#legacy-cutover-planned); its migration path is `Nyrwvy.AuthoringSession migrate` ([snapshot migration](agent-authoring-session.md#snapshot-migration)), which records the evidence listed above in its report.
 
 ## Testing requirements
 

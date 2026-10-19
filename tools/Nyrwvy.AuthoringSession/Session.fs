@@ -31,6 +31,8 @@ type AuthoringSessionError =
     | ExecutionLoweringFailure of ExecutionIrError
     | BackendFailure of CSharpBackendError
     | DependencyFailure of string
+    /// `migrate` cannot rewrite the snapshot to the current schema; nothing was written.
+    | MigrationRejected of string
 
 type AuthoringSessionStatus =
     { SnapshotId: SnapshotId
@@ -360,7 +362,7 @@ module internal SessionStorageFaults =
     /// When it returns true for a full path, the next replacement of that path fails.
     let mutable failReplacement: string -> bool = fun _ -> false
 
-module private SessionStorage =
+module internal SessionStorage =
     let fullPath (path: string): string = Path.GetFullPath(path)
     let lockPath (path: string): string = path + ".lock"
 
@@ -514,9 +516,11 @@ type internal PinnedDependencySelection =
       /// whose `Imported` graph is then the dependency itself.
       Members: PinnedDependencySelection list }
 
-module private PinnedDependency =
-    let embed sourcePath imported =
-        match SnapshotCodec.serialize imported, SnapshotFingerprint.compute imported with
+module internal PinnedDependency =
+    /// Retains `imported` in the embedded manifest form, written by `serialize`: the ordinary
+    /// smallest-version form, or the current explicit form for the migration command.
+    let embedWith (serialize: Snapshot -> Result<string, SnapshotCodecError>) sourcePath imported =
+        match serialize imported, SnapshotFingerprint.compute imported with
         | Ok source, Ok fingerprint ->
             let fingerprint = SnapshotFingerprint.value fingerprint
             let manifest = JsonSerializer.Serialize(
@@ -528,6 +532,8 @@ module private PinnedDependency =
                  Fingerprint = fingerprint; IsEmbedded = true; Members = [] }
         | Error error, _
         | _, Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
+
+    let embed sourcePath imported = embedWith SnapshotCodec.serialize sourcePath imported
 
     let private describeMember selected =
         {| path = selected.SourcePath

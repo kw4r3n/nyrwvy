@@ -6,7 +6,7 @@ These are the maintained tools for using Nyrwvy.
 
 | Directory | Purpose |
 | --- | --- |
-| [`Nyrwvy.AuthoringSession`](Nyrwvy.AuthoringSession/) | The JSONL authoring process that owns a snapshot: open/create, inspect, simulate, commit, `runPure`, viewer pages. Contract: [agent authoring session](../docs/specs/agent-authoring-session.md). |
+| [`Nyrwvy.AuthoringSession`](Nyrwvy.AuthoringSession/) | The JSONL authoring process that owns a snapshot: open/create, inspect, simulate, commit, `runPure`, viewer pages; and the `migrate` command that rewrites a snapshot to the current schema ([snapshot migration](../docs/specs/agent-authoring-session.md#snapshot-migration)). Contract: [agent authoring session](../docs/specs/agent-authoring-session.md). |
 | [`nyrwvy-agent`](nyrwvy-agent/) | The host-neutral tool definitions and the stdio transport client shared by the OpenCode adapter (`.opencode/`) and the MCP server. Contract: [agent graph tools](../docs/specs/agent-graph-tools.md). |
 | [`nyrwvy-mcp`](nyrwvy-mcp/) | The MCP stdio server for Codex CLI, Claude Code, Claude Desktop, Zed and other `mcpServers` clients. Guide: [MCP graph-editing tools](../docs/specs/mcp-graph-tools.md). |
 | [`Nyrwvy.ViewerExport`](Nyrwvy.ViewerExport/) | Command-line export of the human-readable Function Focus HTML from a snapshot ([viewer](../docs/developer/architecture.md#human-review-and-projections)). |

@@ -9,6 +9,7 @@
     <Compile Include="GeneratedBuild.fs" />
     <Compile Include="PureRunWorker.fs" />
     <Compile Include="Session.fs" />
+    <Compile Include="Migration.fs" />
     <Compile Include="PureRun.fs" />
     <Compile Include="ChangeVerification.fs" />
     <Compile Include="WireJson.fs" />
