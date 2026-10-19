@@ -1364,9 +1364,6 @@ module SnapshotCodec =
     /// Frozen minimum-version encoding used by the v6 fingerprint domains, not persistence.
     let internal serializeCanonical (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCached snapshot
 
-    /// The snapshot written at the current schema version (`SnapshotSchema.current`) in its
-    /// explicit form (visibility markers, declared function type parameter lists), whatever
-    /// constructs it uses. Fingerprints keep their frozen canonical encoding independently.
     let private serializeCurrentCached: Snapshot -> Result<string, SnapshotCodecError> =
         SnapshotComputationScope.Memoize("currentSerialization", fun snapshot ->
             if nestsBeyondMaxDepth snapshot then Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
@@ -1375,10 +1372,11 @@ module SnapshotCodec =
                 | [] -> writeSnapshotAt (Some SnapshotSchema.current) None snapshot
                 | issues -> Error(SnapshotCodecError.InvalidSnapshot issues))
 
-    let serializeCurrent (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCurrentCached snapshot
-
-    /// Ordinary persistence always writes the current schema, including after a later edit.
-    let serialize (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCurrent snapshot
+    /// The snapshot written at the current schema version (`SnapshotSchema.current`) in its
+    /// explicit form (visibility markers, declared function type parameter lists), whatever
+    /// constructs it uses. Ordinary persistence and migration both use it, including after a
+    /// later edit; fingerprints keep their frozen canonical encoding independently.
+    let serialize (snapshot: Snapshot): Result<string, SnapshotCodecError> = serializeCurrentCached snapshot
 
     /// The `schemaVersion` a snapshot JSON document declares, before any decoding of its content.
     let declaredVersion (json: string): Result<SnapshotSchemaVersion, SnapshotCodecError> =
@@ -1429,16 +1427,13 @@ module SnapshotCodec =
                 dependencyDigest dependency
                 |> Result.bind (fun digest -> writeSnapshotAt atLeast (Some(StableId.value dependency.Id, digest)) local)
 
+    /// `local` with its dependency marker, at the current schema version in its explicit form (see `serialize`).
     let serializeResolved (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
         serializeResolvedAt (Some SnapshotSchema.current) dependency local
 
     /// Minimum-version fixtures for legacy dependency compatibility; ordinary writes use current.
     let internal serializeResolvedCanonical (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
         serializeResolvedAt None dependency local
-
-    /// `serializeResolved` at the current schema version in its explicit form (see `serializeCurrent`).
-    let serializeResolvedCurrent (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
-        serializeResolvedAt (Some SnapshotSchema.current) dependency local
 
     let rec private readTypeRef (element: JsonElement): TypeRef =
         let kind = readString "kind" element
