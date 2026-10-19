@@ -194,8 +194,8 @@ module Float64TextConversionTests =
                 session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
                 session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
             let cases =
-                [ "repr", floatType, stringType, ExpressionRecipe.Float64ToString(ExpressionRecipe.ParameterSlot 0), ViewerNodeRole.Float64ToString, "float64 to string"
-                  "parse", stringType, optionOf floatType, ExpressionRecipe.StringParseFloat64(ExpressionRecipe.ParameterSlot 0), ViewerNodeRole.StringParseFloat64, "parse float64" ]
+                [ "repr", floatType, stringType, ExpressionRecipe.Float64ToString(ExpressionRecipe.ParameterSlot 0), ViewerNodeRole.Operation "Float64ToString", "float64 to string"
+                  "parse", stringType, optionOf floatType, ExpressionRecipe.StringParseFloat64(ExpressionRecipe.ParameterSlot 0), ViewerNodeRole.Operation "StringParseFloat64", "parse float64" ]
             for name, parameterType, resultType, body, role, label in cases do
                 let fn = create name parameterType resultType body
                 let viewer = session.FocusFunction fn.Id |> unwrap "focus" |> ViewerProjection.focus

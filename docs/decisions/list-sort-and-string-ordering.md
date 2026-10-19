@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-28
-- **Roadmap:** [post-M2 queue from the 2026-09-28 probe 3](../plans/post-m2-roadmap.md#queue-from-the-2026-09-28-probe-3), order 12; `ListMinBy` is order 48 (owner choice of 2026-10-04)
+- **Roadmap:** [post-M2 queue from the 2026-09-28 probe 3](../plans/post-m2-roadmap.md#queue-from-the-2026-09-28-probe-3), order 12; `ListMinBy` is order 48 (owner choice of 2026-10-04); its counterpart `ListMaxBy` is order 69 ([decision](list-max-by.md))
 
 This decision settles order 12 of the post-M2 queue: how a program sorts a list and orders Strings. [Probe 3](../verification/rrawrlet-slice-probes-summary.md#probe-3) (friction 2) sorted rrawrlet's `usage_stats` rows by `(role, -count)` and sorted values for medians with 7 functions and 72 recipe nodes: insertion sorts built from two `ListFilter`s per insert (`leX`, `gtX`, `insertSorted`, `rowNotAfter`, `rowAfter`, `insertRow`), and a fixed role-rank table (`roleRank`), because there was no String ordering. A role outside the table would sort differently from Python. The implemented surface is described by the [language subset](../reference/language-subset.md) and the [expression authoring specification](../specs/expression-authoring.md), which remain the authority once implemented.
 

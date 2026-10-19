@@ -191,7 +191,7 @@ module Int64Tests =
 
         let viewer = ViewerProjection.focus focus
         let resultNode = viewer.Graph.Nodes |> List.find (fun node -> node.Id = fixture.AddResultNodeId)
-        Assert.Equal(ViewerNodeRole.Int64WrappingAdd, resultNode.Role)
+        Assert.Equal(ViewerNodeRole.Operation "Int64WrappingAdd", resultNode.Role)
         Assert.Equal(Some int64Type, resultNode.Type)
 
         let html = ViewerHtml.renderFocusDocument viewer

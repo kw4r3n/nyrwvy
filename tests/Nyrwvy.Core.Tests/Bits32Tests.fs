@@ -156,7 +156,7 @@ module Bits32Tests =
             for kind in kinds do Assert.Contains($"\"kind\":\"{kind}\"", named.RootElement.GetRawText())
             let fn = find session "mix"
             let viewer = session.FocusFunction fn.Id |> unwrap |> ViewerProjection.focus
-            let rotate = viewer.Graph.Nodes |> List.find (fun item -> item.Role = ViewerNodeRole.Bits32RotateRight)
+            let rotate = viewer.Graph.Nodes |> List.find (fun item -> item.Role = ViewerNodeRole.Operation "Bits32RotateRight")
             Assert.Equal<ValueDependencyRole list>([ ValueDependencyRole.Source; ValueDependencyRole.Amount ], rotate.ValueDependencies |> List.map (fun item -> item.Role))
             let html = ViewerHtml.renderFocusDocument viewer
             for label in [ "bits32 rotate right"; "bits32 shift left"; "bits32 to int64" ] do Assert.Contains(label, html)

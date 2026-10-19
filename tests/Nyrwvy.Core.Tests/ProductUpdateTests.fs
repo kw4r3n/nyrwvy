@@ -170,7 +170,7 @@ module ProductUpdateTests =
             commit session named |> ignore
             let bump = find session "bump"
             let viewer = session.FocusFunction bump.Id |> unwrap |> ViewerProjection.focus
-            let updateNode = viewer.Graph.Nodes |> List.find (fun item -> item.Role = ViewerNodeRole.ProductUpdate)
+            let updateNode = viewer.Graph.Nodes |> List.find (fun item -> item.Role = ViewerNodeRole.Operation "ProductUpdate")
             Assert.Equal(ValueDependencyRole.Source, updateNode.ValueDependencies.Head.Role)
             Assert.Equal(3, updateNode.ValueDependencies.Length)
             Assert.Contains("product update", ViewerHtml.renderFocusDocument viewer)

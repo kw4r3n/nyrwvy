@@ -277,7 +277,7 @@ module Float64Tests =
             |> ViewerProjection.focus
         requireMatch
             "Float64Equal viewer role"
-            (fun node -> node.Role = ViewerNodeRole.Float64Equal)
+            (fun node -> node.Role = ViewerNodeRole.Operation "Float64Equal")
             zeroFocus.Graph.Nodes
         requireMatch
             "negative-zero viewer literal"

@@ -52,6 +52,7 @@ type ExpressionRecipe =
     | StringIndexOf of ExpressionRecipe * ExpressionRecipe * ExpressionRecipe
     | StringSpan of value: ExpressionRecipe * set: ExpressionRecipe * from: ExpressionRecipe
     | StringSpanBack of value: ExpressionRecipe * set: ExpressionRecipe * ``end``: ExpressionRecipe
+    | StringLastIndexOfBefore of value: ExpressionRecipe * substring: ExpressionRecipe * ``end``: ExpressionRecipe
     | StringLastIndexOf of ExpressionRecipe * ExpressionRecipe
     | StringStartsWith of ExpressionRecipe * ExpressionRecipe
     | StringEndsWith of ExpressionRecipe * ExpressionRecipe
@@ -95,6 +96,7 @@ type ExpressionRecipe =
     | Float64Subtract of ExpressionRecipe * ExpressionRecipe
     | Float64Multiply of ExpressionRecipe * ExpressionRecipe
     | Float64Divide of ExpressionRecipe * ExpressionRecipe
+    | Float64FloorModulo of ExpressionRecipe * ExpressionRecipe
     | Float64Equal of ExpressionRecipe * ExpressionRecipe
     | Float64LessThan of ExpressionRecipe * ExpressionRecipe
     | Float64IsNaN of ExpressionRecipe
@@ -153,6 +155,7 @@ type ExpressionRecipe =
     /// `context` binds callback parameters by identity; the unbound ones receive iteration values.
     | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | MapFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | SetFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ParallelAll of source: ExpressionRecipe * workerFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | CancellationRequested
     /// The body's one unbound Unit parameter is supplied while ambient cancellation is masked.
@@ -178,9 +181,12 @@ type ExpressionRecipe =
     | MapFromList of source: ExpressionRecipe * keyOfFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListFilter of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | MapFilter of source: ExpressionRecipe * keepFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | SetFilter of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | MapMapValues of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | SetMap of source: ExpressionRecipe * mapperFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListSortBy of source: ExpressionRecipe * lessThanFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListMinBy of source: ExpressionRecipe * lessThanFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    | ListMaxBy of source: ExpressionRecipe * lessThanFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListAny of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListFindIndex of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ListAll of source: ExpressionRecipe * predicateFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -276,6 +282,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.StringIndexOf(value, substring, from) -> ExpressionRecipe.StringIndexOf(go value, go substring, go from)
         | ExpressionRecipe.StringSpan(value, set, from) -> ExpressionRecipe.StringSpan(go value, go set, go from)
         | ExpressionRecipe.StringSpanBack(value, set, stop) -> ExpressionRecipe.StringSpanBack(go value, go set, go stop)
+        | ExpressionRecipe.StringLastIndexOfBefore(value, set, stop) -> ExpressionRecipe.StringLastIndexOfBefore(go value, go set, go stop)
         | ExpressionRecipe.StringLastIndexOf(left, right) -> ExpressionRecipe.StringLastIndexOf(go left, go right)
         | ExpressionRecipe.StringStartsWith(left, right) -> ExpressionRecipe.StringStartsWith(go left, go right)
         | ExpressionRecipe.StringEndsWith(left, right) -> ExpressionRecipe.StringEndsWith(go left, go right)
@@ -319,6 +326,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Float64Subtract(left, right) -> ExpressionRecipe.Float64Subtract(go left, go right)
         | ExpressionRecipe.Float64Multiply(left, right) -> ExpressionRecipe.Float64Multiply(go left, go right)
         | ExpressionRecipe.Float64Divide(left, right) -> ExpressionRecipe.Float64Divide(go left, go right)
+        | ExpressionRecipe.Float64FloorModulo(left, right) -> ExpressionRecipe.Float64FloorModulo(go left, go right)
         | ExpressionRecipe.Float64Equal(left, right) -> ExpressionRecipe.Float64Equal(go left, go right)
         | ExpressionRecipe.Float64LessThan(left, right) -> ExpressionRecipe.Float64LessThan(go left, go right)
         | ExpressionRecipe.Float64IsNaN value -> ExpressionRecipe.Float64IsNaN(go value)
@@ -376,6 +384,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.MapUnion(left, right) -> ExpressionRecipe.MapUnion(go left, go right)
         | ExpressionRecipe.ListFold(source, seed, folder, context) -> ExpressionRecipe.ListFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.MapFold(source, seed, folder, context) -> ExpressionRecipe.MapFold(go source, go seed, folder, pairs context)
+        | ExpressionRecipe.SetFold(source, seed, folder, context) -> ExpressionRecipe.SetFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.UseResource(acquire, capability, operation, body, context) ->
             ExpressionRecipe.UseResource(go acquire, go capability, operation, body, pairs context)
         | ExpressionRecipe.ParallelAll(source, worker, context) -> ExpressionRecipe.ParallelAll(go source, worker, pairs context)
@@ -399,14 +408,17 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.MapFromList(source, callback, context) -> ExpressionRecipe.MapFromList(go source, callback, pairs context)
         | ExpressionRecipe.ListFilter(source, callback, context) -> ExpressionRecipe.ListFilter(go source, callback, pairs context)
         | ExpressionRecipe.MapFilter(source, callback, context) -> ExpressionRecipe.MapFilter(go source, callback, pairs context)
+        | ExpressionRecipe.SetFilter(source, callback, context) -> ExpressionRecipe.SetFilter(go source, callback, pairs context)
         | ExpressionRecipe.ListSortBy(source, callback, context) -> ExpressionRecipe.ListSortBy(go source, callback, pairs context)
         | ExpressionRecipe.MapMapValues(source, callback, context) -> ExpressionRecipe.MapMapValues(go source, callback, pairs context)
+        | ExpressionRecipe.SetMap(source, callback, context) -> ExpressionRecipe.SetMap(go source, callback, pairs context)
         | ExpressionRecipe.OptionMap(source, callback, context) -> ExpressionRecipe.OptionMap(go source, callback, pairs context)
         | ExpressionRecipe.OptionAndThen(source, callback, context) -> ExpressionRecipe.OptionAndThen(go source, callback, pairs context)
         | ExpressionRecipe.ResultMap(source, callback, context) -> ExpressionRecipe.ResultMap(go source, callback, pairs context)
         | ExpressionRecipe.ResultMapErr(source, callback, context) -> ExpressionRecipe.ResultMapErr(go source, callback, pairs context)
         | ExpressionRecipe.ResultAndThen(source, callback, context) -> ExpressionRecipe.ResultAndThen(go source, callback, pairs context)
         | ExpressionRecipe.ListMinBy(source, callback, context) -> ExpressionRecipe.ListMinBy(go source, callback, pairs context)
+        | ExpressionRecipe.ListMaxBy(source, callback, context) -> ExpressionRecipe.ListMaxBy(go source, callback, pairs context)
         | ExpressionRecipe.ListAny(source, callback, context) -> ExpressionRecipe.ListAny(go source, callback, pairs context)
         | ExpressionRecipe.ListFindIndex(source, callback, context) -> ExpressionRecipe.ListFindIndex(go source, callback, pairs context)
         | ExpressionRecipe.ListAll(source, callback, context) -> ExpressionRecipe.ListAll(go source, callback, pairs context)

@@ -46,6 +46,11 @@ module internal ExpressionRecipeInference =
                 "PureExpressionOperandTypeMismatch"
                 $"{role} {side} operand requires Map<K, V>, but the recipe produces {ty actual}."
 
+        let setMismatch role side actual =
+            diagnostic
+                "PureExpressionOperandTypeMismatch"
+                $"{role} {side} operand requires Set<T>, but the recipe produces {ty actual}."
+
         let setItemNotEquatable itemType =
             diagnostic
                 "SetItemTypeNotEquatable"
@@ -506,6 +511,7 @@ module internal ExpressionRecipeInference =
             | ExpressionRecipe.StringLastIndexOf _
             | ExpressionRecipe.StringSpan _
             | ExpressionRecipe.StringSpanBack _
+            | ExpressionRecipe.StringLastIndexOfBefore _
             | ExpressionRecipe.StringStartsWith _
             | ExpressionRecipe.StringEndsWith _
             | ExpressionRecipe.StringSplit _
@@ -558,6 +564,7 @@ module internal ExpressionRecipeInference =
             | ExpressionRecipe.Float64Subtract _
             | ExpressionRecipe.Float64Multiply _
             | ExpressionRecipe.Float64Divide _
+            | ExpressionRecipe.Float64FloorModulo _
             | ExpressionRecipe.Float64Equal _
             | ExpressionRecipe.Float64LessThan _
             | ExpressionRecipe.Float64IsNaN _
@@ -1132,6 +1139,62 @@ module internal ExpressionRecipeInference =
                         match validateLessThanCallback "ListMinBy" lessThanFunctionId context sourceItemType (infer frames) with
                         | Error error -> Error error
                         | Ok _ -> Ok(optionType sourceItemType)
+            | ExpressionRecipe.ListMaxBy(source, lessThanFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType with
+                    | None -> Error(listMismatch "ListMaxBy" "source" sourceType)
+                    | Some sourceItemType ->
+                        match validateLessThanCallback "ListMaxBy" lessThanFunctionId context sourceItemType (infer frames) with
+                        | Error error -> Error error
+                        | Ok _ -> Ok(optionType sourceItemType)
+            | ExpressionRecipe.SetFold(source, seed, folderFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match setItemType sourceType with
+                    | None -> Error(setMismatch "SetFold" "set" sourceType)
+                    | Some itemType ->
+                        match infer frames seed with
+                        | Error error -> Error error
+                        | Ok seedType ->
+                            match Map.tryFind folderFunctionId functionsById with
+                            | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"SetFold folder '{StableId.value folderFunctionId}' does not exist.")
+                            | Some folder ->
+                                match validateCallbackContext "SetFold" folder context (infer frames) with
+                                | Error error -> Error error
+                                | Ok(unbound, _) when unbound.Length <> 2 ->
+                                    Error(diagnostic "PureExpressionCallbackArityMismatch" $"SetFold folder {callbackName folder} must have exactly two parameters not bound by context (accumulator, item); it has type {callbackSignature folder} and context binds {List.length context}.")
+                                | Ok(unbound, substitution) ->
+                                    match TypeParameters.matchFrom substitution [ unbound.Head.Type, seedType; unbound.Tail.Head.Type, itemType ] with
+                                    | Some current when TypeParameters.substitute current folder.ResultType = seedType ->
+                                        if PureFunctions.isPure snapshot folder.Id then Ok seedType
+                                        else Error(diagnostic "PureExpressionCallbackEffectsNotAllowed" $"SetFold folder {callbackName folder} must be pure, including its transitive calls and ambient task or cancellation behavior.")
+                                    | _ -> Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"SetFold folder {callbackName folder} must have type (accumulator, item) -> accumulator, here ({ty seedType}, {ty itemType}) -> {ty seedType}; the folder has type {callbackSignature folder}.")
+            | ExpressionRecipe.SetFilter(source, predicateFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match setItemType sourceType with
+                    | None -> Error(setMismatch "SetFilter" "set" sourceType)
+                    | Some sourceItemType ->
+                        match validateListCallback "SetFilter" predicateFunctionId context sourceItemType true (infer frames) with
+                        | Error error -> Error error
+                        | Ok _ -> Ok sourceType
+            | ExpressionRecipe.SetMap(source, mapperFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match setItemType sourceType with
+                    | None -> Error(setMismatch "SetMap" "set" sourceType)
+                    | Some sourceItemType ->
+                        match validateListCallback "SetMap" mapperFunctionId context sourceItemType false (infer frames) with
+                        | Error error -> Error error
+                        | Ok(mapper, substitution) ->
+                            let resultItemType = TypeParameters.substitute substitution mapper.ResultType
+                            if EquatableTypes.isEquatable snapshot.Types resultItemType then Ok(setOf resultItemType)
+                            else Error(setItemNotEquatable resultItemType)
             | ExpressionRecipe.ListAny(source, predicateFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error

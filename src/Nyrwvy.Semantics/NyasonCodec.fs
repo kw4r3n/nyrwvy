@@ -625,6 +625,13 @@ module NyasonCodec =
                 [ nodeId
                   "value", encodeId "node" valueNodeId
                   "substring", encodeId "node" substringNodeId ]
+        | SemanticNodeKind.StringLastIndexOfBefore(valueNodeId, substringNodeId, endNodeId) ->
+            record
+                "string-last-index-of-before"
+                [ nodeId
+                  "value", encodeId "node" valueNodeId
+                  "substring", encodeId "node" substringNodeId
+                  "end", encodeId "node" endNodeId ]
         | SemanticNodeKind.StringStartsWith(valueNodeId, prefixNodeId) ->
             record "string-starts-with" [ nodeId; "value", encodeId "node" valueNodeId; "prefix", encodeId "node" prefixNodeId ]
         | SemanticNodeKind.StringEndsWith(valueNodeId, suffixNodeId) ->
@@ -720,6 +727,8 @@ module NyasonCodec =
             encodeBinaryNode "float64-multiply" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId) ->
             encodeBinaryNode "float64-divide" nodeId leftNodeId rightNodeId
+        | SemanticNodeKind.Float64FloorModulo(leftNodeId, rightNodeId) ->
+            encodeBinaryNode "float64-floor-modulo" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId) ->
             encodeBinaryNode "float64-equal" nodeId leftNodeId rightNodeId
         | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId) ->
@@ -911,6 +920,8 @@ module NyasonCodec =
             record "list-fold" ([ nodeId; "source", encodeId "node" sourceListNodeId; "seed", encodeId "node" seedNodeId; "folder", encodeId "function" folderFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
             record "map-fold" ([ nodeId; "map", encodeId "node" sourceMapNodeId; "seed", encodeId "node" seedNodeId; "folder", encodeId "function" folderFunctionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.SetFold(sourceSetNodeId, seedNodeId, folderFunctionId, context) ->
+            record "set-fold" ([ nodeId; "set", encodeId "node" sourceSetNodeId; "seed", encodeId "node" seedNodeId; "folder", encodeId "function" folderFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.ListEffectFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
             record "list-effect-fold" ([ nodeId; "source", encodeId "node" sourceListNodeId; "seed", encodeId "node" seedNodeId; "folder", encodeId "function" folderFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.UseResource(acquireNodeId, releaseCapabilityNodeId, releaseOperationId, bodyFunctionId, context) ->
@@ -966,6 +977,8 @@ module NyasonCodec =
             encodeListCallbackNode "list-filter" nodeId sourceListNodeId predicateFunctionId context
         | SemanticNodeKind.MapFilter(sourceMapNodeId, keepFunctionId, context) ->
             record "map-filter" ([ nodeId; "map", encodeId "node" sourceMapNodeId; "keep", encodeId "function" keepFunctionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.SetFilter(sourceSetNodeId, predicateFunctionId, context) ->
+            record "set-filter" ([ nodeId; "set", encodeId "node" sourceSetNodeId; "predicate", encodeId "function" predicateFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.OptionGetOrDefault(optionNodeId, defaultNodeId) ->
             record "option-get-or-default" [ nodeId; "option", encodeId "node" optionNodeId; "default", encodeId "node" defaultNodeId ]
         | SemanticNodeKind.ResultGetOrDefault(resultNodeId, defaultNodeId) ->
@@ -992,10 +1005,14 @@ module NyasonCodec =
             record "result-and-then" ([ nodeId; "result", encodeId "node" sourceNodeId; "binder", encodeId "function" functionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.MapMapValues(sourceMapNodeId, mapperFunctionId, context) ->
             record "map-map-values" ([ nodeId; "map", encodeId "node" sourceMapNodeId; "mapper", encodeId "function" mapperFunctionId ] @ encodeCallbackContext context)
+        | SemanticNodeKind.SetMap(sourceSetNodeId, mapperFunctionId, context) ->
+            record "set-map" ([ nodeId; "set", encodeId "node" sourceSetNodeId; "mapper", encodeId "function" mapperFunctionId ] @ encodeCallbackContext context)
         | SemanticNodeKind.ListSortBy(sourceListNodeId, lessThanFunctionId, context) ->
             encodeListCallbackNode "list-sort-by" nodeId sourceListNodeId lessThanFunctionId context
         | SemanticNodeKind.ListMinBy(sourceListNodeId, lessThanFunctionId, context) ->
             encodeListCallbackNode "list-min-by" nodeId sourceListNodeId lessThanFunctionId context
+        | SemanticNodeKind.ListMaxBy(sourceListNodeId, lessThanFunctionId, context) ->
+            encodeListCallbackNode "list-max-by" nodeId sourceListNodeId lessThanFunctionId context
         | SemanticNodeKind.ListAny(sourceListNodeId, predicateFunctionId, context) ->
             encodeListCallbackNode "list-any" nodeId sourceListNodeId predicateFunctionId context
         | SemanticNodeKind.ListFindIndex(sourceListNodeId, predicateFunctionId, context) ->
@@ -1383,6 +1400,15 @@ module NyasonCodec =
                 build
                     (decodeId<GraphNodeTag> "node" (require "value" fields))
                     (decodeId<GraphNodeTag> "node" (require other fields)) }
+        | NyasonValue.Record("string-last-index-of-before", _) ->
+            let fields = recordFields "string-last-index-of-before" [ "id"; "value"; "substring"; "end" ] [] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind =
+                SemanticNodeKind.StringLastIndexOfBefore(
+                    decodeId<GraphNodeTag> "node" (require "value" fields),
+                    decodeId<GraphNodeTag> "node" (require "substring" fields),
+                    decodeId<GraphNodeTag> "node" (require "end" fields)
+                ) }
         | NyasonValue.Record("string-equal", _) ->
             decodeBinaryNode "string-equal" value (fun left right -> SemanticNodeKind.StringEqual(left, right))
         | NyasonValue.Record("string-less-than", _) ->
@@ -1481,6 +1507,8 @@ module NyasonCodec =
             decodeBinaryNode "float64-multiply" value (fun left right -> SemanticNodeKind.Float64Multiply(left, right))
         | NyasonValue.Record("float64-divide", _) ->
             decodeBinaryNode "float64-divide" value (fun left right -> SemanticNodeKind.Float64Divide(left, right))
+        | NyasonValue.Record("float64-floor-modulo", _) ->
+            decodeBinaryNode "float64-floor-modulo" value (fun left right -> SemanticNodeKind.Float64FloorModulo(left, right))
         | NyasonValue.Record("float64-equal", _) ->
             decodeBinaryNode "float64-equal" value (fun left right -> SemanticNodeKind.Float64Equal(left, right))
         | NyasonValue.Record("float64-less-than", _) ->
@@ -1773,6 +1801,10 @@ module NyasonCodec =
             let fields = recordFields "map-fold" [ "id"; "map"; "seed"; "folder" ] [ "context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.MapFold(decodeId<GraphNodeTag> "node" (require "map" fields), decodeId<GraphNodeTag> "node" (require "seed" fields), decodeId<FunctionTag> "function" (require "folder" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("set-fold", _) ->
+            let fields = recordFields "set-fold" [ "id"; "set"; "seed"; "folder" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.SetFold(decodeId<GraphNodeTag> "node" (require "set" fields), decodeId<GraphNodeTag> "node" (require "seed" fields), decodeId<FunctionTag> "function" (require "folder" fields), decodeCallbackContext fields) }
         | NyasonValue.Record("list-effect-fold", _) ->
             let fields = recordFields "list-effect-fold" [ "id"; "source"; "seed"; "folder" ] [ "context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1859,10 +1891,18 @@ module NyasonCodec =
             let fields = recordFields "map-filter" [ "id"; "map"; "keep" ] [ "context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.MapFilter(decodeId<GraphNodeTag> "node" (require "map" fields), decodeId<FunctionTag> "function" (require "keep" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("set-filter", _) ->
+            let fields = recordFields "set-filter" [ "id"; "set"; "predicate" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.SetFilter(decodeId<GraphNodeTag> "node" (require "set" fields), decodeId<FunctionTag> "function" (require "predicate" fields), decodeCallbackContext fields) }
         | NyasonValue.Record("map-map-values", _) ->
             let fields = recordFields "map-map-values" [ "id"; "map"; "mapper" ] [ "context" ] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
               Kind = SemanticNodeKind.MapMapValues(decodeId<GraphNodeTag> "node" (require "map" fields), decodeId<FunctionTag> "function" (require "mapper" fields), decodeCallbackContext fields) }
+        | NyasonValue.Record("set-map", _) ->
+            let fields = recordFields "set-map" [ "id"; "set"; "mapper" ] [ "context" ] value
+            { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
+              Kind = SemanticNodeKind.SetMap(decodeId<GraphNodeTag> "node" (require "set" fields), decodeId<FunctionTag> "function" (require "mapper" fields), decodeCallbackContext fields) }
         | NyasonValue.Record("option-get-or-default", _) ->
             let fields = recordFields "option-get-or-default" [ "id"; "option"; "default" ] [] value
             { Id = decodeId<GraphNodeTag> "node" (require "id" fields)
@@ -1915,6 +1955,8 @@ module NyasonCodec =
             decodeListCallbackNode "list-sort-by" value (fun source callback context -> SemanticNodeKind.ListSortBy(source, callback, context))
         | NyasonValue.Record("list-min-by", _) ->
             decodeListCallbackNode "list-min-by" value (fun source callback context -> SemanticNodeKind.ListMinBy(source, callback, context))
+        | NyasonValue.Record("list-max-by", _) ->
+            decodeListCallbackNode "list-max-by" value (fun source callback context -> SemanticNodeKind.ListMaxBy(source, callback, context))
         | NyasonValue.Record("list-any", _) ->
             decodeListCallbackNode "list-any" value (fun source callback context -> SemanticNodeKind.ListAny(source, callback, context))
         | NyasonValue.Record("list-find-index", _) ->

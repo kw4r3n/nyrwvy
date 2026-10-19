@@ -54,6 +54,14 @@ type SnapshotSchemaFeature =
     | ListContains
     /// StringEncodeUtf8.
     | StringEncodeUtf8
+    /// SetFold, SetFilter and SetMap.
+    | SetCallbacks
+    /// ListMaxBy.
+    | ListMaxBy
+    /// Float64FloorModulo.
+    | Float64FloorModulo
+    /// StringLastIndexOfBefore.
+    | StringLastIndexOfBefore
 
 /// One persisted snapshot schema: its JSON `schemaVersion` and its Nyason schema identifier.
 /// The two formats number their versions separately but move together.
@@ -88,12 +96,18 @@ module SnapshotSchema =
 
     let private v19 = version 19 "nayamnyam.snapshot.v15"
 
+    let private v20 = version 20 "nayamnyam.snapshot.v16"
+
     /// Every version the codecs read, oldest first.
-    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19 ]
+    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19; v20 ]
 
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
-        [ SnapshotSchemaFeature.OptionResultAccessors, v19, "Option and Result accessors"
+        [ SnapshotSchemaFeature.SetCallbacks, v20, "SetFold, SetFilter and SetMap"
+          SnapshotSchemaFeature.ListMaxBy, v20, "ListMaxBy"
+          SnapshotSchemaFeature.Float64FloorModulo, v20, "Float64FloorModulo"
+          SnapshotSchemaFeature.StringLastIndexOfBefore, v20, "StringLastIndexOfBefore"
+          SnapshotSchemaFeature.OptionResultAccessors, v19, "Option and Result accessors"
           SnapshotSchemaFeature.ListContains, v19, "ListContains"
           SnapshotSchemaFeature.StringEncodeUtf8, v19, "StringEncodeUtf8"
           SnapshotSchemaFeature.GenericTypes, v18, "Generic Product and Union types"
@@ -147,6 +161,12 @@ module SnapshotSchema =
         | SemanticNodeKind.OptionIsSome _
         | SemanticNodeKind.ResultIsOk _ -> Some SnapshotSchemaFeature.OptionResultAccessors
         | SemanticNodeKind.ListContains _ -> Some SnapshotSchemaFeature.ListContains
+        | SemanticNodeKind.SetFold _
+        | SemanticNodeKind.SetFilter _
+        | SemanticNodeKind.SetMap _ -> Some SnapshotSchemaFeature.SetCallbacks
+        | SemanticNodeKind.ListMaxBy _ -> Some SnapshotSchemaFeature.ListMaxBy
+        | SemanticNodeKind.Float64FloorModulo _ -> Some SnapshotSchemaFeature.Float64FloorModulo
+        | SemanticNodeKind.StringLastIndexOfBefore _ -> Some SnapshotSchemaFeature.StringLastIndexOfBefore
         | SemanticNodeKind.StringEncodeUtf8 _ -> Some SnapshotSchemaFeature.StringEncodeUtf8
         | SemanticNodeKind.ExceptionIsCancellation _ -> Some SnapshotSchemaFeature.ExceptionIsCancellation
         | SemanticNodeKind.ExceptionCatch _

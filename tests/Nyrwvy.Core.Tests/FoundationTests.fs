@@ -66,6 +66,7 @@ module FoundationTests =
                 | SemanticNodeKind.StringIndexOf _
                 | SemanticNodeKind.StringSpan _
                 | SemanticNodeKind.StringSpanBack _
+                | SemanticNodeKind.StringLastIndexOfBefore _
                 | SemanticNodeKind.StringLastIndexOf _
                 | SemanticNodeKind.StringStartsWith _
                 | SemanticNodeKind.StringEndsWith _
@@ -109,6 +110,7 @@ module FoundationTests =
                 | SemanticNodeKind.Float64Subtract _
                 | SemanticNodeKind.Float64Multiply _
                 | SemanticNodeKind.Float64Divide _
+                | SemanticNodeKind.Float64FloorModulo _
                 | SemanticNodeKind.Float64Equal _
                 | SemanticNodeKind.Float64LessThan _
                 | SemanticNodeKind.Float64IsNaN _
@@ -173,6 +175,7 @@ module FoundationTests =
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
                 | SemanticNodeKind.MapFold _
+                | SemanticNodeKind.SetFold _
                 | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.UseResource _
                 | SemanticNodeKind.ParallelAll _
@@ -195,6 +198,7 @@ module FoundationTests =
                 | SemanticNodeKind.MapFromList _
                 | SemanticNodeKind.ListFilter _
                 | SemanticNodeKind.MapFilter _
+                | SemanticNodeKind.SetFilter _
                 | SemanticNodeKind.ListSortBy _
                 | SemanticNodeKind.OptionMap _
                 | SemanticNodeKind.OptionAndThen _
@@ -202,7 +206,9 @@ module FoundationTests =
                 | SemanticNodeKind.ResultMapErr _
                 | SemanticNodeKind.ResultAndThen _
                 | SemanticNodeKind.MapMapValues _
+                | SemanticNodeKind.SetMap _
                 | SemanticNodeKind.ListMinBy _
+                | SemanticNodeKind.ListMaxBy _
                 | SemanticNodeKind.ListAny _
                 | SemanticNodeKind.ListFindIndex _
                 | SemanticNodeKind.ListAll _

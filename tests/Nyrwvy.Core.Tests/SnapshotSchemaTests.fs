@@ -88,6 +88,16 @@ module SnapshotSchemaTests =
               create "has" [ "items", listOf int64Type; "item", int64Type ] boolType [] (ExpressionRecipe.ListContains(slot 0, slot 1)) |> ignore)
           "encode utf8", SnapshotSchemaFeature.StringEncodeUtf8, (fun create ->
               create "encode" [ "text", stringType ] stringType [] (ExpressionRecipe.StringEncodeUtf8(slot 0)) |> ignore)
+          "set filter", SnapshotSchemaFeature.SetCallbacks, (fun create ->
+              let notEmpty = create "notEmpty" [ "s", stringType ] boolType [] (ExpressionRecipe.BoolNot(ExpressionRecipe.StringIsEmpty(slot 0)))
+              create "kept" [ "items", generic BuiltinGenericType.Set [ stringType ] ] (generic BuiltinGenericType.Set [ stringType ]) [] (ExpressionRecipe.SetFilter(slot 0, notEmpty.Id, [])) |> ignore)
+          "largest by", SnapshotSchemaFeature.ListMaxBy, (fun create ->
+              let less = create "less" [ "a", int64Type; "b", int64Type ] boolType [] (ExpressionRecipe.Int64LessThan(slot 0, slot 1))
+              create "largest" [ "items", listOf int64Type ] (optionOf int64Type) [] (ExpressionRecipe.ListMaxBy(slot 0, less.Id, [])) |> ignore)
+          "float floor modulo", SnapshotSchemaFeature.Float64FloorModulo, (fun create ->
+              create "remainder" [ "left", float64Type; "right", float64Type ] float64Type [] (ExpressionRecipe.Float64FloorModulo(slot 0, slot 1)) |> ignore)
+          "last index before", SnapshotSchemaFeature.StringLastIndexOfBefore, (fun create ->
+              create "rfind" [ "text", stringType; "sub", stringType; "end", int64Type ] (optionOf int64Type) [] (ExpressionRecipe.StringLastIndexOfBefore(slot 0, slot 1, slot 2)) |> ignore)
           "option ok or", SnapshotSchemaFeature.OptionResultAccessors, (fun create ->
               create "okOr" [ "option", optionOf stringType; "error", int64Type ] (generic BuiltinGenericType.Result [ stringType; int64Type ]) [] (ExpressionRecipe.OptionOkOr(slot 0, slot 1)) |> ignore)
           "exception classification", SnapshotSchemaFeature.ExceptionIsCancellation, (fun create ->
@@ -204,7 +214,8 @@ module SnapshotSchemaTests =
         let expectedFeatures =
             match name with
             | "exception classification" -> Set.ofList [ feature; SnapshotSchemaFeature.ExceptionBoundary ]
-            | "set subset" -> Set.ofList [ feature; SnapshotSchemaFeature.Set ]
+            | "set subset"
+            | "set filter" -> Set.ofList [ feature; SnapshotSchemaFeature.Set ]
             | "map union" -> Set.ofList [ feature; SnapshotSchemaFeature.Map ]
             | _ -> Set.singleton feature
         Assert.Equal<Set<SnapshotSchemaFeature>>(expectedFeatures, SnapshotSchema.usedFeatures snapshot)

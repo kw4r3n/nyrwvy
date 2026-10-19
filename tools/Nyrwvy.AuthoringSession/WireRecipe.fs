@@ -76,6 +76,9 @@ module internal WireRecipe =
         | "mapFold" ->
             ensureFields "map-fold recipe" [ "kind"; "map"; "seed"; "functionId"; "context" ] [ "kind"; "map"; "seed"; "functionId" ] element
             ExpressionRecipe.MapFold(recipe (property "map" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "setFold" ->
+            ensureFields "set-fold recipe" [ "kind"; "set"; "seed"; "functionId"; "context" ] [ "kind"; "set"; "seed"; "functionId" ] element
+            ExpressionRecipe.SetFold(recipe (property "set" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "listEffectFold" ->
             ensureFields "list-effect-fold recipe" [ "kind"; "source"; "seed"; "functionId"; "context" ] [ "kind"; "source"; "seed"; "functionId" ] element
             ExpressionRecipe.ListEffectFold(recipe (property "source" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
@@ -114,6 +117,9 @@ module internal WireRecipe =
         | "mapFilter" ->
             ensureFields "map-filter recipe" [ "kind"; "map"; "functionId"; "context" ] [ "kind"; "map"; "functionId" ] element
             ExpressionRecipe.MapFilter(recipe (property "map" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "setFilter" ->
+            ensureFields "set-filter recipe" [ "kind"; "set"; "functionId"; "context" ] [ "kind"; "set"; "functionId" ] element
+            ExpressionRecipe.SetFilter(recipe (property "set" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "optionMap" ->
             ensureFields "option-map recipe" [ "kind"; "option"; "functionId"; "context" ] [ "kind"; "option"; "functionId" ] element
             ExpressionRecipe.OptionMap(recipe (property "option" element), id<FunctionTag> "functionId" element, callbackContext ())
@@ -132,6 +138,9 @@ module internal WireRecipe =
         | "mapMapValues" ->
             ensureFields "map-map-values recipe" [ "kind"; "map"; "functionId"; "context" ] [ "kind"; "map"; "functionId" ] element
             ExpressionRecipe.MapMapValues(recipe (property "map" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "setMap" ->
+            ensureFields "set-map recipe" [ "kind"; "set"; "functionId"; "context" ] [ "kind"; "set"; "functionId" ] element
+            ExpressionRecipe.SetMap(recipe (property "set" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "listZipWith" ->
             ensureFields "list-zip-with recipe" [ "kind"; "left"; "right"; "functionId"; "context" ] [ "kind"; "left"; "right"; "functionId" ] element
             ExpressionRecipe.ListZipWith(recipe (property "left" element), recipe (property "right" element), id<FunctionTag> "functionId" element, callbackContext ())
@@ -140,6 +149,7 @@ module internal WireRecipe =
         | "mapFromList"
         | "listSortBy"
         | "listMinBy"
+        | "listMaxBy"
         | "listFilter"
         | "listAny"
         | "listFindIndex"
@@ -155,6 +165,7 @@ module internal WireRecipe =
             | "listFilter" -> ExpressionRecipe.ListFilter(source, functionId, context)
             | "listSortBy" -> ExpressionRecipe.ListSortBy(source, functionId, context)
             | "listMinBy" -> ExpressionRecipe.ListMinBy(source, functionId, context)
+            | "listMaxBy" -> ExpressionRecipe.ListMaxBy(source, functionId, context)
             | "listAny" -> ExpressionRecipe.ListAny(source, functionId, context)
             | "listFindIndex" -> ExpressionRecipe.ListFindIndex(source, functionId, context)
             | _ -> ExpressionRecipe.ListAll(source, functionId, context)

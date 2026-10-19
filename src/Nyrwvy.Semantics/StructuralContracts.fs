@@ -113,6 +113,10 @@ module ValueDependency =
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.CharacterSet setNodeId
               create ValueDependencyRole.SliceEnd endNodeId ]
+        | SemanticNodeKind.StringLastIndexOfBefore(sourceNodeId, substringNodeId, endNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Substring substringNodeId
+              create ValueDependencyRole.SliceEnd endNodeId ]
         | SemanticNodeKind.StringLastIndexOf(sourceNodeId, substringNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Substring substringNodeId ]
@@ -166,6 +170,7 @@ module ValueDependency =
         | SemanticNodeKind.Float64Subtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Multiply(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Divide(leftNodeId, rightNodeId)
+        | SemanticNodeKind.Float64FloorModulo(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Equal(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64LessThan(leftNodeId, rightNodeId)
         | SemanticNodeKind.Bits32Xor(leftNodeId, rightNodeId)
@@ -208,14 +213,17 @@ module ValueDependency =
         | SemanticNodeKind.MapFromList(sourceNodeId, _, context)
         | SemanticNodeKind.ListFilter(sourceNodeId, _, context)
         | SemanticNodeKind.MapFilter(sourceNodeId, _, context)
+        | SemanticNodeKind.SetFilter(sourceNodeId, _, context)
         | SemanticNodeKind.ListSortBy(sourceNodeId, _, context)
         | SemanticNodeKind.MapMapValues(sourceNodeId, _, context)
+        | SemanticNodeKind.SetMap(sourceNodeId, _, context)
         | SemanticNodeKind.OptionMap(sourceNodeId, _, context)
         | SemanticNodeKind.OptionAndThen(sourceNodeId, _, context)
         | SemanticNodeKind.ResultMap(sourceNodeId, _, context)
         | SemanticNodeKind.ResultMapErr(sourceNodeId, _, context)
         | SemanticNodeKind.ResultAndThen(sourceNodeId, _, context)
         | SemanticNodeKind.ListMinBy(sourceNodeId, _, context)
+        | SemanticNodeKind.ListMaxBy(sourceNodeId, _, context)
         | SemanticNodeKind.ListAny(sourceNodeId, _, context)
         | SemanticNodeKind.ListFindIndex(sourceNodeId, _, context)
         | SemanticNodeKind.ListAll(sourceNodeId, _, context) ->
@@ -223,6 +231,7 @@ module ValueDependency =
             :: contextDependencies context
         | SemanticNodeKind.ListFold(sourceNodeId, seedNodeId, _, context)
         | SemanticNodeKind.MapFold(sourceNodeId, seedNodeId, _, context)
+        | SemanticNodeKind.SetFold(sourceNodeId, seedNodeId, _, context)
         | SemanticNodeKind.ListEffectFold(sourceNodeId, seedNodeId, _, context) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Value seedNodeId ]

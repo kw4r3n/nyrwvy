@@ -19,7 +19,7 @@ The [Map decision](map.md) put Set in a second slice on the same runtime structu
   - `SetIntersection(left, right)`: the left items that right contains, in left's order.
   - `SetDifference(left, right)`: the left items that right does not contain, in left's order.
   - Both operands are sets of the same item type. None of them fails.
-- **Left for later, until a consumer needs it:** a fold over a set (`SetToList` with `ListFold` covers it).
+- **Left for later, until a consumer needs it:** a fold over a set (`SetToList` with `ListFold` covers it). *Added on 2026-10-19 as `SetFold`, with `SetFilter` and `SetMap`, by [Set callbacks](set-callbacks.md).*
 
 ## Consequences
 
