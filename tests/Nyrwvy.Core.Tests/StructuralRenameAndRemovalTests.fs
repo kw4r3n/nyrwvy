@@ -71,7 +71,7 @@ module StructuralRenameAndRemovalTests =
         let required = effects |> List.map (fun effect -> "\"" + effect + "\"") |> String.concat ","
         publish
             session
-            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{signature}],"resultType":{resultType},"requiredEffects":[{required}],"body":{body}}}"""
+            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{signature}],"resultType":{resultType},"requiredEffects":[{required}],"body":{body}}}"""
         |> ignore
 
     let private call name (arguments: (string * string) list) =
@@ -99,16 +99,16 @@ module StructuralRenameAndRemovalTests =
                 let field name = $"""{{"displayName":"{name}","type":{int64Type}}}"""
                 publish
                     session
-                    $"""{{"id":"shape","op":"simulateCreateTypeByName","displayName":"Shape","typeKind":{{"kind":"union","variants":[{{"displayName":"Circle","fields":[{field "radius"}]}},{{"displayName":"Square","fields":[{field "side"}]}},{{"displayName":"Dot","fields":[]}}]}}}}"""
+                    $"""{{"id":"shape","op":"simulateCreateTypeByName","exported":true,"displayName":"Shape","typeKind":{{"kind":"union","variants":[{{"displayName":"Circle","fields":[{field "radius"}]}},{{"displayName":"Square","fields":[{field "side"}]}},{{"displayName":"Dot","fields":[]}}]}}}}"""
                 |> ignore
                 publish
                     session
-                    $"""{{"id":"point","op":"simulateCreateTypeByName","displayName":"Point","typeKind":{{"kind":"product","fields":[{field "x"},{field "y"}]}}}}"""
+                    $"""{{"id":"point","op":"simulateCreateTypeByName","exported":true,"displayName":"Point","typeKind":{{"kind":"product","fields":[{field "x"},{field "y"}]}}}}"""
                 |> ignore
-                publish session """{"id":"io","op":"simulateCreateEffect","displayName":"io"}""" |> ignore
+                publish session """{"id":"io","op":"simulateCreateEffect","exported":true,"displayName":"io"}""" |> ignore
                 publish
                     session
-                    $"""{{"id":"host","op":"simulateCreateCapabilityByName","displayName":"Host","operations":[{{"displayName":"step","parameters":[{{"displayName":"count","type":{int64Type}}},{{"displayName":"limit","type":{int64Type}}}],"resultType":{primitive "unit"},"effect":"io"}},{{"displayName":"stop","parameters":[],"resultType":{primitive "unit"},"effect":"io"}}]}}"""
+                    $"""{{"id":"host","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Host","operations":[{{"displayName":"step","parameters":[{{"displayName":"count","type":{int64Type}}},{{"displayName":"limit","type":{int64Type}}}],"resultType":{primitive "unit"},"effect":"io"}},{{"displayName":"stop","parameters":[],"resultType":{primitive "unit"},"effect":"io"}}]}}"""
                 |> ignore
                 let areaBody =
                     $"""{{"kind":"matchUnion","type":"Shape","input":{parameter "shape"},"arms":[{{"variant":"Circle","body":{fieldOf "Circle" "radius"}}},{{"variants":["Square","Dot"],"body":{literal 0}}}]}}"""
@@ -257,8 +257,8 @@ module StructuralRenameAndRemovalTests =
             rejectsWith "DuplicateDisplayName" "of operation 'step'" $"""{{"kind":"renameCapabilityParameter","parameterId":"{idText count.Id}","displayName":"limit"}}"""
             rejectsWith "TargetNotFound" "not found" """{"kind":"renameVariant","variantId":"missing","displayName":"Other"}"""
             // Global names: a second effect and capability make the names collide.
-            publish session """{"id":"net","op":"simulateCreateEffect","displayName":"net"}""" |> ignore
-            publish session $"""{{"id":"other","op":"simulateCreateCapabilityByName","displayName":"Other","operations":[{{"displayName":"ping","parameters":[],"resultType":{primitive "unit"},"effect":"net"}}]}}""" |> ignore
+            publish session """{"id":"net","op":"simulateCreateEffect","exported":true,"displayName":"net"}""" |> ignore
+            publish session $"""{{"id":"other","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Other","operations":[{{"displayName":"ping","parameters":[],"resultType":{primitive "unit"},"effect":"net"}}]}}""" |> ignore
             let io = (declarations session).Effects |> List.find (fun item -> item.DisplayName = "io")
             let host = (declarations session).Capabilities |> List.find (fun item -> item.DisplayName = "Host")
             rejectsWith "DuplicateDisplayName" "effect display names must be unique" $"""{{"kind":"renameEffect","effectId":"{idText io.Id}","displayName":"net"}}"""
@@ -353,7 +353,7 @@ module StructuralRenameAndRemovalTests =
         let snapshot =
             { Snapshot.empty snapshotId with
                 Functions =
-                    [ { Id = functionId
+                    [ { Exported = true; Id = functionId
                         DisplayName = "f"
                         Parameters = [ { Id = keep; DisplayName = "keep"; Type = TypeRef.Primitive PrimitiveType.Int64 } ]
                         ResultType = TypeRef.Primitive PrimitiveType.Int64

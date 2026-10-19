@@ -33,7 +33,7 @@ module AuthoringTypeSessionTests =
                 use document =
                     AuthoringProtocol.executeLine
                         session
-                        """{"id":"type","op":"simulateCreateType","displayName":"Box","typeKind":{"kind":"product","fields":[{"displayName":"value","type":{"kind":"primitive","primitive":"int64"}}]}}"""
+                        """{"id":"type","op":"simulateCreateType","exported":true,"displayName":"Box","typeKind":{"kind":"product","fields":[{"displayName":"value","type":{"kind":"primitive","primitive":"int64"}}]}}"""
                     |> requireOk
                 document.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
             let persisted = File.ReadAllText path
@@ -76,7 +76,7 @@ module AuthoringTypeSessionTests =
                 use document =
                     AuthoringProtocol.executeLine
                         session
-                        """{"id":"type","op":"simulateCreateType","displayName":"Box","typeKind":{"kind":"product","fields":[{"displayName":"value","type":{"kind":"primitive","primitive":"int64"}}]}}"""
+                        """{"id":"type","op":"simulateCreateType","exported":true,"displayName":"Box","typeKind":{"kind":"product","fields":[{"displayName":"value","type":{"kind":"primitive","primitive":"int64"}}]}}"""
                     |> requireOk
                 let result: JsonElement = document.RootElement.GetProperty("result")
                 let createdType: JsonElement = result.GetProperty("review").GetProperty("createdType")
@@ -125,7 +125,7 @@ module AuthoringTypeSessionTests =
                 use document =
                     AuthoringProtocol.executeLine
                         session
-                        """{"id":"type","op":"simulateCreateType","displayName":"ExecutionState","typeKind":{"kind":"union","variants":[{"displayName":"Failed","fields":[]},{"displayName":"Succeeded","fields":[]}]}}"""
+                        """{"id":"type","op":"simulateCreateType","exported":true,"displayName":"ExecutionState","typeKind":{"kind":"union","variants":[{"displayName":"Failed","fields":[]},{"displayName":"Succeeded","fields":[]}]}}"""
                     |> requireOk
                 let result = document.RootElement.GetProperty("result")
                 let createdType = result.GetProperty("review").GetProperty("createdType")
@@ -143,7 +143,7 @@ module AuthoringTypeSessionTests =
 
             let functionRequest =
                 sprintf
-                    """{"id":"function","op":"simulateCreateFunction","displayName":"next_action","parameters":[{"displayName":"execution","type":{"kind":"named","typeId":"%s"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"matchUnion","input":{"kind":"parameterSlot","index":0},"arms":[{"variantId":"%s","body":{"kind":"boolLiteral","value":false}},{"variantId":"%s","body":{"kind":"boolLiteral","value":true}}]}}"""
+                    """{"id":"function","op":"simulateCreateFunction","exported":true,"displayName":"next_action","parameters":[{"displayName":"execution","type":{"kind":"named","typeId":"%s"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"matchUnion","input":{"kind":"parameterSlot","index":0},"arms":[{"variantId":"%s","body":{"kind":"boolLiteral","value":false}},{"variantId":"%s","body":{"kind":"boolLiteral","value":true}}]}}"""
                     typeId
                     failedVariantId
                     succeededVariantId

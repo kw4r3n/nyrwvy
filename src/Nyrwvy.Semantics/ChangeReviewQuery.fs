@@ -80,8 +80,14 @@ module ChangeReviewQuery =
         let changedMatchOwners =
             simulation.Diff.UnionMatchArmsAdded |> List.map (fun item -> item.OwnerFunctionId)
 
+        let visibilityOwners =
+            simulation.Diff.VisibilityChanges
+            |> List.filter (fun item -> item.Kind = "function")
+            |> List.choose (fun item ->
+                simulation.ProposedSnapshot.Functions |> List.tryFind (fun fn -> StableId.value fn.Id = item.Id) |> Option.map (fun fn -> fn.Id))
+
         let present = simulation.ProposedSnapshot.Functions |> List.map (fun fn -> fn.Id) |> Set.ofList
-        renamed @ parameterOwners @ effectOwners @ changedCallOwners @ changedProductOwners @ changedImplementationOwners @ changedMatchOwners
+        renamed @ parameterOwners @ effectOwners @ changedCallOwners @ changedProductOwners @ changedImplementationOwners @ changedMatchOwners @ visibilityOwners
         |> List.distinct
         |> List.filter (fun id -> Set.contains id present)
         |> List.sortBy StableId.value
@@ -102,6 +108,10 @@ module ChangeReviewQuery =
         @ (simulation.Diff.ProductFieldsRemoved |> List.map (fun item -> item.OwnerTypeId))
         @ (simulation.Diff.UnionVariantsRemoved |> List.map (fun item -> item.OwnerTypeId))
         @ (simulation.Diff.UnionVariantsAdded |> List.map (fun item -> item.OwnerTypeId))
+        @ (simulation.Diff.VisibilityChanges
+           |> List.filter (fun item -> item.Kind = "type")
+           |> List.choose (fun item ->
+               simulation.ProposedSnapshot.Types |> List.tryFind (fun t -> StableId.value t.Id = item.Id) |> Option.map (fun t -> t.Id)))
         |> List.distinct
         |> List.filter (fun id -> simulation.ProposedSnapshot.Types |> List.exists (fun item -> item.Id = id))
         |> List.sortBy StableId.value

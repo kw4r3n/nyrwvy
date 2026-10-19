@@ -20,7 +20,7 @@ module ValidationTests =
         let functionId = StableId.createForTesting<FunctionTag> "function-null-string-literal"
         let nodeId = StableId.createForTesting<GraphNodeTag> "node-null-string-literal"
         let functionEntity: SemanticFunction =
-            { Id = functionId
+            { Exported = true; Id = functionId
               DisplayName = "null_string_literal"
               Parameters = []
               ResultType = TypeRef.Primitive PrimitiveType.String
@@ -83,7 +83,7 @@ module ValidationTests =
 
     let private dependencySnapshot (graph: ValueGraph) =
         let functionEntity: SemanticFunction =
-            { Id = StableId.createForTesting<FunctionTag> "function-dependencies"
+            { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-dependencies"
               DisplayName = "dependencies"
               Parameters = []
               ResultType = TypeRef.Primitive PrimitiveType.Int64
@@ -257,7 +257,7 @@ module ValidationTests =
         let int64Type = TypeRef.Primitive PrimitiveType.Int64
         let stringType = TypeRef.Primitive PrimitiveType.String
         let unary: SemanticFunction =
-            { Id = unaryFunctionId
+            { Exported = true; Id = unaryFunctionId
               DisplayName = "unary"
               Parameters = [ { Id = unaryParameterId; DisplayName = "value"; Type = int64Type } ]
               ResultType = int64Type
@@ -266,7 +266,7 @@ module ValidationTests =
                 { Nodes = [ { Id = id "unary-value"; Kind = SemanticNodeKind.ParameterReference unaryParameterId } ]
                   ResultNodeId = id "unary-value" } }
         let probe: SemanticFunction =
-            { Id = StableId.createForTesting<FunctionTag> "function-callback-probe"
+            { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-callback-probe"
               DisplayName = "probe"
               Parameters =
                 [ { Id = mapParameterId; DisplayName = "counts"; Type = TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ stringType; int64Type ]) }

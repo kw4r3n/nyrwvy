@@ -33,10 +33,10 @@ module PureRunEntryProjectionTests =
             let session = AuthoringSession.createNew path |> unwrap
             current <- Some session
             let publish (proposal: AuthoringProposal) = session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
-            session.SimulateCreateEffect { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Io" } |> unwrap |> publish
+            session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Io" } |> unwrap |> publish
             let effect = session.Declarations().Effects |> List.exactlyOne
             session.SimulateCreateCapability
-                { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Values"
+                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Values"
                   Operations = [ { DisplayName = "read"; Parameters = []; ResultType = intType; FailureType = None; EffectId = effect.Id } ] }
             |> unwrap |> publish
             let capability = session.Declarations().Capabilities |> List.exactlyOne
@@ -44,7 +44,7 @@ module PureRunEntryProjectionTests =
             let create name parameters result effects body =
                 let session = fixtureRef.Value.Session
                 session.SimulateCreateFunction
-                    { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
+                    { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
                       Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
                       ResultType = result; RequiredEffects = effects; Body = body }
                 |> unwrap |> fun proposal -> session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
@@ -164,7 +164,7 @@ module PureRunEntryProjectionTests =
             let invoke = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, fixture.Operation, [])
             let bytes = File.ReadAllBytes fixture.Path
             let refused = session.SimulateCreateFunction
-                              { ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "unfinishedCandidate"
+                              { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "unfinishedCandidate"
                                 Parameters = [ { DisplayName = "values"; Type = TypeRef.Capability fixture.Capability } ]
                                 ResultType = intType; RequiredEffects = [ fixture.Effect ]
                                 Body = ExpressionRecipe.Int64WrappingAdd(invoke, invoke) }
@@ -238,7 +238,7 @@ module PureRunEntryProjectionTests =
             let outcome = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ intType; errorType ])
             let task = TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ outcome ])
             let declaration = session.SimulateCreateType
-                                  { TypeParameters = []; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "UnrelatedTaskRecord"
+                                  { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "UnrelatedTaskRecord"
                                     Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = "task"; Type = task } ] } |> unwrap
             session.Commit(declaration.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             let good = fixture.Create "good" [] intType [] (number 7L)

@@ -117,7 +117,7 @@ module Float64TextConversionTests =
         let snapshot = Snapshot.empty (id<SnapshotTag> "base")
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               DisplayName = "floatText"
               Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
               ResultType = resultType
@@ -184,7 +184,7 @@ module Float64TextConversionTests =
             use session = AuthoringSession.createNew (Path.Combine(root, "workspace.json")) |> unwrap "session"
             let create name parameterType resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       DisplayName = name
                       Parameters = [ { DisplayName = "input"; Type = parameterType } ]
                       ResultType = resultType
@@ -217,7 +217,7 @@ module Float64TextConversionTests =
             let author name parameterType resultType kind =
                 let line =
                     sprintf
-                        """{"id":"%s","op":"simulateCreateFunctionByName","displayName":"%s","parameters":[{"displayName":"input","type":{"kind":"primitive","primitive":"%s"}}],"resultType":%s,"requiredEffects":[],"body":{"kind":"%s","value":{"kind":"parameter","name":"input"}}}"""
+                        """{"id":"%s","op":"simulateCreateFunctionByName","exported":true,"displayName":"%s","parameters":[{"displayName":"input","type":{"kind":"primitive","primitive":"%s"}}],"resultType":%s,"requiredEffects":[],"body":{"kind":"%s","value":{"kind":"parameter","name":"input"}}}"""
                         name name parameterType resultType kind
                 use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
                 Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
@@ -237,7 +237,7 @@ module Float64TextConversionTests =
             Assert.Equal(runFloatOption None, run "parse" [ PureRunValue.String "+1" ])
             let create name parameters resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       DisplayName = name
                       Parameters = parameters
                       ResultType = resultType

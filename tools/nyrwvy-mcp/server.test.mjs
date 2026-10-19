@@ -171,7 +171,8 @@ test("MCP creates and reopens a pinned dependency with relative paths and read-o
     assert.equal(openSchema.properties.dependency.type, "string")
     assert.ok(!openSchema.required.includes("dependency"))
     await call(client, "open", { mode: "create", snapshot: "policy.json", workspace })
-    const policy = (await call(client, "create_function", { displayName: "policy", parameters: [],
+    // Only an exported declaration is usable from the dependent snapshot.
+    const policy = (await call(client, "create_function", { displayName: "policy", exported: true, parameters: [],
       resultType: { kind: "primitive", primitive: "bool" }, requiredEffects: [], body: bool(true) })).result
     await call(client, "commit", { proposalId: policy.proposalId })
     await call(client, "close")

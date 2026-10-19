@@ -61,7 +61,7 @@ module PureRunLoneSurrogateTests =
 
     let private createFunction (session: AuthoringSession) name parameters resultType effects body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = current session
+            { Exported = true; ExpectedBaseSnapshotId = current session
               DisplayName = name
               Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
               ResultType = resultType
@@ -133,7 +133,7 @@ module PureRunLoneSurrogateTests =
             let text = (utf16 "{D800}x") + String.replicate 1100 (utf16 "{DC00}") + "😀end"
             let proposal =
                 session.SimulateCreateFunction
-                    { ExpectedBaseSnapshotId = current session; DisplayName = "paged"; Parameters = []
+                    { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "paged"; Parameters = []
                       ResultType = stringType; RequiredEffects = []; Body = ExpressionRecipe.StringLiteral text }
                 |> unwrap "create"
             let id = proposal.ProposalId
@@ -182,7 +182,7 @@ module PureRunLoneSurrogateTests =
             use session = AuthoringSession.createNew (Path.Combine(root, "workspace.json")) |> unwrap "session"
             let field name itemType: AgentTypeFieldIntent = { DisplayName = name; Type = itemType }
             let holderRequest: AgentCreateTypeDeclarationRequest =
-                { TypeParameters = []; ExpectedBaseSnapshotId = current session
+                { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = current session
                   DisplayName = "Holder"
                   Kind =
                     AgentTypeDeclarationKindIntent.Product
@@ -227,11 +227,11 @@ module PureRunLoneSurrogateTests =
             Assert.Equal(all, echoed.Actual)
             Assert.Equal(Some true, echoed.Matches)
             // Fakes: keyed cases, returned values, recorded call arguments and thrown messages.
-            let effectRequest: AgentCreateEffectDeclarationRequest = { ExpectedBaseSnapshotId = current session; DisplayName = "Lookup" }
+            let effectRequest: AgentCreateEffectDeclarationRequest = { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "Lookup" }
             session.SimulateCreateEffect effectRequest |> unwrap "effect" |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
             let capabilityRequest: AgentCreateCapabilityDeclarationRequest =
-                { ExpectedBaseSnapshotId = current session
+                { Exported = true; ExpectedBaseSnapshotId = current session
                   DisplayName = "Dictionary"
                   Operations = [ { DisplayName = "get"; Parameters = [ { DisplayName = "key"; Type = stringType } ]; ResultType = stringType; FailureType = None; EffectId = effect.Id } ] }
             session.SimulateCreateCapability capabilityRequest |> unwrap "capability" |> publish session

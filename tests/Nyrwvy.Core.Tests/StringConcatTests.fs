@@ -22,7 +22,7 @@ module StringConcatTests =
             | Ok value -> value
             | Error errors -> failwithf "Invalid fixture: %A" errors
         let request body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               DisplayName = "join"
               Parameters = [ parameter "left"; parameter "right" ]
               ResultType = stringType
@@ -69,7 +69,7 @@ module StringConcatTests =
                 | Ok value -> value
                 | Error error -> failwithf "Open failed: %A" error
             let request =
-                """{"id":"create","op":"simulateCreateFunctionByName","displayName":"join","parameters":[{"displayName":"left","type":{"kind":"primitive","primitive":"string"}},{"displayName":"right","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"kind":"stringConcat","left":{"kind":"parameter","name":"left"},"right":{"kind":"parameter","name":"right"}}}"""
+                """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"join","parameters":[{"displayName":"left","type":{"kind":"primitive","primitive":"string"}},{"displayName":"right","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"kind":"stringConcat","left":{"kind":"parameter","name":"left"},"right":{"kind":"parameter","name":"right"}}}"""
             use proposed = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
             Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
             let proposalId = proposed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()

@@ -560,6 +560,8 @@ module internal SignatureMigrationCore =
 
         { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId workspace
           DisplayName = functionEntity.DisplayName
+          // A temporary copy of the migrated function; its visibility is kept by the migration.
+          Exported = functionEntity.Exported
           Parameters = parameters
           ResultType = resultType
           RequiredEffects = functionEntity.RequiredEffects

@@ -27,7 +27,7 @@ module FunctionAbortTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session; DisplayName = name
+        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = effects; Body = body }
     let private create session name parameters resultType effects body =
@@ -49,13 +49,13 @@ module FunctionAbortTests =
     let private publishWire (session: AuthoringSession) (response: JsonDocument) =
         session.Commit(response.RootElement.GetProperty("result").GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private io (session: AuthoringSession) =
-        session.SimulateCreateEffect { ExpectedBaseSnapshotId = current session; DisplayName = "IO" } |> unwrap |> publish session
+        session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO" } |> unwrap |> publish session
         let effect = session.Declarations().Effects |> List.exactlyOne
         let operation name t: AgentCapabilityOperationIntent =
             { DisplayName = name; Parameters = [ { DisplayName = "value"; Type = textType } ]
               ResultType = t; FailureType = None; EffectId = effect.Id }
         session.SimulateCreateCapability
-            { ExpectedBaseSnapshotId = current session; DisplayName = "IO"
+            { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO"
               Operations = [ operation "mark" textType; operation "open" (result textType); operation "release" (result unitType) ] }
         |> unwrap |> publish session
         let cap = session.Declarations().Capabilities |> List.exactlyOne
@@ -294,7 +294,7 @@ module FunctionAbortTests =
             // An abort in a program-defined release helper becomes its own typed Err. It
             // cannot consume the body's Err or bypass the enclosing scope's release.
             session.SimulateCreateCapability
-                { ExpectedBaseSnapshotId = current session; DisplayName = "PureRelease"
+                { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "PureRelease"
                   Operations = [ { DisplayName = "release"; Parameters = [ { DisplayName = "handle"; Type = textType } ]; ResultType = result unitType; FailureType = None; EffectId = effect.Id } ] }
             |> unwrap |> publish session
             let pureCap = session.Declarations().Capabilities |> List.find (fun item -> item.DisplayName = "PureRelease")
@@ -363,7 +363,7 @@ module FunctionAbortTests =
         withSession (fun session path ->
             let text = """{"kind":"primitive","primitive":"string"}"""
             let resultType = $"""{{"kind":"builtinGeneric","generic":"result","arguments":[{text},{text}]}}"""
-            use created = send session ($"""{{"id":"create","op":"simulateCreateFunctionByName","structuredReview":true,"displayName":"wire","parameters":[{{"displayName":"input","type":{text}}}],"resultType":{resultType},"requiredEffects":[],"body":{{"kind":"abort","error":{{"kind":"stringLiteral","value":"initial"}}}}}}""")
+            use created = send session ($"""{{"id":"create","op":"simulateCreateFunctionByName","exported":true,"structuredReview":true,"displayName":"wire","parameters":[{{"displayName":"input","type":{text}}}],"resultType":{resultType},"requiredEffects":[],"body":{{"kind":"abort","error":{{"kind":"stringLiteral","value":"initial"}}}}}}""")
             Assert.Contains("ownerFunctionId", created.RootElement.GetRawText())
             publishWire session created
             let fn = find session "wire"
@@ -440,7 +440,7 @@ module FunctionAbortTests =
                                 (ExpressionRecipe.MatchResult(invocation, ok (bound RecipePatternSlot.Value), ok (bound RecipePatternSlot.Error)))
             Assert.Equal(okText "generic error", (PureRun.run session consumer.Id [] None |> unwrap).Actual)
             session.SimulateCreateType
-                { TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = "Choice"
+                { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = "Choice"
                   Kind = AgentTypeDeclarationKindIntent.Union [ { DisplayName = "Left"; Fields = [] }; { DisplayName = "Right"; Fields = [] } ] }
             |> unwrap |> publish session
             let choice = session.Declarations().Types |> List.exactlyOne

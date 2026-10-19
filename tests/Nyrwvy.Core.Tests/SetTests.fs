@@ -59,12 +59,12 @@ module SetTests =
     let private define session name parameters resultType body =
         publish
             session
-            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{signature parameters}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{signature parameters}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
 
     let private simulateCode session parameters resultType body =
         rejectionCode
             session
-            $"""{{"id":"bad","op":"simulateCreateFunctionByName","displayName":"bad","parameters":[{signature parameters}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+            $"""{{"id":"bad","op":"simulateCreateFunctionByName","exported":true,"displayName":"bad","parameters":[{signature parameters}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
 
     let private text (value: string) = $"""{{"kind":"string","value":{JsonSerializer.Serialize value}}}"""
     let private strings (values: string list) =

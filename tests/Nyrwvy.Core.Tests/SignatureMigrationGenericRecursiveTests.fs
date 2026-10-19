@@ -27,7 +27,7 @@ module SignatureMigrationGenericRecursiveTests =
 
     let private create ws name (parameters: (string * TypeRef) list) resultType body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
               DisplayName = name
               Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
               ResultType = resultType

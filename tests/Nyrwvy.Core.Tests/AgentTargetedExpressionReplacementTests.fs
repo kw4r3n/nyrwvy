@@ -57,7 +57,7 @@ module AgentTargetedExpressionReplacementTests =
         let secondConstId = nodeId "second-const"
         let secondConsumerId = nodeId "second-consumer"
         let target: SemanticFunction =
-            { Id = functionId
+            { Exported = true; Id = functionId
               DisplayName = "shared"
               Parameters = []
               ResultType = boolType
@@ -175,7 +175,7 @@ module AgentTargetedExpressionReplacementTests =
                     Kind = SemanticNodeKind.StringIsEmpty oldReferenceId } ]
               ResultNodeId = targetId }
         let target: SemanticFunction =
-            { Id = functionId
+            { Exported = true; Id = functionId
               DisplayName = "nested"
               Parameters = []
               ResultType = boolType
@@ -260,7 +260,7 @@ module AgentTargetedExpressionReplacementTests =
         let calleeParameterId = parameterId "obligation-callee-value"
         let calleeResultId = nodeId "obligation-callee-result"
         let callee: SemanticFunction =
-            { Id = calleeId
+            { Exported = true; Id = calleeId
               DisplayName = "callee"
               Parameters =
                 [ { Id = calleeParameterId
@@ -291,7 +291,7 @@ module AgentTargetedExpressionReplacementTests =
             @ [ { Id = callId
                   Kind = SemanticNodeKind.DirectCall(calleeId, arguments) } ]
         let target: SemanticFunction =
-            { Id = targetId
+            { Exported = true; Id = targetId
               DisplayName = "target"
               Parameters = []
               ResultType = float64Type
@@ -372,7 +372,7 @@ module AgentTargetedExpressionReplacementTests =
         let unusedId = nodeId "abort-unused"
         let okId = nodeId "abort-ok"
         let target: SemanticFunction =
-            { Id = functionId
+            { Exported = true; Id = functionId
               DisplayName = "abortPosition"
               Parameters = []
               ResultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ int64Type; stringType ])

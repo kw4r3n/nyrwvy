@@ -18,7 +18,7 @@ module StructuralDiagnosticTextTests =
         let ownerId, otherId = diagnosticOwnerId<FunctionTag> "owner", diagnosticOwnerId<FunctionTag> "other"
         let input, result, otherResult = diagnosticOwnerId<GraphNodeTag> "input", diagnosticOwnerId<GraphNodeTag> "result", diagnosticOwnerId<GraphNodeTag> "other-result"
         let make functionId resultType nodes resultId =
-            { Id = functionId; DisplayName = "summary"; Parameters = []; ResultType = resultType; RequiredEffects = []; Body = { Nodes = nodes; ResultNodeId = resultId } }
+            { Exported = true; Id = functionId; DisplayName = "summary"; Parameters = []; ResultType = resultType; RequiredEffects = []; Body = { Nodes = nodes; ResultNodeId = resultId } }
         let owner = make ownerId (TypeRef.Primitive PrimitiveType.String)
                         [ { Id = input; Kind = SemanticNodeKind.StringLiteral(StableId.value otherId) }
                           { Id = result; Kind = SemanticNodeKind.Int64ToString input } ] result
@@ -44,12 +44,12 @@ module StructuralDiagnosticTextTests =
 
     let private snapshot =
         let product typeId name fieldId: SemanticType =
-            { TypeParameters = []; Id = typeId
+            { Exported = true; TypeParameters = []; Id = typeId
               DisplayName = name
               Kind = SemanticTypeKind.Product [ { Id = fieldId; DisplayName = "line"; Type = int64Type } ] }
         let int64Function functionId name (parameters: (string * TypeRef) list): SemanticFunction =
             let resultNodeId = id<GraphNodeTag> (name + "-result")
-            { Id = functionId
+            { Exported = true; Id = functionId
               DisplayName = name
               Parameters =
                 parameters
@@ -86,7 +86,7 @@ module StructuralDiagnosticTextTests =
                 |> List.map (fun (name, typeJson) -> $$"""{"displayName":"{{name}}","type":{{typeJson}}}""")
                 |> String.concat ","
             let request =
-                $$"""{"id":"r","op":"simulateCreateFunctionByName","displayName":"probe","parameters":[{{parameterJson}}],"resultType":{{resultType}},"requiredEffects":[],"body":{{body}}}"""
+                $$"""{"id":"r","op":"simulateCreateFunctionByName","exported":true,"displayName":"probe","parameters":[{{parameterJson}}],"resultType":{{resultType}},"requiredEffects":[],"body":{{body}}}"""
             use response = AuthoringProtocol.executeLine session request |> JsonDocument.Parse
             let text = response.RootElement.ToString()
             Assert.False(response.RootElement.GetProperty("ok").GetBoolean(), text)

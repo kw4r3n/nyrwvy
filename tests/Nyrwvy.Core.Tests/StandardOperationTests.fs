@@ -57,7 +57,7 @@ module StandardOperationTests =
         let snapshot = Snapshot.empty (id<SnapshotTag> ("base-" + mode))
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = snapshot.Id
+            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               DisplayName = mode
               Parameters = [ { DisplayName = "value"; Type = parameterType } ]
               ResultType = resultType
@@ -134,7 +134,7 @@ module StandardOperationTests =
                 |> String.concat ","
             commit call (
                 call (
-                    """{"id":"all","op":"simulateCreateFunctionByName","displayName":"all","parameters":[{"displayName":"value","type":"""
+                    """{"id":"all","op":"simulateCreateFunctionByName","exported":true,"displayName":"all","parameters":[{"displayName":"value","type":"""
                     + float64 + """}],"resultType":{"kind":"builtinGeneric","generic":"list","arguments":[""" + float64
                     + """]},"requiredEffects":[],"body":{"kind":"listConstruct","itemType":""" + float64 + ""","items":[""" + items + "]}}"))
             // Expected values from Python: math.sqrt (NaN where it raises for a negative value),
@@ -178,7 +178,7 @@ module StandardOperationTests =
             let strings = """{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"primitive","primitive":"string"}]}"""
             commit call (
                 call (
-                    """{"id":"rev","op":"simulateCreateFunctionByName","displayName":"rev","parameters":[{"displayName":"items","type":"""
+                    """{"id":"rev","op":"simulateCreateFunctionByName","exported":true,"displayName":"rev","parameters":[{"displayName":"items","type":"""
                     + strings + """}],"resultType":""" + strings
                     + ""","requiredEffects":[],"body":{"kind":"listReverse","value":{"kind":"parameter","name":"items"}}}"""))
             let list (items: string list) =

@@ -41,7 +41,7 @@ module ListZipWithAndFlatMapTests =
             let session = AuthoringSession.openExisting path |> unwrap "open"
             let find name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
             let request name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                   DisplayName = name
                   Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })
                   ResultType = resultType
@@ -132,7 +132,7 @@ module ListZipWithAndFlatMapTests =
             let int = """{"kind":"primitive","primitive":"int64"}"""
             let commit name parameters body =
                 let line =
-                    """{"id":"create","op":"simulateCreateFunctionByName","displayName":""" + "\"" + name + "\""
+                    """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":""" + "\"" + name + "\""
                     + ""","parameters":[""" + (parameters |> List.map (fun (n, t) -> """{"displayName":""" + "\"" + n + "\"" + ""","type":""" + t + "}") |> String.concat ",")
                     + """],"resultType":""" + ints + ""","requiredEffects":[],"body":""" + body + "}"
                 use proposal = call line

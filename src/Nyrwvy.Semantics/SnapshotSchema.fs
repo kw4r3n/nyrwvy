@@ -62,6 +62,10 @@ type SnapshotSchemaFeature =
     | Float64FloorModulo
     /// StringLastIndexOfBefore.
     | StringLastIndexOfBefore
+    /// A private (non-exported) declaration. From this version on a declaration's visibility is
+    /// explicit: `exported` is written for an exported declaration and omitted for a private one.
+    /// Older versions have no visibility, and every declaration they hold reads as exported.
+    | DeclarationVisibility
 
 /// One persisted snapshot schema: its JSON `schemaVersion` and its Nyason schema identifier.
 /// The two formats number their versions separately but move together.
@@ -98,12 +102,15 @@ module SnapshotSchema =
 
     let private v20 = version 20 "nayamnyam.snapshot.v16"
 
+    let private v21 = version 21 "nayamnyam.snapshot.v17"
+
     /// Every version the codecs read, oldest first.
-    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19; v20 ]
+    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19; v20; v21 ]
 
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
-        [ SnapshotSchemaFeature.SetCallbacks, v20, "SetFold, SetFilter and SetMap"
+        [ SnapshotSchemaFeature.DeclarationVisibility, v21, "A private declaration"
+          SnapshotSchemaFeature.SetCallbacks, v20, "SetFold, SetFilter and SetMap"
           SnapshotSchemaFeature.ListMaxBy, v20, "ListMaxBy"
           SnapshotSchemaFeature.Float64FloorModulo, v20, "Float64FloorModulo"
           SnapshotSchemaFeature.StringLastIndexOfBefore, v20, "StringLastIndexOfBefore"
@@ -142,6 +149,14 @@ module SnapshotSchema =
     let featureName (feature: SnapshotSchemaFeature) = Map.find feature rows |> snd
 
     let tryJson (json: int) = supported |> List.tryFind (fun candidate -> candidate.Json = json)
+
+    /// Whether documents of `declared` carry declaration visibility: an exported declaration is
+    /// written with an explicit marker and an omitted marker means private. Below that version a
+    /// document has no visibility and every declaration in it reads as exported, which is what the
+    /// declarations meant before visibility existed; the bytes and fingerprints of such a
+    /// document are unchanged.
+    let writesVisibility (declared: SnapshotSchemaVersion) =
+        declared.Json >= (minimumVersion SnapshotSchemaFeature.DeclarationVisibility).Json
 
     let tryNyason (schemaId: string) = supported |> List.tryFind (fun candidate -> candidate.Nyason = schemaId)
 
@@ -404,7 +419,13 @@ module SnapshotSchema =
                 |> List.collect (fun scope -> scope.Bindings |> List.map (fun binding -> (NestedBinding.pattern binding).Type))
             Option.toList (featureOfNodeKind node.Kind)
             @ ((SemanticNodeShape.payloadTypeRefs node @ bindingTypes) |> List.collect typeFeatures)
+        let hasPrivateDeclaration =
+            (snapshot.Types |> List.exists (fun item -> not item.Exported))
+            || (snapshot.Effects |> List.exists (fun item -> not item.Exported))
+            || (snapshot.Capabilities |> List.exists (fun item -> not item.Exported))
+            || (snapshot.Functions |> List.exists (fun item -> not item.Exported))
         [ yield! declarationTypes |> List.collect typeFeatures
+          if hasPrivateDeclaration then yield SnapshotSchemaFeature.DeclarationVisibility
           if snapshot.Types |> List.exists (fun semanticType -> not (List.isEmpty semanticType.TypeParameters)) then
               yield SnapshotSchemaFeature.GenericTypes
           for fn in snapshot.Functions do

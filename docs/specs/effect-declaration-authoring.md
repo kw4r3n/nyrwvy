@@ -86,7 +86,10 @@ The snapshot-backed JSON-lines session exposes one thin adapter operation:
 ```text
 simulateCreateEffect
   displayName: string
+  exported: bool   // optional; private unless true
 ```
+
+`exported` is the effect's [visibility](../decisions/declaration-visibility.md): whether snapshots that depend on this one may require or declare operations with it. The core request carries it as `Exported`, and `setExported` changes it later.
 
 The session supplies its current snapshot ID as `ExpectedBaseSnapshotId`. Semantic validation and production ID allocation remain exclusively in the Core workflow.
 

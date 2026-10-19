@@ -24,13 +24,13 @@ module UnionVariantWithFieldsTests =
 
     let private withFunction displayName parameters resultType body =
         let shape: SemanticType =
-            { TypeParameters = []; Id = shapeId; DisplayName = "Shape"
+            { Exported = true; TypeParameters = []; Id = shapeId; DisplayName = "Shape"
               Kind = SemanticTypeKind.Union
                 [ { Id = circleId; DisplayName = "Circle"; Fields = [ { Id = radiusId; DisplayName = "radius"; Type = intType } ] }
                   { Id = emptyId; DisplayName = "Empty"; Fields = [] } ] }
         let ws = AgentWorkspace.create { Snapshot.empty (id<SnapshotTag> "base") with Types = [ shape ] } |> unwrap "workspace"
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
               DisplayName = displayName
               Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
               ResultType = resultType

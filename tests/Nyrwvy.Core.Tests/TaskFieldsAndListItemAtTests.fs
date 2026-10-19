@@ -29,7 +29,7 @@ module TaskFieldsAndListItemAtTests =
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private parameter name (fn: SemanticFunction) = (fn.Parameters |> List.find (fun item -> item.DisplayName = name)).Id
     let private request session name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = current session; DisplayName = name
+        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = effects; Body = body }
     let private create session name parameters resultType effects body =
@@ -56,7 +56,7 @@ module TaskFieldsAndListItemAtTests =
         session.Commit(response.RootElement.GetProperty("result").GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
 
     let private createType (session: AuthoringSession) name kind =
-        session.SimulateCreateType { TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = name; Kind = kind }
+        session.SimulateCreateType { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = name; Kind = kind }
     let private product fields =
         AgentTypeDeclarationKindIntent.Product(fields |> List.map (fun (name, t) -> ({ DisplayName = name; Type = t }: AgentTypeFieldIntent)))
     let private declaredType (session: AuthoringSession) name = session.Declarations().Types |> List.find (fun item -> item.DisplayName = name)
@@ -66,7 +66,7 @@ module TaskFieldsAndListItemAtTests =
         | SemanticTypeKind.Union _ -> failwith "Expected a Product."
     let private createCapability (session: AuthoringSession) name (effect: EffectId) operations =
         session.SimulateCreateCapability
-            { ExpectedBaseSnapshotId = current session; DisplayName = name
+            { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
               Operations =
                 operations
                 |> List.map (fun (operationName, parameters, resultType, failureType) ->
@@ -80,7 +80,7 @@ module TaskFieldsAndListItemAtTests =
     /// keeps them in a `List<Member>`, and selects one by name with a first-match fold.
     let private withTeam run =
         withSession "nyrwvy-task-fields-" (fun session path ->
-            session.SimulateCreateEffect { ExpectedBaseSnapshotId = current session; DisplayName = "Team" } |> unwrap |> publish session
+            session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "Team" } |> unwrap |> publish session
             let team = (session.Declarations().Effects |> List.exactlyOne).Id
             createCapability session "Agent" team [ "work", [ "name", textType ], outcomeType, None ] |> unwrap |> publish session
             let agent = session.Declarations().Capabilities |> List.exactlyOne
@@ -221,7 +221,7 @@ module TaskFieldsAndListItemAtTests =
             let committed = snapshot path
             let recursiveId = StableId.createForTesting<TypeTag> "type-chain"
             let chain fieldType: SemanticType =
-                { TypeParameters = []; Id = recursiveId; DisplayName = "Chain"
+                { Exported = true; TypeParameters = []; Id = recursiveId; DisplayName = "Chain"
                   Kind =
                     SemanticTypeKind.Product
                         [ { Id = StableId.createForTesting<FieldTag> "field-next"; DisplayName = "next"; Type = optionOf (TypeRef.Named(recursiveId, [])) }
@@ -290,7 +290,7 @@ module TaskFieldsAndListItemAtTests =
                           { Id = nodeId "at"; Kind = SemanticNodeKind.ListItemAt(nodeId "list", nodeId "index") } ]
                       ResultNodeId = nodeId "at" }
                 let fn: SemanticFunction =
-                    { Id = StableId.createForTesting<FunctionTag> "function-list-item-at"
+                    { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-list-item-at"
                       DisplayName = "itemAt"; Parameters = []; ResultType = optionOf textType; RequiredEffects = []; Body = body }
                 SnapshotValidator.validate { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-list-item-at") with Functions = [ fn ] }
                 |> List.map (fun issue -> issue.Code)
@@ -305,14 +305,14 @@ module TaskFieldsAndListItemAtTests =
             let generic name argument = sprintf """{"kind":"builtinGeneric","generic":"%s","arguments":[%s]}""" name argument
             let signature = sprintf """"parameters":[{"displayName":"items","type":%s},{"displayName":"index","type":%s}],"resultType":%s,"requiredEffects":[]""" (generic "list" (primitive "string")) (primitive "int64") (generic "option" (primitive "string"))
             use exactProposal =
-                send session (sprintf """{"id":"exact","op":"simulateCreateFunction","displayName":"itemAt",%s,"body":{"kind":"listItemAt","list":{"kind":"parameterSlot","index":0},"index":{"kind":"parameterSlot","index":1}}}""" signature)
+                send session (sprintf """{"id":"exact","op":"simulateCreateFunction","exported":true,"displayName":"itemAt",%s,"body":{"kind":"listItemAt","list":{"kind":"parameterSlot","index":0},"index":{"kind":"parameterSlot","index":1}}}""" signature)
             publishWire session exactProposal
             use namedProposal =
                 send session (sprintf """{"id":"named","op":"simulateCreateFunctionByName","structuredReview":true,"detail":"full","displayName":"itemAtByName",%s,"body":{"kind":"listItemAt","list":{"kind":"parameter","name":"items"},"index":{"kind":"parameter","name":"index"}}}""" signature)
             Assert.Contains("\"kind\":\"listItemAt\"", namedProposal.RootElement.GetRawText())
             publishWire session namedProposal
             use missingIndex =
-                AuthoringProtocol.executeLine session (sprintf """{"id":"bad","op":"simulateCreateFunction","displayName":"bad",%s,"body":{"kind":"listItemAt","list":{"kind":"parameterSlot","index":0}}}""" signature) |> JsonDocument.Parse
+                AuthoringProtocol.executeLine session (sprintf """{"id":"bad","op":"simulateCreateFunction","exported":true,"displayName":"bad",%s,"body":{"kind":"listItemAt","list":{"kind":"parameterSlot","index":0}}}""" signature) |> JsonDocument.Parse
             Assert.False(missingIndex.RootElement.GetProperty("ok").GetBoolean())
             let named = find session "itemAtByName"
             let viewer = session.FocusFunction named.Id |> unwrap |> ViewerProjection.focus

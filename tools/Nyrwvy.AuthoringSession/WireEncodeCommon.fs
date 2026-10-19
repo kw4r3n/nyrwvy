@@ -59,6 +59,7 @@ module internal WireEncodeCommon =
         objectValue
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName
+              "exported", box value.Exported
               "parameters", value.Parameters |> List.map parameter |> arrayValue
               "resultType", typeRef value.ResultType
               "requiredEffects", value.RequiredEffects |> List.map (StableId.value >> box) |> arrayValue ]
@@ -87,6 +88,7 @@ module internal WireEncodeCommon =
         objectValue
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName
+              "exported", box value.Exported
               "parameters", value.Parameters |> List.map parameter |> arrayValue
               "resultType", typeRef value.ResultType
               "requiredEffects", value.RequiredEffects |> List.map (StableId.value >> box) |> arrayValue
@@ -128,7 +130,8 @@ module internal WireEncodeCommon =
                   |> arrayValue ]
         objectValue
             ([ "id", box (StableId.value value.Id)
-               "displayName", box value.DisplayName ]
+               "displayName", box value.DisplayName
+               "exported", box value.Exported ]
              @ typeParameters
              @ [ "typeKind", kind ])
 
@@ -153,6 +156,7 @@ module internal WireEncodeCommon =
         objectValue
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName
+              "exported", box value.Exported
               "operations", value.Operations |> List.map capabilityOperation |> arrayValue ]
 
     let declarations (value: AuthoringDeclarations) =
@@ -161,7 +165,8 @@ module internal WireEncodeCommon =
             |> List.map (fun effect ->
                 objectValue
                     [ "id", box (StableId.value effect.Id)
-                      "displayName", box effect.DisplayName ])
+                      "displayName", box effect.DisplayName
+                      "exported", box effect.Exported ])
         let capabilities = value.Capabilities |> List.map capabilityEntity
         objectValue
             [ "provenance", value.Provenance |> List.map (fun p ->

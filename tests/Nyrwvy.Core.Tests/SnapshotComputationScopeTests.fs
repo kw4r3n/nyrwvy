@@ -120,7 +120,7 @@ module SnapshotComputationScopeTests =
                     match operation with
                     | "rename" -> session.SimulateOperations [ AgentOperationIntent.RenameDisplayName(AgentRenameTarget.Function fixture.ValidateFunctionId, "renamed") ] |> unwrap
                     | "create" -> session.SimulateCreateFunction
-                                        { ExpectedBaseSnapshotId = fixture.Snapshot.Id; DisplayName = "created"; Parameters = []
+                                        { Exported = true; ExpectedBaseSnapshotId = fixture.Snapshot.Id; DisplayName = "created"; Parameters = []
                                           ResultType = TypeRef.Primitive PrimitiveType.Int64; RequiredEffects = []
                                           Body = ExpressionRecipe.Int64Literal 1L } |> unwrap
                     | _ -> failwith "Unknown operation")

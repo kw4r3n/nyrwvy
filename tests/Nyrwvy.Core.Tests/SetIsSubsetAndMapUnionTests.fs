@@ -68,12 +68,12 @@ module SetIsSubsetAndMapUnionTests =
     let private define session name parameters resultType body =
         publish
             session
-            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{signature parameters}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{signature parameters}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
 
     let private simulateCode session parameters resultType body =
         rejectionCode
             session
-            $"""{{"id":"bad","op":"simulateCreateFunctionByName","displayName":"bad","parameters":[{signature parameters}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+            $"""{{"id":"bad","op":"simulateCreateFunctionByName","exported":true,"displayName":"bad","parameters":[{signature parameters}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
 
     let private text (value: string) = $"""{{"kind":"string","value":{JsonSerializer.Serialize value}}}"""
     let private boolean (value: bool) = $"""{{"kind":"bool","value":{(if value then "true" else "false")}}}"""
@@ -99,7 +99,7 @@ module SetIsSubsetAndMapUnionTests =
     let ``SetIsSubset and MapUnion type check, persist and lower through every layer`` () =
         withSession (fun session path ->
             let floats = setOf (primitive "float64")
-            let badFloats = $"""{{"id":"bad","op":"simulateCreateFunctionByName","displayName":"bad","parameters":[{signature [ "l", floats; "r", floats ]}],"resultType":{primitive "bool"},"requiredEffects":[],"body":{{"kind":"setIsSubset","left":{l},"right":{r}}}}}"""
+            let badFloats = $"""{{"id":"bad","op":"simulateCreateFunctionByName","exported":true,"displayName":"bad","parameters":[{signature [ "l", floats; "r", floats ]}],"resultType":{primitive "bool"},"requiredEffects":[],"body":{{"kind":"setIsSubset","left":{l},"right":{r}}}}}"""
             Assert.Contains("SetItemTypeNotEquatable", rejectionText session badFloats)
             Assert.Equal(
                 "PureExpressionOperandTypeMismatch",
@@ -110,7 +110,7 @@ module SetIsSubsetAndMapUnionTests =
                 simulateCode session [ "l", words; "r", counts ] (primitive "bool") $"""{{"kind":"setIsSubset","left":{l},"right":{r}}}"""
             )
             let floatKeys = mapOf (primitive "float64") int64Type
-            let badKeys = $"""{{"id":"bad","op":"simulateCreateFunctionByName","displayName":"bad","parameters":[{signature [ "l", floatKeys; "r", floatKeys ]}],"resultType":{floatKeys},"requiredEffects":[],"body":{{"kind":"mapUnion","left":{l},"right":{r}}}}}"""
+            let badKeys = $"""{{"id":"bad","op":"simulateCreateFunctionByName","exported":true,"displayName":"bad","parameters":[{signature [ "l", floatKeys; "r", floatKeys ]}],"resultType":{floatKeys},"requiredEffects":[],"body":{{"kind":"mapUnion","left":{l},"right":{r}}}}}"""
             Assert.Contains("MapKeyTypeNotEquatable", rejectionText session badKeys)
             Assert.Equal(
                 "PureExpressionOperandTypeMismatch",
