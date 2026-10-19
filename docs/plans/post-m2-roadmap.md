@@ -142,16 +142,18 @@ M6 remains intentionally conditional. Choose at most one workstream when a real 
 
 **Steps,** following the [deprecation policy](../specs/schema-evolution-policy.md#deprecation-policy):
 
-1. **Migration command.** `Nyrwvy.AuthoringSession migrate --snapshot <path>` rewrites a snapshot to the current schema: retired nodes become their replacements (`ValueEqual`, `OptionGetOrDefault` of `MapGet`, `Int64LessThan` with swapped operands or under `BoolNot`), legacy pins become retained content, and the version is raised. It keeps every stable ID, validates the result and records the fingerprints before and after, under the rules for [migration](../specs/schema-evolution-policy.md#migration-is-not-an-ordinary-semantic-edit).
+1. **Migration command.** `Nyrwvy.AuthoringSession migrate --snapshot <path>` rewrites a snapshot to the current schema: retired nodes become their replacements (`ValueEqual`, `OptionGetOrDefault` of `MapGet`, `Int64LessThan` with swapped operands or under `BoolNot`), legacy pins become retained content, every existing declaration is marked exported, each generic function gets its declared type-parameter list, a snapshot that sets the retired `FailureType` is rejected, and the version is raised. It keeps every stable ID, validates the result and records the fingerprints before and after, under the rules for [migration](../specs/schema-evolution-policy.md#migration-is-not-an-ordinary-semantic-edit).
 2. **Examples.** The examples whose fixtures authenticate graph hashes or retained binaries of the old forms (the `member-*` and `offline-session-*` series and `offline-session-replay`) are frozen under an archive tag and removed from `main`, as the evaluation runners were; an example that is still useful as a current example is re-authored and its fixtures re-recorded instead.
-3. **Removal.** One change removes the retired kinds, `pin` and the old schema readers, with a decision record.
+3. **Removal and replacement.** One change removes the retired kinds, `pin`, `FailureType` and the old schema readers, and brings in visibility, declared function type parameters and the review-kind rename, with a decision record.
 4. **Afterwards.** Anything retired later is removed at the next cutover, so retired constructs do not accumulate.
 
-**Do first** (inferred candidates that may change persisted or runtime contracts; the list is revised when the cutover is scheduled):
+**Also in the cutover** (owner decisions of 2026-10-19; each is a replacing change, so it shares the cutover's single migration):
 
-- declaration visibility or modules;
-- type-parameter constraints, if adopted;
-- any other change that needs a new snapshot schema version and could replace an existing form rather than add one.
+- **Declaration visibility, private by default.** Types, effects, capabilities and functions gain a visibility; an omitted visibility means private, and a declaration is usable from a snapshot that depends on this one only when it is explicitly exported. Inside its own snapshot every declaration stays usable. A dependency's private declarations are left out of name resolution, `declarations` and new references, the session rejects a new reference to one (beside `ImportedDeclarationModified`), and an upgrade preview reports exported changes first. Execution and the C# backend are unchanged, since a resolved program is still one graph. The migration command marks every declaration of an existing snapshot exported, so existing dependents keep working; new declarations start private. Namespaces, qualified names and first-class modules stay out of scope until a program needs them.
+- **Declared function type parameters.** A function lists its type parameters like a Product or Union does (`typeParameters`, in order), instead of deriving them implicitly from the parameter types in first-appearance order; `TypeRef.TypeParameter` occurrences stop carrying their own display name (and `TypeParameterDisplayNameConflict` goes away). The semantics do not change; the migration command derives each list from the occurrences. This gives a later constraint (such as `equatable`) a place to be added without another replacing change; constraints themselves wait for a program that needs them ([generic types](../decisions/generic-types.md) revisit condition).
+- **Review kind rename.** `fieldlessUnionVariantEvolution` becomes `unionVariantEvolution` (a known misnomer, see [authoring-surface queries and parity](../decisions/authoring-surface-queries-and-parity.md)).
+
+**Do first:** any other change that needs a new snapshot schema version and could replace an existing form rather than add one. None is known after the items above.
 
 Snapshots outside the repository that use legacy pins or old schemas are converted with the migration command before the readers are removed.
 
