@@ -147,7 +147,7 @@ module NyasonTests =
     let private loneSurrogateLiteralSnapshot (text: string) =
         let nodeId = StableId.createForTesting<GraphNodeTag> "node-lone-surrogate"
         let literal: SemanticFunction =
-            { Id = StableId.createForTesting<FunctionTag> "function-lone-surrogate"
+            { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-lone-surrogate"
               DisplayName = "lone"
               Parameters = []
               ResultType = TypeRef.Primitive PrimitiveType.String

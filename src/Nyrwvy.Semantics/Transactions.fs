@@ -74,8 +74,19 @@ type AddUnionVariantRequest =
       Variant: SemanticVariant
       ArmPlans: UnionVariantArmPlan list }
 
+/// A declaration whose visibility `SetExported` changes: a type, function, effect or capability.
+[<RequireQualifiedAccess>]
+type VisibilityTarget =
+    | TypeTarget of TypeId
+    | FunctionTarget of FunctionId
+    | EffectTarget of EffectId
+    | CapabilityTarget of CapabilityId
+
 type SemanticOperation =
     | RenameDisplayName of RenameTarget * string
+    /// Marks one declaration exported (usable from dependents) or private. Only the visibility
+    /// changes; every stable ID and reference is kept.
+    | SetExported of VisibilityTarget * exported: bool
     | AddFunctionParameter of AddFunctionParameterRequest
     | AddProductField of AddProductFieldRequest
     | RemoveProductField of FieldId
@@ -116,6 +127,14 @@ type SymbolRename =
         * CapabilityParameterId
         * oldDisplayName: string
         * newDisplayName: string
+
+/// One declaration whose visibility differs between the base and the proposed snapshot. `Kind` is
+/// `type`, `function`, `effect` or `capability`; `Exported` is the proposed visibility.
+type DeclarationVisibilityChange =
+    { Kind: string
+      Id: string
+      DisplayName: string
+      Exported: bool }
 
 type ParameterAdded =
     { OwnerFunctionId: FunctionId
@@ -236,6 +255,8 @@ type FunctionRequiredEffectChange =
 
 type SemanticDiff =
     { Renames: SymbolRename list
+      /// Visibility changes of `SetExported`, net of the base snapshot, in `kind:id` order.
+      VisibilityChanges: DeclarationVisibilityChange list
       ParametersAdded: ParameterAdded list
       ProductFieldsAdded: ProductFieldAdded list
       ProductFieldsBound: ProductFieldBound list
@@ -317,6 +338,30 @@ module Transaction =
           UnionVariantsRemoved = []
           UnionVariantsAdded = []
           UnionMatchArmsAdded = [] }
+
+    /// Sets one declaration's visibility; TargetNotFound when no declaration has the ID and
+    /// VisibilityUnchanged when it already has that visibility.
+    let private setExported (target: VisibilityTarget) (exported: bool) (snapshot: Snapshot) =
+        let apply label (items: 'T list) (idOf: 'T -> string) (exportedOf: 'T -> bool) (update: 'T -> 'T) (rebuild: 'T list -> Snapshot) =
+            match items |> List.tryFind (fun item -> idOf item = label) with
+            | None -> Error("TargetNotFound", $"The declaration '{label}' to change the visibility of was not found.")
+            | Some item when exportedOf item = exported ->
+                let visibility = if exported then "exported" else "private"
+                Error("VisibilityUnchanged", $"The declaration '{label}' is already {visibility}.")
+            | Some _ -> Ok(rebuild (items |> List.map (fun item -> if idOf item = label then update item else item)))
+        match target with
+        | VisibilityTarget.TypeTarget id ->
+            apply (StableId.value id) snapshot.Types (fun item -> StableId.value item.Id) (fun item -> item.Exported)
+                (fun item -> { item with Exported = exported }) (fun types -> { snapshot with Types = types })
+        | VisibilityTarget.FunctionTarget id ->
+            apply (StableId.value id) snapshot.Functions (fun item -> StableId.value item.Id) (fun item -> item.Exported)
+                (fun item -> { item with Exported = exported }) (fun functions -> { snapshot with Functions = functions })
+        | VisibilityTarget.EffectTarget id ->
+            apply (StableId.value id) snapshot.Effects (fun item -> StableId.value item.Id) (fun item -> item.Exported)
+                (fun item -> { item with Exported = exported }) (fun effects -> { snapshot with Effects = effects })
+        | VisibilityTarget.CapabilityTarget id ->
+            apply (StableId.value id) snapshot.Capabilities (fun item -> StableId.value item.Id) (fun item -> item.Exported)
+                (fun item -> { item with Exported = exported }) (fun capabilities -> { snapshot with Capabilities = capabilities })
 
     let private renameType id newDisplayName (snapshot: Snapshot) =
         match snapshot.Types |> List.tryFind (fun item -> item.Id = id) with
@@ -1511,6 +1556,7 @@ module Transaction =
             renameCapabilityOperation id newDisplayName snapshot |> Result.map (fun next -> next, changes)
         | RenameDisplayName(RenameTarget.CapabilityParameterTarget id, newDisplayName) ->
             renameCapabilityParameter id newDisplayName snapshot |> Result.map (fun next -> next, changes)
+        | SetExported(target, exported) -> setExported target exported snapshot |> Result.map (fun next -> next, changes)
         | AddFunctionParameter request -> addFunctionParameter transactionId request snapshot changes
         | AddProductField request -> addProductField request snapshot changes
         | RemoveProductField fieldId -> removeProductField fieldId snapshot changes
@@ -1631,6 +1677,23 @@ module Transaction =
             | CapabilityRenamed(id, _, _) -> "capability:" + StableId.value id
             | CapabilityOperationRenamed(_, id, _, _) -> "capabilityOperation:" + StableId.value id
             | CapabilityParameterRenamed(_, _, id, _, _) -> "capabilityParameter:" + StableId.value id)
+
+    /// The declarations whose visibility differs between the base and the proposed snapshot, in
+    /// `kind:id` order, so a visibility set and reset in one batch is no change.
+    let private netVisibilityChanges (baseSnapshot: Snapshot) (proposedSnapshot: Snapshot) =
+        let changes kind (before: 'T list) (after: 'T list) (idOf: 'T -> string) (nameOf: 'T -> string) (exportedOf: 'T -> bool) =
+            let previous = before |> List.map (fun item -> idOf item, exportedOf item) |> Map.ofList
+            after
+            |> List.choose (fun item ->
+                match Map.tryFind (idOf item) previous with
+                | Some wasExported when wasExported <> exportedOf item ->
+                    Some { Kind = kind; Id = idOf item; DisplayName = nameOf item; Exported = exportedOf item }
+                | _ -> None)
+        changes "type" baseSnapshot.Types proposedSnapshot.Types (fun item -> StableId.value item.Id) (fun item -> item.DisplayName) (fun item -> item.Exported)
+        @ changes "function" baseSnapshot.Functions proposedSnapshot.Functions (fun item -> StableId.value item.Id) (fun item -> item.DisplayName) (fun item -> item.Exported)
+        @ changes "effect" baseSnapshot.Effects proposedSnapshot.Effects (fun item -> StableId.value item.Id) (fun item -> item.DisplayName) (fun item -> item.Exported)
+        @ changes "capability" baseSnapshot.Capabilities proposedSnapshot.Capabilities (fun item -> StableId.value item.Id) (fun item -> item.DisplayName) (fun item -> item.Exported)
+        |> List.sortBy (fun item -> item.Kind + ":" + item.Id)
 
     /// The rejection message when a rename takes a name another declaration already has in its
     /// scope. Display names resolve by-name requests; pre-existing duplicates are left alone.
@@ -1806,6 +1869,7 @@ module Transaction =
                     let changes = sortChanges accumulatedChanges
                     let diff: SemanticDiff =
                         { Renames = renames
+                          VisibilityChanges = netVisibilityChanges baseSnapshot proposed
                           ParametersAdded =
                               changes.ParametersAdded
                               |> List.filter (fun item ->
@@ -1844,6 +1908,7 @@ module Transaction =
 
                     let hasChanges =
                         not (List.isEmpty diff.Renames)
+                        || not (List.isEmpty diff.VisibilityChanges)
                         || not (List.isEmpty diff.ParametersAdded)
                         || not (List.isEmpty diff.ProductFieldsAdded)
                         || not (List.isEmpty diff.ProductFieldsBound)

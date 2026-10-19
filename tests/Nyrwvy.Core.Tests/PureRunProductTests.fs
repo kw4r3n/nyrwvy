@@ -26,22 +26,22 @@ module PureRunProductTests =
 
     let private withSession run =
         let types: SemanticType list =
-            [ { TypeParameters = []; Id = productId; DisplayName = "Record"
+            [ { Exported = true; TypeParameters = []; Id = productId; DisplayName = "Record"
                 Kind = SemanticTypeKind.Product
                     [ { Id = textId; DisplayName = "value"; Type = stringType }
                       { Id = flagId; DisplayName = "value"; Type = boolType }
                       { Id = numberId; DisplayName = "value"; Type = intType } ] }
-              { TypeParameters = []; Id = otherId; DisplayName = "Record"
+              { Exported = true; TypeParameters = []; Id = otherId; DisplayName = "Record"
                 Kind = SemanticTypeKind.Product
                     [ { Id = id<FieldTag> "other-left"; DisplayName = "text"; Type = stringType }
                       { Id = id<FieldTag> "other-right"; DisplayName = "text"; Type = stringType } ] }
-              { TypeParameters = []; Id = emptyId; DisplayName = "Empty"; Kind = SemanticTypeKind.Product [] }
-              { TypeParameters = []; Id = nestedId; DisplayName = "Nested"
+              { Exported = true; TypeParameters = []; Id = emptyId; DisplayName = "Empty"; Kind = SemanticTypeKind.Product [] }
+              { Exported = true; TypeParameters = []; Id = nestedId; DisplayName = "Nested"
                 Kind = SemanticTypeKind.Product [ { Id = nestedFieldId; DisplayName = "inner"; Type = TypeRef.Named(emptyId, []) } ] } ]
         let initial = { Snapshot.empty (id<SnapshotTag> "initial") with Types = types }
         let create ws name parameters resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
                   DisplayName = name
                   Parameters = parameters |> List.map (fun itemType -> { DisplayName = "input"; Type = itemType })
                   ResultType = resultType; RequiredEffects = []; Body = body }

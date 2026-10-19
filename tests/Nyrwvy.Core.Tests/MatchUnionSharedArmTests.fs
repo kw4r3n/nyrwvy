@@ -65,7 +65,7 @@ module MatchUnionSharedArmTests =
                         |> String.concat ","
                     $"""{{"displayName":"{name}","fields":[{fields}]}}""")
                 |> String.concat ","
-            publish session $"""{{"id":"t","op":"simulateCreateTypeByName","displayName":"Json","typeKind":{{"kind":"union","variants":[{variants}]}}}}""" |> ignore
+            publish session $"""{{"id":"t","op":"simulateCreateTypeByName","exported":true,"displayName":"Json","typeKind":{{"kind":"union","variants":[{variants}]}}}}""" |> ignore
             run session path
         finally
             Directory.Delete(root, true)
@@ -85,12 +85,12 @@ module MatchUnionSharedArmTests =
     let private create session name resultType body =
         publish
             session
-            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{{"displayName":"value","type":{json}}}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+            $"""{{"id":"{name}","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{{"displayName":"value","type":{json}}}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
 
     let private simulateCode session body =
         rejectionCode
             session
-            $"""{{"id":"bad","op":"simulateCreateFunctionByName","displayName":"bad","parameters":[{{"displayName":"value","type":{json}}}],"resultType":{primitive "bool"},"requiredEffects":[],"body":{body}}}"""
+            $"""{{"id":"bad","op":"simulateCreateFunctionByName","exported":true,"displayName":"bad","parameters":[{{"displayName":"value","type":{json}}}],"resultType":{primitive "bool"},"requiredEffects":[],"body":{body}}}"""
 
     /// A run value of the variant with fixed field values.
     let private value variant =

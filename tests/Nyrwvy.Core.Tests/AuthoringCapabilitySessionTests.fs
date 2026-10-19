@@ -34,7 +34,7 @@ module AuthoringCapabilitySessionTests =
                 use document =
                     AuthoringProtocol.executeLine
                         session
-                        """{"id":"effect","op":"simulateCreateEffect","displayName":"io"}"""
+                        """{"id":"effect","op":"simulateCreateEffect","exported":true,"displayName":"io"}"""
                     |> requireOk
                 let result: JsonElement = document.RootElement.GetProperty("result")
                 let created: JsonElement = result.GetProperty("review").GetProperty("createdEffect")
@@ -50,7 +50,7 @@ module AuthoringCapabilitySessionTests =
             let capabilityProposalId, capabilityId, operationId, parameterId =
                 let payload =
                     sprintf
-                        """{"id":"capability","op":"simulateCreateCapability","displayName":"Console","operations":[{"displayName":"write","parameters":[{"displayName":"text","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"primitive","primitive":"unit"},"effectId":"%s"}]}"""
+                        """{"id":"capability","op":"simulateCreateCapability","exported":true,"displayName":"Console","operations":[{"displayName":"write","parameters":[{"displayName":"text","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"primitive","primitive":"unit"},"effectId":"%s"}]}"""
                         effectId
                 use document = AuthoringProtocol.executeLine session payload |> requireOk
                 let result: JsonElement = document.RootElement.GetProperty("result")

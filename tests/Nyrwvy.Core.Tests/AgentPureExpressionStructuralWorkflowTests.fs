@@ -42,7 +42,7 @@ module AgentPureExpressionStructuralWorkflowTests =
     let private stringListType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])
 
     let private functionWithBody id name parameters resultType resultNodeId kind: SemanticFunction =
-        { Id = id
+        { Exported = true; Id = id
           DisplayName = name
           Parameters = parameters
           ResultType = resultType
@@ -210,7 +210,7 @@ module AgentPureExpressionStructuralWorkflowTests =
                 (SemanticNodeKind.Int64Literal 1L)
 
         let callbackEffect: SemanticEffect =
-            { Id = effectId "callback"
+            { Exported = true; Id = effectId "callback"
               DisplayName = "callback_effect" }
         let effectfulParameter: SemanticParameter =
             { Id = parameterId "predicate-effectful-value"

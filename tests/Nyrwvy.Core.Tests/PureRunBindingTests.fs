@@ -39,7 +39,7 @@ module PureRunBindingTests =
 
     let private createType (session: AuthoringSession) name fieldName =
         let request: AgentCreateTypeDeclarationRequest =
-            { TypeParameters = []; ExpectedBaseSnapshotId = current session
+            { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = current session
               DisplayName = name
               Kind = AgentTypeDeclarationKindIntent.Product [ { DisplayName = fieldName; Type = stringType } ] }
         session.SimulateCreateType request |> unwrap "create type" |> publish session
@@ -50,13 +50,13 @@ module PureRunBindingTests =
 
     let private createCapability (session: AuthoringSession) name operations =
         let request: AgentCreateCapabilityDeclarationRequest =
-            { ExpectedBaseSnapshotId = current session; DisplayName = name; Operations = operations }
+            { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name; Operations = operations }
         session.SimulateCreateCapability request |> unwrap "create capability" |> publish session
         session.Declarations().Capabilities |> List.find (fun item -> item.DisplayName = name)
 
     let private createFunction (session: AuthoringSession) name parameters resultType effects body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = current session
+            { Exported = true; ExpectedBaseSnapshotId = current session
               DisplayName = name
               Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
               ResultType = resultType
@@ -73,7 +73,7 @@ module PureRunBindingTests =
             use _ = session
             let requestType, key = createType session "LookupRequest" "key"
             let responseType, value = createType session "LookupResponse" "value"
-            let effectRequest: AgentCreateEffectDeclarationRequest = { ExpectedBaseSnapshotId = current session; DisplayName = "External" }
+            let effectRequest: AgentCreateEffectDeclarationRequest = { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "External" }
             session.SimulateCreateEffect effectRequest |> unwrap "create effect" |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
             let lookupResult = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.Named(responseType.Id, []); stringType ])
@@ -404,7 +404,7 @@ public sealed class Broken : {capability}
             let listOf t = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ t ])
             let optionOf t = TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ t ])
             s.SimulateCreateType
-                { TypeParameters = []; ExpectedBaseSnapshotId = current s; DisplayName = "KeyChoice"
+                { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = current s; DisplayName = "KeyChoice"
                   Kind = AgentTypeDeclarationKindIntent.Union
                     [ { DisplayName = "Numbers"; Fields = [ { DisplayName = "items"; Type = listOf intType } ] }
                       { DisplayName = "Empty"; Fields = [] } ] }

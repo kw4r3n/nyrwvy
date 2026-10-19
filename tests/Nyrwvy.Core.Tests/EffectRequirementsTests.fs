@@ -56,7 +56,7 @@ module EffectRequirementsTests =
             use review = AuthoringProtocol.executeLine session ($"""{{"id":"review","op":"simulateOperations","operations":[{{"kind":"renameFunction","functionId":"{StableId.value fixture.ReportFunctionId}","displayName":"renamed"}}]}}""") |> JsonDocument.Parse
             Assert.True(review.RootElement.GetProperty("ok").GetBoolean(), review.RootElement.ToString())
             Assert.Contains("bodyEffectRequirements", review.RootElement.GetRawText())
-            use created = AuthoringProtocol.executeLine session ($"""{{"id":"create","op":"simulateCreateFunction","displayName":"extraContract","parameters":[],"resultType":{{"kind":"primitive","primitive":"string"}},"requiredEffects":["{StableId.value fixture.ConsoleEffectId}"],"body":{{"kind":"stringLiteral","value":"pure body"}}}}""") |> JsonDocument.Parse
+            use created = AuthoringProtocol.executeLine session ($"""{{"id":"create","op":"simulateCreateFunction","exported":true,"displayName":"extraContract","parameters":[],"resultType":{{"kind":"primitive","primitive":"string"}},"requiredEffects":["{StableId.value fixture.ConsoleEffectId}"],"body":{{"kind":"stringLiteral","value":"pure body"}}}}""") |> JsonDocument.Parse
             Assert.True(created.RootElement.GetProperty("ok").GetBoolean(), created.RootElement.ToString())
             let creationReview = created.RootElement.GetProperty("result").GetProperty("review")
             Assert.Equal(1, creationReview.GetProperty("createdFunction").GetProperty("requiredEffects").GetArrayLength())

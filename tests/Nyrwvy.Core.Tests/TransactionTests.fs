@@ -140,7 +140,7 @@ module TransactionTests =
         let effectId = StableId.createForTesting<EffectTag> "effect-net-change"
         let snapshot =
             { fixture.Snapshot with
-                Effects = [ { Id = effectId; DisplayName = "NetChange" } ]
+                Effects = [ { Exported = true; Id = effectId; DisplayName = "NetChange" } ]
                 Functions =
                     fixture.Snapshot.Functions
                     |> List.map (fun item ->

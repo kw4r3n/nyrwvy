@@ -25,7 +25,7 @@ module PureRunBuildCacheTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
 
     let private createType (session: AuthoringSession) name kind =
-        let request: AgentCreateTypeDeclarationRequest = { TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = name; Kind = kind }
+        let request: AgentCreateTypeDeclarationRequest = { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = current session; DisplayName = name; Kind = kind }
         session.SimulateCreateType request |> unwrap ("create " + name) |> publish session
         session.Declarations().Types |> List.find (fun item -> item.DisplayName = name)
 
@@ -33,7 +33,7 @@ module PureRunBuildCacheTests =
 
     let private createFunction (session: AuthoringSession) name parameters resultType effects body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = current session
+            { Exported = true; ExpectedBaseSnapshotId = current session
               DisplayName = name
               Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
               ResultType = resultType
@@ -156,11 +156,11 @@ module PureRunBuildCacheTests =
     let ``fake scripts and keyed cases are input, so different scripts share one build`` () =
         withSession (fun session ->
             let pair = createType session "KeyPair" (AgentTypeDeclarationKindIntent.Product [ field "text" stringType; field "count" intType ])
-            let effectRequest: AgentCreateEffectDeclarationRequest = { ExpectedBaseSnapshotId = current session; DisplayName = "Store" }
+            let effectRequest: AgentCreateEffectDeclarationRequest = { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "Store" }
             session.SimulateCreateEffect effectRequest |> unwrap "effect" |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
             let capabilityRequest: AgentCreateCapabilityDeclarationRequest =
-                { ExpectedBaseSnapshotId = current session
+                { Exported = true; ExpectedBaseSnapshotId = current session
                   DisplayName = "KeyStore"
                   Operations =
                     [ { DisplayName = "get"

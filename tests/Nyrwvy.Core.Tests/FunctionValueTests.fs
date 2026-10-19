@@ -35,7 +35,7 @@ module FunctionValueTests =
         $"""{{"kind":"directCall","function":"{name}","arguments":[{bindings}]}}"""
     let private request name parameters result body =
         let parameters = parameters |> List.map (fun (name, t) -> $"""{{"displayName":"{name}","type":{t}}}""") |> String.concat ","
-        $"""{{"id":"create","op":"simulateCreateFunctionByName","structuredReview":true,"displayName":"{name}","parameters":[{parameters}],"resultType":{result},"requiredEffects":[],"body":{body}}}"""
+        $"""{{"id":"create","op":"simulateCreateFunctionByName","exported":true,"structuredReview":true,"displayName":"{name}","parameters":[{parameters}],"resultType":{result},"requiredEffects":[],"body":{body}}}"""
     let private create session name parameters result body =
         use response = send session (request name parameters result body)
         publish session response
@@ -172,7 +172,7 @@ module FunctionValueTests =
             let effectId = StableId.createForTesting<EffectTag> "function-purity-effect"
             let impure =
                 { snapshot with
-                    Effects = [ { Id = effectId; DisplayName = "Observable" } ]
+                    Effects = [ { Exported = true; Id = effectId; DisplayName = "Observable" } ]
                     Functions = snapshot.Functions |> List.map (fun fn ->
                         if fn.Id = predicateId then { fn with RequiredEffects = [ effectId ] } else fn) }
             check "ImpureFunctionReference" impure

@@ -19,7 +19,7 @@ module ListCallbackContextTests =
         | Error error -> failwithf "%s: %A" label error
 
     let private request ws name (parameters: (string * TypeRef) list) resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+        { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
           ResultType = resultType
@@ -151,7 +151,7 @@ module ListCallbackContextTests =
             Assert.Equal(PureRunValue.Bool false, run "allAbove" 1L)
             Assert.Equal(PureRunValue.Bool true, run "allAbove" 0L)
             let line =
-                """{"id":"create","op":"simulateCreateFunctionByName","displayName":"countAbove","parameters":[{"displayName":"items","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"primitive","primitive":"int64"}]}},{"displayName":"limit","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"listLength","value":{"kind":"listFilter","source":{"kind":"parameter","name":"items"},"function":"above","context":[{"parameter":"threshold","value":{"kind":"parameter","name":"limit"}}]}}}"""
+                """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"countAbove","parameters":[{"displayName":"items","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"primitive","primitive":"int64"}]}},{"displayName":"limit","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"listLength","value":{"kind":"listFilter","source":{"kind":"parameter","name":"items"},"function":"above","context":[{"parameter":"threshold","value":{"kind":"parameter","name":"limit"}}]}}}"""
             use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
             Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
             let proposalId = proposed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()

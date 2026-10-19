@@ -23,7 +23,7 @@ module GenericFunctionTests =
         | Error error -> failwithf "%s: %A" label error
 
     let private request ws name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+        { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
           ResultType = resultType
@@ -111,7 +111,7 @@ module GenericFunctionTests =
         Assert.Contains(SnapshotValidator.validate shared, fun issue -> issue.Code = "TypeParameterSharedAcrossFunctions")
         let declared =
             { snapshot with
-                Types = [ { TypeParameters = []; Id = id<TypeTag> "box"; DisplayName = "Box"; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "content"; DisplayName = "content"; Type = countParameter } ] } ] }
+                Types = [ { Exported = true; TypeParameters = []; Id = id<TypeTag> "box"; DisplayName = "Box"; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "content"; DisplayName = "content"; Type = countParameter } ] } ] }
         // A type's fields may use only the type's own type parameters, not a function's.
         Assert.Contains(SnapshotValidator.validate declared, fun issue -> issue.Code = "TypeParameterNotDeclared")
         // A result type may only use a type parameter that the function's own parameter types introduce.
@@ -142,7 +142,7 @@ module GenericFunctionTests =
         session.Commit(proposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "wire commit" |> ignore
 
     let private genericWireFunction =
-        """{"id":"create","op":"simulateCreateFunctionByName","displayName":"select","parameters":[{"displayName":"items","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","name":"T"}]}]}},{"displayName":"marker","type":{"kind":"typeParameter","name":"U"}}],"resultType":{"kind":"builtinGeneric","generic":"result","arguments":[{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","name":"T"}]},{"kind":"typeParameter","name":"U"}]},"requiredEffects":[],"body":{"kind":"matchOption","input":{"kind":"parameter","name":"items"},"someBody":{"kind":"resultOk","errorType":{"kind":"typeParameter","name":"U"},"value":{"kind":"patternReference","scopeDepth":0,"slot":"value"}},"noneBody":{"kind":"resultOk","errorType":{"kind":"typeParameter","name":"U"},"value":{"kind":"listEmpty","itemType":{"kind":"typeParameter","name":"T"}}}}}"""
+        """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"select","parameters":[{"displayName":"items","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","name":"T"}]}]}},{"displayName":"marker","type":{"kind":"typeParameter","name":"U"}}],"resultType":{"kind":"builtinGeneric","generic":"result","arguments":[{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","name":"T"}]},{"kind":"typeParameter","name":"U"}]},"requiredEffects":[],"body":{"kind":"matchOption","input":{"kind":"parameter","name":"items"},"someBody":{"kind":"resultOk","errorType":{"kind":"typeParameter","name":"U"},"value":{"kind":"patternReference","scopeDepth":0,"slot":"value"}},"noneBody":{"kind":"resultOk","errorType":{"kind":"typeParameter","name":"U"},"value":{"kind":"listEmpty","itemType":{"kind":"typeParameter","name":"T"}}}}}"""
 
     [<Fact>]
     let ``named whole body replacement binds nested explicit type parameters to its existing owner`` () =
@@ -194,7 +194,7 @@ module GenericFunctionTests =
     [<Fact>]
     let ``existing monomorphic owner cannot gain a type parameter through a named recipe`` () =
         withWireSession (fun session path ->
-            wirePublish session """{"id":"create","op":"simulateCreateFunctionByName","displayName":"plain","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"kind":"unitLiteral"}}"""
+            wirePublish session """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"plain","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"kind":"unitLiteral"}}"""
             let bytes = File.ReadAllBytes path
             use rejected = JsonDocument.Parse(AuthoringProtocol.executeLine session """{"id":"replace","op":"simulateReplaceBodyByName","function":"plain","replacement":{"kind":"bind","value":{"kind":"listEmpty","itemType":{"kind":"typeParameter","name":"T"}},"body":{"kind":"unitLiteral"}}}""")
             Assert.False(rejected.RootElement.GetProperty("ok").GetBoolean())
@@ -222,7 +222,7 @@ module GenericFunctionTests =
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunGenericEntryUnsupported", code)
             | other -> failwithf "Generic entry ran: %A" other
             let line =
-                """{"id":"create","op":"simulateCreateFunctionByName","displayName":"firstOr","parameters":[{"displayName":"items","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","name":"E"}]}},{"displayName":"fallback","type":{"kind":"typeParameter","name":"E"}}],"resultType":{"kind":"typeParameter","name":"E"},"requiredEffects":[],"body":{"kind":"parameter","name":"fallback"}}"""
+                """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"firstOr","parameters":[{"displayName":"items","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","name":"E"}]}},{"displayName":"fallback","type":{"kind":"typeParameter","name":"E"}}],"resultType":{"kind":"typeParameter","name":"E"},"requiredEffects":[],"body":{"kind":"parameter","name":"fallback"}}"""
             use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
             Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
             let proposalId = proposed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()

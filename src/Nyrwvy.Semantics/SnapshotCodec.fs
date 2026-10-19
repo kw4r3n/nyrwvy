@@ -233,10 +233,18 @@ module SnapshotCodec =
         writer.WriteEndArray()
         writer.WriteEndObject()
 
-    let private writeType (writer: Utf8JsonWriter) (item: SemanticType) =
+    /// Declaration visibility (`DeclarationVisibility`): from schema 21 on an exported declaration
+    /// carries `"exported": true` and a private one omits the property, so a snapshot of private
+    /// declarations keeps its bytes minimal. Below schema 21 nothing is written: such a document
+    /// has no visibility and reads as all-exported, so its bytes are unchanged.
+    let private writeVisibility (writer: Utf8JsonWriter) (explicitVisibility: bool) (exported: bool) =
+        if explicitVisibility && exported then writer.WriteBoolean("exported", true)
+
+    let private writeType (writer: Utf8JsonWriter) (explicitVisibility: bool) (item: SemanticType) =
         writer.WriteStartObject()
         writer.WriteString("id", StableId.value item.Id)
         writer.WriteString("displayName", item.DisplayName)
+        writeVisibility writer explicitVisibility item.Exported
         // Declaration order is semantic (it is the order of type arguments); absent when empty.
         if not (List.isEmpty item.TypeParameters) then
             writer.WritePropertyName("typeParameters")
@@ -266,10 +274,11 @@ module SnapshotCodec =
             writer.WriteEndArray()
         writer.WriteEndObject()
 
-    let private writeEffect (writer: Utf8JsonWriter) (effect: SemanticEffect) =
+    let private writeEffect (writer: Utf8JsonWriter) (explicitVisibility: bool) (effect: SemanticEffect) =
         writer.WriteStartObject()
         writer.WriteString("id", StableId.value effect.Id)
         writer.WriteString("displayName", effect.DisplayName)
+        writeVisibility writer explicitVisibility effect.Exported
         writer.WriteEndObject()
 
     let private writeCapabilityParameter (writer: Utf8JsonWriter) (parameter: SemanticCapabilityParameter) =
@@ -298,10 +307,11 @@ module SnapshotCodec =
         writer.WriteString("effectId", StableId.value operation.EffectId)
         writer.WriteEndObject()
 
-    let private writeCapability (writer: Utf8JsonWriter) (capability: SemanticCapability) =
+    let private writeCapability (writer: Utf8JsonWriter) (explicitVisibility: bool) (capability: SemanticCapability) =
         writer.WriteStartObject()
         writer.WriteString("id", StableId.value capability.Id)
         writer.WriteString("displayName", capability.DisplayName)
+        writeVisibility writer explicitVisibility capability.Exported
         writer.WritePropertyName("operations")
         writer.WriteStartArray()
         capability.Operations
@@ -1206,10 +1216,11 @@ module SnapshotCodec =
         writer.WriteString("resultNodeId", StableId.value graph.ResultNodeId)
         writer.WriteEndObject()
 
-    let private writeFunction (writer: Utf8JsonWriter) (functionEntity: SemanticFunction) =
+    let private writeFunction (writer: Utf8JsonWriter) (explicitVisibility: bool) (functionEntity: SemanticFunction) =
         writer.WriteStartObject()
         writer.WriteString("id", StableId.value functionEntity.Id)
         writer.WriteString("displayName", functionEntity.DisplayName)
+        writeVisibility writer explicitVisibility functionEntity.Exported
         writer.WritePropertyName("parameters")
         writer.WriteStartArray()
         functionEntity.Parameters |> List.iter (writeParameter writer)
@@ -1243,7 +1254,9 @@ module SnapshotCodec =
 
     let private writeSnapshotBody (writer: Utf8JsonWriter) (dependencyMarker: (string * string) option) (snapshot: Snapshot) =
         writer.WriteStartObject()
-        writer.WriteNumber("schemaVersion", (SnapshotSchema.required snapshot).Json)
+        let required = SnapshotSchema.required snapshot
+        let explicitVisibility = SnapshotSchema.writesVisibility required
+        writer.WriteNumber("schemaVersion", required.Json)
         writer.WriteString("snapshotId", StableId.value snapshot.Id)
         match dependencyMarker with
         | Some(id, fingerprint) ->
@@ -1257,19 +1270,19 @@ module SnapshotCodec =
         | None -> ()
         writer.WritePropertyName("types")
         writer.WriteStartArray()
-        snapshot.Types |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeType writer)
+        snapshot.Types |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeType writer explicitVisibility)
         writer.WriteEndArray()
         writer.WritePropertyName("effects")
         writer.WriteStartArray()
-        snapshot.Effects |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeEffect writer)
+        snapshot.Effects |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeEffect writer explicitVisibility)
         writer.WriteEndArray()
         writer.WritePropertyName("capabilities")
         writer.WriteStartArray()
-        snapshot.Capabilities |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeCapability writer)
+        snapshot.Capabilities |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeCapability writer explicitVisibility)
         writer.WriteEndArray()
         writer.WritePropertyName("functions")
         writer.WriteStartArray()
-        snapshot.Functions |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeFunction writer)
+        snapshot.Functions |> List.sortBy (fun item -> StableId.value item.Id) |> List.iter (writeFunction writer explicitVisibility)
         writer.WriteEndArray()
         writer.WritePropertyName("obligations")
         writer.WriteStartArray()
@@ -1418,27 +1431,48 @@ module SnapshotCodec =
             | [] -> invalidShape "Property 'typeParameters' must be omitted rather than empty."
             | parameters -> parameters
 
-    let private readType (element: JsonElement): SemanticType =
+    /// The optional declaration-visibility properties of a schema that writes visibility; none below.
+    let private visibilityProperties (explicitVisibility: bool) =
+        if explicitVisibility then set [ "exported" ] else Set.empty
+
+    /// A declaration's visibility: at a schema that writes visibility, `"exported": true` or
+    /// omitted (private); `false` is rejected so that there is one spelling of private. Below
+    /// that schema every declaration is exported.
+    let private readVisibility (explicitVisibility: bool) (element: JsonElement): bool =
+        if not explicitVisibility then true
+        else
+            match tryProperty "exported" element with
+            | None -> false
+            | Some value ->
+                if value.ValueKind <> JsonValueKind.True then
+                    invalidShape "Property 'exported' must be true or omitted (a private declaration omits it)."
+                true
+
+    let private readType (explicitVisibility: bool) (element: JsonElement): SemanticType =
         let kind = readString "kind" element
+        let optional = visibilityProperties explicitVisibility
         match kind with
         | "product" ->
-            ensureProperties "Product type" (set [ "id"; "displayName"; "kind"; "fields" ]) (set [ "id"; "displayName"; "kind"; "fields"; "typeParameters" ]) element
+            ensureProperties "Product type" (set [ "id"; "displayName"; "kind"; "fields" ]) (Set.union optional (set [ "id"; "displayName"; "kind"; "fields"; "typeParameters" ])) element
             { Id = readId<TypeTag> "id" element
               DisplayName = readString "displayName" element
+              Exported = readVisibility explicitVisibility element
               TypeParameters = readTypeParameters element
               Kind = SemanticTypeKind.Product(readArray "fields" readField element) }
         | "union" ->
-            ensureProperties "Union type" (set [ "id"; "displayName"; "kind"; "variants" ]) (set [ "id"; "displayName"; "kind"; "variants"; "typeParameters" ]) element
+            ensureProperties "Union type" (set [ "id"; "displayName"; "kind"; "variants" ]) (Set.union optional (set [ "id"; "displayName"; "kind"; "variants"; "typeParameters" ])) element
             { Id = readId<TypeTag> "id" element
               DisplayName = readString "displayName" element
+              Exported = readVisibility explicitVisibility element
               TypeParameters = readTypeParameters element
               Kind = SemanticTypeKind.Union(readArray "variants" readVariant element) }
         | value -> invalidShape $"Unsupported semantic type kind '{value}'."
 
-    let private readEffect (element: JsonElement): SemanticEffect =
-        ensureProperties "Effect" (set [ "id"; "displayName" ]) (set [ "id"; "displayName" ]) element
+    let private readEffect (explicitVisibility: bool) (element: JsonElement): SemanticEffect =
+        ensureProperties "Effect" (set [ "id"; "displayName" ]) (Set.union (visibilityProperties explicitVisibility) (set [ "id"; "displayName" ])) element
         { Id = readId<EffectTag> "id" element
-          DisplayName = readString "displayName" element }
+          DisplayName = readString "displayName" element
+          Exported = readVisibility explicitVisibility element }
 
     let private readCapabilityParameter (element: JsonElement): SemanticCapabilityParameter =
         ensureProperties "Capability parameter" (set [ "id"; "displayName"; "type" ]) (set [ "id"; "displayName"; "type" ]) element
@@ -1460,10 +1494,11 @@ module SnapshotCodec =
           FailureType = failureType
           EffectId = readId<EffectTag> "effectId" element }
 
-    let private readCapability (element: JsonElement): SemanticCapability =
-        ensureProperties "Capability" (set [ "id"; "displayName"; "operations" ]) (set [ "id"; "displayName"; "operations" ]) element
+    let private readCapability (explicitVisibility: bool) (element: JsonElement): SemanticCapability =
+        ensureProperties "Capability" (set [ "id"; "displayName"; "operations" ]) (Set.union (visibilityProperties explicitVisibility) (set [ "id"; "displayName"; "operations" ])) element
         { Id = readId<CapabilityTag> "id" element
           DisplayName = readString "displayName" element
+          Exported = readVisibility explicitVisibility element
           Operations = readArray "operations" readCapabilityOperation element }
 
     let private readParameter (element: JsonElement): SemanticParameter =
@@ -2422,14 +2457,15 @@ module SnapshotCodec =
         { Nodes = readArray "nodes" readNode element
           ResultNodeId = readId<GraphNodeTag> "resultNodeId" element }
 
-    let private readFunction (element: JsonElement): SemanticFunction =
+    let private readFunction (explicitVisibility: bool) (element: JsonElement): SemanticFunction =
         ensureProperties
             "Function"
             (set [ "id"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ])
-            (set [ "id"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ])
+            (Set.union (visibilityProperties explicitVisibility) (set [ "id"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]))
             element
         { Id = readId<FunctionTag> "id" element
           DisplayName = readString "displayName" element
+          Exported = readVisibility explicitVisibility element
           Parameters = readArray "parameters" readParameter element
           ResultType = readTypeRef (requireProperty "resultType" element)
           RequiredEffects = readIdArray<EffectTag> "requiredEffects" element
@@ -2498,13 +2534,16 @@ module SnapshotCodec =
                         match tryProperty "parentSnapshotId" root with
                         | Some _ -> Some(readId<SnapshotTag> "parentSnapshotId" root)
                         | None -> None
+                    // Version-gated default: a document below the visibility schema has no
+                    // visibility, and every declaration in it reads as exported.
+                    let explicitVisibility = SnapshotSchema.writesVisibility declared
                     let snapshot =
                         { Id = readId<SnapshotTag> "snapshotId" root
                           ParentId = parentId
-                          Types = readArray "types" readType root
-                          Effects = readArray "effects" readEffect root
-                          Capabilities = readArray "capabilities" readCapability root
-                          Functions = readArray "functions" readFunction root
+                          Types = readArray "types" (readType explicitVisibility) root
+                          Effects = readArray "effects" (readEffect explicitVisibility) root
+                          Capabilities = readArray "capabilities" (readCapability explicitVisibility) root
+                          Functions = readArray "functions" (readFunction explicitVisibility) root
                           Obligations = readArray "obligations" readObligation root }
                     match SnapshotSchema.firstUnsupported declared snapshot with
                     | Some(_, minimum, name) -> invalidShape $"{name} requires snapshot schemaVersion {minimum.Json}."

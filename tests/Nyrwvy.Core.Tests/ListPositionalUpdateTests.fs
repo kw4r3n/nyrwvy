@@ -29,7 +29,7 @@ module ListPositionalUpdateTests =
     let private concat left right = """{"kind":"listConcat","left":""" + left + ""","right":""" + right + "}"
 
     let private create name parameters resultType body =
-        """{"id":"create","op":"simulateCreateFunctionByName","displayName":""" + "\"" + name + "\""
+        """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":""" + "\"" + name + "\""
         + ""","parameters":[""" + (parameters |> List.map (fun (n, t) -> """{"displayName":""" + "\"" + n + "\"" + ""","type":""" + t + "}") |> String.concat ",")
         + """],"resultType":""" + resultType + ""","requiredEffects":[],"body":""" + body + "}"
 
@@ -136,7 +136,7 @@ module ListPositionalUpdateTests =
                       { Id = nodeId "op"; Kind = make (nodeId "list") (nodeId "index") (nodeId "item") } ]
                   ResultNodeId = nodeId "op" }
             let fn: SemanticFunction =
-                { Id = StableId.createForTesting<FunctionTag> "function-list-positional"
+                { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-list-positional"
                   DisplayName = "update"; Parameters = []; ResultType = listOfText; RequiredEffects = []; Body = body }
             SnapshotValidator.validate { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-list-positional") with Functions = [ fn ] }
             |> List.map (fun issue -> issue.Code)

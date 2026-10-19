@@ -143,7 +143,7 @@ module AuthoringDependencyTests =
             let variantId = StableId.createForTesting<VariantTag> "variant-imported-case"
             let imported =
                 { fixture.Snapshot with
-                    Types = { TypeParameters = []; Id = unionId; DisplayName = "Choice"
+                    Types = { Exported = true; TypeParameters = []; Id = unionId; DisplayName = "Choice"
                               Kind = SemanticTypeKind.Union [ { Id = variantId; DisplayName = "First"; Fields = [] } ] }
                             :: fixture.Snapshot.Types }
             let sourcePath = Path.Combine(root, "source.json")

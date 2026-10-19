@@ -20,7 +20,7 @@ module PureRunTests =
             | Error errors -> failwithf "Invalid fixture: %A" errors
         let create ws name parameterType resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
                   DisplayName = name
                   Parameters =
                     [ { DisplayName = "left"; Type = parameterType }

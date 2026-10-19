@@ -29,8 +29,11 @@ AgentCapabilityOperationIntent =
 AgentCreateCapabilityDeclarationRequest =
   ExpectedBaseSnapshotId: SnapshotId
   DisplayName: string
+  Exported: bool
   Operations: AgentCapabilityOperationIntent list
 ```
+
+`Exported` is the capability's [visibility](../decisions/declaration-visibility.md): whether snapshots that depend on this one may use it. The wire form is optional `"exported": true` on `simulateCreateCapability` and `simulateCreateCapabilityByName`; a capability is private otherwise, and `setExported` changes it later.
 
 The request contains existing published `EffectId` references because operation effects are already semantic facts. It never contains production capability, operation, or parameter identities. The maintained session's `simulateCreateCapabilityByName` convenience resolves effect and type display names to these IDs before building the same request (see [Name-resolved AI authoring](agent-authoring-session.md#name-resolved-ai-authoring)).
 

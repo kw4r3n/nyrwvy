@@ -617,6 +617,8 @@ module AgentExpressionStructuralWorkflow =
         type Request =
             { ExpectedBaseSnapshotId: SnapshotId
               DisplayName: string
+              /// Whether snapshots that depend on this one may use the function; private when false.
+              Exported: bool
               Parameters: ParameterIntent list
               ResultType: TypeRef
               RequiredEffects: EffectId list
@@ -835,6 +837,7 @@ module AgentExpressionStructuralWorkflow =
                         let createdFunction: SemanticFunction =
                             { Id = functionId
                               DisplayName = request.DisplayName
+                              Exported = request.Exported
                               Parameters = parameters
                               ResultType = request.ResultType
                               RequiredEffects = preflight.CanonicalRequiredEffects

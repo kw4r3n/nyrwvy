@@ -32,7 +32,7 @@ module TestGraph =
         let runCallNodeId = StableId.createForTesting<GraphNodeTag> "node-run-call"
 
         let policyType: SemanticType =
-            { TypeParameters = []; Id = policyTypeId
+            { Exported = true; TypeParameters = []; Id = policyTypeId
               DisplayName = "ValidationPolicy"
               Kind = SemanticTypeKind.Product [] }
 
@@ -46,7 +46,7 @@ module TestGraph =
               Kind = SemanticNodeKind.ParameterReference validateInputParameterId }
 
         let validateFunction: SemanticFunction =
-            { Id = validateFunctionId
+            { Exported = true; Id = validateFunctionId
               DisplayName = "validate_user"
               Parameters = [ validateInput ]
               ResultType = stringType
@@ -82,7 +82,7 @@ module TestGraph =
               Kind = SemanticNodeKind.DirectCall(validateFunctionId, [ initialBinding ]) }
 
         let runFunction: SemanticFunction =
-            { Id = runFunctionId
+            { Exported = true; Id = runFunctionId
               DisplayName = "run"
               Parameters = [ runInput; runPolicy ]
               ResultType = stringType

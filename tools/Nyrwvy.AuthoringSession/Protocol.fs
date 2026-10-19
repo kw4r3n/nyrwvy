@@ -810,7 +810,7 @@ module AuthoringProtocol =
                 | Error error -> sessionFailure requestId error
                 | Ok preview ->
                     let changes (items: AuthoringDependencyChange list) =
-                        items |> List.map (fun item -> objectValue [ "kind", box item.Kind; "id", box item.Id ]) |> arrayValue
+                        items |> List.map (fun item -> objectValue [ "kind", box item.Kind; "id", box item.Id; "exported", box item.Exported ]) |> arrayValue
                     success requestId
                         (objectValue
                             [ "replacedSnapshotId", box preview.ReplacedSnapshotId
@@ -902,7 +902,7 @@ module AuthoringProtocol =
                 | Error error -> sessionFailure requestId error
                 | Ok preview ->
                     let changes (items: AuthoringDependencyChange list) =
-                        items |> List.map (fun item -> objectValue [ "kind", box item.Kind; "id", box item.Id ]) |> arrayValue
+                        items |> List.map (fun item -> objectValue [ "kind", box item.Kind; "id", box item.Id; "exported", box item.Exported ]) |> arrayValue
                     let members = preview.Upgrades |> List.map (fun item ->
                         objectValue [ "replacedSnapshotId", box item.ReplacedSnapshotId; "replacedFingerprint", box item.ReplacedFingerprint
                                       "newSnapshotId", box item.NewSnapshotId; "newFingerprint", box item.NewFingerprint
@@ -1024,7 +1024,7 @@ module AuthoringProtocol =
             | "simulateCreateFunction" ->
                 ensureFields
                     "simulateCreateFunction request"
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "exported"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
                 let parameters =
@@ -1048,6 +1048,7 @@ module AuthoringProtocol =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = requiredString "displayName" root
+                      Exported = optionalBool "exported" false root
                       Parameters = parameters
                       ResultType = typeRef (property "resultType" root)
                       RequiredEffects = requiredEffects
@@ -1056,7 +1057,7 @@ module AuthoringProtocol =
             | "simulateCreateFunctionByName" ->
                 ensureFields
                     "simulateCreateFunctionByName request"
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "exported"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
                 let declarations = session.Declarations()
@@ -1067,6 +1068,7 @@ module AuthoringProtocol =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = displayName
+                      Exported = optionalBool "exported" false root
                       Parameters = parameters
                       ResultType = WireSymbolic.typeRef declarations (property "resultType" root)
                       RequiredEffects = WireSymbolic.requiredEffects declarations root
@@ -1217,23 +1219,25 @@ module AuthoringProtocol =
             | "simulateCreateType" ->
                 ensureFields
                     "simulateCreateType request"
-                    [ "id"; "op"; "displayName"; "typeParameters"; "typeKind"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "typeKind"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "typeKind" ]
                     root
                 let request: AgentCreateTypeDeclarationRequest =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = requiredString "displayName" root
+                      Exported = optionalBool "exported" false root
                       TypeParameters = typeParameterNames root
                       Kind = typeKindIntent (property "typeKind" root) }
                 proposalResponse (session.SimulateCreateType request)
             | "simulateCreateTypeByName" ->
                 ensureFields
                     "simulateCreateTypeByName request"
-                    [ "id"; "op"; "displayName"; "typeParameters"; "typeKind"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "typeKind"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "typeKind" ]
                     root
                 let declarations = session.Declarations()
                 let displayName = requiredString "displayName" root
+                let exported = optionalBool "exported" false root
                 let typeParameters = typeParameterNames root
                 // A declaration that names itself is a recursive type: it is created as a group of one.
                 let self = StableIdAllocator.newTypeId ()
@@ -1242,11 +1246,12 @@ module AuthoringProtocol =
                     if WireSymbolic.kindReferences self kind then
                         session.SimulateCreateTypeGroup
                             { ExpectedBaseSnapshotId = expectedSnapshotId ()
-                              Declarations = [ { Reference = self; DisplayName = displayName; TypeParameters = typeParameters; Kind = kind } ] }
+                              Declarations = [ { Reference = self; DisplayName = displayName; Exported = exported; TypeParameters = typeParameters; Kind = kind } ] }
                     else
                         session.SimulateCreateType
                             { ExpectedBaseSnapshotId = expectedSnapshotId ()
                               DisplayName = displayName
+                              Exported = exported
                               TypeParameters = typeParameters
                               Kind = kind }
                 proposalResponse simulated
@@ -1260,8 +1265,8 @@ module AuthoringProtocol =
                 let items =
                     array "types" root
                     |> List.map (fun item ->
-                        ensureFields "type declaration" [ "displayName"; "typeParameters"; "typeKind" ] [ "displayName"; "typeKind" ] item
-                        requiredString "displayName" item, (typeParameterNames item, property "typeKind" item))
+                        ensureFields "type declaration" [ "displayName"; "exported"; "typeParameters"; "typeKind" ] [ "displayName"; "typeKind" ] item
+                        requiredString "displayName" item, (optionalBool "exported" false item, typeParameterNames item, property "typeKind" item))
                 let references = items |> List.map (fun (name, _) -> name, StableIdAllocator.newTypeId ())
                 // A name declared twice keeps its first reference; the workflow rejects the duplicate.
                 let group = references |> List.rev |> Map.ofList
@@ -1269,9 +1274,10 @@ module AuthoringProtocol =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       Declarations =
                         List.map2
-                            (fun (name, (typeParameters, kind)) (_, reference) ->
+                            (fun (name, (exported, typeParameters, kind)) (_, reference) ->
                                 { Reference = reference
                                   DisplayName = name
+                                  Exported = exported
                                   TypeParameters = typeParameters
                                   Kind = WireSymbolic.typeKindIntentIn group declarations kind })
                             items
@@ -1315,28 +1321,30 @@ module AuthoringProtocol =
             | "simulateCreateEffect" ->
                 ensureFields
                     "simulateCreateEffect request"
-                    [ "id"; "op"; "displayName"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "exported"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName" ]
                     root
                 let request: AgentCreateEffectDeclarationRequest =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
-                      DisplayName = requiredString "displayName" root }
+                      DisplayName = requiredString "displayName" root
+                      Exported = optionalBool "exported" false root }
                 proposalResponse (session.SimulateCreateEffect request)
             | "simulateCreateCapability" ->
                 ensureFields
                     "simulateCreateCapability request"
-                    [ "id"; "op"; "displayName"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "exported"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "operations" ]
                     root
                 let request: AgentCreateCapabilityDeclarationRequest =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = requiredString "displayName" root
+                      Exported = optionalBool "exported" false root
                       Operations = array "operations" root |> List.map capabilityOperationIntent }
                 proposalResponse (session.SimulateCreateCapability request)
             | "simulateCreateCapabilityByName" ->
                 ensureFields
                     "simulateCreateCapabilityByName request"
-                    [ "id"; "op"; "displayName"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "exported"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "operations" ]
                     root
                 let declarations = session.Declarations()
@@ -1346,6 +1354,7 @@ module AuthoringProtocol =
                 let request: AgentCreateCapabilityDeclarationRequest =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = displayName
+                      Exported = optionalBool "exported" false root
                       Operations = array "operations" root |> List.map (WireSymbolic.capabilityOperationIntent declarations) }
                 proposalResponse (session.SimulateCreateCapability request)
             | "simulateReplaceBody" ->

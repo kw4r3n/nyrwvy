@@ -27,7 +27,7 @@ module CompactSimulateReplyTests =
             body <- conditional (boolLiteral "false") (boolLiteral "true") body
         body
     let private create name detail body =
-        $"""{{"id":"create","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[{{"displayName":"flag","type":{primitive "bool"}}}],"resultType":{primitive "bool"},"requiredEffects":[],"body":{body}{detail}}}"""
+        $"""{{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{{"displayName":"flag","type":{primitive "bool"}}}],"resultType":{primitive "bool"},"requiredEffects":[],"body":{body}{detail}}}"""
 
     let private withSession run =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-compact-review-" + Guid.NewGuid().ToString("N"))
@@ -119,7 +119,7 @@ module CompactSimulateReplyTests =
             let body =
                 conditional """{"kind":"parameter","name":"flag"}""" (int64Literal "7") (int64Literal "-42")
             use created =
-                send session ($"""{{"id":"create","op":"simulateCreateFunctionByName","displayName":"pick","parameters":[{{"displayName":"flag","type":{primitive "bool"}}}],"resultType":{primitive "int64"},"requiredEffects":[],"body":{body}}}""")
+                send session ($"""{{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"pick","parameters":[{{"displayName":"flag","type":{primitive "bool"}}}],"resultType":{primitive "int64"},"requiredEffects":[],"body":{body}}}""")
             session.Commit((result created).GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             let pick = session.Declarations().Functions |> List.exactlyOne
             let nodeWhere predicate = ValueGraph.collectNodes pick.Body |> List.find (fun node -> predicate node.Kind)
@@ -148,9 +148,9 @@ module CompactSimulateReplyTests =
     [<Fact>]
     let ``every simulate kind accepts detail and an unknown detail is rejected before simulation`` () =
         withSession (fun session ->
-            use effect = send session """{"id":"effect","op":"simulateCreateEffect","displayName":"Io","detail":"full"}"""
+            use effect = send session """{"id":"effect","op":"simulateCreateEffect","exported":true,"displayName":"Io","detail":"full"}"""
             Assert.Equal("full", (result effect).GetProperty("detail").GetString())
-            use productType = send session ($"""{{"id":"type","op":"simulateCreateTypeByName","displayName":"Flag","typeKind":{{"kind":"product","fields":[{{"displayName":"on","type":{primitive "bool"}}}]}},"detail":"compact"}}""")
+            use productType = send session ($"""{{"id":"type","op":"simulateCreateTypeByName","exported":true,"displayName":"Flag","typeKind":{{"kind":"product","fields":[{{"displayName":"on","type":{primitive "bool"}}}]}},"detail":"compact"}}""")
             Assert.Equal("compact", (result productType).GetProperty("detail").GetString())
             Assert.Equal("Flag", (result productType).GetProperty("review").GetProperty("createdType").GetProperty("displayName").GetString())
             let before = session.Status() |> unwrap

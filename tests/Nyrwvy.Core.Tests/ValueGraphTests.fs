@@ -24,7 +24,7 @@ module ValueGraphTests =
               Type = stringType }
 
         let typeEntity: SemanticType =
-            { TypeParameters = []; Id = typeId
+            { Exported = true; TypeParameters = []; Id = typeId
               DisplayName = "RawUserInput"
               Kind = SemanticTypeKind.Product [ field ] }
 
@@ -51,7 +51,7 @@ module ValueGraphTests =
               Kind = SemanticNodeKind.FieldAccess(constructNodeId, fieldId) }
 
         let functionEntity: SemanticFunction =
-            { Id = functionId
+            { Exported = true; Id = functionId
               DisplayName = "round_trip_name"
               Parameters = [ parameter ]
               ResultType = stringType
@@ -84,7 +84,7 @@ module ValueGraphTests =
         let stringType = TypeRef.Primitive PrimitiveType.String
 
         let errorType: SemanticType =
-            { TypeParameters = []; Id = unionTypeId
+            { Exported = true; TypeParameters = []; Id = unionTypeId
               DisplayName = "ValidationError"
               Kind =
                 SemanticTypeKind.Union
@@ -133,7 +133,7 @@ module ValueGraphTests =
               Kind = SemanticNodeKind.MatchUnion(parameterNodeId, arms) }
 
         let functionEntity: SemanticFunction =
-            { Id = functionId
+            { Exported = true; Id = functionId
               DisplayName = "render_error"
               Parameters = [ parameter ]
               ResultType = stringType
@@ -261,7 +261,7 @@ module ValueGraphTests =
               Kind = SemanticNodeKind.PatternReference bindingId }
 
         let functionEntity: SemanticFunction =
-            { Id = functionId
+            { Exported = true; Id = functionId
               DisplayName = "option_scope"
               Parameters =
                 [ { Id = parameterId

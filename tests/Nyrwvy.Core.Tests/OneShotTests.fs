@@ -22,7 +22,7 @@ module OneShotTests =
         Assert.True(response.GetProperty("ok").GetBoolean(), response.ToString())
         response.GetProperty("result")
     let private create session name parameters result body =
-        let response = execute session "simulateCreateFunctionByName" ($"""{{"displayName":"{name}","parameters":{parameters},"resultType":{result},"requiredEffects":[],"body":{body}}}""")
+        let response = execute session "simulateCreateFunctionByName" ($"""{{"exported":true,"displayName":"{name}","parameters":{parameters},"resultType":{result},"requiredEffects":[],"body":{body}}}""")
         let proposal = requireSuccess response
         Assert.Equal("semanticallyReady", proposal.GetProperty("review").GetProperty("readiness").GetProperty("kind").GetString())
         execute session "commit" ($"""{{"proposalId":"{proposal.GetProperty("proposalId").GetString()}"}}""") |> requireSuccess |> ignore
@@ -88,7 +88,7 @@ module OneShotTests =
                   "wrongLimit", $"""[{{"displayName":"cell","type":{cellJson}}}]""", $"""{{"kind":"builtinGeneric","generic":"option","arguments":[{stringJson}]}}""", """{"kind":"oneShotWait","cell":{"kind":"parameter","name":"cell"},"limit":{"kind":"int64Literal","value":"1"}}""", "OneShotLimitTypeMismatch"
                   "hiddenScope", $"""[{{"displayName":"scope","type":{scopeJson}}}]""", $"""{{"kind":"builtinGeneric","generic":"oneShot","arguments":[{scopeJson}]}}""", $"""{{"kind":"oneShotCreate","scope":{{"kind":"parameter","name":"scope"}},"valueType":{scopeJson}}}""", "OneShotScopePayloadUnsupported" ]
             for name, parameters, result, body, code in proposals do
-                let response = execute session "simulateCreateFunctionByName" ($"""{{"displayName":"{name}","parameters":{parameters},"resultType":{result},"requiredEffects":[],"body":{body}}}""")
+                let response = execute session "simulateCreateFunctionByName" ($"""{{"exported":true,"displayName":"{name}","parameters":{parameters},"resultType":{result},"requiredEffects":[],"body":{body}}}""")
                 Assert.False(response.GetProperty("ok").GetBoolean())
                 Assert.Contains(code, response.ToString())
                 Assert.Equal<byte>(before, File.ReadAllBytes path)
@@ -104,11 +104,11 @@ module OneShotTests =
         withFixture (fun session path ->
             let snapshot = read path
             for fn in snapshot.Functions do Assert.False(PureFunctions.isPure snapshot fn.Id)
-            let effect = execute session "simulateCreateEffect" """{"displayName":"IO"}""" |> requireSuccess
+            let effect = execute session "simulateCreateEffect" """{"exported":true,"displayName":"IO"}""" |> requireSuccess
             execute session "commit" ($"""{{"proposalId":"{effect.GetProperty("proposalId").GetString()}"}}""") |> requireSuccess |> ignore
-            let box = execute session "simulateCreateTypeByName" ($"""{{"displayName":"Box","typeKind":{{"kind":"product","fields":[{{"displayName":"cell","type":{cellJson}}}]}}}}""") |> requireSuccess
+            let box = execute session "simulateCreateTypeByName" ($"""{{"exported":true,"displayName":"Box","typeKind":{{"kind":"product","fields":[{{"displayName":"cell","type":{cellJson}}}]}}}}""") |> requireSuccess
             execute session "commit" ($"""{{"proposalId":"{box.GetProperty("proposalId").GetString()}"}}""") |> requireSuccess |> ignore
-            let boundary = execute session "simulateCreateCapabilityByName" """{"displayName":"Host","operations":[{"displayName":"take","parameters":[{"displayName":"box","type":{"kind":"named","name":"Box"}}],"resultType":{"kind":"primitive","primitive":"unit"},"effect":"IO"}]}"""
+            let boundary = execute session "simulateCreateCapabilityByName" """{"exported":true,"displayName":"Host","operations":[{"displayName":"take","parameters":[{"displayName":"box","type":{"kind":"named","name":"Box"}}],"resultType":{"kind":"primitive","primitive":"unit"},"effect":"IO"}]}"""
             Assert.False(boundary.GetProperty("ok").GetBoolean())
             Assert.Contains("TaskTypeAtCapabilityBoundary", boundary.ToString())
             let run = execute session "runPureByName" """{"function":"take","arguments":[{"kind":"unit"}]}"""
@@ -158,7 +158,7 @@ module OneShotTests =
             let before = File.ReadAllBytes path
             let scopeValue = """{"kind":"parameter","name":"scope"}"""
             let forbidden = if nested then $"""{{"kind":"listConstruct","itemType":{scopeJson},"items":[{scopeValue}]}}""" else scopeValue
-            let proposal = execute session "simulateCreateFunctionByName" ($"""{{"displayName":"unsafeCaller","parameters":[{{"displayName":"scope","type":{scopeJson}}}],"resultType":{unitJson},"requiredEffects":[],"body":{discard (call target forbidden)}}}""")
+            let proposal = execute session "simulateCreateFunctionByName" ($"""{{"exported":true,"displayName":"unsafeCaller","parameters":[{{"displayName":"scope","type":{scopeJson}}}],"resultType":{unitJson},"requiredEffects":[],"body":{discard (call target forbidden)}}}""")
             Assert.False(proposal.GetProperty("ok").GetBoolean(), proposal.ToString())
             Assert.Contains("OneShotScopePayloadUnsupported", proposal.ToString())
             Assert.Equal<byte>(before, File.ReadAllBytes path)
@@ -208,7 +208,7 @@ module OneShotTests =
             let before = File.ReadAllBytes path
             let invalidScopeBody = $"""{{"kind":"taskScope","body":"worker","context":{context}}}"""
             for node in invalidScopeBody :: nodes scopeValue scopeJson do
-                let proposal = execute session "simulateCreateFunctionByName" ($"""{{"displayName":"unsafeCallback","parameters":{callerParameters},"resultType":{unitJson},"requiredEffects":[],"body":{{"kind":"bind","value":{node},"body":{{"kind":"unitLiteral"}}}}}}""")
+                let proposal = execute session "simulateCreateFunctionByName" ($"""{{"exported":true,"displayName":"unsafeCallback","parameters":{callerParameters},"resultType":{unitJson},"requiredEffects":[],"body":{{"kind":"bind","value":{node},"body":{{"kind":"unitLiteral"}}}}}}""")
                 Assert.False(proposal.GetProperty("ok").GetBoolean(), proposal.ToString())
                 Assert.Contains("OneShotScopePayloadUnsupported", proposal.ToString())
                 Assert.Equal<byte>(before, File.ReadAllBytes path)

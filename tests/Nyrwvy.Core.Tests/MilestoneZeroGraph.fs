@@ -41,7 +41,7 @@ module MilestoneZeroGraph =
         let policyTypeId = StableId.createForTesting<TypeTag> "type-validation-policy"
 
         let rawUserInputType: SemanticType =
-            { TypeParameters = []; Id = rawUserInputTypeId
+            { Exported = true; TypeParameters = []; Id = rawUserInputTypeId
               DisplayName = "RawUserInput"
               Kind =
                 SemanticTypeKind.Product
@@ -56,7 +56,7 @@ module MilestoneZeroGraph =
                         Type = optionStringType } ] }
 
         let validUserType: SemanticType =
-            { TypeParameters = []; Id = validUserTypeId
+            { Exported = true; TypeParameters = []; Id = validUserTypeId
               DisplayName = "ValidUser"
               Kind =
                 SemanticTypeKind.Product
@@ -71,7 +71,7 @@ module MilestoneZeroGraph =
                         Type = optionStringType } ] }
 
         let validationErrorType: SemanticType =
-            { TypeParameters = []; Id = validationErrorTypeId
+            { Exported = true; TypeParameters = []; Id = validationErrorTypeId
               DisplayName = "ValidationError"
               Kind =
                 SemanticTypeKind.Union
@@ -83,7 +83,7 @@ module MilestoneZeroGraph =
                         Fields = [] } ] }
 
         let policyType: SemanticType =
-            { TypeParameters = []; Id = policyTypeId
+            { Exported = true; TypeParameters = []; Id = policyTypeId
               DisplayName = "ValidationPolicy"
               Kind = SemanticTypeKind.Product [] }
 
@@ -100,7 +100,7 @@ module MilestoneZeroGraph =
             StableId.createForTesting<CapabilityParameterTag> "capability-parameter-console-text"
 
         let consoleEffect: SemanticEffect =
-            { Id = consoleEffectId
+            { Exported = true; Id = consoleEffectId
               DisplayName = "ConsoleOutput" }
 
         let consoleTextParameter: SemanticCapabilityParameter =
@@ -117,7 +117,7 @@ module MilestoneZeroGraph =
               EffectId = consoleEffectId }
 
         let consoleCapability: SemanticCapability =
-            { Id = consoleCapabilityId
+            { Exported = true; Id = consoleCapabilityId
               DisplayName = "Console"
               Operations = [ consoleWriteLine ] }
 
@@ -240,7 +240,7 @@ module MilestoneZeroGraph =
                 ) }
 
         let validateFunction: SemanticFunction =
-            { Id = validateFunctionId
+            { Exported = true; Id = validateFunctionId
               DisplayName = "validate_user"
               Parameters = [ validateInputParameter ]
               ResultType = validationResultType
@@ -387,7 +387,7 @@ module MilestoneZeroGraph =
               Kind = SemanticNodeKind.MatchResult(reportResultNodeId, okArm, errArm) }
 
         let reportFunction: SemanticFunction =
-            { Id = reportFunctionId
+            { Exported = true; Id = reportFunctionId
               DisplayName = "report_validation"
               Parameters = [ reportResultParameter; reportConsoleParameter ]
               ResultType = unitType
@@ -454,7 +454,7 @@ module MilestoneZeroGraph =
                 ) }
 
         let mainFunction: SemanticFunction =
-            { Id = mainFunctionId
+            { Exported = true; Id = mainFunctionId
               DisplayName = "main"
               Parameters = [ mainInputParameter; mainPolicyParameter; mainConsoleParameter ]
               ResultType = unitType

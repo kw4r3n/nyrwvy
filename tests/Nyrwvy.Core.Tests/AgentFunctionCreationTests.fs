@@ -26,7 +26,7 @@ module AgentFunctionCreationTests =
           Type = typeRef }
 
     let private request (snapshot: Snapshot) displayName parameters resultType requiredEffects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { ExpectedBaseSnapshotId = snapshot.Id
+        { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
           DisplayName = displayName
           Parameters = parameters
           ResultType = resultType
@@ -148,7 +148,7 @@ module AgentFunctionCreationTests =
         let existingResultId = nodeId "existing-result"
         let existingFunctionId = functionId "existing"
         let existingFunction: SemanticFunction =
-            { Id = existingFunctionId
+            { Exported = true; Id = existingFunctionId
               DisplayName = "existing"
               Parameters =
                 [ { Id = existingParameterId
@@ -214,14 +214,15 @@ module AgentFunctionCreationTests =
 
     [<Fact>]
     let ``atomic creation validates required effects before materialization`` () =
-        let effect =
+        let effect: SemanticEffect =
             { Id = effectId "io"
-              DisplayName = "IO" }
+              DisplayName = "IO"
+              Exported = true }
         let unknownEffectId = effectId "unknown"
         let calleeResultId = nodeId "effect-callee-result"
         let calleeId = functionId "effect-callee"
         let callee: SemanticFunction =
-            { Id = calleeId
+            { Exported = true; Id = calleeId
               DisplayName = "effectful"
               Parameters = []
               ResultType = unitType
@@ -258,7 +259,7 @@ module AgentFunctionCreationTests =
         let existingResultId = nodeId "stale-existing-result"
         let existingFunctionId = functionId "stale-existing"
         let existingFunction: SemanticFunction =
-            { Id = existingFunctionId
+            { Exported = true; Id = existingFunctionId
               DisplayName = "existing"
               Parameters = []
               ResultType = unitType
@@ -302,6 +303,7 @@ module AgentFunctionCreationTests =
         let expected =
             [ "ExpectedBaseSnapshotId", typeof<SnapshotId>
               "DisplayName", typeof<string>
+              "Exported", typeof<bool>
               "Parameters", typeof<AgentExpressionStructuralWorkflow.FunctionCreation.ParameterIntent list>
               "ResultType", typeof<TypeRef>
               "RequiredEffects", typeof<EffectId list>

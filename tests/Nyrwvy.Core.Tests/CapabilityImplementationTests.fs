@@ -30,7 +30,7 @@ module CapabilityImplementationTests =
         $"""{{"kind":"capabilityConstruct","capability":"Values","implementations":[{{"operation":"read","function":"{read}"}},{{"operation":"join","function":"join"}}]}}"""
     let private request name parameters result effects body =
         let parameters = parameters |> List.map (fun (name, t) -> $"""{{"displayName":"{name}","type":{t}}}""") |> String.concat ","
-        $"""{{"id":"create","op":"simulateCreateFunctionByName","structuredReview":true,"displayName":"{name}","parameters":[{parameters}],"resultType":{result},"requiredEffects":{effects},"body":{body}}}"""
+        $"""{{"id":"create","op":"simulateCreateFunctionByName","exported":true,"structuredReview":true,"displayName":"{name}","parameters":[{parameters}],"resultType":{result},"requiredEffects":{effects},"body":{body}}}"""
     let private create session name parameters result effects body =
         use response = send session (request name parameters result effects body)
         publish session response
@@ -44,13 +44,13 @@ module CapabilityImplementationTests =
             use session = AuthoringSession.createNew path |> unwrap
             let current () = (session.Status() |> unwrap).SnapshotId
             let commit (proposal: AuthoringProposal) = session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
-            session.SimulateCreateEffect { ExpectedBaseSnapshotId = current (); DisplayName = "Read" } |> unwrap |> commit
+            session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = "Read" } |> unwrap |> commit
             let effect = session.Declarations().Effects |> List.exactlyOne
             let operation name parameters result: AgentCapabilityOperationIntent =
                 { DisplayName = name; Parameters = parameters |> List.map (fun name -> { DisplayName = name; Type = TypeRef.Primitive PrimitiveType.String })
                   ResultType = result; FailureType = None; EffectId = effect.Id }
             session.SimulateCreateCapability
-                { ExpectedBaseSnapshotId = current (); DisplayName = "Values"
+                { Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = "Values"
                   Operations = [ operation "read" [] (TypeRef.Primitive PrimitiveType.Int64); operation "join" [ "left"; "right" ] (TypeRef.Primitive PrimitiveType.String) ] }
             |> unwrap |> commit
             create session "ten" [] intType "[]" (number "10")

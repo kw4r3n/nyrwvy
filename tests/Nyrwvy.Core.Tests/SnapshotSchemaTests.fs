@@ -33,15 +33,15 @@ module SnapshotSchemaTests =
     let private initial: Snapshot =
         { Snapshot.empty (id<SnapshotTag> "snapshot-schema") with
             Types =
-                [ { TypeParameters = []; Id = shapeTypeId
+                [ { Exported = true; TypeParameters = []; Id = shapeTypeId
                     DisplayName = "Shape"
                     Kind =
                       SemanticTypeKind.Union
                           [ { Id = circleId; DisplayName = "Circle"; Fields = [] }
                             { Id = squareId; DisplayName = "Square"; Fields = [] } ] } ]
-            Effects = [ { Id = readEffectId; DisplayName = "Read" } ]
+            Effects = [ { Exported = true; Id = readEffectId; DisplayName = "Read" } ]
             Capabilities =
-                [ { Id = valuesId
+                [ { Exported = true; Id = valuesId
                     DisplayName = "Values"
                     Operations =
                       [ { Id = readOperationId
@@ -63,7 +63,7 @@ module SnapshotSchemaTests =
             use session = AuthoringSession.openExisting path |> unwrap "open"
             let create name parameters resultType effects body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       DisplayName = name
                       Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })
                       ResultType = resultType
@@ -190,7 +190,9 @@ module SnapshotSchemaTests =
         Assert.Equal(rows.Length, (Set.ofList rows).Count)
         // Generic types need a generic declaration, which `initial` cannot hold without gating every
         // case; GenericTypeTests checks their version and the rejection one version below.
-        let testedElsewhere = Set.ofList [ string SnapshotSchemaFeature.GenericTypes ]
+        // Declaration visibility needs a private declaration, which `create` never makes;
+        // DeclarationVisibilityTests checks its version and the rejection one version below.
+        let testedElsewhere = Set.ofList [ string SnapshotSchemaFeature.GenericTypes; string SnapshotSchemaFeature.DeclarationVisibility ]
         Assert.Equal<Set<string>>(features - testedElsewhere, cases |> List.map (fun (_, feature, _) -> string feature) |> Set.ofList)
         for _, minimum, _ in SnapshotSchema.minimumVersions do
             Assert.Contains(minimum, SnapshotSchema.supported)

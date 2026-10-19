@@ -20,7 +20,7 @@ module PureRunWorkerTests =
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private create (session: AuthoringSession) name parameters resultType effects body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { ExpectedBaseSnapshotId = current session; DisplayName = name
+            { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
               Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
               ResultType = resultType; RequiredEffects = effects; Body = body }
         session.SimulateCreateFunction request |> unwrap |> publish session
@@ -50,10 +50,10 @@ module PureRunWorkerTests =
     /// An effect, a capability with one `mark(value: String): String` operation, and `probe(io, value)`
     /// that invokes it once.
     let private probe (session: AuthoringSession) =
-        session.SimulateCreateEffect { ExpectedBaseSnapshotId = current session; DisplayName = "IO" } |> unwrap |> publish session
+        session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO" } |> unwrap |> publish session
         let effect = session.Declarations().Effects |> List.exactlyOne
         session.SimulateCreateCapability
-            { ExpectedBaseSnapshotId = current session; DisplayName = "IO"
+            { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO"
               Operations =
                 [ { DisplayName = "mark"; Parameters = [ { DisplayName = "value"; Type = textType } ]
                     ResultType = textType; FailureType = None; EffectId = effect.Id } ] }
