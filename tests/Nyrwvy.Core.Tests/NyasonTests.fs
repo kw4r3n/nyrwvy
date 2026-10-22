@@ -220,6 +220,10 @@ module NyasonTests =
 
         Assert.Equal(snapshotId, decoded.Id)
         Assert.Contains("snapshot:snapshot%20with%20%2F%20slash%20and%20%25%20sign", encoded)
+        // A malformed escape is refused, not read as literal text.
+        match NyasonCodec.deserialize (encoded.Replace("%25%20sign", "%ZZ%20sign")) with
+        | Error error -> Assert.Contains("invalid percent escape", sprintf "%A" error)
+        | Ok _ -> failwith "A malformed percent escape was accepted."
 
     [<Fact>]
     let ``encoding comparison writes reproducible transport-size metrics`` () =

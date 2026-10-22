@@ -158,7 +158,15 @@ module AgentTypeDeclarationWorkflow =
                 match validateTypeRef $"{context} field at index {index}" field.Type with
                 | Error error -> Error error
                 | Ok() -> loop (index + 1) rest
+        let names = fields |> List.map (fun field -> field.DisplayName)
         loop 0 fields
+        |> Result.bind (fun () ->
+            if List.distinct names = names then Ok() else
+            Error(
+                diagnostic
+                    "TypeDeclarationDuplicateFieldDisplayName"
+                    $"{context} field display names must be distinct."
+            ))
 
     let private validateKind validateTypeRef (kind: AgentTypeDeclarationKindIntent) =
         match kind with
@@ -178,7 +186,15 @@ module AgentTypeDeclarationWorkflow =
                     match validateFields validateTypeRef $"Union variant at index {index}" variant.Fields with
                     | Error error -> Error error
                     | Ok() -> loop (index + 1) rest
+            let names = variants |> List.map (fun variant -> variant.DisplayName)
             loop 0 variants
+            |> Result.bind (fun () ->
+                if List.distinct names = names then Ok() else
+                Error(
+                    diagnostic
+                        "TypeDeclarationDuplicateVariantDisplayName"
+                        "Union variant display names must be unique within their Union."
+                ))
 
     let private validateDisplayName (snapshot: Snapshot) (displayName: string) =
         if String.IsNullOrWhiteSpace displayName then

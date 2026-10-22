@@ -63,6 +63,7 @@ module AgentCapabilityDeclarationWorkflow =
         operationIndex
         (parameters: AgentCapabilityParameterIntent list)
         =
+        let names = parameters |> List.map (fun parameter -> parameter.DisplayName)
         let rec loop index (remaining: AgentCapabilityParameterIntent list) =
             match remaining with
             | [] -> Ok()
@@ -81,6 +82,13 @@ module AgentCapabilityDeclarationWorkflow =
                 | Error error -> Error error
                 | Ok() -> loop (index + 1) rest
         loop 0 parameters
+        |> Result.bind (fun () ->
+            if List.distinct names = names then Ok() else
+            Error(
+                diagnostic
+                    "CapabilityDeclarationDuplicateParameterDisplayName"
+                    $"Operation at index {operationIndex} parameter display names must be distinct within their operation."
+            ))
 
     let private validatePreflight
         (snapshot: Snapshot)
@@ -92,6 +100,11 @@ module AgentCapabilityDeclarationWorkflow =
                 "CapabilityDeclaration"
                 (snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList)
                 (snapshot.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList)
+
+        let duplicateOperation =
+            request.Operations
+            |> List.countBy (fun operation -> operation.DisplayName)
+            |> List.tryPick (fun (name, count) -> if count > 1 then Some name else None)
 
         if request.ExpectedBaseSnapshotId <> snapshot.Id then
             Error(
@@ -110,6 +123,12 @@ module AgentCapabilityDeclarationWorkflow =
                 diagnostic
                     "CapabilityDeclarationDuplicateDisplayName"
                     $"A capability named '{request.DisplayName}' already exists; capability display names must be unique."
+            )
+        elif Option.isSome duplicateOperation then
+            Error(
+                diagnostic
+                    "CapabilityDeclarationDuplicateOperationDisplayName"
+                    $"Capability operation '{Option.get duplicateOperation}' is declared more than once; operation display names must be unique within their Capability."
             )
         else
             let rec loop index (remaining: AgentCapabilityOperationIntent list) =

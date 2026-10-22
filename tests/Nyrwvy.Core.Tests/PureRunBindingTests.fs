@@ -248,6 +248,12 @@ public sealed class Broken : {capability}
     public NyResult<{response}, NyStr> {lookup}({request} {argument}) => throw new InvalidOperationException("directory offline");
     public NyResult<{response}, NyStr> {fallback}() => throw new InvalidOperationException("directory offline");
 }}
+
+public sealed class Noisy : {capability}
+{{
+    public NyResult<{response}, NyStr> {lookup}({request} {argument}) {{ Console.Error.Write(new string('x', 2 * 1048576)); return NyResult<{response}, NyStr>.Err("noisy"); }}
+    public NyResult<{response}, NyStr> {fallback}() => NyResult<{response}, NyStr>.Err("noisy");
+}}
 """
 
     [<Fact>]
@@ -316,6 +322,9 @@ public sealed class Broken : {capability}
                 Assert.Equal<PureRunFrame list>([ PureRunFrame.CapabilityOperation fixture.Lookup.Id; PureRunFrame.CapabilityOperation fixture.Lookup.Id; PureRunFrame.Function query.Id ], failure.Frames)
                 Assert.Equal(1, failure.Calls.Length)
             | other -> failwithf "Host exception was not a runtime failure: %A" other
+            match PureRun.runWithHost fixture.Session query.Id [ request fixture "k"; host "Example.Hosts.Noisy" ] None [ "Hosts.cs" ] with
+            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunOutputTooLarge", code)
+            | other -> failwithf "2 MiB of host output was not refused: %A" other
             let line =
                 $"""{{"id":"host","op":"runPure","functionId":"{StableId.value query.Id}","hostSources":["Hosts.cs"],"arguments":[{{"kind":"product","typeId":"{StableId.value fixture.Request.Id}","fields":[{{"fieldId":"{StableId.value fixture.Key.Id}","value":{{"kind":"string","value":"yes"}}}}]}},{{"kind":"hostCapability","capabilityId":"{StableId.value fixture.Provider.Id}","implementation":"Example.Hosts.Directory"}}],"expected":{{"kind":"string","value":"found"}}}}"""
             use response = AuthoringProtocol.executeLine fixture.Session line |> JsonDocument.Parse
