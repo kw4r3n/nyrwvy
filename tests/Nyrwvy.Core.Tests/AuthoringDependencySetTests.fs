@@ -8,6 +8,7 @@ open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// Workspaces that import several dependencies under the import collision policy (Q-002).
+[<Collection("Session storage faults")>]
 module AuthoringDependencySetTests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("dependency-set-" + name)
     let private intType = TypeRef.Primitive PrimitiveType.Int64
