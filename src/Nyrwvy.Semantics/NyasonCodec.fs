@@ -54,11 +54,10 @@ module NyasonCodec =
                 shape $"Expected {prefix} stable ID, got '{encoded}'."
 
             let escaped = encoded.Substring(expected.Length)
-            let raw =
-                try Uri.UnescapeDataString escaped
-                with :? UriFormatException ->
-                    shape $"Stable ID '{encoded}' contains an invalid percent escape."
-                    String.Empty
+            // UnescapeDataString keeps a malformed escape such as %ZZ as literal text instead of failing.
+            if Text.RegularExpressions.Regex.IsMatch(escaped, "%(?![0-9A-Fa-f]{2})") then
+                shape $"Stable ID '{encoded}' contains an invalid percent escape."
+            let raw = Uri.UnescapeDataString escaped
 
             match StableId.tryCreate<'Kind> raw with
             | Ok id -> id

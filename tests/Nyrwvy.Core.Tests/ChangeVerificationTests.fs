@@ -197,6 +197,9 @@ module ChangeVerificationTests =
             let header = artifact.Content.Split("</header>")[0]
             Assert.Contains("Structural readiness: semantically ready", header)
             Assert.Contains("Behavioral verification: " + expectedSummary, header)
+            // The page also closes one header per function focus; the banner belongs to the page's only.
+            Assert.True(artifact.Content.Split("</header>").Length > 2)
+            Assert.Equal(2, artifact.Content.Split("Behavioral verification:").Length)
             Assert.DoesNotContain("class=\"status\">Readiness:", header)
             Assert.Contains("does not gate commit", header)
             Assert.Contains("Explicit case entry points: 1", header)

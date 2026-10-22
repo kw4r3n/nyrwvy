@@ -392,6 +392,20 @@ module PureRun =
             | _ -> false
         local || (children value |> List.exists oversized)
 
+    /// Reads a stream to its end but keeps at most `limit` characters, so a flood of output neither
+    /// grows memory nor blocks the child on a full pipe.
+    let private readBounded (reader: StreamReader) (limit: int) =
+        task {
+            let text = StringBuilder()
+            let buffer = Array.zeroCreate<char> 8192
+            let mutable reading = true
+            while reading do
+                let! count = reader.ReadAsync(buffer, 0, buffer.Length)
+                if count = 0 then reading <- false
+                elif text.Length < limit then text.Append(buffer, 0, min count (limit - text.Length)) |> ignore
+            return text.ToString()
+        }
+
     /// Runs dotnet and returns its exit code with bounded output; timeouts and I/O failures are errors.
     /// `phase` names the timed step in the timeout diagnostic.
     let private launchRaw (phase: string) (workingDirectory: string) (args: string list) (timeoutMs: int) =
@@ -403,8 +417,9 @@ module PureRun =
             for arg in args do info.ArgumentList.Add(arg)
             use child = Process.Start(info)
             if isNull child then Error(diagnostic "RunStartupFailure" "Could not start dotnet.") else
-                let stdout = child.StandardOutput.ReadToEndAsync()
-                let stderr = child.StandardError.ReadToEndAsync()
+                // One character beyond the 1 MiB limit, so the check below sees the overflow.
+                let stdout = readBounded child.StandardOutput 1048577
+                let stderr = readBounded child.StandardError 1048577
                 if not (child.WaitForExit(timeoutMs)) then
                     try child.Kill(true)
                     with
@@ -417,10 +432,10 @@ module PureRun =
                 elif not (System.Threading.Tasks.Task.WaitAll([| stdout :> System.Threading.Tasks.Task; stderr :> System.Threading.Tasks.Task |], 5000)) then
                     Error(diagnostic "RunOutputTimeout" "The process exited but its output streams did not close.")
                 else
-                    let output = stdout.Result
-                    if output.Length > 1048576 then
+                    let output, errors = stdout.Result, stderr.Result
+                    if output.Length > 1048576 || errors.Length > 1048576 then
                         Error(diagnostic "RunOutputTooLarge" "The process produced more than 1 MiB of output.")
-                    else Ok(child.ExitCode, output, stderr.Result)
+                    else Ok(child.ExitCode, output, errors)
         with
         | :? System.ComponentModel.Win32Exception as error ->
             Error(diagnostic "RunStartupFailure" error.Message)

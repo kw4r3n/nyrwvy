@@ -2539,13 +2539,6 @@ module TaskTypes =
     let mentions (typeRef: TypeRef) =
         occurs (function BuiltinGenericType.Exception | BuiltinGenericType.OneShot | BuiltinGenericType.Task | BuiltinGenericType.TaskScope -> true | _ -> false) typeRef
 
-    /// Whether the type itself mentions a captured exception.
-    let mentionsException (typeRef: TypeRef) = occurs ((=) BuiltinGenericType.Exception) typeRef
-
-    /// Whether the type itself mentions OneShot, without looking into declared types.
-    let mentionsOneShot (typeRef: TypeRef) =
-        occurs ((=) BuiltinGenericType.OneShot) typeRef
-
     /// Whether the type itself mentions TaskScope, without looking into declared types.
     let mentionsScope (typeRef: TypeRef) =
         occurs (function BuiltinGenericType.TaskScope -> true | _ -> false) typeRef

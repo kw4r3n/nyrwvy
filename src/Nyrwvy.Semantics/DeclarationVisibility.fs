@@ -16,12 +16,6 @@ type HiddenDependencyReference =
 /// See docs/decisions/declaration-visibility.md.
 [<RequireQualifiedAccess>]
 module DeclarationVisibility =
-    /// The exported declarations of a dependency: what a dependent may name and refer to.
-    let visibleTypes (dependency: Snapshot) = dependency.Types |> List.filter (fun item -> item.Exported)
-    let visibleEffects (dependency: Snapshot) = dependency.Effects |> List.filter (fun item -> item.Exported)
-    let visibleCapabilities (dependency: Snapshot) = dependency.Capabilities |> List.filter (fun item -> item.Exported)
-    let visibleFunctions (dependency: Snapshot) = dependency.Functions |> List.filter (fun item -> item.Exported)
-
     /// The private declarations of `dependency` that declarations outside it (the local ones of
     /// `resolved`, the graph that combines the dependency with the dependent) refer to, in
     /// signatures, field and operation types, required effects and bodies. Empty when the

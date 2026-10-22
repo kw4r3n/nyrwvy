@@ -230,6 +230,24 @@ module AgentTypeDeclarationTests =
             Assert.Equal("TypeDeclarationVariantDisplayNameBlank", diagnostic.Code)
         | result -> failwithf "Expected blank variant rejection, got %A" result
 
+        let duplicateFieldRequest: AgentCreateTypeDeclarationRequest =
+            { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = snapshot.Id
+              DisplayName = "BadProduct"
+              Kind = AgentTypeDeclarationKindIntent.Product [ field "x" stringType; field "x" stringType ] }
+        match AgentTypeDeclarationWorkflow.simulate ws duplicateFieldRequest with
+        | Error(AgentTypeDeclarationWorkflowError.SimulationRejected [ diagnostic ]) ->
+            Assert.Equal("TypeDeclarationDuplicateFieldDisplayName", diagnostic.Code)
+        | result -> failwithf "Expected duplicate field rejection, got %A" result
+
+        let duplicateVariantRequest: AgentCreateTypeDeclarationRequest =
+            { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = snapshot.Id
+              DisplayName = "BadUnion"
+              Kind = AgentTypeDeclarationKindIntent.Union [ variant "A" []; variant "A" [] ] }
+        match AgentTypeDeclarationWorkflow.simulate ws duplicateVariantRequest with
+        | Error(AgentTypeDeclarationWorkflowError.SimulationRejected [ diagnostic ]) ->
+            Assert.Equal("TypeDeclarationDuplicateVariantDisplayName", diagnostic.Code)
+        | result -> failwithf "Expected duplicate variant rejection, got %A" result
+
         Assert.Equal(snapshot.Id, AgentWorkspace.currentSnapshotId ws)
         Assert.Empty(AgentWorkspace.listTypes ws)
 
