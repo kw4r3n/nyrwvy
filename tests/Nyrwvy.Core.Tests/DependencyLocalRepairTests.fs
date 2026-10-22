@@ -7,6 +7,7 @@ open Nyrwvy.Core
 open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
+[<Collection("Session storage faults")>]
 module DependencyLocalRepairTests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("dependency-repair-" + name)
     let private intType = TypeRef.Primitive PrimitiveType.Int64

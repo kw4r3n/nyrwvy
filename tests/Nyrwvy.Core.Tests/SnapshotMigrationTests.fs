@@ -9,16 +9,12 @@ open Nyrwvy.Core
 open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
-// The persistence fault seam is process-wide; keep these tests out of concurrent collections.
-[<CollectionDefinition("Snapshot migration", DisableParallelization = true)>]
-type SnapshotMigrationCollection() = class end
-
 /// `Nyrwvy.AuthoringSession migrate` (legacy cutover, step 1): retired nodes become their
 /// replacements with every stable ID kept, legacy pins become retained content, pre-21 documents get
 /// explicit visibility and declared type parameter lists, a retired FailureType is rejected, the
 /// result is written at the current schema and validated, the fingerprints before and after are
 /// recorded, and a second run changes nothing.
-[<Collection("Snapshot migration")>]
+[<Collection("Session storage faults")>]
 module SnapshotMigrationTests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("migration-" + name)
     let private unwrap label result =
