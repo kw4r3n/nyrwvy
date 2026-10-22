@@ -837,7 +837,7 @@ module ViewerHtml =
             writer.Line("</section>")
 
         writer.Line("<section><h2>Engine review</h2>")
-        writer.Line("<p>The requested change and resulting diff exactly as the authoring session returned them to the agent.</p>")
+        writer.Line("<p>The complete requested change and resulting diff in the session's structured review format.</p>")
         writer.Line("<pre><code>" + html model.EngineReview + "</code></pre>")
         writer.Line("</section>")
         emitDocumentEnd writer

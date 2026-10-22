@@ -117,13 +117,13 @@ module PureRunInnerNestingTests =
                 | other -> failwithf "Invalid inner nesting accepted for %s: %A" name other
             let valid = item "a" [ "x" ] None
             reject "item" [ PureRunValue.Product(itemId, [], [ labelId, PureRunValue.String "a"; tagsId, PureRunValue.StringList []; scoreId, PureRunValue.Int64 1L ]) ] None "RunProductShapeMismatch"
-            reject "item" [ PureRunValue.Product(itemId, [], [ labelId, PureRunValue.String "a"; tagsId, PureRunValue.ListValue(stringType, []); scoreId, PureRunValue.Int64Option None ]) ] None "RunContainerTypeMismatch"
+            reject "item" [ PureRunValue.Product(itemId, [], [ labelId, PureRunValue.String "a"; tagsId, PureRunValue.ListValue(stringType, [ PureRunValue.Bool true ]); scoreId, PureRunValue.Int64Option None ]) ] None "RunContainerTypeMismatch"
             reject "item" [ PureRunValue.Product(itemId, [], [ labelId, PureRunValue.String "a"; tagsId, PureRunValue.StringList(List.replicate 4097 "") ; scoreId, PureRunValue.Int64Option None ]) ] None "RunArgumentTooLarge"
             reject "item" [ PureRunValue.Product(itemId, [], [ labelId, PureRunValue.String(String('x', 40000)); tagsId, PureRunValue.StringList [ String('y', 40000) ]; scoreId, PureRunValue.Int64Option None ]) ] None "RunArgumentTooLarge"
             reject "shape" [ PureRunValue.Union(shapeId, [], groupId, [ membersId, PureRunValue.ListValue(itemType, [ PureRunValue.Product(itemId, [], []) ]) ]) ] None "RunProductShapeMismatch"
             reject "shape" [ PureRunValue.Union(shapeId, [], wrappedId, [ innerId, PureRunValue.ResultValue(itemType, stringType, true, PureRunValue.String "not an item") ]) ] None "RunContainerTypeMismatch"
             reject "shape" [ PureRunValue.Union(shapeId, [], groupId, [ membersId, PureRunValue.ListValue(itemType, [ PureRunValue.Union(shapeId, [], circleId, [ radiusId, PureRunValue.Int64 1L ]) ]) ]) ] None "RunContainerTypeMismatch"
-            reject "scalarResult" [ PureRunValue.ResultValue(intType, stringType, true, PureRunValue.Int64 1L) ] None "RunContainerTypeMismatch"
+            reject "scalarResult" [ PureRunValue.ResultValue(intType, stringType, true, PureRunValue.String "wrong scalar kind") ] None "RunContainerTypeMismatch"
             reject "optionalText" [ PureRunValue.ResultValue(optionType stringType, stringType, true, PureRunValue.String "x") ] None "RunContainerTypeMismatch"
             reject "optionalText" [ PureRunValue.ResultValue(optionType stringType, stringType, false, PureRunValue.StringOption None) ] None "RunContainerTypeMismatch"
             reject "listOrItem" [ PureRunValue.ResultOk(PureRunScalarKind.String, PureRunScalar.Int64 1L) ] None "RunArgumentTypeMismatch"

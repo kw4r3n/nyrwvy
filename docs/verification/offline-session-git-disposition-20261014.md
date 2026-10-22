@@ -38,7 +38,7 @@ launches use the existing opaque child slot, and version-1 join/disposition payl
 use separate keys. Physical plans stay version 3. Direct version-1 quiescent launches
 are supported for retention; active legacy/prelaunch/null-PID launches without a
 valid owner witness stay blocked without migration. See the maintained
-[procedure and scope](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-physical-git/DISPOSITION.md).
+[procedure and scope](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/DISPOSITION.md).
 
 The reviewed registry graph, generic storage implementation, semantic core,
 runtime/backend/schema and inherited original-outcome policy are unchanged. This
@@ -121,7 +121,7 @@ Raw evidence and scripts reside under task-43: `probe-owner.mjs`, `prepare.mjs`,
 `validate-disposition.nu`, `audit-disposition.mjs`, `evidence/disposition-{original,
 moved}-final2`, `evidence/child-{original,moved}`, `evidence/owner-failures`,
 `candidate/artifacts/disposition/{original,moved}`, `evidence/logs` and
-`evidence/final-audit.json`. The checked-in [proof](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-physical-git/fixtures/disposition-proof.json)
+`evidence/final-audit.json`. The checked-in [proof](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/disposition-proof.json)
 contains source/artifact/raw/log hashes, counts, negative controls and helper
 observations. Original/moved closures retain exact hashes and local assertions.
 

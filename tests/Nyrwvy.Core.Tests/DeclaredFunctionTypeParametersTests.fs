@@ -45,17 +45,17 @@ module DeclaredFunctionTypeParametersTests =
         let derived = snapshotOf (second [ tId, "T"; uId, "U" ])
         Assert.Empty(SnapshotValidator.validate derived)
         Assert.Equal(SnapshotSchema.baseline, SnapshotSchema.required derived)
-        let json = SnapshotCodec.serialize derived |> unwrap "json"
+        let json = SnapshotCodec.serializeCanonical derived |> unwrap "json"
         // Occurrences carry their names and the function lists none, exactly as before schema 21.
         Assert.Contains("\"kind\":\"typeParameter\",\"typeParameterId\":\"declared-T\",\"displayName\":\"T\"", json)
         Assert.DoesNotContain("\"typeParameters\"", json)
         let restored = SnapshotCodec.deserialize json |> unwrap "restore"
         Assert.Equal(derived, restored)
         Assert.Equal<(TypeParameterId * string) list>([ tId, "T"; uId, "U" ], restored.Functions.Head.TypeParameters)
-        Assert.Equal(json, SnapshotCodec.serialize restored |> unwrap "reserialize")
+        Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap "reserialize")
         Assert.Equal(SnapshotFingerprint.compute derived, SnapshotFingerprint.compute restored)
         Assert.Equal(SemanticFingerprint.compute derived, SemanticFingerprint.compute restored)
-        let nyason = NyasonCodec.serialize derived |> unwrap "nyason"
+        let nyason = NyasonCodec.serializeCanonical derived |> unwrap "nyason"
         Assert.Contains(SnapshotSchema.baseline.Nyason, nyason)
         Assert.Equal(derived, NyasonCodec.deserialize nyason |> unwrap "nyason restore")
 
@@ -67,7 +67,7 @@ module DeclaredFunctionTypeParametersTests =
             """{"schemaVersion":9,"snapshotId":"declared-legacy","types":[],"effects":[],"capabilities":[],"functions":[{"id":"declared-second","displayName":"second","parameters":[{"id":"declared-first","displayName":"first","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","typeParameterId":"declared-T","displayName":"Item"}]}},{"id":"declared-second","displayName":"second","type":{"kind":"typeParameter","typeParameterId":"declared-U","displayName":"Marker"}}],"resultType":{"kind":"typeParameter","typeParameterId":"declared-U","displayName":"Marker"},"requiredEffects":[],"body":{"nodes":[{"id":"declared-second-result","kind":"parameterReference","parameterId":"declared-second"}],"resultNodeId":"declared-second-result"}}],"obligations":[]}"""
         let restored = SnapshotCodec.deserialize json |> unwrap "legacy"
         Assert.Equal<(TypeParameterId * string) list>([ tId, "Item"; uId, "Marker" ], restored.Functions.Head.TypeParameters)
-        Assert.Equal(json, SnapshotCodec.serialize restored |> unwrap "reserialize")
+        Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap "reserialize")
         // Declaring the same list explicitly is the same semantic state.
         let explicitTwin = snapshotOf { second [ tId, "Item"; uId, "Marker" ] with Id = id<FunctionTag> "second" }
         Assert.Equal(SemanticFingerprint.compute explicitTwin, SemanticFingerprint.compute restored)
@@ -207,13 +207,13 @@ module DeclaredFunctionTypeParametersTests =
             Set.ofList [ SnapshotSchemaFeature.DeclaredFunctionTypeParameters; SnapshotSchemaFeature.DeclarationVisibility ],
             SnapshotSchema.usedFeatures mixed)
         Assert.Equal(21, (SnapshotSchema.required mixed).Json)
-        let json = SnapshotCodec.serialize mixed |> unwrap "json"
+        let json = SnapshotCodec.serializeCanonical mixed |> unwrap "json"
         Assert.Contains("\"schemaVersion\":21", json)
         Assert.Contains("\"exported\":true", json)
         Assert.Contains("\"typeParameters\":[{\"typeParameterId\":\"declared-U\"", json)
         Assert.DoesNotContain("\"displayName\":\"T\"}}", json)
         Assert.Equal(mixed, SnapshotCodec.deserialize json |> unwrap "json restore")
-        let nyason = NyasonCodec.serialize mixed |> unwrap "nyason"
+        let nyason = NyasonCodec.serializeCanonical mixed |> unwrap "nyason"
         Assert.Contains("nayamnyam.snapshot.v17", nyason)
         Assert.Equal(mixed, NyasonCodec.deserialize nyason |> unwrap "nyason restore")
         // A legacy document (names on occurrences, no list, no visibility) still reads as the same
@@ -223,7 +223,7 @@ module DeclaredFunctionTypeParametersTests =
         let restored = SnapshotCodec.deserialize legacy |> unwrap "legacy"
         Assert.True(restored.Functions.Head.Exported)
         Assert.Equal<(TypeParameterId * string) list>([ tId, "T"; uId, "U" ], restored.Functions.Head.TypeParameters)
-        Assert.Equal(legacy, SnapshotCodec.serialize restored |> unwrap "legacy reserialize")
+        Assert.Equal(legacy, SnapshotCodec.serializeCanonical restored |> unwrap "legacy reserialize")
         let derivedTwin = { snapshotOf (second [ tId, "T"; uId, "U" ]) with Id = id<SnapshotTag> "legacy" }
         Assert.Equal(SnapshotFingerprint.compute restored, SnapshotFingerprint.compute derivedTwin)
         Assert.Equal(SemanticFingerprint.compute restored, SemanticFingerprint.compute derivedTwin)

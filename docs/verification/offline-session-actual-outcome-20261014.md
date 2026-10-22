@@ -84,7 +84,7 @@ provides a fresh causal refusal of the exact-outcome recovery contract.
 
 Two legacy rows per bundle are fresh repaired-graph executions over **reused**
 stored-state input. The committed
-[legacy fixture](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-journal/fixtures/legacy-outcome-state.json)
+[legacy fixture](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-journal/fixtures/legacy-outcome-state.json)
 retains exact storage bytes, source row identity and raw hashes. No historical
 execution is claimed as fresh. The reviewer trace/raw data and original author
 state remain untouched and are separately audited.
@@ -92,8 +92,8 @@ state remain untouched and are separately audited.
 Saved snapshots reopen and re-emit exact Generated.cs/symbols without generated
 source edits. All 27 artifact files per bundle match after moved recompilation.
 Stable actions, outputs, actual input/accepted-output bytes, durable state and
-effect rows match. The [proof](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-journal/fixtures/proof.json)
-and [replay closure](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-journal/fixtures/replay.json)
+effect rows match. The [proof](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-journal/fixtures/proof.json)
+and [replay closure](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-journal/fixtures/replay.json)
 identify exact bundle/source/raw hashes. Example-source closure includes the
 legacy input fixture; it excludes compiler/reference/environment and core/tool
 implementation closure, with implementation sources pinned by Git base.

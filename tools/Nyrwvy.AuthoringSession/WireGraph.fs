@@ -334,7 +334,8 @@ module internal WireGraph =
         let typeRef = typeRefIn names
         objectValue
             ([ "id", identity value.Id
-               "displayName", box value.DisplayName ]
+               "displayName", box value.DisplayName
+               "exported", box value.Exported ]
              @ (if List.isEmpty value.TypeParameters then []
                 else
                     [ "typeParameters",

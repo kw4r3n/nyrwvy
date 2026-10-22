@@ -1,7 +1,7 @@
 {
   "tool": "Nyrwvy.AuthoringSession migrate",
-  "toolVersion": "1.0.0\u002Bae35a02d88d036f8233d72b849417c3021355cd2",
-  "path": "/home/user/nyrwvy/.claude/worktrees/agent-a2a5c4a1ec37f43fa/examples/mini-work-planner/planner.snapshot.json",
+  "toolVersion": "1.0.0+0913a1b6db48386301a638d7a4d3c75f47832e4a",
+  "path": "examples/mini-work-planner/planner.snapshot.json",
   "changed": true,
   "sourceSchemaVersion": 9,
   "sourceSchema": "nayamnyam.snapshot.v5",

@@ -131,7 +131,7 @@ trees. The table records the observed pretty-JSON argument hashes; committed
 byte hashes are also recorded in `verification-summary.json`. Graph and emitted
 source identities are unchanged by this packaging choice.
 
-Reproduction commands are in the [follow-up README](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-lifecycle-followup/README.md).
+Reproduction commands are in the [follow-up README](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-lifecycle-followup/README.md).
 The initial virtual peer-release fixture incorrectly modeled a peer as waiting
 only for cancellation while the script wanted completion; its synthetic delay
 fixture was corrected and real release barriers verified. That was a fixture

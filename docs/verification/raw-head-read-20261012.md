@@ -63,7 +63,7 @@ Every new case proves:
   is then rejected as integrated. Worker cleanup occurs once; finish drains before
   provider release, releases once and acknowledges afterward.
 
-The [closure fixture](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-controller/fixtures/raw-head-verified-closure.json)
+The [closure fixture](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-controller/fixtures/raw-head-verified-closure.json)
 contains all four baseline virtual, real and independent Python per-request
 traces, plus real open/close counts and source/artifact hashes. It uses exactly
 the previous saved graph, symbols and Generated.cs bytes, reexecuted with the
@@ -102,7 +102,7 @@ build and tests. Expanded execution also supports child-process waits and VSTest
 local sockets. No configuration or dependency versions changed.
 
 Exact artifact hashes, source proofs and preserved composition hashes are in the
-maintained [summary](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-controller/fixtures/verification-summary.json).
+maintained [summary](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-controller/fixtures/verification-summary.json).
 
 ## Limits and next bounded probe
 

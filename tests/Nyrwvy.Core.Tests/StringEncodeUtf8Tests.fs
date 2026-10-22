@@ -69,12 +69,12 @@ module StringEncodeUtf8Tests =
             | other -> failwithf "Commit failed: %A" other
         Assert.Empty(SnapshotValidator.validate committed)
         Assert.Equal<Set<SnapshotSchemaFeature>>(Set.singleton SnapshotSchemaFeature.StringEncodeUtf8, SnapshotSchema.usedFeatures committed)
-        let json = SnapshotCodec.serialize committed |> unwrap "serialize"
+        let json = SnapshotCodec.serializeCanonical committed |> unwrap "serialize"
         Assert.Contains("\"stringEncodeUtf8\"", json)
         Assert.Contains("\"schemaVersion\":19", json)
         let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
-        let nyason = NyasonCodec.serialize decoded |> unwrap "nyason"
+        let nyason = NyasonCodec.serializeCanonical decoded |> unwrap "nyason"
         Assert.Contains("string-encode-utf8", nyason)
         Assert.Contains("nayamnyam.snapshot.v15", nyason)
         let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"

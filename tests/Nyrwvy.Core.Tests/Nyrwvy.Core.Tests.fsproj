@@ -43,6 +43,7 @@
     <Compile Include="AgentParameterTypeMigrationTests.fs" />
     <Compile Include="AuthoringSessionTests.fs" />
     <Compile Include="AuthoringDependencyTests.fs" />
+    <Compile Include="SessionStorageFaultsCollection.fs" />
     <Compile Include="AuthoringDependencySetTests.fs" />
     <Compile Include="DependencyLocalRepairTests.fs" />
     <Compile Include="ActionableRunDiagnosticsTests.fs" />
@@ -126,6 +127,7 @@
     <Compile Include="GenericFunctionTests.fs" />
     <Compile Include="DeclaredFunctionTypeParametersTests.fs" />
     <Compile Include="SnapshotMigrationTests.fs" />
+    <Compile Include="CurrentPersistenceAndScalarTests.fs" />
     <Compile Include="FunctionValueTests.fs" />
     <Compile Include="FunctionAbortTests.fs" />
     <Compile Include="CapabilityImplementationTests.fs" />

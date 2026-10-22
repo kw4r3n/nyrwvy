@@ -129,7 +129,7 @@ M6 remains intentionally conditional. Choose at most one workstream when a real 
 
 ## Legacy cutover (planned)
 
-**Status:** planned on 2026-10-18 (owner decision); steps 1 and 2 done on 2026-10-19 (the [migration command](../specs/agent-authoring-session.md#snapshot-migration); the examples re-recorded or removed, see [examples](../../examples/README.md)); step 3 not started. Retired and superseded constructs are removed in one breaking change instead of being kept indefinitely. The cutover waits until the other breaking changes in view are done, so that snapshots and examples are migrated once.
+**Status:** planned on 2026-10-18 (owner decision); step 1 implemented on 2026-10-19 (the [migration command](../specs/agent-authoring-session.md#snapshot-migration)); step 2 is prepared with copy-migration and maintained-example evidence in the [cutover checkpoint](../verification/legacy-cutover-copy-migration-20261019.md). The [bounded writer/value follow-up](../verification/current-schema-typed-values-20261019.md) makes ordinary saves current-version and accepts typed scalar run values while retaining compatible responses. Step 3 remains gated: known external originals have only been migrated on copies, and downstream reader/output compatibility has not been retired. Legacy readers remain available until those boundaries are converted and verified together. Retired and superseded constructs are removed in one breaking change instead of being kept indefinitely.
 
 **What it removes.**
 

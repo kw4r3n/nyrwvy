@@ -48,8 +48,8 @@ type PureRunValue =
     | MapValue of keyType: TypeRef * valueType: TypeRef * entries: (PureRunValue * PureRunValue) list
     /// A Set<T> as its items in iteration (insertion) order, each item once.
     | SetValue of itemType: TypeRef * items: PureRunValue list
-    /// A Result with at least one non-scalar side. Results whose Ok and Err types are both scalars
-    /// always use the flat ResultOk/ResultErr representation.
+    /// A typed Result. Scalar payloads normalize to the legacy representation internally while
+    /// legacy response compatibility is retained.
     | ResultValue of okType: TypeRef * errorType: TypeRef * isOk: bool * payload: PureRunValue
     /// A scripted stand-in for a capability, accepted only as a top-level argument. Each operation
     /// selects an ordered response queue or a queue keyed by complete argument values.
@@ -392,6 +392,20 @@ module PureRun =
             | _ -> false
         local || (children value |> List.exists oversized)
 
+    /// Reads a stream to its end but keeps at most `limit` characters, so a flood of output neither
+    /// grows memory nor blocks the child on a full pipe.
+    let private readBounded (reader: StreamReader) (limit: int) =
+        task {
+            let text = StringBuilder()
+            let buffer = Array.zeroCreate<char> 8192
+            let mutable reading = true
+            while reading do
+                let! count = reader.ReadAsync(buffer, 0, buffer.Length)
+                if count = 0 then reading <- false
+                elif text.Length < limit then text.Append(buffer, 0, min count (limit - text.Length)) |> ignore
+            return text.ToString()
+        }
+
     /// Runs dotnet and returns its exit code with bounded output; timeouts and I/O failures are errors.
     /// `phase` names the timed step in the timeout diagnostic.
     let private launchRaw (phase: string) (workingDirectory: string) (args: string list) (timeoutMs: int) =
@@ -403,8 +417,9 @@ module PureRun =
             for arg in args do info.ArgumentList.Add(arg)
             use child = Process.Start(info)
             if isNull child then Error(diagnostic "RunStartupFailure" "Could not start dotnet.") else
-                let stdout = child.StandardOutput.ReadToEndAsync()
-                let stderr = child.StandardError.ReadToEndAsync()
+                // One character beyond the 1 MiB limit, so the check below sees the overflow.
+                let stdout = readBounded child.StandardOutput 1048577
+                let stderr = readBounded child.StandardError 1048577
                 if not (child.WaitForExit(timeoutMs)) then
                     try child.Kill(true)
                     with
@@ -417,10 +432,10 @@ module PureRun =
                 elif not (System.Threading.Tasks.Task.WaitAll([| stdout :> System.Threading.Tasks.Task; stderr :> System.Threading.Tasks.Task |], 5000)) then
                     Error(diagnostic "RunOutputTimeout" "The process exited but its output streams did not close.")
                 else
-                    let output = stdout.Result
-                    if output.Length > 1048576 then
+                    let output, errors = stdout.Result, stderr.Result
+                    if output.Length > 1048576 || errors.Length > 1048576 then
                         Error(diagnostic "RunOutputTooLarge" "The process produced more than 1 MiB of output.")
-                    else Ok(child.ExitCode, output, stderr.Result)
+                    else Ok(child.ExitCode, output, errors)
         with
         | :? System.ComponentModel.Win32Exception as error ->
             Error(diagnostic "RunStartupFailure" error.Message)
@@ -493,11 +508,13 @@ module PureRun =
     /// Locates the first difference between an expectation and an actual value, if any.
     let mismatch expected actual = firstDifference [] expected actual
 
-    let private supportedScalar = function
-        | TypeRef.Primitive PrimitiveType.String
-        | TypeRef.Primitive PrimitiveType.Bool
-        | TypeRef.Primitive PrimitiveType.Int64 -> true
-        | _ -> false
+    let private scalarKindOfType = function
+        | TypeRef.Primitive PrimitiveType.String -> Some PureRunScalarKind.String
+        | TypeRef.Primitive PrimitiveType.Bool -> Some PureRunScalarKind.Bool
+        | TypeRef.Primitive PrimitiveType.Int64 -> Some PureRunScalarKind.Int64
+        | _ -> None
+
+    let private supportedScalar itemType = scalarKindOfType itemType |> Option.isSome
 
     /// Unit, Float64 and Bits32 are leaves without a flat container form, so their containers use the nested form.
     let private supportedLeaf itemType =
@@ -608,6 +625,22 @@ module PureRun =
         | _ -> children value |> List.forall (validUnion types)
 
     let rec private canonicalValue = function
+        // Accept typed scalar inputs without changing the existing scalar response contract.
+        | PureRunValue.ListValue(TypeRef.Primitive PrimitiveType.String, items)
+            when items |> List.forall (function PureRunValue.String _ -> true | _ -> false) ->
+            PureRunValue.StringList(items |> List.choose (function PureRunValue.String value -> Some value | _ -> None))
+        | PureRunValue.ListValue(TypeRef.Primitive PrimitiveType.Bool, items)
+            when items |> List.forall (function PureRunValue.Bool _ -> true | _ -> false) ->
+            PureRunValue.BoolList(items |> List.choose (function PureRunValue.Bool value -> Some value | _ -> None))
+        | PureRunValue.ListValue(TypeRef.Primitive PrimitiveType.Int64, items)
+            when items |> List.forall (function PureRunValue.Int64 _ -> true | _ -> false) ->
+            PureRunValue.Int64List(items |> List.choose (function PureRunValue.Int64 value -> Some value | _ -> None))
+        | PureRunValue.OptionValue(TypeRef.Primitive PrimitiveType.String, None) -> PureRunValue.StringOption None
+        | PureRunValue.OptionValue(TypeRef.Primitive PrimitiveType.String, Some(PureRunValue.String value)) -> PureRunValue.StringOption(Some value)
+        | PureRunValue.OptionValue(TypeRef.Primitive PrimitiveType.Bool, None) -> PureRunValue.BoolOption None
+        | PureRunValue.OptionValue(TypeRef.Primitive PrimitiveType.Bool, Some(PureRunValue.Bool value)) -> PureRunValue.BoolOption(Some value)
+        | PureRunValue.OptionValue(TypeRef.Primitive PrimitiveType.Int64, None) -> PureRunValue.Int64Option None
+        | PureRunValue.OptionValue(TypeRef.Primitive PrimitiveType.Int64, Some(PureRunValue.Int64 value)) -> PureRunValue.Int64Option(Some value)
         | PureRunValue.ListValue(itemType, items) -> PureRunValue.ListValue(itemType, List.map canonicalValue items)
         | PureRunValue.MapValue(keyType, valueType, entries) ->
             PureRunValue.MapValue(keyType, valueType, entries |> List.map (fun (key, value) -> canonicalValue key, canonicalValue value))
@@ -620,7 +653,16 @@ module PureRun =
             PureRunValue.Product(typeId, typeArguments, fields |> List.map (fun (fieldId, item) -> fieldId, canonicalValue item)
                                          |> List.sortBy (fst >> StableId.value))
         | PureRunValue.ResultValue(okType, errorType, isOk, payload) ->
-            PureRunValue.ResultValue(okType, errorType, isOk, canonicalValue payload)
+            let scalar =
+                match payload with
+                | PureRunValue.String value -> Some(PureRunScalar.String value)
+                | PureRunValue.Bool value -> Some(PureRunScalar.Bool value)
+                | PureRunValue.Int64 value -> Some(PureRunScalar.Int64 value)
+                | _ -> None
+            match scalarKindOfType okType, scalarKindOfType errorType, scalar with
+            | Some okKind, Some errorKind, Some value when scalarKind value = (if isOk then okKind else errorKind) ->
+                if isOk then PureRunValue.ResultOk(errorKind, value) else PureRunValue.ResultErr(okKind, value)
+            | _ -> PureRunValue.ResultValue(okType, errorType, isOk, canonicalValue payload)
         | PureRunValue.FakeCapability(capabilityId, operations) ->
             let rec response = function
                 | PureRunFakeResponse.Delayed(delay, inner) -> PureRunFakeResponse.Delayed(delay, response inner)
@@ -840,14 +882,13 @@ module PureRun =
         let local =
             match value with
             | PureRunValue.ListValue(itemType, items) ->
-                not (supportedScalar itemType) && supported 1 itemType
+                supported 1 itemType
                 && (items |> List.forall (fun item -> valueType item = itemType))
             | PureRunValue.OptionValue(itemType, item) ->
-                not (supportedScalar itemType) && supported 1 itemType
+                supported 1 itemType
                 && (item |> Option.forall (fun value -> valueType value = itemType))
             | PureRunValue.ResultValue(okType, errorType, isOk, payload) ->
-                not (supportedScalar okType && supportedScalar errorType)
-                && supported 1 okType && supported 1 errorType
+                supported 1 okType && supported 1 errorType
                 && valueType payload = (if isOk then okType else errorType)
             | PureRunValue.SetValue(itemType, items) ->
                 supported 1 itemType
@@ -957,12 +998,9 @@ module PureRun =
                     let name = variant |> Option.map (fun v -> v.DisplayName) |> Option.defaultValue ("variant:" + StableId.value variantId)
                     fields "RunUnionShapeMismatch" (path @ [ typeName typeId; name ]) typeId typeArguments (variant |> Option.map (fun v -> v.Fields)) values
                 | PureRunValue.ListValue(itemType, values) ->
-                    items path itemType values |> Option.orElseWith (fun () ->
-                        if supportedScalar itemType then issue "RunContainerTypeMismatch" path (Some declared) (Some actual) "Scalar List values use the flat itemKind/items representation; nested tagged List values use itemType."
-                        else None)
+                    items path itemType values
                 | PureRunValue.OptionValue(itemType, value) ->
                     value |> Option.bind (walk "RunContainerTypeMismatch" (path @ [ "some" ]) itemType)
-                    |> Option.orElseWith (fun () -> if supportedScalar itemType then issue "RunContainerTypeMismatch" path (Some declared) (Some actual) "Scalar Option values use the flat itemKind representation; nested tagged values use itemType." else None)
                 | PureRunValue.SetValue(itemType, values) ->
                     items path itemType values |> Option.orElseWith (fun () ->
                         let canonical = List.map canonicalValue values
@@ -977,7 +1015,6 @@ module PureRun =
                         |> Option.orElseWith (fun () -> if keys |> List.take index |> List.contains (canonicalValue key) then issue "RunContainerTypeMismatch" keyPath (Some keyType) (Some keyType) "Map keys must be distinct." else None))
                 | PureRunValue.ResultValue(okType, errorType, isOk, value) ->
                     walk "RunContainerTypeMismatch" (path @ [ if isOk then "ok" else "err" ]) (if isOk then okType else errorType) value
-                    |> Option.orElseWith (fun () -> if supportedScalar okType && supportedScalar errorType then issue "RunContainerTypeMismatch" path (Some declared) (Some actual) "Scalar Result values use the flat okKind/errorKind representation; nested tagged values use okType/errorType." else None)
                 | _ -> None
         if arguments @ Option.toList expected |> List.exists (boundedValue >> not) then None
         else
@@ -1150,7 +1187,7 @@ module PureRun =
         | Some fn when arguments |> List.exists (validUnion declarations.Types >> not) ->
             Error(diagnostic "RunUnionShapeMismatch" "Union arguments must name a variant of the declared Union and supply each field exactly once with its exact type, including nested Unions.")
         | Some fn when arguments |> List.exists (validContainers supported >> not) ->
-            Error(diagnostic "RunContainerTypeMismatch" "Nested List/Option item, Set item, Map key and value, and Result payload types must be supported and match every payload, and Set items and Map keys must be distinct; containers and Results of only String, Bool and Int64 use the flat value representation (itemKind/okKind/errorKind), all others the nested one (itemType/okType/errorType).")
+            Error(diagnostic "RunContainerTypeMismatch" "List/Option item, Set item, Map key and value, and Result payload types must be supported and match every payload, and Set items and Map keys must be distinct. Scalar containers accept typed values or their legacy flat form.")
         | Some fn when not (supported 0 fn.ResultType) ->
             Error(diagnostic "RunResultTypeUnsupported" "Supported results are String, Bool, Int64, Float64, Bits32 and Unit values and List/Option/Result/Product/Union compositions of them with at most eight composite layers along any non-recursive path; function, capability and type-parameter types are not run values.")
         | Some fn when expected |> Option.exists (fun value -> valueType value <> fn.ResultType) ->

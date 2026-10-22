@@ -224,7 +224,10 @@ module CompactSimulateReplyTests =
         withSession (fun session ->
             use proposed = send session (create "page-input" "" (boolLiteral "true"))
             let proposalId = (result proposed).GetProperty("proposalId").GetString()
-            for fields in [ "\"path\":\"bad\""; "\"path\":\"/review/~3\""; "\"path\":\"/review/missing\""; "\"offset\":-1"; "\"limit\":0"; "\"limit\":21"; "\"offset\":\"0\"" ] do
+            for fields in [ "\"path\":\"bad\""; "\"path\":\"/review/~3\""; "\"path\":\"/review/missing\"";
+                            "\"path\":\"/review/createdFunction/body/nodes/00\""; "\"path\":\"/review/createdFunction/body/nodes/+1\"";
+                            "\"path\":\"/review/createdFunction/body/nodes/-1\"";
+                            "\"offset\":-1"; "\"limit\":0"; "\"limit\":21"; "\"offset\":\"0\"" ] do
                 use response = AuthoringProtocol.executeLine session ($"""{{"id":"bad-page","op":"readProposal","proposalId":"{proposalId}",{fields}}}""") |> JsonDocument.Parse
                 Assert.False(response.RootElement.GetProperty("ok").GetBoolean())
                 Assert.Equal("ProtocolError", response.RootElement.GetProperty("error").GetProperty("code").GetString()))
@@ -284,3 +287,53 @@ module CompactSimulateReplyTests =
             session.Reject proposalId |> unwrap |> ignore
             use gone = AuthoringProtocol.executeLine session ($"""{{"id":"rejected-page","op":"readProposal","proposalId":"{proposalId}"}}""") |> JsonDocument.Parse
             Assert.Equal("ProposalNotFound", gone.RootElement.GetProperty("error").GetProperty("code").GetString()))
+
+    [<Fact>]
+    let ``stream byte counts exactly match escaped and lossless wire text`` () =
+        for text in [ "plain"; "測定😀"; "\"\n\t\\"; "\uD800"; "\uDC00"; "a\uD800b😀\uDC00" ] do
+            let value = WireJson.objectValue [ "value", WireJson.runString text; "items", WireJson.arrayValue [ box true; box 42L; null ] ]
+            Assert.Equal(System.Text.Encoding.UTF8.GetByteCount(WireJson.serialize value), WireJson.byteCount value)
+
+    [<Fact>]
+    let ``paging escaped pointers does not encode unselected payloads or mutate the review`` () =
+        withSession (fun session ->
+            use proposed = send session (create "projection" "" (boolLiteral "true"))
+            let pending = session.PendingProposalView((result proposed).GetProperty("proposalId").GetString()) |> unwrap
+            let source = WireJson.objectValue [ "a/b~c", WireJson.arrayValue [ WireJson.runString "測定😀" ]; "large", box (String('x', 1024 * 1024)) ]
+            let original = WireJson.serialize source
+            let page () = WireProposalProjection.page pending true source "/a~1b~0c" 0 1
+            page () |> WireJson.serialize |> ignore
+            let before = GC.GetAllocatedBytesForCurrentThread()
+            let projected = page ()
+            let allocated = GC.GetAllocatedBytesForCurrentThread() - before
+            // Regression: the previous full-review serialize/parse allocated >9 MB here.
+            Assert.True(allocated < 1000000L, $"Unselected payload allocated {allocated} bytes")
+            use document = JsonDocument.Parse(WireJson.serialize projected)
+            let values = document.RootElement.GetProperty("value")
+            Assert.Equal("測定😀", values.[0].GetString())
+            Assert.True(document.RootElement.GetProperty("projection").GetProperty("complete").GetBoolean())
+            Assert.Equal(original, WireJson.serialize source)
+            WireProposalProjection.compact (WireJson.objectValue [ "proposalId", box "id"; "detail", box "compact"; "review", source ]) |> ignore
+            Assert.Equal(original, WireJson.serialize source))
+
+    [<Fact>]
+    let ``saved engine review retains every nested node in complete structured form`` () =
+        withSession (fun session ->
+            use proposed = send session (create "durable" "" (nestedBody 12))
+            let proposalId = (result proposed).GetProperty("proposalId").GetString()
+            use response = send session $"""{{"id":"view","op":"viewProposal","proposalId":"{proposalId}"}}"""
+            let html = File.ReadAllText((result response).GetProperty("path").GetString())
+            let section = html.Substring(html.IndexOf("<section><h2>Engine review</h2>", StringComparison.Ordinal))
+            let start = section.IndexOf("<pre><code>", StringComparison.Ordinal) + "<pre><code>".Length
+            let finish = section.IndexOf("</code></pre>", start, StringComparison.Ordinal)
+            use document = JsonDocument.Parse(System.Net.WebUtility.HtmlDecode(section.Substring(start, finish-start)))
+            let root = document.RootElement
+            Assert.Equal("full", root.GetProperty("detail").GetString())
+            Assert.False(root.TryGetProperty("projection") |> fst)
+            let rec countNodes (value: JsonElement) =
+                match value.ValueKind with
+                | JsonValueKind.Object -> value.EnumerateObject() |> Seq.sumBy (fun p -> (if p.Name = "nodes" then p.Value.GetArrayLength() else 0) + countNodes p.Value)
+                | JsonValueKind.Array -> value.EnumerateArray() |> Seq.sumBy countNodes
+                | _ -> 0
+            Assert.Equal(37, countNodes (root.GetProperty("review").GetProperty("createdFunction").GetProperty("body")))
+            Assert.Contains("\"kind\": \"conditional\"", root.GetRawText()))

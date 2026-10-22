@@ -127,11 +127,11 @@ module SetIsSubsetAndMapUnionTests =
                 | Ok snapshot -> snapshot
                 | Error error -> failwithf "Workspace did not decode: %A" error
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let json = SnapshotCodec.serialize snapshot |> Result.defaultWith (failwithf "serialize: %A")
+            let json = SnapshotCodec.serializeCanonical snapshot |> Result.defaultWith (failwithf "serialize: %A")
             Assert.Contains("\"setIsSubset\"", json)
             Assert.Contains("\"mapUnion\"", json)
             Assert.Contains("\"schemaVersion\":17", json.Replace(" ", ""))
-            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
+            let nyason = NyasonCodec.serializeCanonical snapshot |> Result.defaultWith (failwithf "nyason: %A")
             Assert.Contains("set-is-subset", nyason)
             Assert.Contains("map-union", nyason)
             Assert.Contains("nayamnyam.snapshot.v13", nyason)

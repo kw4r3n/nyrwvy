@@ -45,7 +45,7 @@ module NyasonTests =
     let ``Nyason rejects an unsupported schema identity`` () =
         let fixture = MilestoneZeroGraph.create ()
         let encoded = NyasonCodec.serialize fixture.Snapshot |> unwrap
-        let changed = encoded.Replace(NyasonCodec.schemaId, "nayamnyam.snapshot.future", StringComparison.Ordinal)
+        let changed = encoded.Replace(SnapshotSchema.current.Nyason, "nayamnyam.snapshot.future", StringComparison.Ordinal)
 
         match NyasonCodec.deserialize changed with
         | Error(NyasonCodecError.UnsupportedSchema "nayamnyam.snapshot.future") -> ()
@@ -66,7 +66,7 @@ module NyasonTests =
     let ``Nyason rejects duplicate record fields during syntax parsing`` () =
         let fixture = MilestoneZeroGraph.create ()
         let encoded = NyasonCodec.serialize fixture.Snapshot |> unwrap
-        let schemaLine = $"  schema = \"{NyasonCodec.schemaId}\""
+        let schemaLine = $"  schema = \"{SnapshotSchema.current.Nyason}\""
         let changed = encoded.Replace(schemaLine, schemaLine + "\n" + schemaLine, StringComparison.Ordinal)
 
         match NyasonCodec.deserialize changed with
@@ -115,7 +115,7 @@ module NyasonTests =
 
         let snapshot = Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-unicode-escape")
         let encoded = NyasonCodec.serialize snapshot |> unwrap
-        let malformed = encoded.Replace("\"" + NyasonCodec.schemaId + "\"", source, StringComparison.Ordinal)
+        let malformed = encoded.Replace("\"" + SnapshotSchema.current.Nyason + "\"", source, StringComparison.Ordinal)
         match NyasonCodec.deserialize malformed with
         | Error(NyasonCodecError.InvalidSyntax _) -> ()
         | result -> failwithf "Expected InvalidSyntax for Unicode escape, got %A" result
@@ -220,6 +220,10 @@ module NyasonTests =
 
         Assert.Equal(snapshotId, decoded.Id)
         Assert.Contains("snapshot:snapshot%20with%20%2F%20slash%20and%20%25%20sign", encoded)
+        // A malformed escape is refused, not read as literal text.
+        match NyasonCodec.deserialize (encoded.Replace("%25%20sign", "%ZZ%20sign")) with
+        | Error error -> Assert.Contains("invalid percent escape", sprintf "%A" error)
+        | Ok _ -> failwith "A malformed percent escape was accepted."
 
     [<Fact>]
     let ``encoding comparison writes reproducible transport-size metrics`` () =

@@ -59,7 +59,7 @@ The deliverable bundle contains `members.json`, `Generated.cs`, `symbols.json`,
 `Runtime.Program.cs`, `runtime-evidence.json`, and `oracle-evidence.json`.
 The surrounding handoff package adds repository/tool provenance, a patch,
 portable replay identity and this report. Commands are in the
-[example README](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-lifecycle/README.md).
+[example README](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-lifecycle/README.md).
 
 - Initial saved/reopened virtual execution: **15/15 assertion passes**.
 - Reopened execution and copied-directory replay: **15/15 each**.

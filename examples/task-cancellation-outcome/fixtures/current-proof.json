@@ -1,5 +1,17 @@
 {
-  "controls": [
+  "sourceBase": "0913a1b6db48386301a638d7a4d3c75f47832e4a",
+  "snapshot": "task-outcomes.json",
+  "schemaVersion": 21,
+  "snapshotSha256": "0372ccba8022ff2fcc9e78d11c27e5d89f2d9af59a8fd3f542b463540b76ab5c",
+  "generatedSha256": "f24755f873e93fb2a44ba05b619f214f4d4f036d9cdc8d11a205d24d0ac97a13",
+  "virtualControls": 12,
+  "realControls": 44,
+  "realAllPassed": true,
+  "sourceUnchanged": true,
+  "migrationReport": "task-outcomes.json.migration.json",
+  "historicalProofTag": "archive/legacy-examples-pre-cutover-20261019",
+  "scope": "Replay of the migrated fixed-identity snapshot plus real compiled task-composition controls; no new historical move/assembly-byte claim.",
+  "runtimeControls": [
     {
       "control": "boundary-baseline-clear",
       "passed": true,
@@ -220,15 +232,5 @@
       "passed": true,
       "assertionFailure": "acceptance ordinary join original object"
     }
-  ],
-  "sourceUnchanged": true,
-  "generatedSha256": "c547eb7837a028314eb687937b02d02a17040109359c45ed109a6db3aa318551",
-  "compilation": {
-    "method": "installed-roslyn-no-restore",
-    "sdkVersion": "10.0.112",
-    "referencePackVersion": "10.0.12",
-    "runtimeVersion": "10.0.12",
-    "referenceAssemblyCount": 167,
-    "compilerOutput": "Microsoft (R) Visual C# Compiler version 5.0.0-dev (<developer build>)\nCopyright (C) Microsoft Corporation. All rights reserved."
-  }
+  ]
 }

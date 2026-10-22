@@ -100,10 +100,10 @@ module DeclarationVisibilityTests =
     [<Fact>]
     let ``an all-exported snapshot keeps the baseline bytes and a private declaration needs schema 21`` () =
         let legacy = declarations true
-        let json = SnapshotCodec.serialize legacy |> unwrap "legacy json"
+        let json = SnapshotCodec.serializeCanonical legacy |> unwrap "legacy json"
         Assert.Contains($"\"schemaVersion\":{SnapshotSchema.baseline.Json}", json)
         Assert.DoesNotContain("exported", json)
-        Assert.Contains(SnapshotSchema.baseline.Nyason, NyasonCodec.serialize legacy |> unwrap "legacy nyason")
+        Assert.Contains(SnapshotSchema.baseline.Nyason, NyasonCodec.serializeCanonical legacy |> unwrap "legacy nyason")
         Assert.Empty(SnapshotSchema.usedFeatures legacy)
 
         let mixed = { legacy with Functions = legacy.Functions |> List.map (fun fn -> { fn with Exported = false }) }
@@ -111,7 +111,7 @@ module DeclarationVisibilityTests =
         let minimum = SnapshotSchema.minimumVersion SnapshotSchemaFeature.DeclarationVisibility
         Assert.Equal(21, minimum.Json)
         Assert.Equal("nayamnyam.snapshot.v17", minimum.Nyason)
-        let mixedJson = SnapshotCodec.serialize mixed |> unwrap "mixed json"
+        let mixedJson = SnapshotCodec.serializeCanonical mixed |> unwrap "mixed json"
         Assert.Contains("\"schemaVersion\":21", mixedJson)
         use document = JsonDocument.Parse mixedJson
         let root = document.RootElement
@@ -121,8 +121,8 @@ module DeclarationVisibilityTests =
         Assert.False(root.GetProperty("functions").[0].TryGetProperty("exported") |> fst)
         let restored = SnapshotCodec.deserialize mixedJson |> unwrap "mixed round trip"
         Assert.Equal(mixed, restored)
-        Assert.Equal(mixedJson, SnapshotCodec.serialize restored |> unwrap "mixed again")
-        let nyason = NyasonCodec.serialize mixed |> unwrap "mixed nyason"
+        Assert.Equal(mixedJson, SnapshotCodec.serializeCanonical restored |> unwrap "mixed again")
+        let nyason = NyasonCodec.serializeCanonical mixed |> unwrap "mixed nyason"
         Assert.Contains("\"nayamnyam.snapshot.v17\"", nyason)
         Assert.Equal(mixed, NyasonCodec.deserialize nyason |> unwrap "mixed nyason round trip")
         // Rejected one version below, by both codecs: the marker is an unknown property there.
@@ -130,11 +130,11 @@ module DeclarationVisibilityTests =
         Assert.True(Result.isError (NyasonCodec.deserialize (nyason.Replace("\"nayamnyam.snapshot.v17\"", "\"nayamnyam.snapshot.v16\""))))
         // An all-private snapshot writes no marker at all, so the version gate alone rejects it below 21.
         let allPrivate = declarations false
-        let privateJson = SnapshotCodec.serialize allPrivate |> unwrap "private json"
+        let privateJson = SnapshotCodec.serializeCanonical allPrivate |> unwrap "private json"
         Assert.Contains("\"schemaVersion\":21", privateJson)
         Assert.DoesNotContain("exported", privateJson)
         Assert.Equal(allPrivate, SnapshotCodec.deserialize privateJson |> unwrap "private round trip")
-        let privateNyason = NyasonCodec.serialize allPrivate |> unwrap "private nyason"
+        let privateNyason = NyasonCodec.serializeCanonical allPrivate |> unwrap "private nyason"
         Assert.Equal(allPrivate, NyasonCodec.deserialize privateNyason |> unwrap "private nyason round trip")
         // The same bytes declared at version 20 are a legal older document whose declarations have no
         // visibility: they read as exported (the version-gated default), not as a rejection.
@@ -145,13 +145,13 @@ module DeclarationVisibilityTests =
     [<Fact>]
     let ``a document below schema 21 reads every declaration as exported and keeps its fingerprints`` () =
         let legacy = declarations true
-        let json = SnapshotCodec.serialize legacy |> unwrap "legacy json"
+        let json = SnapshotCodec.serializeCanonical legacy |> unwrap "legacy json"
         let restored = SnapshotCodec.deserialize json |> unwrap "legacy read"
         Assert.True(restored.Types.Head.Exported && restored.Effects.Head.Exported && restored.Capabilities.Head.Exported && restored.Functions.Head.Exported)
-        Assert.Equal(json, SnapshotCodec.serialize restored |> unwrap "legacy again")
+        Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap "legacy again")
         Assert.Equal(SnapshotFingerprint.compute legacy |> unwrap "legacy fingerprint", SnapshotFingerprint.compute restored |> unwrap "restored fingerprint")
         Assert.Equal(SemanticFingerprint.compute legacy |> unwrap "legacy semantic", SemanticFingerprint.compute restored |> unwrap "restored semantic")
-        let nyason = NyasonCodec.serialize legacy |> unwrap "legacy nyason"
+        let nyason = NyasonCodec.serializeCanonical legacy |> unwrap "legacy nyason"
         Assert.Equal(legacy, NyasonCodec.deserialize nyason |> unwrap "legacy nyason read")
         // Visibility is part of both fingerprints once a declaration is private.
         let mixed = { legacy with Functions = legacy.Functions |> List.map (fun fn -> { fn with Exported = false }) }
@@ -166,7 +166,7 @@ module DeclarationVisibilityTests =
         | Error(SnapshotCodecError.InvalidShape message) -> Assert.Contains("'exported' must be true or omitted", message)
         | other -> failwithf "exported false was accepted: %A" other
         let legacyFixture = (TestGraph.create ()).Snapshot
-        let fixtureJson = SnapshotCodec.serialize legacyFixture |> unwrap "fixture json"
+        let fixtureJson = SnapshotCodec.serializeCanonical legacyFixture |> unwrap "fixture json"
         Assert.DoesNotContain("\"exported\"", fixtureJson)
         Assert.True((SnapshotCodec.deserialize fixtureJson |> unwrap "fixture read").Functions |> List.forall (fun fn -> fn.Exported))
 
@@ -201,6 +201,9 @@ module DeclarationVisibilityTests =
             Assert.False(exportedOf listed "effects" "io")
             Assert.True(exportedOf listed "effects" "net")
             Assert.True(exportedOf listed "capabilities" "Host")
+            let read name = (result session $"""{{"id":"r","op":"readFunction","function":"{name}"}}""").GetProperty("function").GetProperty("exported").GetBoolean()
+            Assert.False(read "quiet")
+            Assert.True(read "loud")
             let declared = session.Declarations()
             Assert.False((declared.Functions |> List.find (fun fn -> fn.DisplayName = "quiet")).Exported)
             Assert.True((declared.Types |> List.find (fun t -> t.DisplayName = "Shown")).Exported)

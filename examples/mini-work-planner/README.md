@@ -1,12 +1,15 @@
 # Mini Work Planner
 
+Migration checkpoint: `planner.snapshot.json` was migrated on a preserved copy
+from schema 9 to 21; `planner.snapshot.json.migration.json` records unchanged
+fingerprints (display path normalized relative to the repository). Every existing
+stable ID is retained. `runner/Generated.cs` was regenerated through `emitCSharp`
+and the documented 13-case check passed. The pre-cutover snapshot is preserved
+at tag `archive/legacy-examples-pre-cutover-20261019`.
+
 A tool, created and maintained with a Nyrwvy maintained AuthoringSession, that decides the next action for a single work item.
 
 The semantic source is `planner.snapshot.json`. The CLI does not interpret the snapshot directly; it is only an adapter that calls C# generated from the public `declarations` and `emitCSharp.symbols`.
-
-## Schema
-
-`planner.snapshot.json` was first written at snapshot schema 9. On 2026-10-19 it was rewritten in place to the current schema 21 by `Nyrwvy.AuthoringSession migrate --snapshot examples/mini-work-planner/planner.snapshot.json` ([snapshot migration](../../docs/specs/agent-authoring-session.md#snapshot-migration)); `planner.migration.json` is the command's report, which shows a representation-only migration with both fingerprints unchanged. `declarations.json` and `runner/Generated.cs` were then re-materialized from the migrated snapshot with `materialize.py` (below), which also reran the policy check.
 
 ## Decision model
 

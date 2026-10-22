@@ -77,5 +77,5 @@ jobs:
         run: fish scripts/test-fast.fish --no-build --no-restore
 
       - name: Test MCP transport contract
-        run: npm --prefix tools/nyrwvy-mcp test
+        run: node scripts/run-node-tests.mjs fast-mcp
 

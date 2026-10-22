@@ -14,6 +14,7 @@ open Xunit
 /// explicit visibility and declared type parameter lists, a retired FailureType is rejected, the
 /// result is written at the current schema and validated, the fingerprints before and after are
 /// recorded, and a second run changes nothing.
+[<Collection("Session storage faults")>]
 module SnapshotMigrationTests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("migration-" + name)
     let private unwrap label result =
@@ -27,7 +28,7 @@ module SnapshotMigrationTests =
         try run root
         finally Directory.Delete(root, true)
 
-    let private save path snapshot = File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap "serialize")
+    let private save path snapshot = File.WriteAllText(path, SnapshotCodec.serializeCanonical snapshot |> unwrap "serialize")
     let private manifestPath path = path + ".dependency.json"
     let private status (session: AuthoringSession) = session.Status() |> unwrap "status"
     let private migrate path = AuthoringSessionMigration.migrate path None |> unwrap "migrate"
@@ -88,6 +89,124 @@ module SnapshotMigrationTests =
         (snapshot.Functions |> List.find (fun fn -> fn.DisplayName = name)).Body
 
     let private kindOf (graph: ValueGraph) nodeId = (graph.Nodes |> List.find (fun node -> node.Id = nodeId)).Kind
+
+    [<Fact>]
+    let ``representation-only fingerprint drift is rejected before publication`` () =
+        let before = { SnapshotFingerprint = "snapshot-before"; SemanticFingerprint = "semantic-before" }
+        let after = { SnapshotFingerprint = "snapshot-after"; SemanticFingerprint = "semantic-after" }
+        match AuthoringSessionMigration.verifyContinuity true before after with
+        | Error(AuthoringSessionError.MigrationRejected message) -> Assert.Contains("semantic fingerprint", message)
+        | other -> failwithf "Fingerprint drift accepted: %A" other
+        AuthoringSessionMigration.verifyContinuity false before after |> unwrap "explicit graph rewrite"
+        AuthoringSessionMigration.verifyContinuity true before before |> unwrap "continuity"
+
+    [<Fact>]
+    let ``migration refuses an owned workspace and releases its lock after decode failure`` () =
+        withDirectory (fun root ->
+            let path = Path.Combine(root, "locked.json")
+            save path (TestGraph.create()).Snapshot
+            let original = File.ReadAllText path
+            use session = AuthoringSession.openExisting path |> unwrap "open"
+            match AuthoringSessionMigration.migrate path None with
+            | Error(AuthoringSessionError.LockUnavailable _) -> ()
+            | other -> failwithf "Owned workspace accepted: %A" other
+            Assert.Equal(original, File.ReadAllText path)
+            session.Close()
+            File.WriteAllText(path, "{malformed")
+            match AuthoringSessionMigration.migrate path None with
+            | Error(AuthoringSessionError.SnapshotCodecFailure _) -> ()
+            | other -> failwithf "Malformed snapshot accepted: %A" other
+            Assert.Equal("{malformed", File.ReadAllText path)
+            Assert.False(File.Exists(path + ".lock"))
+            File.WriteAllText(path, original)
+            migrate path |> ignore)
+
+    [<Fact>]
+    let ``a derived inner ID collision rejects migration without replacing existing IDs`` () =
+        withDirectory (fun root ->
+            let path = Path.Combine(root, "collision.json")
+            let fn = countOf ()
+            let collision = SnapshotMigration.innerNodeId fn.Body.ResultNodeId
+            let snapshot =
+                { Snapshot.empty (id<SnapshotTag> "collision") with
+                    Functions = [ { fn with Body = { fn.Body with Nodes = { Id = collision; Kind = SemanticNodeKind.Int64Literal 99L } :: fn.Body.Nodes } } ] }
+            save path snapshot
+            let original = File.ReadAllText path
+            match AuthoringSessionMigration.migrate path None with
+            | Error(AuthoringSessionError.WorkspaceValidationFailure _)
+            | Error(AuthoringSessionError.SnapshotCodecFailure _) -> ()
+            | other -> failwithf "ID collision accepted: %A" other
+            Assert.Equal(original, File.ReadAllText path)
+            Assert.False(File.Exists(path + ".lock")))
+
+    [<Fact>]
+    let ``a failed dependent snapshot replacement restores the exact legacy sidecar`` () =
+        withDirectory (fun root ->
+            let source = Path.Combine(root, "source.json")
+            let path = Path.Combine(root, "local.json")
+            let imported = retiredSnapshot ()
+            save source imported
+            (AuthoringSession.createNewWithDependency path (Some source) |> unwrap "create").Close()
+            let original = File.ReadAllText path, File.ReadAllText(manifestPath path)
+            SessionStorageFaults.failReplacement <- fun candidate -> candidate = path
+            try
+                match AuthoringSessionMigration.migrate path None with
+                | Error(AuthoringSessionError.IoFailure _) -> ()
+                | other -> failwithf "Failed replacement accepted: %A" other
+            finally SessionStorageFaults.failReplacement <- fun _ -> false
+            Assert.Equal(original, (File.ReadAllText path, File.ReadAllText(manifestPath path)))
+            Assert.False(File.Exists(path + ".lock"))
+            Assert.Empty(Directory.GetFiles(root, ".*.tmp"))
+            migrate path |> ignore)
+
+    [<Fact>]
+    let ``retired nodes in conditional branches migrate without losing nested identities`` () =
+        withDirectory (fun root ->
+            let path = Path.Combine(root, "nested.json")
+            let fn = binary "nested" int64Type boolType (fun a b -> SemanticNodeKind.Int64LessThanOrEqual(a, b))
+            let resultNode = List.last fn.Body.Nodes
+            let conditionId, outerId, falseId = id<GraphNodeTag> "condition", id<GraphNodeTag> "outer", id<GraphNodeTag> "false"
+            let nested: ValueGraph = { Nodes = [ resultNode ]; ResultNodeId = resultNode.Id }
+            let body: ValueGraph =
+                { Nodes =
+                    (fn.Body.Nodes |> List.filter (fun node -> node.Id <> resultNode.Id)) @
+                    [ { Id = conditionId; Kind = SemanticNodeKind.BoolLiteral true }
+                      { Id = outerId; Kind = SemanticNodeKind.Conditional(conditionId, nested,
+                          { Nodes = [ { Id = falseId; Kind = SemanticNodeKind.BoolLiteral false } ]; ResultNodeId = falseId }) } ]
+                  ResultNodeId = outerId }
+            save path { Snapshot.empty (id<SnapshotTag> "nested") with Functions = [ { fn with Body = body } ] }
+            let report = migrate path
+            Assert.Equal<(string * int) list>([ "int64LessThanOrEqual", 1 ], report.Rewrites)
+            let after = decode path
+            match kindOf after.Functions.Head.Body outerId with
+            | SemanticNodeKind.Conditional(_, branch, _) ->
+                Assert.Equal(resultNode.Id, branch.ResultNodeId)
+                Assert.Equal(SemanticNodeKind.BoolNot(SnapshotMigration.innerNodeId resultNode.Id), kindOf branch resultNode.Id)
+                Assert.Equal(2, branch.Nodes.Length)
+            | other -> failwithf "Conditional lost: %A" other
+            Assert.False((migrate path).Changed))
+
+    [<Fact>]
+    let ``multiple retained dependencies migrate together and reopen without their sources`` () =
+        withDirectory (fun root ->
+            let first = retiredSnapshot ()
+            let second = (TestGraph.create()).Snapshot
+            let firstPath, secondPath, path = Path.Combine(root, "first.json"), Path.Combine(root, "second.json"), Path.Combine(root, "local.json")
+            save firstPath first
+            save secondPath second
+            (AuthoringSession.createNewWithDependencies path [ firstPath; secondPath ] |> unwrap "create").Close()
+            File.Delete firstPath
+            File.Delete secondPath
+            let report = migrate path
+            Assert.Equal(2, report.Dependencies.Length)
+            Assert.False report.SemanticFingerprintExpectedEqual
+            let unchanged = report.Dependencies |> List.find (fun item -> item.SnapshotId = StableId.value second.Id)
+            Assert.True unchanged.SemanticFingerprintExpectedEqual
+            Assert.Equal(unchanged.Before, unchanged.After)
+            use reopened = AuthoringSession.openExisting path |> unwrap "reopen"
+            Assert.Equal(report.After.SnapshotFingerprint, SnapshotFingerprint.value (status reopened).SnapshotFingerprint)
+            reopened.Close()
+            Assert.False((migrate path).Changed))
 
     [<Fact>]
     let ``each retired kind is rewritten to its replacement with every stable ID kept, at schema 21, and validates`` () =
@@ -262,7 +381,7 @@ module SnapshotMigrationTests =
             let source = Path.Combine(root, "source.json")
             let local = Path.Combine(root, "local.json")
             save source imported
-            File.WriteAllText(local, SnapshotCodec.serializeResolved imported (Snapshot.empty (id<SnapshotTag> "local")) |> unwrap "local")
+            File.WriteAllText(local, SnapshotCodec.serializeResolvedCanonical imported (Snapshot.empty (id<SnapshotTag> "local")) |> unwrap "local")
             File.WriteAllText(manifestPath local, JsonSerializer.Serialize(
                 {| path = source; snapshotId = StableId.value imported.Id
                    fingerprint = SnapshotFingerprint.compute imported |> unwrap "fingerprint" |> SnapshotFingerprint.value |}))
@@ -305,7 +424,7 @@ module SnapshotMigrationTests =
             let source = Path.Combine(root, "source.json")
             let local = Path.Combine(root, "local.json")
             save source imported
-            File.WriteAllText(local, SnapshotCodec.serializeResolved imported (Snapshot.empty (id<SnapshotTag> "moved")) |> unwrap "local")
+            File.WriteAllText(local, SnapshotCodec.serializeResolvedCanonical imported (Snapshot.empty (id<SnapshotTag> "moved")) |> unwrap "local")
             File.WriteAllText(manifestPath local, JsonSerializer.Serialize(
                 {| path = source; snapshotId = StableId.value imported.Id
                    fingerprint = SnapshotFingerprint.compute imported |> unwrap "fingerprint" |> SnapshotFingerprint.value |}))

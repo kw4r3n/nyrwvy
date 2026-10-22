@@ -47,15 +47,15 @@ Preflight requires:
 
 - `ExpectedBaseSnapshotId` to equal the current workspace snapshot;
 - a nonblank capability display name that no existing capability (local or imported) already has (`CapabilityDeclarationDuplicateDisplayName`);
-- every operation display name to be nonblank;
-- every operation parameter display name to be nonblank;
+- every operation display name to be nonblank and unique within the capability (`CapabilityDeclarationDuplicateOperationDisplayName`);
+- every operation parameter display name to be nonblank and unique within its operation (`CapabilityDeclarationDuplicateParameterDisplayName`);
 - every parameter/result/failure `TypeRef` to be valid against the already-published base snapshot;
 - every operation `EffectId` to reference an already-published effect;
 - builtin generic arity to follow the existing `Option`, `Result`, and `List` contracts.
 
 `TypeRef.Named` may reference only already-published types and `TypeRef.Capability` only already-published capabilities. The capability being created is not visible during preflight, so self-reference and mutually-created declaration references are not part of this slice.
 
-Zero operations and zero-parameter operations remain valid because the current semantic model permits them. No extra structural rule is introduced by the authoring API; operation and parameter names need not be unique, and capability-name uniqueness is enforced at creation, not as a snapshot validation rule.
+Zero operations and zero-parameter operations remain valid because the current semantic model permits them. Operation and parameter names must be unique at creation for the same reason as when an operation is added later: by-name requests must resolve exactly one. These uniqueness rules, like capability-name uniqueness, are enforced by authoring, not as snapshot validation rules.
 
 ## Allocation and materialization
 

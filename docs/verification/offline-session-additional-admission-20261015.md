@@ -38,7 +38,7 @@ Largest created recipe: 245 nodes; wire/evidence bounds remain
 4096/262144 characters. Broad core/F# suites were not rerun because no core or
 ancestor source changed.
 
-See the [proof manifest](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-additional-admission/fixtures/proof.json)
+See the [proof manifest](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-additional-admission/fixtures/proof.json)
 for hashes and contract observations. Full local rows, raw storage and repository
 bytes, development failures and the original red control remain in the delegated
 workspace's `evidence/` directory. They were never reset or rewritten to

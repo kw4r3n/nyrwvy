@@ -12,7 +12,7 @@ The implementation starts at reviewed/published interruption commit
 `95b331ae008c1504ce3c6c1b0d5675bf43926445`, tree
 `7ced2a777227845abf39b45f2c3c14038d120295`. The author used a fresh isolated
 `feat/renewed-mutation-admission` branch and controlled offline fixtures only.
-The [example contract](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-epoch/README.md) states the
+The [example contract](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-epoch/README.md) states the
 supported state, authority/identity rules, publication order and remaining limits.
 
 Ordinary graph authoring composes the epoch policy with existing string, product,
@@ -64,7 +64,7 @@ case. Missing blocked/result records with an activation present refuse intact.
 All real publication-crash windows retain their original bytes and are separately
 completed only by the exact explicit administrative request.
 
-The [proof manifest](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-epoch/fixtures/proof.json)
+The [proof manifest](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-epoch/fixtures/proof.json)
 records final fresh counts, raw hashes, matching artifacts and unchanged parent
 closure. Final original/moved execution comprises 820 applications in 76 fresh
 domains with 210 controlled SIGKILLs. The audit checks 6,652 frozen predecessor

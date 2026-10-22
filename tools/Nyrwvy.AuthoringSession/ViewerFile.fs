@@ -18,7 +18,8 @@ module ViewerFile =
         not (Path.IsPathRooted relative) && relative <> ".." && not (relative.StartsWith(".." + string Path.DirectorySeparatorChar, StringComparison.Ordinal))
 
     /// A requested output resolves against the snapshot's directory and must stay inside it, so an
-    /// auto-approved agent can only write pages next to the graph it was given, never over other files.
+    /// auto-approved agent can only write pages next to the graph it was given; an existing .html
+    /// file there is replaced.
     let private outputPath (snapshotPath: string) (requested: string option) (artifact: ViewerArtifact) =
         let directory = Path.GetDirectoryName(Path.GetFullPath snapshotPath)
         match requested with
@@ -82,7 +83,10 @@ module ViewerFile =
 
     let private engineReview (proposal: AuthoringProposal) =
         let options = JsonSerializerOptions(MaxDepth = WireJson.responseMaxJsonDepth, WriteIndented = true)
-        JsonSerializer.Serialize(WireEncode.proposal proposal, options)
+        // Keep every review detail in the durable HTML, without recursively printing nested
+        // graphs again inside each node's debug string.
+        let complete = WireEncode.proposalWith "full" WireGraph.functionEntity WireGraph.focus proposal
+        JsonSerializer.Serialize(complete, options)
 
     let private proposalKind (review: AuthoringProposalReview) =
         match review with
@@ -197,6 +201,7 @@ module ViewerFile =
             let content =
                 artifact.Content
                     .Replace("<p class=\"status\">Readiness:", "<p class=\"status\">Structural readiness:")
-                    .Replace("</header>", banner + "</header>")
                     .Replace("</body>", evidenceSection + "</body>")
+            // Only the page header: each function focus on the page closes a header of its own.
+            let content = content.Insert(content.IndexOf("</header>", StringComparison.Ordinal), banner)
             write snapshotPath requested { artifact with Content = content })

@@ -62,6 +62,24 @@ module internal WireJson =
     do responseOptions.Converters.Add(LosslessElementConverter())
     let serialize (value: obj): string = JsonSerializer.Serialize(value, responseOptions)
 
+    /// Count the exact wire bytes without retaining a second encoded copy of a review.
+    let byteCount (value: obj): int =
+        let mutable count = 0L
+        use sink =
+            { new System.IO.Stream() with
+                member _.CanRead = false
+                member _.CanSeek = false
+                member _.CanWrite = true
+                member _.Length = count
+                member _.Position with get () = count and set _ = raise (NotSupportedException())
+                member _.Flush() = ()
+                member _.Read(_, _, _) = raise (NotSupportedException())
+                member _.Seek(_, _) = raise (NotSupportedException())
+                member _.SetLength _ = raise (NotSupportedException())
+                member _.Write(_, _, length) = count <- count + int64 length }
+        JsonSerializer.Serialize(sink, value, responseOptions)
+        Convert.ToInt32 count
+
     let private wellFormed (text: string) =
         let mutable index = 0
         let mutable valid = true

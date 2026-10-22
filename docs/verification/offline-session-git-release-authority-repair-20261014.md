@@ -7,7 +7,7 @@ This repairs P2-1 on request-changes candidate
 `e3fa4b524d90a6a4b3f8e1673199caeeeff560e0`. The original independent review,
 finding, raw reproductions and author/reviewer matrices remain intact. Exact
 repair source/artifact hashes are in
-[release-authority-repair.json](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-physical-git/fixtures/release-authority-repair.json).
+[release-authority-repair.json](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/release-authority-repair.json).
 
 ## Finding and repair
 

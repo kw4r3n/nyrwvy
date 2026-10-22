@@ -58,7 +58,7 @@ Preflight requires:
 
 The new declaration is not visible during preflight, so a single-type request cannot refer to itself. Self-recursive and mutually recursive types are created as a **type group** (below). No draft-ID lifecycle is introduced.
 
-No additional structural rule is invented when the existing semantic model permits a shape. The one name rule is uniqueness of the new type's own display name among types: by-name session requests resolve exactly one declaration of a kind, so a duplicate (for example from a retried create) would make that name permanently ambiguous. Field and variant names are unaffected, and uniqueness is not a snapshot validation rule, so an existing snapshot or dependency set that already holds duplicates stays valid.
+No additional structural rule is invented when the existing semantic model permits a shape. The one name rule is uniqueness of the new type's own display name among types: by-name session requests resolve exactly one declaration of a kind, so a duplicate (for example from a retried create) would make that name permanently ambiguous. For the same reason a new Product's field names, a new Union's variant names and each variant's field names must be distinct, as they already must be when a field or variant is added later. These are authoring rules, not snapshot validation rules, so an existing snapshot or dependency set that already holds duplicates stays valid.
 
 ## Type groups
 

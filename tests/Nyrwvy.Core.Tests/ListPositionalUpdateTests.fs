@@ -99,12 +99,12 @@ module ListPositionalUpdateTests =
             Assert.NotEqual<string>("", rejection call (create "badResult" three ints (setAt (p "items") (p "index") (p "item"))))
             let snapshot = File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap "deserialize"
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let json = SnapshotCodec.serialize snapshot |> unwrap "serialize"
+            let json = SnapshotCodec.serializeCanonical snapshot |> unwrap "serialize"
             use document = JsonDocument.Parse json
             Assert.Equal(17, document.RootElement.GetProperty("schemaVersion").GetInt32())
             for kind in [ "listSetAt"; "listInsertAt"; "listRemoveAt" ] do
                 Assert.Contains("\"" + kind + "\"", json)
-            let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
+            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
             Assert.Contains("nayamnyam.snapshot.v13", nyason)
             for kind in [ "list-set-at"; "list-insert-at"; "list-remove-at" ] do
                 Assert.Contains(kind, nyason)

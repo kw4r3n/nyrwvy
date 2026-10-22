@@ -171,6 +171,16 @@ module AgentCapabilityDeclarationTests =
 
         { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
           DisplayName = "Cap"
+          Operations = [ operation "read" [] unitType None knownEffect.Id; operation "read" [] unitType None knownEffect.Id ] }
+        |> assertRejected "CapabilityDeclarationDuplicateOperationDisplayName"
+
+        { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
+          DisplayName = "Cap"
+          Operations = [ operation "op" [ parameter "x" stringType; parameter "x" stringType ] unitType None knownEffect.Id ] }
+        |> assertRejected "CapabilityDeclarationDuplicateParameterDisplayName"
+
+        { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
+          DisplayName = "Cap"
           Operations = [ operation "op" [] unitType None unknownEffect ] }
         |> assertRejected "CapabilityDeclarationUnknownEffect"
 

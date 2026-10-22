@@ -147,13 +147,13 @@ module ListZipWithAndFlatMapTests =
                 """{"kind":"listFlatMap","source":{"kind":"parameter","name":"xs"},"function":"around","context":[{"parameter":"distance","value":{"kind":"parameter","name":"d"}}]}"""
             let snapshot = File.ReadAllText program.Path |> SnapshotCodec.deserialize |> unwrap "deserialize"
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let json = SnapshotCodec.serialize snapshot |> unwrap "serialize"
+            let json = SnapshotCodec.serializeCanonical snapshot |> unwrap "serialize"
             use document = JsonDocument.Parse json
             Assert.Equal(17, document.RootElement.GetProperty("schemaVersion").GetInt32())
             Assert.Contains("\"listZipWith\"", json)
             Assert.Contains("\"listFlatMap\"", json)
             Assert.Contains("\"combinerFunctionId\"", json)
-            let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
+            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
             Assert.Contains("list-zip-with", nyason)
             Assert.Contains("list-flat-map", nyason)
             Assert.Contains("nayamnyam.snapshot.v13", nyason)

@@ -31,7 +31,7 @@ module SnapshotFingerprint =
 
     let private computeCached: Snapshot -> Result<SnapshotFingerprint, SnapshotCodecError> =
         SnapshotComputationScope.Memoize("snapshotFingerprint", (fun snapshot ->
-            SnapshotCodec.serialize snapshot
+            SnapshotCodec.serializeCanonical snapshot
             |> Result.map (FingerprintHash.sha256 domain >> SnapshotFingerprint)), retain = true)
 
     let compute (snapshot: Snapshot): Result<SnapshotFingerprint, SnapshotCodecError> = computeCached snapshot
@@ -187,7 +187,7 @@ module SemanticFingerprint =
               Functions = snapshot.Functions |> List.map normalizeFunction
               Obligations = snapshot.Obligations |> normalizeObligations }
 
-        SnapshotCodec.serialize normalized
+        SnapshotCodec.serializeCanonical normalized
         |> Result.map (FingerprintHash.sha256 domain >> SemanticFingerprint)
 
     let private computeCached = SnapshotComputationScope.Memoize("semanticFingerprint", computeUncached, retain = true)

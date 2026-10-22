@@ -407,9 +407,9 @@ module ListHigherOrderTests =
     [<Fact>]
     let ``JSON and Nyason preserve higher-order List callback identity`` () =
         let fixture = createFixture ()
-        let json = SnapshotCodec.serialize fixture.Snapshot |> unwrap "JSON serialization"
+        let json = SnapshotCodec.serializeCanonical fixture.Snapshot |> unwrap "JSON serialization"
         let fromJson = SnapshotCodec.deserialize json |> unwrap "JSON deserialization"
-        let nyason = NyasonCodec.serialize fixture.Snapshot |> unwrap "Nyason serialization"
+        let nyason = NyasonCodec.serializeCanonical fixture.Snapshot |> unwrap "Nyason serialization"
         let fromNyason = NyasonCodec.deserialize nyason |> unwrap "Nyason deserialization"
 
         let assertNodes snapshot =

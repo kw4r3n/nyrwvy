@@ -113,7 +113,7 @@ module AuthoringProtocol =
             | true, kind when kind.ValueKind = JsonValueKind.String ->
                 match kind.GetString() with
                 | "result" ->
-                    "Result {kind, okKind, errorKind, isOk, value} with a raw string/bool/int64 payload, or {kind, okType, errorType, isOk, value} with a typed run-value payload when at least one side is not string/bool/int64 (including Unit)"
+                    "Result {kind, okType, errorType, isOk, value} with a typed run-value payload, or the legacy scalar {kind, okKind, errorKind, isOk, value} with a raw string/bool/int64 payload"
                 | "string" -> "String {kind: string, value: JSON string}"
                 | "bool" -> "Bool {kind: bool, value: JSON boolean}"
                 | "int64" -> "Int64 {kind: int64, value: integer or exact decimal integer string}"

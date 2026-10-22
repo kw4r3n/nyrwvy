@@ -5,7 +5,7 @@ Status: Observed result; offline experimental example, independent review pendin
 Base: reviewed/published `5d71932f44fef4b2f10d7701d5355f449fd70287`, tree
 `a9227bab3b336d4c2252f961eaf94a4485e3ad5f`. The successor remains local on
 `feat/explicit-git-continuation`. Exact source/artifact hashes are in
-[continuation-proof.json](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-physical-git/fixtures/continuation-proof.json);
+[continuation-proof.json](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/continuation-proof.json);
 the author handoff records the resulting commit/tree after this record is saved.
 
 ## Demonstrated gap and selected contract
@@ -15,7 +15,7 @@ established that retention of active witnessed object-only/ref-only tails leaves
 startup closed before input. Missing original outcomes stay missing. An exact
 join or late physical effect supplies no continuation/release authority.
 
-The [separate continuation procedure](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-physical-git/CONTINUATION.md)
+The [separate continuation procedure](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/CONTINUATION.md)
 completes only an inspected owned object/ref tail. It has its own immutable pending
 intent, explicit authority, request bytes, original-file inventory and actual
 result. Each new command has a separate launch slot and join witness. A distinct

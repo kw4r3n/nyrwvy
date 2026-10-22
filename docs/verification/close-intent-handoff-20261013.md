@@ -119,7 +119,7 @@ committed observations and independent Python fixtures, then verifies both
 replays. Fixtures and closure are in
 `examples/member-close-intent/fixtures/`; complete transcripts, runtime bundles,
 compiler evidence and serial suite logs are under `artifacts/close-intent/`.
-The [README](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/member-close-intent/README.md) gives reproduction commands.
+The [README](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/member-close-intent/README.md) gives reproduction commands.
 
 | Final serial aggregate | Result |
 | --- | --- |

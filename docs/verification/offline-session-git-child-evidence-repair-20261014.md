@@ -66,7 +66,7 @@ was not rerun; its affected branches ran through the focused selection.
 
 Evidence: task-root `evidence/overflow-repair-{original,moved}`, their raw/proof and
 original `verified.json`, plus `evidence/overflow-repair-audit.json`. The checked-in
-[repair proof](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-physical-git/fixtures/overflow-evidence-repair.json)
+[repair proof](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-physical-git/fixtures/overflow-evidence-repair.json)
 contains exact source/artifact/retained-review hashes and assertion results.
 `audit-overflow-repair.mjs` rechecks the retained and new evidence. Review inputs
 remain at `/home/kw4/Documents/Codex/2026-10-14/task-41/{independent-review.md,findings.json}`.

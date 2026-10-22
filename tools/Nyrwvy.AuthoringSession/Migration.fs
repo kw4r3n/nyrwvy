@@ -85,6 +85,12 @@ module AuthoringSessionMigration =
         | Error error, _
         | _, Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
 
+    /// Representation-only migration must prove continuity before replacing either file.
+    let internal verifyContinuity expectedEqual (before: MigrationFingerprints) (after: MigrationFingerprints) =
+        if expectedEqual && before.SemanticFingerprint <> after.SemanticFingerprint then
+            Error(AuthoringSessionError.MigrationRejected "Representation-only migration changed the semantic fingerprint; nothing was written.")
+        else Ok()
+
     let private rejected (subject: string) = function
         | SnapshotMigrationError.RetiredFailureType operations ->
             let listed =
@@ -119,7 +125,9 @@ module AuthoringSessionMigration =
                 |> Result.bind (fun before ->
                     fingerprints outcome.Snapshot
                     |> Result.bind (fun after ->
-                        PinnedDependency.embedWith SnapshotCodec.serializeCurrent selected.SourcePath outcome.Snapshot
+                        verifyContinuity (SnapshotMigration.representationOnly outcome) before after
+                        |> Result.bind (fun () ->
+                        PinnedDependency.embedWith SnapshotCodec.serialize selected.SourcePath outcome.Snapshot
                         |> Result.map (fun pinned ->
                             pinned,
                             { SnapshotId = StableId.value selected.Imported.Id
@@ -132,7 +140,7 @@ module AuthoringSessionMigration =
                               Rewrites = outcome.Rewrites
                               DeclarationsMarkedExported = outcome.DeclarationsMarkedExported
                               FunctionTypeParameterListsDeclared = outcome.FunctionTypeParameterListsDeclared
-                              SemanticFingerprintExpectedEqual = SnapshotMigration.representationOnly outcome })))))
+                              SemanticFingerprintExpectedEqual = SnapshotMigration.representationOnly outcome }))))))
 
     let private migrateSelection (selected: PinnedDependencySelection): Result<PinnedDependencySelection * MigratedDependencyReport list, AuthoringSessionError> =
         let members = if List.isEmpty selected.Members then [ selected ] else selected.Members
@@ -182,12 +190,17 @@ module AuthoringSessionMigration =
             let! before = fingerprints resolvedBefore
             let! migratedSource =
                 match migratedSelection with
-                | None -> SnapshotCodec.serializeCurrent outcome.Snapshot
-                | Some(combined, _) -> SnapshotCodec.serializeResolvedCurrent combined.Imported outcome.Snapshot
+                | None -> SnapshotCodec.serialize outcome.Snapshot
+                | Some(combined, _) -> SnapshotCodec.serializeResolved combined.Imported outcome.Snapshot
                 |> Result.mapError (function
                     | SnapshotCodecError.InvalidSnapshot issues -> AuthoringSessionError.WorkspaceValidationFailure issues
                     | other -> AuthoringSessionError.SnapshotCodecFailure other)
             let! after = fingerprints resolvedAfter
+            let dependencyReports = migratedSelection |> Option.map snd |> Option.defaultValue []
+            let expectedEqual =
+                SnapshotMigration.representationOnly outcome
+                && (dependencyReports |> List.forall (fun item -> item.SemanticFingerprintExpectedEqual))
+            do! verifyContinuity expectedEqual before after
             let manifestChanged =
                 match selected, migratedSelection with
                 | Some current, Some(combined, _) -> current.Manifest <> combined.Manifest
@@ -199,8 +212,11 @@ module AuthoringSessionMigration =
                     match selected, migratedSelection with
                     | Some current, Some(combined, _) ->
                         SessionStorage.replaceDependencyPair path source current.Manifest migratedSource combined.Manifest
-                    | _ -> SessionStorage.replaceAtomically path migratedSource
-            let dependencyReports = migratedSelection |> Option.map snd |> Option.defaultValue []
+                    | _ ->
+                        SessionStorage.readText path
+                        |> Result.bind (fun current ->
+                            if current <> source then Error AuthoringSessionError.ExternalModification
+                            else SessionStorage.replaceAtomically path migratedSource)
             return
                 { Path = path
                   Changed = changed
@@ -213,9 +229,7 @@ module AuthoringSessionMigration =
                   Rewrites = outcome.Rewrites
                   DeclarationsMarkedExported = outcome.DeclarationsMarkedExported
                   FunctionTypeParameterListsDeclared = outcome.FunctionTypeParameterListsDeclared
-                  SemanticFingerprintExpectedEqual =
-                      SnapshotMigration.representationOnly outcome
-                      && (dependencyReports |> List.forall (fun item -> item.SemanticFingerprintExpectedEqual))
+                  SemanticFingerprintExpectedEqual = expectedEqual
                   Dependencies = dependencyReports
                   Tool = toolName
                   ToolVersion = toolVersion () }
@@ -223,8 +237,8 @@ module AuthoringSessionMigration =
 
     /// Migrates the workspace at `path`. `sourceOverride` is the exact copy of a legacy pin's
     /// source when the manifest's path is unavailable, as for `pin`. Nothing is written when the
-    /// workspace is already in the current form (`Changed = false`), and nothing is written on
-    /// any failure.
+    /// workspace is already in the current form (`Changed = false`). Validation failures write
+    /// nothing; a reported snapshot-write failure rolls the sidecar back as for an upgrade.
     let migrate (path: string) (sourceOverride: string option): Result<MigrationReport, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         let path = SessionStorage.fullPath path

@@ -8,7 +8,7 @@ Reviewed base: `f62782acd06188f35ba4ccb4fd6c3517a261a956`, tree
 **PR397 → PR396 → PR395** remain unmerged dependencies. No push, PR or merge
 is authorized before independent review.
 
-The [example](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-bounded-input/README.md) supplies
+The [example](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-bounded-input/README.md) supplies
 `maxBytes=16384` in the semantic graph's ordinary capability invocation. Its
 Linux binding counts/stores payload bytes before strict UTF-8 decoding. This
 fixes the independently reviewed 1 MiB unterminated-input gap using existing
@@ -63,9 +63,9 @@ syscall fragmentation and timings may vary. Artifact closure excludes
 transcripts/mutable scenarios; source closure excludes tool/compiler/reference
 pack bytes and environment state. It is not environment closure.
 
-Compact [proof](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-bounded-input/fixtures/proof.json),
-[replay closure](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-bounded-input/fixtures/replay.json)
-and [verification audit](https://github.com/kw4r3n/nyrwvy/blob/bca45b30053b68abbfd071480e7c062735f410e6/examples/offline-session-bounded-input/fixtures/verification.json)
+Compact [proof](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-bounded-input/fixtures/proof.json),
+[replay closure](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-bounded-input/fixtures/replay.json)
+and [verification audit](https://github.com/kw4r3n/nyrwvy/blob/archive/legacy-examples-pre-cutover-20261019/examples/offline-session-bounded-input/fixtures/verification.json)
 retain exact hashes, contracts and measurements. Complete bundles are under
 `artifacts/bounded-input/{bundle,moved}` in the authoring checkout. The example
 README gives clean reproduction commands.

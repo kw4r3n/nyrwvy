@@ -6,6 +6,7 @@ open System.Text.Json
 open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
+[<Collection("Session storage faults")>]
 module AuthoringTypeSessionTests =
     let private tempDirectory () =
         let path = Path.Combine(Path.GetTempPath(), "nyrwvy-type-session-" + Guid.NewGuid().ToString("N"))
