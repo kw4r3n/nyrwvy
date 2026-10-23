@@ -87,7 +87,7 @@ let private roundtrip (fixtures: string) =
 
 [<EntryPoint>]
 let main argv =
-    let fixtures = if argv.Length > 1 then argv[1] else "fixtures"
+    let fixtures = argv |> Array.skip (min 1 argv.Length) |> Array.tryFind (fun a -> not (a.StartsWith "--")) |> Option.defaultValue "fixtures"
     match List.ofArray argv with
     | "generate" :: _ ->
         write (structuralPath fixtures) (AllKinds.json ())
@@ -101,10 +101,16 @@ let main argv =
         match SnapshotCodec.deserialize (File.ReadAllText path) |> Result.bind Codec.encode with
         | Ok text -> Console.Out.Write text; 0
         | Error error -> eprintfn "%A" error; 1
+    | "nyason" :: path :: _ ->
+        match SnapshotCodec.deserialize (File.ReadAllText path) |> Result.mapError string |> Result.bind (NyasonCodec.serialize >> Result.mapError string) with
+        | Ok text -> Console.Out.Write text; 0
+        | Error error -> eprintfn "%s" error; 1
+    | "corrupt" :: rest -> Phase2.corrupt fixtures 20261023 (not (List.contains "--no-misspelling-rule" rest)) "results"
+    | "load" :: _ -> Phase2.load (Path.Combine(fixtures, "validated", "verification-planner.json")) 100 "results"
     | "decode" :: path :: _ ->
         match Codec.decode (File.ReadAllText path) |> Result.bind (Codec.encode >> Result.mapError (fun e -> { RecordText.Line = 1; RecordText.Message = string e })) with
         | Ok text -> Console.Out.Write text; 0
         | Error error -> eprintfn "line %d: %s" error.Line error.Message; 1
     | _ ->
-        eprintfn "usage: generate [fixtures] | roundtrip [fixtures] | schema | encode <snapshot.json> | decode <snapshot.records.txt>"
+        eprintfn "usage: generate [fixtures] | roundtrip [fixtures] | corrupt [fixtures] [--no-misspelling-rule] | load [fixtures] | schema | encode <snapshot.json> | nyason <snapshot.json> | decode <snapshot.records.txt>"
         2

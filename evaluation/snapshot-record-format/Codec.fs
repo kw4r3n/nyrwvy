@@ -33,8 +33,9 @@ let firstDifferingLine (a: string) (b: string) =
     let la, lb = a.Split('\n'), b.Split('\n')
     Seq.zip la lb |> Seq.tryFindIndex (fun (x, y) -> x <> y) |> Option.defaultValue (min la.Length lb.Length) |> (+) 1
 
-let decode (text: string) : Result<Snapshot, RecordError> =
-    toJson text
+/// `misspellings = false` is the ablation without the one-edit misspelling rule.
+let decodeWith (misspellings: bool) (text: string) : Result<Snapshot, RecordError> =
+    (if misspellings then toJsonStrict text else toJsonStrictNoMisspellings text)
     |> Result.bind (fun json ->
         match SnapshotCodec.deserialize json with
         | Error error -> Error(lineOfError text error)
@@ -43,3 +44,5 @@ let decode (text: string) : Result<Snapshot, RecordError> =
             | Error error -> Error { Line = 1; Message = $"re-encode failed: {error}" }
             | Ok again when again <> text -> Error { Line = firstDifferingLine text again; Message = "not canonical: re-encoding differs" }
             | Ok _ -> Ok snapshot)
+
+let decode (text: string) : Result<Snapshot, RecordError> = decodeWith true text
