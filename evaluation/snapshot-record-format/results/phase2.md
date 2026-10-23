@@ -1,8 +1,36 @@
 # Phase 2 results
 
-Mechanical measurements of [snapshot-record-format-evaluation.md](../../../docs/experiments/snapshot-record-format-evaluation.md),
-run on harness commit `4d79865` (phase 1 codec unchanged from `164bed5`). Pass criteria are the plan's; they were not edited.
-Raw per-measurement output: `diff-locality.json`, `corruption.json`, `load.json` beside this file.
+Mechanical measurements of [snapshot-record-format-evaluation.md](../../../docs/experiments/snapshot-record-format-evaluation.md).
+Pass criteria are the plan's; they were not edited. Raw per-measurement output: `diff-locality.json`,
+`corruption.json`, `load.json` beside this file. `corruption.json` and `load.json` hold run 2;
+`diff-locality.json` is run 1 output (not rerun); run 1's `corruption.json`, with its 189-entry `breaking`
+list, is at commit `4075b60`.
+
+## Run 2 (commit f4c9e30): all four rows pass
+
+Run 1 failed only the corruption line rule. Commit `f4c9e30` changed the decoder, not the format or the
+criteria: before any model is built it checks the rows structurally and names a line (malformed subject or
+owner; duplicate, on its second line; member out of canonical order; a reference or `in=` owner one edit
+away from an existing subject is a misspelling reported where it is written; a reference to a record that
+does not exist is reported on the line where that record would sit in canonical order). Run 1 relied on
+`SnapshotCodec` validation errors mapped to the first ID in the message, which named the owning function.
+
+| Row | Run 1 (4d79865) | Run 2 (f4c9e30) | Criterion | Pass |
+| --- | --- | --- | --- | --- |
+| Diff locality | 0 non-local lines, records <= JSON on all 4 operations | not rerun: the encoder is unchanged, `locality.mjs` does not decode | records <= pretty JSON lines; every changed line local | PASS |
+| Corruption, semantics | 0 accepted with changed semantics | 0 (994 rejected, 5 accepted-same, 1 free-value) | none except free-value edits | PASS |
+| Corruption, line rule | 805/994 = 81.0% | 951/994 = **95.7%** | >= 95% of rejections on the mutated line | PASS |
+| Load | ratio 1.20 | ratio 1.17 (row table 26.23 ms, JSON tree walk 22.48 ms) | <= 1.5x | PASS |
+
+Run 2 corruption by kind (rejected / on the mutated line): char-replace 166/160, char-insert 163/153,
+char-delete 165/161, line-swap 167/162, line-delete 167/149, line-duplicate 166/166. The 43 remaining
+wrong-line rejections are in `corruption.json` (`breaking`): mostly a deleted line whose record nothing
+referenced by ID (a value-arm binding, a parameter whose function has one parameter, a variant), where the
+error surfaces on the owner or in validation, and five swaps across a declaration boundary (a declaration
+record or the blank line before it), where the ordering check fires a few lines later.
+
+Run 2 load: row table 26.23 ms; JSON deserialize 56.95 ms, validate alone 34.47 ms, tree walk 22.48 ms,
+`JsonDocument.Parse` 1.54 ms; record -> JSON text 64.39 ms; record full decode 171.15 ms.
 
 ## Run 1 (commit 4d79865)
 
@@ -47,8 +75,8 @@ the start of the document and the changed function near its end.
 | line-delete | 167 | 167 | 36 |
 | line-duplicate | 166 | 166 | 144 |
 
-Accepted mutations: 5 whose decoded model keeps the semantic fingerprint (edits inside display names, which
-the semantic fingerprint excludes) and 1 free-value literal edit; none with changed semantics. The 189 criterion-breaking mutations (all wrong-line
+Accepted mutations: 5 whose decoded model keeps the semantic fingerprint (not inspected individually) and 1
+free-value literal edit; none with changed semantics. The 189 criterion-breaking mutations (all wrong-line
 rejections) are listed in `corruption.json` under `breaking`; 129 of them are `SnapshotCodec` validation
 errors mapped by the phase 1 rule "the record whose subject ID appears first in the error text", which names
 the owning function before the node, and most of the rest are structural errors reported on the owner
