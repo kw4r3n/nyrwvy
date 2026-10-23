@@ -17,7 +17,7 @@ type private FocusArguments =
 let private usage =
     """Usage:
   dotnet run --project tools/Nyrwvy.ViewerExport -- \
-    focus --input <snapshot-path> --format <json|nyason> \
+    focus --input <snapshot-path> --format <json|nyason|record> \
     (--function-id <stable-function-id> | --function <display-name>) [--output <html-path>]
 
 --function takes an exact display name and fails when no function or several functions have it.
@@ -29,7 +29,8 @@ let private parseEncoding (value: string) =
     match value with
     | "json" -> Ok ViewerSourceEncoding.Json
     | "nyason" -> Ok ViewerSourceEncoding.Nyason
-    | _ -> Error $"Unsupported --format '{value}'. Expected json or nyason."
+    | "record" -> Ok ViewerSourceEncoding.Record
+    | _ -> Error $"Unsupported --format '{value}'. Expected json, nyason or record."
 
 let private parseFocusArguments (arguments: string list): Result<FocusArguments, string> =
     let allowed = set [ "--input"; "--format"; "--function-id"; "--function"; "--output" ]

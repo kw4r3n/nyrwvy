@@ -395,26 +395,55 @@ module internal SessionStorage =
         | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
+    /// The persisted form follows the file extension (docs/decisions/snapshot-record-format.md):
+    /// `.nyrec` is the record form, every other path the strict JSON codec.
+    let isRecordPath (path: string) = Path.GetExtension path = ".nyrec"
+
+    /// The writer's JSON in the form `path` persists.
+    let encode (path: string) (json: string) = if isRecordPath path then RecordCodec.ofJson json else json
+
+    let private recordFailure (error: RecordCodecError) =
+        AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidShape $"line {error.Line}, column {error.Column}: {error.Message}")
+
+    /// Decodes `source` in the record form or strict JSON, resolved against `dependency` when given.
+    let decodeWith (record: bool) (dependency: Snapshot option) (source: string): Result<Snapshot, AuthoringSessionError> =
+        match record, dependency with
+        | true, None -> RecordCodec.deserialize source |> Result.mapError recordFailure
+        | true, Some imported -> RecordCodec.deserializeResolved imported source |> Result.mapError recordFailure
+        | false, None -> SnapshotCodec.deserialize source |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+        | false, Some imported -> SnapshotCodec.deserializeResolved imported source |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+
+    /// Decodes `source` in the form `path` persists.
+    let decodeAs (path: string) = decodeWith (isRecordPath path)
+
+    /// The schema version the document at `path` declares; the record form only decodes the current one.
+    let declaredVersion (path: string) (source: string): Result<SnapshotSchemaVersion, AuthoringSessionError> =
+        if isRecordPath path then Ok SnapshotSchema.current
+        else SnapshotCodec.declaredVersion source |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+
     // SnapshotCodec establishes validity; pinning additionally requires completeness.
     let ensureCompleteDependency (imported: Snapshot): Result<Snapshot, AuthoringSessionError> =
         if imported.Obligations |> List.exists (fun obligation -> obligation.Status = ObligationStatus.Open) then
             Error(AuthoringSessionError.DependencyFailure "The selected dependency has open obligations; complete it before pinning.")
         else Ok imported
 
-    let decodeCompleteDependency (source: string): Result<Snapshot, AuthoringSessionError> =
-        SnapshotCodec.deserialize source
-        |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
-        |> Result.bind ensureCompleteDependency
+    let decodeCompleteDependency (record: bool) (source: string): Result<Snapshot, AuthoringSessionError> =
+        decodeWith record None source |> Result.bind ensureCompleteDependency
 
     /// A resolved local snapshot cannot be decoded without its exact dependency sidecar.
     /// Invalid JSON still goes to SnapshotCodec, which owns syntax diagnostics.
     let requireSidecarForResolvedSource (path: string) (source: string) =
         let bound =
-            try
-                use document = JsonDocument.Parse source
-                document.RootElement.ValueKind = JsonValueKind.Object
-                && fst (document.RootElement.TryGetProperty "dependency")
-            with :? JsonException -> false
+            if isRecordPath path then
+                // The record header is the first line; `dependency=` marks a resolved snapshot.
+                let header = match source.IndexOf '\n' with -1 -> source | at -> source.Substring(0, at)
+                header.Contains " dependency="
+            else
+                try
+                    use document = JsonDocument.Parse source
+                    document.RootElement.ValueKind = JsonValueKind.Object
+                    && fst (document.RootElement.TryGetProperty "dependency")
+                with :? JsonException -> false
         if bound then
             Error(AuthoringSessionError.DependencyFailure
                 $"The dependency sidecar '{path}.dependency.json' is missing. Restore the exact sidecar that belongs to this snapshot; pinning a new version cannot recover a lost selection.")
@@ -422,7 +451,7 @@ module internal SessionStorage =
 
     let readCompleteDependency path =
         readText path |> Result.bind (fun source ->
-            requireSidecarForResolvedSource path source |> Result.bind (fun () -> decodeCompleteDependency source))
+            requireSidecarForResolvedSource path source |> Result.bind (fun () -> decodeCompleteDependency (isRecordPath path) source))
 
     let private writeTemporary (path: string) (content: string): Result<string, AuthoringSessionError> =
         let directory = Path.GetDirectoryName(path)
@@ -523,11 +552,20 @@ module internal PinnedDependency =
         match serialize imported, SnapshotFingerprint.compute imported with
         | Ok source, Ok fingerprint ->
             let fingerprint = SnapshotFingerprint.value fingerprint
-            let manifest = JsonSerializer.Serialize(
-                {| path = sourcePath
-                   snapshotId = StableId.value imported.Id
-                   fingerprint = fingerprint
-                   snapshotJson = source |})
+            // The embedded form follows the dependency file's extension: `snapshotRecords` for `.nyrec`.
+            let manifest =
+                if SessionStorage.isRecordPath sourcePath then
+                    JsonSerializer.Serialize(
+                        {| path = sourcePath
+                           snapshotId = StableId.value imported.Id
+                           fingerprint = fingerprint
+                           snapshotRecords = RecordCodec.ofJson source |})
+                else
+                    JsonSerializer.Serialize(
+                        {| path = sourcePath
+                           snapshotId = StableId.value imported.Id
+                           fingerprint = fingerprint
+                           snapshotJson = source |})
             Ok { Imported = imported; Manifest = manifest; SourcePath = sourcePath
                  Fingerprint = fingerprint; IsEmbedded = true; Members = [] }
         | Error error, _
@@ -584,7 +622,8 @@ module internal PinnedDependency =
 
     let private loadMember (manifest: string) (root: JsonElement) sourceOverride: Result<PinnedDependencySelection, AuthoringSessionError> =
         let fields = root.EnumerateObject() |> Seq.map (fun p -> p.Name) |> Seq.sort |> Seq.toList
-        let embedded = fields = [ "fingerprint"; "path"; "snapshotId"; "snapshotJson" ]
+        let embeddedKey = fields |> List.tryFind (fun name -> name = "snapshotJson" || name = "snapshotRecords")
+        let embedded = fields = [ "fingerprint"; "path"; "snapshotId"; Option.defaultValue "" embeddedKey ]
         if not embedded && fields <> [ "fingerprint"; "path"; "snapshotId" ] then
             Error(AuthoringSessionError.DependencyFailure "Invalid dependency manifest.")
         else
@@ -599,10 +638,12 @@ module internal PinnedDependency =
                 let imported =
                     match sourceOverride with
                     | None when embedded ->
-                        let source = root.GetProperty("snapshotJson").GetString()
+                        let source = root.GetProperty(embeddedKey.Value).GetString()
                         if String.IsNullOrWhiteSpace source then
                             Error(AuthoringSessionError.DependencyFailure "The embedded dependency is missing.")
-                        else SessionStorage.decodeCompleteDependency source
+                        else
+                            // The key marks the embedded form; `path` is provenance only.
+                            SessionStorage.decodeCompleteDependency (embeddedKey.Value = "snapshotRecords") source
                     | _ when not (Path.IsPathFullyQualified selectedPath) || not (File.Exists selectedPath) ->
                         Error(AuthoringSessionError.DependencyFailure "The selected dependency is unavailable. Use pin with an exact copy of the original version to recover a legacy selection.")
                     | _ -> SessionStorage.readCompleteDependency selectedPath
@@ -633,7 +674,7 @@ module internal PinnedDependency =
                     |> Seq.toList
                     |> List.fold (fun state item ->
                         state |> Result.bind (fun loaded ->
-                            if item.ValueKind <> JsonValueKind.Object || not (fst (item.TryGetProperty "snapshotJson")) then
+                            if item.ValueKind <> JsonValueKind.Object || not (fst (item.TryGetProperty "snapshotJson") || fst (item.TryGetProperty "snapshotRecords")) then
                                 Error(AuthoringSessionError.DependencyFailure "Every member of a dependency set must embed its content.")
                             else loadMember (item.GetRawText()) item None |> Result.map (fun selected -> loaded @ [ selected ]))) (Ok [])
                     |> Result.bind combine
@@ -677,9 +718,7 @@ module internal PinnedDependency =
                     | None -> Error(AuthoringSessionError.DependencyFailure "The dependency's own dependency selection is unavailable.")
                     | Some nested ->
                         SessionStorage.readText sourcePath
-                        |> Result.bind (fun text ->
-                            SnapshotCodec.deserializeResolved nested.Imported text
-                            |> Result.mapError AuthoringSessionError.SnapshotCodecFailure)
+                        |> Result.bind (SessionStorage.decodeAs sourcePath (Some nested.Imported))
                         |> Result.map (SnapshotCodec.resolveDependency nested.Imported)
                         |> Result.bind SessionStorage.ensureCompleteDependency)
                 |> Result.bind (embed sourcePath)
@@ -751,8 +790,7 @@ module internal PinnedDependency =
                     let upgraded = members |> List.map (fun item -> if item = target then replacement else item)
                     combine upgraded
                     |> Result.bind (fun selection ->
-                        SnapshotCodec.deserializeResolved current.Imported localSource
-                        |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                        SessionStorage.decodeAs localPath (Some current.Imported) localSource
                         |> Result.map (fun local ->
                             let added, removed, changed = declarationChanges target.Imported replacement.Imported
                             { Selection = selection
@@ -801,8 +839,7 @@ module internal PinnedDependency =
                 else
                     combine upgraded
                     |> Result.bind (fun selection ->
-                        SnapshotCodec.deserializeResolved current.Imported localSource
-                        |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                        SessionStorage.decodeAs localPath (Some current.Imported) localSource
                         |> Result.map (fun local ->
                             let issues = compatibilityIssues selection local
                             let previews = replacements |> List.map (fun (target, replacement) ->
@@ -852,8 +889,7 @@ module internal PinnedDependency =
                 else
                     combine upgraded
                     |> Result.bind (fun selection ->
-                        SnapshotCodec.deserializeResolved current.Imported localSource
-                        |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                        SessionStorage.decodeAs localPath (Some current.Imported) localSource
                         |> Result.map (fun local ->
                             let issues = compatibilityIssues selection local
                             let added, removed, changed = declarationChanges current.Imported selection.Imported
@@ -1042,7 +1078,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 match dependency with
                 | None -> AgentWorkspace.serializeCurrentSnapshot candidate
                 | Some imported -> AgentWorkspace.serializeWithDependency imported candidate
-            match serialized with
+            match serialized |> Result.map (SessionStorage.encode path) with
             | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
             | Ok candidateSource ->
                 match checkPersistedSource () with
@@ -1369,6 +1405,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                             |> Result.bind (fun candidate ->
                                 AgentWorkspace.serializeWithDependency plan.Selection.Imported candidate
                                 |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                                |> Result.map (SessionStorage.encode path)
                                 |> Result.bind (fun source ->
                                     checkPersistedSource () |> Result.bind (fun () ->
                                         SessionStorage.replaceDependencyPair path persistedSource current.Manifest source plan.Selection.Manifest)
@@ -1580,13 +1617,9 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
 
 [<RequireQualifiedAccess>]
 module AuthoringSession =
-    let private workspaceFromSource (dependency: Snapshot option) (source: string): Result<AgentWorkspace, AuthoringSessionError> =
-        let decoded =
-            match dependency with
-            | None -> SnapshotCodec.deserialize source
-            | Some imported -> SnapshotCodec.deserializeResolved imported source
-        match decoded with
-        | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
+    let private workspaceFromSource (path: string) (dependency: Snapshot option) (source: string): Result<AgentWorkspace, AuthoringSessionError> =
+        match SessionStorage.decodeAs path dependency source with
+        | Error error -> Error error
         | Ok snapshot ->
             (match dependency with
              | None -> AgentWorkspace.create snapshot
@@ -1611,7 +1644,7 @@ module AuthoringSession =
                         (match selected with
                          | None -> SessionStorage.requireSidecarForResolvedSource path source
                          | Some _ -> Ok())
-                        |> Result.bind (fun () -> workspaceFromSource (selected |> Option.map (fun item -> item.Imported)) source)
+                        |> Result.bind (fun () -> workspaceFromSource path (selected |> Option.map (fun item -> item.Imported)) source)
                         |> Result.bind (fun workspace ->
                             // Verify the local digest and complete combined graph
                             // before changing even storage-only dependency metadata.
@@ -1649,15 +1682,16 @@ module AuthoringSession =
                                 SessionStorage.requireSidecarForResolvedSource path source
                                 |> Result.bind (fun () -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade."))
                             | Some current ->
-                                workspaceFromSource (Some current.Imported) source
+                                workspaceFromSource path (Some current.Imported) source
                                 |> Result.bind (fun _ -> plan path source current)
                                 |> Result.bind (fun (selection, local, issues) ->
                                     if not (List.isEmpty issues) then Error(AuthoringSessionError.WorkspaceValidationFailure issues)
                                     else
                                         SnapshotCodec.serializeResolved selection.Imported local
                                         |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                                        |> Result.map (SessionStorage.encode path)
                                         |> Result.bind (fun upgradedSource ->
-                                            workspaceFromSource (Some selection.Imported) upgradedSource
+                                            workspaceFromSource path (Some selection.Imported) upgradedSource
                                             |> Result.bind (fun workspace ->
                                                 SessionStorage.replaceDependencyPair path source current.Manifest upgradedSource selection.Manifest
                                                 |> Result.map (fun () -> upgradedSource, workspace, selection))))))
@@ -1745,7 +1779,7 @@ module AuthoringSession =
                                 match dependency with
                                 | None -> AgentWorkspace.serializeCurrentSnapshot workspace
                                 | Some imported -> AgentWorkspace.serializeWithDependency imported workspace
-                            match serialized with
+                            match serialized |> Result.map (SessionStorage.encode path) with
                             | Error error ->
                                 SessionStorage.releaseLock path lockHandle
                                 Error(AuthoringSessionError.SnapshotCodecFailure error)

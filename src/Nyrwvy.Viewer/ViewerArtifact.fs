@@ -7,6 +7,8 @@ open System.Text
 type ViewerSourceEncoding =
     | Json
     | Nyason
+    /// The record form (`.nyrec`, docs/decisions/snapshot-record-format.md).
+    | Record
 
 [<RequireQualifiedAccess>]
 type ViewerArtifactKind =
@@ -26,6 +28,7 @@ type ViewerExportError =
     | AmbiguousFunctionName of displayName: string * candidates: FunctionId list
     | JsonDecodeFailed of SnapshotCodecError
     | NyasonDecodeFailed of NyasonCodecError
+    | RecordDecodeFailed of RecordCodecError
     | FocusQueryFailed of SemanticQueryError
     | ChangeReviewProjectionFailed of ChangeReviewQueryError
 
@@ -80,6 +83,9 @@ module ViewerExport =
         | ViewerSourceEncoding.Nyason ->
             NyasonCodec.deserialize source
             |> Result.mapError ViewerExportError.NyasonDecodeFailed
+        | ViewerSourceEncoding.Record ->
+            RecordCodec.deserialize source
+            |> Result.mapError ViewerExportError.RecordDecodeFailed
 
     let focusFromSnapshot
         (snapshot: Snapshot)
