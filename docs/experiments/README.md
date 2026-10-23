@@ -20,6 +20,7 @@ This area holds explorations, evaluation protocols, and measurements that are no
 
 - [Nyason v0](nyason-v0.md)
 - [Exact-bit representation](bit-representation.md)
+- [Snapshot record format evaluation](snapshot-record-format-evaluation.md): plan for the record format ADR's Revisit conditions
 
 ## Change verification
 
