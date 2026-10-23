@@ -220,6 +220,9 @@ function parseAnswer(text) {
   try { return JSON.parse(stripped) } catch { const m = stripped.match(/\{[\s\S]*\}/); if (!m) return null; try { return JSON.parse(m[0]) } catch { return null } }
 }
 const bare = v => typeof v === "string" ? v.trim().toLowerCase().replace(/^[a-z-]+:/, "") : v
+// A `domain:` prefix is optional, but when given it must name the expected domain.
+const prefixOf = v => typeof v === "string" ? (v.trim().toLowerCase().match(/^([a-z-]+):/) ?? [])[1] : undefined
+const prefixOk = (v, domain) => { const p = prefixOf(v); return p === undefined || p === domain }
 /** correct | wrong | wrong-id-domain | malformed, plus a note. */
 async function grade(task, raw) {
   const r = raw.response
@@ -229,6 +232,7 @@ async function grade(task, raw) {
   const idCheck = (value, domain) => {
     const id = bare(value)
     if (typeof id !== "string" || !uuidRe.test(id)) return "malformed"
+    if (!prefixOk(value, domain)) return "wrong-id-domain"
     if (!domains.has(id)) return "wrong-id-domain"
     if (domains.get(id) !== domain) return "wrong-id-domain"
     return null
@@ -238,11 +242,12 @@ async function grade(task, raw) {
     const expected = task.expected
     if (Array.isArray(expected)) {
       const given = Array.isArray(answer.answer) ? answer.answer.map(bare) : answer.answer === null || answer.answer === "" ? [] : [bare(answer.answer)]
-      if (JSON.stringify([...given].sort()) === JSON.stringify([...expected].sort())) return { outcome: "correct" }
+      const givenRaw = Array.isArray(answer.answer) ? answer.answer : [answer.answer]
+      if (JSON.stringify([...given].sort()) === JSON.stringify([...expected].sort()) && givenRaw.every(g => prefixOk(g, task.domain))) return { outcome: "correct" }
       const bad = given.map(g => idCheck(g, task.domain)).find(Boolean)
       return { outcome: bad ?? "wrong", note: `got ${JSON.stringify(answer.answer)}` }
     }
-    if (bare(answer.answer) === expected) return { outcome: "correct" }
+    if (bare(answer.answer) === expected && prefixOk(answer.answer, task.domain)) return { outcome: "correct" }
     return { outcome: idCheck(answer.answer, task.domain) ?? "wrong", note: `got ${JSON.stringify(answer.answer)}` }
   }
   // Edit: shape, then ID domains, then simulate + commit on a copy and compare with the intended change.
