@@ -428,6 +428,9 @@ module RecordCodec =
             let mutable fi = 0
             if fi >= fields.Length || fields[fi].Key <> "schema" then fail 1 head.EndColumn "missing schema="
             if not (isCanonicalInt (text.AsSpan(fields[fi].Start, fields[fi].Length))) then fail 1 fields[fi].Column "schema= must be an integer"
+            // The record form has no earlier versions: `serialize` always writes the current one.
+            if not ((text.AsSpan(fields[fi].Start, fields[fi].Length)).SequenceEqual(string SnapshotSchema.current.Json)) then
+                fail 1 fields[fi].Column $"schema= must be {SnapshotSchema.current.Json}"
             w.WritePropertyName "schemaVersion"
             w.WriteRawValue(text.AsSpan(fields[fi].Start, fields[fi].Length), true)
             w.WriteString("snapshotId", head.Subject.AsSpan 9)
