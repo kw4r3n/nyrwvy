@@ -42,8 +42,8 @@ Symbolic recipe:
 ```
 
 The ID-based recipe uses `bodyFunctionId` and parameter IDs. Snapshot JSON and
-both IRs use `cancellationShield` with `bodyFunctionId` and `context`; Nyason uses
-`cancellation-shield`. Snapshot JSON 15 / Nyason v11 is required only for graphs
+both IRs use `cancellationShield` with `bodyFunctionId` and `context`. Snapshot
+schema 15 (`nayamnyam.snapshot.v11`) is required only for graphs
 containing this node. Earlier graphs keep their existing versions and identities.
 The C# emitter saves `NyRuntime.Cancellation.Value`, assigns `CancellationToken.None`,
 calls the body with `NyUnit.Value`, and restores the token in `finally`. Reachability,

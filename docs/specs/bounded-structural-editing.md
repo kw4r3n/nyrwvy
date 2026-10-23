@@ -62,7 +62,7 @@ The request does not accept:
 
 - a raw `Snapshot`, `SemanticFunction`, `ValueGraph`, `SemanticNode`, or `SemanticNodeKind`;
 - a caller-supplied production `GraphNodeId`, `SnapshotId`, or `TransactionId` for newly created objects;
-- JSON/Nyason/generated-C# patches;
+- JSON/record/generated-C# patches;
 - arbitrary local-node references;
 - callbacks or generic node-construction functions.
 

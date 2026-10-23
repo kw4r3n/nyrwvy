@@ -11,7 +11,7 @@ The backend consumes:
 - backend-neutral `ExecutionProgram` data; and
 - an explicit backend profile/binding configuration.
 
-It must not consume authoritative semantic `Snapshot` state, JSON/Nyason persistence, raw semantic value graphs, or display names as semantic lookup keys.
+It must not consume authoritative semantic `Snapshot` state, JSON or record-form persistence, raw semantic value graphs, or display names as semantic lookup keys.
 
 The backend does not repeat semantic name resolution or type inference already completed upstream.
 

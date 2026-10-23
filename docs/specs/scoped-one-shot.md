@@ -41,7 +41,7 @@ A type parameter used inside a OneShot payload must be instantiated with a type 
 
 Ordinary name-resolved and exact-ID recipes expose the three operations. The same exact type/effect/boundary checks run at proposal simulation and full snapshot validation. Shared recipe reference, inspect/review, save/reopen, lowering and the C# projection must all preserve the typed constructs. New graph IDs are system assigned; targeted replacement preserves its node ID.
 
-The type anywhere, or any of the three nodes, selects snapshot JSON 14/Nyason v10 in the central schema policy. Old graphs retain their existing minimum versions, bytes and fingerprints. Old readers reject the new schema explicitly. Typed and Execution IR debug output selects version 10 for these constructs, including local container types. Graphs without them retain their existing versions; IR output remains write-only debug data.
+The type anywhere, or any of the three nodes, selects snapshot schema 14 (`nayamnyam.snapshot.v10`) in the central schema policy. Old graphs retain their existing minimum versions, bytes and fingerprints. Old readers reject the new schema explicitly. Typed and Execution IR debug output selects version 10 for these constructs, including local container types. Graphs without them retain their existing versions; IR output remains write-only debug data.
 
 ## Broker acceptance and comparison
 
