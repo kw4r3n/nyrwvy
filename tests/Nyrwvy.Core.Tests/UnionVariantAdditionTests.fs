@@ -178,7 +178,11 @@ module UnionVariantAdditionTests =
             Assert.Equal(idText shape.Id, added[0].GetProperty("ownerTypeId").GetString())
             let variant = added[0].GetProperty("variant")
             Assert.Equal("Ring", variant.GetProperty("displayName").GetString())
-            Assert.Equal<string list>([ "inner"; "outer" ], variant.GetProperty("fields").EnumerateArray() |> Seq.map (fun item -> item.GetProperty("displayName").GetString()) |> List.ofSeq)
+            // Fields are an ID-keyed set, written in ID order; two IDs allocated together may sort either way.
+            let fields = variant.GetProperty("fields").EnumerateArray() |> List.ofSeq
+            Assert.Equal<Set<string>>(Set.ofList [ "inner"; "outer" ], fields |> List.map (fun item -> item.GetProperty("displayName").GetString()) |> Set.ofList)
+            let fieldIds = fields |> List.map (fun item -> item.GetProperty("id").GetString())
+            Assert.Equal<string list>(List.sort fieldIds, fieldIds)
             let arms = diff.GetProperty("unionMatchArmsAdded")
             Assert.Equal(2, arms.GetArrayLength())
             let armOwners = arms.EnumerateArray() |> Seq.map (fun item -> item.GetProperty("ownerFunctionId").GetString()) |> Set.ofSeq
