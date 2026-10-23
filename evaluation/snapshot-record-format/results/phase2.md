@@ -6,6 +6,24 @@ Pass criteria are the plan's; they were not edited. Raw per-measurement output: 
 `diff-locality.json` is run 1 output (not rerun); run 1's `corruption.json`, with its 189-entry `breaking`
 list, is at commit `4075b60`.
 
+## Follow-up (commit 709a2b1): accepted mutations, no-op exclusion, misspelling-rule ablation
+
+- The corruption command now discards any draw that leaves the bytes unchanged and redraws the slot from
+  the same seed stream; with seed 20261023 no draw was a no-op, so the 1,000 mutations are unchanged.
+  Every entry in `corruption.json` `all` now carries `before`/`after`.
+- The six accepted mutations, inspected: five are free-value edits (a character inserted or deleted in a
+  display name or string literal: lines `parameter ... name=`, `union ... name=`, `string-literal ...
+  value=`, two `function ... name=`), which the plan allows; the sixth (slot 102) replaces one character of
+  the header's `snapshot:` ID, giving a different, canonical document whose semantic fingerprint is the same
+  because the fingerprint excludes the snapshot ID. None changed bytes and decoded as the same document;
+  no codec bug. Run 2's "5 accepted-same" were these free-value edits counted by fingerprint first; the
+  classifier now checks free-value first (5 free-value, 1 same).
+- Ablation of the one-edit misspelling rule (`corrupt --no-misspelling-rule`, results in
+  `corruption-no-misspelling-rule.json`): rejections on the mutated line 949/994 = **95.5%** without the rule
+  vs 951/994 = 95.7% with it; both pass. By kind without the rule: char-replace 166/155, char-insert
+  163/153, char-delete 165/164, line-swap 167/162, line-delete 167/149, line-duplicate 166/166. The rule
+  is kept (default on). Round trip on 709a2b1: 12 fixtures, 0 failed.
+
 ## Run 2 (commit f4c9e30): all four rows pass
 
 Run 1 failed only the corruption line rule. Commit `f4c9e30` changed the decoder, not the format or the
