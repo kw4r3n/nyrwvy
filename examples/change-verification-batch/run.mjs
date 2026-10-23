@@ -20,7 +20,7 @@ assert.deepEqual(await readdir(output), [], "Use an empty output directory")
 await writeFile(join(output, "requirements.json"), requirementsText)
 const bundle = join(output, "working")
 await cp(baselineBundle, bundle, { recursive: true })
-const snapshot = join(bundle, "batch.json"), sidecar = snapshot + ".dependency.json"
+const snapshot = join(bundle, "batch.nyrec"), sidecar = snapshot + ".dependency.json"
 const pair = () => Promise.all([readFile(snapshot), readFile(sidecar)])
 const tools = createGraphTools(z)
 const context = { sessionID: `practical-verification-${process.pid}`, worktree: repositoryRoot, allowHostSources: true }
@@ -210,12 +210,12 @@ try {
   const controlDirectory = join(output, "negative-control-only")
   await call("close")
   await cp(improved, controlDirectory, { recursive: true })
-  await call("open", { mode: "open", snapshot: join(controlDirectory, "batch.json") })
+  await call("open", { mode: "open", snapshot: join(controlDirectory, "batch.nyrec") })
   const committedGap = await call("replace", { function: "missingLine", replacement: gapBody })
   await call("commit", { proposalId: committedGap.proposalId })
   await call("close")
   const ordinaryGap = await ordinaryReplay(controlDirectory, "ordinary-coverage-gap")
-  await call("open", { mode: "open", snapshot: join(controlDirectory, "batch.json") })
+  await call("open", { mode: "open", snapshot: join(controlDirectory, "batch.nyrec") })
   const prefix = await call("replace", { function: "missingLine", replacement: line(escape(parameter("request")), escape(parameter("error")), "missing ") })
   await call("commit", { proposalId: prefix.proposalId })
   await call("close")

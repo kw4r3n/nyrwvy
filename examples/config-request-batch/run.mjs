@@ -70,12 +70,12 @@ async function create(displayName, parameters, resultType, body, effects = ["Fil
 }
 
 async function author() {
-  const library = join(output, "format-library.json")
+  const library = join(output, "format-library.nyrec")
   await call("open", { mode: "create", snapshot: library })
   // A declaration is private unless exported; the batch depends on this library function.
   await create("normalizeValue", [parameter("value", string)], string, { kind: "stringToUpper", value: p("value") }, [], true)
   await call("close")
-  await call("open", { mode: "create", snapshot: join(original, "batch.json"), dependency: library })
+  await call("open", { mode: "create", snapshot: join(original, "batch.nyrec"), dependency: library })
   for (const [displayName, fields] of [
     ["BatchConfig", [parameter("requests", generic("list", string)), parameter("maxAttempts", int64), parameter("output", string)]],
     ["BatchSummary", [parameter("succeeded", int64), parameter("failed", int64), parameter("contents", string)]],
@@ -236,7 +236,7 @@ async function runSaved(directory) {
 
 try {
   if (replay) {
-    await call("open", { mode: "open", snapshot: join(output, "batch.json") })
+    await call("open", { mode: "open", snapshot: join(output, "batch.nyrec") })
     await runSaved(output)
     console.log(`PASS: replayed saved cases. ${output}`)
   } else {
@@ -253,7 +253,7 @@ try {
   await writeFile(join(original, "cases.json"), JSON.stringify(cases, null, 2))
   await writeHost(original)
   await call("close")
-  await call("open", { mode: "open", snapshot: join(original, "batch.json") })
+  await call("open", { mode: "open", snapshot: join(original, "batch.nyrec") })
   await runSaved(original)
   if (signature) {
     const { evolveSignature } = await import("./evolve-signature.mjs")
@@ -266,7 +266,7 @@ try {
   await call("close")
   await cp(original, moved, { recursive: true, errorOnExist: true, force: false })
   await rename(library, library + ".unavailable")
-  await call("open", { mode: "open", snapshot: join(moved, "batch.json") })
+  await call("open", { mode: "open", snapshot: join(moved, "batch.nyrec") })
   assert.equal((await call("inspect", { view: "function", function: "missingLine" })).function.id, after.function.id)
   await runSaved(moved)
   console.log(`PASS: ordinary authoring, maintenance, saved tests, reopen and moved dependency pin. ${output}`)

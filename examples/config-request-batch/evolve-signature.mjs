@@ -13,7 +13,7 @@ const binary = (kind, left, right) => ({ kind, left, right })
 const direct = (functionName, values) => ({ kind: "directCall", function: functionName, arguments: Object.entries(values).map(([parameter, value]) => ({ parameter, value })) })
 
 export async function evolveSignature({ directory, call, exchange, publish, writeHost, runSaved }) {
-  const snapshot = join(directory, "batch.json")
+  const snapshot = join(directory, "batch.nyrec")
   const persisted = () => Promise.all([readFile(snapshot), readFile(snapshot + ".dependency.json")])
   const before = await call("inspect", { view: "declarations" })
   const operation = before.capabilities.find(c => c.displayName === "BatchFiles").operations.find(o => o.displayName === "fetch")

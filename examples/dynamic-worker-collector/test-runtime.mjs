@@ -1,5 +1,5 @@
 // Compile the unedited emitted projection with an external scheduling-only host.
-import { mkdtemp, copyFile, writeFile, readFile, readdir, stat, rm } from 'node:fs/promises'
+import { mkdtemp, copyFile, writeFile, readFile, stat, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'

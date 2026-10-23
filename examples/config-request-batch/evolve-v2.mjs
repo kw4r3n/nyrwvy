@@ -14,7 +14,7 @@ const concat = (...items) => items.reduce((left, right) => binary("stringConcat"
 const choose = (condition, whenTrue, whenFalse) => ({ kind: "conditional", condition, whenTrue, whenFalse })
 
 export async function evolveV2({ directory, library, call, exchange, publish, writeHost, runSaved }) {
-  const snapshot = join(directory, "batch.json"), casesPath = join(directory, "cases.json")
+  const snapshot = join(directory, "batch.nyrec"), casesPath = join(directory, "cases.json")
   const evidence = { stages: [], refusals: [], atomicity: "Dependency upgrade and local field migration are separate publications." }
   const pair = () => Promise.all([readFile(snapshot), readFile(snapshot + ".dependency.json")])
   const inspect = functionName => call("inspect", { view: "function", function: functionName })
@@ -51,7 +51,7 @@ export async function evolveV2({ directory, library, call, exchange, publish, wr
   const originalIdentities = identities(baseline)
   const originalStatus = await call("inspect", { view: "status" })
   const imported = baseline.functions.find(fn => fn.displayName === "normalizeValue")
-  const libraryV1 = library + ".v1.json", incompatible = library + ".incompatible.json"
+  const libraryV1 = library + ".v1.nyrec", incompatible = library + ".incompatible.nyrec"
   await call("close")
   await cp(library, libraryV1)
   // Revise the original upstream path. The consumer must continue using its v1 pin.
