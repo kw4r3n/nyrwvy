@@ -1,4 +1,4 @@
-import {string,int,unit,cap,scope,task,oneShot,named,result,p,text,integer,unitValue,pat,bind,field,construct,ok,direct,cond,matchOption,invoke} from './lib.mjs'
+import {string,int,unit,cap,scope,task,oneShot,named,result,p,text,integer,unitValue,pat,bind,field,construct,ok,direct,cond,matchOption,invoke} from '../dynamic-worker-collector/lib.mjs'
 
 // Minimal gate: can moving OneShot cursors release their past while workers live?
 // It deliberately isolates retention before implementing a bounded backlog.
