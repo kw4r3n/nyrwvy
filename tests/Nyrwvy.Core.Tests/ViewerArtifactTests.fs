@@ -52,23 +52,6 @@ module ViewerArtifactTests =
           "--" ] @ tail
 
     [<Fact>]
-    let ``JSON and Nyason sources export the identical focus artifact`` () =
-        let fixture = MilestoneZeroGraph.create ()
-        let json = SnapshotCodec.serialize fixture.Snapshot |> unwrap
-        let nyason = NyasonCodec.serialize fixture.Snapshot |> unwrap
-        let functionIdText = StableId.value fixture.MainFunctionId
-
-        let fromJson =
-            ViewerExport.focusFromSource ViewerSourceEncoding.Json json functionIdText
-            |> unwrap
-        let fromNyason =
-            ViewerExport.focusFromSource ViewerSourceEncoding.Nyason nyason functionIdText
-            |> unwrap
-
-        if fromJson <> fromNyason then
-            failwith "Equivalent JSON and Nyason snapshots produced different viewer artifacts."
-
-    [<Fact>]
     let ``focus artifact filename is stable-ID derived and display-name independent`` () =
         let fixture = MilestoneZeroGraph.create ()
         let original = ViewerExport.focusFromSnapshot fixture.Snapshot fixture.ValidateFunctionId |> unwrap

@@ -81,25 +81,3 @@ module StableIdAllocatorTests =
         if typed <> "function:function-fixture-readable-id" then
             failwithf "Unexpected typed fixture ID: %s" typed
 
-    [<Fact>]
-    let ``Nyason emits one typed prefix for production UUIDv7 snapshot IDs`` () =
-        let fixture = MilestoneZeroGraph.create ()
-        let productionSnapshotId = StableIdAllocator.newSnapshotId ()
-        let snapshot = { fixture.Snapshot with Id = productionSnapshotId }
-
-        let source =
-            match NyasonCodec.serialize snapshot with
-            | Ok value -> value
-            | Error error -> failwithf "Unexpected Nyason serialization error: %A" error
-
-        let typedId = StableIdText.snapshotId productionSnapshotId
-        if not (source.Contains(typedId, StringComparison.Ordinal)) then
-            failwithf "Nyason output does not contain production typed ID '%s'." typedId
-
-        if source.Contains("snapshot:snapshot:", StringComparison.Ordinal) then
-            failwith "Nyason duplicated the snapshot stable-ID domain prefix."
-
-        match NyasonCodec.deserialize source with
-        | Ok decoded when decoded.Id = productionSnapshotId -> ()
-        | Ok decoded -> failwithf "Nyason changed production snapshot identity to %s." (StableId.value decoded.Id)
-        | Error error -> failwithf "Unexpected Nyason deserialization error: %A" error

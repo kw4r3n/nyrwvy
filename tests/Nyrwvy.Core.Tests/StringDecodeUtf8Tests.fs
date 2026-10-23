@@ -49,9 +49,8 @@ module StringDecodeUtf8Tests =
         Assert.Contains("\"stringDecodeUtf8Lossy\"", json)
         let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
-        let nyason = NyasonCodec.serialize decoded |> unwrap "nyason"
-        Assert.Contains("string-decode-utf8-lossy", nyason)
-        let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+        let persisted = SnapshotCodec.serialize decoded |> unwrap "reserialize"
+        let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
         let typed = TypedSemanticIr.project restored |> unwrap "typed"
         Assert.Contains("\"stringDecodeUtf8Lossy\"", TypedSemanticIrSerializer.serialize typed)

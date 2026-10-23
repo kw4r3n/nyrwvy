@@ -41,17 +41,14 @@ module ExceptionBoundaryTests =
     let private snapshot path = File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap
 
     [<Fact>]
-    let ``explicit exception boundary roundtrips JSON Nyason both IRs and reopens`` () =
+    let ``explicit exception boundary roundtrips JSON both IRs and reopens`` () =
         fixture (fun session path ->
             let original = snapshot path
             Assert.Empty(SnapshotValidator.validate original)
             let json = SnapshotCodec.serializeCanonical original |> unwrap
             Assert.Contains("\"schemaVersion\":16", json)
             Assert.True(Result.isError(SnapshotCodec.deserialize(json.Replace("\"schemaVersion\":16", "\"schemaVersion\":15"))))
-            let nyason = NyasonCodec.serializeCanonical original |> unwrap
-            Assert.Contains("nayamnyam.snapshot.v12", nyason)
-            Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serializeCanonical |> unwrap)
-            Assert.True(Result.isError(NyasonCodec.deserialize(nyason.Replace("nayamnyam.snapshot.v12", "nayamnyam.snapshot.v11"))))
+            Assert.Equal(json, SnapshotCodec.deserialize json |> unwrap |> SnapshotCodec.serializeCanonical |> unwrap)
             let typed = TypedSemanticIr.project original |> unwrap
             Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
             Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
@@ -138,10 +135,7 @@ module ExceptionBoundaryTests =
             let json = SnapshotCodec.serializeCanonical original |> unwrap
             Assert.Contains("\"schemaVersion\":17", json)
             Assert.True(Result.isError(SnapshotCodec.deserialize(json.Replace("\"schemaVersion\":17", "\"schemaVersion\":16"))))
-            let nyason = NyasonCodec.serializeCanonical original |> unwrap
-            Assert.Contains("nayamnyam.snapshot.v13", nyason)
-            Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serializeCanonical |> unwrap)
-            Assert.True(Result.isError(NyasonCodec.deserialize(nyason.Replace("nayamnyam.snapshot.v13", "nayamnyam.snapshot.v12"))))
+            Assert.Equal(json, SnapshotCodec.deserialize json |> unwrap |> SnapshotCodec.serializeCanonical |> unwrap)
             let typed = TypedSemanticIr.project original |> unwrap
             Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
             Assert.Contains("exceptionIsCancellation", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)

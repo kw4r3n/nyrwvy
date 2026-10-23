@@ -72,7 +72,8 @@ type SnapshotSchemaFeature =
     | DeclarationVisibility
 
 /// One persisted snapshot schema: its JSON `schemaVersion` and its Nyason schema identifier.
-/// The two formats number their versions separately but move together.
+/// The two number their versions separately but move together. The Nyason v0 codec was removed
+/// (2026-10-24); its identifier survives as the schema name in migration reports.
 type SnapshotSchemaVersion =
     { Json: int
       Nyason: string }
@@ -169,8 +170,6 @@ module SnapshotSchema =
     /// document are unchanged.
     let writesVisibility (declared: SnapshotSchemaVersion) =
         declared.Json >= (minimumVersion SnapshotSchemaFeature.DeclarationVisibility).Json
-
-    let tryNyason (schemaId: string) = supported |> List.tryFind (fun candidate -> candidate.Nyason = schemaId)
 
     /// The construct a node's own kind needs, if any; nested graphs are visited separately.
     let featureOfNodeKind (kind: SemanticNodeKind): SnapshotSchemaFeature option =

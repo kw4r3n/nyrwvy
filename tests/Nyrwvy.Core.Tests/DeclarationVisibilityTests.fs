@@ -8,7 +8,7 @@ open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// Declaration visibility (docs/decisions/declaration-visibility.md): private by default, explicit
-/// at snapshot schema 21 / Nyason v17, every declaration of an older document exported, and a
+/// at snapshot schema 21, every declaration of an older document exported, and a
 /// dependency's private declarations hidden from its dependents.
 module DeclarationVisibilityTests =
     let private unwrap label = function Ok value -> value | Error error -> failwithf "%s: %A" label error
@@ -103,7 +103,6 @@ module DeclarationVisibilityTests =
         let json = SnapshotCodec.serializeCanonical legacy |> unwrap "legacy json"
         Assert.Contains($"\"schemaVersion\":{SnapshotSchema.baseline.Json}", json)
         Assert.DoesNotContain("exported", json)
-        Assert.Contains(SnapshotSchema.baseline.Nyason, NyasonCodec.serializeCanonical legacy |> unwrap "legacy nyason")
         Assert.Empty(SnapshotSchema.usedFeatures legacy)
 
         let mixed = { legacy with Functions = legacy.Functions |> List.map (fun fn -> { fn with Exported = false }) }
@@ -122,25 +121,18 @@ module DeclarationVisibilityTests =
         let restored = SnapshotCodec.deserialize mixedJson |> unwrap "mixed round trip"
         Assert.Equal(mixed, restored)
         Assert.Equal(mixedJson, SnapshotCodec.serializeCanonical restored |> unwrap "mixed again")
-        let nyason = NyasonCodec.serializeCanonical mixed |> unwrap "mixed nyason"
-        Assert.Contains("\"nayamnyam.snapshot.v17\"", nyason)
-        Assert.Equal(mixed, NyasonCodec.deserialize nyason |> unwrap "mixed nyason round trip")
-        // Rejected one version below, by both codecs: the marker is an unknown property there.
+        // Rejected one version below: the marker is an unknown property there.
         Assert.True(Result.isError (SnapshotCodec.deserialize (mixedJson.Replace("\"schemaVersion\":21", "\"schemaVersion\":20"))))
-        Assert.True(Result.isError (NyasonCodec.deserialize (nyason.Replace("\"nayamnyam.snapshot.v17\"", "\"nayamnyam.snapshot.v16\""))))
         // An all-private snapshot writes no marker at all, so the version gate alone rejects it below 21.
         let allPrivate = declarations false
         let privateJson = SnapshotCodec.serializeCanonical allPrivate |> unwrap "private json"
         Assert.Contains("\"schemaVersion\":21", privateJson)
         Assert.DoesNotContain("exported", privateJson)
         Assert.Equal(allPrivate, SnapshotCodec.deserialize privateJson |> unwrap "private round trip")
-        let privateNyason = NyasonCodec.serializeCanonical allPrivate |> unwrap "private nyason"
-        Assert.Equal(allPrivate, NyasonCodec.deserialize privateNyason |> unwrap "private nyason round trip")
         // The same bytes declared at version 20 are a legal older document whose declarations have no
         // visibility: they read as exported (the version-gated default), not as a rejection.
         let downgraded = SnapshotCodec.deserialize (privateJson.Replace("\"schemaVersion\":21", "\"schemaVersion\":20")) |> unwrap "downgraded"
         Assert.Equal(declarations true, downgraded)
-        Assert.Equal(declarations true, NyasonCodec.deserialize (privateNyason.Replace("\"nayamnyam.snapshot.v17\"", "\"nayamnyam.snapshot.v16\"")) |> unwrap "downgraded nyason")
 
     [<Fact>]
     let ``a document below schema 21 reads every declaration as exported and keeps its fingerprints`` () =
@@ -151,8 +143,7 @@ module DeclarationVisibilityTests =
         Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap "legacy again")
         Assert.Equal(SnapshotFingerprint.compute legacy |> unwrap "legacy fingerprint", SnapshotFingerprint.compute restored |> unwrap "restored fingerprint")
         Assert.Equal(SemanticFingerprint.compute legacy |> unwrap "legacy semantic", SemanticFingerprint.compute restored |> unwrap "restored semantic")
-        let nyason = NyasonCodec.serializeCanonical legacy |> unwrap "legacy nyason"
-        Assert.Equal(legacy, NyasonCodec.deserialize nyason |> unwrap "legacy nyason read")
+        Assert.Equal(legacy, SnapshotCodec.deserialize json |> unwrap "legacy read")
         // Visibility is part of both fingerprints once a declaration is private.
         let mixed = { legacy with Functions = legacy.Functions |> List.map (fun fn -> { fn with Exported = false }) }
         Assert.NotEqual(SnapshotFingerprint.compute legacy |> unwrap "legacy", SnapshotFingerprint.compute mixed |> unwrap "mixed")

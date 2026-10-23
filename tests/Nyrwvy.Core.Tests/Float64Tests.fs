@@ -331,14 +331,12 @@ module Float64Tests =
             classifierIssues
 
     [<Fact>]
-    let ``JSON and Nyason preserve binary64 bits while canonicalizing external NaN payloads`` () =
+    let ``JSON preserves binary64 bits while canonicalizing external NaN payloads`` () =
         let fixture = createFixture ()
         let json = SnapshotCodec.serializeCanonical fixture.Snapshot |> unwrap "JSON serialization"
         let restoredJson = SnapshotCodec.deserialize json |> unwrap "JSON deserialization"
-        let nyason = NyasonCodec.serializeCanonical fixture.Snapshot |> unwrap "Nyason serialization"
-        let restoredNyason = NyasonCodec.deserialize nyason |> unwrap "Nyason deserialization"
 
-        for restored in [ restoredJson; restoredNyason ] do
+        for restored in [ restoredJson ] do
             let values = literalBits restored |> List.map Float64Bits.value
             if not (List.contains 0x0000000000000000UL values) then
                 failwith "Positive zero binary64 bits were not preserved."
@@ -348,32 +346,20 @@ module Float64Tests =
                 failwith "Canonical NaN binary64 bits were not preserved."
 
         let reserializedJson = SnapshotCodec.serializeCanonical restoredJson |> unwrap "JSON reserialization"
-        let reserializedNyason = NyasonCodec.serializeCanonical restoredNyason |> unwrap "Nyason reserialization"
         Assert.Equal(json, reserializedJson)
-        Assert.Equal(nyason, reserializedNyason)
         Assert.Contains("\"schemaVersion\":9", json)
         Assert.Contains("\"bits\":\"8000000000000000\"", json)
-        Assert.Contains("primitive-float64", nyason)
-        Assert.Contains("float64-divide", nyason)
 
         let payload = "7ff0000000000001"
         let canonical = Float64Bits.canonicalNaNBits.ToString("x16", CultureInfo.InvariantCulture)
         let externalJson = json.Replace(canonical, payload)
-        let externalNyason = nyason.Replace(canonical, payload)
         let canonicalJson =
             SnapshotCodec.deserialize externalJson
             |> unwrap "external NaN JSON deserialization"
             |> SnapshotCodec.serialize
             |> unwrap "canonical JSON serialization"
-        let canonicalNyason =
-            NyasonCodec.deserialize externalNyason
-            |> unwrap "external NaN Nyason deserialization"
-            |> NyasonCodec.serialize
-            |> unwrap "canonical Nyason serialization"
         Assert.DoesNotContain(payload, canonicalJson)
-        Assert.DoesNotContain(payload, canonicalNyason)
         Assert.Contains(canonical, canonicalJson)
-        Assert.Contains(canonical, canonicalNyason)
 
     [<Fact>]
     let ``Typed and Execution IR preserve every initial Float64 semantic role and exact literal bits`` () =

@@ -201,10 +201,7 @@ module ListSortByTests =
             let graph = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Empty(SnapshotValidator.validate graph)
             Assert.Equal(encoded, SnapshotCodec.serialize graph |> unwrap)
-            let nyason = NyasonCodec.serialize graph |> unwrap
-            Assert.Contains("list-sort-by", nyason)
-            Assert.Contains("string-less-than", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap
+            let restored = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap
@@ -318,9 +315,7 @@ module ListSortByTests =
             let graph = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Empty(SnapshotValidator.validate graph)
             Assert.Equal(encoded, SnapshotCodec.serialize graph |> unwrap)
-            let nyason = NyasonCodec.serialize graph |> unwrap
-            Assert.Contains("list-min-by", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap
+            let restored = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             let typed = TypedSemanticIr.project restored |> unwrap
             Assert.Contains("\"kind\":\"listMinBy\"", TypedSemanticIrSerializer.serialize typed)

@@ -60,9 +60,9 @@ module StringJoinListSliceTests =
         accepts (request [ listOf (optionOf intType); intType; intType ] (listOf (optionOf intType)) slice)
         accepts (request [] (listOf stringType) (ExpressionRecipe.ListSlice(ExpressionRecipe.ListEmpty stringType, int 0L, int 1L)))
         let cases =
-            [ "stringJoin", "string-join", "NyText.Join(", [ listOf stringType; stringType ], stringType, join, "StringIntrinsicTypeMismatch"
-              "listSlice", "list-slice", ".Slice(", [ listOf (listOf stringType); intType; intType ], listOf (listOf stringType), slice, "ListSliceListTypeMismatch" ]
-        for kind, nyasonTag, emitted, parameters, resultType, body, brokenCode in cases do
+            [ "stringJoin", "NyText.Join(", [ listOf stringType; stringType ], stringType, join, "StringIntrinsicTypeMismatch"
+              "listSlice", ".Slice(", [ listOf (listOf stringType); intType; intType ], listOf (listOf stringType), slice, "ListSliceListTypeMismatch" ]
+        for kind, emitted, parameters, resultType, body, brokenCode in cases do
             let proposal =
                 AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request parameters resultType body)
                 |> unwrap ("simulate " + kind)
@@ -75,9 +75,8 @@ module StringJoinListSliceTests =
             Assert.Contains($"\"{kind}\"", json)
             let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
             Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
-            let nyason = NyasonCodec.serialize decoded |> unwrap "nyason"
-            Assert.Contains(nyasonTag, nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let persisted = SnapshotCodec.serialize decoded |> unwrap "reserialize"
+            let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
             Assert.Contains($"\"{kind}\"", TypedSemanticIrSerializer.serialize typed)

@@ -269,7 +269,7 @@ module ParallelAllTests =
             let release = fixture.Files.Operations |> List.find (fun op -> op.DisplayName = "close")
             Assert.Contains((effects "runInWorkspace").Evidence, fun item -> item.Source = EffectRequirementSource.CapabilityOperation release.Id)
             Assert.Empty((effects "notCancelled").EffectIds)
-            Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize (NyasonCodec.serialize snapshot |> unwrap "nyason") |> unwrap "nyason decode"))
+            Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (SnapshotCodec.deserialize (SnapshotCodec.serialize snapshot |> unwrap "reserialize") |> unwrap "decode"))
             let artifact = session.EmitCSharp(CSharpBackendProfile.externalImplementations (fixture.Jobs.Operations @ fixture.Files.Operations |> List.map (fun item -> item.Id)) |> CSharpBackendProfile.withConcurrentCapabilities [ fixture.Jobs.Id ]) |> unwrap "emit"
             Assert.Contains("public static class NyRuntime", artifact.Source)
             Assert.Contains("CancellationTokenSource.CreateLinkedTokenSource(NyRuntime.Cancellation.Value)", artifact.Source)

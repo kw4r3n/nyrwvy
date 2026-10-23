@@ -27,8 +27,6 @@
     <Compile Include="Fingerprint.fs" />
     <Compile Include="SnapshotMigration.fs" />
     <Compile Include="DependencyGraph.fs" />
-    <Compile Include="NyasonSyntax.fs" />
-    <Compile Include="NyasonCodec.fs" />
     <Compile Include="Readiness.fs" />
     <Compile Include="Transactions.fs" />
     <Compile Include="Workspace.fs" />

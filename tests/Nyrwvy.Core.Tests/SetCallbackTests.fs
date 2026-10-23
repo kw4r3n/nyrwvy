@@ -99,10 +99,7 @@ module SetCallbackTests =
             let json = SnapshotCodec.serializeCanonical snapshot |> unwrap
             for kind in [ "\"setFold\""; "\"setFilter\""; "\"setMap\""; "\"schemaVersion\":20" ] do
                 Assert.Contains(kind, json)
-            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap
-            for tag in [ "set-fold"; "set-filter"; "set-map"; "nayamnyam.snapshot.v16" ] do
-                Assert.Contains(tag, nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap
+            let restored = SnapshotCodec.deserialize json |> unwrap
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap)
             let typed = TypedSemanticIr.project restored |> unwrap

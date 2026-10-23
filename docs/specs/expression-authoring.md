@@ -2,6 +2,8 @@
 
 **Status:** Current
 
+> **Nyason v0 removed (2026-10-24, owner decision).** The nested tagged-record codec (`NyasonCodec`, `NyasonSyntax`, the viewer `nyason` input) is gone from the repository. The `Nyason` kebab-case tag spellings and `nayamnyam.snapshot.vN` identifiers below are recorded history; the identifiers survive only as `SnapshotSchemaVersion.Nyason`, the schema name in migration reports. The Nyrwvy-native encoding direction continues as the [record form](../decisions/snapshot-record-format.md).
+
 This specification defines the reusable cross-domain construction surface for agent-authored expressions, including calls and capability invocations within a target function's already-declared effects.
 
 The purpose is to separate two representations that serve different jobs:

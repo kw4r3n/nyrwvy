@@ -60,7 +60,6 @@
     <Compile Include="RecipeKindConsistencyTests.fs" />
     <Compile Include="AssemblyBoundaryTests.fs" />
     <Compile Include="MilestoneZeroTests.fs" />
-    <Compile Include="NyasonTests.fs" />
     <Compile Include="TypedSemanticIrTests.fs" />
     <Compile Include="TypedSemanticIrSerializerTests.fs" />
     <Compile Include="ExecutionIrTests.fs" />

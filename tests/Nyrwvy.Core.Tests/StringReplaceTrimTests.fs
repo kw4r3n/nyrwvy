@@ -64,11 +64,11 @@ module StringReplaceTrimTests =
         Assert.NotEqual<string>("", rejects (request [ stringType ] intType (ExpressionRecipe.StringTrim(slot 0))))
         Assert.NotEqual<string>("", rejects (request [ stringType ] intType (ExpressionRecipe.StringReplace(slot 0, text "a", text "b"))))
         let cases =
-            [ "stringReplace", "string-replace", "NyText.Replace(", [ stringType; stringType; stringType ], ExpressionRecipe.StringReplace(slot 0, slot 1, slot 2)
-              "stringTrim", "string-trim", "NyText.Trim(", [ stringType ], ExpressionRecipe.StringTrim(slot 0)
-              "stringTrimStart", "string-trim-start", "NyText.TrimStart(", [ stringType ], ExpressionRecipe.StringTrimStart(slot 0)
-              "stringTrimEnd", "string-trim-end", "NyText.TrimEnd(", [ stringType ], ExpressionRecipe.StringTrimEnd(slot 0) ]
-        for kind, nyasonTag, emitted, parameters, body in cases do
+            [ "stringReplace", "NyText.Replace(", [ stringType; stringType; stringType ], ExpressionRecipe.StringReplace(slot 0, slot 1, slot 2)
+              "stringTrim", "NyText.Trim(", [ stringType ], ExpressionRecipe.StringTrim(slot 0)
+              "stringTrimStart", "NyText.TrimStart(", [ stringType ], ExpressionRecipe.StringTrimStart(slot 0)
+              "stringTrimEnd", "NyText.TrimEnd(", [ stringType ], ExpressionRecipe.StringTrimEnd(slot 0) ]
+        for kind, emitted, parameters, body in cases do
             let proposal =
                 AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request parameters stringType body)
                 |> unwrap ("simulate " + kind)
@@ -82,10 +82,8 @@ module StringReplaceTrimTests =
             Assert.Contains($"\"{kind}\"", json)
             let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
             Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
-            let nyason = NyasonCodec.serialize decoded |> unwrap "nyason"
-            // The exact tag, so string-trim is not found inside string-trim-start.
-            Assert.Matches($"(^|[^-a-z]){nyasonTag}([^-a-z]|$)", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let persisted = SnapshotCodec.serialize decoded |> unwrap "reserialize"
+            let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
             Assert.Contains($"\"{kind}\"", TypedSemanticIrSerializer.serialize typed)

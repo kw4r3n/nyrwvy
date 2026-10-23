@@ -48,9 +48,7 @@ module OneShotTests =
             Assert.Contains("\"schemaVersion\":14", json)
             Assert.DoesNotContain("pendingValue", json)
             Assert.True(Result.isError(SnapshotCodec.deserialize(json.Replace("\"schemaVersion\":14", "\"schemaVersion\":13"))))
-            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap
-            Assert.Contains("nayamnyam.snapshot.v10", nyason)
-            Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serializeCanonical |> unwrap)
+            Assert.Equal(json, SnapshotCodec.deserialize json |> unwrap |> SnapshotCodec.serializeCanonical |> unwrap)
             let typed = TypedSemanticIr.project snapshot |> unwrap
             Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
             let lowered = session.ProjectExecution() |> unwrap

@@ -35,17 +35,17 @@ module StandardOperationTests =
         | other -> failwithf "Unknown mode %s" other
 
     [<Theory>]
-    [<InlineData("sqrt", "float64Sqrt", "float64-sqrt", "System.Math.Sqrt(")>]
-    [<InlineData("abs", "float64Abs", "float64-abs", "System.Math.Abs(")>]
-    [<InlineData("negate", "float64Negate", "float64-negate", " = -")>]
-    [<InlineData("floor", "float64Floor", "float64-floor", "System.Math.Floor(")>]
-    [<InlineData("ceiling", "float64Ceiling", "float64-ceiling", "System.Math.Ceiling(")>]
-    [<InlineData("truncate", "float64Truncate", "float64-truncate", "System.Math.Truncate(")>]
-    [<InlineData("reverse", "listReverse", "list-reverse", ".Reverse()")>]
-    [<InlineData("dropLast", "listDropLast", "list-drop-last", ".DropLast()")>]
-    [<InlineData("last", "listLast", "list-last", ".Last()")>]
+    [<InlineData("sqrt", "float64Sqrt", "System.Math.Sqrt(")>]
+    [<InlineData("abs", "float64Abs", "System.Math.Abs(")>]
+    [<InlineData("negate", "float64Negate", " = -")>]
+    [<InlineData("floor", "float64Floor", "System.Math.Floor(")>]
+    [<InlineData("ceiling", "float64Ceiling", "System.Math.Ceiling(")>]
+    [<InlineData("truncate", "float64Truncate", "System.Math.Truncate(")>]
+    [<InlineData("reverse", "listReverse", ".Reverse()")>]
+    [<InlineData("dropLast", "listDropLast", ".DropLast()")>]
+    [<InlineData("last", "listLast", ".Last()")>]
     let ``Standard operations type check, persist, and lower through every layer``
-        (mode: string, wireKind: string, nyasonKind: string, csharpCall: string) =
+        (mode: string, wireKind: string, csharpCall: string) =
         // ListReverse keeps its List<T> type, so a List<String> stands in for every item type.
         let valueType, wrongType, issueCode =
             if mode = "reverse" then listOf textType, textType, "ListReverseInputTypeMismatch"
@@ -81,9 +81,8 @@ module StandardOperationTests =
         Assert.Contains("\"" + wireKind + "\"", json)
         let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
-        let nyason = NyasonCodec.serialize decoded |> unwrap "nyason"
-        Assert.Contains(nyasonKind, nyason)
-        let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+        let persisted = SnapshotCodec.serialize decoded |> unwrap "reserialize"
+        let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
         let typed = TypedSemanticIr.project restored |> unwrap "typed"
         Assert.Contains("\"" + wireKind + "\"", TypedSemanticIrSerializer.serialize typed)

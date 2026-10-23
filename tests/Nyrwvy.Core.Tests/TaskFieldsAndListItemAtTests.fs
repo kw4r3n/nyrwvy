@@ -198,8 +198,8 @@ module TaskFieldsAndListItemAtTests =
                         | _ -> typeEntity) }
             Assert.Contains(SnapshotValidator.validate withScopeVariant, fun issue -> issue.Code = "TaskTypeInDeclaredType")
             // Persisted forms keep the Task field.
-            let nyason = NyasonCodec.serialize committed |> unwrap
-            Assert.Equal(SnapshotCodec.serialize committed |> unwrap, NyasonCodec.deserialize nyason |> unwrap |> SnapshotCodec.serialize |> unwrap)
+            let json = SnapshotCodec.serialize committed |> unwrap
+            Assert.Equal(SnapshotCodec.serialize committed |> unwrap, SnapshotCodec.deserialize json |> unwrap |> SnapshotCodec.serialize |> unwrap)
             Assert.Contains(committed.Types, fun item -> item.Id = memberEntity.Id))
 
     [<Fact>]
@@ -328,9 +328,7 @@ module TaskFieldsAndListItemAtTests =
             let graph = snapshot path
             Assert.Empty(SnapshotValidator.validate graph)
             Assert.Equal(encoded, SnapshotCodec.serialize graph |> unwrap)
-            let nyason = NyasonCodec.serialize graph |> unwrap
-            Assert.Contains("list-item-at", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap
+            let restored = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap

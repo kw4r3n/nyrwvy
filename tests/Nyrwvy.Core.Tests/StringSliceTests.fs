@@ -110,15 +110,13 @@ module StringSliceTests =
             let listOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
             create' "measureAll" [ listOf stringType ] (listOf intType) (ExpressionRecipe.ListMap(ExpressionRecipe.ParameterSlot 0, functionId "measure", []))
             create' "cutAll" [ listOf (TypeRef.Named(caseTypeId, [])) ] (listOf stringType) (ExpressionRecipe.ListMap(ExpressionRecipe.ParameterSlot 0, functionId "cut", []))
-            // Lone surrogates in a String literal (built with utf16) survive the snapshot and Nyason round trips.
+            // Lone surrogates in a String literal (built with utf16) survive the snapshot round trip.
             create' "measureLone" [] intType (ExpressionRecipe.StringLength(ExpressionRecipe.StringLiteral (utf16 "a{D800}b{DC00}")))
             session.Close()
             let snapshot = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap "reopen"
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
-            Assert.Contains("string-length", nyason)
-            Assert.Contains("string-slice", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let persisted = SnapshotCodec.serialize snapshot |> unwrap "reserialize"
+            let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
             let execution = ExecutionIr.lower typed |> unwrap "lower"

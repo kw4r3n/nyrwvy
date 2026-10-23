@@ -52,10 +52,7 @@ module Float64FloorModuloTests =
             let json = SnapshotCodec.serializeCanonical snapshot |> unwrap
             Assert.Contains("\"kind\":\"float64FloorModulo\"", json)
             Assert.Contains("\"schemaVersion\":20", json)
-            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap
-            Assert.Contains("float64-floor-modulo", nyason)
-            Assert.Contains("nayamnyam.snapshot.v16", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap
+            let restored = SnapshotCodec.deserialize json |> unwrap
             Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap)
             let typed = TypedSemanticIr.project restored |> unwrap
             Assert.Contains("\"kind\":\"float64FloorModulo\"", TypedSemanticIrSerializer.serialize typed)

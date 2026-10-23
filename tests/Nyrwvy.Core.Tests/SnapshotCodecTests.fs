@@ -93,7 +93,6 @@ module SnapshotCodecTests =
         Assert.Equal(expected, SnapshotCodec.serializeResolved dependency snapshot)
         Assert.Equal(Error(SnapshotCodecError.MaximumDepthExceeded SnapshotCodec.maxJsonDepth), SnapshotFingerprint.compute snapshot |> Result.map SnapshotFingerprint.value)
         Assert.Equal(Error(SnapshotCodecError.MaximumDepthExceeded SnapshotCodec.maxJsonDepth), SemanticFingerprint.compute snapshot |> Result.map ignore)
-        Assert.Equal(Error(NyasonCodecError.MaximumDepthExceeded NyasonSyntax.maxDepth), NyasonCodec.serialize snapshot)
         match SnapshotCodec.serializeResolved snapshot (Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-local")) with
         | Error(SnapshotCodecError.MaximumDepthExceeded _) -> ()
         | result -> failwithf "Expected an over-deep dependency digest to be a codec error, got %A" result

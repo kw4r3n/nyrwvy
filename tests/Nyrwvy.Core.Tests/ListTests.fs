@@ -268,12 +268,10 @@ module ListTests =
         malformed |> SnapshotValidator.validate |> requireIssue "BuiltinGenericArityMismatch"
 
     [<Fact>]
-    let ``JSON and Nyason round-trip List nodes without reordering items`` () =
+    let ``JSON round-trips List nodes without reordering items`` () =
         let fixture = createFixture ()
         let json = SnapshotCodec.serializeCanonical fixture.Snapshot |> unwrap "JSON serialization"
         let fromJson = SnapshotCodec.deserialize json |> unwrap "JSON deserialization"
-        let nyason = NyasonCodec.serializeCanonical fixture.Snapshot |> unwrap "Nyason serialization"
-        let fromNyason = NyasonCodec.deserialize nyason |> unwrap "Nyason deserialization"
 
         let firstConstructItems snapshot =
             let node =
@@ -283,16 +281,13 @@ module ListTests =
             | SemanticNodeKind.ListConstruct(itemType, items) -> itemType, items
             | other -> failwithf "Expected ListConstruct, got %A" other
 
-        for restored in [ fromJson; fromNyason ] do
+        for restored in [ fromJson ] do
             let itemType, items = firstConstructItems restored
             Assert.Equal(int64Type, itemType)
             Assert.Equal<GraphNodeId list>([ fixture.FirstItemNodeId; fixture.SecondItemNodeId ], items)
 
         Assert.Contains("\"schemaVersion\":9", json)
         Assert.Contains("\"generic\":\"list\"", json)
-        Assert.Contains("nayamnyam.snapshot.v5", nyason)
-        Assert.Contains("list-type {", nyason)
-        Assert.Contains("list-construct {", nyason)
 
     [<Fact>]
     let ``Typed and Execution IR preserve all basic List roles and item order`` () =

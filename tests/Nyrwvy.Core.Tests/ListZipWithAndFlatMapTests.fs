@@ -153,11 +153,7 @@ module ListZipWithAndFlatMapTests =
             Assert.Contains("\"listZipWith\"", json)
             Assert.Contains("\"listFlatMap\"", json)
             Assert.Contains("\"combinerFunctionId\"", json)
-            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
-            Assert.Contains("list-zip-with", nyason)
-            Assert.Contains("list-flat-map", nyason)
-            Assert.Contains("nayamnyam.snapshot.v13", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let restored = SnapshotCodec.deserialize json |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
             let typedJson = TypedSemanticIrSerializer.serialize typed

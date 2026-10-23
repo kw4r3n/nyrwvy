@@ -220,12 +220,10 @@ module Int64Tests =
         requireMatch "Int64OperandTypeMismatch diagnostic" (fun issue -> issue.Code = "Int64OperandTypeMismatch") issues
 
     [<Fact>]
-    let ``JSON and Nyason preserve full-range Int64 literals and node kinds`` () =
+    let ``JSON preserves full-range Int64 literals and node kinds`` () =
         let fixture = createFixture ()
         let json = SnapshotCodec.serializeCanonical fixture.Snapshot |> unwrap "JSON serialization"
         let fromJson = SnapshotCodec.deserialize json |> unwrap "JSON deserialization"
-        let nyason = NyasonCodec.serializeCanonical fixture.Snapshot |> unwrap "Nyason serialization"
-        let fromNyason = NyasonCodec.deserialize nyason |> unwrap "Nyason deserialization"
 
         let literals snapshot =
             snapshot.Functions
@@ -235,7 +233,7 @@ module Int64Tests =
                 | SemanticNodeKind.Int64Literal value -> Some value
                 | _ -> None)
 
-        for restored in [ fromJson; fromNyason ] do
+        for restored in [ fromJson ] do
             let values = literals restored
             requireValue "Int64 minimum" Int64.MinValue values
             requireValue "Int64 maximum" Int64.MaxValue values
@@ -246,8 +244,6 @@ module Int64Tests =
             | other -> failwithf "Expected Int64WrappingAdd after round-trip, got %A" other
 
         Assert.Contains("\"schemaVersion\":9", json)
-        Assert.Contains("int64-wrapping-add", nyason)
-        Assert.Contains("primitive-int64", nyason)
 
     [<Fact>]
     let ``Typed and Execution IR preserve every initial Int64 semantic role`` () =

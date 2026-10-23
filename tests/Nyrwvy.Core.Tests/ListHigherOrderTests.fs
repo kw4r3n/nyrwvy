@@ -405,12 +405,10 @@ module ListHigherOrderTests =
         |> requireIssue "PredicateResultTypeMismatch"
 
     [<Fact>]
-    let ``JSON and Nyason preserve higher-order List callback identity`` () =
+    let ``JSON preserves higher-order List callback identity`` () =
         let fixture = createFixture ()
         let json = SnapshotCodec.serializeCanonical fixture.Snapshot |> unwrap "JSON serialization"
         let fromJson = SnapshotCodec.deserialize json |> unwrap "JSON deserialization"
-        let nyason = NyasonCodec.serializeCanonical fixture.Snapshot |> unwrap "Nyason serialization"
-        let fromNyason = NyasonCodec.deserialize nyason |> unwrap "Nyason deserialization"
 
         let assertNodes snapshot =
             match (showcaseNode fixture snapshot fixture.MapNodeId).Kind with
@@ -429,15 +427,9 @@ module ListHigherOrderTests =
             | other -> failwithf "Expected ListAll, got %A" other
 
         assertNodes fromJson
-        assertNodes fromNyason
         Assert.Contains("\"schemaVersion\":9", json)
         Assert.Contains("\"mapperFunctionId\"", json)
         Assert.Contains("\"predicateFunctionId\"", json)
-        Assert.Contains("nayamnyam.snapshot.v5", nyason)
-        Assert.Contains("list-map {", nyason)
-        Assert.Contains("list-filter {", nyason)
-        Assert.Contains("list-any {", nyason)
-        Assert.Contains("list-all {", nyason)
 
     [<Fact>]
     let ``Typed and Execution IR preserve higher-order List roles and callback IDs`` () =

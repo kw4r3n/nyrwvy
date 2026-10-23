@@ -131,11 +131,7 @@ module SetIsSubsetAndMapUnionTests =
             Assert.Contains("\"setIsSubset\"", json)
             Assert.Contains("\"mapUnion\"", json)
             Assert.Contains("\"schemaVersion\":17", json.Replace(" ", ""))
-            let nyason = NyasonCodec.serializeCanonical snapshot |> Result.defaultWith (failwithf "nyason: %A")
-            Assert.Contains("set-is-subset", nyason)
-            Assert.Contains("map-union", nyason)
-            Assert.Contains("nayamnyam.snapshot.v13", nyason)
-            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            let restored = SnapshotCodec.deserialize json |> Result.defaultWith (failwithf "decode: %A")
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             let execution =
                 TypedSemanticIr.project restored

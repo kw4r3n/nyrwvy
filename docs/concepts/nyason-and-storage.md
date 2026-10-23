@@ -6,6 +6,8 @@ Accepted Milestone 1 direction for evaluating Nyason and persistent storage. Thi
 
 Nyason remains a candidate, but its role is stronger than "an experimental JSON-like alternative".
 
+> **2026-10-24:** the Nyason v0 codec (nested tagged records) was removed from the repository by owner decision; see the [v0 experiment record](../experiments/nyason-v0.md). The direction below stands, and its current revision is the [record form](../decisions/snapshot-record-format.md).
+
 > **Nyason is the Nyrwvy-native semantic encoding candidate and may diverge freely from JSON when doing so improves AI reliability, structural explicitness, canonicalization, or implementation control.**
 
 ## Nyason is not required to resemble JSON
@@ -64,7 +66,7 @@ Relevant metrics include:
 
 Raw UTF-8 byte size remains useful operational data, but it is not the primary objective.
 
-The current v0 result being larger than compact JSON is therefore a reason to investigate the representation, not a reason to force Nyason toward JSON syntax or abandon the format.
+The v0 result being larger than compact JSON was therefore a reason to investigate the representation, not a reason to force Nyason toward JSON syntax or abandon the format.
 
 ## Nyason versus JSON
 
@@ -150,7 +152,7 @@ Do not select the permanent storage medium before there is enough scale to test 
 Recommended progression:
 
 1. continue using strict JSON as the baseline codec;
-2. actively evolve Nyason as a Nyrwvy-native encoding rather than freezing v0 syntax;
+2. actively evolve Nyason as a Nyrwvy-native encoding (v0 syntax was dropped, not frozen);
 3. run AI comprehension/edit benchmarks on focused JSON and Nyason projections;
 4. build a simple DB-backed working/index prototype when graph size/query latency justifies it;
 5. compare portable-snapshot + derived-DB against DB-authoritative designs;
@@ -187,7 +189,7 @@ Q-001 remains technically open because the permanent authoritative persistence m
 
 However, the candidate set should now be understood as:
 
-- **Nyason:** actively developed Nyrwvy-native portable semantic encoding candidate;
+- **Nyason:** actively developed Nyrwvy-native portable semantic encoding candidate, currently the record form;
 - **JSON:** strict reference/debug/benchmark codec;
 - **database:** likely working/index store and possible future authority if operational evidence supports it;
 - **binary formats:** possible transport/storage candidates only if they provide a concrete benefit without weakening recovery and semantic inspection workflows.

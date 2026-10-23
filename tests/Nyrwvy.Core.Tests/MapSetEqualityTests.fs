@@ -103,8 +103,8 @@ module MapSetEqualityTests =
                 | Ok snapshot -> snapshot
                 | Error error -> failwithf "Workspace did not decode: %A" error
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
-            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            let json = SnapshotCodec.serialize snapshot |> Result.defaultWith (failwithf "reserialize: %A")
+            let restored = SnapshotCodec.deserialize json |> Result.defaultWith (failwithf "decode: %A")
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             let execution =
                 TypedSemanticIr.project restored

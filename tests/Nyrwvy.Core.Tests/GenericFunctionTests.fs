@@ -81,8 +81,7 @@ module GenericFunctionTests =
         let json = SnapshotCodec.serialize snapshot |> unwrap "json"
         Assert.Contains("\"typeParameter\"", json)
         Assert.Equal(json, SnapshotCodec.deserialize json |> unwrap "restore" |> SnapshotCodec.serialize |> unwrap "reserialize")
-        let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
-        Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize nyason |> unwrap "nyason decode"))
+        Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (SnapshotCodec.deserialize json |> unwrap "decode"))
         let typed = TypedSemanticIr.project snapshot |> unwrap "typed"
         let artifact = CSharpBackend.emit (ExecutionIr.lower typed |> unwrap "lower") CSharpBackendProfile.empty |> unwrap "emit"
         Assert.Contains(CSharpBackendNames.functionName count.Id + "<" + CSharpBackendNames.typeParameterName (fst countParameters.Head) + ">", artifact.Source)

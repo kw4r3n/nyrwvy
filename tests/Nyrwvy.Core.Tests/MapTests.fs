@@ -133,9 +133,8 @@ module MapTests =
             let snapshot = readSnapshot path
             Assert.Empty(SnapshotValidator.validate snapshot)
             Assert.Contains("\"mapInsert\"", File.ReadAllText path)
-            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
-            Assert.Contains("map-insert", nyason)
-            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            let json = SnapshotCodec.serialize snapshot |> Result.defaultWith (failwithf "reserialize: %A")
+            let restored = SnapshotCodec.deserialize json |> Result.defaultWith (failwithf "decode: %A")
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored))
 
     [<Fact>]
@@ -258,10 +257,8 @@ module MapTests =
             expectRun session "index" [ rows ] expected
             let snapshot = readSnapshot path
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
-            Assert.Contains("map-fold", nyason)
-            Assert.Contains("map-from-list", nyason)
-            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            let json = SnapshotCodec.serialize snapshot |> Result.defaultWith (failwithf "reserialize: %A")
+            let restored = SnapshotCodec.deserialize json |> Result.defaultWith (failwithf "decode: %A")
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
 
             // A folder with two parameters, and a key callback returning Float64, are rejected.
@@ -297,9 +294,8 @@ module MapTests =
 
             let snapshot = readSnapshot path
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
-            Assert.Contains("map-filter", nyason)
-            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            let json = SnapshotCodec.serialize snapshot |> Result.defaultWith (failwithf "reserialize: %A")
+            let restored = SnapshotCodec.deserialize json |> Result.defaultWith (failwithf "decode: %A")
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
 
             // A callback with one parameter, one not returning Bool, and a non-Map source are rejected.
@@ -354,9 +350,8 @@ module MapTests =
                 [ ValueDependencyRole.Source; ValueDependencyRole.Key; ValueDependencyRole.Value ],
                 ValueDependency.ofNode node |> List.map (fun dependency -> dependency.Role)
             )
-            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
-            Assert.Contains("map-get-or-default", nyason)
-            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            let json = SnapshotCodec.serialize snapshot |> Result.defaultWith (failwithf "reserialize: %A")
+            let restored = SnapshotCodec.deserialize json |> Result.defaultWith (failwithf "decode: %A")
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
 
             // The default must have the map's value type, the key its key type, and the result is V.
@@ -414,9 +409,8 @@ module MapTests =
             let snapshot = readSnapshot path
             Assert.Empty(SnapshotValidator.validate snapshot)
             Assert.Contains("\"mapMapValues\"", File.ReadAllText path)
-            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
-            Assert.Contains("map-map-values", nyason)
-            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            let json = SnapshotCodec.serialize snapshot |> Result.defaultWith (failwithf "reserialize: %A")
+            let restored = SnapshotCodec.deserialize json |> Result.defaultWith (failwithf "decode: %A")
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
 
             // A callback with one parameter, one whose inputs do not match (K, V), a non-Map source

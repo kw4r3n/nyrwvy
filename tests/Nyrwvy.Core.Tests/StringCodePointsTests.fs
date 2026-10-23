@@ -50,9 +50,8 @@ module StringCodePointsTests =
         let json = SnapshotCodec.serialize committed |> unwrap "serialize"
         Assert.Contains("\"stringCodePoints\"", json)
         let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
-        let nyason = NyasonCodec.serialize decoded |> unwrap "nyason"
-        Assert.Contains("string-code-points", nyason)
-        let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+        let persisted = SnapshotCodec.serialize decoded |> unwrap "reserialize"
+        let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
         let typed = TypedSemanticIr.project restored |> unwrap "typed"
         Assert.Contains("\"stringCodePoints\"", TypedSemanticIrSerializer.serialize typed)
