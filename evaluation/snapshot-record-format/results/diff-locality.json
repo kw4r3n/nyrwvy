@@ -1,0 +1,120 @@
+{
+  "base": "examples/verification-planner/planner.snapshot.json",
+  "results": [
+    {
+      "operation": "rename-function",
+      "touched": [
+        "01a0b371-4487-7aa3-b9d3-2fc69ed62dab"
+      ],
+      "lines": {
+        "records": {
+          "added": 2,
+          "deleted": 2
+        },
+        "json": {
+          "added": 3,
+          "deleted": 3
+        },
+        "nyason": {
+          "added": 3,
+          "deleted": 3
+        }
+      },
+      "jsonChangedBytes": {
+        "before": 4339,
+        "after": 4343
+      },
+      "recordLinesChanged": 4,
+      "nonLocalRecordLines": [],
+      "pass": true,
+      "dir": "/tmp/claude-1000/-home-kw4-Work-Tools-nyrwvy/fe790485-2e88-45a6-86fa-b967a9f66e33/scratchpad/locality/rename-function"
+    },
+    {
+      "operation": "add-node",
+      "touched": [
+        "01a0b371-4487-7aa3-b9d3-2fc69ed62dab"
+      ],
+      "lines": {
+        "records": {
+          "added": 3,
+          "deleted": 2
+        },
+        "json": {
+          "added": 8,
+          "deleted": 3
+        },
+        "nyason": {
+          "added": 8,
+          "deleted": 4
+        }
+      },
+      "jsonChangedBytes": {
+        "before": 5121,
+        "after": 5240
+      },
+      "recordLinesChanged": 5,
+      "nonLocalRecordLines": [],
+      "pass": true,
+      "dir": "/tmp/claude-1000/-home-kw4-Work-Tools-nyrwvy/fe790485-2e88-45a6-86fa-b967a9f66e33/scratchpad/locality/add-node"
+    },
+    {
+      "operation": "add-union-variant",
+      "touched": [
+        "01a0b370-4eb0-7ecd-b5e3-3bc1e10ed15f",
+        "01a0b371-2e7c-71b9-8115-2e15708a97ed",
+        "01a0b371-2e84-75ad-9850-7b1ac8ec69ff"
+      ],
+      "lines": {
+        "records": {
+          "added": 4,
+          "deleted": 1
+        },
+        "json": {
+          "added": 21,
+          "deleted": 2
+        },
+        "nyason": {
+          "added": 20,
+          "deleted": 2
+        }
+      },
+      "jsonChangedBytes": {
+        "before": 4203,
+        "after": 4511
+      },
+      "recordLinesChanged": 5,
+      "nonLocalRecordLines": [],
+      "pass": true,
+      "dir": "/tmp/claude-1000/-home-kw4-Work-Tools-nyrwvy/fe790485-2e88-45a6-86fa-b967a9f66e33/scratchpad/locality/add-union-variant"
+    },
+    {
+      "operation": "migrate-field-type",
+      "touched": [
+        "01a0b371-055a-7787-8eb2-c71857419553",
+        "01a0b371-4487-7aa3-b9d3-2fc69ed62dab"
+      ],
+      "lines": {
+        "records": {
+          "added": 11,
+          "deleted": 9
+        },
+        "json": {
+          "added": 30,
+          "deleted": 19
+        },
+        "nyason": {
+          "added": 27,
+          "deleted": 18
+        }
+      },
+      "jsonChangedBytes": {
+        "before": 5609,
+        "after": 5862
+      },
+      "recordLinesChanged": 20,
+      "nonLocalRecordLines": [],
+      "pass": true,
+      "dir": "/tmp/claude-1000/-home-kw4-Work-Tools-nyrwvy/fe790485-2e88-45a6-86fa-b967a9f66e33/scratchpad/locality/migrate-field-type"
+    }
+  ]
+}

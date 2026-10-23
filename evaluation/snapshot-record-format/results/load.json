@@ -1,0 +1,19 @@
+{
+  "copies": 100,
+  "jsonBytes": 827186,
+  "medianOf": 20,
+  "ms": {
+    "jsonDeserializeWithValidation": 57.711,
+    "jsonDocumentParseOnly": 1.5152,
+    "jsonTreeWalkWithoutValidation": 22.211599999999997,
+    "recordFullDecode": 159.0731,
+    "recordRowTable": 26.6487,
+    "recordToJsonText": 49.8608,
+    "validateOnly": 35.4994
+  },
+  "pass": true,
+  "ratioRowTableToJsonTreeWalk": 1.1997649876641037,
+  "recordBytes": 958506,
+  "rows": 5419,
+  "warmup": 3
+}
