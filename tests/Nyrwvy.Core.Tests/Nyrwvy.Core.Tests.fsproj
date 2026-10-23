@@ -16,6 +16,7 @@
     <Compile Include="SnapshotComputationScopeTests.fs" />
     <Compile Include="SnapshotCodecTests.fs" />
     <Compile Include="RecordCodecTests.fs" />
+    <Compile Include="RecordKindsTests.fs" />
     <Compile Include="SnapshotSchemaTests.fs" />
     <Compile Include="FingerprintTests.fs" />
     <Compile Include="DeclarationVisibilityTests.fs" />

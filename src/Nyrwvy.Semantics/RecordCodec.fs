@@ -19,7 +19,7 @@ type RecordCodecError =
 /// writer's shape rendered as records. `serialize` renders the JSON codec's output; `deserialize`
 /// tokenizes the rows into an ownership tree, checks canonical form token by token (no re-encode),
 /// writes the writer's JSON as UTF-8 bytes into a reused buffer and hands those bytes to
-/// `SnapshotCodec`'s reader. Ported from the evaluated harness (evaluation/snapshot-record-format).
+/// `SnapshotCodec`'s reader. Ported from the evaluated harness, frozen at `eval/snapshot-record-format-20261023`.
 [<RequireQualifiedAccess>]
 module RecordCodec =
     exception internal RecordFailure of RecordCodecError
