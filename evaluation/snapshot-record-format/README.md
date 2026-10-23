@@ -56,9 +56,16 @@ cannot validate on its own (one with a pinned dependency).
   rule itself.
 - `Codec.fs`: `encode = SnapshotCodec.serialize >> ofJson`; `decode = toJson >> SnapshotCodec.deserialize`,
   then re-encode and reject when the bytes differ (reported on the first differing line).
-  Only canonical bytes decode. A `SnapshotCodec` shape or validation error has no line of its
-  own: it is reported on the first record (in file order) whose subject UUID appears earliest in
-  the error text, else on line 1. Errors carry a 1-based line, not a column.
+  Only canonical bytes decode. Before the model is built, `toJsonStrict` checks the rows
+  structurally and names a line: a malformed subject or owner, a duplicate (its second line), a
+  member out of canonical order, a reference or `in=` owner one edit away from an existing subject
+  (a misspelling, reported where it is written), and a reference to a record that does not exist
+  (reported on the line where that record would sit in canonical order: by subject inside the
+  declaration's block, by the first `position=` gap for parameters, the block's first line for a
+  declaration). A `SnapshotCodec` shape or validation error that gets past these has no line of
+  its own: it is reported on the first record (in file order) whose subject UUID appears earliest
+  in the error text, else on line 1. Errors carry a 1-based line, not a column. The JSON-level
+  `toJson` (structural tier) skips the existence checks, since that tier does not validate.
 - Strings are copied as the writer's JSON literals in both directions, so the writer's escaping
   (`+` for `+`, `\uXXXX` for non-ASCII) is the record spelling.
 

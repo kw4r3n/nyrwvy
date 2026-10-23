@@ -34,7 +34,7 @@ let firstDifferingLine (a: string) (b: string) =
     Seq.zip la lb |> Seq.tryFindIndex (fun (x, y) -> x <> y) |> Option.defaultValue (min la.Length lb.Length) |> (+) 1
 
 let decode (text: string) : Result<Snapshot, RecordError> =
-    toJson text
+    toJsonStrict text
     |> Result.bind (fun json ->
         match SnapshotCodec.deserialize json with
         | Error error -> Error(lineOfError text error)

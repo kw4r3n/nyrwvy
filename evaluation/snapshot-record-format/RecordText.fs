@@ -392,7 +392,7 @@ let private subjectDomain (kind: string) (owner: string option) =
     | _ -> "node"
 
 /// Record text -> the writer's JSON.
-let toJson (text: string) : Result<string, RecordError> =
+let private convert (strict: bool) (text: string) : Result<string, RecordError> =
     try
         if not (text.EndsWith("\n", StringComparison.Ordinal)) then fail (max 1 (text.Split('\n').Length)) "missing final newline"
         if text.Length > 0 && text[0] = '\uFEFF' then fail 1 "byte order mark"
@@ -431,6 +431,98 @@ let toJson (text: string) : Result<string, RecordError> =
         let consumed = HashSet<Record>(HashIdentity.Reference)
         let take (owner: string) = match owned.TryGetValue owner with | true, rs -> List.ofSeq rs | _ -> []
         let tbl = table.Value
+        // Structural checks before any model is built (strict mode): malformed subjects and owners,
+        // duplicates (reported on the second line), members out of canonical order, missing owners and
+        // dangling references. A reference one edit away from an existing subject is a misspelling,
+        // reported where it is written; otherwise the record is missing and the line where it would sit
+        // in canonical order is reported (members by subject inside the declaration's block, ordered
+        // members by the first gap in `position=`, a declaration at its block's first line).
+        let subjectRegex = Regex($"^[a-z-]+:{uuidPattern}(/[a-z-]+(/variant:{uuidPattern})?)?$")
+        let subjects = Dictionary<string, Record>()
+        let blocks = List<List<Record>>()
+        let blockOf = Dictionary<Record, List<Record>>(HashIdentity.Reference)
+        let mutable previousLine = 0
+        for r in records do
+            if blocks.Count = 0 || r.Line <> previousLine + 1 then blocks.Add(List<Record>())
+            blocks[blocks.Count - 1].Add r
+            blockOf[r] <- blocks[blocks.Count - 1]
+            previousLine <- r.Line
+            if strict then
+                if not (subjectRegex.IsMatch r.Subject) then fail r.Line $"malformed subject '{r.Subject}'"
+                r.Owner |> Option.iter (fun o -> if not (subjectRegex.IsMatch o) then fail r.Line $"malformed owner '{o}'")
+                if subjects.ContainsKey r.Subject then fail r.Line $"duplicate record {r.Subject}"
+            subjects[r.Subject] <- r
+        let positionOf (r: Record) = r.Fields |> List.tryPick (fun (k, v) -> if k = "position" then Some v else None)
+        if strict then
+            for block in blocks do
+                let mutable previous = None
+                for r in block |> Seq.skip 1 do
+                    if (positionOf r).IsNone then
+                        match previous with
+                        | Some (p: string) when String.CompareOrdinal(p, r.Subject) > 0 -> fail r.Line $"record {r.Subject} is out of canonical order"
+                        | _ -> ()
+                        previous <- Some r.Subject
+        let declarationDomains = set [ "type"; "effect"; "capability"; "function"; "obligation" ]
+        let slot (block: List<Record>) (domain: string) (subject: string) (fallback: int) =
+            let same = block |> Seq.filter (fun r -> r.Subject.StartsWith(domain + ":", StringComparison.Ordinal)) |> List.ofSeq
+            if domain = "parameter" || domain = "type-parameter" then
+                let ordered = same |> List.filter (fun r -> (positionOf r).IsSome)
+                match ordered |> List.mapi (fun i r -> i, r) |> List.tryFind (fun (i, r) -> positionOf r <> Some(string i)) with
+                | Some(_, r) -> r.Line
+                | None when not ordered.IsEmpty -> (List.last ordered).Line + 1
+                | None -> block[0].Line + 1
+            else
+                match same |> List.tryFind (fun r -> String.CompareOrdinal(r.Subject, subject) > 0) with
+                | Some r -> r.Line
+                | None when not same.IsEmpty -> (List.last same).Line + 1
+                | None -> if declarationDomains.Contains domain then block[0].Line else fallback
+        let idTokens = Regex("([a-z-]+):(" + uuidPattern + ")")
+        let memberDomains = set [ "node"; "binding"; "parameter"; "capability-parameter"; "type-parameter"; "field"; "variant"; "operation"; "type"; "effect"; "capability"; "function"; "obligation" ]
+        let editDistanceOne (a: string) (b: string) =
+            if a.Length = b.Length then (Seq.zip a b |> Seq.filter (fun (x, y) -> x <> y) |> Seq.length) = 1
+            elif abs (a.Length - b.Length) = 1 then
+                let longer, shorter = (if a.Length > b.Length then a, b else b, a)
+                let mutable i = 0
+                while i < shorter.Length && longer[i] = shorter[i] do i <- i + 1
+                longer.Substring(i + 1) = shorter.Substring i
+            else false
+        let misspelled (subject: string) = subjects.Keys |> Seq.exists (editDistanceOne subject)
+        let blockOfRecord (subject: string) = match subjects.TryGetValue subject with | true, r -> Some blockOf[r] | _ -> None
+        for r in records do
+          if strict then
+            match r.Owner with
+            | Some o ->
+                let needed = if o.Contains "/arm/" then o else o.Split('/')[0]
+                if not (subjects.ContainsKey needed) then
+                    let domain = needed.Substring(0, needed.IndexOf ':')
+                    fail (if misspelled needed then r.Line else slot blockOf[r] domain needed r.Line) $"owner {o} not found"
+            | None -> ()
+            let field name = r.Fields |> List.tryPick (fun (k, v) -> if k = name then Some v else None)
+            for k, raw in r.Fields do
+                if k <> "in" then
+                    for m in idTokens.Matches raw do
+                        let domain, subject = m.Groups[1].Value, m.Value
+                        if memberDomains.Contains domain && not (subjects.ContainsKey subject) then
+                            let line =
+                                if misspelled subject then r.Line
+                                elif (domain = "node" || domain = "binding" || domain = "type-parameter") && r.Owner.IsSome then slot blockOf[r] domain subject r.Line
+                                elif domain = "parameter" then
+                                    match field "target-function" |> Option.bind blockOfRecord with
+                                    | Some callee -> slot callee domain subject r.Line
+                                    | None -> if r.Owner.IsSome then slot blockOf[r] domain subject r.Line else r.Line
+                                elif domain = "capability-parameter" then
+                                    match field "operation" |> Option.bind blockOfRecord with
+                                    | Some callee -> slot callee domain subject r.Line
+                                    | None -> r.Line
+                                else
+                                    // The block whose same-domain subjects bracket the missing one, else this line.
+                                    blocks |> Seq.tryPick (fun b ->
+                                        let same = b |> Seq.filter (fun x -> x.Subject.StartsWith(domain + ":", StringComparison.Ordinal)) |> List.ofSeq
+                                        if same.IsEmpty then None
+                                        elif String.CompareOrdinal(same.Head.Subject, subject) < 0 && String.CompareOrdinal((List.last same).Subject, subject) > 0 then Some(slot b domain subject r.Line)
+                                        else None)
+                                    |> Option.defaultValue r.Line
+                            fail line $"{k}= refers to {subject}, which has no record"
         let rec materialize (r: Record) : J =
             consumed.Add r |> ignore
             let t = match tbl.TryGetValue r.Kind with | true, t -> t | _ -> fail r.Line $"unknown record kind '{r.Kind}'"
@@ -564,6 +656,14 @@ let toJson (text: string) : Result<string, RecordError> =
         writer.Flush()
         Ok(Encoding.UTF8.GetString(stream.ToArray()))
     with RecordException e -> Error e
+
+/// Record text -> the writer's JSON, structure only: no reference or owner existence checks, so the
+/// structural tier (which does not validate) converts.
+let toJson (text: string) : Result<string, RecordError> = convert false text
+
+/// Record text -> the writer's JSON with the structural checks (duplicates, dangling references,
+/// missing owners) reported on the line where the record is or should be. The model-level decoder uses it.
+let toJsonStrict (text: string) : Result<string, RecordError> = convert true text
 
 /// The row table: every non-blank line tokenized into a record (header included), no model.
 let parseRows (text: string) : Result<Record[], RecordError> =
