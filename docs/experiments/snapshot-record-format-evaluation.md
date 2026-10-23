@@ -1,6 +1,6 @@
 # Snapshot record format evaluation
 
-**Status:** Phases 1 and 2 ran and passed ([record](../verification/snapshot-record-format-20261023.md)); phase 3 pending.
+**Status:** Complete. Phases 1 and 2 passed and phase 3 left open point 6 unchanged ([record](../verification/snapshot-record-format-20261023.md)).
 
 This plan carries out the Revisit conditions of the [snapshot record format ADR](../decisions/snapshot-record-format.md). It fixes the corpus, the harness location and the pass criteria before anything is measured, so the result decides the ADR rather than being read after the fact. It does not reopen the ADR's resolved points.
 

@@ -26,7 +26,17 @@ dotnet run -c Release --no-build -- load          # 100x planner, median of 20 a
 (cd ../.. && node evaluation/snapshot-record-format/locality.mjs [work-dir])  # four authoring operations -> results/diff-locality.json
 ```
 
-`locality.mjs` needs `npm ci`, a Release build of `tools/Nyrwvy.AuthoringSession`, `jq` and `git`;
+Phase 3 (agent projection comparison; `claude -p`, no tools; summary in `results/phase3.md`), from the
+repository root:
+
+```sh
+node evaluation/snapshot-record-format/phase3.mjs prepare   # presentations + tasks.json, no model calls
+node evaluation/snapshot-record-format/phase3.mjs smoke     # 6 graded calls into results/phase3/smoke, not counted
+node evaluation/snapshot-record-format/phase3.mjs run       # 216 calls into results/phase3/raw (resumable, 4 at a time)
+node evaluation/snapshot-record-format/phase3.mjs grade     # scores, the plan's pass rule, results/phase3/summary.json
+```
+
+`locality.mjs` and `phase3.mjs` need `npm ci`, a Release build of `tools/Nyrwvy.AuthoringSession`, `jq` and `git`;
 it drives the operations through the real tool handlers on the verification-planner snapshot.
 
 `roundtrip` also writes `<fixture>.records.txt` beside every fixture (committed, so the

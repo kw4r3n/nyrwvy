@@ -1,0 +1,503 @@
+nyason {
+  schema = "nayamnyam.snapshot.v17"
+  snapshot = snapshot {
+    id = snapshot:01a10b4c-3820-79d4-9cec-a81334cf8adc
+    parent = snapshot:01a0b373-2290-75b3-b89e-125134a1cec1
+    types = [
+      union-type {
+        id = type:01a0b370-4eb0-7ecd-b5e3-3bc1e10ed15f
+        display-name = "ChangeArea"
+        exported = true
+        variants = [
+          variant {
+            id = variant:01a0b370-4eb0-721d-b270-a3ec476131c5
+            display-name = "Backend"
+            fields = []
+          }
+          variant {
+            id = variant:01a0b370-4eb0-7369-8e4d-a951116c4454
+            display-name = "EvaluationHarness"
+            fields = []
+          }
+          variant {
+            id = variant:01a0b370-4eb0-7404-8f14-b285c80229f1
+            display-name = "Documentation"
+            fields = []
+          }
+          variant {
+            id = variant:01a0b370-4eb0-7887-bc29-79cd3ae8fe98
+            display-name = "AuthoringProtocol"
+            fields = []
+          }
+          variant {
+            id = variant:01a0b370-4eb0-79fd-8646-18942e70ffef
+            display-name = "Persistence"
+            fields = []
+          }
+          variant {
+            id = variant:01a0b370-4eb0-7e90-b459-d137eb1b1e6b
+            display-name = "Semantics"
+            fields = []
+          }
+          variant {
+            id = variant:01a0b370-4eb0-7f9c-a874-3b08ba1f543e
+            display-name = "CI"
+            fields = []
+          }
+        ]
+      }
+      product-type {
+        id = type:01a0b371-055a-7787-8eb2-c71857419553
+        display-name = "ChangeRequest"
+        exported = true
+        fields = [
+          field {
+            id = field:01a0b371-055a-7176-a470-260df152b761
+            display-name = "knownRegression"
+            type = primitive-bool {}
+          }
+          field {
+            id = field:01a0b371-055a-7233-bd10-f4c455efe13f
+            display-name = "environmentDependent"
+            type = primitive-bool {}
+          }
+          field {
+            id = field:01a0b371-055a-7539-8422-fc71fd54844f
+            display-name = "agentInteraction"
+            type = primitive-bool {}
+          }
+          field {
+            id = field:01a0b371-055a-7e0c-bb5a-238ab49e7d7e
+            display-name = "areas"
+            type = list-type {
+              item = named-type {
+                id = type:01a0b370-4eb0-7ecd-b5e3-3bc1e10ed15f
+              }
+            }
+          }
+        ]
+      }
+      union-type {
+        id = type:01a0b371-162c-7db5-832d-a37f90c76298
+        display-name = "VerificationLevel"
+        exported = true
+        variants = [
+          variant {
+            id = variant:01a0b371-162c-736c-9c89-69e8829c1f71
+            display-name = "FastLive"
+            fields = []
+          }
+          variant {
+            id = variant:01a0b371-162c-7391-841b-96a130d64dc7
+            display-name = "FastOnly"
+            fields = []
+          }
+          variant {
+            id = variant:01a0b371-162c-785e-a839-2bef9aecb10f
+            display-name = "FastExtendedLive"
+            fields = []
+          }
+          variant {
+            id = variant:01a0b371-162c-7a5b-9b00-790ae39640be
+            display-name = "FastExtended"
+            fields = []
+          }
+        ]
+      }
+    ]
+    effects = []
+    capabilities = []
+    functions = [
+      function {
+        id = function:01a0b371-2e7c-71b9-8115-2e15708a97ed
+        display-name = "area_requires_extended"
+        exported = true
+        parameters = [
+          parameter {
+            id = parameter:01a0b371-2e7c-7246-9960-43e2f4946e7f
+            display-name = "input"
+            type = named-type {
+              id = type:01a0b370-4eb0-7ecd-b5e3-3bc1e10ed15f
+            }
+          }
+        ]
+        result-type = primitive-bool {}
+        required-effects = []
+        body = value-graph {
+          nodes = [
+            parameter-reference {
+              id = node:01a0b371-2e81-7511-ad5c-037d229f781e
+              parameter = parameter:01a0b371-2e7c-7246-9960-43e2f4946e7f
+            }
+            match-union {
+              id = node:01a0b371-2e84-75ad-9850-7b1ac8ec69ff
+              input = node:01a0b371-2e81-7511-ad5c-037d229f781e
+              arms = [
+                union-arm {
+                  variant = variant:01a0b370-4eb0-721d-b270-a3ec476131c5
+                  fields = []
+                  body = value-graph {
+                    nodes = [
+                      bool-literal {
+                        id = node:01a0b371-2e83-7cd7-b350-2cdcff4083b3
+                        value = true
+                      }
+                    ]
+                    result = node:01a0b371-2e83-7cd7-b350-2cdcff4083b3
+                  }
+                }
+                union-arm {
+                  variant = variant:01a0b370-4eb0-7369-8e4d-a951116c4454
+                  fields = []
+                  body = value-graph {
+                    nodes = [
+                      bool-literal {
+                        id = node:01a0b371-2e83-7ae3-94aa-89e220490b3c
+                        value = true
+                      }
+                    ]
+                    result = node:01a0b371-2e83-7ae3-94aa-89e220490b3c
+                  }
+                }
+                union-arm {
+                  variant = variant:01a0b370-4eb0-7404-8f14-b285c80229f1
+                  fields = []
+                  body = value-graph {
+                    nodes = [
+                      bool-literal {
+                        id = node:01a0b371-2e83-750f-897e-68d33a1af9d2
+                        value = false
+                      }
+                    ]
+                    result = node:01a0b371-2e83-750f-897e-68d33a1af9d2
+                  }
+                }
+                union-arm {
+                  variant = variant:01a0b370-4eb0-7887-bc29-79cd3ae8fe98
+                  fields = []
+                  body = value-graph {
+                    nodes = [
+                      bool-literal {
+                        id = node:01a0b371-2e83-7f9a-a228-ebee51f7e2e3
+                        value = false
+                      }
+                    ]
+                    result = node:01a0b371-2e83-7f9a-a228-ebee51f7e2e3
+                  }
+                }
+                union-arm {
+                  variant = variant:01a0b370-4eb0-79fd-8646-18942e70ffef
+                  fields = []
+                  body = value-graph {
+                    nodes = [
+                      bool-literal {
+                        id = node:01a0b371-2e83-71bf-b8fd-4011aec70847
+                        value = true
+                      }
+                    ]
+                    result = node:01a0b371-2e83-71bf-b8fd-4011aec70847
+                  }
+                }
+                union-arm {
+                  variant = variant:01a0b370-4eb0-7e90-b459-d137eb1b1e6b
+                  fields = []
+                  body = value-graph {
+                    nodes = [
+                      bool-literal {
+                        id = node:01a0b371-2e83-7a3c-84c4-dc22d609da0c
+                        value = true
+                      }
+                    ]
+                    result = node:01a0b371-2e83-7a3c-84c4-dc22d609da0c
+                  }
+                }
+                union-arm {
+                  variant = variant:01a0b370-4eb0-7f9c-a874-3b08ba1f543e
+                  fields = []
+                  body = value-graph {
+                    nodes = [
+                      bool-literal {
+                        id = node:01a0b371-2e84-77c2-bf16-c90c3956feb7
+                        value = false
+                      }
+                    ]
+                    result = node:01a0b371-2e84-77c2-bf16-c90c3956feb7
+                  }
+                }
+              ]
+            }
+          ]
+          result = node:01a0b371-2e84-75ad-9850-7b1ac8ec69ff
+        }
+      }
+      function {
+        id = function:01a0b371-4487-7aa3-b9d3-2fc69ed62dab
+        display-name = "requires_live"
+        exported = true
+        parameters = [
+          parameter {
+            id = parameter:01a0b371-4487-748b-9bb3-18c78bc3b791
+            display-name = "input"
+            type = named-type {
+              id = type:01a0b371-055a-7787-8eb2-c71857419553
+            }
+          }
+        ]
+        result-type = primitive-bool {}
+        required-effects = []
+        body = value-graph {
+          nodes = [
+            field-access {
+              id = node:01a0b371-4487-778a-a420-c8e771e0e4e2
+              source = node:01a0b371-4487-77de-b292-42bfbe1ea1b3
+              field = field:01a0b371-055a-7539-8422-fc71fd54844f
+            }
+            parameter-reference {
+              id = node:01a0b371-4487-77de-b292-42bfbe1ea1b3
+              parameter = parameter:01a0b371-4487-748b-9bb3-18c78bc3b791
+            }
+            conditional {
+              id = node:01a0b371-4487-7e3d-9e9f-0938f8656308
+              condition = node:01a0b371-4487-778a-a420-c8e771e0e4e2
+              when-true = value-graph {
+                nodes = [
+                  bool-literal {
+                    id = node:01a0b371-4487-75d1-8769-73455dfabb48
+                    value = true
+                  }
+                ]
+                result = node:01a0b371-4487-75d1-8769-73455dfabb48
+              }
+              when-false = value-graph {
+                nodes = [
+                  field-access {
+                    id = node:01a0b371-4487-78e2-afba-ab6e61b98bf9
+                    source = node:01a0b371-4487-7bae-a6f9-a89c83634258
+                    field = field:01a0b371-055a-7233-bd10-f4c455efe13f
+                  }
+                  parameter-reference {
+                    id = node:01a0b371-4487-7bae-a6f9-a89c83634258
+                    parameter = parameter:01a0b371-4487-748b-9bb3-18c78bc3b791
+                  }
+                ]
+                result = node:01a0b371-4487-78e2-afba-ab6e61b98bf9
+              }
+            }
+          ]
+          result = node:01a0b371-4487-7e3d-9e9f-0938f8656308
+        }
+      }
+      function {
+        id = function:01a0b371-5990-74e8-b107-5bb5184497cc
+        display-name = "plan_verification"
+        exported = true
+        parameters = [
+          parameter {
+            id = parameter:01a0b371-5990-76b9-bb1b-4a76cbec1c05
+            display-name = "input"
+            type = named-type {
+              id = type:01a0b371-055a-7787-8eb2-c71857419553
+            }
+          }
+        ]
+        result-type = named-type {
+          id = type:01a0b371-162c-7db5-832d-a37f90c76298
+        }
+        required-effects = []
+        body = value-graph {
+          nodes = [
+            parameter-reference {
+              id = node:01a0b371-5992-735d-8833-1523b364b1f2
+              parameter = parameter:01a0b371-5990-76b9-bb1b-4a76cbec1c05
+            }
+            list-any {
+              id = node:01a0b371-5992-755d-8265-3f7f35fe937a
+              source = node:01a0b371-5992-7fb3-b62f-94110a213c31
+              callback = function:01a0b371-2e7c-71b9-8115-2e15708a97ed
+            }
+            field-access {
+              id = node:01a0b371-5992-7fb3-b62f-94110a213c31
+              source = node:01a0b371-5992-735d-8833-1523b364b1f2
+              field = field:01a0b371-055a-7e0c-bb5a-238ab49e7d7e
+            }
+            conditional {
+              id = node:01a0b371-5994-727b-bd3c-71720ccf6241
+              condition = node:01a0b371-5992-755d-8265-3f7f35fe937a
+              when-true = value-graph {
+                nodes = [
+                  direct-call {
+                    id = node:01a0b371-5993-7098-a6bc-4b9a51fda73a
+                    target-function = function:01a0b371-4487-7aa3-b9d3-2fc69ed62dab
+                    arguments = [
+                      argument {
+                        target-parameter = parameter:01a0b371-4487-748b-9bb3-18c78bc3b791
+                        value = node:01a0b371-5993-7d3f-b980-548734d91e8c
+                      }
+                    ]
+                  }
+                  parameter-reference {
+                    id = node:01a0b371-5993-7d3f-b980-548734d91e8c
+                    parameter = parameter:01a0b371-5990-76b9-bb1b-4a76cbec1c05
+                  }
+                  conditional {
+                    id = node:01a0b371-5994-7e20-b9bd-dcef28cb441a
+                    condition = node:01a0b371-5993-7098-a6bc-4b9a51fda73a
+                    when-true = value-graph {
+                      nodes = [
+                        union-construct {
+                          id = node:01a0b371-5994-718c-9673-eb99c7c80681
+                          variant = variant:01a0b371-162c-785e-a839-2bef9aecb10f
+                          fields = []
+                        }
+                      ]
+                      result = node:01a0b371-5994-718c-9673-eb99c7c80681
+                    }
+                    when-false = value-graph {
+                      nodes = [
+                        union-construct {
+                          id = node:01a0b371-5994-7576-a2f4-5c6afb8b150a
+                          variant = variant:01a0b371-162c-7a5b-9b00-790ae39640be
+                          fields = []
+                        }
+                      ]
+                      result = node:01a0b371-5994-7576-a2f4-5c6afb8b150a
+                    }
+                  }
+                ]
+                result = node:01a0b371-5994-7e20-b9bd-dcef28cb441a
+              }
+              when-false = value-graph {
+                nodes = [
+                  parameter-reference {
+                    id = node:01a0b371-5994-70e4-8592-b0abe9d278cd
+                    parameter = parameter:01a0b371-5990-76b9-bb1b-4a76cbec1c05
+                  }
+                  direct-call {
+                    id = node:01a0b371-5994-77e2-9560-6d67ae7cb92e
+                    target-function = function:01a0b371-4487-7aa3-b9d3-2fc69ed62dab
+                    arguments = [
+                      argument {
+                        target-parameter = parameter:01a0b371-4487-748b-9bb3-18c78bc3b791
+                        value = node:01a0b371-5994-70e4-8592-b0abe9d278cd
+                      }
+                    ]
+                  }
+                  conditional {
+                    id = node:01a0b371-5994-7ba2-b9f6-9e4acf1240de
+                    condition = node:01a0b371-5994-77e2-9560-6d67ae7cb92e
+                    when-true = value-graph {
+                      nodes = [
+                        union-construct {
+                          id = node:01a0b371-5994-7d7e-9071-b92456701300
+                          variant = variant:01a0b371-162c-736c-9c89-69e8829c1f71
+                          fields = []
+                        }
+                      ]
+                      result = node:01a0b371-5994-7d7e-9071-b92456701300
+                    }
+                    when-false = value-graph {
+                      nodes = [
+                        union-construct {
+                          id = node:01a0b371-5994-7d0c-8cb5-a6d99c7484f7
+                          variant = variant:01a0b371-162c-7391-841b-96a130d64dc7
+                          fields = []
+                        }
+                      ]
+                      result = node:01a0b371-5994-7d0c-8cb5-a6d99c7484f7
+                    }
+                  }
+                ]
+                result = node:01a0b371-5994-7ba2-b9f6-9e4acf1240de
+              }
+            }
+          ]
+          result = node:01a0b371-5994-727b-bd3c-71720ccf6241
+        }
+      }
+      function {
+        id = function:01a0b371-6c0f-7d62-a6fc-e8835c5866a6
+        display-name = "verification_label"
+        exported = true
+        parameters = [
+          parameter {
+            id = parameter:01a0b371-6c0f-77fd-9e8b-03c04a02d439
+            display-name = "input"
+            type = named-type {
+              id = type:01a0b371-162c-7db5-832d-a37f90c76298
+            }
+          }
+        ]
+        result-type = primitive-string {}
+        required-effects = []
+        body = value-graph {
+          nodes = [
+            parameter-reference {
+              id = node:01a0b371-6c0f-78eb-8ca4-cfb660736332
+              parameter = parameter:01a0b371-6c0f-77fd-9e8b-03c04a02d439
+            }
+            match-union {
+              id = node:01a0b371-6c0f-7c58-85b0-f0bae4602be0
+              input = node:01a0b371-6c0f-78eb-8ca4-cfb660736332
+              arms = [
+                union-arm {
+                  variant = variant:01a0b371-162c-736c-9c89-69e8829c1f71
+                  fields = []
+                  body = value-graph {
+                    nodes = [
+                      string-literal {
+                        id = node:01a0b371-6c0f-7722-8f8e-0cc92b7d8b5a
+                        value = "fast \u002B live"
+                      }
+                    ]
+                    result = node:01a0b371-6c0f-7722-8f8e-0cc92b7d8b5a
+                  }
+                }
+                union-arm {
+                  variant = variant:01a0b371-162c-7391-841b-96a130d64dc7
+                  fields = []
+                  body = value-graph {
+                    nodes = [
+                      string-literal {
+                        id = node:01a0b371-6c0f-735c-889e-ac306642ac1a
+                        value = "fast tests only"
+                      }
+                    ]
+                    result = node:01a0b371-6c0f-735c-889e-ac306642ac1a
+                  }
+                }
+                union-arm {
+                  variant = variant:01a0b371-162c-785e-a839-2bef9aecb10f
+                  fields = []
+                  body = value-graph {
+                    nodes = [
+                      string-literal {
+                        id = node:01a0b371-6c0f-7aa1-a7d9-ddfd2560511f
+                        value = "fast \u002B extended \u002B live"
+                      }
+                    ]
+                    result = node:01a0b371-6c0f-7aa1-a7d9-ddfd2560511f
+                  }
+                }
+                union-arm {
+                  variant = variant:01a0b371-162c-7a5b-9b00-790ae39640be
+                  fields = []
+                  body = value-graph {
+                    nodes = [
+                      string-literal {
+                        id = node:01a0b371-6c0f-7123-882c-e7496b488dbc
+                        value = "fast \u002B extended"
+                      }
+                    ]
+                    result = node:01a0b371-6c0f-7123-882c-e7496b488dbc
+                  }
+                }
+              ]
+            }
+          ]
+          result = node:01a0b371-6c0f-7c58-85b0-f0bae4602be0
+        }
+      }
+    ]
+    obligations = []
+  }
+}
