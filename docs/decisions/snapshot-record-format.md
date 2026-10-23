@@ -1,6 +1,6 @@
 # One record per line as the persisted snapshot form
 
-- **Status:** Proposed. Nothing here is implemented; the open points below must be settled before it can be accepted.
+- **Status:** Proposed. Nothing here is implemented. Every open point below is settled; acceptance waits for the evaluation under Revisit conditions.
 - **Date:** 2026-10-23
 - **Question:** [Q-001](open-questions.md#q-001--what-becomes-the-permanent-authoritative-persistence-medium), within the [Nyason and storage direction](../concepts/nyason-and-storage.md)
 
@@ -30,7 +30,7 @@ value    := id | locator | atom | INT | STRING | list | typeexpr
   - Values: booleans and integers bare, IDs `domain:uuid`, type expressions one token (`int64`, `type:T(a,b)`, `option(a)`, `(a,b)->r`), every other value, closed enumerations included, a JSON string literal.
 - **Presentation.** Presentation fields are exactly `name=` (and any later `doc=`).
 - **Resolved local snapshots.** A snapshot that resolves against pinned dependencies carries the same marker as the JSON `dependency` object (`snapshotId`, `digest`) in its header. The dependency identity is a quoted string, copied exactly, because a combined set's ID (`dependency-set-<uuid>`, derived from its members' fingerprints) is not a `domain:uuid` ID of this graph. The key names are provisional.
-- **Reading.** Agents and reviewers keep reading through queries and projections. A nested, tree-shaped rendering of one function is a projection generated from the same model, not a second persisted form ([AI-first principles](../concepts/ai-first-design-principles.md)).
+- **Reading.** Agents and reviewers keep reading through the existing queries and projections, which are built from the model and not from the persisted text. Any later text rendering is a projection, not a second persisted form ([AI-first principles](../concepts/ai-first-design-principles.md)).
 
 `requires_live` from [examples/verification-planner](../../examples/verification-planner/planner.snapshot.json) in this form:
 
@@ -55,7 +55,7 @@ conditional node:01a0b371-4487-7e3d-9e9f-0938f8656308 in=function:01a0b371-4487-
 
 ### Considered and not chosen
 
-- **A cleaned-up nested Nyason** (ID and kind on one line, wrappers removed). It reads top-down better for one function, but ownership stays positional. It is kept as the projection for reading.
+- **A cleaned-up nested Nyason** (ID and kind on one line, wrappers removed). It reads top-down better for one function, but ownership stays positional. It remains a candidate agent projection for the evaluation.
 - **Binary encodings.** At this scale they give no concrete benefit and lose diff, inspection and recovery.
 - **SQLite as authority.** The conditions under which the storage direction would accept a database authority (large-graph updates, partial loading, concurrency) are not observed yet; the database stays derived.
 - **JSONL.** The same row shape, but it repeats quoted keys and leaves IDs as untyped strings.
@@ -76,7 +76,7 @@ conditional node:01a0b371-4487-7e3d-9e9f-0938f8656308 in=function:01a0b371-4487-
 3. **Fingerprints and pin digests.** Resolved 2026-10-23: unchanged (see Reason and Consequences). Hashing the new form's file bytes was rejected: the format migration would change every fingerprint, which cascades into combined dependency-set IDs written in dependent snapshots and invalidates reviewed `--expect` values, while detecting no tampering that the model fingerprint misses, since only canonical bytes parse.
 4. **Supported legacy ID spellings.** Resolved 2026-10-23: out of scope. IDs written before the stable-ID scheme settled need no spelling in the new form; only the full lowercase UUID is accepted.
 5. **Shared match arms.** Resolved 2026-10-23: keyed by the arm's first variant in canonical order, with `variants=` listing all of them (see Ownership). Giving arms their own IDs was rejected: it adds an identity the model does not have and a schema change. Cost: when that first variant leaves the arm (removed, or the arm is split), the arm record and the nodes and bindings it owns directly change their locator (nodes in nested graphs keep theirs), so the diff is wider than the semantic change; the graph itself is unaffected.
-6. **Reading projection.** Which nested rendering agents and the viewer receive, and whether it is the same text for both.
+6. **Reading projection.** Resolved 2026-10-23: unchanged. Agents already read the in-memory graph through session queries (`nyrwvy_inspect`, `readFunction`, whose function focus is structured JSON with sorted nodes, [WireGraph.fs](../../tools/Nyrwvy.AuthoringSession/WireGraph.fs)) and the viewer renders HTML from the same model; neither reads the persisted text. The persisted form therefore needs no companion projection. A text rendering for agents (nested or record form) is added only if the agent comprehension evaluation under Revisit conditions shows it beats the current focus JSON; no such comparison exists yet.
 
 ## Revisit conditions
 
