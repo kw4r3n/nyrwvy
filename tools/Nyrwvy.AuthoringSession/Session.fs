@@ -395,6 +395,15 @@ module internal SessionStorage =
         | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
+    /// Whether `path` exists: `File.Exists` also answers false when the path cannot be checked
+    /// (an unreadable directory), which must stay an I/O failure rather than read as "gone".
+    let fileExists (path: string): Result<bool, AuthoringSessionError> =
+        try Ok(not ((File.GetAttributes path).HasFlag FileAttributes.Directory))
+        with
+        | :? FileNotFoundException | :? DirectoryNotFoundException -> Ok false
+        | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
+        | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
+
     /// The persisted form follows the file extension (docs/decisions/snapshot-record-format.md):
     /// `.nyrec` is the record form, every other path the strict JSON codec.
     let isRecordPath (path: string) = Path.GetExtension path = ".nyrec"
@@ -1060,7 +1069,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     let dependencyStillPinned () =
         match selection with
         | Some selected when not selected.IsEmbedded ->
-            if not (File.Exists selected.SourcePath) then Ok false else
+            match SessionStorage.fileExists selected.SourcePath with
+            | Error error -> Error error
+            | Ok false -> Ok false
+            | Ok true ->
             match SessionStorage.readCompleteDependency selected.SourcePath with
             // A read failure is transient: only content that was read and differs is a change.
             | Error(AuthoringSessionError.IoFailure _ as error) -> Error error
@@ -1078,8 +1090,9 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         let selectionUnchanged =
             match dependencyManifest with
             | None -> Ok true
-            | Some _ when not (File.Exists sidecar) -> Ok false
-            | Some expected -> SessionStorage.readText sidecar |> Result.map (fun actual -> actual = expected)
+            | Some expected ->
+                SessionStorage.fileExists sidecar
+                |> Result.bind (fun exists -> if exists then SessionStorage.readText sidecar |> Result.map (fun actual -> actual = expected) else Ok false)
         match selectionUnchanged |> Result.bind (fun unchanged -> if unchanged then dependencyStillPinned () else Ok false) with
         | Error error -> Error error
         | Ok false ->
