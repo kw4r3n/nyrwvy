@@ -26,7 +26,7 @@ Should durable authoritative state ultimately use a portable Nyason snapshot, a 
 
 ### Current position
 
-Strict JSON is the reference/debug baseline. Nyason is the actively explored Nyrwvy-native portable encoding candidate. A database is likely useful as a working/index store and may become authoritative if measured evidence supports it. Storage representation must not redefine graph semantics. A [one-record-per-line Nyason form](snapshot-record-format.md) is proposed, not accepted.
+Strict JSON is the reference/debug baseline. Nyason is the actively explored Nyrwvy-native portable encoding candidate. A database is likely useful as a working/index store and may become authoritative if measured evidence supports it. Storage representation must not redefine graph semantics. A [one-record-per-line Nyason form](snapshot-record-format.md) is accepted as the portable persisted form and not implemented yet; whether a database becomes the authority stays open.
 
 ### Resolution target
 
