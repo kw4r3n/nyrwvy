@@ -8,7 +8,12 @@ open System.Text.Encodings.Web
 open System.Text.Json
 
 /// A record-form error at a 1-based line and column.
-type RecordCodecError = { Line: int; Column: int; Message: string }
+type RecordCodecError =
+    { Line: int
+      Column: int
+      Message: string
+      /// The JSON reader's error when the records were well formed but the model was not, with its structured issues.
+      Model: SnapshotCodecError option }
 
 /// The one-record-per-line snapshot form (docs/decisions/snapshot-record-format.md): the strict JSON
 /// writer's shape rendered as records. `serialize` renders the JSON codec's output; `deserialize`
@@ -18,7 +23,7 @@ type RecordCodecError = { Line: int; Column: int; Message: string }
 [<RequireQualifiedAccess>]
 module RecordCodec =
     exception internal RecordFailure of RecordCodecError
-    let private fail line column message = raise (RecordFailure { Line = line; Column = column; Message = message })
+    let private fail line column message = raise (RecordFailure { Line = line; Column = column; Message = message; Model = None })
 
     // ---------------------------------------------------------------------------------------------
     // The per-kind key table (RecordKinds.fs, generated from the writer) and the hand-stated facts
@@ -476,7 +481,7 @@ module RecordCodec =
             // parameters, both by position, before every other member) is checked here but reported
             // last, after the structural and model checks, as the harness's re-encode comparison was.
             let mutable deferred: RecordCodecError option = None
-            let defer line column message = if deferred.IsNone then deferred <- Some { Line = line; Column = column; Message = message }
+            let defer line column message = if deferred.IsNone then deferred <- Some { Line = line; Column = column; Message = message; Model = None }
             while pos < text.Length do
                 let lineEnd = text.IndexOf('\n', pos)
                 if lineEnd = pos then
@@ -882,7 +887,7 @@ module RecordCodec =
                     if at >= 0 && at < best then
                         best <- at
                         where <- r
-                Error { Line = (if isNull where then 1 else where.Line); Column = (if isNull where then 1 else where.Column); Message = message }
+                Error { Line = (if isNull where then 1 else where.Line); Column = (if isNull where then 1 else where.Column); Message = message; Model = Some error }
         with RecordFailure e -> Error e
 
     /// Record text -> the snapshot, validated by `SnapshotCodec`'s reader. Only canonical bytes decode.

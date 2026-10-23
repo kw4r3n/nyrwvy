@@ -50,10 +50,12 @@ type MigrationReport =
       /// graph: no retired node was rewritten in the local snapshot or in any dependency.
       SemanticFingerprintExpectedEqual: bool
       Dependencies: MigratedDependencyReport list
+      /// The new path the migrated workspace was written to (`--to`); the source was left untouched.
+      Target: string option
       Tool: string
       ToolVersion: string }
 
-/// `Nyrwvy.AuthoringSession migrate --snapshot <path> [--dependency <exact legacy source copy>]`:
+/// `Nyrwvy.AuthoringSession migrate --snapshot <path> [--dependency <exact legacy source copy>] [--to <new path>]`:
 /// rewrites a workspace to the current snapshot schema under the workspace lock and reports the
 /// evidence. The rewrite itself is `SnapshotMigration.migrate`; this module owns the files: the
 /// local snapshot, its dependency sidecar (each retained member is migrated and re-embedded; a
@@ -103,17 +105,17 @@ module AuthoringSessionMigration =
     /// The schema version a retained member's document declares: from its embedded content, or
     /// from the exact source copy a legacy manifest was resolved against.
     let private memberDeclaredVersion (selected: PinnedDependencySelection): Result<SnapshotSchemaVersion, AuthoringSessionError> =
-        let text =
-            if selected.IsEmbedded then
-                try
-                    use document = JsonDocument.Parse selected.Manifest
-                    Ok(document.RootElement.GetProperty("snapshotJson").GetString())
-                with
-                | :? JsonException
-                | :? InvalidOperationException
-                | :? Collections.Generic.KeyNotFoundException -> Error(AuthoringSessionError.DependencyFailure "Invalid dependency manifest.")
-            else SessionStorage.readText selected.SourcePath
-        text |> Result.bind (SnapshotCodec.declaredVersion >> codec)
+        if selected.IsEmbedded then
+            try
+                use document = JsonDocument.Parse selected.Manifest
+                match document.RootElement.TryGetProperty "snapshotRecords" with
+                | true, _ -> Ok SnapshotSchema.current
+                | _ -> SnapshotCodec.declaredVersion (document.RootElement.GetProperty("snapshotJson").GetString()) |> codec
+            with
+            | :? JsonException
+            | :? InvalidOperationException
+            | :? Collections.Generic.KeyNotFoundException -> Error(AuthoringSessionError.DependencyFailure "Invalid dependency manifest.")
+        else SessionStorage.readText selected.SourcePath |> Result.bind (SessionStorage.declaredVersion selected.SourcePath)
 
     let private migrateMember (selected: PinnedDependencySelection): Result<PinnedDependencySelection * MigratedDependencyReport, AuthoringSessionError> =
         memberDeclaredVersion selected
@@ -158,7 +160,7 @@ module AuthoringSessionMigration =
 
     let private result = ResultBuilder()
 
-    let private migrateUnlocked (path: string) (sourceOverride: string option): Result<MigrationReport, AuthoringSessionError> =
+    let private migrateUnlocked (path: string) (sourceOverride: string option) (target: string option): Result<MigrationReport, AuthoringSessionError> =
         result {
             let! source = SessionStorage.readText path
             let! loaded = PinnedDependency.load path sourceOverride
@@ -168,12 +170,8 @@ module AuthoringSessionMigration =
                     Error(AuthoringSessionError.MigrationRejected "This workspace has no dependency selection; --dependency names the exact source copy of a legacy pin only.")
                 | None, None -> SessionStorage.requireSidecarForResolvedSource path source |> Result.map (fun () -> None)
                 | Some _, _ -> Ok loaded
-            let! declared = SnapshotCodec.declaredVersion source |> codec
-            let! local =
-                match selected with
-                | None -> SnapshotCodec.deserialize source
-                | Some selected -> SnapshotCodec.deserializeResolved selected.Imported source
-                |> codec
+            let! declared = SessionStorage.declaredVersion path source
+            let! local = SessionStorage.decodeAs path (selected |> Option.map (fun item -> item.Imported)) source
             let! migratedSelection =
                 match selected with
                 | None -> Ok None
@@ -188,6 +186,7 @@ module AuthoringSessionMigration =
                 | None -> outcome.Snapshot
                 | Some(combined, _) -> SnapshotCodec.resolveDependency combined.Imported outcome.Snapshot
             let! before = fingerprints resolvedBefore
+            let written = Option.defaultValue path target
             let! migratedSource =
                 match migratedSelection with
                 | None -> SnapshotCodec.serialize outcome.Snapshot
@@ -195,22 +194,46 @@ module AuthoringSessionMigration =
                 |> Result.mapError (function
                     | SnapshotCodecError.InvalidSnapshot issues -> AuthoringSessionError.WorkspaceValidationFailure issues
                     | other -> AuthoringSessionError.SnapshotCodecFailure other)
+                |> Result.map (SessionStorage.encode written)
+            let! resolvedAfter =
+                match target with
+                | None -> Ok resolvedAfter
+                | Some _ ->
+                    // The report is evidence of the conversion: decode the text that will be written.
+                    SessionStorage.decodeAs written (migratedSelection |> Option.map (fun (combined, _) -> combined.Imported)) migratedSource
+                    |> Result.map (fun local ->
+                        match migratedSelection with
+                        | None -> local
+                        | Some(combined, _) -> SnapshotCodec.resolveDependency combined.Imported local)
             let! after = fingerprints resolvedAfter
             let dependencyReports = migratedSelection |> Option.map snd |> Option.defaultValue []
+            // A conversion to another path is representation-only by contract: migrate in place first.
             let expectedEqual =
-                SnapshotMigration.representationOnly outcome
-                && (dependencyReports |> List.forall (fun item -> item.SemanticFingerprintExpectedEqual))
+                Option.isSome target
+                || (SnapshotMigration.representationOnly outcome
+                    && (dependencyReports |> List.forall (fun item -> item.SemanticFingerprintExpectedEqual)))
             do! verifyContinuity expectedEqual before after
             let manifestChanged =
                 match selected, migratedSelection with
                 | Some current, Some(combined, _) -> current.Manifest <> combined.Manifest
                 | _ -> false
-            let changed = migratedSource <> source || manifestChanged
+            let changed = Option.isSome target || migratedSource <> source || manifestChanged
             do!
                 if not changed then Ok()
                 else
-                    match selected, migratedSelection with
-                    | Some current, Some(combined, _) ->
+                    match target, selected, migratedSelection with
+                    | Some written, _, _ ->
+                        // Create, never replace: `migrateTo` checked the target absent under its lock.
+                        (match migratedSelection with
+                         | None -> Ok()
+                         | Some(combined, _) -> SessionStorage.createAtomically (written + ".dependency.json") combined.Manifest)
+                        |> Result.bind (fun () ->
+                            match SessionStorage.createAtomically written migratedSource with
+                            | Ok() -> Ok()
+                            | Error error ->
+                                if Option.isSome migratedSelection then SessionStorage.cleanupTemporary (written + ".dependency.json")
+                                Error error)
+                    | None, Some current, Some(combined, _) ->
                         SessionStorage.replaceDependencyPair path source current.Manifest migratedSource combined.Manifest
                     | _ ->
                         SessionStorage.readText path
@@ -219,6 +242,7 @@ module AuthoringSessionMigration =
                             else SessionStorage.replaceAtomically path migratedSource)
             return
                 { Path = path
+                  Target = target
                   Changed = changed
                   SourceSchemaVersion = declared.Json
                   SourceSchema = declared.Nyason
@@ -247,8 +271,32 @@ module AuthoringSessionMigration =
             match SessionStorage.acquireLock path with
             | Error error -> Error error
             | Ok lockHandle ->
-                try migrateUnlocked path sourceOverride
+                try migrateUnlocked path sourceOverride None
                 finally SessionStorage.releaseLock path lockHandle
+
+    /// Migrates the workspace at `path` into a new workspace at `target` (snapshot and sidecar in the
+    /// form the target's extension selects, `.nyrec` for records) and leaves the source untouched.
+    /// Both paths are locked; the target must not exist; the semantic fingerprint must be unchanged.
+    let migrateTo (path: string) (sourceOverride: string option) (target: string): Result<MigrationReport, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        let path = SessionStorage.fullPath path
+        let target = SessionStorage.fullPath target
+        if not (File.Exists path) then Error(AuthoringSessionError.SnapshotFileNotFound path)
+        elif target = path || File.Exists target || File.Exists(target + ".dependency.json") then Error(AuthoringSessionError.SnapshotFileAlreadyExists target)
+        else
+            match SessionStorage.ensureParentDirectory target |> Result.bind (fun () -> SessionStorage.acquireLock path) with
+            | Error error -> Error error
+            | Ok sourceLock ->
+                try
+                    match SessionStorage.acquireLock target with
+                    | Error error -> Error error
+                    | Ok targetLock ->
+                        try
+                            // Re-checked under the lock, as `create` does; creation itself refuses to overwrite.
+                            if File.Exists target || File.Exists(target + ".dependency.json") then Error(AuthoringSessionError.SnapshotFileAlreadyExists target)
+                            else migrateUnlocked path sourceOverride (Some target)
+                        finally SessionStorage.releaseLock target targetLock
+                finally SessionStorage.releaseLock path sourceLock
 
     let private fingerprintsJson (value: MigrationFingerprints) =
         let node = JsonObject()
@@ -272,6 +320,7 @@ module AuthoringSessionMigration =
         root["tool"] <- JsonValue.Create report.Tool
         root["toolVersion"] <- JsonValue.Create report.ToolVersion
         root["path"] <- JsonValue.Create report.Path
+        report.Target |> Option.iter (fun target -> root["target"] <- JsonValue.Create target)
         root["changed"] <- JsonValue.Create report.Changed
         root["sourceSchemaVersion"] <- JsonValue.Create report.SourceSchemaVersion
         root["sourceSchema"] <- JsonValue.Create report.SourceSchema
