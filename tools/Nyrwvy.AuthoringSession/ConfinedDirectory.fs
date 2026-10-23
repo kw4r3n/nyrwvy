@@ -103,7 +103,7 @@ module internal ConfinedDirectory =
                     try
                         use stream = new FileStream(new SafeFileHandle(nativeint fd, true), FileAccess.Write)
                         stream.Write(content, 0, content.Length)
-                        stream.Flush()
+                        stream.Flush true
                         Ok()
                     with
                     | :? IOException as error -> Error $"I/O error: {error.Message}"

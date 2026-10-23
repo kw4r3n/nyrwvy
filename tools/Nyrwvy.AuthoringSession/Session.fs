@@ -460,7 +460,11 @@ module internal SessionStorage =
         let directory = Path.GetDirectoryName(path)
         let tempPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp")
         try
-            File.WriteAllText(tempPath, content, UTF8Encoding(false))
+            // Flushed to disk before the rename so a crash cannot leave the final name on empty content.
+            use stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write)
+            let bytes = UTF8Encoding(false).GetBytes content
+            stream.Write(bytes, 0, bytes.Length)
+            stream.Flush true
             Ok tempPath
         with
         | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
