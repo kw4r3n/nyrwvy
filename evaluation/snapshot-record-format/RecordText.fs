@@ -392,7 +392,7 @@ let private subjectDomain (kind: string) (owner: string option) =
     | _ -> "node"
 
 /// Record text -> the writer's JSON.
-let private convert (strict: bool) (text: string) : Result<string, RecordError> =
+let private convert (strict: bool) (misspellings: bool) (text: string) : Result<string, RecordError> =
     try
         if not (text.EndsWith("\n", StringComparison.Ordinal)) then fail (max 1 (text.Split('\n').Length)) "missing final newline"
         if text.Length > 0 && text[0] = '\uFEFF' then fail 1 "byte order mark"
@@ -486,7 +486,7 @@ let private convert (strict: bool) (text: string) : Result<string, RecordError> 
                 while i < shorter.Length && longer[i] = shorter[i] do i <- i + 1
                 longer.Substring(i + 1) = shorter.Substring i
             else false
-        let misspelled (subject: string) = subjects.Keys |> Seq.exists (editDistanceOne subject)
+        let misspelled (subject: string) = misspellings && (subjects.Keys |> Seq.exists (editDistanceOne subject))
         let blockOfRecord (subject: string) = match subjects.TryGetValue subject with | true, r -> Some blockOf[r] | _ -> None
         for r in records do
           if strict then
@@ -659,11 +659,14 @@ let private convert (strict: bool) (text: string) : Result<string, RecordError> 
 
 /// Record text -> the writer's JSON, structure only: no reference or owner existence checks, so the
 /// structural tier (which does not validate) converts.
-let toJson (text: string) : Result<string, RecordError> = convert false text
+let toJson (text: string) : Result<string, RecordError> = convert false true text
 
 /// Record text -> the writer's JSON with the structural checks (duplicates, dangling references,
 /// missing owners) reported on the line where the record is or should be. The model-level decoder uses it.
-let toJsonStrict (text: string) : Result<string, RecordError> = convert true text
+let toJsonStrict (text: string) : Result<string, RecordError> = convert true true text
+
+/// `toJsonStrict` without the one-edit misspelling rule: a missing ID is always reported at its canonical position (ablation).
+let toJsonStrictNoMisspellings (text: string) : Result<string, RecordError> = convert true false text
 
 /// The row table: every non-blank line tokenized into a record (header included), no model.
 let parseRows (text: string) : Result<Record[], RecordError> =

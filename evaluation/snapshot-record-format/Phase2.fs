@@ -107,7 +107,7 @@ type Outcome =
       LineOk: bool
       Message: string }
 
-let corrupt (fixtures: string) (seed: int) (resultsDir: string) =
+let corrupt (fixtures: string) (seed: int) (misspellings: bool) (resultsDir: string) =
     let rng = Random seed
     let files = Directory.GetFiles(Path.Combine(fixtures, "validated"), "*.json") |> Array.sort
     let originals =
@@ -116,18 +116,25 @@ let corrupt (fixtures: string) (seed: int) (resultsDir: string) =
             let snapshot = SnapshotCodec.deserialize json |> function Ok s -> s | Error e -> failwith $"{path}: {e}"
             let text = Codec.encode snapshot |> function Ok t -> t | Error e -> failwith $"{path}: {e}"
             Path.GetFileName path, text, (SnapshotCodec.serialize snapshot |> Result.defaultValue ""), (SemanticFingerprint.compute snapshot |> Result.defaultValue Unchecked.defaultof<_>))
+    // Slots 0..999 fix the kind schedule; a draw that leaves the bytes unchanged (a no-op mutation) is
+    // discarded and the slot redrawn from the same seed stream, so every counted mutation is real.
+    let mutable noOps = 0
     let outcomes =
-        [ for index in 0 .. 999 do
-            let name, text, json, fingerprint = originals[index % originals.Length]
-            let mutation, mutated = mutate rng index name text
-            match Codec.decode mutated with
+        [ for slot in 0 .. 999 do
+            let name, text, json, fingerprint = originals[slot % originals.Length]
+            let mutable drawn = mutate rng slot name text
+            while snd drawn = text do
+                noOps <- noOps + 1
+                drawn <- mutate rng slot name text
+            let mutation, mutated = drawn
+            match Codec.decodeWith misspellings mutated with
             | Error e ->
                 yield { Mutation = mutation; Outcome = "rejected"; ReportedLine = e.Line; LineOk = List.contains e.Line mutation.MutatedLines; Message = e.Message.Split('\n')[0] }
             | Ok decoded ->
                 let same = (SemanticFingerprint.compute decoded |> Result.defaultValue Unchecked.defaultof<_>) = fingerprint
                 let outcome =
-                    if same then "accepted-same"
-                    elif isFreeValueEdit json (SnapshotCodec.serialize decoded |> Result.defaultValue "") then "accepted-free-value"
+                    if isFreeValueEdit json (SnapshotCodec.serialize decoded |> Result.defaultValue "") then "accepted-free-value"
+                    elif same then "accepted-same"
                     else "accepted-changed"
                 yield { Mutation = mutation; Outcome = outcome; ReportedLine = 0; LineOk = true; Message = "" } ]
     let rejected = outcomes |> List.filter (fun o -> o.Outcome = "rejected")
@@ -135,7 +142,7 @@ let corrupt (fixtures: string) (seed: int) (resultsDir: string) =
     let changed = outcomes |> List.filter (fun o -> o.Outcome = "accepted-changed")
     let count outcome = outcomes |> List.filter (fun o -> o.Outcome = outcome) |> List.length
     let ratio = float lineOk.Length / float rejected.Length
-    printfn "corruption: seed=%d mutations=%d rejected=%d line-ok=%d (%.1f%%) accepted-same=%d accepted-free-value=%d accepted-changed=%d" seed outcomes.Length rejected.Length lineOk.Length (100.0 * ratio) (count "accepted-same") (count "accepted-free-value") changed.Length
+    printfn "corruption: seed=%d misspelling-rule=%b no-op-draws-discarded=%d mutations=%d rejected=%d line-ok=%d (%.1f%%) accepted-same=%d accepted-free-value=%d accepted-changed=%d" seed misspellings noOps outcomes.Length rejected.Length lineOk.Length (100.0 * ratio) (count "accepted-same") (count "accepted-free-value") changed.Length
     printfn "%-16s %8s %8s %8s" "kind" "total" "rejected" "line-ok"
     for kind in outcomes |> List.map (fun o -> o.Mutation.Kind) |> List.distinct do
         let ofKind = outcomes |> List.filter (fun o -> o.Mutation.Kind = kind)
@@ -146,11 +153,14 @@ let corrupt (fixtures: string) (seed: int) (resultsDir: string) =
     let breaking = outcomes |> List.filter (fun o -> o.Outcome = "accepted-changed" || (o.Outcome = "rejected" && not o.LineOk))
     let doc =
         {| seed = seed
+           misspellingRule = misspellings
+           noOpDrawsDiscarded = noOps
            summary = {| mutations = outcomes.Length; rejected = rejected.Length; rejectedOnMutatedLine = lineOk.Length; rejectedOnMutatedLineRatio = ratio; acceptedSame = count "accepted-same"; acceptedFreeValue = count "accepted-free-value"; acceptedChanged = changed.Length; semanticsPass = semanticPass; linePass = linePass |}
            breaking = breaking |> List.map (fun o -> {| index = o.Mutation.Index; fixture = o.Mutation.Fixture; kind = o.Mutation.Kind; mutatedLines = o.Mutation.MutatedLines; outcome = o.Outcome; reportedLine = o.ReportedLine; message = o.Message; before = o.Mutation.Before; after = o.Mutation.After |})
-           all = outcomes |> List.map (fun o -> {| index = o.Mutation.Index; fixture = o.Mutation.Fixture; kind = o.Mutation.Kind; mutatedLines = o.Mutation.MutatedLines; outcome = o.Outcome; reportedLine = o.ReportedLine |}) |}
-    File.WriteAllText(Path.Combine(resultsDir, "corruption.json"), JsonSerializer.Serialize(doc, JsonSerializerOptions(WriteIndented = true)))
-    printfn "wrote %s (%d criterion-breaking mutations)" (Path.Combine(resultsDir, "corruption.json")) breaking.Length
+           all = outcomes |> List.map (fun o -> {| index = o.Mutation.Index; fixture = o.Mutation.Fixture; kind = o.Mutation.Kind; mutatedLines = o.Mutation.MutatedLines; outcome = o.Outcome; reportedLine = o.ReportedLine; before = o.Mutation.Before; after = o.Mutation.After |}) |}
+    let file = Path.Combine(resultsDir, (if misspellings then "corruption.json" else "corruption-no-misspelling-rule.json"))
+    File.WriteAllText(file, JsonSerializer.Serialize(doc, JsonSerializerOptions(WriteIndented = true)))
+    printfn "wrote %s (%d criterion-breaking mutations)" file breaking.Length
     if semanticPass && linePass then 0 else 1
 
 // ---------------------------------------------------------------------------------------------
