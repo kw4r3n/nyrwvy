@@ -80,7 +80,7 @@ conditional node:01a0b371-4487-7e3d-9e9f-0938f8656308 in=function:01a0b371-4487-
 
 ## Revisit conditions
 
-Accept, change or drop this proposal after an evaluation over the planner snapshot, the largest test fixture and every migrated fixture:
+Accept, change or drop this proposal after an evaluation over the planner snapshot, the largest test fixture and every migrated fixture. The [evaluation plan](../experiments/snapshot-record-format-evaluation.md) fixes the corpus and pass criteria; its agent comparison decides only open point 6, not acceptance:
 
 - decode and encode round-trip identity and idempotence on every fixture, and a fingerprint recomputed from the decoded graph equal to the stored one;
 - changed lines per authoring operation (add node, rename, add variant, migrate a field type) against JSON and Nyason v0;
