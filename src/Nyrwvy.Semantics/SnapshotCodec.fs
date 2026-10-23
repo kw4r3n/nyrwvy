@@ -2610,12 +2610,9 @@ module SnapshotCodec =
                       ValueNodeId = readId<GraphNodeTag> "resolutionValueNodeId" element } }
         | value -> invalidShape $"Unsupported obligation status '{value}'."
 
-    let private deserializeUsing (dependency: Snapshot option) (json: string): Result<Snapshot, SnapshotCodecError> =
-        if isNull json then
-            Error(SnapshotCodecError.InvalidJson "Snapshot JSON must not be null.")
-        else
+    let private deserializeDocument (dependency: Snapshot option) (parse: unit -> JsonDocument): Result<Snapshot, SnapshotCodecError> =
             try
-                use document = JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth))
+                use document = parse ()
                 let root = document.RootElement
                 let required = set [ "schemaVersion"; "snapshotId"; "types"; "effects"; "capabilities"; "functions"; "obligations" ]
                 let allowed = Set.add "parentSnapshotId" required
@@ -2671,6 +2668,14 @@ module SnapshotCodec =
             | :? InvalidDataException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
             | :? ArgumentException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
             | :? KeyNotFoundException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
+
+    let private deserializeUsing (dependency: Snapshot option) (json: string): Result<Snapshot, SnapshotCodecError> =
+        if isNull json then Error(SnapshotCodecError.InvalidJson "Snapshot JSON must not be null.")
+        else deserializeDocument dependency (fun () -> JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth)))
+
+    /// The same reader over UTF-8 bytes (the record codec hands it the JSON it writes, without a text round trip).
+    let internal deserializeUtf8 (dependency: Snapshot option) (json: ReadOnlyMemory<byte>): Result<Snapshot, SnapshotCodecError> =
+        deserializeDocument dependency (fun () -> JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth)))
 
     let deserialize (json: string): Result<Snapshot, SnapshotCodecError> =
         deserializeUsing None json

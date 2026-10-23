@@ -22,6 +22,8 @@
     <Compile Include="LooseJsonString.fs" />
     <Compile Include="SnapshotSchema.fs" />
     <Compile Include="SnapshotCodec.fs" />
+    <Compile Include="RecordKinds.fs" />
+    <Compile Include="RecordCodec.fs" />
     <Compile Include="Fingerprint.fs" />
     <Compile Include="SnapshotMigration.fs" />
     <Compile Include="DependencyGraph.fs" />
