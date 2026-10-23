@@ -21,9 +21,9 @@ value    := id | locator | atom | INT | STRING | list | typeexpr
 ```
 
 - **Identity.** An ID is spelled `domain:uuid` (`node:`, `field:`, `type:`, `parameter:`, …) with the full lowercase hyphenated UUID, so its domain is part of the token rather than implied by the key it appears under. No short IDs, aliases or per-file numbering.
-- **Ownership.** Every member record carries `in=` naming its owner: `parameter … in=function:F index=N`, a graph node `in=function:F/body` or `in=node:C/when-false`. A value graph is not a record and gets no identity: it is the set of nodes whose `in=` names its locator, and its result is a key on the owner (`body=node:R`, `when-true=node:R`).
+- **Ownership.** Every member record carries `in=` naming its owner: `parameter … in=function:F index=N`, a graph node `in=function:F/body` or `in=node:C/when-false`. A value graph is not a record and gets no identity: it is the set of nodes whose `in=` names its locator, and its result is a key on the owner (`body=node:R`, `when-true=node:R`). A `matchUnion` arm, which has no ID of its own, is a record whose subject is a locator: `arm node:M/arm/variant:V result=node:R`, with its nodes `in=node:M/arm/variant:V` and its field bindings as `binding binding:B in=node:M/arm/variant:V field=field:F`.
 - **Canonical form only.** Declarations are grouped in schema order (types, effects, capabilities, functions, obligations) and sorted by ID inside a group, separated by one blank line. Inside a declaration: the declaration record, parameters by `index`, then the other member records sorted by subject. Collections whose order is semantic keep their declared order; every other collection is keyed and sorted by key. Keys follow a fixed per-kind order; empty collections and absent optionals are omitted; UTF-8 without BOM, LF, single spaces, a final newline. The parser rejects every other spelling with line and column, so file bytes are canonical bytes.
-- **Presentation.** Presentation fields are exactly `name=` (and any later `doc=`), so the semantic fingerprint's neutralization becomes dropping those keys.
+- **Presentation.** Presentation fields are exactly `name=` (and any later `doc=`), so the display-name part of the semantic fingerprint's normalization is dropping those keys. Its other normalization (snapshot identity, obligation and transaction IDs, pattern-binding names) is unchanged.
 - **Reading.** Agents and reviewers keep reading through queries and projections. A nested, tree-shaped rendering of one function is a projection generated from the same model, not a second persisted form ([AI-first principles](../concepts/ai-first-design-principles.md)).
 
 `requires_live` from [examples/verification-planner](../../examples/verification-planner/planner.snapshot.json) in this form:
@@ -58,7 +58,7 @@ conditional node:01a0b371-4487-7e3d-9e9f-0938f8656308 in=function:01a0b371-4487-
 
 ## Consequences
 
-- A new Nyason schema identifier and a new structural fingerprint domain; the existing domains stay frozen. Adoption goes through the existing `migrate` command and its report, never a silent change.
+- A new Nyason schema identifier and new fingerprint domains for whatever the new form changes; the existing domains stay frozen. Adoption needs a codec for the new form and a migration that, like the existing `migrate` command (which reads and writes JSON only today), reports before and after fingerprints, never a silent change.
 - The dependency sidecar would embed this text instead of the snapshot JSON, once the open point on pin digests is settled.
 - JSON remains the strict reference, debug and benchmark codec.
 
@@ -68,7 +68,8 @@ conditional node:01a0b371-4487-7e3d-9e9f-0938f8656308 in=function:01a0b371-4487-
 2. **Per-kind key order.** A schema table fixing the key order of every record kind, including effects, capabilities, obligations and type parameters, which the sample snapshot does not contain and were not rendered.
 3. **Fingerprints and pin digests.** Whether the structural fingerprint becomes a hash of the canonical bytes, and how existing dependency pin digests over JSON migrate.
 4. **Supported legacy ID spellings.** Whether any persisted ID is not a lowercase UUID, and how it would be spelled.
-5. **Reading projection.** Which nested rendering agents and the viewer receive, and whether it is the same text for both.
+5. **Shared match arms.** An arm that names several variants with one body ([shared arms](match-union-shared-arms.md)) needs one locator; which variant it is keyed by, or whether it gets a different locator form.
+6. **Reading projection.** Which nested rendering agents and the viewer receive, and whether it is the same text for both.
 
 ## Revisit conditions
 
