@@ -29,8 +29,12 @@ module ViewerFile =
             Error "output must name an .html file."
         | Some path ->
             let resolved = Path.GetFullPath(Path.Combine(directory, path))
-            if isInside directory resolved then Ok(directory, resolved)
-            else Error $"output must stay inside the snapshot's directory {directory}; {path} resolves to {resolved}."
+            let snapshot = Path.GetFullPath snapshotPath
+            if not (isInside directory resolved) then
+                Error $"output must stay inside the snapshot's directory {directory}; {path} resolves to {resolved}."
+            elif List.contains resolved [ snapshot; snapshot + ".lock"; snapshot + ".dependency.json" ] then
+                Error $"output must not replace the snapshot, its lock or its dependency sidecar; {path} resolves to {resolved}."
+            else Ok(directory, resolved)
 
     /// The first existing component below `directory` on the way to `path` (the file included) that is
     /// a symbolic link or reparse point. The confinement above compares strings, so a link would carry

@@ -395,6 +395,15 @@ module internal SessionStorage =
         | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
+    /// Whether `path` exists: `File.Exists` also answers false when the path cannot be checked
+    /// (an unreadable directory), which must stay an I/O failure rather than read as "gone".
+    let fileExists (path: string): Result<bool, AuthoringSessionError> =
+        try Ok(not ((File.GetAttributes path).HasFlag FileAttributes.Directory))
+        with
+        | :? FileNotFoundException | :? DirectoryNotFoundException -> Ok false
+        | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
+        | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
+
     /// The persisted form follows the file extension (docs/decisions/snapshot-record-format.md):
     /// `.nyrec` is the record form, every other path the strict JSON codec.
     let isRecordPath (path: string) = Path.GetExtension path = ".nyrec"
@@ -460,7 +469,11 @@ module internal SessionStorage =
         let directory = Path.GetDirectoryName(path)
         let tempPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp")
         try
-            File.WriteAllText(tempPath, content, UTF8Encoding(false))
+            // Flushed to disk before the rename so a crash cannot leave the final name on empty content.
+            use stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write)
+            let bytes = UTF8Encoding(false).GetBytes content
+            stream.Write(bytes, 0, bytes.Length)
+            stream.Flush true
             Ok tempPath
         with
         | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
@@ -512,20 +525,31 @@ module internal SessionStorage =
         SnapshotComputationScope.Measure("persistence.replace", fun () -> replaceAtomicallyCore path content)
 
     /// One shared persistence boundary for startup upgrades and reviewed repairs.
+    /// The previous sidecar is kept as `<snapshot>.dependency.json.previous` while the pair is replaced,
+    /// so a crash between the two renames leaves the only copy of the previous selection recoverable
+    /// (`open` names it); it is removed once the pair is consistent again.
     let replaceDependencyPair path previousSource previousManifest nextSource nextManifest =
         let sidecar = path + ".dependency.json"
+        let previous = sidecar + ".previous"
         match readText path, readText sidecar with
         | Ok source, Ok manifest when source = previousSource && manifest = previousManifest ->
-            replaceAtomically sidecar nextManifest
+            replaceAtomically previous previousManifest
             |> Result.bind (fun () ->
-                match replaceAtomically path nextSource with
-                | Ok() -> Ok()
-                | Error error ->
-                    match replaceAtomically sidecar previousManifest with
-                    | Ok() -> Error error
-                    | Error rollback ->
-                        let text = function AuthoringSessionError.IoFailure message -> message | other -> $"%A{other}"
-                        Error(AuthoringSessionError.IoFailure $"{text error} Restoring the previous dependency selection also failed: {text rollback}"))
+                let mutable inconsistent = false
+                let result =
+                    replaceAtomically sidecar nextManifest
+                    |> Result.bind (fun () ->
+                        match replaceAtomically path nextSource with
+                        | Ok() -> Ok()
+                        | Error error ->
+                            match replaceAtomically sidecar previousManifest with
+                            | Ok() -> Error error
+                            | Error rollback ->
+                                inconsistent <- true
+                                let text = function AuthoringSessionError.IoFailure message -> message | other -> $"%A{other}"
+                                Error(AuthoringSessionError.IoFailure $"{text error} Restoring the previous dependency selection also failed: {text rollback} The previous sidecar is kept at '{previous}'."))
+                if not inconsistent then cleanupTemporary previous
+                result)
         | Error error, _ | _, Error error -> Error error
         | _ -> Error AuthoringSessionError.ExternalModification
 
@@ -659,10 +683,10 @@ module internal PinnedDependency =
                              Fingerprint = fingerprint; IsEmbedded = embedded; Members = [] }
                     | Ok _ -> Error(AuthoringSessionError.DependencyFailure "The selected dependency version changed. Pin only accepts the exact previously selected content, not an upgrade."))
 
-    let load path sourceOverride: Result<PinnedDependencySelection option, AuthoringSessionError> =
+    let loadFrom (manifestPath: string) sourceOverride: Result<PinnedDependencySelection option, AuthoringSessionError> =
         // Read directly: File.Exists treats permission failures as absence.
         try
-            let manifest = File.ReadAllText(path + ".dependency.json", Encoding.UTF8)
+            let manifest = File.ReadAllText(manifestPath, Encoding.UTF8)
             use document = JsonDocument.Parse(manifest)
             let root = document.RootElement
             match root.TryGetProperty("dependencies") with
@@ -693,6 +717,8 @@ module internal PinnedDependency =
         | :? NotSupportedException -> Error(AuthoringSessionError.DependencyFailure "Invalid dependency manifest or source path.")
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.DependencyFailure error.Message)
         | :? IOException as error -> Error(AuthoringSessionError.DependencyFailure error.Message)
+
+    let load path sourceOverride = loadFrom (path + ".dependency.json") sourceOverride
 
     let persistPin path source selected =
         embed selected.SourcePath selected.Imported
@@ -1043,29 +1069,39 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     let dependencyStillPinned () =
         match selection with
         | Some selected when not selected.IsEmbedded ->
+            match SessionStorage.fileExists selected.SourcePath with
+            | Error error -> Error error
+            | Ok false -> Ok false
+            | Ok true ->
             match SessionStorage.readCompleteDependency selected.SourcePath with
-            | Error _ -> false
+            // A read failure is transient: only content that was read and differs is a change.
+            | Error(AuthoringSessionError.IoFailure _ as error) -> Error error
+            | Error _ -> Ok false
             | Ok current ->
                 match SnapshotFingerprint.compute current with
-                | Ok actual -> SnapshotFingerprint.value actual = selected.Fingerprint && current.Id = selected.Imported.Id
-                | _ -> false
+                | Ok actual -> Ok(SnapshotFingerprint.value actual = selected.Fingerprint && current.Id = selected.Imported.Id)
+                | _ -> Ok false
         // Embedded content was validated on open; the exact manifest is checked
         // again at publication. The original source is provenance, not authority.
-        | _ -> true
+        | _ -> Ok true
 
     let checkPersistedSource () =
-        let selectionChanged =
-            dependencyManifest |> Option.exists (fun expected ->
-                match SessionStorage.readText (path + ".dependency.json") with
-                | Ok actual -> actual <> expected
-                | Error _ -> true)
-        if selectionChanged || not (dependencyStillPinned ()) then
+        let sidecar = path + ".dependency.json"
+        let selectionUnchanged =
+            match dependencyManifest with
+            | None -> Ok true
+            | Some expected ->
+                SessionStorage.fileExists sidecar
+                |> Result.bind (fun exists -> if exists then SessionStorage.readText sidecar |> Result.map (fun actual -> actual = expected) else Ok false)
+        match selectionUnchanged |> Result.bind (fun unchanged -> if unchanged then dependencyStillPinned () else Ok false) with
+        | Error error -> Error error
+        | Ok false ->
             invalidated <- true
             Error(AuthoringSessionError.DependencyFailure "The dependency selection changed outside this session.")
-        elif not (File.Exists path) then
+        | Ok true when not (File.Exists path) ->
             invalidated <- true
             Error AuthoringSessionError.ExternalModification
-        else
+        | Ok true ->
             match SessionStorage.readText path with
             | Error error -> Error error
             | Ok currentSource when currentSource <> persistedSource ->
@@ -1660,7 +1696,18 @@ module AuthoringSession =
                             prepared |> Result.map (fun selected -> selected, workspace))) with
                     | Error error ->
                         SessionStorage.releaseLock path lockHandle
-                        Error error
+                        // An interrupted dependency replacement leaves the previous sidecar beside the pair;
+                        // when that one matches the snapshot it is named, never restored silently.
+                        let previous = path + ".dependency.json.previous"
+                        let previousMatches =
+                            not pin && File.Exists previous
+                            && (PinnedDependency.loadFrom previous None
+                                |> Result.bind (fun selected -> workspaceFromSource path (selected |> Option.map (fun item -> item.Imported)) source)
+                                |> Result.isOk)
+                        if previousMatches then
+                            Error(AuthoringSessionError.DependencyFailure
+                                $"The dependency sidecar '{path}.dependency.json' does not match the snapshot, but '{previous}' does: a dependency replacement was interrupted. Restore it over the sidecar to recover the previous selection.")
+                        else Error error
                     | Ok(selected, workspace) ->
                         Ok(new AuthoringSession(path, workspace, source, lockHandle, selected))
 

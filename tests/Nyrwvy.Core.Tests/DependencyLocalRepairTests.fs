@@ -162,7 +162,9 @@ module DependencyLocalRepairTests =
             Assert.Equal(saved, bytes path)
             let probe = session.Status() |> unwrap
             Assert.Equal(probe.SnapshotId, (session.PendingProposalView proposal.ProposalId |> unwrap).BaseSnapshotId)
+            Assert.False(File.Exists(path + ".dependency.json.previous"))
             session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+            Assert.False(File.Exists(path + ".dependency.json.previous"))
             session.Close()
             (AuthoringSession.openExisting path |> unwrap).Close())
 
@@ -250,7 +252,16 @@ module DependencyLocalRepairTests =
             | Error AuthoringSessionError.SessionInvalidated -> ()
             | other -> failwithf "%A" other
             session.Close()
-            Assert.True(Result.isError(AuthoringSession.openExisting path)))
+            // The new sidecar sits beside the old snapshot; the kept previous sidecar is named, not restored.
+            let previous = sidecar + ".previous"
+            Assert.Equal<byte[]>(snd saved, File.ReadAllBytes previous)
+            match AuthoringSession.openExisting path with
+            | Error(AuthoringSessionError.DependencyFailure message) -> Assert.Contains(previous, message)
+            | Ok reopened -> reopened.Close(); failwith "An inconsistent pair was opened."
+            | Error error -> failwithf "Unexpected error for an inconsistent pair: %A" error
+            Assert.Equal<byte[]>(snd saved, File.ReadAllBytes previous)
+            File.Move(previous, sidecar, true)
+            (AuthoringSession.openExisting path |> unwrap).Close())
 
     [<Fact>]
     let ``new imported identity collision rejects before publishing any local repair`` () =

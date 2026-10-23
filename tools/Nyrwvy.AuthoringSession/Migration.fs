@@ -223,16 +223,19 @@ module AuthoringSessionMigration =
                 else
                     match target, selected, migratedSelection with
                     | Some written, _, _ ->
-                        // Create, never replace: `migrateTo` checked the target absent under its lock.
-                        (match migratedSelection with
-                         | None -> Ok()
-                         | Some(combined, _) -> SessionStorage.createAtomically (written + ".dependency.json") combined.Manifest)
+                        // Create, never replace: `migrateTo` checked the target absent under its lock. The
+                        // snapshot goes first so a failed or interrupted sidecar never leaves an orphan
+                        // sidecar that makes a later `migrate --to` or `create` refuse the target.
+                        SessionStorage.createAtomically written migratedSource
                         |> Result.bind (fun () ->
-                            match SessionStorage.createAtomically written migratedSource with
-                            | Ok() -> Ok()
-                            | Error error ->
-                                if Option.isSome migratedSelection then SessionStorage.cleanupTemporary (written + ".dependency.json")
-                                Error error)
+                            match migratedSelection with
+                            | None -> Ok()
+                            | Some(combined, _) ->
+                                match SessionStorage.createAtomically (written + ".dependency.json") combined.Manifest with
+                                | Ok() -> Ok()
+                                | Error error ->
+                                    SessionStorage.cleanupTemporary written
+                                    Error error)
                     | None, Some current, Some(combined, _) ->
                         SessionStorage.replaceDependencyPair path source current.Manifest migratedSource combined.Manifest
                     | _ ->

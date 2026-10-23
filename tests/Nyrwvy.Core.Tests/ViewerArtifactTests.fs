@@ -217,6 +217,29 @@ module ViewerArtifactTests =
             failwithf "CLI accepted two function selectors. stderr=%s" bothError
 
     [<Fact>]
+    let ``a view output that resolves to the snapshot itself is refused`` () =
+        // A snapshot named `.html` is still a JSON workspace; a view written there would replace the graph.
+        let fixture = MilestoneZeroGraph.create ()
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-view-self-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory root |> ignore
+        let path = Path.Combine(root, "b.html")
+        try
+            File.WriteAllText(path, SnapshotCodec.serialize fixture.Snapshot |> unwrap)
+            let before = File.ReadAllBytes path
+            use session = AuthoringSession.openExisting path |> unwrap
+            for output in [ "b.html"; "pages/../b.html"; path ] do
+                use refused =
+                    AuthoringProtocol.executeLine session ($"""{{"id":"view","op":"viewFunction","function":"main","output":{JsonSerializer.Serialize output}}}""")
+                    |> JsonDocument.Parse
+                Assert.False(refused.RootElement.GetProperty("ok").GetBoolean(), output)
+                let error = refused.RootElement.GetProperty("error")
+                Assert.Equal("ViewWriteFailed", error.GetProperty("code").GetString())
+                Assert.Contains("must not replace the snapshot", error.GetProperty("message").GetString())
+            Assert.Equal<byte[]>(before, File.ReadAllBytes path)
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
     let ``authoring session viewFunction writes the committed focus HTML without touching the snapshot`` () =
         let fixture = MilestoneZeroGraph.create ()
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-view-function-" + Guid.NewGuid().ToString("N"))

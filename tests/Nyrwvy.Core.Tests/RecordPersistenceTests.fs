@@ -120,6 +120,26 @@ module RecordPersistenceTests =
             (AuthoringSession.openExisting mixed |> unwrap "reopen mixed").Close())
 
     [<Fact>]
+    let ``a failed migrate --to sidecar creation leaves no target snapshot behind`` () =
+        withDirectory (fun root ->
+            let libraryPath = Path.Combine(root, "library.json")
+            File.WriteAllText(libraryPath, SnapshotCodec.serialize (library "lib") |> unwrap "serialize library")
+            let source = Path.Combine(root, "source.json")
+            (AuthoringSession.createNewWithDependencies source [ libraryPath ] |> unwrap "create").Close()
+            let target = Path.Combine(root, "target.nyrec")
+            // A directory at the sidecar's name passes the pre-check (File.Exists is false) and fails the rename.
+            Directory.CreateDirectory(target + ".dependency.json") |> ignore
+            match AuthoringSessionMigration.migrateTo source None target with
+            | Error(AuthoringSessionError.IoFailure _) -> ()
+            | other -> failwithf "Sidecar creation failure not reported: %A" other
+            Assert.False(File.Exists target, "An orphan target snapshot was left behind.")
+            Assert.False(File.Exists(source + ".lock"))
+            Assert.False(File.Exists(target + ".lock"))
+            Directory.Delete(target + ".dependency.json")
+            AuthoringSessionMigration.migrateTo source None target |> unwrap "retry" |> ignore
+            (AuthoringSession.openExisting target |> unwrap "open target").Close())
+
+    [<Fact>]
     let ``migrate --to converts a JSON workspace into a nyrec one and leaves the source untouched`` () =
         withDirectory (fun root ->
             let libraryPath = Path.Combine(root, "library.json")
