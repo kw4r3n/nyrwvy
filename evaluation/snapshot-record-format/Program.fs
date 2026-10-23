@@ -101,10 +101,16 @@ let main argv =
         match SnapshotCodec.deserialize (File.ReadAllText path) |> Result.bind Codec.encode with
         | Ok text -> Console.Out.Write text; 0
         | Error error -> eprintfn "%A" error; 1
+    | "nyason" :: path :: _ ->
+        match SnapshotCodec.deserialize (File.ReadAllText path) |> Result.mapError string |> Result.bind (NyasonCodec.serialize >> Result.mapError string) with
+        | Ok text -> Console.Out.Write text; 0
+        | Error error -> eprintfn "%s" error; 1
+    | "corrupt" :: _ -> Phase2.corrupt fixtures 20261023 "results"
+    | "load" :: _ -> Phase2.load (Path.Combine(fixtures, "validated", "verification-planner.json")) 100 "results"
     | "decode" :: path :: _ ->
         match Codec.decode (File.ReadAllText path) |> Result.bind (Codec.encode >> Result.mapError (fun e -> { RecordText.Line = 1; RecordText.Message = string e })) with
         | Ok text -> Console.Out.Write text; 0
         | Error error -> eprintfn "line %d: %s" error.Line error.Message; 1
     | _ ->
-        eprintfn "usage: generate [fixtures] | roundtrip [fixtures] | schema | encode <snapshot.json> | decode <snapshot.records.txt>"
+        eprintfn "usage: generate [fixtures] | roundtrip [fixtures] | corrupt [fixtures] | load [fixtures] | schema | encode <snapshot.json> | nyason <snapshot.json> | decode <snapshot.records.txt>"
         2

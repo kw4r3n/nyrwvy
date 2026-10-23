@@ -18,6 +18,17 @@ dotnet run -c Release --no-build -- encode  <snapshot.json>          # record te
 dotnet run -c Release --no-build -- decode  <snapshot.records.txt>   # canonical re-encoding, or `line N: ...`
 ```
 
+Phase 2 (deterministic; results land in `results/`, summarized in `results/phase2.md`):
+
+```sh
+dotnet run -c Release --no-build -- corrupt       # 1,000 seeded mutations -> results/corruption.json; exit 1 on a failed criterion
+dotnet run -c Release --no-build -- load          # 100x planner, median of 20 after 3 warm-ups -> results/load.json
+(cd ../.. && node evaluation/snapshot-record-format/locality.mjs [work-dir])  # four authoring operations -> results/diff-locality.json
+```
+
+`locality.mjs` needs `npm ci`, a Release build of `tools/Nyrwvy.AuthoringSession`, `jq` and `git`;
+it drives the operations through the real tool handlers on the verification-planner snapshot.
+
 `roundtrip` also writes `<fixture>.records.txt` beside every fixture (committed, so the
 record form is reviewable) and prints validated-tier node-kind coverage.
 

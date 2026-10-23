@@ -37,6 +37,9 @@ let private domainOf (key: string) =
 /// functionInvoke arguments).
 let private arrayDomain = dict [ "requiredEffects", "effect"; "variantIds", "variant"; "itemNodeIds", "node"; "arguments", "node" ]
 
+/// Whether a JSON key (or the key of the array holding a bare string) holds IDs.
+let isIdKey (key: string) = (domainOf key).IsSome || arrayDomain.ContainsKey key
+
 /// Collections the writer omits when empty (SnapshotCodec.fs writeTypeParameters, writeTypeArguments,
 /// writeNamedCallbackContext); every other collection is written even when empty, so a record
 /// without it reads as empty.
@@ -276,10 +279,10 @@ type private J =
     | Obj of (string * J) list
     | Arr of J list
 
-type private Record = { Line: int; Kind: string; Subject: string; Fields: (string * string) list; Owner: string option }
+type Record = { Line: int; Kind: string; Subject: string; Fields: (string * string) list; Owner: string option }
 
 /// Splits `kind subject key=value ...`; values are a JSON string literal, a bracket list or a bare token.
-let private parseLine (line: int) (text: string) : Record =
+let parseLine (line: int) (text: string) : Record =
     let n = text.Length
     let mutable i = 0
     let token () =
@@ -560,4 +563,10 @@ let toJson (text: string) : Result<string, RecordError> =
         write root
         writer.Flush()
         Ok(Encoding.UTF8.GetString(stream.ToArray()))
+    with RecordException e -> Error e
+
+/// The row table: every non-blank line tokenized into a record (header included), no model.
+let parseRows (text: string) : Result<Record[], RecordError> =
+    try
+        Ok(text.Split('\n') |> Array.mapi (fun i l -> i + 1, l) |> Array.filter (fun (_, l) -> l <> "") |> Array.map (fun (i, l) -> parseLine i l))
     with RecordException e -> Error e
