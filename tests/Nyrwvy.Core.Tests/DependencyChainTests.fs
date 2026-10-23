@@ -108,14 +108,20 @@ module DependencyChainTests =
         let random = System.Random 20261024
         for _ in 1 .. 500 do
             let size = random.Next(1, 12)
-            // Edges only to lower indices keep the graph acyclic; a few point outside the graph.
+            // Mostly edges to lower indices; a few point outside the graph or upwards, which can close a cycle.
             let dependencies =
                 [ for index in 0 .. size - 1 ->
                     nodeId index,
                     [ for target in 0 .. index - 1 do if random.NextDouble() < 0.35 then nodeId target
-                      if random.NextDouble() < 0.05 then nodeId 999_999 ] ]
+                      if random.NextDouble() < 0.05 then nodeId 999_999
+                      if index + 1 < size && random.NextDouble() < 0.03 then nodeId (index + 1) ] ]
                 |> Map.ofList
-            let observable = [ for index in 0 .. size - 1 do if random.NextDouble() < 0.5 then nodeId index ]
+            // Observable lists may repeat a node or name one outside the graph.
+            let observable =
+                [ for index in 0 .. size - 1 do
+                    if random.NextDouble() < 0.5 then nodeId index
+                    if random.NextDouble() < 0.05 then nodeId index
+                  if random.NextDouble() < 0.05 then nodeId 888_888 ]
             Assert.Equal<(GraphNodeId * GraphNodeId) option>(referenceUnorderedPair dependencies observable, GraphOrder.tryUnorderedPair dependencies observable)
 
     [<Fact>]
