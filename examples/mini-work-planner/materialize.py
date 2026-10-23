@@ -5,13 +5,12 @@ from __future__ import annotations
 
 import json
 import pathlib
-import shutil
 import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
-SNAPSHOT = ROOT / "planner.snapshot.json"
+SNAPSHOT = ROOT / "planner.snapshot.nyrec"
 RUNNER = ROOT / "runner"
 PROJECT = REPO / "tools" / "Nyrwvy.AuthoringSession" / "Nyrwvy.AuthoringSession.fsproj"
 
@@ -52,7 +51,14 @@ def main() -> int:
         check=True,
     )
 
-    shutil.copyfile(source_snapshot, SNAPSHOT)
+    SNAPSHOT.unlink(missing_ok=True)
+    subprocess.run(
+        ["dotnet", "run", "--project", str(PROJECT), "--configuration", "Release", "--no-build", "--",
+         "migrate", "--snapshot", str(source_snapshot), "--to", str(SNAPSHOT)],
+        cwd=REPO,
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
 
     proc = subprocess.Popen(
         [

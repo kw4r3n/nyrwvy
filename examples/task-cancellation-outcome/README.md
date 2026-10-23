@@ -2,10 +2,15 @@
 
 ## Snapshot migration checkpoint
 
-`fixtures/task-outcomes.json` is the fixed-identity schema-21 copy produced by
-`migrate`; `fixtures/task-outcomes.json.migration.json` records unchanged
-snapshot/semantic fingerprints (the report's display path is repository-relative).
-`fixtures/current-proof.json` records fresh replay of this migrated snapshot:
+`fixtures/task-outcomes.nyrec` is the fixed-identity schema-21 snapshot in the
+record form: `migrate` first produced the schema-21 JSON copy
+(`fixtures/task-outcomes.json.migration.json` records unchanged snapshot/semantic
+fingerprints), then `migrate --to` converted it
+(`fixtures/task-outcomes.nyrec.migration.json`, same fingerprints; display paths
+are repository-relative).
+`fixtures/current-proof.json` records fresh replay of the schema-21 JSON copy
+before its conversion (its `snapshotSha256` is of those JSON bytes; the record
+form keeps the same snapshot and semantic fingerprints):
 12 virtual controls and 44 real compiled controls, with unedited emitted C#.
 The older proof/identity/verification/runtime records authenticate the original
 snapshot bytes and remain at tag `archive/legacy-examples-pre-cutover-20261019`;

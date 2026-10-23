@@ -4,7 +4,7 @@ import { readFile, writeFile, appendFile } from 'node:fs/promises'
 import { resolve, join } from 'node:path'
 import * as z from 'zod/v4'
 import { createGraphTools } from '../../tools/nyrwvy-agent/graph-tools.mjs'
-const root=resolve(process.argv[2]); const snapshot=join(root,'baseline.json')
+const root=resolve(process.argv[2]); const snapshot=join(root,'baseline.nyrec')
 const tools=createGraphTools(z), context={sessionID:`handoff-probe-${process.pid}`,worktree:resolve('.')}
 const evidence={baseline:[],limitations:[]}
 async function exchange(name,args={}) { const raw=await tools[name].execute(args,context); await appendFile(join(root,'transcript.jsonl'),JSON.stringify({name,args,raw})+'\n'); return name==='close'?raw:JSON.parse(raw) }

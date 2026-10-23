@@ -5,7 +5,7 @@ import {randomUUID,createHash} from 'node:crypto'
 import {openAuthoring,requestAuthoring,closeAuthoring} from '../../tools/nyrwvy-agent/authoring.ts'
 import {define} from './author.mjs'
 import {cases,argsFor,normalize} from './cases.mjs'
-const dir=resolve(process.argv[2]),replay=process.argv.includes('--replay'),snapshot=join(dir,'shield.json'),hash=x=>createHash('sha256').update(x).digest('hex')
+const dir=resolve(process.argv[2]),replay=process.argv.includes('--replay'),snapshot=join(dir,'shield.nyrec'),hash=x=>createHash('sha256').update(x).digest('hex')
 await mkdir(dir,{recursive:true})
 const rootArgument=process.argv.indexOf('--authoring-root')
 const context={sessionID:randomUUID(),worktree:rootArgument<0?resolve('.'):resolve(process.argv[rootArgument+1])}
@@ -42,5 +42,5 @@ try {
   }
   assert.equal(hash(await readFile(snapshot)),before)
   await writeFile(join(dir,replay?'replay-evidence.json':'evidence.json'),JSON.stringify({results,baseline},null,2))
-  await writeFile(join(dir,'identity.json'),JSON.stringify({snapshotSha256:before,generatedSha256:hash(artifact.source),symbolsSha256:hash(JSON.stringify(artifact.symbols)),schemaVersion:JSON.parse(await readFile(snapshot,'utf8')).schemaVersion},null,2))
+  await writeFile(join(dir,'identity.json'),JSON.stringify({snapshotSha256:before,generatedSha256:hash(artifact.source),symbolsSha256:hash(JSON.stringify(artifact.symbols)),schemaVersion:Number((await readFile(snapshot,'utf8')).match(/^snapshot \S+ schema=(\d+)/)[1])},null,2))
 } finally {await closeAuthoring(context).catch(()=>{})}

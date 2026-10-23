@@ -8,7 +8,7 @@ export const repo = fileURLToPath(new URL('../..', import.meta.url))
 const z = await import('zod/v4')
 const { createGraphTools } = await import(`${repo}/tools/nyrwvy-agent/graph-tools.mjs`)
 export async function session(label, output) {
-  const dir = output ?? await mkdtemp(join(tmpdir(), `dynamic-${label}-`)), snapshot = join(dir, `${label}.json`)
+  const dir = output ?? await mkdtemp(join(tmpdir(), `dynamic-${label}-`)), snapshot = join(dir, `${label}.nyrec`)
   const tools = createGraphTools(z), context = { sessionID: `${label}-${process.pid}`, worktree: repo }
   const nodes = {}
   async function exchange(name, args = {}) { const raw = await tools[name].execute(args, context); await appendFile(join(dir, 'transcript.jsonl'), JSON.stringify({ name, args, raw }) + '\n'); return name === 'close' ? raw : JSON.parse(raw) }

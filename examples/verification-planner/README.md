@@ -2,12 +2,15 @@
 
 Migration checkpoint: `planner.snapshot.json` was migrated on a preserved copy
 from schema 9 to 21; `planner.snapshot.json.migration.json` records unchanged
-fingerprints (display path normalized relative to the repository). Every existing
+fingerprints (display path normalized relative to the repository). The same
+snapshot was then converted with `migrate --to` into the record form,
+`planner.snapshot.nyrec`; `planner.snapshot.nyrec.migration.json` records the
+unchanged snapshot and semantic fingerprints of that conversion. Every existing
 stable ID is retained. `runner/Generated.cs` was regenerated through `emitCSharp`
 and the documented `--test --maintained` check passed all 1,024 cases. The original
 snapshot is preserved at tag `archive/legacy-examples-pre-cutover-20261019`.
 
-A small pure program created with a maintained AuthoringSession. The semantic authority is the session that opened `planner.snapshot.json`; the JSON was neither edited nor read directly. `runner/Generated.cs` is the unedited output of the public `emitCSharp` for the current snapshot content, regenerated with the emitter of the repository revision that last changed the program.
+A small pure program created with a maintained AuthoringSession. The semantic authority is the session that opened `planner.snapshot.nyrec`; the persisted text was neither edited nor read directly. `runner/Generated.cs` is the unedited output of the public `emitCSharp` for the current snapshot content, regenerated with the emitter of the repository revision that last changed the program.
 
 ## Running
 
@@ -42,11 +45,11 @@ Fast is always required. knownRegression is kept as information and does not rai
 
 ## Authoring and maintenance by AI
 
-The current entry point is the [standard graph editing tools](../../docs/specs/agent-graph-tools.md). Open this directory's `planner.snapshot.json` with `nyrwvy_open`, check the types and the target function with `nyrwvy_inspect`, and change only the target node with `nyrwvy_replace`. Review the returned before/after structure and receipt, then call `nyrwvy_commit` or `nyrwvy_reject`.
+The current entry point is the [standard graph editing tools](../../docs/specs/agent-graph-tools.md). Open this directory's `planner.snapshot.nyrec` with `nyrwvy_open`, check the types and the target function with `nyrwvy_inspect`, and change only the target node with `nyrwvy_replace`. Review the returned before/after structure and receipt, then call `nyrwvy_commit` or `nyrwvy_reject`.
 
 For new authoring, use a separate empty snapshot with `nyrwvy_create_type` / `nyrwvy_create_function`. The app-specific Python authoring helper that produced the initial program is no longer needed and was deleted. Deterministic contract tests for the standard tools (`.opencode/tests/nyrwvy-authoring-workflow.test.mjs`) cover creating the same three types and four functions, maintaining one branch, and saving and resuming; the requests and responses of the initial experiment remain in `transcript.jsonl`. These validate the authoring procedure and are not a new LLM evaluation.
 
-A second maintenance change was made with those tools on 2026-10-05: `nyrwvy_open` on `planner.snapshot.json`, `nyrwvy_inspect` of `verification_label`, one `nyrwvy_replace` of the `FastOnly` arm's `StringLiteral` (from the Japanese label of the initial experiment to `fast tests only`, the label this README documents), `nyrwvy_commit`, then `emitCSharp` to regenerate `runner/Generated.cs`. The review showed the one literal as `previousTarget`/`proposedTarget` with no node added or removed; the function, parameter and result-node IDs were unchanged, and the 1,024-case `--test --maintained` run passed again.
+A second maintenance change was made with those tools on 2026-10-05: `nyrwvy_open` on `planner.snapshot.json` (since 2026-10-24 `planner.snapshot.nyrec`), `nyrwvy_inspect` of `verification_label`, one `nyrwvy_replace` of the `FastOnly` arm's `StringLiteral` (from the Japanese label of the initial experiment to `fast tests only`, the label this README documents), `nyrwvy_commit`, then `emitCSharp` to regenerate `runner/Generated.cs`. The review showed the one literal as `previousTarget`/`proposedTarget` with no node added or removed; the function, parameter and result-node IDs were unchanged, and the 1,024-case `--test --maintained` run passed again.
 
 ## Work and verification record (initial experiment)
 

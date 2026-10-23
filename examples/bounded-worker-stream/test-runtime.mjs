@@ -1,6 +1,6 @@
 // Compile the unedited emitted projection against the installed .NET 10 pack.
 // Symbol IDs come from the saved graph and manifest, never mangled-name guesses.
-import {mkdtemp,copyFile,writeFile,readFile,readdir,stat,rm} from 'node:fs/promises'
+import {mkdtemp,copyFile,writeFile,readFile,stat,rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join,resolve} from 'node:path'
 import {execFileSync} from 'node:child_process'
@@ -16,14 +16,7 @@ const base='89787e3376c8612d301ebc5c3396e5df2a713258'
 if(authoring.base!==base)throw new Error(`Expected the fixed capture-lifetime base ${base}`)
 const generatedSha256=hash(await readFile(join(input,'Generated.cs')))
 if(generatedSha256!==authoring.generatedSha256)throw new Error('Generated.cs differs from the authoring.json hash before runtime checks')
-const snapshots=[]
-for(const name of await readdir(input)){
-  if(!name.endsWith('.json')||name==='symbols.json')continue
-  const value=JSON.parse(await readFile(join(input,name),'utf8'))
-  if(Array.isArray(value.functions)&&Array.isArray(value.capabilities))snapshots.push({name,value})
-}
-if(snapshots.length!==1)throw new Error(`Expected exactly one graph snapshot; found ${snapshots.map(x=>x.name).join(', ')||'none'}`)
-const graph=snapshots[0].value
+const graph=JSON.parse(await readFile(join(input,'declarations.json'),'utf8'))
 const manifest=JSON.parse(await readFile(join(input,'symbols.json'),'utf8'))
 const exactly=(items,predicate,label)=>{
   const matches=items.filter(predicate)

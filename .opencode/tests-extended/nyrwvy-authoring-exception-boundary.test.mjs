@@ -17,7 +17,7 @@ test('explicit exception boundary preserves dispatch, cancellation, typed abort 
   await cp(bundle,moved,{recursive:true})
   run('run','--replay',moved)
   assert.deepEqual(await json(join(moved,'replay-evidence.json')),first)
-  for(const name of ['exceptions.json','Generated.cs','symbols.json'])assert.deepEqual(await readFile(join(bundle,name)),await readFile(join(moved,name)))
+  for(const name of ['exceptions.nyrec','Generated.cs','symbols.json'])assert.deepEqual(await readFile(join(bundle,name)),await readFile(join(moved,name)))
   run('test-runtime',bundle)
   const real=await json(join(bundle,'runtime-evidence.json'))
   assert.equal(real.controls.length,37)

@@ -12,7 +12,7 @@ node examples/config-request-batch/run.mjs
 
 The last line prints its temporary output directory. An optional argument chooses an empty output directory. The script uses the ordinary `nyrwvy_*` tool handlers to author, review and commit graph proposals, then changes one report-label node through `replace` and checks that the function ID stays stable. It never edits a snapshot or generated C# directly. These commits publish graph proposals inside the snapshot; they do not create Git commits.
 
-`original/` and `moved/` each contain the program (`batch.json`), its pinned dependency, `cases.json`, `Host.cs`, an unedited `Generated.cs` projection and local fixtures. The pure uppercase function comes from a separately authored dependency. After copying the bundle, the script renames that dependency's original source and reopens the moved program, so success requires the saved pin. Tool exchanges are recorded in `transcript.jsonl`.
+`original/` and `moved/` each contain the program (`batch.nyrec`), its pinned dependency, `cases.json`, `Host.cs`, an unedited `Generated.cs` projection and local fixtures. The pure uppercase function comes from a separately authored dependency. After copying the bundle, the script renames that dependency's original source and reopens the moved program, so success requires the saved pin. Tool exchanges are recorded in `transcript.jsonl`.
 
 Five saved cases run after reopening, and again after moving:
 
