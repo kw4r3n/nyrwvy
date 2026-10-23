@@ -282,15 +282,12 @@ type private J =
 type Record = { Line: int; Kind: string; Subject: string; Fields: (string * string) list; Owner: string option }
 
 /// Key and kind spellings repeat on every line; one shared string per spelling saves an allocation per token.
-let private spellings = Dictionary<string, string>()
+let private spellings = System.Collections.Concurrent.ConcurrentDictionary<string, string>()
 let private spellingLookup = spellings.GetAlternateLookup<ReadOnlySpan<char>>()
 let private intern (span: ReadOnlySpan<char>) =
     let mutable found = null
     if spellingLookup.TryGetValue(span, &found) then found
-    else
-        let s = span.ToString()
-        lock spellings (fun () -> spellings.TryAdd(s, s) |> ignore)
-        s
+    else let s = span.ToString() in spellings.GetOrAdd(s, s)
 
 /// The JSON string-literal grammar (RFC 8259) for the escapes and control characters between the quotes.
 let private validStringBody (text: string) (start: int) (stop: int) =
