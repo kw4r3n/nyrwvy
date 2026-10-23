@@ -12,7 +12,7 @@ Propose a Nyason revision whose persisted form is a flat table: one record per l
 
 ```text
 file     := header (LF LF declaration)* LF
-header   := "snapshot" SP snapshot-id SP "schema=" INT [SP "parent=" snapshot-id]
+header   := "snapshot" SP snapshot-id SP "schema=" INT [SP "parent=" snapshot-id] [SP "dependency=" STRING SP "digest=" HEX]
 record   := kind SP subject (SP key "=" value)*
 subject  := id | locator
 id       := domain ":" uuid
@@ -23,7 +23,8 @@ value    := id | locator | atom | INT | STRING | list | typeexpr
 - **Identity.** An ID is spelled `domain:uuid` (`node:`, `field:`, `type:`, `parameter:`, …) with the full lowercase hyphenated UUID, so its domain is part of the token rather than implied by the key it appears under. No short IDs, aliases or per-file numbering.
 - **Ownership.** Every member record carries `in=` naming its owner: `parameter … in=function:F index=N`, a graph node `in=function:F/body` or `in=node:C/when-false`. A value graph is not a record and gets no identity: it is the set of nodes whose `in=` names its locator, and its result is a key on the owner (`body=node:R`, `when-true=node:R`). A `matchUnion` arm, which has no ID of its own, is a record whose subject is a locator: `arm node:M/arm/variant:V result=node:R`, with its nodes `in=node:M/arm/variant:V` and its field bindings as `binding binding:B in=node:M/arm/variant:V field=field:F`.
 - **Canonical form only.** Declarations are grouped in schema order (types, effects, capabilities, functions, obligations) and sorted by ID inside a group, separated by one blank line. Inside a declaration: the declaration record, parameters by `index`, then the other member records sorted by subject. Collections whose order is semantic keep their declared order; every other collection is keyed and sorted by key. Keys follow a fixed per-kind order; empty collections and absent optionals are omitted; UTF-8 without BOM, LF, single spaces, a final newline. The parser rejects every other spelling with line and column, so file bytes are canonical bytes.
-- **Presentation.** Presentation fields are exactly `name=` (and any later `doc=`), so the display-name part of the semantic fingerprint's normalization is dropping those keys. Its other normalization (snapshot identity, obligation and transaction IDs, pattern-binding names) is unchanged.
+- **Presentation.** Presentation fields are exactly `name=` (and any later `doc=`).
+- **Resolved local snapshots.** A snapshot that resolves against pinned dependencies carries the same marker as the JSON `dependency` object (`snapshotId`, `digest`) in its header. The dependency identity is a quoted string, copied exactly, because a combined set's ID (`dependency-set-<uuid>`, derived from its members' fingerprints) is not a `domain:uuid` ID of this graph. The key names are provisional.
 - **Reading.** Agents and reviewers keep reading through queries and projections. A nested, tree-shaped rendering of one function is a projection generated from the same model, not a second persisted form ([AI-first principles](../concepts/ai-first-design-principles.md)).
 
 `requires_live` from [examples/verification-planner](../../examples/verification-planner/planner.snapshot.json) in this form:
@@ -43,7 +44,7 @@ conditional node:01a0b371-4487-7e3d-9e9f-0938f8656308 in=function:01a0b371-4487-
 
 - **Ownership is not positional.** The principles forbid inferring a node's meaning from serialized position. With nesting, one misplaced bracket moves a node into another graph and the result can still parse. With `in=`, a damaged record is a parse or validation error on its own line. Lexical scope stays checkable from records alone: a reference from X to Y is legal when Y's owner chain is a suffix of X's.
 - **Diffs are local.** Adding a node adds one line; renaming changes one line. The whole-file hunk of compact JSON goes away.
-- **Fingerprints simplify.** Because only canonical bytes are accepted, the exact-persisted-source check and the structural fingerprint can become one comparison over the file bytes.
+- **Fingerprints are unaffected.** `SnapshotFingerprint`, `SemanticFingerprint` and the dependency `digest` already hash the frozen minimum-version canonical JSON of the decoded model, not the persisted bytes ([SnapshotCodec.fs](../../src/Nyrwvy.Semantics/SnapshotCodec.fs) `serializeCanonical`; [schema evolution policy](../specs/schema-evolution-policy.md)). Changing the persisted form is therefore a representation-only migration: existing pins, `--expect` fingerprints, combined dependency-set IDs and receipts stay valid.
 - **The derived index is a direct load.** Each line is a row (`kind`, `subject`, `in`, attributes), which fits the portable snapshot plus derived database layout in the storage direction.
 - **Size stays close to JSON.** A throwaway renderer (not the repository codec) gave, for the verification-planner snapshot: JSON 10,337 bytes on 1 line, Nyason v0 18,582 bytes on 503 lines, this form 11,727 bytes on 80 lines. Size is reported, not a target.
 
@@ -58,15 +59,16 @@ conditional node:01a0b371-4487-7e3d-9e9f-0938f8656308 in=function:01a0b371-4487-
 
 ## Consequences
 
-- A new Nyason schema identifier and new fingerprint domains for whatever the new form changes; the existing domains stay frozen. Adoption needs a codec for the new form and a migration that, like the existing `migrate` command (which reads and writes JSON only today), reports before and after fingerprints, never a silent change.
-- The dependency sidecar would embed this text instead of the snapshot JSON, once the open point on pin digests is settled.
+- A new Nyason schema identifier, and no new fingerprint domain: a domain changes only when the hashed facts change. The frozen canonical JSON writer stays as the fingerprint encoding even if JSON stops being a persisted form.
+- Adoption needs a codec for the new form and a migration that, like the existing `migrate` command (which reads and writes JSON only today), reports before and after fingerprints; the semantic fingerprint must be unchanged, since the change is representation-only.
+- The dependency sidecar keeps its JSON wrapper (`path`, `snapshotId`, `fingerprint`) and embeds the dependency in the new form under a new key beside `snapshotJson`; the loader already keys on exact field sets, so old manifests keep loading until migrated. Its `fingerprint` stays the model fingerprint. The embedded text is one escaped line, so upgrades are reviewed through `previewDependencyUpgrade`, not git diff.
 - JSON remains the strict reference, debug and benchmark codec.
 
 ## Open points
 
 1. **Member order of declarations.** Resolved 2026-10-23. Product fields, Union variants and their fields, and Capability operations are sets keyed by ID: the codecs write them in ID order, and execution, the viewer and the wire output read them in ID order. Only parameter and type-parameter order (function, type and capability operation) is meaningful. Canonical order is ID order for the former and declared order for the latter. The spec and dependency combination were aligned with this; a local workspace keeps append order in memory, since it installs exactly the snapshot it validated, while combined dependencies come back in ID order.
 2. **Per-kind key order.** A schema table fixing the key order of every record kind, including effects, capabilities, obligations and type parameters, which the sample snapshot does not contain and were not rendered.
-3. **Fingerprints and pin digests.** Whether the structural fingerprint becomes a hash of the canonical bytes, and how existing dependency pin digests over JSON migrate.
+3. **Fingerprints and pin digests.** Resolved 2026-10-23: unchanged (see Reason and Consequences). Hashing the new form's file bytes was rejected: the format migration would change every fingerprint, which cascades into combined dependency-set IDs written in dependent snapshots and invalidates reviewed `--expect` values, while detecting no tampering that the model fingerprint misses, since only canonical bytes parse.
 4. **Supported legacy ID spellings.** Resolved 2026-10-23: out of scope. IDs written before the stable-ID scheme settled need no spelling in the new form; only the full lowercase UUID is accepted.
 5. **Shared match arms.** An arm that names several variants with one body ([shared arms](match-union-shared-arms.md)) needs one locator; which variant it is keyed by, or whether it gets a different locator form.
 6. **Reading projection.** Which nested rendering agents and the viewer receive, and whether it is the same text for both.
