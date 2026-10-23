@@ -227,3 +227,30 @@ module PinnedDependencyRecoveryTests =
                 Assert.Equal(manifestBefore, File.ReadAllText(manifestPath local))
                 use retry = AuthoringSession.pinExistingDependency local None |> unwrap
                 Assert.Equal("embedded", (selection retry).["storage"].GetValue<string>()))
+
+    [<Fact>]
+    let ``an unreadable sidecar or source fails the commit without invalidating the session`` () =
+        // File mode bits make the read itself fail; root bypasses them and Windows needs an ACL fixture.
+        if not (OperatingSystem.IsWindows()) && Environment.UserName <> "root" then
+            withDirectory (fun root ->
+                let _, source, local = legacy root
+                let embedded = Path.Combine(root, "embedded.json")
+                (AuthoringSession.createNewWithDependency embedded (Some source) |> unwrap).Close()
+                // The embedded workspace checks its sidecar; the legacy one also re-reads its source.
+                for workspace, unreadable in [ embedded, manifestPath embedded; local, source ] do
+                    use session = AuthoringSession.openExisting workspace |> unwrap
+                    let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+                        { Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId; TypeParameters = None
+                          DisplayName = "mine"; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Int64
+                          RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 1L }
+                    let proposal = session.SimulateCreateFunction request |> unwrap
+                    let mode = File.GetUnixFileMode unreadable
+                    try
+                        File.SetUnixFileMode(unreadable, UnixFileMode.None)
+                        match session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) with
+                        | Error(AuthoringSessionError.IoFailure _) -> ()
+                        | other -> failwithf "Expected a transient read failure for %s: %A" unreadable other
+                    finally File.SetUnixFileMode(unreadable, mode)
+                    session.VerifyPersistedSource() |> unwrap
+                    session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
+                    Assert.Equal(1, session.Declarations().Functions |> List.filter (fun fn -> fn.DisplayName = "mine") |> List.length))

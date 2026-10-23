@@ -1047,29 +1047,35 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     let dependencyStillPinned () =
         match selection with
         | Some selected when not selected.IsEmbedded ->
+            if not (File.Exists selected.SourcePath) then Ok false else
             match SessionStorage.readCompleteDependency selected.SourcePath with
-            | Error _ -> false
+            // A read failure is transient: only content that was read and differs is a change.
+            | Error(AuthoringSessionError.IoFailure _ as error) -> Error error
+            | Error _ -> Ok false
             | Ok current ->
                 match SnapshotFingerprint.compute current with
-                | Ok actual -> SnapshotFingerprint.value actual = selected.Fingerprint && current.Id = selected.Imported.Id
-                | _ -> false
+                | Ok actual -> Ok(SnapshotFingerprint.value actual = selected.Fingerprint && current.Id = selected.Imported.Id)
+                | _ -> Ok false
         // Embedded content was validated on open; the exact manifest is checked
         // again at publication. The original source is provenance, not authority.
-        | _ -> true
+        | _ -> Ok true
 
     let checkPersistedSource () =
-        let selectionChanged =
-            dependencyManifest |> Option.exists (fun expected ->
-                match SessionStorage.readText (path + ".dependency.json") with
-                | Ok actual -> actual <> expected
-                | Error _ -> true)
-        if selectionChanged || not (dependencyStillPinned ()) then
+        let sidecar = path + ".dependency.json"
+        let selectionUnchanged =
+            match dependencyManifest with
+            | None -> Ok true
+            | Some _ when not (File.Exists sidecar) -> Ok false
+            | Some expected -> SessionStorage.readText sidecar |> Result.map (fun actual -> actual = expected)
+        match selectionUnchanged |> Result.bind (fun unchanged -> if unchanged then dependencyStillPinned () else Ok false) with
+        | Error error -> Error error
+        | Ok false ->
             invalidated <- true
             Error(AuthoringSessionError.DependencyFailure "The dependency selection changed outside this session.")
-        elif not (File.Exists path) then
+        | Ok true when not (File.Exists path) ->
             invalidated <- true
             Error AuthoringSessionError.ExternalModification
-        else
+        | Ok true ->
             match SessionStorage.readText path with
             | Error error -> Error error
             | Ok currentSource when currentSource <> persistedSource ->
