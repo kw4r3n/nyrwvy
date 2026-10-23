@@ -1,0 +1,417 @@
+snapshot snapshot:01a1686d-5643-7aa8-b6bf-97ec4cef6865 schema=21 parent=snapshot:01a1686d-5636-7f62-a1c3-d424716ca40b
+
+product type:01a1686d-5332-78e1-9391-ee6235696a70 name="Outcome"
+field field:01a1686d-5334-7d12-9f1d-9baf1dbfe3f4 in=type:01a1686d-5332-78e1-9391-ee6235696a70 name="ledger" type=string
+field field:01a1686d-5335-7be1-9e63-21683794c100 in=type:01a1686d-5332-78e1-9391-ee6235696a70 name="result" type=result(string,string)
+
+effect effect:01a1686d-53d0-79ea-bf79-a4d92875b458 name="Io"
+
+capability capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9 name="Probe"
+parameter capability-parameter:01a1686d-53dd-701d-9285-2d563584697f in=operation:01a1686d-53dd-7481-991b-72626c1868b4 position=0 name="phase" type=string
+parameter capability-parameter:01a1686d-53de-7971-9bcb-dbfa88b00112 in=operation:01a1686d-53de-7828-b8fb-92eec432aa13 position=0 name="message" type=string
+parameter capability-parameter:01a1686d-53de-7f4c-8ef1-6be66f7d7d09 in=operation:01a1686d-53de-77d0-b5f0-6600ac069710 position=0 name="handle" type=unit
+operation operation:01a1686d-53dd-7481-991b-72626c1868b4 in=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9 name="step" result-type=result(string,string) effect=effect:01a1686d-53d0-79ea-bf79-a4d92875b458
+operation operation:01a1686d-53de-7225-ab6c-e433bc70c1ae in=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9 name="open" result-type=result(unit,string) effect=effect:01a1686d-53d0-79ea-bf79-a4d92875b458
+operation operation:01a1686d-53de-76dc-8d71-fd913aeb4dce in=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9 name="release" result-type=unit effect=effect:01a1686d-53d0-79ea-bf79-a4d92875b458
+operation operation:01a1686d-53de-770b-ad6f-943edd659a93 in=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9 name="gate" result-type=bool effect=effect:01a1686d-53d0-79ea-bf79-a4d92875b458
+operation operation:01a1686d-53de-77d0-b5f0-6600ac069710 in=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9 name="close" result-type=unit effect=effect:01a1686d-53d0-79ea-bf79-a4d92875b458
+operation operation:01a1686d-53de-7828-b8fb-92eec432aa13 in=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9 name="report" result-type=unit effect=effect:01a1686d-53d0-79ea-bf79-a4d92875b458
+
+function function:01a1686d-547b-7ddf-a7dc-332245df71f8 name="step" result-type=result(string,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-5487-7534-8611-982891d5d59f
+parameter parameter:01a1686d-547b-77b0-8e44-e831d8a085aa in=function:01a1686d-547b-7ddf-a7dc-332245df71f8 position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-547b-759d-bd91-1d51644d5ecc in=function:01a1686d-547b-7ddf-a7dc-332245df71f8 position=1 name="phase" type=string
+binding binding:01a1686d-5485-7063-a835-45be14903caa in=node:01a1686d-5487-7534-8611-982891d5d59f/bound-body type=result(string,string)
+binding binding:01a1686d-5486-758e-a17a-c9093afef8f1 in=node:01a1686d-5487-76da-a7ed-ed7ab75ebf5e/bound-body type=unit
+parameter-reference node:01a1686d-5484-791d-a81d-605061249857 in=function:01a1686d-547b-7ddf-a7dc-332245df71f8/body parameter=parameter:01a1686d-547b-77b0-8e44-e831d8a085aa
+cancellation-requested node:01a1686d-5485-7191-9c34-89d4842fd96e in=node:01a1686d-5487-7534-8611-982891d5d59f/bound-body
+parameter-reference node:01a1686d-5485-7212-9871-bbc8b7278672 in=node:01a1686d-5487-7534-8611-982891d5d59f/bound-body parameter=parameter:01a1686d-547b-77b0-8e44-e831d8a085aa
+parameter-reference node:01a1686d-5485-73fa-abbb-5e8dfb419faf in=function:01a1686d-547b-7ddf-a7dc-332245df71f8/body parameter=parameter:01a1686d-547b-759d-bd91-1d51644d5ecc
+parameter-reference node:01a1686d-5485-74d6-a7c5-98e6be718c59 in=node:01a1686d-5487-7534-8611-982891d5d59f/bound-body parameter=parameter:01a1686d-547b-759d-bd91-1d51644d5ecc
+capability-invoke node:01a1686d-5485-769b-b3b0-0f3c257c958d in=function:01a1686d-547b-7ddf-a7dc-332245df71f8/body capability-value=node:01a1686d-5484-791d-a81d-605061249857 operation=operation:01a1686d-53dd-7481-991b-72626c1868b4 arguments=[capability-parameter:01a1686d-53dd-701d-9285-2d563584697f=node:01a1686d-5485-73fa-abbb-5e8dfb419faf]
+conditional node:01a1686d-5486-722c-8b0d-a96a55f07434 in=node:01a1686d-5487-7534-8611-982891d5d59f/bound-body condition=node:01a1686d-5485-7191-9c34-89d4842fd96e when-true=node:01a1686d-5486-7ac7-8fea-2d989c0e75dc when-false=node:01a1686d-5486-77cb-aef5-200d52f150cd
+string-concat node:01a1686d-5486-728a-a79a-df907dbf45bd in=node:01a1686d-5487-7534-8611-982891d5d59f/bound-body left=node:01a1686d-5485-74d6-a7c5-98e6be718c59 right=node:01a1686d-5486-722c-8b0d-a96a55f07434
+capability-invoke node:01a1686d-5486-7715-b373-2c6fc8b517f4 in=node:01a1686d-5487-7534-8611-982891d5d59f/bound-body capability-value=node:01a1686d-5485-7212-9871-bbc8b7278672 operation=operation:01a1686d-53de-7828-b8fb-92eec432aa13 arguments=[capability-parameter:01a1686d-53de-7971-9bcb-dbfa88b00112=node:01a1686d-5486-728a-a79a-df907dbf45bd]
+string-literal node:01a1686d-5486-77cb-aef5-200d52f150cd in=node:01a1686d-5486-722c-8b0d-a96a55f07434/when-false value="=clear"
+cancellation-requested node:01a1686d-5486-783e-811f-b290c94b02cd in=node:01a1686d-5487-76da-a7ed-ed7ab75ebf5e/bound-body
+result-err node:01a1686d-5486-7a44-a0d9-17d7beeebbc9 in=node:01a1686d-5487-7471-8995-646d52720983/when-true ok-type=string error=node:01a1686d-5486-7c8e-ac24-836f1251b716
+string-literal node:01a1686d-5486-7ac7-8fea-2d989c0e75dc in=node:01a1686d-5486-722c-8b0d-a96a55f07434/when-true value="=cancelled"
+string-literal node:01a1686d-5486-7c8e-ac24-836f1251b716 in=node:01a1686d-5487-7471-8995-646d52720983/when-true value="cancelled"
+pattern-reference node:01a1686d-5487-72cf-8feb-a649729dd244 in=node:01a1686d-5487-7471-8995-646d52720983/when-false pattern-binding=binding:01a1686d-5485-7063-a835-45be14903caa
+conditional node:01a1686d-5487-7471-8995-646d52720983 in=node:01a1686d-5487-76da-a7ed-ed7ab75ebf5e/bound-body condition=node:01a1686d-5486-783e-811f-b290c94b02cd when-true=node:01a1686d-5486-7a44-a0d9-17d7beeebbc9 when-false=node:01a1686d-5487-72cf-8feb-a649729dd244
+bind node:01a1686d-5487-7534-8611-982891d5d59f in=function:01a1686d-547b-7ddf-a7dc-332245df71f8/body input=node:01a1686d-5485-769b-b3b0-0f3c257c958d bound-body=node:01a1686d-5487-76da-a7ed-ed7ab75ebf5e
+bind node:01a1686d-5487-76da-a7ed-ed7ab75ebf5e in=node:01a1686d-5487-7534-8611-982891d5d59f/bound-body input=node:01a1686d-5486-7715-b373-2c6fc8b517f4 bound-body=node:01a1686d-5487-7471-8995-646d52720983
+
+function function:01a1686d-5524-7c86-a1bd-330ec242140c name="undo" result-type=result(type:01a1686d-5332-78e1-9391-ee6235696a70,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-5525-7d46-8476-1eb8cf302ce6
+parameter parameter:01a1686d-5524-728d-98f2-e5749c873a04 in=function:01a1686d-5524-7c86-a1bd-330ec242140c position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-5524-7df9-9e13-79bf34c7cec8 in=function:01a1686d-5524-7c86-a1bd-330ec242140c position=1 name="cause" type=string
+parameter parameter:01a1686d-5524-740f-a914-65af152ce54e in=function:01a1686d-5524-7c86-a1bd-330ec242140c position=2 name="item" type=unit
+binding binding:01a1686d-5524-713a-9579-28dc3506f351 in=node:01a1686d-5525-7e5f-9486-03de8c25fcdf/ok-arm type=string
+binding binding:01a1686d-5524-7582-af85-fe235443474e in=node:01a1686d-5525-7d46-8476-1eb8cf302ce6/ok-arm type=string
+binding binding:01a1686d-5524-76da-904d-0d3b4b27c028 in=node:01a1686d-5525-7d46-8476-1eb8cf302ce6/err-arm type=string
+binding binding:01a1686d-5524-7e52-baa8-af1b5cc69bc8 in=node:01a1686d-5525-7e5f-9486-03de8c25fcdf/err-arm type=string
+direct-call node:01a1686d-5524-75b7-8fbe-371c6797b210 in=function:01a1686d-5524-7c86-a1bd-330ec242140c/body target-function=function:01a1686d-547b-7ddf-a7dc-332245df71f8 arguments=[parameter:01a1686d-547b-759d-bd91-1d51644d5ecc=node:01a1686d-5524-7afa-bc35-0dcb09d9c084 parameter:01a1686d-547b-77b0-8e44-e831d8a085aa=node:01a1686d-5524-7c61-96ed-192614db78cb]
+parameter-reference node:01a1686d-5524-75dd-8787-ebf5c0a7b49c in=node:01a1686d-5525-7d46-8476-1eb8cf302ce6/ok-arm parameter=parameter:01a1686d-5524-728d-98f2-e5749c873a04
+direct-call node:01a1686d-5524-79ba-a11c-30e097c42390 in=node:01a1686d-5525-7d46-8476-1eb8cf302ce6/ok-arm target-function=function:01a1686d-547b-7ddf-a7dc-332245df71f8 arguments=[parameter:01a1686d-547b-759d-bd91-1d51644d5ecc=node:01a1686d-5524-7ffe-b278-bbc78cfca8fe parameter:01a1686d-547b-77b0-8e44-e831d8a085aa=node:01a1686d-5524-75dd-8787-ebf5c0a7b49c]
+string-literal node:01a1686d-5524-7afa-bc35-0dcb09d9c084 in=function:01a1686d-5524-7c86-a1bd-330ec242140c/body value="reverse-check"
+parameter-reference node:01a1686d-5524-7c61-96ed-192614db78cb in=function:01a1686d-5524-7c86-a1bd-330ec242140c/body parameter=parameter:01a1686d-5524-728d-98f2-e5749c873a04
+string-literal node:01a1686d-5524-7ffe-b278-bbc78cfca8fe in=node:01a1686d-5525-7d46-8476-1eb8cf302ce6/ok-arm value="reverse-apply"
+string-literal node:01a1686d-5525-7019-b908-dbc9c96c6c3e in=node:01a1686d-5525-7e5f-9486-03de8c25fcdf/err-arm value=""
+parameter-reference node:01a1686d-5525-7091-a64a-bf6bae89f824 in=node:01a1686d-5525-7e5f-9486-03de8c25fcdf/ok-arm parameter=parameter:01a1686d-5524-7df9-9e13-79bf34c7cec8
+result-err node:01a1686d-5525-70b9-a725-4490fcf34c4e in=node:01a1686d-5525-7d46-8476-1eb8cf302ce6/err-arm ok-type=string error=node:01a1686d-5525-7f65-82f2-c8391af4a5cb
+product-construct node:01a1686d-5525-71a5-b107-c1a6c41012b7 in=node:01a1686d-5525-7e5f-9486-03de8c25fcdf/err-arm type=type:01a1686d-5332-78e1-9391-ee6235696a70 fields=[field:01a1686d-5334-7d12-9f1d-9baf1dbfe3f4=node:01a1686d-5525-7019-b908-dbc9c96c6c3e field:01a1686d-5335-7be1-9e63-21683794c100=node:01a1686d-5525-750a-8b65-5ffe880b3c32]
+result-ok node:01a1686d-5525-722c-9f3f-2c4bc162e69a in=node:01a1686d-5525-7d46-8476-1eb8cf302ce6/err-arm error-type=string value=node:01a1686d-5525-768b-b679-90a05c7a1247
+result-err node:01a1686d-5525-750a-8b65-5ffe880b3c32 in=node:01a1686d-5525-7e5f-9486-03de8c25fcdf/err-arm ok-type=string error=node:01a1686d-5525-7eca-a4dd-764a45346e70
+product-construct node:01a1686d-5525-768b-b679-90a05c7a1247 in=node:01a1686d-5525-7d46-8476-1eb8cf302ce6/err-arm type=type:01a1686d-5332-78e1-9391-ee6235696a70 fields=[field:01a1686d-5334-7d12-9f1d-9baf1dbfe3f4=node:01a1686d-5525-7d89-bcee-3b826927fb9d field:01a1686d-5335-7be1-9e63-21683794c100=node:01a1686d-5525-70b9-a725-4490fcf34c4e]
+result-ok node:01a1686d-5525-7a2a-9c3a-2327fa8e4004 in=node:01a1686d-5525-7e5f-9486-03de8c25fcdf/err-arm error-type=string value=node:01a1686d-5525-71a5-b107-c1a6c41012b7
+string-literal node:01a1686d-5525-7ac7-9af3-d0b5010eb1f3 in=node:01a1686d-5525-7e5f-9486-03de8c25fcdf/ok-arm value=""
+match-result node:01a1686d-5525-7d46-8476-1eb8cf302ce6 in=function:01a1686d-5524-7c86-a1bd-330ec242140c/body input=node:01a1686d-5524-75b7-8fbe-371c6797b210 ok-arm=node:01a1686d-5525-7e5f-9486-03de8c25fcdf err-arm=node:01a1686d-5525-722c-9f3f-2c4bc162e69a
+product-construct node:01a1686d-5525-7d7e-ad7b-c6701996fe9b in=node:01a1686d-5525-7e5f-9486-03de8c25fcdf/ok-arm type=type:01a1686d-5332-78e1-9391-ee6235696a70 fields=[field:01a1686d-5334-7d12-9f1d-9baf1dbfe3f4=node:01a1686d-5525-7ac7-9af3-d0b5010eb1f3 field:01a1686d-5335-7be1-9e63-21683794c100=node:01a1686d-5525-7f6f-a1e0-f30fedb5fe26]
+string-literal node:01a1686d-5525-7d89-bcee-3b826927fb9d in=node:01a1686d-5525-7d46-8476-1eb8cf302ce6/err-arm value=""
+result-ok node:01a1686d-5525-7e0c-af10-a98293e958ad in=node:01a1686d-5525-7e5f-9486-03de8c25fcdf/ok-arm error-type=string value=node:01a1686d-5525-7d7e-ad7b-c6701996fe9b
+match-result node:01a1686d-5525-7e5f-9486-03de8c25fcdf in=node:01a1686d-5525-7d46-8476-1eb8cf302ce6/ok-arm input=node:01a1686d-5524-79ba-a11c-30e097c42390 ok-arm=node:01a1686d-5525-7e0c-af10-a98293e958ad err-arm=node:01a1686d-5525-7a2a-9c3a-2327fa8e4004
+pattern-reference node:01a1686d-5525-7eca-a4dd-764a45346e70 in=node:01a1686d-5525-7e5f-9486-03de8c25fcdf/err-arm pattern-binding=binding:01a1686d-5524-7e52-baa8-af1b5cc69bc8
+pattern-reference node:01a1686d-5525-7f65-82f2-c8391af4a5cb in=node:01a1686d-5525-7d46-8476-1eb8cf302ce6/err-arm pattern-binding=binding:01a1686d-5524-76da-904d-0d3b4b27c028
+result-err node:01a1686d-5525-7f6f-a1e0-f30fedb5fe26 in=node:01a1686d-5525-7e5f-9486-03de8c25fcdf/ok-arm ok-type=string error=node:01a1686d-5525-7091-a64a-bf6bae89f824
+
+function function:01a1686d-5536-71c7-ab68-c1699e4335d0 name="recordSave" result-type=result(type:01a1686d-5332-78e1-9391-ee6235696a70,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-5536-786a-ad92-8b23c5a0310b
+parameter parameter:01a1686d-5536-77a6-a28c-1a9d2aac544e in=function:01a1686d-5536-71c7-ab68-c1699e4335d0 position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-5536-735e-a6e9-f9e93e2569c9 in=function:01a1686d-5536-71c7-ab68-c1699e4335d0 position=1 name="head" type=string
+binding binding:01a1686d-5536-750a-b024-a0b7fd745a14 in=node:01a1686d-5536-786a-ad92-8b23c5a0310b/err-arm type=string
+binding binding:01a1686d-5536-7d07-ace6-f011a60614ce in=node:01a1686d-5536-786a-ad92-8b23c5a0310b/ok-arm type=string
+result-err node:01a1686d-5536-7013-82a7-89d134fb7e7c in=node:01a1686d-5536-786a-ad92-8b23c5a0310b/err-arm ok-type=string error=node:01a1686d-5536-72f7-8962-b758d0f1374a
+direct-call node:01a1686d-5536-7132-9c27-37206a83395b in=function:01a1686d-5536-71c7-ab68-c1699e4335d0/body target-function=function:01a1686d-547b-7ddf-a7dc-332245df71f8 arguments=[parameter:01a1686d-547b-759d-bd91-1d51644d5ecc=node:01a1686d-5536-7175-bb34-c20d63d3a1de parameter:01a1686d-547b-77b0-8e44-e831d8a085aa=node:01a1686d-5536-7a3a-9423-be50d3bdbfca]
+string-literal node:01a1686d-5536-7175-bb34-c20d63d3a1de in=function:01a1686d-5536-71c7-ab68-c1699e4335d0/body value="save"
+parameter-reference node:01a1686d-5536-72a0-9c9f-f7bffd460940 in=node:01a1686d-5536-786a-ad92-8b23c5a0310b/err-arm parameter=parameter:01a1686d-5536-735e-a6e9-f9e93e2569c9
+pattern-reference node:01a1686d-5536-72f7-8962-b758d0f1374a in=node:01a1686d-5536-786a-ad92-8b23c5a0310b/err-arm pattern-binding=binding:01a1686d-5536-750a-b024-a0b7fd745a14
+product-construct node:01a1686d-5536-73c2-9f63-08acaa308768 in=node:01a1686d-5536-786a-ad92-8b23c5a0310b/err-arm type=type:01a1686d-5332-78e1-9391-ee6235696a70 fields=[field:01a1686d-5334-7d12-9f1d-9baf1dbfe3f4=node:01a1686d-5536-72a0-9c9f-f7bffd460940 field:01a1686d-5335-7be1-9e63-21683794c100=node:01a1686d-5536-7013-82a7-89d134fb7e7c]
+result-ok node:01a1686d-5536-777b-ae49-420176187662 in=node:01a1686d-5536-786a-ad92-8b23c5a0310b/ok-arm error-type=string value=node:01a1686d-5536-7af3-b4f9-846b16d6a89f
+result-ok node:01a1686d-5536-7862-9669-ebe564a177ea in=node:01a1686d-5536-786a-ad92-8b23c5a0310b/ok-arm error-type=string value=node:01a1686d-5536-7d45-9565-c265b84649c8
+match-result node:01a1686d-5536-786a-ad92-8b23c5a0310b in=function:01a1686d-5536-71c7-ab68-c1699e4335d0/body input=node:01a1686d-5536-7132-9c27-37206a83395b ok-arm=node:01a1686d-5536-7862-9669-ebe564a177ea err-arm=node:01a1686d-5536-7ccb-af03-b75b48cea4fc
+parameter-reference node:01a1686d-5536-7a3a-9423-be50d3bdbfca in=function:01a1686d-5536-71c7-ab68-c1699e4335d0/body parameter=parameter:01a1686d-5536-77a6-a28c-1a9d2aac544e
+parameter-reference node:01a1686d-5536-7af3-b4f9-846b16d6a89f in=node:01a1686d-5536-786a-ad92-8b23c5a0310b/ok-arm parameter=parameter:01a1686d-5536-735e-a6e9-f9e93e2569c9
+parameter-reference node:01a1686d-5536-7bfe-80be-aa52b272a8a6 in=node:01a1686d-5536-786a-ad92-8b23c5a0310b/ok-arm parameter=parameter:01a1686d-5536-735e-a6e9-f9e93e2569c9
+result-ok node:01a1686d-5536-7ccb-af03-b75b48cea4fc in=node:01a1686d-5536-786a-ad92-8b23c5a0310b/err-arm error-type=string value=node:01a1686d-5536-73c2-9f63-08acaa308768
+product-construct node:01a1686d-5536-7d45-9565-c265b84649c8 in=node:01a1686d-5536-786a-ad92-8b23c5a0310b/ok-arm type=type:01a1686d-5332-78e1-9391-ee6235696a70 fields=[field:01a1686d-5334-7d12-9f1d-9baf1dbfe3f4=node:01a1686d-5536-7bfe-80be-aa52b272a8a6 field:01a1686d-5335-7be1-9e63-21683794c100=node:01a1686d-5536-777b-ae49-420176187662]
+
+function function:01a1686d-553a-7b7b-aea1-d58082d1f51d name="record" result-type=result(type:01a1686d-5332-78e1-9391-ee6235696a70,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-553a-78ca-97a4-cdae3a902622
+parameter parameter:01a1686d-553a-77c8-a048-60a722b8ccb6 in=function:01a1686d-553a-7b7b-aea1-d58082d1f51d position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-553a-7c2a-9c42-ab0fc49ec31a in=function:01a1686d-553a-7b7b-aea1-d58082d1f51d position=1 name="item" type=unit
+binding binding:01a1686d-553a-7344-8d17-79f9bb13bffb in=node:01a1686d-553a-78ca-97a4-cdae3a902622/ok-arm type=string
+binding binding:01a1686d-553a-7544-9b84-5e6e5e196786 in=node:01a1686d-553a-78ca-97a4-cdae3a902622/err-arm type=string
+direct-call node:01a1686d-553a-70e5-a21c-c73cc47cc5ba in=node:01a1686d-553a-78ca-97a4-cdae3a902622/ok-arm target-function=function:01a1686d-5536-71c7-ab68-c1699e4335d0 arguments=[parameter:01a1686d-5536-735e-a6e9-f9e93e2569c9=node:01a1686d-553a-7d10-9bb0-478d7282f156 parameter:01a1686d-5536-77a6-a28c-1a9d2aac544e=node:01a1686d-553a-79ec-b81b-b1f02b24add1]
+product-construct node:01a1686d-553a-7152-a029-8d857e3e1fdc in=node:01a1686d-553a-78ca-97a4-cdae3a902622/err-arm type=type:01a1686d-5332-78e1-9391-ee6235696a70 fields=[field:01a1686d-5334-7d12-9f1d-9baf1dbfe3f4=node:01a1686d-553a-75b9-9d87-297cf23c14d8 field:01a1686d-5335-7be1-9e63-21683794c100=node:01a1686d-553a-7d7d-905a-d9cbcde42879]
+direct-call node:01a1686d-553a-72ce-b88f-0a644e37ce33 in=function:01a1686d-553a-7b7b-aea1-d58082d1f51d/body target-function=function:01a1686d-547b-7ddf-a7dc-332245df71f8 arguments=[parameter:01a1686d-547b-759d-bd91-1d51644d5ecc=node:01a1686d-553a-7a48-a27b-6f9f579e8e55 parameter:01a1686d-547b-77b0-8e44-e831d8a085aa=node:01a1686d-553a-76ea-a24a-3eea04b39d6d]
+string-literal node:01a1686d-553a-75b9-9d87-297cf23c14d8 in=node:01a1686d-553a-78ca-97a4-cdae3a902622/err-arm value=""
+parameter-reference node:01a1686d-553a-76ea-a24a-3eea04b39d6d in=function:01a1686d-553a-7b7b-aea1-d58082d1f51d/body parameter=parameter:01a1686d-553a-77c8-a048-60a722b8ccb6
+result-ok node:01a1686d-553a-7815-b2fc-4d520f8a3512 in=node:01a1686d-553a-78ca-97a4-cdae3a902622/err-arm error-type=string value=node:01a1686d-553a-7152-a029-8d857e3e1fdc
+match-result node:01a1686d-553a-78ca-97a4-cdae3a902622 in=function:01a1686d-553a-7b7b-aea1-d58082d1f51d/body input=node:01a1686d-553a-72ce-b88f-0a644e37ce33 ok-arm=node:01a1686d-553a-70e5-a21c-c73cc47cc5ba err-arm=node:01a1686d-553a-7815-b2fc-4d520f8a3512
+parameter-reference node:01a1686d-553a-79ec-b81b-b1f02b24add1 in=node:01a1686d-553a-78ca-97a4-cdae3a902622/ok-arm parameter=parameter:01a1686d-553a-77c8-a048-60a722b8ccb6
+string-literal node:01a1686d-553a-7a48-a27b-6f9f579e8e55 in=function:01a1686d-553a-7b7b-aea1-d58082d1f51d/body value="head"
+pattern-reference node:01a1686d-553a-7d10-9bb0-478d7282f156 in=node:01a1686d-553a-78ca-97a4-cdae3a902622/ok-arm pattern-binding=binding:01a1686d-553a-7344-8d17-79f9bb13bffb
+result-err node:01a1686d-553a-7d7d-905a-d9cbcde42879 in=node:01a1686d-553a-78ca-97a4-cdae3a902622/err-arm ok-type=string error=node:01a1686d-553a-7db5-920d-e94bee6fc388
+pattern-reference node:01a1686d-553a-7db5-920d-e94bee6fc388 in=node:01a1686d-553a-78ca-97a4-cdae3a902622/err-arm pattern-binding=binding:01a1686d-553a-7544-9b84-5e6e5e196786
+
+function function:01a1686d-5547-7ca8-b53d-912873f921b5 name="commit" result-type=result(type:01a1686d-5332-78e1-9391-ee6235696a70,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-554a-7d93-aba5-40c3e2712e26
+parameter parameter:01a1686d-5547-77ea-b6ee-e39e3b3f7fbd in=function:01a1686d-5547-7ca8-b53d-912873f921b5 position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-5547-7522-b111-5abdf72ab653 in=function:01a1686d-5547-7ca8-b53d-912873f921b5 position=1 name="protected" type=bool
+parameter parameter:01a1686d-5547-7e3e-bf2b-dca1331ce6ec in=function:01a1686d-5547-7ca8-b53d-912873f921b5 position=2 name="item" type=unit
+binding binding:01a1686d-5547-7556-919f-a684840ada7f in=node:01a1686d-554a-7d93-aba5-40c3e2712e26/ok-arm type=string
+binding binding:01a1686d-5547-7bec-a90e-6395d4433e28 in=node:01a1686d-554a-7d93-aba5-40c3e2712e26/err-arm type=string
+parameter-reference node:01a1686d-5547-7083-889c-7404bb22fbad in=node:01a1686d-554a-7d93-aba5-40c3e2712e26/ok-arm parameter=parameter:01a1686d-5547-77ea-b6ee-e39e3b3f7fbd
+direct-call node:01a1686d-5547-72cb-bf02-e8d5224b2248 in=function:01a1686d-5547-7ca8-b53d-912873f921b5/body target-function=function:01a1686d-547b-7ddf-a7dc-332245df71f8 arguments=[parameter:01a1686d-547b-759d-bd91-1d51644d5ecc=node:01a1686d-5547-7eb3-b950-af10c308063e parameter:01a1686d-547b-77b0-8e44-e831d8a085aa=node:01a1686d-5547-7db7-8609-88dc0c10225e]
+parameter-reference node:01a1686d-5547-76c2-8166-884c05fa6dee in=node:01a1686d-554a-7d93-aba5-40c3e2712e26/err-arm parameter=parameter:01a1686d-5547-7522-b111-5abdf72ab653
+unit-literal node:01a1686d-5547-7c5b-8180-67d04276a840 in=node:01a1686d-554a-7d93-aba5-40c3e2712e26/ok-arm
+direct-call node:01a1686d-5547-7d9a-a10d-8bec2cf75881 in=node:01a1686d-554a-7d93-aba5-40c3e2712e26/ok-arm target-function=function:01a1686d-553a-7b7b-aea1-d58082d1f51d arguments=[parameter:01a1686d-553a-77c8-a048-60a722b8ccb6=node:01a1686d-5547-7083-889c-7404bb22fbad parameter:01a1686d-553a-7c2a-9c42-ab0fc49ec31a=node:01a1686d-5547-7c5b-8180-67d04276a840]
+parameter-reference node:01a1686d-5547-7db7-8609-88dc0c10225e in=function:01a1686d-5547-7ca8-b53d-912873f921b5/body parameter=parameter:01a1686d-5547-77ea-b6ee-e39e3b3f7fbd
+string-literal node:01a1686d-5547-7eb3-b950-af10c308063e in=function:01a1686d-5547-7ca8-b53d-912873f921b5/body value="commit"
+parameter-reference node:01a1686d-554a-7141-ad1f-9ccf43ef98c5 in=node:01a1686d-554a-71ad-8454-c6d68e3882d3/when-false parameter=parameter:01a1686d-5547-77ea-b6ee-e39e3b3f7fbd
+conditional node:01a1686d-554a-71ad-8454-c6d68e3882d3 in=node:01a1686d-554a-7d93-aba5-40c3e2712e26/err-arm condition=node:01a1686d-5547-76c2-8166-884c05fa6dee when-true=node:01a1686d-554a-7d8f-aad0-fab9f231a870 when-false=node:01a1686d-554a-7485-946c-b18603ae6995
+pattern-reference node:01a1686d-554a-73c0-adb7-1aed5261f116 in=node:01a1686d-554a-71ad-8454-c6d68e3882d3/when-false pattern-binding=binding:01a1686d-5547-7bec-a90e-6395d4433e28
+parameter-reference node:01a1686d-554a-7458-ab97-ddd87372e0b3 in=node:01a1686d-554a-71ad-8454-c6d68e3882d3/when-true parameter=parameter:01a1686d-5547-77ea-b6ee-e39e3b3f7fbd
+direct-call node:01a1686d-554a-7485-946c-b18603ae6995 in=node:01a1686d-554a-71ad-8454-c6d68e3882d3/when-false target-function=function:01a1686d-5524-7c86-a1bd-330ec242140c arguments=[parameter:01a1686d-5524-728d-98f2-e5749c873a04=node:01a1686d-554a-7141-ad1f-9ccf43ef98c5 parameter:01a1686d-5524-740f-a914-65af152ce54e=node:01a1686d-554a-7543-94c6-6a1e7129f980 parameter:01a1686d-5524-7df9-9e13-79bf34c7cec8=node:01a1686d-554a-73c0-adb7-1aed5261f116]
+unit-literal node:01a1686d-554a-7543-94c6-6a1e7129f980 in=node:01a1686d-554a-71ad-8454-c6d68e3882d3/when-false
+pattern-reference node:01a1686d-554a-7c49-8e34-5d1adb8928b8 in=node:01a1686d-554a-71ad-8454-c6d68e3882d3/when-true pattern-binding=binding:01a1686d-5547-7bec-a90e-6395d4433e28
+cancellation-shield node:01a1686d-554a-7d8f-aad0-fab9f231a870 in=node:01a1686d-554a-71ad-8454-c6d68e3882d3/when-true body-function=function:01a1686d-5524-7c86-a1bd-330ec242140c context=[parameter:01a1686d-5524-728d-98f2-e5749c873a04=node:01a1686d-554a-7458-ab97-ddd87372e0b3 parameter:01a1686d-5524-7df9-9e13-79bf34c7cec8=node:01a1686d-554a-7c49-8e34-5d1adb8928b8]
+match-result node:01a1686d-554a-7d93-aba5-40c3e2712e26 in=function:01a1686d-5547-7ca8-b53d-912873f921b5/body input=node:01a1686d-5547-72cb-bf02-e8d5224b2248 ok-arm=node:01a1686d-5547-7d9a-a10d-8bec2cf75881 err-arm=node:01a1686d-554a-71ad-8454-c6d68e3882d3
+
+function function:01a1686d-5551-7fc6-bb3c-fd7edc82ac2e name="finish" result-type=result(type:01a1686d-5332-78e1-9391-ee6235696a70,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-5551-7e02-98df-1fcb4fafde85
+parameter parameter:01a1686d-5551-7d5c-8cc3-5d27a9c488a4 in=function:01a1686d-5551-7fc6-bb3c-fd7edc82ac2e position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-5551-77b9-bc4c-72d4b632eebd in=function:01a1686d-5551-7fc6-bb3c-fd7edc82ac2e position=1 name="patch" type=bool
+parameter parameter:01a1686d-5551-71a7-b93d-ffa47394e5b0 in=function:01a1686d-5551-7fc6-bb3c-fd7edc82ac2e position=2 name="protected" type=bool
+parameter parameter:01a1686d-5551-751f-8a24-17b5b3eba303 in=function:01a1686d-5551-7fc6-bb3c-fd7edc82ac2e position=3 name="item" type=unit
+binding binding:01a1686d-5551-7142-936b-f3a67a77c918 in=node:01a1686d-5551-7387-ae97-00d81abb6752/err-arm type=string
+binding binding:01a1686d-5551-74f8-a3c0-d6fbd1891ace in=node:01a1686d-5551-7387-ae97-00d81abb6752/ok-arm type=string
+direct-call node:01a1686d-5551-7176-855f-b437e42f99c7 in=node:01a1686d-5551-7e02-98df-1fcb4fafde85/when-true target-function=function:01a1686d-547b-7ddf-a7dc-332245df71f8 arguments=[parameter:01a1686d-547b-759d-bd91-1d51644d5ecc=node:01a1686d-5551-7af2-b1bc-d0199c9cec41 parameter:01a1686d-547b-77b0-8e44-e831d8a085aa=node:01a1686d-5551-7b14-a162-2da113125068]
+match-result node:01a1686d-5551-7387-ae97-00d81abb6752 in=node:01a1686d-5551-7e02-98df-1fcb4fafde85/when-true input=node:01a1686d-5551-7176-855f-b437e42f99c7 ok-arm=node:01a1686d-5551-759e-84dc-05ba0993bc09 err-arm=node:01a1686d-5551-79cd-b7ca-277e31922879
+unit-literal node:01a1686d-5551-7477-aa4c-2ac9a925e266 in=node:01a1686d-5551-7e02-98df-1fcb4fafde85/when-false
+direct-call node:01a1686d-5551-759e-84dc-05ba0993bc09 in=node:01a1686d-5551-7387-ae97-00d81abb6752/ok-arm target-function=function:01a1686d-5547-7ca8-b53d-912873f921b5 arguments=[parameter:01a1686d-5547-7522-b111-5abdf72ab653=node:01a1686d-5551-7e68-9a71-078a0318ae88 parameter:01a1686d-5547-77ea-b6ee-e39e3b3f7fbd=node:01a1686d-5551-7bbf-bad1-95b833caba72 parameter:01a1686d-5547-7e3e-bf2b-dca1331ce6ec=node:01a1686d-5551-77d0-80c1-ce69f78642db]
+parameter-reference node:01a1686d-5551-75bf-90f5-8f5233df4d6f in=function:01a1686d-5551-7fc6-bb3c-fd7edc82ac2e/body parameter=parameter:01a1686d-5551-77b9-bc4c-72d4b632eebd
+unit-literal node:01a1686d-5551-77d0-80c1-ce69f78642db in=node:01a1686d-5551-7387-ae97-00d81abb6752/ok-arm
+result-err node:01a1686d-5551-78b9-9a52-94febab9ca00 in=node:01a1686d-5551-7387-ae97-00d81abb6752/err-arm ok-type=string error=node:01a1686d-5551-7979-9416-cb25fe579eb3
+parameter-reference node:01a1686d-5551-78ca-bd68-d907974349d7 in=node:01a1686d-5551-7e02-98df-1fcb4fafde85/when-false parameter=parameter:01a1686d-5551-7d5c-8cc3-5d27a9c488a4
+pattern-reference node:01a1686d-5551-7979-9416-cb25fe579eb3 in=node:01a1686d-5551-7387-ae97-00d81abb6752/err-arm pattern-binding=binding:01a1686d-5551-7142-936b-f3a67a77c918
+result-ok node:01a1686d-5551-79cd-b7ca-277e31922879 in=node:01a1686d-5551-7387-ae97-00d81abb6752/err-arm error-type=string value=node:01a1686d-5551-7e82-bb03-990a1a9e561c
+direct-call node:01a1686d-5551-7a18-9f12-41b01f6d72e1 in=node:01a1686d-5551-7e02-98df-1fcb4fafde85/when-false target-function=function:01a1686d-553a-7b7b-aea1-d58082d1f51d arguments=[parameter:01a1686d-553a-77c8-a048-60a722b8ccb6=node:01a1686d-5551-78ca-bd68-d907974349d7 parameter:01a1686d-553a-7c2a-9c42-ab0fc49ec31a=node:01a1686d-5551-7477-aa4c-2ac9a925e266]
+string-literal node:01a1686d-5551-7af2-b1bc-d0199c9cec41 in=node:01a1686d-5551-7e02-98df-1fcb4fafde85/when-true value="apply"
+parameter-reference node:01a1686d-5551-7b14-a162-2da113125068 in=node:01a1686d-5551-7e02-98df-1fcb4fafde85/when-true parameter=parameter:01a1686d-5551-7d5c-8cc3-5d27a9c488a4
+parameter-reference node:01a1686d-5551-7bbf-bad1-95b833caba72 in=node:01a1686d-5551-7387-ae97-00d81abb6752/ok-arm parameter=parameter:01a1686d-5551-7d5c-8cc3-5d27a9c488a4
+string-literal node:01a1686d-5551-7d23-8759-32820a5a6817 in=node:01a1686d-5551-7387-ae97-00d81abb6752/err-arm value=""
+conditional node:01a1686d-5551-7e02-98df-1fcb4fafde85 in=function:01a1686d-5551-7fc6-bb3c-fd7edc82ac2e/body condition=node:01a1686d-5551-75bf-90f5-8f5233df4d6f when-true=node:01a1686d-5551-7387-ae97-00d81abb6752 when-false=node:01a1686d-5551-7a18-9f12-41b01f6d72e1
+parameter-reference node:01a1686d-5551-7e68-9a71-078a0318ae88 in=node:01a1686d-5551-7387-ae97-00d81abb6752/ok-arm parameter=parameter:01a1686d-5551-71a7-b93d-ffa47394e5b0
+product-construct node:01a1686d-5551-7e82-bb03-990a1a9e561c in=node:01a1686d-5551-7387-ae97-00d81abb6752/err-arm type=type:01a1686d-5332-78e1-9391-ee6235696a70 fields=[field:01a1686d-5334-7d12-9f1d-9baf1dbfe3f4=node:01a1686d-5551-7d23-8759-32820a5a6817 field:01a1686d-5335-7be1-9e63-21683794c100=node:01a1686d-5551-78b9-9a52-94febab9ca00]
+
+function function:01a1686d-5558-74f0-8589-cd40da5fadfd name="parent" result-type=result(type:01a1686d-5332-78e1-9391-ee6235696a70,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-5558-77fd-8027-d529dbc30a0d
+parameter parameter:01a1686d-5558-75f6-b085-3241cbbd0dff in=function:01a1686d-5558-74f0-8589-cd40da5fadfd position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-5558-7770-87a9-de1b3ec0f856 in=function:01a1686d-5558-74f0-8589-cd40da5fadfd position=1 name="patch" type=bool
+parameter parameter:01a1686d-5558-782e-b76e-d09afc622610 in=function:01a1686d-5558-74f0-8589-cd40da5fadfd position=2 name="protected" type=bool
+parameter parameter:01a1686d-5558-7366-83a5-9e8840210d15 in=function:01a1686d-5558-74f0-8589-cd40da5fadfd position=3 name="item" type=unit
+binding binding:01a1686d-5558-73d1-bade-e9365c7c33d2 in=node:01a1686d-5558-710a-8ee9-8c152cc67c93/ok-arm type=type:01a1686d-5332-78e1-9391-ee6235696a70
+binding binding:01a1686d-5558-740a-a19b-3175dbb4e24a in=node:01a1686d-5558-778c-9357-dd8a53235ce1/ok-arm type=string
+binding binding:01a1686d-5558-755b-b707-7561a06019e3 in=node:01a1686d-5558-778c-9357-dd8a53235ce1/err-arm type=string
+binding binding:01a1686d-5558-796b-9a2e-f54fca52b8af in=node:01a1686d-5558-710a-8ee9-8c152cc67c93/err-arm type=string
+binding binding:01a1686d-5558-7e8c-a31b-3d695e4b9fae in=node:01a1686d-5558-77fd-8027-d529dbc30a0d/bound-body type=result(type:01a1686d-5332-78e1-9391-ee6235696a70,string)
+parameter-reference node:01a1686d-5558-70bc-8ea7-eb936c193c01 in=node:01a1686d-5558-7729-aef8-2adfe7536817/when-true parameter=parameter:01a1686d-5558-7770-87a9-de1b3ec0f856
+pattern-reference node:01a1686d-5558-70e1-b5a7-a3e6f71d0cf0 in=node:01a1686d-5558-7580-97e6-ae562c9623ab/when-false pattern-binding=binding:01a1686d-5558-740a-a19b-3175dbb4e24a
+match-result node:01a1686d-5558-710a-8ee9-8c152cc67c93 in=node:01a1686d-5558-77fd-8027-d529dbc30a0d/bound-body input=node:01a1686d-5558-71b3-901f-4393289c9ec8 ok-arm=node:01a1686d-5558-75b3-b60d-0210714fd037 err-arm=node:01a1686d-5558-75bf-8a2d-30f2656cab19
+product-construct node:01a1686d-5558-719a-8769-89cbdcb6a398 in=node:01a1686d-5558-710a-8ee9-8c152cc67c93/ok-arm type=type:01a1686d-5332-78e1-9391-ee6235696a70 fields=[field:01a1686d-5334-7d12-9f1d-9baf1dbfe3f4=node:01a1686d-5558-75ee-96f0-f61af9eb17e5 field:01a1686d-5335-7be1-9e63-21683794c100=node:01a1686d-5558-778c-9357-dd8a53235ce1]
+pattern-reference node:01a1686d-5558-71b3-901f-4393289c9ec8 in=node:01a1686d-5558-77fd-8027-d529dbc30a0d/bound-body pattern-binding=binding:01a1686d-5558-7e8c-a31b-3d695e4b9fae
+result-err node:01a1686d-5558-71c7-b707-d66caca5b2fe in=node:01a1686d-5558-778c-9357-dd8a53235ce1/err-arm ok-type=string error=node:01a1686d-5558-71ce-8e27-163690e765cc
+pattern-reference node:01a1686d-5558-71ce-8e27-163690e765cc in=node:01a1686d-5558-778c-9357-dd8a53235ce1/err-arm pattern-binding=binding:01a1686d-5558-755b-b707-7561a06019e3
+field-access node:01a1686d-5558-71e9-9563-d72e3e1c2c9f in=node:01a1686d-5558-710a-8ee9-8c152cc67c93/ok-arm source=node:01a1686d-5558-7f2d-8e01-bd93c286a15b field=field:01a1686d-5335-7be1-9e63-21683794c100
+cancellation-shield node:01a1686d-5558-71fa-a46c-eae2ea66565d in=node:01a1686d-5558-7729-aef8-2adfe7536817/when-true body-function=function:01a1686d-5551-7fc6-bb3c-fd7edc82ac2e context=[parameter:01a1686d-5551-71a7-b93d-ffa47394e5b0=node:01a1686d-5558-76b1-b6f0-aaf7634bc673 parameter:01a1686d-5551-77b9-bc4c-72d4b632eebd=node:01a1686d-5558-70bc-8ea7-eb936c193c01 parameter:01a1686d-5551-7d5c-8cc3-5d27a9c488a4=node:01a1686d-5558-7e29-ac22-f5fe97c2e8a1]
+parameter-reference node:01a1686d-5558-725f-a188-0f07af0788fb in=node:01a1686d-5558-7729-aef8-2adfe7536817/when-false parameter=parameter:01a1686d-5558-782e-b76e-d09afc622610
+conditional node:01a1686d-5558-7580-97e6-ae562c9623ab in=node:01a1686d-5558-778c-9357-dd8a53235ce1/ok-arm condition=node:01a1686d-5558-7e0d-85df-296611851612 when-true=node:01a1686d-5558-777a-b7f4-4db2d9339f4b when-false=node:01a1686d-5558-7d22-ae7e-663752157e1c
+result-ok node:01a1686d-5558-75b3-b60d-0210714fd037 in=node:01a1686d-5558-710a-8ee9-8c152cc67c93/ok-arm error-type=string value=node:01a1686d-5558-719a-8769-89cbdcb6a398
+result-err node:01a1686d-5558-75bf-8a2d-30f2656cab19 in=node:01a1686d-5558-710a-8ee9-8c152cc67c93/err-arm ok-type=type:01a1686d-5332-78e1-9391-ee6235696a70 error=node:01a1686d-5558-7946-95ee-7ad3fca12675
+field-access node:01a1686d-5558-75ee-96f0-f61af9eb17e5 in=node:01a1686d-5558-710a-8ee9-8c152cc67c93/ok-arm source=node:01a1686d-5558-7b17-a454-b7da72d8f0a1 field=field:01a1686d-5334-7d12-9f1d-9baf1dbfe3f4
+string-literal node:01a1686d-5558-7603-b197-2f97f1ceea76 in=node:01a1686d-5558-7580-97e6-ae562c9623ab/when-true value="cancelled"
+parameter-reference node:01a1686d-5558-76b1-b6f0-aaf7634bc673 in=node:01a1686d-5558-7729-aef8-2adfe7536817/when-true parameter=parameter:01a1686d-5558-782e-b76e-d09afc622610
+parameter-reference node:01a1686d-5558-76cf-a3a6-5e34fcf8b49f in=node:01a1686d-5558-7729-aef8-2adfe7536817/when-false parameter=parameter:01a1686d-5558-7770-87a9-de1b3ec0f856
+direct-call node:01a1686d-5558-76dc-8a3d-5eace9d9d041 in=node:01a1686d-5558-7729-aef8-2adfe7536817/when-false target-function=function:01a1686d-5551-7fc6-bb3c-fd7edc82ac2e arguments=[parameter:01a1686d-5551-71a7-b93d-ffa47394e5b0=node:01a1686d-5558-725f-a188-0f07af0788fb parameter:01a1686d-5551-751f-8a24-17b5b3eba303=node:01a1686d-5558-7a98-aa52-f04d8fccaad9 parameter:01a1686d-5551-77b9-bc4c-72d4b632eebd=node:01a1686d-5558-76cf-a3a6-5e34fcf8b49f parameter:01a1686d-5551-7d5c-8cc3-5d27a9c488a4=node:01a1686d-5558-7f74-a9b2-e3b94a86a730]
+conditional node:01a1686d-5558-7729-aef8-2adfe7536817 in=function:01a1686d-5558-74f0-8589-cd40da5fadfd/body condition=node:01a1686d-5558-7f5e-aad1-3f9586d2c34a when-true=node:01a1686d-5558-71fa-a46c-eae2ea66565d when-false=node:01a1686d-5558-76dc-8a3d-5eace9d9d041
+result-err node:01a1686d-5558-777a-b7f4-4db2d9339f4b in=node:01a1686d-5558-7580-97e6-ae562c9623ab/when-true ok-type=string error=node:01a1686d-5558-7603-b197-2f97f1ceea76
+match-result node:01a1686d-5558-778c-9357-dd8a53235ce1 in=node:01a1686d-5558-710a-8ee9-8c152cc67c93/ok-arm input=node:01a1686d-5558-71e9-9563-d72e3e1c2c9f ok-arm=node:01a1686d-5558-7580-97e6-ae562c9623ab err-arm=node:01a1686d-5558-71c7-b707-d66caca5b2fe
+bind node:01a1686d-5558-77fd-8027-d529dbc30a0d in=function:01a1686d-5558-74f0-8589-cd40da5fadfd/body input=node:01a1686d-5558-7729-aef8-2adfe7536817 bound-body=node:01a1686d-5558-710a-8ee9-8c152cc67c93
+pattern-reference node:01a1686d-5558-7946-95ee-7ad3fca12675 in=node:01a1686d-5558-710a-8ee9-8c152cc67c93/err-arm pattern-binding=binding:01a1686d-5558-796b-9a2e-f54fca52b8af
+unit-literal node:01a1686d-5558-7a98-aa52-f04d8fccaad9 in=node:01a1686d-5558-7729-aef8-2adfe7536817/when-false
+pattern-reference node:01a1686d-5558-7b17-a454-b7da72d8f0a1 in=node:01a1686d-5558-710a-8ee9-8c152cc67c93/ok-arm pattern-binding=binding:01a1686d-5558-73d1-bade-e9365c7c33d2
+result-ok node:01a1686d-5558-7d22-ae7e-663752157e1c in=node:01a1686d-5558-7580-97e6-ae562c9623ab/when-false error-type=string value=node:01a1686d-5558-70e1-b5a7-a3e6f71d0cf0
+cancellation-requested node:01a1686d-5558-7e0d-85df-296611851612 in=node:01a1686d-5558-778c-9357-dd8a53235ce1/ok-arm
+parameter-reference node:01a1686d-5558-7e29-ac22-f5fe97c2e8a1 in=node:01a1686d-5558-7729-aef8-2adfe7536817/when-true parameter=parameter:01a1686d-5558-75f6-b085-3241cbbd0dff
+pattern-reference node:01a1686d-5558-7f2d-8e01-bd93c286a15b in=node:01a1686d-5558-710a-8ee9-8c152cc67c93/ok-arm pattern-binding=binding:01a1686d-5558-73d1-bade-e9365c7c33d2
+parameter-reference node:01a1686d-5558-7f5e-aad1-3f9586d2c34a in=function:01a1686d-5558-74f0-8589-cd40da5fadfd/body parameter=parameter:01a1686d-5558-782e-b76e-d09afc622610
+parameter-reference node:01a1686d-5558-7f74-a9b2-e3b94a86a730 in=node:01a1686d-5558-7729-aef8-2adfe7536817/when-false parameter=parameter:01a1686d-5558-75f6-b085-3241cbbd0dff
+
+function function:01a1686d-5561-747c-9c3f-3831c63485af name="render" result-type=string body=node:01a1686d-5561-79fd-a07e-220a163731a7
+parameter parameter:01a1686d-5561-78ce-b148-ace491e4c8eb in=function:01a1686d-5561-747c-9c3f-3831c63485af position=0 name="value" type=type:01a1686d-5332-78e1-9391-ee6235696a70
+binding binding:01a1686d-5561-734b-9b80-77fcba12921d in=node:01a1686d-5561-79b3-bf6d-29eb600b0046/err-arm type=string
+binding binding:01a1686d-5561-7e04-95b1-7c257cbee9f5 in=node:01a1686d-5561-79b3-bf6d-29eb600b0046/ok-arm type=string
+pattern-reference node:01a1686d-5561-71b4-afa4-ade0d44dfaf5 in=node:01a1686d-5561-79b3-bf6d-29eb600b0046/err-arm pattern-binding=binding:01a1686d-5561-734b-9b80-77fcba12921d
+string-concat node:01a1686d-5561-7345-9630-0bb01f590181 in=node:01a1686d-5561-79b3-bf6d-29eb600b0046/err-arm left=node:01a1686d-5561-76b5-80e0-e933e42e6b66 right=node:01a1686d-5561-71b4-afa4-ade0d44dfaf5
+field-access node:01a1686d-5561-735f-9224-95c00f06a90e in=function:01a1686d-5561-747c-9c3f-3831c63485af/body source=node:01a1686d-5561-7fc9-9824-d18c39a7b4f3 field=field:01a1686d-5335-7be1-9e63-21683794c100
+parameter-reference node:01a1686d-5561-74d6-a000-f94cdef5b77f in=function:01a1686d-5561-747c-9c3f-3831c63485af/body parameter=parameter:01a1686d-5561-78ce-b148-ace491e4c8eb
+string-literal node:01a1686d-5561-765d-88b1-9c420aece4d5 in=node:01a1686d-5561-79b3-bf6d-29eb600b0046/ok-arm value="|ok:"
+string-literal node:01a1686d-5561-76b5-80e0-e933e42e6b66 in=node:01a1686d-5561-79b3-bf6d-29eb600b0046/err-arm value="|err:"
+string-concat node:01a1686d-5561-77db-bc54-dc1de6443a0c in=node:01a1686d-5561-79b3-bf6d-29eb600b0046/ok-arm left=node:01a1686d-5561-765d-88b1-9c420aece4d5 right=node:01a1686d-5561-7ac0-9cbb-69243b22f4ad
+match-result node:01a1686d-5561-79b3-bf6d-29eb600b0046 in=function:01a1686d-5561-747c-9c3f-3831c63485af/body input=node:01a1686d-5561-735f-9224-95c00f06a90e ok-arm=node:01a1686d-5561-77db-bc54-dc1de6443a0c err-arm=node:01a1686d-5561-7345-9630-0bb01f590181
+string-concat node:01a1686d-5561-79fd-a07e-220a163731a7 in=function:01a1686d-5561-747c-9c3f-3831c63485af/body left=node:01a1686d-5561-7f82-ab63-115792cff78b right=node:01a1686d-5561-79b3-bf6d-29eb600b0046
+pattern-reference node:01a1686d-5561-7ac0-9cbb-69243b22f4ad in=node:01a1686d-5561-79b3-bf6d-29eb600b0046/ok-arm pattern-binding=binding:01a1686d-5561-7e04-95b1-7c257cbee9f5
+field-access node:01a1686d-5561-7f82-ab63-115792cff78b in=function:01a1686d-5561-747c-9c3f-3831c63485af/body source=node:01a1686d-5561-74d6-a000-f94cdef5b77f field=field:01a1686d-5334-7d12-9f1d-9baf1dbfe3f4
+parameter-reference node:01a1686d-5561-7fc9-9824-d18c39a7b4f3 in=function:01a1686d-5561-747c-9c3f-3831c63485af/body parameter=parameter:01a1686d-5561-78ce-b148-ace491e4c8eb
+
+function function:01a1686d-5573-7586-beb0-4ddf8d86b4c2 name="coordinate" result-type=result(string,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-5575-7c1b-be44-6e4a78ded439
+parameter parameter:01a1686d-5573-7ea4-9d98-d86d478d0ba0 in=function:01a1686d-5573-7586-beb0-4ddf8d86b4c2 position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-5573-72aa-acc8-34771fb402bd in=function:01a1686d-5573-7586-beb0-4ddf8d86b4c2 position=1 name="parent" type=task(result(type:01a1686d-5332-78e1-9391-ee6235696a70,string))
+binding binding:01a1686d-5573-759c-94a5-c10d54dcd46c in=node:01a1686d-5575-7c1b-be44-6e4a78ded439/bound-body type=bool
+binding binding:01a1686d-5574-70c8-a039-3a78985a8bff in=node:01a1686d-5574-7820-befc-7027cb6ab033/some-arm type=result(type:01a1686d-5332-78e1-9391-ee6235696a70,string)
+binding binding:01a1686d-5574-71da-872d-fd000d3d4faf in=node:01a1686d-5575-7074-ab84-90e1e82ebcfa/bound-body type=unit
+binding binding:01a1686d-5574-7c08-ab21-8b980d788d38 in=node:01a1686d-5575-7478-a000-3036b3baa167/some-arm type=option(result(type:01a1686d-5332-78e1-9391-ee6235696a70,string))
+binding binding:01a1686d-5575-707d-8a74-23e23ac3b592 in=node:01a1686d-5575-7ab8-be11-cd614a7310a2/bound-body type=unit
+binding binding:01a1686d-5575-723e-8882-9f114dd494ac in=node:01a1686d-5575-7d15-acaf-821801b7506c/bound-body type=unit
+binding binding:01a1686d-5575-7748-9cdf-a35a4c4ba0f2 in=node:01a1686d-5575-7c8a-aef1-123999c6fd9d/bound-body type=unit
+binding binding:01a1686d-5575-7763-8364-23631e3a33f9 in=node:01a1686d-5575-7b28-a500-83ba77b02f13/bound-body type=list(option(result(type:01a1686d-5332-78e1-9391-ee6235696a70,string)))
+binding binding:01a1686d-5575-77fc-9411-f027b374c88b in=node:01a1686d-5575-7005-a2e1-7299655f461f/bound-body type=unit
+binding binding:01a1686d-5575-7a83-91c2-0881ef8461c0 in=node:01a1686d-5575-7900-89a6-7c635496cbf4/some-arm type=option(result(type:01a1686d-5332-78e1-9391-ee6235696a70,string))
+binding binding:01a1686d-5575-7bc0-aaa2-529aca29382c in=node:01a1686d-5575-73d4-b5c7-3a16f8bf297a/err-arm type=string
+binding binding:01a1686d-5575-7c57-88cf-3a62f1b5f621 in=node:01a1686d-5575-73d4-b5c7-3a16f8bf297a/ok-arm type=type:01a1686d-5332-78e1-9391-ee6235696a70
+binding binding:01a1686d-5575-7def-a61a-feca6dc346b0 in=node:01a1686d-5575-7001-840d-3bd8bfa1882f/some-arm type=result(type:01a1686d-5332-78e1-9391-ee6235696a70,string)
+parameter-reference node:01a1686d-5573-747b-93f5-0fac10d27d6d in=function:01a1686d-5573-7586-beb0-4ddf8d86b4c2/body parameter=parameter:01a1686d-5573-7ea4-9d98-d86d478d0ba0
+pattern-reference node:01a1686d-5573-7648-acfb-91d2c2c124f7 in=node:01a1686d-5575-7c1b-be44-6e4a78ded439/bound-body pattern-binding=binding:01a1686d-5573-759c-94a5-c10d54dcd46c
+capability-invoke node:01a1686d-5573-767a-88de-b40843f90167 in=function:01a1686d-5573-7586-beb0-4ddf8d86b4c2/body capability-value=node:01a1686d-5573-747b-93f5-0fac10d27d6d operation=operation:01a1686d-53de-770b-ad6f-943edd659a93
+int64-literal node:01a1686d-5574-73d2-96e0-230a0f10a401 in=node:01a1686d-5575-7074-ab84-90e1e82ebcfa/bound-body value=0
+parameter-reference node:01a1686d-5574-741e-b3c7-b5a2c652fd0a in=node:01a1686d-5575-7074-ab84-90e1e82ebcfa/bound-body parameter=parameter:01a1686d-5573-72aa-acc8-34771fb402bd
+parameter-reference node:01a1686d-5574-744a-b596-2c9b8b96dfc3 in=node:01a1686d-5575-715e-84e9-cae201e680ca/when-true parameter=parameter:01a1686d-5573-72aa-acc8-34771fb402bd
+task-wait node:01a1686d-5574-75c7-9073-ca9c9b82d893 in=node:01a1686d-5575-7074-ab84-90e1e82ebcfa/bound-body tasks=node:01a1686d-5574-7b51-8221-d4f69621448f mode="all" limit=node:01a1686d-5574-7d77-8503-24cbd95fff2f
+string-literal node:01a1686d-5574-777d-9467-9568d026b116 in=node:01a1686d-5574-7820-befc-7027cb6ab033/none-body value="parent-pending"
+list-item-at node:01a1686d-5574-7793-b0e4-0f5299d077a4 in=node:01a1686d-5575-7074-ab84-90e1e82ebcfa/bound-body list=node:01a1686d-5574-75c7-9073-ca9c9b82d893 index=node:01a1686d-5574-7c88-b2e5-ba3de6fabcb8
+match-option node:01a1686d-5574-7820-befc-7027cb6ab033 in=node:01a1686d-5575-7478-a000-3036b3baa167/some-arm input=node:01a1686d-5574-7ce0-bf2f-f01855c42ab0 some-arm=node:01a1686d-5574-7d71-bd45-9eebb349ac31 none-body=node:01a1686d-5574-777d-9467-9568d026b116
+task-cancel node:01a1686d-5574-7af5-9e68-b824d0919dfa in=node:01a1686d-5575-715e-84e9-cae201e680ca/when-true task=node:01a1686d-5574-744a-b596-2c9b8b96dfc3
+list-construct node:01a1686d-5574-7b51-8221-d4f69621448f in=node:01a1686d-5575-7074-ab84-90e1e82ebcfa/bound-body item-type=task(result(type:01a1686d-5332-78e1-9391-ee6235696a70,string)) items=[node:01a1686d-5574-741e-b3c7-b5a2c652fd0a]
+int64-literal node:01a1686d-5574-7c88-b2e5-ba3de6fabcb8 in=node:01a1686d-5575-7074-ab84-90e1e82ebcfa/bound-body value=0
+pattern-reference node:01a1686d-5574-7ce0-bf2f-f01855c42ab0 in=node:01a1686d-5575-7478-a000-3036b3baa167/some-arm pattern-binding=binding:01a1686d-5574-7c08-ab21-8b980d788d38
+string-literal node:01a1686d-5574-7d71-bd45-9eebb349ac31 in=node:01a1686d-5574-7820-befc-7027cb6ab033/some-arm value="parent-settled"
+option-some node:01a1686d-5574-7d77-8503-24cbd95fff2f in=node:01a1686d-5575-7074-ab84-90e1e82ebcfa/bound-body value=node:01a1686d-5574-73d2-96e0-230a0f10a401
+parameter-reference node:01a1686d-5574-7f66-8818-df28bbdf0c90 in=node:01a1686d-5575-7074-ab84-90e1e82ebcfa/bound-body parameter=parameter:01a1686d-5573-7ea4-9d98-d86d478d0ba0
+match-option node:01a1686d-5575-7001-840d-3bd8bfa1882f in=node:01a1686d-5575-7900-89a6-7c635496cbf4/some-arm input=node:01a1686d-5575-798a-abe5-36e43afc579f some-arm=node:01a1686d-5575-73d4-b5c7-3a16f8bf297a none-body=node:01a1686d-5575-7af8-af6e-a22e13acaf52
+bind node:01a1686d-5575-7005-a2e1-7299655f461f in=node:01a1686d-5575-7074-ab84-90e1e82ebcfa/bound-body input=node:01a1686d-5575-7254-87e6-99ec4b171c82 bound-body=node:01a1686d-5575-7ab8-be11-cd614a7310a2
+bind node:01a1686d-5575-7074-ab84-90e1e82ebcfa in=node:01a1686d-5575-715e-84e9-cae201e680ca/when-true input=node:01a1686d-5574-7af5-9e68-b824d0919dfa bound-body=node:01a1686d-5575-7005-a2e1-7299655f461f
+direct-call node:01a1686d-5575-70f3-808d-2afaa67114e0 in=node:01a1686d-5575-73d4-b5c7-3a16f8bf297a/ok-arm target-function=function:01a1686d-5561-747c-9c3f-3831c63485af arguments=[parameter:01a1686d-5561-78ce-b148-ace491e4c8eb=node:01a1686d-5575-7d6a-b6ab-059431319c0d]
+string-literal node:01a1686d-5575-710b-9c5f-cc2106780c38 in=node:01a1686d-5575-7478-a000-3036b3baa167/none-body value="missing"
+conditional node:01a1686d-5575-715e-84e9-cae201e680ca in=node:01a1686d-5575-7c1b-be44-6e4a78ded439/bound-body condition=node:01a1686d-5573-7648-acfb-91d2c2c124f7 when-true=node:01a1686d-5575-7074-ab84-90e1e82ebcfa when-false=node:01a1686d-5575-7428-a8aa-caf8963c2d6f
+parameter-reference node:01a1686d-5575-7223-9a84-021222829f14 in=node:01a1686d-5575-7b28-a500-83ba77b02f13/bound-body parameter=parameter:01a1686d-5573-7ea4-9d98-d86d478d0ba0
+task-cancel node:01a1686d-5575-7226-aef8-db5ea6d0a660 in=node:01a1686d-5575-7005-a2e1-7299655f461f/bound-body task=node:01a1686d-5575-73f0-af69-671c9e0fd102
+capability-invoke node:01a1686d-5575-7254-87e6-99ec4b171c82 in=node:01a1686d-5575-7074-ab84-90e1e82ebcfa/bound-body capability-value=node:01a1686d-5574-7f66-8818-df28bbdf0c90 operation=operation:01a1686d-53de-7828-b8fb-92eec432aa13 arguments=[capability-parameter:01a1686d-53de-7971-9bcb-dbfa88b00112=node:01a1686d-5575-7478-a000-3036b3baa167]
+capability-invoke node:01a1686d-5575-7303-9414-c18990a999f4 in=node:01a1686d-5575-7b28-a500-83ba77b02f13/bound-body capability-value=node:01a1686d-5575-7223-9a84-021222829f14 operation=operation:01a1686d-53de-7828-b8fb-92eec432aa13 arguments=[capability-parameter:01a1686d-53de-7971-9bcb-dbfa88b00112=node:01a1686d-5575-7900-89a6-7c635496cbf4]
+int64-literal node:01a1686d-5575-7346-8b1c-d4833ce1de50 in=node:01a1686d-5575-7b28-a500-83ba77b02f13/bound-body value=0
+pattern-reference node:01a1686d-5575-735b-a443-7a728a419ec5 in=node:01a1686d-5575-7001-840d-3bd8bfa1882f/some-arm pattern-binding=binding:01a1686d-5575-7def-a61a-feca6dc346b0
+string-literal node:01a1686d-5575-73bd-b295-3fc8d24cb1de in=node:01a1686d-5575-7900-89a6-7c635496cbf4/none-body value="missing"
+match-result node:01a1686d-5575-73d4-b5c7-3a16f8bf297a in=node:01a1686d-5575-7001-840d-3bd8bfa1882f/some-arm input=node:01a1686d-5575-735b-a443-7a728a419ec5 ok-arm=node:01a1686d-5575-70f3-808d-2afaa67114e0 err-arm=node:01a1686d-5575-77e9-a1ff-e8039e5fd1b9
+parameter-reference node:01a1686d-5575-73f0-af69-671c9e0fd102 in=node:01a1686d-5575-7005-a2e1-7299655f461f/bound-body parameter=parameter:01a1686d-5573-72aa-acc8-34771fb402bd
+capability-invoke node:01a1686d-5575-7428-a8aa-caf8963c2d6f in=node:01a1686d-5575-715e-84e9-cae201e680ca/when-false capability-value=node:01a1686d-5575-7ae8-8efc-8b78bcbce9af operation=operation:01a1686d-53de-76dc-8d71-fd913aeb4dce
+match-option node:01a1686d-5575-7478-a000-3036b3baa167 in=node:01a1686d-5575-7074-ab84-90e1e82ebcfa/bound-body input=node:01a1686d-5574-7793-b0e4-0f5299d077a4 some-arm=node:01a1686d-5574-7820-befc-7027cb6ab033 none-body=node:01a1686d-5575-710b-9c5f-cc2106780c38
+pattern-reference node:01a1686d-5575-74db-b46e-5f813c3213d5 in=node:01a1686d-5575-7b28-a500-83ba77b02f13/bound-body pattern-binding=binding:01a1686d-5575-7763-8364-23631e3a33f9
+parameter-reference node:01a1686d-5575-7508-9d34-943a9fbc1eb6 in=node:01a1686d-5575-7d15-acaf-821801b7506c/bound-body parameter=parameter:01a1686d-5573-72aa-acc8-34771fb402bd
+list-construct node:01a1686d-5575-754b-8717-654943dd3548 in=node:01a1686d-5575-7d15-acaf-821801b7506c/bound-body item-type=task(result(type:01a1686d-5332-78e1-9391-ee6235696a70,string)) items=[node:01a1686d-5575-7508-9d34-943a9fbc1eb6]
+string-literal node:01a1686d-5575-76f9-91da-c48e94f3634a in=node:01a1686d-5575-73d4-b5c7-3a16f8bf297a/err-arm value="outer:"
+pattern-reference node:01a1686d-5575-7731-9097-8e180d5e8670 in=node:01a1686d-5575-73d4-b5c7-3a16f8bf297a/err-arm pattern-binding=binding:01a1686d-5575-7bc0-aaa2-529aca29382c
+result-ok node:01a1686d-5575-773a-ad94-1fdfd4cd028c in=node:01a1686d-5575-7c8a-aef1-123999c6fd9d/bound-body error-type=string value=node:01a1686d-5575-7fb0-ba37-ffba2fa365bd
+string-concat node:01a1686d-5575-77e9-a1ff-e8039e5fd1b9 in=node:01a1686d-5575-73d4-b5c7-3a16f8bf297a/err-arm left=node:01a1686d-5575-76f9-91da-c48e94f3634a right=node:01a1686d-5575-7731-9097-8e180d5e8670
+match-option node:01a1686d-5575-7900-89a6-7c635496cbf4 in=node:01a1686d-5575-7b28-a500-83ba77b02f13/bound-body input=node:01a1686d-5575-7e44-81af-0b3444d41df8 some-arm=node:01a1686d-5575-7001-840d-3bd8bfa1882f none-body=node:01a1686d-5575-73bd-b295-3fc8d24cb1de
+capability-invoke node:01a1686d-5575-796c-97e2-8c1f7c7d5c7b in=node:01a1686d-5575-7ab8-be11-cd614a7310a2/bound-body capability-value=node:01a1686d-5575-7fc6-b710-240e38edeb4e operation=operation:01a1686d-53de-76dc-8d71-fd913aeb4dce
+pattern-reference node:01a1686d-5575-798a-abe5-36e43afc579f in=node:01a1686d-5575-7900-89a6-7c635496cbf4/some-arm pattern-binding=binding:01a1686d-5575-7a83-91c2-0881ef8461c0
+bind node:01a1686d-5575-7ab8-be11-cd614a7310a2 in=node:01a1686d-5575-7005-a2e1-7299655f461f/bound-body input=node:01a1686d-5575-7226-aef8-db5ea6d0a660 bound-body=node:01a1686d-5575-796c-97e2-8c1f7c7d5c7b
+parameter-reference node:01a1686d-5575-7ae8-8efc-8b78bcbce9af in=node:01a1686d-5575-715e-84e9-cae201e680ca/when-false parameter=parameter:01a1686d-5573-7ea4-9d98-d86d478d0ba0
+string-literal node:01a1686d-5575-7af8-af6e-a22e13acaf52 in=node:01a1686d-5575-7001-840d-3bd8bfa1882f/none-body value="pending"
+bind node:01a1686d-5575-7b28-a500-83ba77b02f13 in=node:01a1686d-5575-7d15-acaf-821801b7506c/bound-body input=node:01a1686d-5575-7c10-82f6-a169a7153bf2 bound-body=node:01a1686d-5575-7c8a-aef1-123999c6fd9d
+task-wait node:01a1686d-5575-7c10-82f6-a169a7153bf2 in=node:01a1686d-5575-7d15-acaf-821801b7506c/bound-body tasks=node:01a1686d-5575-754b-8717-654943dd3548 mode="all"
+bind node:01a1686d-5575-7c1b-be44-6e4a78ded439 in=function:01a1686d-5573-7586-beb0-4ddf8d86b4c2/body input=node:01a1686d-5573-767a-88de-b40843f90167 bound-body=node:01a1686d-5575-7d15-acaf-821801b7506c
+bind node:01a1686d-5575-7c8a-aef1-123999c6fd9d in=node:01a1686d-5575-7b28-a500-83ba77b02f13/bound-body input=node:01a1686d-5575-7303-9414-c18990a999f4 bound-body=node:01a1686d-5575-773a-ad94-1fdfd4cd028c
+bind node:01a1686d-5575-7d15-acaf-821801b7506c in=node:01a1686d-5575-7c1b-be44-6e4a78ded439/bound-body input=node:01a1686d-5575-715e-84e9-cae201e680ca bound-body=node:01a1686d-5575-7b28-a500-83ba77b02f13
+pattern-reference node:01a1686d-5575-7d6a-b6ab-059431319c0d in=node:01a1686d-5575-73d4-b5c7-3a16f8bf297a/ok-arm pattern-binding=binding:01a1686d-5575-7c57-88cf-3a62f1b5f621
+list-item-at node:01a1686d-5575-7e44-81af-0b3444d41df8 in=node:01a1686d-5575-7b28-a500-83ba77b02f13/bound-body list=node:01a1686d-5575-74db-b46e-5f813c3213d5 index=node:01a1686d-5575-7346-8b1c-d4833ce1de50
+string-literal node:01a1686d-5575-7fb0-ba37-ffba2fa365bd in=node:01a1686d-5575-7c8a-aef1-123999c6fd9d/bound-body value="done"
+parameter-reference node:01a1686d-5575-7fc6-b710-240e38edeb4e in=node:01a1686d-5575-7ab8-be11-cd614a7310a2/bound-body parameter=parameter:01a1686d-5573-7ea4-9d98-d86d478d0ba0
+
+function function:01a1686d-5583-73f6-b525-73372e617cd1 name="body" result-type=result(string,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-5583-76c5-b358-9b33d63c5f9e
+parameter parameter:01a1686d-5583-732e-bda5-14d8c877ef0b in=function:01a1686d-5583-73f6-b525-73372e617cd1 position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-5583-7cd2-b829-3e9d4f13d2a3 in=function:01a1686d-5583-73f6-b525-73372e617cd1 position=1 name="scope" type=task-scope()
+parameter parameter:01a1686d-5583-7d62-8efb-931050276e69 in=function:01a1686d-5583-73f6-b525-73372e617cd1 position=2 name="patch" type=bool
+parameter parameter:01a1686d-5583-7e72-a396-d76db207246c in=function:01a1686d-5583-73f6-b525-73372e617cd1 position=3 name="protected" type=bool
+binding binding:01a1686d-5583-7f34-bfd9-fc01371be85e in=node:01a1686d-5583-76c5-b358-9b33d63c5f9e/bound-body type=task(result(type:01a1686d-5332-78e1-9391-ee6235696a70,string))
+parameter-reference node:01a1686d-5583-70d9-97a8-dd7d4090974a in=node:01a1686d-5583-76c5-b358-9b33d63c5f9e/bound-body parameter=parameter:01a1686d-5583-732e-bda5-14d8c877ef0b
+pattern-reference node:01a1686d-5583-7138-bfce-8dc66a135687 in=node:01a1686d-5583-76c5-b358-9b33d63c5f9e/bound-body pattern-binding=binding:01a1686d-5583-7f34-bfd9-fc01371be85e
+parameter-reference node:01a1686d-5583-74ba-9511-0284cea35441 in=function:01a1686d-5583-73f6-b525-73372e617cd1/body parameter=parameter:01a1686d-5583-732e-bda5-14d8c877ef0b
+task-start node:01a1686d-5583-751a-adb7-0e425ff16dc9 in=function:01a1686d-5583-73f6-b525-73372e617cd1/body scope=node:01a1686d-5583-7fbd-8ef0-7d425b0e4e1c worker-function=function:01a1686d-5558-74f0-8589-cd40da5fadfd item=node:01a1686d-5583-75b9-8ce9-208f15c024c6 context=[parameter:01a1686d-5558-75f6-b085-3241cbbd0dff=node:01a1686d-5583-74ba-9511-0284cea35441 parameter:01a1686d-5558-7770-87a9-de1b3ec0f856=node:01a1686d-5583-783b-b647-4ccd63dd9fb2 parameter:01a1686d-5558-782e-b76e-d09afc622610=node:01a1686d-5583-7b01-90e9-e680f5786131]
+unit-literal node:01a1686d-5583-75b9-8ce9-208f15c024c6 in=function:01a1686d-5583-73f6-b525-73372e617cd1/body
+bind node:01a1686d-5583-76c5-b358-9b33d63c5f9e in=function:01a1686d-5583-73f6-b525-73372e617cd1/body input=node:01a1686d-5583-751a-adb7-0e425ff16dc9 bound-body=node:01a1686d-5583-7d27-8ee6-9b0af45dd452
+parameter-reference node:01a1686d-5583-783b-b647-4ccd63dd9fb2 in=function:01a1686d-5583-73f6-b525-73372e617cd1/body parameter=parameter:01a1686d-5583-7d62-8efb-931050276e69
+parameter-reference node:01a1686d-5583-7b01-90e9-e680f5786131 in=function:01a1686d-5583-73f6-b525-73372e617cd1/body parameter=parameter:01a1686d-5583-7e72-a396-d76db207246c
+direct-call node:01a1686d-5583-7d27-8ee6-9b0af45dd452 in=node:01a1686d-5583-76c5-b358-9b33d63c5f9e/bound-body target-function=function:01a1686d-5573-7586-beb0-4ddf8d86b4c2 arguments=[parameter:01a1686d-5573-72aa-acc8-34771fb402bd=node:01a1686d-5583-7138-bfce-8dc66a135687 parameter:01a1686d-5573-7ea4-9d98-d86d478d0ba0=node:01a1686d-5583-70d9-97a8-dd7d4090974a]
+parameter-reference node:01a1686d-5583-7fbd-8ef0-7d425b0e4e1c in=function:01a1686d-5583-73f6-b525-73372e617cd1/body parameter=parameter:01a1686d-5583-7cd2-b829-3e9d4f13d2a3
+
+function function:01a1686d-5591-7298-bc9d-561466054899 name="run" result-type=result(string,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-5591-7ed8-8fe0-dd7d8c0c0604
+parameter parameter:01a1686d-5591-762a-b4ca-2cf35bd5447d in=function:01a1686d-5591-7298-bc9d-561466054899 position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-5591-7622-86c9-cfa460e6413d in=function:01a1686d-5591-7298-bc9d-561466054899 position=1 name="patch" type=bool
+parameter parameter:01a1686d-5591-7f10-b110-e641bdec7c2e in=function:01a1686d-5591-7298-bc9d-561466054899 position=2 name="protected" type=bool
+parameter-reference node:01a1686d-5591-7565-a527-c7c3246ac4e8 in=function:01a1686d-5591-7298-bc9d-561466054899/body parameter=parameter:01a1686d-5591-7622-86c9-cfa460e6413d
+parameter-reference node:01a1686d-5591-75df-838f-be8d7acb11da in=function:01a1686d-5591-7298-bc9d-561466054899/body parameter=parameter:01a1686d-5591-7f10-b110-e641bdec7c2e
+parameter-reference node:01a1686d-5591-7d89-92f8-dbf158f6af15 in=function:01a1686d-5591-7298-bc9d-561466054899/body parameter=parameter:01a1686d-5591-762a-b4ca-2cf35bd5447d
+task-scope node:01a1686d-5591-7ed8-8fe0-dd7d8c0c0604 in=function:01a1686d-5591-7298-bc9d-561466054899/body body-function=function:01a1686d-5583-73f6-b525-73372e617cd1 context=[parameter:01a1686d-5583-732e-bda5-14d8c877ef0b=node:01a1686d-5591-7d89-92f8-dbf158f6af15 parameter:01a1686d-5583-7d62-8efb-931050276e69=node:01a1686d-5591-7565-a527-c7c3246ac4e8 parameter:01a1686d-5583-7e72-a396-d76db207246c=node:01a1686d-5591-75df-838f-be8d7acb11da]
+
+function function:01a1686d-55a0-7574-9f58-3fae9a02fc22 name="genericBody" result-type=result(type-parameter:01a1686d-559f-76a8-af89-a54b8c7ac648,type-parameter:01a1686d-559f-79f1-899a-789caa9ebc58) body=node:01a1686d-55a0-7ec1-a73f-ed9b2a5fb3c8
+type-parameter type-parameter:01a1686d-559f-76a8-af89-a54b8c7ac648 in=function:01a1686d-55a0-7574-9f58-3fae9a02fc22 position=0 name="U"
+type-parameter type-parameter:01a1686d-559f-79f1-899a-789caa9ebc58 in=function:01a1686d-55a0-7574-9f58-3fae9a02fc22 position=1 name="E"
+parameter parameter:01a1686d-55a0-7b4f-9984-db7984d5b053 in=function:01a1686d-55a0-7574-9f58-3fae9a02fc22 position=0 name="packet" type=result(type-parameter:01a1686d-559f-76a8-af89-a54b8c7ac648,type-parameter:01a1686d-559f-79f1-899a-789caa9ebc58)
+parameter parameter:01a1686d-55a0-7529-96ee-f2099035952f in=function:01a1686d-55a0-7574-9f58-3fae9a02fc22 position=1 name="item" type=unit
+parameter-reference node:01a1686d-55a0-7ec1-a73f-ed9b2a5fb3c8 in=function:01a1686d-55a0-7574-9f58-3fae9a02fc22/body parameter=parameter:01a1686d-55a0-7b4f-9984-db7984d5b053
+
+function function:01a1686d-55ae-72ed-a919-b15f07f88b22 name="genericShield" result-type=result(type-parameter:01a1686d-55ad-70c9-958a-a5a6416b4629,type-parameter:01a1686d-55ad-7dd9-9909-30b967be02b6) body=node:01a1686d-55ae-7fb3-9047-df51d3b9a0d2
+type-parameter type-parameter:01a1686d-55ad-70c9-958a-a5a6416b4629 in=function:01a1686d-55ae-72ed-a919-b15f07f88b22 position=0 name="U"
+type-parameter type-parameter:01a1686d-55ad-7dd9-9909-30b967be02b6 in=function:01a1686d-55ae-72ed-a919-b15f07f88b22 position=1 name="E"
+parameter parameter:01a1686d-55ae-7964-abd7-0b760fa94fae in=function:01a1686d-55ae-72ed-a919-b15f07f88b22 position=0 name="packet" type=result(type-parameter:01a1686d-55ad-70c9-958a-a5a6416b4629,type-parameter:01a1686d-55ad-7dd9-9909-30b967be02b6)
+parameter-reference node:01a1686d-55ae-7101-a4a4-f3fadbb586eb in=function:01a1686d-55ae-72ed-a919-b15f07f88b22/body parameter=parameter:01a1686d-55ae-7964-abd7-0b760fa94fae
+cancellation-shield node:01a1686d-55ae-7fb3-9047-df51d3b9a0d2 in=function:01a1686d-55ae-72ed-a919-b15f07f88b22/body body-function=function:01a1686d-55a0-7574-9f58-3fae9a02fc22 context=[parameter:01a1686d-55a0-7b4f-9984-db7984d5b053=node:01a1686d-55ae-7101-a4a4-f3fadbb586eb]
+
+function function:01a1686d-55b9-782c-9a66-e4ff82d1d3df name="maskBody" result-type=result(bool,string) body=node:01a1686d-55b9-7320-928e-cc8a04f5d2b0
+parameter parameter:01a1686d-55b9-7a7f-b887-9d8b5fdc54cb in=function:01a1686d-55b9-782c-9a66-e4ff82d1d3df position=0 name="item" type=unit
+result-ok node:01a1686d-55b9-7320-928e-cc8a04f5d2b0 in=function:01a1686d-55b9-782c-9a66-e4ff82d1d3df/body error-type=string value=node:01a1686d-55b9-75db-9599-7a2bdbea0702
+cancellation-requested node:01a1686d-55b9-75db-9599-7a2bdbea0702 in=function:01a1686d-55b9-782c-9a66-e4ff82d1d3df/body
+
+function function:01a1686d-55c5-7f9a-ab2d-2e0abd4fa910 name="maskProbe" result-type=result(bool,string) body=node:01a1686d-55c5-7e9a-8533-9df4170b37ab
+cancellation-shield node:01a1686d-55c5-7e9a-8533-9df4170b37ab in=function:01a1686d-55c5-7f9a-ab2d-2e0abd4fa910/body body-function=function:01a1686d-55b9-782c-9a66-e4ff82d1d3df
+
+function function:01a1686d-55d1-703c-818e-603043e9e04f name="ownedWorker" result-type=result(string,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-55d1-7d04-90e4-6eddf590e94a
+parameter parameter:01a1686d-55d1-732e-be41-750004ee0633 in=function:01a1686d-55d1-703c-818e-603043e9e04f position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-55d1-7a59-b2a4-63a3235c5a46 in=function:01a1686d-55d1-703c-818e-603043e9e04f position=1 name="item" type=unit
+string-literal node:01a1686d-55d1-746c-853d-f37fdf3fe5a9 in=function:01a1686d-55d1-703c-818e-603043e9e04f/body value="owned"
+parameter-reference node:01a1686d-55d1-7a35-8c38-bc6472258bf5 in=function:01a1686d-55d1-703c-818e-603043e9e04f/body parameter=parameter:01a1686d-55d1-732e-be41-750004ee0633
+direct-call node:01a1686d-55d1-7d04-90e4-6eddf590e94a in=function:01a1686d-55d1-703c-818e-603043e9e04f/body target-function=function:01a1686d-547b-7ddf-a7dc-332245df71f8 arguments=[parameter:01a1686d-547b-759d-bd91-1d51644d5ecc=node:01a1686d-55d1-746c-853d-f37fdf3fe5a9 parameter:01a1686d-547b-77b0-8e44-e831d8a085aa=node:01a1686d-55d1-7a35-8c38-bc6472258bf5]
+
+function function:01a1686d-55e3-75d0-b9b2-3ae47c80cb03 name="ownedScope" result-type=result(string,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-55e3-73a8-94dd-03004b55b7f2
+parameter parameter:01a1686d-55e3-76f0-aa2c-041b6cdc6705 in=function:01a1686d-55e3-75d0-b9b2-3ae47c80cb03 position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-55e3-72a2-84cb-b00a3b19bd8c in=function:01a1686d-55e3-75d0-b9b2-3ae47c80cb03 position=1 name="scope" type=task-scope()
+binding binding:01a1686d-55e3-77c7-b7bc-4a15971d570e in=node:01a1686d-55e3-77b6-88ad-ed7e71a19005/bound-body type=bool
+binding binding:01a1686d-55e3-7c0a-9914-fbb63db30769 in=node:01a1686d-55e3-73a8-94dd-03004b55b7f2/bound-body type=task(result(string,string))
+unit-literal node:01a1686d-55e3-7233-b754-51e393a94eeb in=function:01a1686d-55e3-75d0-b9b2-3ae47c80cb03/body
+bind node:01a1686d-55e3-73a8-94dd-03004b55b7f2 in=function:01a1686d-55e3-75d0-b9b2-3ae47c80cb03/body input=node:01a1686d-55e3-7c66-adda-e3189b8a5aaa bound-body=node:01a1686d-55e3-77b6-88ad-ed7e71a19005
+result-ok node:01a1686d-55e3-7725-a08e-1a7f06f1485c in=node:01a1686d-55e3-77b6-88ad-ed7e71a19005/bound-body error-type=string value=node:01a1686d-55e3-7fe5-8fc9-1c5db3d381c5
+bind node:01a1686d-55e3-77b6-88ad-ed7e71a19005 in=node:01a1686d-55e3-73a8-94dd-03004b55b7f2/bound-body input=node:01a1686d-55e3-7fa6-952d-73228a6cfb62 bound-body=node:01a1686d-55e3-7725-a08e-1a7f06f1485c
+task-start node:01a1686d-55e3-7c66-adda-e3189b8a5aaa in=function:01a1686d-55e3-75d0-b9b2-3ae47c80cb03/body scope=node:01a1686d-55e3-7f1a-bf18-9f65da13c398 worker-function=function:01a1686d-55d1-703c-818e-603043e9e04f item=node:01a1686d-55e3-7233-b754-51e393a94eeb context=[parameter:01a1686d-55d1-732e-be41-750004ee0633=node:01a1686d-55e3-7ec4-8a7c-490ee7793279]
+parameter-reference node:01a1686d-55e3-7e6b-9d87-9220a1a2ae49 in=node:01a1686d-55e3-73a8-94dd-03004b55b7f2/bound-body parameter=parameter:01a1686d-55e3-76f0-aa2c-041b6cdc6705
+parameter-reference node:01a1686d-55e3-7ec4-8a7c-490ee7793279 in=function:01a1686d-55e3-75d0-b9b2-3ae47c80cb03/body parameter=parameter:01a1686d-55e3-76f0-aa2c-041b6cdc6705
+parameter-reference node:01a1686d-55e3-7f1a-bf18-9f65da13c398 in=function:01a1686d-55e3-75d0-b9b2-3ae47c80cb03/body parameter=parameter:01a1686d-55e3-72a2-84cb-b00a3b19bd8c
+capability-invoke node:01a1686d-55e3-7fa6-952d-73228a6cfb62 in=node:01a1686d-55e3-73a8-94dd-03004b55b7f2/bound-body capability-value=node:01a1686d-55e3-7e6b-9d87-9220a1a2ae49 operation=operation:01a1686d-53de-770b-ad6f-943edd659a93
+string-literal node:01a1686d-55e3-7fe5-8fc9-1c5db3d381c5 in=node:01a1686d-55e3-77b6-88ad-ed7e71a19005/bound-body value="done"
+
+function function:01a1686d-55f0-7dd9-99b2-d90ad5f1d654 name="ownedResource" result-type=result(string,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-55f0-748d-a898-850913b773d9
+parameter parameter:01a1686d-55f0-7549-8202-1ff4f4ddc1be in=function:01a1686d-55f0-7dd9-99b2-d90ad5f1d654 position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-55f0-7015-bde2-6ee660f3588a in=function:01a1686d-55f0-7dd9-99b2-d90ad5f1d654 position=1 name="handle" type=unit
+task-scope node:01a1686d-55f0-748d-a898-850913b773d9 in=function:01a1686d-55f0-7dd9-99b2-d90ad5f1d654/body body-function=function:01a1686d-55e3-75d0-b9b2-3ae47c80cb03 context=[parameter:01a1686d-55e3-76f0-aa2c-041b6cdc6705=node:01a1686d-55f0-7b15-9ce2-8033bc3e7bd7]
+parameter-reference node:01a1686d-55f0-7b15-9ce2-8033bc3e7bd7 in=function:01a1686d-55f0-7dd9-99b2-d90ad5f1d654/body parameter=parameter:01a1686d-55f0-7549-8202-1ff4f4ddc1be
+
+function function:01a1686d-55fd-7844-b9c9-3483f8ae8a42 name="ownedBody" result-type=result(string,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-55fd-71f3-b286-30468a529559
+parameter parameter:01a1686d-55fd-7e4c-a275-9cbdd1d89c09 in=function:01a1686d-55fd-7844-b9c9-3483f8ae8a42 position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-55fd-7003-9f8f-1a6e245cee37 in=function:01a1686d-55fd-7844-b9c9-3483f8ae8a42 position=1 name="item" type=unit
+use-resource node:01a1686d-55fd-71f3-b286-30468a529559 in=function:01a1686d-55fd-7844-b9c9-3483f8ae8a42/body acquire=node:01a1686d-55fd-78fc-bd50-1fcc10b626ff release-capability=node:01a1686d-55fd-73db-8d12-67c66613bcf4 release-operation=operation:01a1686d-53de-77d0-b5f0-6600ac069710 body-function=function:01a1686d-55f0-7dd9-99b2-d90ad5f1d654 context=[parameter:01a1686d-55f0-7549-8202-1ff4f4ddc1be=node:01a1686d-55fd-744b-82d0-af9dbd253bf3]
+parameter-reference node:01a1686d-55fd-73db-8d12-67c66613bcf4 in=function:01a1686d-55fd-7844-b9c9-3483f8ae8a42/body parameter=parameter:01a1686d-55fd-7e4c-a275-9cbdd1d89c09
+parameter-reference node:01a1686d-55fd-744b-82d0-af9dbd253bf3 in=function:01a1686d-55fd-7844-b9c9-3483f8ae8a42/body parameter=parameter:01a1686d-55fd-7e4c-a275-9cbdd1d89c09
+parameter-reference node:01a1686d-55fd-75f8-8a58-1b3b69831e68 in=function:01a1686d-55fd-7844-b9c9-3483f8ae8a42/body parameter=parameter:01a1686d-55fd-7e4c-a275-9cbdd1d89c09
+capability-invoke node:01a1686d-55fd-78fc-bd50-1fcc10b626ff in=function:01a1686d-55fd-7844-b9c9-3483f8ae8a42/body capability-value=node:01a1686d-55fd-75f8-8a58-1b3b69831e68 operation=operation:01a1686d-53de-7225-ab6c-e433bc70c1ae
+
+function function:01a1686d-560b-7e19-b460-13a5a2bfea35 name="ownedShield" result-type=result(string,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-560b-70ca-ab6d-969ddd06190c
+parameter parameter:01a1686d-560b-7764-b151-d94434ad2219 in=function:01a1686d-560b-7e19-b460-13a5a2bfea35 position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+cancellation-shield node:01a1686d-560b-70ca-ab6d-969ddd06190c in=function:01a1686d-560b-7e19-b460-13a5a2bfea35/body body-function=function:01a1686d-55fd-7844-b9c9-3483f8ae8a42 context=[parameter:01a1686d-55fd-7e4c-a275-9cbdd1d89c09=node:01a1686d-560b-7c12-bcf4-a768758f2679]
+parameter-reference node:01a1686d-560b-7c12-bcf4-a768758f2679 in=function:01a1686d-560b-7e19-b460-13a5a2bfea35/body parameter=parameter:01a1686d-560b-7764-b151-d94434ad2219
+
+function function:01a1686d-5618-72d7-90e2-31a852479bd4 name="contextBody" result-type=result(string,string) body=node:01a1686d-5618-7908-ab23-79482a6a92ad
+parameter parameter:01a1686d-5618-7b06-9586-26d5632282bb in=function:01a1686d-5618-72d7-90e2-31a852479bd4 position=0 name="before" type=bool
+parameter parameter:01a1686d-5618-71ff-84ff-c7bbba0b8cef in=function:01a1686d-5618-72d7-90e2-31a852479bd4 position=1 name="item" type=unit
+cancellation-requested node:01a1686d-5618-71cd-b430-c7a176108cbc in=function:01a1686d-5618-72d7-90e2-31a852479bd4/body
+string-concat node:01a1686d-5618-7469-90c9-80c560351257 in=function:01a1686d-5618-72d7-90e2-31a852479bd4/body left=node:01a1686d-5618-7fbf-86fe-d01c1e1b70b6 right=node:01a1686d-5618-7e53-8c27-d9219a8244e2
+string-literal node:01a1686d-5618-77d7-8d67-30c549a12dba in=node:01a1686d-5618-7fbf-86fe-d01c1e1b70b6/when-false value="clear/"
+string-literal node:01a1686d-5618-78ba-9c10-6c2803f1fbe5 in=node:01a1686d-5618-7e53-8c27-d9219a8244e2/when-true value="cancelled"
+result-ok node:01a1686d-5618-7908-ab23-79482a6a92ad in=function:01a1686d-5618-72d7-90e2-31a852479bd4/body error-type=string value=node:01a1686d-5618-7469-90c9-80c560351257
+string-literal node:01a1686d-5618-7b43-b61f-24b7666e5e6e in=node:01a1686d-5618-7fbf-86fe-d01c1e1b70b6/when-true value="cancelled/"
+string-literal node:01a1686d-5618-7c9f-8edc-e654499aa97f in=node:01a1686d-5618-7e53-8c27-d9219a8244e2/when-false value="clear"
+parameter-reference node:01a1686d-5618-7d60-8e8c-ea7af7d4f308 in=function:01a1686d-5618-72d7-90e2-31a852479bd4/body parameter=parameter:01a1686d-5618-7b06-9586-26d5632282bb
+conditional node:01a1686d-5618-7e53-8c27-d9219a8244e2 in=function:01a1686d-5618-72d7-90e2-31a852479bd4/body condition=node:01a1686d-5618-71cd-b430-c7a176108cbc when-true=node:01a1686d-5618-78ba-9c10-6c2803f1fbe5 when-false=node:01a1686d-5618-7c9f-8edc-e654499aa97f
+conditional node:01a1686d-5618-7fbf-86fe-d01c1e1b70b6 in=function:01a1686d-5618-72d7-90e2-31a852479bd4/body condition=node:01a1686d-5618-7d60-8e8c-ea7af7d4f308 when-true=node:01a1686d-5618-7b43-b61f-24b7666e5e6e when-false=node:01a1686d-5618-77d7-8d67-30c549a12dba
+
+function function:01a1686d-5628-72ca-af00-a89476e9c684 name="contextShield" result-type=result(string,string) body=node:01a1686d-5628-7ea2-8c91-7a1bffb28fbf
+cancellation-requested node:01a1686d-5628-7e81-a7ab-3086a924a1e6 in=function:01a1686d-5628-72ca-af00-a89476e9c684/body
+cancellation-shield node:01a1686d-5628-7ea2-8c91-7a1bffb28fbf in=function:01a1686d-5628-72ca-af00-a89476e9c684/body body-function=function:01a1686d-5618-72d7-90e2-31a852479bd4 context=[parameter:01a1686d-5618-7b06-9586-26d5632282bb=node:01a1686d-5628-7e81-a7ab-3086a924a1e6]
+
+function function:01a1686d-5636-73d6-b3b6-2a510d85d78f name="existingBody" result-type=result(string,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-5636-7087-9a73-cfb916db3596
+parameter parameter:01a1686d-5636-76cc-b957-00cacb049fcd in=function:01a1686d-5636-73d6-b3b6-2a510d85d78f position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-5636-7d5a-9a3b-cdf4f6d80aaa in=function:01a1686d-5636-73d6-b3b6-2a510d85d78f position=1 name="scope" type=task-scope()
+parameter parameter:01a1686d-5636-70b9-800d-3a06e6c9da85 in=function:01a1686d-5636-73d6-b3b6-2a510d85d78f position=2 name="item" type=unit
+parameter-reference node:01a1686d-5636-7002-bec7-41c2c6149c55 in=function:01a1686d-5636-73d6-b3b6-2a510d85d78f/body parameter=parameter:01a1686d-5636-76cc-b957-00cacb049fcd
+direct-call node:01a1686d-5636-7087-9a73-cfb916db3596 in=function:01a1686d-5636-73d6-b3b6-2a510d85d78f/body target-function=function:01a1686d-55e3-75d0-b9b2-3ae47c80cb03 arguments=[parameter:01a1686d-55e3-72a2-84cb-b00a3b19bd8c=node:01a1686d-5636-78e7-95b0-43a5f6084921 parameter:01a1686d-55e3-76f0-aa2c-041b6cdc6705=node:01a1686d-5636-7002-bec7-41c2c6149c55]
+parameter-reference node:01a1686d-5636-78e7-95b0-43a5f6084921 in=function:01a1686d-5636-73d6-b3b6-2a510d85d78f/body parameter=parameter:01a1686d-5636-7d5a-9a3b-cdf4f6d80aaa
+
+function function:01a1686d-5643-74a0-bed6-d95d865fb281 name="existingShield" result-type=result(string,string) required-effects=[effect:01a1686d-53d0-79ea-bf79-a4d92875b458] body=node:01a1686d-5643-73b3-ab32-ff5ed1245571
+parameter parameter:01a1686d-5643-70c5-8890-fed79d7f33d4 in=function:01a1686d-5643-74a0-bed6-d95d865fb281 position=0 name="host" type=capability:01a1686d-53dd-7933-bd1b-8673bf93a3d9
+parameter parameter:01a1686d-5643-7ec7-8211-34cdd952aa0d in=function:01a1686d-5643-74a0-bed6-d95d865fb281 position=1 name="scope" type=task-scope()
+cancellation-shield node:01a1686d-5643-73b3-ab32-ff5ed1245571 in=function:01a1686d-5643-74a0-bed6-d95d865fb281/body body-function=function:01a1686d-5636-73d6-b3b6-2a510d85d78f context=[parameter:01a1686d-5636-76cc-b957-00cacb049fcd=node:01a1686d-5643-7afa-9ff7-cbfd85c1057a parameter:01a1686d-5636-7d5a-9a3b-cdf4f6d80aaa=node:01a1686d-5643-76b9-995f-b1a2b03fc86a]
+parameter-reference node:01a1686d-5643-76b9-995f-b1a2b03fc86a in=function:01a1686d-5643-74a0-bed6-d95d865fb281/body parameter=parameter:01a1686d-5643-7ec7-8211-34cdd952aa0d
+parameter-reference node:01a1686d-5643-7afa-9ff7-cbfd85c1057a in=function:01a1686d-5643-74a0-bed6-d95d865fb281/body parameter=parameter:01a1686d-5643-70c5-8890-fed79d7f33d4
