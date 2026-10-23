@@ -3,16 +3,16 @@
   "jsonBytes": 827186,
   "medianOf": 20,
   "ms": {
-    "jsonDeserializeWithValidation": 56.9503,
-    "jsonDocumentParseOnly": 1.5392,
-    "jsonTreeWalkWithoutValidation": 22.4758,
-    "recordFullDecode": 171.1521,
-    "recordRowTable": 26.2261,
-    "recordToJsonText": 64.3853,
-    "validateOnly": 34.4745
+    "jsonDeserializeWithValidation": 57.174,
+    "jsonDocumentParseOnly": 2.2376,
+    "jsonTreeWalkWithoutValidation": 22.430500000000002,
+    "recordFullDecode": 173.7046,
+    "recordRowTable": 18.7971,
+    "recordToJsonText": 77.1258,
+    "validateOnly": 34.7435
   },
   "pass": true,
-  "ratioRowTableToJsonTreeWalk": 1.166859466626327,
+  "ratioRowTableToJsonTreeWalk": 0.8380152025144334,
   "recordBytes": 958506,
   "rows": 5419,
   "warmup": 3
