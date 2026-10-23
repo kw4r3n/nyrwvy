@@ -52,6 +52,15 @@ module RecordPersistenceTests =
         let proposal = session.SimulateCreateFunction request |> unwrap "simulate"
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
 
+    /// A local function whose body calls `callee`, which lives in the dependency.
+    let private commitCall (session: AuthoringSession) name (callee: string) =
+        let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+            { Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId; TypeParameters = None
+              DisplayName = name; Parameters = [ { DisplayName = "x"; Type = int64Type } ]; ResultType = int64Type; RequiredEffects = []
+              Body = ExpressionRecipe.DirectCall(id<FunctionTag> callee, [ id<ParameterTag> (callee + "-input"), ExpressionRecipe.ParameterSlot 0 ]) }
+        let proposal = session.SimulateCreateFunction request |> unwrap "simulate call"
+        session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit call" |> ignore
+
     [<Fact>]
     let ``a nyrec workspace is created, committed and reopened as records`` () =
         withDirectory (fun root ->
@@ -90,13 +99,14 @@ module RecordPersistenceTests =
             let fingerprint =
                 use session = AuthoringSession.createNewWithDependencies local [ recordLibrary ] |> unwrap "create"
                 commitLiteral session "mine"
+                commitCall session "caller" "rec"
                 (status session).SnapshotFingerprint
             Assert.Equal<string list>([ "fingerprint"; "path"; "snapshotId"; "snapshotRecords" ], sidecarKeys local)
             let header = (File.ReadAllText local).Split('\n').[0]
             Assert.Contains(" dependency=", header)
             let reopened =
                 use session = AuthoringSession.openExisting local |> unwrap "reopen"
-                Assert.Equal<string list>([ "mine"; "rec" ], session.Declarations().Functions |> List.map (fun fn -> fn.DisplayName) |> List.sort)
+                Assert.Equal<string list>([ "caller"; "mine"; "rec" ], session.Declarations().Functions |> List.map (fun fn -> fn.DisplayName) |> List.sort)
                 (status session).SnapshotFingerprint
             Assert.Equal(fingerprint, reopened)
             // Without the sidecar the resolved record text is refused by name, not decoded.
