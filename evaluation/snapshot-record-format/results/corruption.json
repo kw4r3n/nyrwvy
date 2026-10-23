@@ -12902,6 +12902,368 @@
   ],
   "misspellingRule": true,
   "noOpDrawsDiscarded": 0,
+  "productionDisagreements": [
+    {
+      "fixture": "mini-work-planner.json",
+      "index": 161,
+      "kind": "char-delete",
+      "message": "record node:01a0b47f-9024-7294-9bcc-a4c91579ad2a/arm/variant:01a0b47d-8ca6-7c7c-b9f0-0223d514a912 is out of canonical order",
+      "mutatedLines": [
+        53
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 53:5: malformed arm subject \u0027node:01a0b47f-9024-7294-9bcc-a4c91579ad2a/rm/variant:01a0b47d-8ca6-7853-bffb-705280ff6589\u0027",
+      "reportedLine": 54
+    },
+    {
+      "fixture": "scoped-result-handoff-broker.json",
+      "index": 283,
+      "kind": "char-insert",
+      "message": "bound-body= needs exactly one binding record in node:01a1686e-a68e-73d8-a724-e8b23f30765e/bound-body",
+      "mutatedLines": [
+        398
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 398:1: \u0027binding\u0027 is not a declaration kind",
+      "reportedLine": 412
+    },
+    {
+      "fixture": "verification-planner.json",
+      "index": 406,
+      "kind": "char-insert",
+      "message": "bad record kind \u002785b0-f0bae4602be0/arm/variant:01a0b371-162c-7391-841b-96a130d64dc7\u0027",
+      "mutatedLines": [
+        72
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 72:58: malformed owner \u0027node:01a0b371-6c0f-7c58-\u0027",
+      "reportedLine": 73
+    },
+    {
+      "fixture": "scoped-result-handoff-broker.json",
+      "index": 503,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        5,
+        6
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 6:1: expected a declaration record after a blank line",
+      "reportedLine": 5
+    },
+    {
+      "fixture": "task-cancellation-outcome.json",
+      "index": 515,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        180,
+        181
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 181:1: expected a declaration record after a blank line",
+      "reportedLine": 180
+    },
+    {
+      "fixture": "cleanup-shield-shield.json",
+      "index": 563,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        315,
+        316
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 316:11: record parameter:01a1686d-5591-7f10-b110-e641bdec7c2e is out of canonical order",
+      "reportedLine": 315
+    },
+    {
+      "fixture": "function-abort-workspace.json",
+      "index": 578,
+      "kind": "line-swap",
+      "message": "record binding:01a1686e-9613-775e-9a5c-1e5d1c60dbbf is out of canonical order",
+      "mutatedLines": [
+        13,
+        14
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 14:1: expected a declaration record after a blank line",
+      "reportedLine": 18
+    },
+    {
+      "fixture": "function-abort-workspace.json",
+      "index": 611,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        6,
+        7
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 7:11: record capability-parameter:01a1686e-954d-72da-b926-54277f1c3c79 is out of canonical order",
+      "reportedLine": 6
+    },
+    {
+      "fixture": "dynamic-worker-collector-collector.json",
+      "index": 665,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        18,
+        19
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 19:11: record capability-parameter:01a1686e-7f64-71c0-a191-d0058a281998 is out of canonical order",
+      "reportedLine": 18
+    },
+    {
+      "fixture": "function-abort-workspace.json",
+      "index": 677,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        8,
+        9
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 9:11: record capability-parameter:01a1686e-954d-78d6-95b1-5019818c1f19 is out of canonical order",
+      "reportedLine": 8
+    },
+    {
+      "fixture": "bounded-worker-stream-stream.json",
+      "index": 716,
+      "kind": "line-swap",
+      "message": "record field:01a1686d-3c54-7417-b30f-916d18f39669 is out of canonical order",
+      "mutatedLines": [
+        3,
+        4
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 3:1: expected a declaration record after a blank line",
+      "reportedLine": 5
+    },
+    {
+      "fixture": "cleanup-shield-shield.json",
+      "index": 717,
+      "kind": "line-delete",
+      "message": "effect= refers to effect:01a1686d-53d0-79ea-bf79-a4d92875b458, which has no record",
+      "mutatedLines": [
+        7
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 7:1: expected a declaration record after a blank line",
+      "reportedLine": 12
+    },
+    {
+      "fixture": "cleanup-shield-shield.json",
+      "index": 728,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        141,
+        142
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 142:11: record parameter:01a1686d-5551-751f-8a24-17b5b3eba303 is out of canonical order",
+      "reportedLine": 141
+    },
+    {
+      "fixture": "scoped-result-handoff-broker.json",
+      "index": 734,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        37,
+        38
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 38:1: expected a declaration record after a blank line",
+      "reportedLine": 37
+    },
+    {
+      "fixture": "bounded-worker-stream-stream.json",
+      "index": 749,
+      "kind": "line-swap",
+      "message": "record binding:01a1686d-4015-7704-8678-8b8215fc7ad0 is out of canonical order",
+      "mutatedLines": [
+        893,
+        894
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 893:1: expected a declaration record after a blank line",
+      "reportedLine": 900
+    },
+    {
+      "fixture": "bounded-stream-cursor-retention.json",
+      "index": 770,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        11,
+        12
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 12:11: record capability-parameter:01a1686d-2d05-7d25-858d-0d46ab4a614d is out of canonical order",
+      "reportedLine": 11
+    },
+    {
+      "fixture": "config-request-batch-moved-batch-dependency.json",
+      "index": 773,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        4,
+        5
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 5:11: record parameter:01a1686d-6893-78c7-94bf-226b9c3b1b72 is out of canonical order",
+      "reportedLine": 4
+    },
+    {
+      "fixture": "verification-planner.json",
+      "index": 791,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        41,
+        42
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 42:1: expected a declaration record after a blank line",
+      "reportedLine": 41
+    },
+    {
+      "fixture": "config-request-batch-v2-moved-batch-dependency.json",
+      "index": 818,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        8,
+        9
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 9:1: expected a declaration record after a blank line",
+      "reportedLine": 8
+    },
+    {
+      "fixture": "function-abort-workspace.json",
+      "index": 842,
+      "kind": "line-swap",
+      "message": "record binding:01a1686e-9613-775e-9a5c-1e5d1c60dbbf is out of canonical order",
+      "mutatedLines": [
+        13,
+        14
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 14:1: expected a declaration record after a blank line",
+      "reportedLine": 18
+    },
+    {
+      "fixture": "task-cancellation-outcome.json",
+      "index": 878,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        103,
+        104
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 104:1: expected a declaration record after a blank line",
+      "reportedLine": 103
+    },
+    {
+      "fixture": "bounded-stream-cursor-retention.json",
+      "index": 902,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        10,
+        11
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 11:11: record capability-parameter:01a1686d-2d05-7731-b03f-abf7f3bdef02 is out of canonical order",
+      "reportedLine": 10
+    },
+    {
+      "fixture": "config-request-batch-v2-moved-batch-dependency.json",
+      "index": 917,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        8,
+        9
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 9:1: expected a declaration record after a blank line",
+      "reportedLine": 8
+    },
+    {
+      "fixture": "config-request-batch-moved-batch-dependency.json",
+      "index": 938,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        4,
+        5
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 5:11: record parameter:01a1686d-6893-78c7-94bf-226b9c3b1b72 is out of canonical order",
+      "reportedLine": 4
+    },
+    {
+      "fixture": "config-request-batch-v2-moved-batch-dependency.json",
+      "index": 950,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        4,
+        5
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 5:11: record parameter:01a1686d-8b51-7cdc-8d7f-9ec7566c1032 is out of canonical order",
+      "reportedLine": 4
+    },
+    {
+      "fixture": "mini-work-planner.json",
+      "index": 953,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        96,
+        97
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 97:1: expected a declaration record after a blank line",
+      "reportedLine": 96
+    },
+    {
+      "fixture": "task-cancellation-outcome.json",
+      "index": 977,
+      "kind": "line-swap",
+      "message": "record binding:01a1367d-0c70-727f-984e-4736dfeef37c is out of canonical order",
+      "mutatedLines": [
+        309,
+        310
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 309:1: expected a declaration record after a blank line",
+      "reportedLine": 313
+    },
+    {
+      "fixture": "mini-work-planner.json",
+      "index": 986,
+      "kind": "line-swap",
+      "message": "not canonical: re-encoding differs",
+      "mutatedLines": [
+        96,
+        97
+      ],
+      "outcome": "rejected",
+      "production": "rejected at 97:1: expected a declaration record after a blank line",
+      "reportedLine": 96
+    }
+  ],
   "seed": 20261023,
   "summary": {
     "acceptedChanged": 0,

@@ -133,4 +133,4 @@ let writeUnvalidated (dependency: (string * string) option) (snapshot: Snapshot)
     | Error error -> failwith $"writer rejected the structural model: {error}"
 
 /// The structural-tier fixture JSON.
-let json () = writeUnvalidated (Some("dependency-set-00000000-0000-4000-8000-000000000000", "sha256:0")) (snapshot ())
+let json () = writeUnvalidated (Some("dependency-set-00000000-0000-4000-8000-000000000000", String('0', 64))) (snapshot ())
