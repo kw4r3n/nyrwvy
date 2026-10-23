@@ -128,6 +128,7 @@ module internal WireEncodeCommon =
     let field (value: SemanticField) = fieldIn Map.empty value
 
     let semanticType (value: SemanticType) =
+        let value = Snapshot.canonicalTypeMembers value
         let field = fieldIn (Map.ofList value.TypeParameters)
         let kind =
             match value.Kind with
@@ -173,7 +174,7 @@ module internal WireEncodeCommon =
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName
               "exported", box value.Exported
-              "operations", value.Operations |> List.map capabilityOperation |> arrayValue ]
+              "operations", (Snapshot.canonicalCapabilityMembers value).Operations |> List.map capabilityOperation |> arrayValue ]
 
     let declarations (value: AuthoringDeclarations) =
         let effects =

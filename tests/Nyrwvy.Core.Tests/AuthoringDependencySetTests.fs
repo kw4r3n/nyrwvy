@@ -272,21 +272,30 @@ module AuthoringDependencySetTests =
             Assert.Equal<Set<string>>(set [ "keep"; "pass"; "more" ], upgraded.Declarations().Functions |> List.map (fun fn -> fn.DisplayName) |> Set.ofList))
 
     [<Fact>]
-    let ``the same declaration with reordered Product fields is a conflict, not a merge`` () =
+    let ``the same declaration with reordered Product fields merges, reordered parameters conflict`` () =
         let currencyId = id<FieldTag> "currency"
         let withFields fields: SemanticType =
             { Exported = true; TypeParameters = []; Id = moneyId; DisplayName = "Money"; Kind = SemanticTypeKind.Product fields }
         let amount: SemanticField = { Id = amountId; DisplayName = "amount"; Type = intType }
         let currency: SemanticField = { Id = currencyId; DisplayName = "currency"; Type = TypeRef.Primitive PrimitiveType.String }
+        // Fields are keyed by ID and persisted in ID order, so their in-memory order is not content.
         let first = library "ordered" [ withFields [ amount; currency ] ] []
         let second = library "reordered" [ withFields [ currency; amount ] ] []
-        // Field order is meaningful, so only identical declarations merge.
-        match DependencyGraph.combine [ first; second ] with
+        Assert.True(DependencyGraph.combine [ first; second ] |> Result.isOk)
+        // Parameter order is meaningful, so only identical declarations merge.
+        let pair: SemanticFunction =
+            let left: SemanticParameter = { Id = id<ParameterTag> "pair-left"; DisplayName = "left"; Type = intType }
+            let right: SemanticParameter = { Id = id<ParameterTag> "pair-right"; DisplayName = "right"; Type = intType }
+            let node = id<GraphNodeTag> "pair-node"
+            { Exported = true; Id = id<FunctionTag> "pair"; TypeParameters = []; DisplayName = "pair"
+              Parameters = [ left; right ]; ResultType = intType; RequiredEffects = []
+              Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.ParameterReference left.Id } ]; ResultNodeId = node } }
+        let swapped = { pair with Parameters = List.rev pair.Parameters }
+        match DependencyGraph.combine [ library "pair" [] [ pair ]; library "swapped" [] [ swapped ] ] with
         | Error(DependencyCombinationError.ConflictingDeclaration(kind, collided)) ->
-            Assert.Equal("type", kind)
-            Assert.Equal(StableId.value moneyId, collided)
-        | other -> failwithf "Reordered declaration was merged: %A" other
-        Assert.True(DependencyGraph.combine [ first; library "same" [ withFields [ amount; currency ] ] [] ] |> Result.isOk)
+            Assert.Equal("function", kind)
+            Assert.Equal(StableId.value pair.Id, collided)
+        | other -> failwithf "Reordered parameters were merged: %A" other
 
     [<Fact>]
     let ``display names shared across dependencies are rejected by mutation and ambiguous by name`` () =

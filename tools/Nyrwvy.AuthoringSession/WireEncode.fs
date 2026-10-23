@@ -122,7 +122,7 @@ module internal WireEncode =
                           objectValue
                               [ "id", box (StableId.value item.Variant.Id)
                                 "displayName", box item.Variant.DisplayName
-                                "fields", item.Variant.Fields |> List.map WireEncodeCommon.field |> arrayValue ] ])
+                                "fields", item.Variant.Fields |> List.sortBy (fun field -> StableId.value field.Id) |> List.map WireEncodeCommon.field |> arrayValue ] ])
               |> arrayValue ])
         @ (if List.isEmpty value.UnionMatchArmsAdded then [] else
             [ "unionMatchArmsAdded",

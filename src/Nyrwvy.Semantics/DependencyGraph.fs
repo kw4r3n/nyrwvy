@@ -27,8 +27,9 @@ module DependencyGraph =
             |> Result.bind (fun (seen: Map<string, 'T>, ordered: 'T list) ->
                 let key = identity item
                 match Map.tryFind key seen with
-                // Structural equality on purpose: Product field, Union variant and parameter order
-                // is meaningful, so the same identity with reordered members is a conflict.
+                // Structural equality on purpose: parameter and type-parameter order is meaningful, so
+                // the same identity with reordered parameters is a conflict. Members keyed by ID are
+                // compared in ID order (`combine` canonicalizes them first).
                 | Some existing when existing = item -> Ok(seen, ordered)
                 | Some _ -> Error(DependencyCombinationError.ConflictingDeclaration(kind, key))
                 | None -> Ok(Map.add key item seen, item :: ordered))) (Ok(Map.empty, []))
@@ -55,7 +56,8 @@ module DependencyGraph =
         | [] -> Error DependencyCombinationError.NoDependencies
         | [ single ] -> Ok single
         | _ ->
-            let field kind identity select = merge kind identity (dependencies |> List.map select)
+            let canonical = dependencies |> List.map Snapshot.withCanonicalMemberOrder
+            let field kind identity select = merge kind identity (canonical |> List.map select)
             match
                 field "type" (fun (item: SemanticType) -> StableId.value item.Id) (fun snapshot -> snapshot.Types),
                 field "effect" (fun (item: SemanticEffect) -> StableId.value item.Id) (fun snapshot -> snapshot.Effects),
