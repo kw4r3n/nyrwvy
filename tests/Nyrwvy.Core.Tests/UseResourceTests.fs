@@ -118,8 +118,8 @@ module UseResourceTests =
             Assert.Contains("\"useResource\"", json)
             let snapshot = SnapshotCodec.deserialize json |> unwrap "decode"
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
-            Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize nyason |> unwrap "nyason decode"))
+            let persisted = SnapshotCodec.serialize snapshot |> unwrap "reserialize"
+            Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (SnapshotCodec.deserialize persisted |> unwrap "decode"))
             let typed = TypedSemanticIr.project snapshot |> unwrap "typed"
             Assert.Contains("\"useResource\"", ExecutionIrSerializer.serialize (ExecutionIr.lower typed |> unwrap "lower")))
 

@@ -51,7 +51,7 @@ implementation supplying a delegate asserts that it is pure and capture-free.
 As with other external values, the compiler cannot prove host conformance. The
 common runner does not accept or fabricate delegate values across this boundary.
 
-Persistence is additive: existing graphs retain their canonical JSON/Nyason bytes
+Persistence is additive: existing graphs retain their canonical JSON bytes
 and semantic fingerprints. New function types and nodes require a reader that
 supports this slice; unknown fields, including capture fields, remain errors.
 

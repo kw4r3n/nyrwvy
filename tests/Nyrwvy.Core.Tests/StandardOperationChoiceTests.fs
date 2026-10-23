@@ -43,19 +43,19 @@ module StandardOperationChoiceTests =
         | other -> failwithf "Unknown mode %s" other
 
     [<Theory>]
-    [<InlineData("range", "listRange", "list-range", "FromOwnedArray(items)", "Int64OperandTypeMismatch")>]
-    [<InlineData("repeat", "stringRepeat", "string-repeat", ".Insert(0, text, (int)count)", "StringIntrinsicTypeMismatch")>]
-    [<InlineData("hex", "int64ToHexString", "int64-to-hex-string", "ToString(\"x\"", "Int64IntrinsicTypeMismatch")>]
-    [<InlineData("parseHex", "stringParseInt64Hex", "string-parse-int64-hex", "magnitude << 4", "StringIntrinsicTypeMismatch")>]
-    [<InlineData("min", "int64Min", "int64-min", "System.Math.Min(", "Int64OperandTypeMismatch")>]
-    [<InlineData("max", "int64Max", "int64-max", "System.Math.Max(", "Int64OperandTypeMismatch")>]
-    [<InlineData("abs", "int64WrappingAbs", "int64-wrapping-abs", "unchecked(-", "Int64IntrinsicTypeMismatch")>]
-    [<InlineData("checkedAdd", "int64CheckedAdd", "int64-checked-add", "NyNumber.CheckedAdd(", "Int64OperandTypeMismatch")>]
-    [<InlineData("checkedSubtract", "int64CheckedSubtract", "int64-checked-subtract", "NyNumber.CheckedSubtract(", "Int64OperandTypeMismatch")>]
-    [<InlineData("checkedMultiply", "int64CheckedMultiply", "int64-checked-multiply", "NyNumber.CheckedMultiply(", "Int64OperandTypeMismatch")>]
-    [<InlineData("round", "float64Round", "float64-round", "NyNumber.Round(", "Float64OperandTypeMismatch")>]
+    [<InlineData("range", "listRange", "FromOwnedArray(items)", "Int64OperandTypeMismatch")>]
+    [<InlineData("repeat", "stringRepeat", ".Insert(0, text, (int)count)", "StringIntrinsicTypeMismatch")>]
+    [<InlineData("hex", "int64ToHexString", "ToString(\"x\"", "Int64IntrinsicTypeMismatch")>]
+    [<InlineData("parseHex", "stringParseInt64Hex", "magnitude << 4", "StringIntrinsicTypeMismatch")>]
+    [<InlineData("min", "int64Min", "System.Math.Min(", "Int64OperandTypeMismatch")>]
+    [<InlineData("max", "int64Max", "System.Math.Max(", "Int64OperandTypeMismatch")>]
+    [<InlineData("abs", "int64WrappingAbs", "unchecked(-", "Int64IntrinsicTypeMismatch")>]
+    [<InlineData("checkedAdd", "int64CheckedAdd", "NyNumber.CheckedAdd(", "Int64OperandTypeMismatch")>]
+    [<InlineData("checkedSubtract", "int64CheckedSubtract", "NyNumber.CheckedSubtract(", "Int64OperandTypeMismatch")>]
+    [<InlineData("checkedMultiply", "int64CheckedMultiply", "NyNumber.CheckedMultiply(", "Int64OperandTypeMismatch")>]
+    [<InlineData("round", "float64Round", "NyNumber.Round(", "Float64OperandTypeMismatch")>]
     let ``Standard operations type check, persist, and lower through every layer``
-        (mode: string, wireKind: string, nyasonKind: string, csharpCall: string, issueCode: string) =
+        (mode: string, wireKind: string, csharpCall: string, issueCode: string) =
         let parameterTypes, resultType, body = shapeOf mode
         let wrongFor parameterType = if parameterType = intType then textType else intType
         let snapshot = Snapshot.empty (id<SnapshotTag> ("base-" + mode))
@@ -86,9 +86,8 @@ module StandardOperationChoiceTests =
         Assert.Contains("\"" + wireKind + "\"", json)
         let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
-        let nyason = NyasonCodec.serialize decoded |> unwrap "nyason"
-        Assert.Contains(nyasonKind, nyason)
-        let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+        let persisted = SnapshotCodec.serialize decoded |> unwrap "reserialize"
+        let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
         let typed = TypedSemanticIr.project restored |> unwrap "typed"
         Assert.Contains("\"" + wireKind + "\"", TypedSemanticIrSerializer.serialize typed)

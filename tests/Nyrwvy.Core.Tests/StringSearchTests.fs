@@ -51,12 +51,12 @@ module StringSearchTests =
         Assert.NotEqual<string>("", rejects (request [ stringType ] intType (ExpressionRecipe.StringIndexOf(slot 0, text "a", int 0L))))
         Assert.NotEqual<string>("", rejects (request [ stringType ] stringType (ExpressionRecipe.StringSplit(slot 0, text ","))))
         let cases =
-            [ "stringIndexOf", "string-index-of", "NyText.IndexOf(", optionOf intType, ExpressionRecipe.StringIndexOf(slot 0, slot 1, int 2L)
-              "stringLastIndexOf", "string-last-index-of", "NyText.LastIndexOf(", optionOf intType, ExpressionRecipe.StringLastIndexOf(slot 0, slot 1)
-              "stringStartsWith", "string-starts-with", "NyText.StartsWith(", boolType, ExpressionRecipe.StringStartsWith(slot 0, slot 1)
-              "stringEndsWith", "string-ends-with", "NyText.EndsWith(", boolType, ExpressionRecipe.StringEndsWith(slot 0, slot 1)
-              "stringSplit", "string-split", "NyText.Split(", listOf stringType, ExpressionRecipe.StringSplit(slot 0, slot 1) ]
-        for kind, nyasonTag, emitted, resultType, body in cases do
+            [ "stringIndexOf", "NyText.IndexOf(", optionOf intType, ExpressionRecipe.StringIndexOf(slot 0, slot 1, int 2L)
+              "stringLastIndexOf", "NyText.LastIndexOf(", optionOf intType, ExpressionRecipe.StringLastIndexOf(slot 0, slot 1)
+              "stringStartsWith", "NyText.StartsWith(", boolType, ExpressionRecipe.StringStartsWith(slot 0, slot 1)
+              "stringEndsWith", "NyText.EndsWith(", boolType, ExpressionRecipe.StringEndsWith(slot 0, slot 1)
+              "stringSplit", "NyText.Split(", listOf stringType, ExpressionRecipe.StringSplit(slot 0, slot 1) ]
+        for kind, emitted, resultType, body in cases do
             let proposal =
                 AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request [ stringType; stringType ] resultType body)
                 |> unwrap ("simulate " + kind)
@@ -69,9 +69,8 @@ module StringSearchTests =
             Assert.Contains($"\"{kind}\"", json)
             let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
             Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
-            let nyason = NyasonCodec.serialize decoded |> unwrap "nyason"
-            Assert.Contains(nyasonTag, nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let persisted = SnapshotCodec.serialize decoded |> unwrap "reserialize"
+            let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
             Assert.Contains($"\"{kind}\"", TypedSemanticIrSerializer.serialize typed)

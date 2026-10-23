@@ -55,9 +55,7 @@ module DeclaredFunctionTypeParametersTests =
         Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap "reserialize")
         Assert.Equal(SnapshotFingerprint.compute derived, SnapshotFingerprint.compute restored)
         Assert.Equal(SemanticFingerprint.compute derived, SemanticFingerprint.compute restored)
-        let nyason = NyasonCodec.serializeCanonical derived |> unwrap "nyason"
-        Assert.Contains(SnapshotSchema.baseline.Nyason, nyason)
-        Assert.Equal(derived, NyasonCodec.deserialize nyason |> unwrap "nyason restore")
+        Assert.Equal(derived, SnapshotCodec.deserialize json |> unwrap "restore")
 
     [<Fact>]
     let ``a legacy document with names on occurrences derives the list in first-appearance order`` () =
@@ -88,9 +86,7 @@ module DeclaredFunctionTypeParametersTests =
         Assert.DoesNotContain("\"displayName\":\"T\"}}", json)
         let restored = SnapshotCodec.deserialize json |> unwrap "restore"
         Assert.Equal(reordered, restored)
-        let nyason = NyasonCodec.serialize reordered |> unwrap "nyason"
-        Assert.Contains(SnapshotSchema.declaredFunctionTypeParameters.Nyason, nyason)
-        Assert.Equal(reordered, NyasonCodec.deserialize nyason |> unwrap "nyason restore")
+        Assert.Equal(reordered, SnapshotCodec.deserialize json |> unwrap "restore")
         // The order is a semantic fact of its own: the two orders fingerprint differently.
         Assert.NotEqual(SemanticFingerprint.compute reordered, SemanticFingerprint.compute (snapshotOf (second [ tId, "T"; uId, "U" ])))
 
@@ -213,9 +209,6 @@ module DeclaredFunctionTypeParametersTests =
         Assert.Contains("\"typeParameters\":[{\"typeParameterId\":\"declared-U\"", json)
         Assert.DoesNotContain("\"displayName\":\"T\"}}", json)
         Assert.Equal(mixed, SnapshotCodec.deserialize json |> unwrap "json restore")
-        let nyason = NyasonCodec.serializeCanonical mixed |> unwrap "nyason"
-        Assert.Contains("nayamnyam.snapshot.v17", nyason)
-        Assert.Equal(mixed, NyasonCodec.deserialize nyason |> unwrap "nyason restore")
         // A legacy document (names on occurrences, no list, no visibility) still reads as the same
         // all-exported snapshot and re-serializes to its own bytes, so both fingerprints are unchanged.
         let legacy =

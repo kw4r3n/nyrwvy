@@ -174,9 +174,8 @@ module MatchUnionSharedArmTests =
             let persisted = File.ReadAllText path
             Assert.Contains("\"variantIds\"", persisted)
             Assert.Contains("\"variantId\"", persisted)
-            let nyason = NyasonCodec.serialize snapshot |> Result.defaultWith (failwithf "nyason: %A")
-            Assert.Contains("variants", nyason)
-            let restored = NyasonCodec.deserialize nyason |> Result.defaultWith (failwithf "nyason decode: %A")
+            let json = SnapshotCodec.serialize snapshot |> Result.defaultWith (failwithf "reserialize: %A")
+            let restored = SnapshotCodec.deserialize json |> Result.defaultWith (failwithf "decode: %A")
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
 
             // A ninth variant leaves every match over Json incomplete: an expanded otherwise does not absorb it.

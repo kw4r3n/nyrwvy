@@ -221,10 +221,8 @@ module ListFoldTests =
         Assert.Empty(SnapshotValidator.validate snapshot)
         let json = SnapshotCodec.serialize snapshot |> unwrap "serialize JSON"
         let restored = SnapshotCodec.deserialize json |> unwrap "restore JSON"
-        let nyason = NyasonCodec.serialize restored |> unwrap "serialize Nyason"
-        let reopened = NyasonCodec.deserialize nyason |> unwrap "restore Nyason"
-        Assert.Contains("list-fold", nyason)
-        Assert.Contains("string-equal", nyason)
+        let persisted = SnapshotCodec.serialize restored |> unwrap "reserialize"
+        let reopened = SnapshotCodec.deserialize persisted |> unwrap "restore"
         Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute reopened)
         let focus = SemanticQuery.focusFunction reopened search.Id |> unwrap "focus"
         Assert.Contains(focus.Callees, fun site -> site.CalleeFunctionId = folder.Id)
@@ -295,8 +293,8 @@ module ListFoldTests =
         let snapshot, folder, at = indexFixture ()
         let json = SnapshotCodec.serialize snapshot |> unwrap "serialize index"
         let restored = SnapshotCodec.deserialize json |> unwrap "reopen index"
-        let nyason = NyasonCodec.serialize restored |> unwrap "nyason index"
-        let reopened = NyasonCodec.deserialize nyason |> unwrap "reopen nyason index"
+        let persisted = SnapshotCodec.serialize restored |> unwrap "reserialize index"
+        let reopened = SnapshotCodec.deserialize persisted |> unwrap "reopen index"
         let focus = SemanticQuery.focusFunction reopened at.Id |> unwrap "index focus"
         Assert.Contains(focus.Callees, fun site -> site.CalleeFunctionId = folder.Id)
         Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute reopened)
@@ -345,8 +343,8 @@ module ListFoldTests =
         let snapshot, folder, find, entryId, entryKeyId, entryValueId = findFixture ()
         let json = SnapshotCodec.serialize snapshot |> unwrap "serialize find"
         let restored = SnapshotCodec.deserialize json |> unwrap "reopen find"
-        let nyason = NyasonCodec.serialize restored |> unwrap "nyason find"
-        let reopened = NyasonCodec.deserialize nyason |> unwrap "reopen nyason find"
+        let persisted = SnapshotCodec.serialize restored |> unwrap "reserialize find"
+        let reopened = SnapshotCodec.deserialize persisted |> unwrap "reopen find"
         Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute reopened)
         let focus = SemanticQuery.focusFunction reopened find.Id |> unwrap "find focus"
         Assert.Contains(focus.Callees, fun site -> site.CalleeFunctionId = folder.Id)

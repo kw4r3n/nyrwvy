@@ -105,9 +105,7 @@ module Float64ConversionTests =
             let graph = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Empty(SnapshotValidator.validate graph)
             Assert.Equal(encoded, SnapshotCodec.serialize graph |> unwrap)
-            let nyason = NyasonCodec.serialize graph |> unwrap
-            Assert.Contains("int64-to-float64", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap
+            let restored = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap

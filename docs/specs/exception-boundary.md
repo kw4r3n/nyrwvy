@@ -43,10 +43,10 @@ handler runs. Captured scope tokens retain their existing ownership.
 Ordinary recipes use `body`/`handler` function selectors and
 `bodyContext`/`handlerContext` parameter bindings. Exact recipes and saved JSON
 use `bodyFunctionId`/`handlerFunctionId`. Saved context arrays are omitted when
-empty and sorted canonically. Snapshot JSON v16 / Nyason v12 are the minimum
-versions for these nodes or the Exception type; older graphs keep their schemas.
+empty and sorted canonically. Snapshot schema 16 (`nayamnyam.snapshot.v12`) is the minimum
+version for these nodes or the Exception type; older graphs keep their schemas.
 The informational typed and execution IR version is 11 for exception-bearing
-programs. The classifier requires snapshot JSON v17 / Nyason v13 and informational
+programs. The classifier requires snapshot schema 17 (`nayamnyam.snapshot.v13`) and informational
 IR v12; programs without it retain their existing minimum versions. These IR
 dumps remain write-only inspection formats.
 

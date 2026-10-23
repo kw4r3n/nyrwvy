@@ -35,7 +35,7 @@ module CurrentPersistenceAndScalarTests =
         publish session $"""{{"id":"create","op":"simulateCreateFunctionByName","displayName":"{name}","exported":true,"parameters":[{{"displayName":"input","type":{wireType}}}],"resultType":{wireType},"requiredEffects":[],"body":{{"kind":"parameter","name":"input"}}}}"""
 
     [<Fact>]
-    let ``ordinary JSON and Nyason persistence use current schema while v6 fingerprints keep canonical bytes`` () =
+    let ``ordinary JSON persistence uses the current schema while v6 fingerprints keep canonical bytes`` () =
         let legacy = """{"schemaVersion":9,"snapshotId":"current-writer-empty","types":[],"effects":[],"capabilities":[],"functions":[],"obligations":[]}"""
         let snapshot = SnapshotCodec.deserialize legacy |> unwrap
         Assert.Equal(legacy, SnapshotCodec.serializeCanonical snapshot |> unwrap)
@@ -46,9 +46,7 @@ module CurrentPersistenceAndScalarTests =
         let before = SnapshotFingerprint.compute snapshot, SemanticFingerprint.compute snapshot
         let json = SnapshotCodec.serialize snapshot |> unwrap
         Assert.Equal(SnapshotSchema.current, SnapshotCodec.declaredVersion json |> unwrap)
-        let nyason = NyasonCodec.serialize snapshot |> unwrap
-        Assert.Contains(SnapshotSchema.current.Nyason, nyason)
-        for restored in [ SnapshotCodec.deserialize json |> unwrap; NyasonCodec.deserialize nyason |> unwrap ] do
+        for restored in [ SnapshotCodec.deserialize json |> unwrap ] do
             Assert.Equal(before, (SnapshotFingerprint.compute restored, SemanticFingerprint.compute restored))
 
     [<Fact>]

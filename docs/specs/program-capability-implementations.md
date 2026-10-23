@@ -62,9 +62,9 @@ IDs are system-owned; targeted replacement preserves the selected node's ID.
 
 ## Persistence and execution
 
-Snapshots containing the node use JSON schema **10** and Nyason
-**`nayamnyam.snapshot.v6`**. Readers also accept the previous JSON **9** and Nyason
-**v5**, but reject the new construct under those old versions. Writers continue
+Snapshots containing the node use snapshot schema **10**
+(**`nayamnyam.snapshot.v6`**). Readers also accept the previous schema **9**
+(**`nayamnyam.snapshot.v5`**), but reject the new construct under those old versions. Writers continue
 to emit the old versions for graphs without this construct, preserving their
 canonical bytes and fingerprints. No migration invents implementation mappings.
 Snapshot and semantic fingerprint domains remain v6: identity/name normalization

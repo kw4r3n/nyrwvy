@@ -128,9 +128,8 @@ module ListEffectFoldTests =
             Assert.Contains("\"listEffectFold\"", json)
             let snapshot = SnapshotCodec.deserialize json |> unwrap "decode"
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
-            Assert.Contains("list-effect-fold", nyason)
-            Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize nyason |> unwrap "nyason decode"))
+            let persisted = SnapshotCodec.serialize snapshot |> unwrap "reserialize"
+            Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (SnapshotCodec.deserialize persisted |> unwrap "decode"))
             Assert.Equal(countType, (fixture.Function "saveAll").ResultType))
 
     [<Fact; Trait("Suite", "Extended")>]

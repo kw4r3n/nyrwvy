@@ -216,7 +216,6 @@ module SnapshotSchemaTests =
         let snapshot = build (fun create _ -> create "plain" [ "text", stringType ] stringType [] (ExpressionRecipe.StringToLower(slot 0)) |> ignore)
         Assert.Empty(SnapshotSchema.usedFeatures snapshot)
         Assert.Contains($"\"schemaVersion\":{SnapshotSchema.baseline.Json}", SnapshotCodec.serializeCanonical snapshot |> unwrap "json")
-        Assert.Contains(SnapshotSchema.baseline.Nyason, NyasonCodec.serializeCanonical snapshot |> unwrap "nyason")
 
     [<Theory>]
     [<MemberData(nameof caseNames)>]
@@ -244,12 +243,6 @@ module SnapshotSchemaTests =
             Error(SnapshotCodecError.InvalidShape $"{label} requires snapshot schemaVersion {minimum.Json}."),
             SnapshotCodec.deserialize (json.Replace(declared, $"\"schemaVersion\":{previous.Json}")))
 
-        let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
-        Assert.Contains($"\"{minimum.Nyason}\"", nyason)
-        Assert.Equal(json, NyasonCodec.deserialize nyason |> unwrap "nyason round trip" |> SnapshotCodec.serializeCanonical |> unwrap "json from nyason")
-        Assert.Equal(
-            Error(NyasonCodecError.InvalidShape $"{label} requires {minimum.Nyason}."),
-            NyasonCodec.deserialize (nyason.Replace($"\"{minimum.Nyason}\"", $"\"{previous.Nyason}\"")))
 
     [<Fact>]
     let ``versions outside the supported range are unsupported`` () =
@@ -258,6 +251,3 @@ module SnapshotSchemaTests =
         let newest = (List.last SnapshotSchema.supported).Json
         for version in [ SnapshotSchema.baseline.Json - 1; newest + 1 ] do
             Assert.Equal(Error(SnapshotCodecError.UnsupportedSchemaVersion version), SnapshotCodec.deserialize (json.Replace(declared, $"\"schemaVersion\":{version}")))
-        let nyason = NyasonCodec.serializeCanonical initial |> unwrap "nyason"
-        let future = $"nayamnyam.snapshot.v{(List.last SnapshotSchema.supported).Nyason.Split('v') |> Array.last |> int |> (+) 1}"
-        Assert.Equal(Error(NyasonCodecError.UnsupportedSchema future), NyasonCodec.deserialize (nyason.Replace(SnapshotSchema.baseline.Nyason, future)))

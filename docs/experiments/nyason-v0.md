@@ -1,8 +1,8 @@
 # Nyason v0 experiment
 
-**Status:** Experimental
+**Status:** Historical — removed from the repository on 2026-10-24 (owner decision). The codec (`NyasonCodec.fs`, `NyasonSyntax.fs`), its tests and the viewer `nyason` input were deleted; the [record form](../decisions/snapshot-record-format.md) is the Nyason revision that continues. The schema identifiers `nayamnyam.snapshot.vN` survive as `SnapshotSchemaVersion.Nyason`, the schema name in migration reports.
 
-Nyason v0 is an implemented and mechanically verified prototype of a Nyrwvy-specific semantic encoding. It is useful evidence, but it is not the canonical persistence contract and its v0 syntax is not a compatibility obligation.
+Nyason v0 was an implemented and mechanically verified prototype of a Nyrwvy-specific semantic encoding. It is useful evidence, but it is not the canonical persistence contract and its v0 syntax is not a compatibility obligation.
 
 The prototype explored:
 

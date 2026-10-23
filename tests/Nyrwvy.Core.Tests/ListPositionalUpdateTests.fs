@@ -104,11 +104,7 @@ module ListPositionalUpdateTests =
             Assert.Equal(17, document.RootElement.GetProperty("schemaVersion").GetInt32())
             for kind in [ "listSetAt"; "listInsertAt"; "listRemoveAt" ] do
                 Assert.Contains("\"" + kind + "\"", json)
-            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
-            Assert.Contains("nayamnyam.snapshot.v13", nyason)
-            for kind in [ "list-set-at"; "list-insert-at"; "list-remove-at" ] do
-                Assert.Contains(kind, nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let restored = SnapshotCodec.deserialize json |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
             let execution = typed |> ExecutionIr.lower |> unwrap "lower"

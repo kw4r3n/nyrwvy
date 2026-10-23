@@ -36,9 +36,9 @@ Exact naming can evolve, but version identity must be carried by the serialized 
 
 ## Snapshot schema versions
 
-The snapshot JSON `schemaVersion` and the Nyason `schema` identifier name the same set of persisted constructs and move together. One table, `SnapshotSchema.minimumVersions` in `src/Nyrwvy.Semantics/SnapshotSchema.fs`, gives the minimum version of every construct that an older version cannot hold. Both codecs derive everything from it:
+The snapshot JSON `schemaVersion` and the Nyason schema identifier (`SnapshotSchemaVersion.Nyason`; the Nyason v0 codec that wrote it was removed on 2026-10-24, and it survives as the schema name in migration reports) name the same set of persisted constructs and move together. One table, `SnapshotSchema.minimumVersions` in `src/Nyrwvy.Semantics/SnapshotSchema.fs`, gives the minimum version of every construct that an older version cannot hold. Both codecs derive everything from it:
 
-- ordinary JSON and Nyason writers emit `SnapshotSchema.current` (JSON 21 / Nyason v17), including later saves of a migrated document;
+- the ordinary JSON writer and the record codec emit `SnapshotSchema.current` (JSON 21 / Nyason v17), including later saves of a migrated document;
 - the internal canonical encoding retains the smallest version that holds every construct, exclusively for the frozen v6 fingerprint domains, legacy dependency digests and explicit compatibility fixtures. Representation-only migration changes persisted bytes without changing these hashes;
 - a reader rejects a version outside the supported range, and rejects a document whose declared version is lower than the minimum of a construct in it (`<`, for every row).
 

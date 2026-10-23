@@ -325,10 +325,6 @@ module TaskScopeTests =
         withTeam (fun session path ->
             let snapshot = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap "decode"
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
-            for tag in [ "task-scope"; "task-start"; "task-wait"; "task-cancel"; "task-type"; "task-scope-type" ] do
-                Assert.Contains(tag, nyason)
-            Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize nyason |> unwrap "nyason decode"))
             let typed = TypedSemanticIr.project snapshot |> unwrap "typed"
             let execution = ExecutionIr.lower typed |> unwrap "lower"
             Assert.Contains("\"taskStart\"", TypedSemanticIrSerializer.serialize typed)
@@ -370,8 +366,6 @@ module TaskScopeTests =
             let stored = SnapshotCodec.serializeCanonical snapshot |> unwrap "canonical fixture"
             Assert.Contains("\"schemaVersion\":12", stored)
             Assert.True(SnapshotCodec.deserialize (stored.Replace("\"schemaVersion\":12", "\"schemaVersion\":11")) |> Result.isError)
-            Assert.Contains("nayamnyam.snapshot.v8", nyason)
-            Assert.True(NyasonCodec.deserialize (nyason.Replace("nayamnyam.snapshot.v8", "nayamnyam.snapshot.v7")) |> Result.isError)
             Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
             // The task loops end in tail self calls, so Execution IR carries TailCall (version 9).
             Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", ExecutionIrSerializer.serialize execution)

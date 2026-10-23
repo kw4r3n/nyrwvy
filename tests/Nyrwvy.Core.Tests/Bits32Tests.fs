@@ -169,9 +169,7 @@ module Bits32Tests =
             let graph = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Empty(SnapshotValidator.validate graph)
             Assert.Equal(encoded, SnapshotCodec.serialize graph |> unwrap)
-            let nyason = NyasonCodec.serialize graph |> unwrap
-            for tag in [ "bits32-from-int64"; "bits32-rotate-right"; "bits32-shift-left" ] do Assert.Contains(tag, nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap
+            let restored = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap

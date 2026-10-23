@@ -111,11 +111,7 @@ module OptionResultAccessorTests =
             Assert.Contains("\"schemaVersion\":19", json)
             for kind in [ "resultGetOrDefault"; "optionOkOr"; "resultOkValue"; "resultErrValue"; "optionIsSome"; "resultIsOk" ] do
                 Assert.Contains("\"" + kind + "\"", json)
-            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
-            for tag in [ "result-get-or-default"; "option-ok-or"; "result-ok-value"; "result-err-value"; "option-is-some"; "result-is-ok" ] do
-                Assert.Contains(tag, nyason)
-            Assert.Contains("nayamnyam.snapshot.v15", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let restored = SnapshotCodec.deserialize json |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap "serialize again")
             let typed = TypedSemanticIr.project restored |> unwrap "typed"

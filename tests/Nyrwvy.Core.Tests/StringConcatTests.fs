@@ -85,13 +85,12 @@ module StringConcatTests =
             Assert.Empty(SnapshotValidator.validate snapshot)
             let fn = List.exactlyOne snapshot.Functions
             Assert.Contains(fn.Body.Nodes, fun node -> match node.Kind with | SemanticNodeKind.StringConcat _ -> true | _ -> false)
-            let nyason = NyasonCodec.serialize snapshot |> function
+            let persisted = SnapshotCodec.serialize snapshot |> function
                 | Ok text -> text
-                | Error error -> failwithf "Nyason encoding failed: %A" error
-            Assert.Contains("string-concat", nyason)
-            let restored = NyasonCodec.deserialize nyason |> function
+                | Error error -> failwithf "Reserialize failed: %A" error
+            let restored = SnapshotCodec.deserialize persisted |> function
                 | Ok value -> value
-                | Error error -> failwithf "Nyason decoding failed: %A" error
+                | Error error -> failwithf "Decode failed: %A" error
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> function
                 | Ok value -> value

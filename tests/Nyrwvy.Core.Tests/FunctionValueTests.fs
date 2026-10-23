@@ -74,7 +74,7 @@ module FunctionValueTests =
         withFixture (fun session path ->
             let snapshot = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let restored = NyasonCodec.deserialize (NyasonCodec.serialize snapshot |> unwrap) |> unwrap
+            let restored = SnapshotCodec.deserialize (SnapshotCodec.serialize snapshot |> unwrap) |> unwrap
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             Assert.Equal(SnapshotCodec.serialize snapshot, SnapshotCodec.serialize restored)
             let generic = find session "find"
@@ -201,7 +201,7 @@ module FunctionValueTests =
             Assert.Equal(PureRunValue.String "leftright", (PureRun.run session (find session "fromOption").Id [] None |> unwrap).Actual)
             // Preserve positional arguments, including non-commutative calls, through both codecs.
             let snapshot = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap
-            let restored = NyasonCodec.deserialize (NyasonCodec.serialize snapshot |> unwrap) |> unwrap
+            let restored = SnapshotCodec.deserialize (SnapshotCodec.serialize snapshot |> unwrap) |> unwrap
             Assert.Equal(SnapshotCodec.serialize snapshot, SnapshotCodec.serialize restored)
             create session "rawFunction" [] (fnType [ stringType; stringType ] stringType) (reference "join")
             match PureRun.run session (find session "rawFunction").Id [] None with

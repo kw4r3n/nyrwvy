@@ -20,10 +20,10 @@ module Float64ToInt64Tests =
         | Error error -> failwithf "%s: %A" label error
 
     [<Theory>]
-    [<InlineData("round", "float64RoundToInt64", "float64-round-to-int64", "NyNumber.RoundToInt64(")>]
-    [<InlineData("floor", "float64FloorToInt64", "float64-floor-to-int64", "NyNumber.FloorToInt64(")>]
+    [<InlineData("round", "float64RoundToInt64", "NyNumber.RoundToInt64(")>]
+    [<InlineData("floor", "float64FloorToInt64", "NyNumber.FloorToInt64(")>]
     let ``Float64 to Int64 conversions type check, persist, and lower through every layer``
-        (mode: string, wireKind: string, nyasonKind: string, csharpCall: string) =
+        (mode: string, wireKind: string, csharpCall: string) =
         let build value =
             if mode = "round" then ExpressionRecipe.Float64RoundToInt64 value else ExpressionRecipe.Float64FloorToInt64 value
         let snapshot = Snapshot.empty (id<SnapshotTag> ("base-" + mode))
@@ -53,9 +53,8 @@ module Float64ToInt64Tests =
         Assert.Contains("\"" + wireKind + "\"", json)
         let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
-        let nyason = NyasonCodec.serialize decoded |> unwrap "nyason"
-        Assert.Contains(nyasonKind, nyason)
-        let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+        let persisted = SnapshotCodec.serialize decoded |> unwrap "reserialize"
+        let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
         let typed = TypedSemanticIr.project restored |> unwrap "typed"
         Assert.Contains("\"" + wireKind + "\"", TypedSemanticIrSerializer.serialize typed)

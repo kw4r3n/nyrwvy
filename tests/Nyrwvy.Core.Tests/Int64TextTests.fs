@@ -96,10 +96,8 @@ module Int64TextTests =
             session.Close()
             let snapshot = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap "reopen"
             Assert.Empty(SnapshotValidator.validate snapshot)
-            let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
-            Assert.Contains("int64-to-string", nyason)
-            Assert.Contains("string-parse-int64", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let persisted = SnapshotCodec.serialize snapshot |> unwrap "reserialize"
+            let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
             let execution = ExecutionIr.lower typed |> unwrap "lower"

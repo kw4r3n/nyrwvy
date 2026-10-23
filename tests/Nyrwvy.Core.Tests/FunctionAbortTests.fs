@@ -94,13 +94,10 @@ module FunctionAbortTests =
             let graph = snapshot path
             let encoded = SnapshotCodec.serializeCanonical graph |> unwrap
             Assert.Contains("\"schemaVersion\":11", encoded)
-            let nyason = NyasonCodec.serializeCanonical graph |> unwrap
-            Assert.Contains("nayamnyam.snapshot.v7", nyason)
-            Assert.Equal(encoded, SnapshotCodec.serializeCanonical(NyasonCodec.deserialize nyason |> unwrap) |> unwrap)
+            Assert.Equal(encoded, SnapshotCodec.serializeCanonical(SnapshotCodec.deserialize encoded |> unwrap) |> unwrap)
             for version in [ 9; 10 ] do
                 Assert.True(Result.isError(SnapshotCodec.deserialize(encoded.Replace("\"schemaVersion\":11", $"\"schemaVersion\":{version}"))))
             for version in [ 5; 6 ] do
-                Assert.True(Result.isError(NyasonCodec.deserialize(nyason.Replace("nayamnyam.snapshot.v7", $"nayamnyam.snapshot.v{version}"))))
             let typed = TypedSemanticIr.project graph |> unwrap
             let program = ExecutionIr.lower typed |> unwrap
             Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)

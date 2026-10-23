@@ -74,10 +74,8 @@ module StringEncodeUtf8Tests =
         Assert.Contains("\"schemaVersion\":19", json)
         let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
-        let nyason = NyasonCodec.serializeCanonical decoded |> unwrap "nyason"
-        Assert.Contains("string-encode-utf8", nyason)
-        Assert.Contains("nayamnyam.snapshot.v15", nyason)
-        let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+        let persisted = SnapshotCodec.serializeCanonical decoded |> unwrap "reserialize"
+        let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
         Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
         let typed = TypedSemanticIr.project restored |> unwrap "typed"
         Assert.Contains("\"stringEncodeUtf8\"", TypedSemanticIrSerializer.serialize typed)

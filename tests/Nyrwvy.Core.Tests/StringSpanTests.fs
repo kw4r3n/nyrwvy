@@ -49,9 +49,9 @@ module StringSpanTests =
         Assert.NotEqual<string>("", rejects (request [ stringType ] stringType (ExpressionRecipe.StringSpan(slot 0, text " ", int 0L))))
         Assert.NotEqual<string>("", rejects (request [ stringType ] stringType (ExpressionRecipe.StringSpanBack(slot 0, text " ", int 0L))))
         let cases =
-            [ "stringSpan", "string-span", "NyText.Span(", ExpressionRecipe.StringSpan(slot 0, slot 1, int 2L)
-              "stringSpanBack", "string-span-back", "NyText.SpanBack(", ExpressionRecipe.StringSpanBack(slot 0, slot 1, int 2L) ]
-        for kind, nyasonTag, emitted, body in cases do
+            [ "stringSpan", "NyText.Span(", ExpressionRecipe.StringSpan(slot 0, slot 1, int 2L)
+              "stringSpanBack", "NyText.SpanBack(", ExpressionRecipe.StringSpanBack(slot 0, slot 1, int 2L) ]
+        for kind, emitted, body in cases do
             let proposal =
                 AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request [ stringType; stringType ] intType body)
                 |> unwrap ("simulate " + kind)
@@ -64,9 +64,8 @@ module StringSpanTests =
             Assert.Contains($"\"{kind}\"", json)
             let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
             Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
-            let nyason = NyasonCodec.serialize decoded |> unwrap "nyason"
-            Assert.Contains(nyasonTag, nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let persisted = SnapshotCodec.serialize decoded |> unwrap "reserialize"
+            let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
             Assert.Contains($"\"{kind}\"", TypedSemanticIrSerializer.serialize typed)

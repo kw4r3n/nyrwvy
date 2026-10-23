@@ -73,10 +73,7 @@ module ListContainsTests =
             let json = SnapshotCodec.serializeCanonical snapshot |> unwrap "serialize"
             Assert.Contains("\"listContains\"", json)
             Assert.Contains("\"schemaVersion\":19", json)
-            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
-            Assert.Contains("list-contains", nyason)
-            Assert.Contains("nayamnyam.snapshot.v15", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let restored = SnapshotCodec.deserialize json |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             Assert.Equal(json, SnapshotCodec.serializeCanonical restored |> unwrap "serialize again")
             let typed = TypedSemanticIr.project restored |> unwrap "typed"

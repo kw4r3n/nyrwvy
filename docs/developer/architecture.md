@@ -204,7 +204,7 @@ C#/.NET is the first backend. Its representation choices are downstream implemen
 Storage representation is deliberately separate from semantic authority.
 
 - strict JSON remains the reference/debug baseline;
-- Nyason is the actively explored Nyrwvy-native portable encoding candidate;
+- Nyason is the actively explored Nyrwvy-native portable encoding candidate, currently the [record form](../decisions/snapshot-record-format.md) (the v0 nested codec was removed on 2026-10-24);
 - a database may serve as a working/index store and could become authoritative only if operational evidence justifies that choice without changing semantic meaning;
 - schema versions are explicit and migrations must not silently invent semantics.
 

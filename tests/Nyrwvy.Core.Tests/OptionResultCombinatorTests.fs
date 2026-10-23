@@ -123,11 +123,7 @@ module OptionResultCombinatorTests =
             Assert.Contains("\"schemaVersion\":17", json)
             for kind in [ "optionGetOrDefault"; "optionMap"; "optionAndThen"; "resultMap"; "resultMapErr"; "resultAndThen" ] do
                 Assert.Contains("\"" + kind + "\"", json)
-            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
-            for tag in [ "option-get-or-default"; "option-map"; "option-and-then"; "result-map"; "result-map-err"; "result-and-then" ] do
-                Assert.Contains(tag, nyason)
-            Assert.Contains("nayamnyam.snapshot.v13", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let restored = SnapshotCodec.deserialize json |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             let execution = TypedSemanticIr.project restored |> unwrap "typed" |> ExecutionIr.lower |> unwrap "lower"
             let source = (CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit").Source

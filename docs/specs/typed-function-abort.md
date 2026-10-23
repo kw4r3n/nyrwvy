@@ -149,7 +149,7 @@ changing the graph.
 
 The maintained implementation is verified against these gates:
 
-1. Define exact recipe and snapshot/Nyason/IR encodings with explicit new schema
+1. Define exact recipe and snapshot/IR encodings with explicit new schema
    versions. Old readers must reject new constructs. Existing valid graph meaning
    and old canonical encodings must remain intact.
 2. Add ordinary exact-ID and name-resolved authoring, recipe discovery, inspect,
@@ -178,8 +178,7 @@ backend's mechanism never defines a new semantic failure category.
 | Contract | Abort representation | Version |
 | --- | --- | --- |
 | Exact-ID and name-resolved recipe | `{"kind":"abort","error":<recipe>}` | Additive recipe kind in the maintained closed protocol; old servers reject unknown kinds. |
-| Snapshot JSON | `{"id":<nodeId>,"kind":"abort","errorNodeId":<nodeId>}` | 11 when an Abort node is present. |
-| Nyason | `abort` record with `id` and `error` node identities | `nayamnyam.snapshot.v7` when Abort is present. |
+| Snapshot JSON | `{"id":<nodeId>,"kind":"abort","errorNodeId":<nodeId>}` | 11 (`nayamnyam.snapshot.v7`) when an Abort node is present. |
 | Typed Semantic IR | `kind: "abort"`, `errorNodeId`, `originNodeId`, `completion: "abort"`; no normal `type` | 8 when Abort is present. |
 | Execution IR | Block terminator `kind: "abort"`, `originNodeId`, `errorValueId` | 7 when an abort terminator is present. |
 
@@ -194,10 +193,10 @@ terminator. No internal exception is thrown or intercepted, so existing resource
 and parallel runtime code receives the same typed Result as from an ordinary
 callee. Payload instructions run once in their owning block.
 
-Graphs without Abort retain their previous canonical bytes: JSON 9 / Nyason v5,
-or JSON 10 / Nyason v6 with CapabilityConstruct. (The IR debug writers no longer
+Graphs without Abort retain their previous canonical bytes: schema 9 (`nayamnyam.snapshot.v5`),
+or schema 10 (`nayamnyam.snapshot.v6`) with CapabilityConstruct. (The IR debug writers no longer
 vary their version by construct; see [IR evolution](schema-evolution-policy.md#ir-evolution).)
-Older snapshot/Nyason versions reject an Abort even if the input has been relabeled
+Older snapshot versions reject an Abort even if the input has been relabeled
 with an older schema. Fingerprint algorithms/domains are unchanged; the existing
 canonical serialization includes the new node and version in new graph digests.
 

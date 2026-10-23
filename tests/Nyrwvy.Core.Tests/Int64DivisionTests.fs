@@ -111,10 +111,7 @@ module Int64DivisionTests =
             let graph = snapshot path
             Assert.Empty(SnapshotValidator.validate graph)
             Assert.Equal(encoded, SnapshotCodec.serialize graph |> unwrap)
-            let nyason = NyasonCodec.serialize graph |> unwrap
-            for kind in [ "int64-floor-divide"; "int64-floor-modulo" ] do
-                Assert.Contains(kind, nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap
+            let restored = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap

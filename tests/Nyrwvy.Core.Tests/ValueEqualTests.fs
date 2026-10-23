@@ -213,9 +213,7 @@ module ValueEqualTests =
             let graph = snapshot path
             Assert.Empty(SnapshotValidator.validate graph)
             Assert.Equal(encoded, SnapshotCodec.serialize graph |> unwrap)
-            let nyason = NyasonCodec.serialize graph |> unwrap
-            Assert.Contains("value-equal", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap
+            let restored = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Equal(encoded, SnapshotCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap

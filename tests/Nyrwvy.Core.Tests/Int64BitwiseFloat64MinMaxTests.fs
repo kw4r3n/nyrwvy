@@ -88,11 +88,7 @@ module Int64BitwiseFloat64MinMaxTests =
             Assert.Contains("\"countNodeId\"", json)
             Assert.Contains("\"schemaVersion\":17", json)
             Assert.True(Result.isError (SnapshotCodec.deserialize (json.Replace("\"schemaVersion\":17", "\"schemaVersion\":16"))))
-            let nyason = NyasonCodec.serializeCanonical snapshot |> unwrap "nyason"
-            for tag in [ "int64-bit-and"; "int64-bit-or"; "int64-bit-xor"; "int64-bit-not"; "int64-shift-left"; "int64-shift-right"; "float64-min"; "float64-max" ] do
-                Assert.Contains(tag, nyason)
-            Assert.Contains("nayamnyam.snapshot.v13", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let restored = SnapshotCodec.deserialize json |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             let execution = TypedSemanticIr.project restored |> unwrap "typed" |> ExecutionIr.lower |> unwrap "lower"
             let source = (CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit").Source

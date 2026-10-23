@@ -74,11 +74,7 @@ module ListIndexTests =
             Assert.Contains("\"listIndexOf\"", json)
             Assert.Contains("\"listFindIndex\"", json)
             Assert.Contains("\"listLastIndexOf\"", json)
-            let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
-            Assert.Contains("list-index-of", nyason)
-            Assert.Contains("list-find-index", nyason)
-            Assert.Contains("list-last-index-of", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let restored = SnapshotCodec.deserialize json |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute restored)
             let execution = TypedSemanticIr.project restored |> unwrap "typed" |> ExecutionIr.lower |> unwrap "lower"
             let source = (CSharpBackend.emit execution CSharpBackendProfile.empty |> unwrap "emit").Source

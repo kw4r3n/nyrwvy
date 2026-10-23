@@ -82,13 +82,10 @@ module CapabilityImplementationTests =
             let graph = snapshot path
             let encoded = SnapshotCodec.serializeCanonical graph |> unwrap
             Assert.Contains("\"schemaVersion\":10", encoded)
-            let nyason = NyasonCodec.serializeCanonical graph |> unwrap
-            Assert.Contains("nayamnyam.snapshot.v6", nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap
+            let restored = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Equal(encoded, SnapshotCodec.serializeCanonical restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             Assert.True(Result.isError(SnapshotCodec.deserialize (encoded.Replace("\"schemaVersion\":10", "\"schemaVersion\":9"))))
-            Assert.True(Result.isError(NyasonCodec.deserialize (nyason.Replace("nayamnyam.snapshot.v6", "nayamnyam.snapshot.v5"))))
             Assert.True(Result.isError(SnapshotCodec.deserialize (encoded.Replace("\"kind\":\"capabilityConstruct\"", "\"kind\":\"capabilityConstruct\",\"captures\":[]"))))
             let low = find session "low"
             let focus = session.FocusFunction low.Id |> unwrap

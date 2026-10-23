@@ -17,7 +17,7 @@ type SnapshotCodecError =
 
 /// JSON remains a strict reference codec and benchmark baseline.
 /// It is not a decision that JSON is Nyrwvy's long-term canonical encoding;
-/// Nyason is evaluated separately from the semantic model.
+/// the Nyrwvy-native encoding direction (docs/concepts/nyason-and-storage.md) is evaluated separately.
 [<RequireQualifiedAccess>]
 module SnapshotCodec =
     // Retain the writer's existing depth allowance and apply it to reads too:

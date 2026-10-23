@@ -72,8 +72,7 @@ module ListCallbackContextTests =
         Assert.Contains("\"context\"", json)
         let restored = SnapshotCodec.deserialize json |> unwrap "restore"
         Assert.Equal(json, SnapshotCodec.serialize restored |> unwrap "reserialize")
-        let nyason = NyasonCodec.serialize snapshot |> unwrap "nyason"
-        Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (NyasonCodec.deserialize nyason |> unwrap "nyason restore"))
+        Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (SnapshotCodec.deserialize json |> unwrap "restore"))
         let typed = TypedSemanticIr.project snapshot |> unwrap "typed"
         Assert.Contains("\"context\"", TypedSemanticIrSerializer.serialize typed)
         Assert.Contains("\"context\"", ExecutionIrSerializer.serialize (ExecutionIr.lower typed |> unwrap "lower"))

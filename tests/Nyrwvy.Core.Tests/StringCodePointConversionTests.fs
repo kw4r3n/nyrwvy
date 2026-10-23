@@ -51,9 +51,9 @@ module StringCodePointConversionTests =
         Assert.NotEqual<string>("", rejects (request [ intType ] stringType (ExpressionRecipe.StringFromCodePoint(slot 0))))
         Assert.NotEqual<string>("", rejects (request [ stringType ] intType (ExpressionRecipe.StringToCodePoint(slot 0))))
         let cases =
-            [ "stringFromCodePoint", "string-from-code-point", "NyText.FromCodePoint(", intType, optionOf stringType, ExpressionRecipe.StringFromCodePoint(slot 0), SemanticNodeKind.StringLiteral "x"
-              "stringToCodePoint", "string-to-code-point", "NyText.ToCodePoint(", stringType, optionOf intType, ExpressionRecipe.StringToCodePoint(slot 0), SemanticNodeKind.Int64Literal 1L ]
-        for kind, nyasonTag, emitted, parameterType, resultType, body, wrongOperand in cases do
+            [ "stringFromCodePoint", "NyText.FromCodePoint(", intType, optionOf stringType, ExpressionRecipe.StringFromCodePoint(slot 0), SemanticNodeKind.StringLiteral "x"
+              "stringToCodePoint", "NyText.ToCodePoint(", stringType, optionOf intType, ExpressionRecipe.StringToCodePoint(slot 0), SemanticNodeKind.Int64Literal 1L ]
+        for kind, emitted, parameterType, resultType, body, wrongOperand in cases do
             let proposal =
                 AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws (request [ parameterType ] resultType body)
                 |> unwrap ("simulate " + kind)
@@ -66,9 +66,8 @@ module StringCodePointConversionTests =
             Assert.Contains($"\"{kind}\"", json)
             let decoded = SnapshotCodec.deserialize json |> unwrap "deserialize"
             Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute decoded)
-            let nyason = NyasonCodec.serialize decoded |> unwrap "nyason"
-            Assert.Contains(nyasonTag, nyason)
-            let restored = NyasonCodec.deserialize nyason |> unwrap "nyason decode"
+            let persisted = SnapshotCodec.serialize decoded |> unwrap "reserialize"
+            let restored = SnapshotCodec.deserialize persisted |> unwrap "decode"
             Assert.Equal(SemanticFingerprint.compute committed, SemanticFingerprint.compute restored)
             let typed = TypedSemanticIr.project restored |> unwrap "typed"
             Assert.Contains($"\"{kind}\"", TypedSemanticIrSerializer.serialize typed)
