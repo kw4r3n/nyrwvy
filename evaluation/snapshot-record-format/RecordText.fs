@@ -281,6 +281,31 @@ type private J =
 
 type Record = { Line: int; Kind: string; Subject: string; Fields: (string * string) list; Owner: string option }
 
+/// Key and kind spellings repeat on every line; one shared string per spelling saves an allocation per token.
+let private spellings = System.Collections.Concurrent.ConcurrentDictionary<string, string>()
+let private spellingLookup = spellings.GetAlternateLookup<ReadOnlySpan<char>>()
+let private intern (span: ReadOnlySpan<char>) =
+    let mutable found = null
+    if spellingLookup.TryGetValue(span, &found) then found
+    else let s = span.ToString() in spellings.GetOrAdd(s, s)
+
+/// The JSON string-literal grammar (RFC 8259) for the escapes and control characters between the quotes.
+let private validStringBody (text: string) (start: int) (stop: int) =
+    let isHex c = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+    let mutable i, ok = start, true
+    while ok && i < stop do
+        let c = text[i]
+        if c < ' ' || Char.IsSurrogate c && not (Char.IsSurrogatePair(text, i)) then ok <- false
+        elif Char.IsHighSurrogate c then i <- i + 2
+        elif c <> '\\' then i <- i + 1
+        elif i + 1 >= stop then ok <- false
+        else
+            match text[i + 1] with
+            | '"' | '\\' | '/' | 'b' | 'f' | 'n' | 'r' | 't' -> i <- i + 2
+            | 'u' when i + 5 < stop && isHex text[i + 2] && isHex text[i + 3] && isHex text[i + 4] && isHex text[i + 5] -> i <- i + 6
+            | _ -> ok <- false
+    ok
+
 /// Splits `kind subject key=value ...`; values are a JSON string literal, a bracket list or a bare token.
 let parseLine (line: int) (text: string) : Record =
     let n = text.Length
@@ -289,24 +314,28 @@ let parseLine (line: int) (text: string) : Record =
         let start = i
         while i < n && text[i] <> ' ' do i <- i + 1
         if i = start then fail line "empty token"
-        text.Substring(start, i - start)
+        start
     let space () =
         if i < n then
             if text[i] <> ' ' then fail line "expected a space"
             i <- i + 1
             if i >= n || text[i] = ' ' then fail line "single spaces only, no trailing space"
-    let kind = token ()
-    if not (Regex.IsMatch(kind, "^[a-z0-9-]+$")) then fail line $"bad record kind '{kind}'"
+    let kindStart = token ()
+    let kindSpan = text.AsSpan(kindStart, i - kindStart)
+    for c in kindSpan do
+        if not ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c = '-') then fail line $"bad record kind '{kindSpan.ToString()}'"
+    let kind = intern kindSpan
     space ()
-    let subject = token ()
+    let subjectStart = token ()
+    let subject = text.Substring(subjectStart, i - subjectStart)
     let fields = List<string * string>()
     while i < n do
         space ()
         let start = i
         while i < n && text[i] <> '=' && text[i] <> ' ' do i <- i + 1
         if i >= n || text[i] <> '=' then fail line "expected key=value"
-        let key = text.Substring(start, i - start)
-        if key = "" then fail line "empty key"
+        if i = start then fail line "empty key"
+        let key = intern (text.AsSpan(start, i - start))
         i <- i + 1
         let vstart = i
         if i < n && text[i] = '"' then
@@ -316,8 +345,7 @@ let parseLine (line: int) (text: string) : Record =
                 i <- i + 1
             if i >= n then fail line "unterminated string"
             i <- i + 1
-            let literal = text.Substring(vstart, i - vstart)
-            try JsonDocument.Parse(literal).Dispose() with :? JsonException as e -> fail line $"bad string literal: {e.Message}"
+            if not (validStringBody text (vstart + 1) (i - 1)) then fail line "bad string literal"
         elif i < n && text[i] = '[' then
             while i < n && text[i] <> ']' do i <- i + 1
             if i >= n then fail line "unterminated list"
@@ -326,9 +354,13 @@ let parseLine (line: int) (text: string) : Record =
             while i < n && text[i] <> ' ' do i <- i + 1
             if i = vstart then fail line $"empty value for {key}"
         fields.Add((key, text.Substring(vstart, i - vstart)))
-    let fields = List.ofSeq fields
-    if fields |> List.countBy fst |> List.exists (fun (_, c) -> c > 1) then fail line "duplicate key"
-    { Line = line; Kind = kind; Subject = subject; Fields = fields; Owner = fields |> List.tryFind (fun (k, _) -> k = "in") |> Option.map snd }
+    let mutable owner = None
+    for a in 0 .. fields.Count - 1 do
+        let key = fst fields[a]
+        for b in a + 1 .. fields.Count - 1 do
+            if obj.ReferenceEquals(key, fst fields[b]) then fail line "duplicate key"
+        if key = "in" then owner <- Some(snd fields[a])
+    { Line = line; Kind = kind; Subject = subject; Fields = List.ofSeq fields; Owner = owner }
 
 let private parseId line (expected: string option) (token: string) =
     let m = idRegex.Match token
@@ -671,5 +703,12 @@ let toJsonStrictNoMisspellings (text: string) : Result<string, RecordError> = co
 /// The row table: every non-blank line tokenized into a record (header included), no model.
 let parseRows (text: string) : Result<Record[], RecordError> =
     try
-        Ok(text.Split('\n') |> Array.mapi (fun i l -> i + 1, l) |> Array.filter (fun (_, l) -> l <> "") |> Array.map (fun (i, l) -> parseLine i l))
+        let rows = List<Record>()
+        let mutable start, line = 0, 1
+        while start <= text.Length do
+            let stop = match text.IndexOf('\n', start) with -1 -> text.Length | e -> e
+            if stop > start then rows.Add(parseLine line (text.Substring(start, stop - start)))
+            start <- stop + 1
+            line <- line + 1
+        Ok(rows.ToArray())
     with RecordException e -> Error e
