@@ -400,6 +400,33 @@ module RecordCodec =
             longer.Substring(i + 1) = shorter.Substring i
         else false
 
+    /// The `domain:uuid` subjects a resolved local may reference without a record of its own: the
+    /// dependency's declarations and their members (a call names the callee and its parameters).
+    let private dependencySubjects (dependency: Snapshot) =
+        let set = HashSet<string>()
+        let add domain (value: string) = set.Add(domain + ":" + value) |> ignore
+        let addField (field: SemanticField) = add "field" (StableId.value field.Id)
+        for t in dependency.Types do
+            add "type" (StableId.value t.Id)
+            for p, _ in t.TypeParameters do add "type-parameter" (StableId.value p)
+            match t.Kind with
+            | SemanticTypeKind.Product fields -> List.iter addField fields
+            | SemanticTypeKind.Union variants ->
+                for v in variants do
+                    add "variant" (StableId.value v.Id)
+                    List.iter addField v.Fields
+        for e in dependency.Effects do add "effect" (StableId.value e.Id)
+        for c in dependency.Capabilities do
+            add "capability" (StableId.value c.Id)
+            for o in c.Operations do
+                add "operation" (StableId.value o.Id)
+                for p in o.Parameters do add "capability-parameter" (StableId.value p.Id)
+        for f in dependency.Functions do
+            add "function" (StableId.value f.Id)
+            for p, _ in f.TypeParameters do add "type-parameter" (StableId.value p)
+            for p in f.Parameters do add "parameter" (StableId.value p.Id)
+        set
+
     let private decodeWith (dependency: Snapshot option) (text: string) : Result<Snapshot, RecordCodecError> =
         let records = List<Record>()
         try
@@ -463,6 +490,8 @@ module RecordCodec =
             let blocks = List<List<Record>>()
             let subjects = Dictionary<string, Record>()
             let subjectLookup = subjects.GetAlternateLookup<ReadOnlySpan<char>>()
+            let external = match dependency with Some d -> dependencySubjects d | None -> HashSet<string>()
+            let externalLookup = external.GetAlternateLookup<ReadOnlySpan<char>>()
             let owned = Dictionary<string, List<Record>>()
             let arms = Dictionary<string, List<Record>>()
             let mutable pos = headerEnd + 1
@@ -591,7 +620,7 @@ module RecordCodec =
                             if text[i] = ':' && i + 37 <= stop && isUuid (text.AsSpan(i + 1, 36)) then
                                 let mutable d = i
                                 while d > f.Start && isDomainChar text[d - 1] do d <- d - 1
-                                if d < i && memberDomainLookup.Contains(text.AsSpan(d, i - d)) && not (subjectLookup.ContainsKey(text.AsSpan(d, i + 37 - d))) then
+                                if d < i && memberDomainLookup.Contains(text.AsSpan(d, i - d)) && not (subjectLookup.ContainsKey(text.AsSpan(d, i + 37 - d))) && not (externalLookup.Contains(text.AsSpan(d, i + 37 - d))) then
                                     let subject = text.Substring(d, i + 37 - d)
                                     let domain = text.Substring(d, i - d)
                                     let line, column =
