@@ -37,7 +37,41 @@ module internal GraphOrder =
                 match rest |> List.tryFind (fun second -> not (dependsOn first second) && not (dependsOn second first)) with
                 | Some second -> Some(first, second)
                 | None -> pairs rest
-        observable |> List.sortBy StableId.value |> pairs
+        // Fast path: the observable nodes are totally ordered exactly when, in a topological order
+        // of the graph, each one depends on the one before it. That is one walk per node instead of
+        // one per pair; the pairwise search below runs only to name the pair once one exists.
+        let totallyOrdered () =
+            let keys = dependencies |> Map.toSeq |> Seq.map fst |> Set.ofSeq
+            let remaining = System.Collections.Generic.Dictionary<GraphNodeId, int>()
+            let dependents = System.Collections.Generic.Dictionary<GraphNodeId, ResizeArray<GraphNodeId>>()
+            for KeyValue(nodeId, nodeDependencies) in dependencies do
+                let inGraph = nodeDependencies |> List.distinct |> List.filter keys.Contains
+                remaining[nodeId] <- inGraph.Length
+                for dependency in inGraph do
+                    match dependents.TryGetValue dependency with
+                    | true, values -> values.Add nodeId
+                    | false, _ -> dependents[dependency] <- ResizeArray [ nodeId ]
+            let ready = System.Collections.Generic.Queue<GraphNodeId>(remaining |> Seq.filter (fun pair -> pair.Value = 0) |> Seq.map (fun pair -> pair.Key) |> Seq.sortBy StableId.value)
+            let order = ResizeArray<GraphNodeId>()
+            while ready.Count > 0 do
+                let nodeId = ready.Dequeue()
+                order.Add nodeId
+                match dependents.TryGetValue nodeId with
+                | true, values ->
+                    for dependent in values do
+                        remaining[dependent] <- remaining[dependent] - 1
+                        if remaining[dependent] = 0 then ready.Enqueue dependent
+                | false, _ -> ()
+            let wanted = Set.ofList observable
+            // A cycle, or an observable node outside the map, leaves the pairwise search to decide.
+            if order.Count <> remaining.Count || not (Set.isSubset wanted keys) then false
+            else
+                order
+                |> Seq.filter wanted.Contains
+                |> Seq.pairwise
+                |> Seq.forall (fun (earlier, later) -> dependsOn later earlier)
+        if List.length (List.distinct observable) < 2 || totallyOrdered () then None
+        else observable |> List.sortBy StableId.value |> pairs
 
     /// Derive transitive runtime observability with a reverse worklist. A recursive call cycle
     /// is observable exactly when it reaches a seed; pure cycles do not invent effects.
