@@ -516,20 +516,31 @@ module internal SessionStorage =
         SnapshotComputationScope.Measure("persistence.replace", fun () -> replaceAtomicallyCore path content)
 
     /// One shared persistence boundary for startup upgrades and reviewed repairs.
+    /// The previous sidecar is kept as `<snapshot>.dependency.json.previous` while the pair is replaced,
+    /// so a crash between the two renames leaves the only copy of the previous selection recoverable
+    /// (`open` names it); it is removed once the pair is consistent again.
     let replaceDependencyPair path previousSource previousManifest nextSource nextManifest =
         let sidecar = path + ".dependency.json"
+        let previous = sidecar + ".previous"
         match readText path, readText sidecar with
         | Ok source, Ok manifest when source = previousSource && manifest = previousManifest ->
-            replaceAtomically sidecar nextManifest
+            replaceAtomically previous previousManifest
             |> Result.bind (fun () ->
-                match replaceAtomically path nextSource with
-                | Ok() -> Ok()
-                | Error error ->
-                    match replaceAtomically sidecar previousManifest with
-                    | Ok() -> Error error
-                    | Error rollback ->
-                        let text = function AuthoringSessionError.IoFailure message -> message | other -> $"%A{other}"
-                        Error(AuthoringSessionError.IoFailure $"{text error} Restoring the previous dependency selection also failed: {text rollback}"))
+                let mutable inconsistent = false
+                let result =
+                    replaceAtomically sidecar nextManifest
+                    |> Result.bind (fun () ->
+                        match replaceAtomically path nextSource with
+                        | Ok() -> Ok()
+                        | Error error ->
+                            match replaceAtomically sidecar previousManifest with
+                            | Ok() -> Error error
+                            | Error rollback ->
+                                inconsistent <- true
+                                let text = function AuthoringSessionError.IoFailure message -> message | other -> $"%A{other}"
+                                Error(AuthoringSessionError.IoFailure $"{text error} Restoring the previous dependency selection also failed: {text rollback} The previous sidecar is kept at '{previous}'."))
+                if not inconsistent then cleanupTemporary previous
+                result)
         | Error error, _ | _, Error error -> Error error
         | _ -> Error AuthoringSessionError.ExternalModification
 
@@ -663,10 +674,10 @@ module internal PinnedDependency =
                              Fingerprint = fingerprint; IsEmbedded = embedded; Members = [] }
                     | Ok _ -> Error(AuthoringSessionError.DependencyFailure "The selected dependency version changed. Pin only accepts the exact previously selected content, not an upgrade."))
 
-    let load path sourceOverride: Result<PinnedDependencySelection option, AuthoringSessionError> =
+    let loadFrom (manifestPath: string) sourceOverride: Result<PinnedDependencySelection option, AuthoringSessionError> =
         // Read directly: File.Exists treats permission failures as absence.
         try
-            let manifest = File.ReadAllText(path + ".dependency.json", Encoding.UTF8)
+            let manifest = File.ReadAllText(manifestPath, Encoding.UTF8)
             use document = JsonDocument.Parse(manifest)
             let root = document.RootElement
             match root.TryGetProperty("dependencies") with
@@ -697,6 +708,8 @@ module internal PinnedDependency =
         | :? NotSupportedException -> Error(AuthoringSessionError.DependencyFailure "Invalid dependency manifest or source path.")
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.DependencyFailure error.Message)
         | :? IOException as error -> Error(AuthoringSessionError.DependencyFailure error.Message)
+
+    let load path sourceOverride = loadFrom (path + ".dependency.json") sourceOverride
 
     let persistPin path source selected =
         embed selected.SourcePath selected.Imported
@@ -1670,7 +1683,18 @@ module AuthoringSession =
                             prepared |> Result.map (fun selected -> selected, workspace))) with
                     | Error error ->
                         SessionStorage.releaseLock path lockHandle
-                        Error error
+                        // An interrupted dependency replacement leaves the previous sidecar beside the pair;
+                        // when that one matches the snapshot it is named, never restored silently.
+                        let previous = path + ".dependency.json.previous"
+                        let previousMatches =
+                            not pin && File.Exists previous
+                            && (PinnedDependency.loadFrom previous None
+                                |> Result.bind (fun selected -> workspaceFromSource path (selected |> Option.map (fun item -> item.Imported)) source)
+                                |> Result.isOk)
+                        if previousMatches then
+                            Error(AuthoringSessionError.DependencyFailure
+                                $"The dependency sidecar '{path}.dependency.json' does not match the snapshot, but '{previous}' does: a dependency replacement was interrupted. Restore it over the sidecar to recover the previous selection.")
+                        else Error error
                     | Ok(selected, workspace) ->
                         Ok(new AuthoringSession(path, workspace, source, lockHandle, selected))
 
