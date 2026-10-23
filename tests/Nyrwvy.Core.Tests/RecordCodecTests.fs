@@ -113,6 +113,14 @@ module RecordCodecTests =
         | Ok _ -> failwith "CRLF was accepted."
 
     [<Fact>]
+    let ``a validation failure keeps the JSON reader's structured issues`` () =
+        let text = RecordCodec.serialize (fixture "verification-planner") |> unwrap
+        let line = text.Split('\n') |> Array.find (fun l -> l.StartsWith "function " && l.Contains " result-type=bool ")
+        match RecordCodec.deserialize (text.Replace(line, line.Replace(" result-type=bool ", " result-type=string "))) with
+        | Error { Model = Some(SnapshotCodecError.InvalidSnapshot issues) } -> Assert.NotEmpty issues
+        | other -> failwithf "Expected a structured validation failure, got %A" other
+
+    [<Fact>]
     let ``a dangling reference is reported where the missing record would sit`` () =
         let text = RecordCodec.serialize (fixture "verification-planner") |> unwrap
         let lines = text.Split '\n'

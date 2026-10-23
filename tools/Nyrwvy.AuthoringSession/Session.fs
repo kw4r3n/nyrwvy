@@ -402,8 +402,11 @@ module internal SessionStorage =
     /// The writer's JSON in the form `path` persists.
     let encode (path: string) (json: string) = if isRecordPath path then RecordCodec.ofJson json else json
 
+    // A model-level failure keeps the JSON reader's structured error, as a `.json` source reports it.
     let private recordFailure (error: RecordCodecError) =
-        AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidShape $"line {error.Line}, column {error.Column}: {error.Message}")
+        match error.Model with
+        | Some model -> AuthoringSessionError.SnapshotCodecFailure model
+        | None -> AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidShape $"line {error.Line}, column {error.Column}: {error.Message}")
 
     /// Decodes `source` in the record form or strict JSON, resolved against `dependency` when given.
     let decodeWith (record: bool) (dependency: Snapshot option) (source: string): Result<Snapshot, AuthoringSessionError> =
