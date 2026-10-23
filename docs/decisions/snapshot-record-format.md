@@ -64,10 +64,10 @@ conditional node:01a0b371-4487-7e3d-9e9f-0938f8656308 in=function:01a0b371-4487-
 
 ## Open points
 
-1. **Member order of declarations.** The spec says the order of Product fields, Union variants and parameters is meaningful (an identical import must match it, [agent-authoring-session.md](../specs/agent-authoring-session.md#pinned-snapshot-dependencies)), and also that the persisted field order is canonical by ID (`addUnionVariant` under [Operations](../specs/agent-authoring-session.md#operations)). The canonicalization rules depend on which holds.
+1. **Member order of declarations.** Resolved 2026-10-23. Product fields, Union variants and their fields, and Capability operations are sets keyed by ID: the codecs write them in ID order, and execution, the viewer and the wire output read them in ID order. Only parameter and type-parameter order (function, type and capability operation) is meaningful. Canonical order is ID order for the former and declared order for the latter. The spec and dependency combination were aligned with this; a local workspace keeps append order in memory, since it installs exactly the snapshot it validated, while combined dependencies come back in ID order.
 2. **Per-kind key order.** A schema table fixing the key order of every record kind, including effects, capabilities, obligations and type parameters, which the sample snapshot does not contain and were not rendered.
 3. **Fingerprints and pin digests.** Whether the structural fingerprint becomes a hash of the canonical bytes, and how existing dependency pin digests over JSON migrate.
-4. **Supported legacy ID spellings.** Whether any persisted ID is not a lowercase UUID, and how it would be spelled.
+4. **Supported legacy ID spellings.** Resolved 2026-10-23: out of scope. IDs written before the stable-ID scheme settled need no spelling in the new form; only the full lowercase UUID is accepted.
 5. **Shared match arms.** An arm that names several variants with one body ([shared arms](match-union-shared-arms.md)) needs one locator; which variant it is keyed by, or whether it gets a different locator form.
 6. **Reading projection.** Which nested rendering agents and the viewer receive, and whether it is the same text for both.
 

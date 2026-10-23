@@ -2412,6 +2412,28 @@ module Snapshot =
           Functions = []
           Obligations = [] }
 
+    let private byId (id: 'T -> StableId<'Tag>) = List.sortBy (id >> StableId.value)
+    let private fieldsById = byId (fun (field: SemanticField) -> field.Id)
+
+    /// Product fields, Union variants and variant fields are sets keyed by ID, which the codecs write
+    /// in ID order; this is the same order, so a type compares and shows as its reopened form does.
+    /// In-memory order is append order. Type-parameter order is meaningful and kept.
+    let canonicalTypeMembers (semanticType: SemanticType) =
+        match semanticType.Kind with
+        | SemanticTypeKind.Product fields -> { semanticType with Kind = SemanticTypeKind.Product(fieldsById fields) }
+        | SemanticTypeKind.Union variants ->
+            let variants = variants |> List.map (fun variant -> { variant with Fields = fieldsById variant.Fields })
+            { semanticType with Kind = SemanticTypeKind.Union(byId (fun (variant: SemanticVariant) -> variant.Id) variants) }
+
+    /// Capability operations in ID order, as the codecs write them; parameter order is kept.
+    let canonicalCapabilityMembers (capability: SemanticCapability) =
+        { capability with Operations = byId (fun (operation: SemanticCapabilityOperation) -> operation.Id) capability.Operations }
+
+    let withCanonicalMemberOrder (snapshot: Snapshot) =
+        { snapshot with
+            Types = List.map canonicalTypeMembers snapshot.Types
+            Capabilities = List.map canonicalCapabilityMembers snapshot.Capabilities }
+
 /// Task and OneShot handles and captured Exceptions exist only inside one run. Declared fields may hold these handles
 /// but not TaskScope, which is lexical. Runtime-bearing types, including through declared types,
 /// never cross a capability or runPure boundary.
