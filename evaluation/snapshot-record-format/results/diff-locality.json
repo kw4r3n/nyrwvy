@@ -27,7 +27,7 @@
       "recordLinesChanged": 4,
       "nonLocalRecordLines": [],
       "pass": true,
-      "dir": "/tmp/claude-1000/-home-kw4-Work-Tools-nyrwvy/fe790485-2e88-45a6-86fa-b967a9f66e33/scratchpad/locality/rename-function"
+      "dir": "/tmp/claude-1000/-home-kw4-Work-Tools-nyrwvy/fe790485-2e88-45a6-86fa-b967a9f66e33/scratchpad/loc/rename-function"
     },
     {
       "operation": "add-node",
@@ -55,7 +55,7 @@
       "recordLinesChanged": 5,
       "nonLocalRecordLines": [],
       "pass": true,
-      "dir": "/tmp/claude-1000/-home-kw4-Work-Tools-nyrwvy/fe790485-2e88-45a6-86fa-b967a9f66e33/scratchpad/locality/add-node"
+      "dir": "/tmp/claude-1000/-home-kw4-Work-Tools-nyrwvy/fe790485-2e88-45a6-86fa-b967a9f66e33/scratchpad/loc/add-node"
     },
     {
       "operation": "add-union-variant",
@@ -85,7 +85,7 @@
       "recordLinesChanged": 5,
       "nonLocalRecordLines": [],
       "pass": true,
-      "dir": "/tmp/claude-1000/-home-kw4-Work-Tools-nyrwvy/fe790485-2e88-45a6-86fa-b967a9f66e33/scratchpad/locality/add-union-variant"
+      "dir": "/tmp/claude-1000/-home-kw4-Work-Tools-nyrwvy/fe790485-2e88-45a6-86fa-b967a9f66e33/scratchpad/loc/add-union-variant"
     },
     {
       "operation": "migrate-field-type",
@@ -114,7 +114,7 @@
       "recordLinesChanged": 20,
       "nonLocalRecordLines": [],
       "pass": true,
-      "dir": "/tmp/claude-1000/-home-kw4-Work-Tools-nyrwvy/fe790485-2e88-45a6-86fa-b967a9f66e33/scratchpad/locality/migrate-field-type"
+      "dir": "/tmp/claude-1000/-home-kw4-Work-Tools-nyrwvy/fe790485-2e88-45a6-86fa-b967a9f66e33/scratchpad/loc/migrate-field-type"
     }
   ]
 }

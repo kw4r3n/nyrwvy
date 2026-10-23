@@ -45,7 +45,7 @@ let private isFreeValueEdit (original: string) (mutated: string) =
     match leafDifferences original mutated with
     | [ key, before, after ] ->
         let scalar (v: string) = v.StartsWith '"' || Regex.IsMatch(v, "^-?[0-9]")
-        scalar before && scalar after && not (RecordText.isIdKey key) && not (closedEnumerations.Contains key)
+        scalar before && scalar after && key <> "id" && not (RecordText.isIdKey key) && not (closedEnumerations.Contains key)
     | _ -> false
 
 type Mutation = { Index: int; Fixture: string; Kind: string; MutatedLines: int list; Before: string; After: string }

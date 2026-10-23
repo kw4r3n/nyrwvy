@@ -95,24 +95,27 @@ function numstat(dir, name) {
 }
 // Changed record lines (from `git diff -U0`) that are not the header and not owned by a touched ID.
 function localityCheck(dir, before, after, touched) {
-  const owners = new Map() // subject base id -> owner base id, over both texts
-  for (const text of [before, after]) for (const line of text.split("\n")) {
-    const parts = line.split(" ")
-    if (parts.length < 2 || parts[0] === "snapshot") continue
-    const subject = parts[1].split("/")[0].split(":")[1]
-    const owner = parts.find(p => p.startsWith("in="))?.slice(3).split("/")[0].split(":")[1]
-    owners.set(subject, owner)
+  // subject base id -> owner base id, one map per side: a deleted line is judged by the before text, an added line by the after text
+  const ownersOf = text => {
+    const owners = new Map()
+    for (const line of text.split("\n")) {
+      const parts = line.split(" ")
+      if (parts.length < 2 || parts[0] === "snapshot") continue
+      owners.set(parts[1].split("/")[0].split(":")[1], parts.find(p => p.startsWith("in="))?.slice(3).split("/")[0].split(":")[1])
+    }
+    return owners
   }
-  const local = id => { let seen = new Set(); while (id && !seen.has(id)) { if (touched.has(id)) return true; seen.add(id); id = owners.get(id) } return false }
+  const sides = { "-": ownersOf(before), "+": ownersOf(after) }
+  const isLocal = (owners, id) => { let seen = new Set(); while (id && !seen.has(id)) { if (touched.has(id)) return true; seen.add(id); id = owners.get(id) } return false }
   const diff = sh("git", ["diff", "-U0", "--", "snapshot.records.txt"], { cwd: dir })
-  const changed = diff.split("\n").filter(l => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l)).map(l => l.slice(1))
-  const nonLocal = changed.filter(l => {
-    const parts = l.split(" ")
+  const changed = diff.split("\n").filter(l => /^[+-]/.test(l) && !/^(\+\+\+|---)/.test(l))
+  const nonLocal = changed.filter(d => {
+    const owners = sides[d[0]], l = d.slice(1), parts = l.split(" ")
     if (parts[0] === "snapshot" || l === "") return false
     const subject = parts[1].split("/")[0].split(":")[1]
     const owner = parts.find(p => p.startsWith("in="))?.slice(3).split("/")[0].split(":")[1]
-    return !(local(subject) || local(owner))
-  })
+    return !(isLocal(owners, subject) || isLocal(owners, owner))
+  }).map(d => d.slice(1))
   return { changedLines: changed.length, nonLocal }
 }
 

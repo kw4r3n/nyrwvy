@@ -118,3 +118,15 @@ the functions array, calls between copies included), normalized by the codec: 82
 | record full decode | 159.07 | `Codec.decode`: toJson + deserialize + re-encode canonical check |
 
 Ratio row table / JSON tree walk = 1.20 (criterion <= 1.5).
+
+## Review fixes
+
+Two measurement bugs were fixed after review; rerunning gave the same numbers in every row.
+
+- The free-value classifier did not treat the JSON key `id` as an ID, so a mutated record ID that still decoded could have counted as a free-value edit. None of the six accepted mutations was such a case.
+- The locality check merged the before and after ownership maps, so a line whose owner changed could be judged against the wrong owner. Deleted lines are now judged by the before text and added lines by the after text.
+
+## Caveats
+
+- **Load.** There is no public non-validating JSON reader, so the JSON tree walk is the median of `SnapshotCodec.deserialize` minus the median of validation alone, two independent medians. The record side builds rows, not a model, as the plan defines. The ratio is a rough comparison, not a precise one.
+- **Snapshot identity.** One accepted mutation changed a character of the header `snapshot:` ID. It decodes to a different, valid document with the same semantic fingerprint, because the fingerprint excludes the snapshot ID. The format cannot detect a well-formed edit to an ID that nothing else in the file references; the workspace's exact-source and approval checks are what catch it.
