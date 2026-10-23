@@ -121,3 +121,7 @@ The `member-*`, `offline-leader-*` and `offline-session-*` examples these record
 - [One additional admission](offline-session-additional-admission-20261015.md): the published executable refused an additional begin/integrate pair after its completed disposition; the successor composes existing recipes to admit it, with no core change.
 - [Finite offline admission/disposition milestone](offline-terminal-milestone-20261015.md): ends the finite slice with a terminal retain-unresolved disposition; all four outcomes stay unknown and startup stays closed.
 - [Reconstruction capability checklist](reconstruction-capability-checklist.md): what the offline Linux-pipe reconstruction demonstrates and which application behavior is still missing.
+
+## Storage format
+
+- [Snapshot record format evaluation](snapshot-record-format-20261023.md): the record format ADR's round trip, diff locality, corruption and load criteria pass; the ADR is accepted.

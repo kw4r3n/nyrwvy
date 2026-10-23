@@ -1,6 +1,6 @@
 # One record per line as the persisted snapshot form
 
-- **Status:** Proposed. Nothing here is implemented. Every open point below is settled; acceptance waits for the evaluation under Revisit conditions.
+- **Status:** Accepted 2026-10-23 after the [evaluation](../verification/snapshot-record-format-20261023.md) passed every mechanical criterion. Not implemented: snapshots are still persisted as JSON.
 - **Date:** 2026-10-23
 - **Question:** [Q-001](open-questions.md#q-001--what-becomes-the-permanent-authoritative-persistence-medium), within the [Nyason and storage direction](../concepts/nyason-and-storage.md)
 
@@ -68,6 +68,8 @@ conditional node:01a0b371-4487-7e3d-9e9f-0938f8656308 in=function:01a0b371-4487-
 - Adoption needs a codec for the new form and a migration that, like the existing `migrate` command (which reads and writes JSON only today), reports before and after fingerprints; the semantic fingerprint must be unchanged, since the change is representation-only.
 - The dependency sidecar keeps its JSON wrapper (`path`, `snapshotId`, `fingerprint`) and embeds the dependency in the new form under a new key beside `snapshotJson`; the loader already keys on exact field sets, so old manifests keep loading until migrated. Its `fingerprint` stays the model fingerprint. The embedded text is one escaped line, so upgrades are reviewed through `previewDependencyUpgrade`, not git diff.
 - JSON remains the strict reference, debug and benchmark codec.
+- The production codec parses records into the model directly. The evaluated codec went through JSON text and decoded 3 times slower than JSON; the production codec's full decode, validation included, must be measured against `SnapshotCodec.deserialize` before it replaces JSON, and this decision is revisited if it is more than 1.5 times slower.
+- Decoding resolved snapshots and the sidecar's embedded form was not evaluated and needs its own round-trip tests.
 
 ## Open points
 
@@ -80,7 +82,7 @@ conditional node:01a0b371-4487-7e3d-9e9f-0938f8656308 in=function:01a0b371-4487-
 
 ## Revisit conditions
 
-Accept, change or drop this proposal after an evaluation over the planner snapshot, the largest test fixture and every migrated fixture. The [evaluation plan](../experiments/snapshot-record-format-evaluation.md) fixes the corpus and pass criteria; its agent comparison decides only open point 6, not acceptance:
+The evaluation below ran on 2026-10-23 and passed ([record](../verification/snapshot-record-format-20261023.md)). It was to accept, change or drop this proposal after an evaluation over the planner snapshot, the largest test fixture and every migrated fixture. The [evaluation plan](../experiments/snapshot-record-format-evaluation.md) fixes the corpus and pass criteria; its agent comparison decides only open point 6, not acceptance:
 
 - decode and encode round-trip identity and idempotence on every fixture, and a fingerprint recomputed from the decoded graph equal to the stored one;
 - changed lines per authoring operation (add node, rename, add variant, migrate a field type) against JSON and Nyason v0;
