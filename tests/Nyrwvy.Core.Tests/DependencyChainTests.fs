@@ -88,3 +88,48 @@ module DependencyChainTests =
             |> Map.ofList
         let unordered = onSmallStack (fun () -> GraphOrder.tryUnorderedPair dependencies [ nodeId 0; nodeId chainLength ])
         Assert.Equal<(GraphNodeId * GraphNodeId) option>(None, unordered)
+
+    /// The pairwise rule `tryUnorderedPair` answered with before its topological fast path.
+    let private referenceUnorderedPair (dependencies: Map<GraphNodeId, GraphNodeId list>) (observable: GraphNodeId list) =
+        let rec dependsOn (seen: Set<GraphNodeId>) nodeId targetId =
+            nodeId = targetId
+            || (not (seen.Contains nodeId)
+                && (Map.tryFind nodeId dependencies |> Option.defaultValue [] |> List.exists (fun next -> dependsOn (seen.Add nodeId) next targetId)))
+        let rec pairs = function
+            | [] -> None
+            | first :: rest ->
+                match rest |> List.tryFind (fun second -> not (dependsOn Set.empty first second) && not (dependsOn Set.empty second first)) with
+                | Some second -> Some(first, second)
+                | None -> pairs rest
+        observable |> List.sortBy StableId.value |> pairs
+
+    [<Fact>]
+    let ``effect ordering agrees with the pairwise rule on random graphs`` () =
+        let random = System.Random 20261024
+        for _ in 1 .. 500 do
+            let size = random.Next(1, 12)
+            // Mostly edges to lower indices; a few point outside the graph or upwards, which can close a cycle.
+            let dependencies =
+                [ for index in 0 .. size - 1 ->
+                    nodeId index,
+                    [ for target in 0 .. index - 1 do if random.NextDouble() < 0.35 then nodeId target
+                      if random.NextDouble() < 0.05 then nodeId 999_999
+                      if index + 1 < size && random.NextDouble() < 0.03 then nodeId (index + 1) ] ]
+                |> Map.ofList
+            // Observable lists may repeat a node or name one outside the graph.
+            let observable =
+                [ for index in 0 .. size - 1 do
+                    if random.NextDouble() < 0.5 then nodeId index
+                    if random.NextDouble() < 0.05 then nodeId index
+                  if random.NextDouble() < 0.05 then nodeId 888_888 ]
+            Assert.Equal<(GraphNodeId * GraphNodeId) option>(referenceUnorderedPair dependencies observable, GraphOrder.tryUnorderedPair dependencies observable)
+
+    [<Fact>]
+    let ``effect ordering of many sequential observable nodes is not quadratic in pairs`` () =
+        // 2,000 observable nodes in one chain: the pairwise search alone would walk about 2 million pairs.
+        let count = 2_000
+        let dependencies = [ for index in 0 .. count - 1 -> nodeId index, (if index = 0 then [] else [ nodeId (index - 1) ]) ] |> Map.ofList
+        let watch = System.Diagnostics.Stopwatch.StartNew()
+        let unordered = GraphOrder.tryUnorderedPair dependencies [ for index in 0 .. count - 1 -> nodeId index ]
+        Assert.Equal<(GraphNodeId * GraphNodeId) option>(None, unordered)
+        Assert.True(watch.Elapsed.TotalSeconds < 5.0, $"took {watch.Elapsed}")
