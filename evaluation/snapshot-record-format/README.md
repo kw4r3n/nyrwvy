@@ -42,6 +42,13 @@ it drives the operations through the real tool handlers on the verification-plan
 `roundtrip` also writes `<fixture>.records.txt` beside every fixture (committed, so the
 record form is reviewable) and prints validated-tier node-kind coverage.
 
+The production codec (`RecordCodec` in `src/Nyrwvy.Semantics`) is checked against this harness:
+`roundtrip` requires its record text to equal the harness's on every fixture, its decode to give the
+same model, and its embedded per-kind table (`src/Nyrwvy.Semantics/RecordKinds.fs`, the `schema`
+output) to match the writer; `corrupt` lists every mutation on which the two decoders differ in outcome
+or reported line (`productionDisagreements` in `results/corruption.json`); `load` times
+`RecordCodec.deserialize` against `SnapshotCodec.deserialize` for the ADR's 1.5x gate.
+
 To refresh the harvested fixtures, from the repository root after `npm ci` and
 `dotnet build tools/Nyrwvy.AuthoringSession -c Release`:
 
@@ -77,7 +84,8 @@ cannot validate on its own (one with a pinned dependency).
   in the error text, else on line 1. Errors carry a 1-based line, not a column. The JSON-level
   `toJson` (structural tier) skips the existence checks, since that tier does not validate.
 - Strings are copied as the writer's JSON literals in both directions, so the writer's escaping
-  (`+` for `+`, `\uXXXX` for non-ASCII) is the record spelling.
+  (`+` for `+`, `\uXXXX` for non-ASCII) is the record spelling. The header's `digest=` is the bare
+  lowercase hex of the dependency digest, as the ADR grammar spells it.
 
 ## Corpus
 

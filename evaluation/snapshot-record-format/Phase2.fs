@@ -105,7 +105,10 @@ type Outcome =
       Outcome: string // rejected | accepted-same | accepted-free-value | accepted-changed
       ReportedLine: int
       LineOk: bool
-      Message: string }
+      Message: string
+      /// The production codec's view when it disagrees with the harness (`same` otherwise): its
+      /// outcome and reported line, with its message when it rejects.
+      Production: string }
 
 let corrupt (fixtures: string) (seed: int) (misspellings: bool) (resultsDir: string) =
     let rng = Random seed
@@ -127,16 +130,23 @@ let corrupt (fixtures: string) (seed: int) (misspellings: bool) (resultsDir: str
                 noOps <- noOps + 1
                 drawn <- mutate rng slot name text
             let mutation, mutated = drawn
+            let production =
+                match RecordCodec.deserialize mutated with
+                | Error e -> $"rejected at {e.Line}:{e.Column}: {e.Message.Split('\n')[0]}", "rejected", e.Line
+                | Ok _ -> "accepted", "accepted", 0
+            let compare outcome line =
+                let text, kind, at = production
+                if kind = (if outcome = "rejected" then "rejected" else "accepted") && at = line then "same" else text
             match Codec.decodeWith misspellings mutated with
             | Error e ->
-                yield { Mutation = mutation; Outcome = "rejected"; ReportedLine = e.Line; LineOk = List.contains e.Line mutation.MutatedLines; Message = e.Message.Split('\n')[0] }
+                yield { Mutation = mutation; Outcome = "rejected"; ReportedLine = e.Line; LineOk = List.contains e.Line mutation.MutatedLines; Message = e.Message.Split('\n')[0]; Production = compare "rejected" e.Line }
             | Ok decoded ->
                 let same = (SemanticFingerprint.compute decoded |> Result.defaultValue Unchecked.defaultof<_>) = fingerprint
                 let outcome =
                     if isFreeValueEdit json (SnapshotCodec.serialize decoded |> Result.defaultValue "") then "accepted-free-value"
                     elif same then "accepted-same"
                     else "accepted-changed"
-                yield { Mutation = mutation; Outcome = outcome; ReportedLine = 0; LineOk = true; Message = "" } ]
+                yield { Mutation = mutation; Outcome = outcome; ReportedLine = 0; LineOk = true; Message = ""; Production = compare outcome 0 } ]
     let rejected = outcomes |> List.filter (fun o -> o.Outcome = "rejected")
     let lineOk = rejected |> List.filter (fun o -> o.LineOk)
     let changed = outcomes |> List.filter (fun o -> o.Outcome = "accepted-changed")
@@ -147,6 +157,10 @@ let corrupt (fixtures: string) (seed: int) (misspellings: bool) (resultsDir: str
     for kind in outcomes |> List.map (fun o -> o.Mutation.Kind) |> List.distinct do
         let ofKind = outcomes |> List.filter (fun o -> o.Mutation.Kind = kind)
         printfn "%-16s %8d %8d %8d" kind ofKind.Length (ofKind |> List.filter (fun o -> o.Outcome = "rejected") |> List.length) (ofKind |> List.filter (fun o -> o.Outcome = "rejected" && o.LineOk) |> List.length)
+    let disagreements = outcomes |> List.filter (fun o -> o.Production <> "same")
+    printfn "production codec (RecordCodec.deserialize): %d of %d mutations differ in outcome or reported line" disagreements.Length outcomes.Length
+    for o in disagreements do
+        printfn "  #%d %s line %A: harness %s at %d (%s); production %s" o.Mutation.Index o.Mutation.Kind o.Mutation.MutatedLines o.Outcome o.ReportedLine o.Message o.Production
     let semanticPass, linePass = changed.IsEmpty, ratio >= 0.95
     printfn "criterion semantics (no accepted-changed): %s; criterion line (>=95%% of rejected on the mutated line): %s" (if semanticPass then "PASS" else "FAIL") (if linePass then "PASS" else "FAIL")
     Directory.CreateDirectory resultsDir |> ignore
@@ -156,6 +170,7 @@ let corrupt (fixtures: string) (seed: int) (misspellings: bool) (resultsDir: str
            misspellingRule = misspellings
            noOpDrawsDiscarded = noOps
            summary = {| mutations = outcomes.Length; rejected = rejected.Length; rejectedOnMutatedLine = lineOk.Length; rejectedOnMutatedLineRatio = ratio; acceptedSame = count "accepted-same"; acceptedFreeValue = count "accepted-free-value"; acceptedChanged = changed.Length; semanticsPass = semanticPass; linePass = linePass |}
+           productionDisagreements = disagreements |> List.map (fun o -> {| index = o.Mutation.Index; fixture = o.Mutation.Fixture; kind = o.Mutation.Kind; mutatedLines = o.Mutation.MutatedLines; outcome = o.Outcome; reportedLine = o.ReportedLine; message = o.Message; production = o.Production |})
            breaking = breaking |> List.map (fun o -> {| index = o.Mutation.Index; fixture = o.Mutation.Fixture; kind = o.Mutation.Kind; mutatedLines = o.Mutation.MutatedLines; outcome = o.Outcome; reportedLine = o.ReportedLine; message = o.Message; before = o.Mutation.Before; after = o.Mutation.After |})
            all = outcomes |> List.map (fun o -> {| index = o.Mutation.Index; fixture = o.Mutation.Fixture; kind = o.Mutation.Kind; mutatedLines = o.Mutation.MutatedLines; outcome = o.Outcome; reportedLine = o.ReportedLine; before = o.Mutation.Before; after = o.Mutation.After |}) |}
     let file = Path.Combine(resultsDir, (if misspellings then "corruption.json" else "corruption-no-misspelling-rule.json"))
@@ -210,8 +225,10 @@ let load (plannerPath: string) (copies: int) (resultsDir: string) =
     let jsonParseOnly = time 3 20 (fun () -> JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = SnapshotCodec.maxJsonDepth)).Dispose())
     let recordToJson = time 3 20 (fun () -> RecordText.toJson text |> ok)
     let recordDecode = time 3 20 (fun () -> Codec.decode text |> ok)
+    let productionDecode = time 3 20 (fun () -> RecordCodec.deserialize text |> ok)
     let jsonTreeWalk = jsonDeserialize - validateOnly
     let ratio = rowTable / jsonTreeWalk
+    let productionRatio = productionDecode / jsonDeserialize
     printfn "record row table (tokenize every line, no model):          %8.2f ms" rowTable
     printfn "JSON deserialize (JsonDocument + tree walk + validate):    %8.2f ms" jsonDeserialize
     printfn "  validate alone (fresh model):                            %8.2f ms" validateOnly
@@ -219,8 +236,10 @@ let load (plannerPath: string) (copies: int) (resultsDir: string) =
     printfn "  JsonDocument.Parse alone:                                %8.2f ms" jsonParseOnly
     printfn "record -> JSON text (structure, no model, no validation):  %8.2f ms" recordToJson
     printfn "record full decode (toJson + deserialize + canonical check): %6.2f ms" recordDecode
+    printfn "production RecordCodec.deserialize (tokenize + checks + JSON bytes + reader + validate): %6.2f ms" productionDecode
     printfn "ratio row table / JSON tree walk = %.2f (criterion <= 1.5): %s" ratio (if ratio <= 1.5 then "PASS" else "FAIL")
+    printfn "ratio production decode / SnapshotCodec.deserialize = %.2f (ADR gate <= 1.5): %s" productionRatio (if productionRatio <= 1.5 then "PASS" else "FAIL")
     Directory.CreateDirectory resultsDir |> ignore
-    let doc = {| copies = copies; jsonBytes = json.Length; recordBytes = Encoding.UTF8.GetByteCount text; rows = rows; medianOf = 20; warmup = 3; ms = {| recordRowTable = rowTable; jsonDeserializeWithValidation = jsonDeserialize; validateOnly = validateOnly; jsonTreeWalkWithoutValidation = jsonTreeWalk; jsonDocumentParseOnly = jsonParseOnly; recordToJsonText = recordToJson; recordFullDecode = recordDecode |}; ratioRowTableToJsonTreeWalk = ratio; pass = ratio <= 1.5 |}
+    let doc = {| copies = copies; jsonBytes = json.Length; recordBytes = Encoding.UTF8.GetByteCount text; rows = rows; medianOf = 20; warmup = 3; ms = {| recordRowTable = rowTable; jsonDeserializeWithValidation = jsonDeserialize; validateOnly = validateOnly; jsonTreeWalkWithoutValidation = jsonTreeWalk; jsonDocumentParseOnly = jsonParseOnly; recordToJsonText = recordToJson; recordFullDecode = recordDecode; productionDecode = productionDecode |}; ratioRowTableToJsonTreeWalk = ratio; pass = ratio <= 1.5; ratioProductionDecodeToJsonDeserialize = productionRatio; productionPass = productionRatio <= 1.5 |}
     File.WriteAllText(Path.Combine(resultsDir, "load.json"), JsonSerializer.Serialize(doc, JsonSerializerOptions(WriteIndented = true)))
     if ratio <= 1.5 then 0 else 1

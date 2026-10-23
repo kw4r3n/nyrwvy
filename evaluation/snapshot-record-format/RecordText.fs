@@ -74,8 +74,14 @@ let private idRegex = Regex($"^([a-z-]+):({uuidPattern})$")
 // ---------------------------------------------------------------------------------------------
 
 /// What a JSON key holds, as observed in the writer's output; the inverse needs it.
+type ScalarKind =
+    | Id of domain: string
+    | Bool
+    | Int
+    | Str
+
 type Shape =
-    | Scalar
+    | Scalar of ScalarKind
     | Graph
     | ValueArm of bindingKey: string
     | Arms
@@ -118,7 +124,7 @@ let rec private renderObject (observe: Observe) (kind: string) (subject: string)
             seen.Add((jk, shape))
             value |> Option.iter (fun value -> fields.Add((keyName jk, value)))
         match jk with
-        | "id" | "kind" | "typeParameterId" -> seen.Add((jk, Scalar))
+        | "id" | "kind" | "typeParameterId" -> seen.Add((jk, Scalar Str))
         | _ when isGraph v -> add Graph (Some("node:" + renderGraph observe v (subject + "/" + keyName jk) acc))
         | _ when isValueArm v ->
             let loc = subject + "/" + keyName jk
@@ -157,11 +163,12 @@ let rec private renderObject (observe: Observe) (kind: string) (subject: string)
                 let k1, k2 = match names with [ a; b ] -> a, b | _ -> failwith $"unmapped keyed list {jk}"
                 let item (p: JsonElement) = domainOf(k1).Value + ":" + p.GetProperty(k1).GetString() + "=" + domainOf(k2).Value + ":" + p.GetProperty(k2).GetString()
                 add (Pairs(k1, k2)) (Some("[" + (items |> List.map item |> String.concat " ") + "]"))
-        | _ when v.ValueKind = JsonValueKind.True || v.ValueKind = JsonValueKind.False || v.ValueKind = JsonValueKind.Number -> add Scalar (Some(v.GetRawText()))
+        | _ when v.ValueKind = JsonValueKind.True || v.ValueKind = JsonValueKind.False -> add (Scalar Bool) (Some(v.GetRawText()))
+        | _ when v.ValueKind = JsonValueKind.Number -> add (Scalar Int) (Some(v.GetRawText()))
         | _ when v.ValueKind = JsonValueKind.String ->
             match domainOf jk with
-            | Some domain -> add Scalar (Some(domain + ":" + v.GetString()))
-            | None -> add Scalar (Some(v.GetRawText()))
+            | Some domain -> add (Scalar(Id domain)) (Some(domain + ":" + v.GetString()))
+            | None -> add (Scalar Str) (Some(v.GetRawText()))
         | _ -> failwith $"unmapped value under {kind}.{jk}"
     observe kind (List.ofSeq seen)
     line kind subject owner position (List.ofSeq fields)
@@ -179,8 +186,8 @@ and private renderBinding (observe: Observe) (b: JsonElement) (owner: string) (e
     let seen = List<string * Shape>()
     for p in b.EnumerateObject() do
         match p.Name with
-        | "id" -> seen.Add(("id", Scalar))
-        | "displayName" -> seen.Add(("displayName", Scalar)); fields.Add(("name", p.Value.GetRawText()))
+        | "id" -> seen.Add(("id", Scalar Str))
+        | "displayName" -> seen.Add(("displayName", Scalar Str)); fields.Add(("name", p.Value.GetRawText()))
         | "type" -> seen.Add(("type", TypeExpr)); fields.Add(("type", typeExpr p.Value))
         | other -> failwith $"unmapped binding key {other}"
     observe "binding" (List.ofSeq seen)
@@ -214,7 +221,7 @@ let private renderWith (observe: Observe) (json: string) : string =
     | true, p -> head.Add("parent=snapshot:" + p.GetString())
     | _ -> ()
     match root.TryGetProperty "dependency" with
-    | true, d -> head.Add("dependency=" + d.GetProperty("snapshotId").GetRawText()); head.Add("digest=" + d.GetProperty("digest").GetRawText())
+    | true, d -> head.Add("dependency=" + d.GetProperty("snapshotId").GetRawText()); head.Add("digest=" + d.GetProperty("digest").GetString())
     | _ -> ()
     let out = List<string>([ String.concat " " head ])
     for group in declarationGroups do
@@ -236,20 +243,29 @@ let ofJson (json: string) : string = renderWith (fun _ _ -> ()) json
 // The per-kind table, derived from the writer's output on the structural fixture
 // ---------------------------------------------------------------------------------------------
 
-type KindTable = { Keys: string list; Shapes: IDictionary<string, Shape> }
+/// `Optional`: keys absent from at least one observed record of the kind (the writer omits an
+/// absent option), plus `exported`, which the writer omits when false (SnapshotCodec.fs
+/// writeVisibility) and which the fixture only shows absent on some kinds.
+type KindTable = { Keys: string list; Shapes: IDictionary<string, Shape>; Optional: Set<string> }
 
 let private deriveTable () : IDictionary<string, KindTable> =
     let keys = Dictionary<string, List<string>>()
     let shapes = Dictionary<string, Dictionary<string, Shape>>()
+    let records = Dictionary<string, int>()
+    let occurrences = Dictionary<string, Dictionary<string, int>>()
     let observe kind (seen: (string * Shape) list) =
         if not (keys.ContainsKey kind) then
             keys[kind] <- List<string>()
             shapes[kind] <- Dictionary<string, Shape>()
+            records[kind] <- 0
+            occurrences[kind] <- Dictionary<string, int>()
+        records[kind] <- records[kind] + 1
         let order, known = keys[kind], shapes[kind]
         let mutable previous = -1
         for jk, shape in seen do
             if not (order.Contains jk) then order.Insert(previous + 1, jk)
             previous <- order.IndexOf jk
+            occurrences[kind][jk] <- (match occurrences[kind].TryGetValue jk with | true, n -> n + 1 | _ -> 1)
             match known.TryGetValue jk with
             | true, existing when existing <> Unknown -> ()
             | _ -> known[jk] <- shape
@@ -257,18 +273,43 @@ let private deriveTable () : IDictionary<string, KindTable> =
     for KeyValue(kind, known) in shapes do
         for KeyValue(jk, shape) in known do
             if shape = Unknown then failwith $"table: shape of {kind}.{jk} never observed non-empty"
-    keys |> Seq.map (fun (KeyValue(kind, order)) -> kind, { Keys = List.ofSeq order; Shapes = shapes[kind] }) |> dict
+    keys
+    |> Seq.map (fun (KeyValue(kind, order)) ->
+        let optional = order |> Seq.filter (fun jk -> jk = "exported" || occurrences[kind][jk] < records[kind]) |> Set.ofSeq
+        kind, { Keys = List.ofSeq order; Shapes = shapes[kind]; Optional = optional })
+    |> dict
 
 let table = lazy (deriveTable ())
 
-/// The table as text, one kind per line: `kind: jsonKey(record-key:shape) ...`.
+/// The table as text, one kind per line, in the form the production codec embeds
+/// (src/Nyrwvy.Semantics/RecordKinds.fs): `record-kind[=jsonKind]: id|kind|typeParameterId|jsonKey/record-key:shape[?][~]`
+/// where `?` marks a key the writer sometimes omits and `~` a collection it omits when empty.
 let describeTable () =
+    let shapeText shape =
+        match shape with
+        | Scalar(Id d) -> $"id({d})"
+        | Scalar Bool -> "bool"
+        | Scalar Int -> "int"
+        | Scalar Str -> "str"
+        | Graph -> "graph"
+        | ValueArm b -> $"arm({b})"
+        | Arms -> "arms"
+        | TypeExpr -> "type"
+        | TypeList -> "types"
+        | IdList d -> $"ids({d})"
+        | Pairs(a, b) -> $"pairs({a}:{(domainOf a).Value},{b}:{(domainOf b).Value})"
+        | Members m -> $"members({m})"
+        | Unknown -> failwith "unobserved shape"
     table.Value
     |> Seq.sortBy (fun (KeyValue(k, _)) -> k)
     |> Seq.map (fun (KeyValue(kind, t)) ->
-        let cell jk = match t.Shapes[jk] with Scalar -> $"{jk}" | shape -> $"{jk}:{shape}"
-        kind + ": " + (t.Keys |> List.map cell |> String.concat " "))
+        let cell jk =
+            match jk with
+            | "id" | "kind" | "typeParameterId" -> jk
+            | _ -> $"{jk}/{keyName jk}:{shapeText t.Shapes[jk]}" + (if t.Optional.Contains jk then "?" else "") + (if optionalWhenEmpty.Contains jk then "~" else "")
+        kind + (if t.Keys |> List.contains "kind" then "=" + camel kind else "") + ": " + (t.Keys |> List.map cell |> String.concat " "))
     |> String.concat "\n"
+    |> fun text -> text + "\n"
 
 // ---------------------------------------------------------------------------------------------
 // Inverse: record text -> writer JSON
@@ -443,9 +484,9 @@ let private convert (strict: bool) (misspellings: bool) (text: string) : Result<
         let dependency = head.Fields |> List.tryFind (fun (k, _) -> k = "dependency") |> Option.map snd
         let digest = head.Fields |> List.tryFind (fun (k, _) -> k = "digest") |> Option.map snd
         match dependency, digest with
-        | Some d, Some g when d.StartsWith '"' && g.StartsWith '"' -> headerFields.Add(("dependency", Obj [ "snapshotId", Raw d; "digest", Raw g ]))
+        | Some d, Some g when d.StartsWith '"' && Regex.IsMatch(g, "^[0-9a-f]+$") -> headerFields.Add(("dependency", Obj [ "snapshotId", Raw d; "digest", quoted g ]))
         | None, None -> ()
-        | _ -> fail 1 "dependency= and digest= must be quoted and appear together"
+        | _ -> fail 1 "dependency= (quoted) and digest= (lowercase hex) must appear together"
         head.Fields |> List.tryFind (fun (k, _) -> k = "parent") |> Option.iter (fun (_, v) -> headerFields.Add(("parentSnapshotId", quoted (parseId 1 (Some "snapshot") v))))
         for k, _ in head.Fields do
             if not (List.contains k [ "schema"; "parent"; "dependency"; "digest" ]) then fail 1 $"unknown header key {k}"
@@ -618,7 +659,7 @@ let private convert (strict: bool) (misspellings: bool) (text: string) : Result<
                     | [| a; b |] -> Obj [ k1, quoted (parseId r.Line (domainOf k1) a); k2, quoted (parseId r.Line (domainOf k2) b) ]
                     | _ -> fail r.Line $"bad pair '{item}' in {rk}="))
             | Arms | Members _ | Unknown -> fail r.Line $"{rk}= cannot be given inline"
-            | Scalar ->
+            | Scalar _ ->
                 match domainOf jk with
                 | Some domain -> quoted (parseId r.Line (Some domain) raw)
                 | None ->
