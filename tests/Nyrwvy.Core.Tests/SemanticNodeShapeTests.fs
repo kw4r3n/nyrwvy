@@ -19,8 +19,9 @@ module internal NodeShapeFixtures =
     let makeUnion (case: UnionCaseInfo) (fields: obj[]) = FSharpValue.MakeUnion(case, fields, true)
 
     /// A fixture value of any payload type. Every stable ID is fresh, so references, nested graphs
-    /// and bindings can be told apart; lists carry two items so list-shaped operands are exercised.
-    let rec synthesize (nextId: unit -> string) (t: Type): obj =
+    /// and bindings can be told apart; lists carry two items so list-shaped operands are exercised
+    /// (`filled = false` makes every list empty and every option absent).
+    let rec synthesizeWith (filled: bool) (nextId: unit -> string) (t: Type): obj =
         if t = typeof<string> then box "text"
         elif t = typeof<bool> then box true
         elif t = typeof<int64> then box 1L
@@ -34,21 +35,27 @@ module internal NodeShapeFixtures =
             let cases = FSharpType.GetUnionCases t
             let empty = cases |> Array.find (fun case -> case.Name = "Empty")
             let cons = cases |> Array.find (fun case -> case.Name = "Cons")
-            [ 1; 2 ]
-            |> List.fold (fun tail _ -> makeUnion cons [| synthesize nextId itemType; tail |]) (makeUnion empty [||])
+            [ 1 .. (if filled then 2 else 0) ]
+            |> List.fold (fun tail _ -> makeUnion cons [| synthesizeWith filled nextId itemType; tail |]) (makeUnion empty [||])
         elif isOption t then
-            let some = FSharpType.GetUnionCases t |> Array.find (fun case -> case.Name = "Some")
-            makeUnion some [| synthesize nextId (t.GetGenericArguments().[0]) |]
+            let cases = FSharpType.GetUnionCases t
+            if filled then
+                let some = cases |> Array.find (fun case -> case.Name = "Some")
+                makeUnion some [| synthesizeWith filled nextId (t.GetGenericArguments().[0]) |]
+            else
+                makeUnion (cases |> Array.find (fun case -> case.Name = "None")) [||]
         elif FSharpType.IsTuple t then
-            FSharpValue.MakeTuple(FSharpType.GetTupleElements t |> Array.map (synthesize nextId), t)
+            FSharpValue.MakeTuple(FSharpType.GetTupleElements t |> Array.map (synthesizeWith filled nextId), t)
         elif FSharpType.IsRecord(t, true) then
-            let fields = FSharpType.GetRecordFields(t, true) |> Array.map (fun field -> synthesize nextId field.PropertyType)
+            let fields = FSharpType.GetRecordFields(t, true) |> Array.map (fun field -> synthesizeWith filled nextId field.PropertyType)
             FSharpValue.MakeRecord(t, fields, true)
         elif FSharpType.IsUnion(t, true) then
             let case = FSharpType.GetUnionCases(t, true).[0]
-            makeUnion case (case.GetFields() |> Array.map (fun field -> synthesize nextId field.PropertyType))
+            makeUnion case (case.GetFields() |> Array.map (fun field -> synthesizeWith filled nextId field.PropertyType))
         else
             failwith $"No fixture value for {t.FullName}."
+
+    let synthesize (nextId: unit -> string) (t: Type): obj = synthesizeWith true nextId t
 
     /// Every value of type `target` that `value` holds, in field order, without descending into
     /// values whose type `stop` names (a value of the target type itself is not descended into).

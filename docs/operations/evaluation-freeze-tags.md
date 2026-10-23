@@ -15,6 +15,7 @@ Canonical freeze tags:
 | `eval/m2-listmap-agent-corpus-v1-20260831` | `a2ffb5615d37d44bbd910c4f47c36136c31cdce4` |
 | `eval/m2-listmap-condition-v1-20260831` | `23bf09d87c03b9c15dd4640b662a05b24aa5e330` |
 | `eval/m2-listmap-orchestrator-v1-20260831` | `f7d6d07cd47367dde2272386b6e430fddef6d03a` |
+| `eval/snapshot-record-format-20261023` | `b9a0fec6634c4ee6efb827db9b7a093a4f43cdc5` |
 
 ## Historical operator replay
 

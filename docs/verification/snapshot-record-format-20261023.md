@@ -1,6 +1,6 @@
 # Snapshot record format evaluation — 2026-10-23
 
-Evaluation of the [snapshot record format ADR](../decisions/snapshot-record-format.md) under its [evaluation plan](../experiments/snapshot-record-format-evaluation.md). Harness: `evaluation/snapshot-record-format/`, an experimental codec outside `src/`. Phases 1 and 2 ran at `732eb3a` (PR #443 and #444). The pass criteria were fixed in PR #442 before anything was measured and were not edited. Per-run output and every criterion-breaking mutation are in `evaluation/snapshot-record-format/results/`.
+Evaluation of the [snapshot record format ADR](../decisions/snapshot-record-format.md) under its [evaluation plan](../experiments/snapshot-record-format-evaluation.md). Harness: `evaluation/snapshot-record-format/`, an experimental codec outside `src/`, removed from `main` on 2026-10-23 and frozen at the tag `eval/snapshot-record-format-20261023` (commit `b9a0fec`); read and replay it from that tag. Phases 1 and 2 ran at `732eb3a` (PR #443 and #444). The pass criteria were fixed in PR #442 before anything was measured and were not edited. Per-run output and every criterion-breaking mutation are in `evaluation/snapshot-record-format/results/`.
 
 ## Result
 

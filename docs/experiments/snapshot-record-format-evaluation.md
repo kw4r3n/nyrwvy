@@ -11,9 +11,9 @@ This plan carries out the Revisit conditions of the [snapshot record format ADR]
 
 ## Harness location
 
-The harness lives in `evaluation/snapshot-record-format/`, an F# project that references `src/Nyrwvy.Semantics` and is not part of `Nyrwvy.slnx`, so ordinary builds and CI ignore it. `src/` is not changed: the ADR stays unimplemented and JSON stays the reference codec.
+The harness lived in `evaluation/snapshot-record-format/`, an F# project that referenced `src/Nyrwvy.Semantics` and was not part of `Nyrwvy.slnx`, so ordinary builds and CI ignored it. It was removed from `main` on 2026-10-23; read and replay it from the freeze tag `eval/snapshot-record-format-20261023` (commit `b9a0fec`, the last `main` commit that contained it). During the evaluation `src/` was not changed: the ADR stayed unimplemented and JSON stayed the reference codec.
 
-After the result is recorded in `docs/verification/`, the harness follows the 2026-10-18 owner decision on evaluation code ([freeze tags](../operations/evaluation-freeze-tags.md)): it gets an `eval/snapshot-record-format-…` tag and leaves `main`. If the ADR is accepted, the codec moves into `src/Nyrwvy.Semantics` with ordinary unit tests, and the harness is retired the same way.
+After the result is recorded in `docs/verification/`, the harness follows the 2026-10-18 owner decision on evaluation code ([freeze tags](../operations/evaluation-freeze-tags.md)): it gets an `eval/snapshot-record-format-…` tag and leaves `main`. The ADR was accepted, the codec moved into `src/Nyrwvy.Semantics` with ordinary unit tests, and the harness was retired the same way; its structural all-kinds generator and the per-kind table derivation live on in `tests/Nyrwvy.Core.Tests/RecordKindsTests.fs`, which regenerates `RecordKinds.fs` and fails when it drifts from the writer.
 
 ## Corpus
 

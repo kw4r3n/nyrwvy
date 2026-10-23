@@ -20,7 +20,7 @@ This area holds explorations, evaluation protocols, and measurements that are no
 
 - [Nyason v0](nyason-v0.md)
 - [Exact-bit representation](bit-representation.md)
-- [Snapshot record format evaluation](snapshot-record-format-evaluation.md): plan for the record format ADR's Revisit conditions
+- [Snapshot record format evaluation](snapshot-record-format-evaluation.md): plan for the record format ADR's Revisit conditions. Its harness (`evaluation/snapshot-record-format/`) was removed from `main` on 2026-10-23; read and replay it from the freeze tag `eval/snapshot-record-format-20261023`.
 
 ## Change verification
 
