@@ -3,7 +3,7 @@ import {mkdir,mkdtemp,readdir,readFile,writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join,resolve} from 'node:path'
 import {createHash} from 'node:crypto'
-import {session} from './lib.mjs'
+import {session} from '../dynamic-worker-collector/lib.mjs'
 import {author} from './author.mjs'
 const replay=process.argv[2]==='--replay',output=process.argv[replay?3:2]
 if(replay&&!output)throw new Error('Usage: run.mjs [--replay] <bundle-directory>')

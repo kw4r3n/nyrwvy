@@ -1,5 +1,5 @@
 import {string,int,bool,unit,cap,scope,task,oneShot,named,result,list,option,
-  p,text,integer,boolean,unitValue,pat,bind,field,construct,ok,err,direct,cond,matchOption,invoke,cancellation,eqStr,eqInt} from './lib.mjs'
+  p,text,integer,boolean,unitValue,pat,bind,field,construct,ok,err,direct,cond,matchOption,invoke,cancellation,eqStr,eqInt} from '../dynamic-worker-collector/lib.mjs'
 
 // Two independent one-record streams. Round-robin routing prevents a stalled
 // input from leaving an old cursor into another producer's completed history.
