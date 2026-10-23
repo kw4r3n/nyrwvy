@@ -147,7 +147,7 @@ for (const op of operations) {
   const jsonBytes = changedBytes(beforeJson, afterJson)
   const recordLines = lines.records.added + lines.records.deleted, jsonLines = lines.json.added + lines.json.deleted
   results.push({ operation: op.name, touched: [...touched], lines, jsonChangedBytes: jsonBytes, recordLinesChanged: locality.changedLines, nonLocalRecordLines: locality.nonLocal,
-    pass: recordLines <= jsonLines && locality.nonLocal.length === 0, dir })
+    pass: recordLines <= jsonLines && locality.nonLocal.length === 0 })
 }
 console.log("operation            records(+/-)   json(+/-)   nyason(+/-)   json-bytes(before/after)  non-local  pass")
 for (const r of results) {
