@@ -126,6 +126,10 @@ module RecordCodec =
     /// writeTypeParameters, writeFunction, writeCapabilityOperation: "declared order").
     let private ordered = HashSet [ "parameters"; "typeParameters" ]
     let private declarationDomains = HashSet [ "type"; "effect"; "capability"; "function"; "obligation" ]
+    /// ID lists the writer sorts by ID (SnapshotCodec.fs writeFunction requiredEffects); every pair list
+    /// is sorted by its pair (writeNode contexts, arguments, fields, implementations), and an arm's
+    /// `variants=` by ID (UnionMatchArm.canonicalVariantIds). Positional lists keep their order.
+    let private sortedIdLists = HashSet [ "requiredEffects" ]
     let private memberDomains = HashSet [ "node"; "binding"; "parameter"; "capability-parameter"; "type-parameter"; "field"; "variant"; "operation"; "type"; "effect"; "capability"; "function"; "obligation" ]
     let private memberDomainLookup = memberDomains.GetAlternateLookup<ReadOnlySpan<char>>()
     let private primitives = HashSet [ "string"; "bool"; "unit"; "int64"; "float64"; "bits32" ]
@@ -435,7 +439,7 @@ module RecordCodec =
                 fi <- fi + 1
             if fi < fields.Length && fields[fi].Key = "dependency" then
                 let d = fields[fi]
-                if text[d.Start] <> '"' then fail 1 d.Column "dependency= must be a quoted string"
+                if text[d.Start] <> '"' || not (isCanonicalString (text.Substring(d.Start, d.Length))) then fail 1 d.Column "dependency= must be a quoted string as the writer's encoder spells it"
                 if fi + 1 >= fields.Length || fields[fi + 1].Key <> "digest" then fail 1 (if fi + 1 < fields.Length then fields[fi + 1].Column else head.EndColumn) "dependency= must be followed by digest="
                 let g = fields[fi + 1]
                 for j in g.Start .. g.Start + g.Length - 1 do
@@ -612,14 +616,19 @@ module RecordCodec =
                 if text[f.Start] <> '[' || text[f.Start + f.Length - 1] <> ']' then fail r.Line f.Column $"{key.Record}= must be a list"
                 if f.Length = 2 then fail r.Line f.Column $"{key.Record}= must not be empty"
                 f.Start + 1, f.Start + f.Length - 1
-            /// Calls `item start length` for each space-separated item of a list value.
-            let listItems (r: Record) (f: Field) (key: Key) (item: int -> int -> unit) =
+            /// Calls `item start length` for each space-separated item of a list value; a sorted list
+            /// must be strictly increasing by item text (every ID has the same length, so that is key order).
+            let listItems (r: Record) (f: Field) (key: Key) (sorted: bool) (item: int -> int -> unit) =
                 let start, stop = listBounds r f key
                 let mutable from = start
+                let mutable previous = -1
                 for i in start .. stop do
                     if i = stop || text[i] = ' ' then
                         if i = from then fail r.Line f.Column $"bad list for {key.Record}="
+                        if sorted && previous >= 0 && text.AsSpan(previous, from - 1 - previous).SequenceCompareTo(text.AsSpan(from, i - from)) >= 0 then
+                            fail r.Line f.Column $"{key.Record}= is not in canonical order"
                         item from (i - from)
+                        previous <- from
                         from <- i + 1
             let rec materialize (block: List<Record>) (r: Record) =
                 r.Consumed <- true
@@ -710,17 +719,17 @@ module RecordCodec =
                     writeType w r.Line f.Column text f.Start f.Length
                 | TypeList ->
                     w.WriteStartArray key.Json
-                    listItems r f key (fun start length -> writeType w r.Line f.Column text start length)
+                    listItems r f key false (fun start length -> writeType w r.Line f.Column text start length)
                     w.WriteEndArray()
                 | IdList d ->
                     w.WriteStartArray key.Json
-                    listItems r f key (fun start length ->
+                    listItems r f key (sortedIdLists.Contains key.Json) (fun start length ->
                         if not (hasDomain (text.AsSpan(start, length)) d) then fail r.Line f.Column $"expected a {d} ID, got '{text.Substring(start, length)}'"
                         w.WriteStringValue(text.AsSpan(start + d.Length + 1, 36)))
                     w.WriteEndArray()
                 | Pairs(k1, d1, k2, d2) ->
                     w.WriteStartArray key.Json
-                    listItems r f key (fun start length ->
+                    listItems r f key true (fun start length ->
                         let eq = text.IndexOf('=', start, length)
                         if eq < 0 || not (hasDomain (text.AsSpan(start, eq - start)) d1) || not (hasDomain (text.AsSpan(eq + 1, start + length - eq - 1)) d2) then
                             fail r.Line f.Column $"bad pair '{text.Substring(start, length)}' in {key.Record}="
@@ -798,6 +807,7 @@ module RecordCodec =
                     let f = a.Fields[fi]
                     let bounds = listBounds a f { Json = "variantIds"; Record = "variants"; Shape = IdList "variant"; Optional = true; OmitEmpty = true }
                     let mutable count = 0
+                    let mutable previousItem = 0
                     w.WriteStartArray "variantIds"
                     let mutable from = fst bounds
                     for i in fst bounds .. snd bounds do
@@ -805,6 +815,8 @@ module RecordCodec =
                             let item = text.AsSpan(from, i - from)
                             if not (hasDomain item "variant") then fail a.Line f.Column "variants= must list two or more variants starting with the locator's key"
                             if count = 0 && not (item.SequenceEqual key) then fail a.Line f.Column "variants= must list two or more variants starting with the locator's key"
+                            if count > 0 && text.AsSpan(previousItem, from - 1 - previousItem).SequenceCompareTo item >= 0 then fail a.Line f.Column "variants= is not in canonical order"
+                            previousItem <- from
                             w.WriteStringValue(item.Slice 8)
                             count <- count + 1
                             from <- i + 1

@@ -79,6 +79,12 @@ module RecordCodecTests =
         check "verification-planner" "parameter-reference" (fun l -> l.Replace(" in=", "  in=")) (fun l -> l.IndexOf "  in=" + 2) "single spaces only, no trailing space"
         // A string escape the writer would not produce.
         check "verification-planner" "value=\"fast tests only\"" (fun l -> l.Replace("\"fast tests only\"", "\"fast \\u0074ests only\"")) (fun l -> l.IndexOf "value=" + 1) "value= is not spelled as the writer's encoder spells it"
+        // A keyed list out of key order.
+        check "mini-work-planner" "arguments=[parameter:" (fun l ->
+            let at = l.IndexOf "arguments=["
+            let items = l.Substring(at + 11, l.IndexOf(']', at) - at - 11).Split ' '
+            l.Substring(0, at + 11) + String.Join(" ", Array.rev items) + l.Substring(l.IndexOf(']', at)))
+            (fun l -> l.IndexOf "arguments=" + 1) "arguments= is not in canonical order"
         // A non-canonical integer.
         check "mini-work-planner" " position=1 " (fun l -> l.Replace(" position=1 ", " position=01 ")) (fun l -> l.IndexOf "position=" + 1) "position= must be an integer"
         // A member out of canonical order: the first parameter after the second.
