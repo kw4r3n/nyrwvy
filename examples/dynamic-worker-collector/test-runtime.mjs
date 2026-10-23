@@ -14,14 +14,7 @@ const authoring = JSON.parse(await readFile(join(input, 'authoring.json'), 'utf8
 const generatedSha256 = hash(await readFile(join(input, 'Generated.cs')))
 if (generatedSha256 !== authoring.generatedSha256) throw new Error('Generated.cs differs from the authoring.json generatedSha256 before runtime checks')
 
-const snapshots = []
-for (const name of await readdir(input)) {
-  if (!name.endsWith('.json') || name === 'symbols.json') continue
-  const value = JSON.parse(await readFile(join(input, name), 'utf8'))
-  if (Array.isArray(value.functions) && Array.isArray(value.capabilities)) snapshots.push({ name, value })
-}
-if (snapshots.length !== 1) throw new Error(`Expected one graph snapshot, found: ${snapshots.map(s => s.name).join(', ') || 'none'}`)
-const graph = snapshots[0].value
+const graph = JSON.parse(await readFile(join(input, 'declarations.json'), 'utf8'))
 const manifest = JSON.parse(await readFile(join(input, 'symbols.json'), 'utf8'))
 const exactly = (items, predicate, label) => {
   const matches = items.filter(predicate)

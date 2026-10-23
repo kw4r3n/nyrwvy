@@ -32,7 +32,7 @@ value    := id | locator | atom | INT | STRING | list | typeexpr
 - **Resolved local snapshots.** A snapshot that resolves against pinned dependencies carries the same marker as the JSON `dependency` object (`snapshotId`, `digest`) in its header. The dependency identity is a quoted string, copied exactly, because a combined set's ID (`dependency-set-<uuid>`, derived from its members' fingerprints) is not a `domain:uuid` ID of this graph. The key names are provisional.
 - **Reading.** Agents and reviewers keep reading through the existing queries and projections, which are built from the model and not from the persisted text. Any later text rendering is a projection, not a second persisted form ([AI-first principles](../concepts/ai-first-design-principles.md)).
 
-`requires_live` from [examples/verification-planner](../../examples/verification-planner/planner.snapshot.json) in this form:
+`requires_live` from [examples/verification-planner](../../examples/verification-planner/planner.snapshot.nyrec) in this form:
 
 ```text
 function function:01a0b371-4487-7aa3-b9d3-2fc69ed62dab name="requires_live" exported=true result-type=bool body=node:01a0b371-4487-7e3d-9e9f-0938f8656308

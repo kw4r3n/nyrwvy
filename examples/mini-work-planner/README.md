@@ -2,14 +2,17 @@
 
 Migration checkpoint: `planner.snapshot.json` was migrated on a preserved copy
 from schema 9 to 21; `planner.snapshot.json.migration.json` records unchanged
-fingerprints (display path normalized relative to the repository). Every existing
+fingerprints (display path normalized relative to the repository). The same
+snapshot was then converted with `migrate --to` into the record form,
+`planner.snapshot.nyrec`; `planner.snapshot.nyrec.migration.json` records the
+unchanged snapshot and semantic fingerprints of that conversion. Every existing
 stable ID is retained. `runner/Generated.cs` was regenerated through `emitCSharp`
 and the documented 13-case check passed. The pre-cutover snapshot is preserved
 at tag `archive/legacy-examples-pre-cutover-20261019`.
 
 A tool, created and maintained with a Nyrwvy maintained AuthoringSession, that decides the next action for a single work item.
 
-The semantic source is `planner.snapshot.json`. The CLI does not interpret the snapshot directly; it is only an adapter that calls C# generated from the public `declarations` and `emitCSharp.symbols`.
+The semantic source is `planner.snapshot.nyrec`. The CLI does not interpret the snapshot directly; it is only an adapter that calls C# generated from the public `declarations` and `emitCSharp.symbols`.
 
 ## Decision model
 
@@ -85,7 +88,7 @@ python3 examples/mini-work-planner/materialize.py /path/to/workspace.json
 
 The script uses only public AuthoringSession operations (`declarations`, `executionReadiness`, `emitCSharp`); it does not author the program and does not read the snapshot's JSON as the semantic authority. It:
 
-1. copies the snapshot bytes to `planner.snapshot.json`
+1. converts the snapshot with `migrate --to` into `planner.snapshot.nyrec` (record form)
 2. opens it with a maintained AuthoringSession
 3. obtains the public `declarations` / `executionReadiness` / `emitCSharp`
 4. generates the runner from the symbol manifest
@@ -95,4 +98,4 @@ The outputs are `declarations.json` and everything under `runner/`.
 
 ## Provenance
 
-The initial program and the maintenance change were created in the bounded authoring probe recorded in [the experiment note](../../docs/experiments/mini-work-planner-authoring.md) (issue #179). The run's raw artifacts (events, metrics, final state) are in a private artifact root outside the repository; the committed `planner.snapshot.json`, `declarations.json` and `runner/` are what the repository keeps of it. The successful run committed 5 types, 3 functions, and 1 whole-body maintenance change, confirmed identity continuity, execution readiness, and the C# symbol manifest after a restart, and had 0 rejected maintained requests.
+The initial program and the maintenance change were created in the bounded authoring probe recorded in [the experiment note](../../docs/experiments/mini-work-planner-authoring.md) (issue #179). The run's raw artifacts (events, metrics, final state) are in a private artifact root outside the repository; the committed `planner.snapshot.nyrec`, `declarations.json` and `runner/` are what the repository keeps of it. The successful run committed 5 types, 3 functions, and 1 whole-body maintenance change, confirmed identity continuity, execution readiness, and the C# symbol manifest after a restart, and had 0 rejected maintained requests.

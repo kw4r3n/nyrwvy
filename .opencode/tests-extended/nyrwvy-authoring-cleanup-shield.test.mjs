@@ -21,28 +21,28 @@ test('cleanup shield preserves parent cancellation, errors, replay and ownership
     await cp(bundle,moved,{recursive:true})
     execFileSync('node',['--experimental-strip-types','examples/cleanup-shield/run.mjs',moved,'--replay'],options)
     assert.deepEqual(JSON.parse(await readFile(join(moved,'replay-evidence.json'),'utf8')),first)
-    assert.deepEqual(await readFile(join(moved,'shield.json')),await readFile(join(bundle,'shield.json')))
+    assert.deepEqual(await readFile(join(moved,'shield.nyrec')),await readFile(join(bundle,'shield.nyrec')))
     execFileSync('node',['examples/cleanup-shield/test-runtime.mjs',bundle],options)
     const runtime=JSON.parse(await readFile(join(bundle,'runtime-evidence.json'),'utf8'))
     assert.deepEqual(runtime.results,expected.results)
     assert.equal(runtime.controls.length,6)
     assert.ok(runtime.controls.every(x=>x.passed))
     assert.equal(runtime.generatedSourceUnchanged,true)
-    await openAuthoring('open',join(bundle,'shield.json'),context)
+    await openAuthoring('open',join(bundle,'shield.nyrec'),context)
     const result={kind:'builtinGeneric',generic:'result',arguments:[{kind:'primitive',primitive:'string'},{kind:'primitive',primitive:'string'}]}
     const request=async payload=>JSON.parse(await requestAuthoring(payload,context))
     const unit={kind:'primitive',primitive:'unit'}
     const proposal=await request({op:'simulateCreateFunctionByName',displayName:'wrongResultBody',parameters:[{displayName:'item',type:unit}],resultType:unit,body:{kind:'unitLiteral'},requiredEffects:[]})
     assert.equal(proposal.ok,true,JSON.stringify(proposal))
     assert.equal((await request({op:'commit',proposalId:proposal.result.proposalId})).ok,true)
-    const before=await readFile(join(bundle,'shield.json'))
+    const before=await readFile(join(bundle,'shield.nyrec'))
     // Wrong implicit input, Result shape and missing body effects fail before publication.
     for(const [body,expectedCode] of [['genericShield','CancellationShieldBodyMismatch'],['wrongResultBody','CancellationShieldResultMismatch'],['ownedBody','MissingEffectRequirement']]) {
       const reply=await request({op:'simulateCreateFunctionByName',displayName:'invalidShield',parameters:body==='ownedBody'?[{displayName:'host',type:{kind:'capability',name:'Probe'}}]:[],resultType:result,body:{kind:'cancellationShield',body,context:body==='ownedBody'?[{parameter:'host',value:{kind:'parameter',name:'host'}}]:[]},requiredEffects:[]})
       assert.equal(reply.ok,false,JSON.stringify(reply))
       assert.match(JSON.stringify(reply.error),new RegExp(expectedCode))
     }
-    assert.deepEqual(await readFile(join(bundle,'shield.json')),before)
+    assert.deepEqual(await readFile(join(bundle,'shield.nyrec')),before)
     console.log(JSON.stringify({virtual:first.results.length,real:runtime.results.length,unshieldedFailures:12,controls:runtime.controls,compilation:runtime.compilation}))
   } finally {
     await closeAuthoring(context).catch(()=>{})

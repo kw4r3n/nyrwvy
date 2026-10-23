@@ -36,5 +36,5 @@ export async function author(s) {
     {kind:'taskScope',body:'scopeBody',context:context({host:p('host'),count:p('count')})})
   const declarations=await s.call('inspect',{view:'declarations'})
   const artifact=await s.call('request',{op:'emitCSharp',arguments:{profile:{kind:'externalImplementations',operationIds:declarations.capabilities.flatMap(c=>c.operations.map(o=>o.id)),concurrentCapabilityIds:declarations.capabilities.map(c=>c.id)}}})
-  return {artifact,nodes:s.nodes}
+  return {artifact,declarations,nodes:s.nodes}
 }

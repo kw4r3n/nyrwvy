@@ -122,5 +122,5 @@ export async function author(s) {
       {kind:'useResource',acquire:io('open'),releaseCapability:host,capability:'Host',releaseOperation:'close',body:'resourceBody',context:fields({host,count:p('count'),mode:p('mode')}).map(({displayName,type})=>({parameter:displayName,value:type}))}))
   const declarations=await s.call('inspect',{view:'declarations'})
   const artifact=await s.call('request',{op:'emitCSharp',arguments:{profile:{kind:'externalImplementations',operationIds:declarations.capabilities.flatMap(c=>c.operations.map(o=>o.id)),concurrentCapabilityIds:declarations.capabilities.map(c=>c.id)}}})
-  return {artifact,nodes:s.nodes}
+  return {artifact,declarations,nodes:s.nodes}
 }

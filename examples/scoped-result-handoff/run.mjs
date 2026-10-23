@@ -9,7 +9,7 @@ const replay=process.argv[2]==='--replay'
 if(replay&&!process.argv[3])throw new Error('Usage: run.mjs --replay <bundle-directory>')
 const directory=process.argv[replay?3:2]?resolve(process.argv[replay?3:2]):await mkdtemp(join(tmpdir(),'nyrwvy-handoff-'))
 await mkdir(directory,{recursive:true});if(!replay)assert.deepEqual(await readdir(directory),[])
-const snapshot=join(directory,'broker.json'),tools=createGraphTools(z),context={sessionID:`broker-${process.pid}`,worktree:resolve('.')}
+const snapshot=join(directory,'broker.nyrec'),tools=createGraphTools(z),context={sessionID:`broker-${process.pid}`,worktree:resolve('.')}
 async function exchange(name,args={}) {const raw=await tools[name].execute(args,context);await appendFile(join(directory,'transcript.jsonl'),JSON.stringify({name,args,raw})+'\n');return name==='close'?raw:JSON.parse(raw)}
 async function call(name,args={}) {const r=await exchange(name,args);assert.notEqual(r.ok,false,JSON.stringify(r));return r.result??r}
 async function publish(proposal) {assert.equal(proposal.review.readiness.kind,'semanticallyReady');await call('commit',{proposalId:proposal.proposalId})}
@@ -67,8 +67,9 @@ async function author() {
   bind({kind:'taskStart',scope:p('scope'),worker:'brokerWorker',item:{kind:'unitLiteral'},context:[{parameter:'wire',value:p('wire')}]},bind({kind:'taskStart',scope:p('scope'),worker:'stopBroker',item:pattern(),context:[{parameter:'control',value:p('control')}]},
    bind(taskWait(list([pattern('value',1)])),matchOption(stateAt(pattern(),0),pattern(),err(text('broker still pending')))))))
  await create('runCancelled',{wire:cap('Wire'),control:cap('Control')},outcome,{kind:'taskScope',body:'outerBody',context:['wire','control'].map(parameter=>({parameter,value:p(parameter)}))})
- const artifact=await call('request',{op:'emitCSharp',arguments:{profile:{kind:'externalImplementations',operationIds:(await call('inspect',{view:'declarations'})).capabilities.flatMap(c=>c.operations.map(o=>o.id)),concurrentCapabilityIds:(await call('inspect',{view:'declarations'})).capabilities.map(c=>c.id)}}})
- await writeFile(join(directory,'Generated.cs'),artifact.source);await writeFile(join(directory,'symbols.json'),JSON.stringify(artifact.symbols,null,2))
+ const declarations=await call('inspect',{view:'declarations'})
+ const artifact=await call('request',{op:'emitCSharp',arguments:{profile:{kind:'externalImplementations',operationIds:declarations.capabilities.flatMap(c=>c.operations.map(o=>o.id)),concurrentCapabilityIds:declarations.capabilities.map(c=>c.id)}}})
+ await writeFile(join(directory,'declarations.json'),JSON.stringify(declarations,null,2));await writeFile(join(directory,'Generated.cs'),artifact.source);await writeFile(join(directory,'symbols.json'),JSON.stringify(artifact.symbols,null,2))
  await call('close');await call('open',{mode:'open',snapshot})
 }
 const value=value=>({kind:'string',value}),u={kind:'unit'},returned=value=>({kind:'return',value})

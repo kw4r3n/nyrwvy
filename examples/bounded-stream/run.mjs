@@ -13,8 +13,9 @@ if(!replay)assert.deepEqual(await readdir(dir),[],'use an empty output directory
 const s=await session('cursor-retention',dir)
 try {
   if(!replay){
-    const {artifact,nodes}=await author(s)
+    const {artifact,declarations,nodes}=await author(s)
     await writeFile(join(dir,'Generated.cs'),artifact.source)
+    await writeFile(join(dir,'declarations.json'),JSON.stringify(declarations,null,2))
     await writeFile(join(dir,'symbols.json'),JSON.stringify(artifact.symbols,null,2))
     await writeFile(join(dir,'authoring.json'),JSON.stringify({base:'90e495c75dd6915440ea22c96222aefcf04f723e',nodes,generatedSha256:createHash('sha256').update(artifact.source).digest('hex')},null,2))
     await writeFile(join(dir,'cases.json'),JSON.stringify([4,256].map(count=>({count,function:'run',arguments:[{kind:'fakeCapability',capability:'Host',operations:[{operation:'checkpoint',responses:[{kind:'return',value:{kind:'unit'}},{kind:'return',value:{kind:'unit'}}]}]},{kind:'int64',value:String(count)}]})),null,2))

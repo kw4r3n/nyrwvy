@@ -53,7 +53,7 @@ Compiler/reference-pack/runtime versions are recorded in the runtime evidence. I
 barrier-controlled workers really overlap on different runtime tasks. Test
 watchdogs apply only to these newly started test processes.
 
-The bundle contains `collector.json`, `cases.json`, `evidence.json`,
+The bundle contains `collector.nyrec`, `declarations.json`, `cases.json`, `evidence.json`,
 `Generated.cs`, `symbols.json`, `authoring.json` and `transcript.jsonl`; the
 runtime runner adds `runtime-evidence.json`. Authoring failures and runtime
 failures must be reported as such, not counted as a passing probe.

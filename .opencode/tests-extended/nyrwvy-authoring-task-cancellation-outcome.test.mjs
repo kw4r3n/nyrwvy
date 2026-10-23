@@ -21,6 +21,6 @@ test('worker-local cancellation adapter settles Result; wait-only catch retains 
   assert.deepEqual(await json(join(moved,'replay-evidence.json')),first)
   run('test-runtime',moved)
   assert.deepEqual(await json(join(moved,'runtime-evidence.json')),real)
-  for(const name of ['task-outcomes.json','Generated.cs','symbols.json','Runtime.dll'])assert.deepEqual(await readFile(join(bundle,name)),await readFile(join(moved,name)))
+  for(const name of ['task-outcomes.nyrec','Generated.cs','symbols.json','Runtime.dll'])assert.deepEqual(await readFile(join(bundle,name)),await readFile(join(moved,name)))
  }finally{await rm(root,{recursive:true,force:true})}
 })
