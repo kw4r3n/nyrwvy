@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Experimental harness for docs/decisions/snapshot-record-format.md; not in Nyrwvy.slnx. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Nullable>disable</Nullable>
+    <WarningLevel>3</WarningLevel>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="AllKinds.fs" />
+    <Compile Include="RecordText.fs" />
+    <Compile Include="Codec.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,11 @@
+snapshot snapshot:01a1686d-b6b6-707f-8b1d-c439f8808a3c schema=21 parent=snapshot:01a1686d-a083-7e97-9a24-eaf3ffb7ea97
+
+function function:01a1686d-8b51-7ad6-9e24-788e3dad663e name="normalizeValue" exported=true result-type=string body=node:01a1686d-a083-778a-959c-9521fa1cfc28
+parameter parameter:01a1686d-8b51-7cdc-8d7f-9ec7566c1032 in=function:01a1686d-8b51-7ad6-9e24-788e3dad663e position=0 name="value" type=string
+string-literal node:01a1686d-a082-79e3-bcd2-941a90f08f6d in=function:01a1686d-8b51-7ad6-9e24-788e3dad663e/body value="v2:"
+string-to-upper node:01a1686d-a083-73a3-a817-70df19078f78 in=function:01a1686d-8b51-7ad6-9e24-788e3dad663e/body value=node:01a1686d-a083-7cd1-974e-f8e572abc58f
+string-concat node:01a1686d-a083-778a-959c-9521fa1cfc28 in=function:01a1686d-8b51-7ad6-9e24-788e3dad663e/body left=node:01a1686d-a082-79e3-bcd2-941a90f08f6d right=node:01a1686d-a083-73a3-a817-70df19078f78
+parameter-reference node:01a1686d-a083-7cd1-974e-f8e572abc58f in=function:01a1686d-8b51-7ad6-9e24-788e3dad663e/body parameter=parameter:01a1686d-8b51-7cdc-8d7f-9ec7566c1032
+
+function function:01a1686d-b6ad-7594-9ec1-2b1ce339917d name="libraryVersion" result-type=string body=node:01a1686d-b6b6-70b4-b2b3-83fffefcab76
+string-literal node:01a1686d-b6b6-70b4-b2b3-83fffefcab76 in=function:01a1686d-b6ad-7594-9ec1-2b1ce339917d/body value="v2"
