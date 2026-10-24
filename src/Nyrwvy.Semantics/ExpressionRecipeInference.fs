@@ -106,6 +106,10 @@ module internal ExpressionRecipeInference =
                     callback.Parameters |> List.filter (fun parameter -> not (context |> List.exists (fun (bound, _) -> bound = parameter.Id))),
                     substitution)
 
+        let effectsFix (role: string) =
+            if role.StartsWith "List" || role = "MapFromList" then " To run effects once per item, in order, use ListEffectFold instead (its folder takes the accumulator and the item)."
+            else " Do the effectful work outside the callback and pass only pure values into it."
+
         /// Returns the callback and the type arguments that its context and item types determine.
         let validateListCallback role callbackFunctionId context sourceItemType predicateResultRequired inferValue =
             match Map.tryFind callbackFunctionId functionsById with
@@ -142,7 +146,7 @@ module internal ExpressionRecipeInference =
                         Error(
                             diagnostic
                                 "PureExpressionCallbackEffectsNotAllowed"
-                                $"{role} callback function {callbackName callback} must be pure, including its transitive calls and ambient task or cancellation behavior."
+                                $"{role} callback function {callbackName callback} must be pure, including its transitive calls and ambient task or cancellation behavior.{effectsFix role}"
                         )
                     | Some substitution -> Ok(callback, substitution)
 

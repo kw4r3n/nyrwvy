@@ -104,6 +104,7 @@ module ListCallbackPurityTests =
             let ambientFolder = create "ambientFolder" [ "seen", boolType; "value", textType ] boolType ExpressionRecipe.CancellationRequested
             let code = "PureExpressionCallbackEffectsNotAllowed"
             Assert.Contains(code, rejects (listOf boolType) (ExpressionRecipe.ListMap(slot 0, ambient.Id, [])))
+            Assert.Contains("use ListEffectFold instead", rejects (listOf boolType) (ExpressionRecipe.ListMap(slot 0, ambient.Id, [])))
             Assert.Contains(code, rejects (listOf textType) (ExpressionRecipe.ListFilter(slot 0, ambient.Id, [])))
             Assert.Contains(code, rejects boolType (ExpressionRecipe.ListAny(slot 0, ambient.Id, [])))
             Assert.Contains(code, rejects boolType (ExpressionRecipe.ListAll(slot 0, ambient.Id, [])))
