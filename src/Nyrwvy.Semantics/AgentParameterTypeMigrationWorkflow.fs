@@ -291,6 +291,7 @@ module internal SignatureMigrationCore =
                         // an out-of-range caller slot is left for creation to diagnose.
                         ExpressionRecipe.SelfCall mappedArguments)
             | ExpressionRecipe.PatternReference _
+            | ExpressionRecipe.OriginalTarget
             | ExpressionRecipe.StringLiteral _
             | ExpressionRecipe.BoolLiteral _
             | ExpressionRecipe.UnitLiteral

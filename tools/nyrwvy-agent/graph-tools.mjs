@@ -152,7 +152,7 @@ export function createGraphTools(schema) {
       execute: (args, context) => requestAuthoring({ op: "simulateCreateFunctionByName", ...args }, context),
     }),
     replace: defineTool({
-      description: "Propose a targeted graph edit, preserving unrelated nodes. replacement is a name-resolved ExpressionRecipe; use nyrwvy_recipe_reference when its shape is unfamiliar. Use a targetNodeId from inspect; omit it only for intentional whole-body replacement. Review before commit. " + reviewDetail,
+      description: "Propose a targeted graph edit, preserving unrelated nodes. replacement is a name-resolved ExpressionRecipe; use nyrwvy_recipe_reference when its shape is unfamiliar. Use a targetNodeId from inspect; omit it only for intentional whole-body replacement. With a targetNodeId, {kind:'originalTarget'} (at most once) stands for the target's old expression, so you can wrap it or insert a step before it (e.g. bind(step, originalTarget)) without rebuilding it. Review before commit. " + reviewDetail,
       args: { function: selector, targetNodeId: schema.string().optional(), replacement: recipe, detail },
       /** @param {{ function: string | Record<string, unknown>; targetNodeId?: string; replacement: Record<string, unknown>; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: args.targetNodeId === undefined ? "simulateReplaceBodyByName" : "simulateReplaceTargetByName", ...args }, context),

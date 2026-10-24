@@ -408,3 +408,49 @@ module AgentTargetedExpressionReplacementTests =
         |> assertRejectedCode "TargetedExpressionAbortNotGraphResult"
 
         request snapshot functionId okId abort |> simulate ws |> ignore
+
+    [<Fact>]
+    let ``originalTarget inserts a step before the target and moves its exclusive cone into the new scope`` () =
+        let fixture = sharedFixture ()
+        let ws = workspace fixture.Snapshot
+        let value = ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Value }
+        let replacement =
+            ExpressionRecipe.Bind(ExpressionRecipe.Int64Literal 10L, ExpressionRecipe.Int64WrappingAdd(ExpressionRecipe.OriginalTarget, value))
+        let proposal = simulate ws (request fixture.Snapshot fixture.FunctionId fixture.TargetId replacement)
+        let review = AgentExpressionStructuralWorkflow.Targeted.Proposal.review proposal
+        Assert.Empty(review.ResultingChange.RemovedNodes)
+        match AgentExpressionStructuralWorkflow.Targeted.commit ws proposal with
+        | AgentExpressionStructuralWorkflow.Targeted.CommitResult.Rejected diagnostics ->
+            failwithf "Targeted commit failed: %A" diagnostics
+        | AgentExpressionStructuralWorkflow.Targeted.CommitResult.Committed(next, _) ->
+            let published = AgentWorkspace.snapshotForStructuralEditing next
+            Assert.Empty(SnapshotValidator.validate published)
+            let body = (published.Functions |> List.exactlyOne).Body
+            let topIds = body.Nodes |> List.map (fun node -> node.Id)
+            Assert.Contains(fixture.SharedDependencyId, topIds)
+            Assert.DoesNotContain(fixture.ExclusiveDependencyId, topIds)
+            match (body.Nodes |> List.find (fun node -> node.Id = fixture.TargetId)).Kind with
+            | SemanticNodeKind.Bind(_, arm) ->
+                let inner = arm.Body.Nodes
+                Assert.Contains(inner, fun node -> node.Id = fixture.ExclusiveDependencyId)
+                Assert.Contains(
+                    inner,
+                    fun node ->
+                        node.Id <> fixture.TargetId
+                        && node.Kind = SemanticNodeKind.Int64WrappingAdd(fixture.ExclusiveDependencyId, fixture.SharedDependencyId))
+            | other -> failwithf "Target is not the inserted bind: %A" other
+
+    [<Fact>]
+    let ``originalTarget is rejected when repeated or outside a targeted replacement`` () =
+        let fixture = sharedFixture ()
+        let ws = workspace fixture.Snapshot
+        let twice = ExpressionRecipe.Int64WrappingAdd(ExpressionRecipe.OriginalTarget, ExpressionRecipe.OriginalTarget)
+        AgentExpressionStructuralWorkflow.Targeted.simulate ws (request fixture.Snapshot fixture.FunctionId fixture.TargetId twice)
+        |> assertRejectedCode "TargetedExpressionOriginalTargetRepeated"
+        let body: AgentReplaceFunctionBodyWithExpressionRecipe =
+            { TargetFunctionId = fixture.FunctionId
+              ExpectedBaseSnapshotId = fixture.Snapshot.Id
+              ExpectedCurrentResultNodeId = fixture.FirstConsumerId
+              Replacement = ExpressionRecipe.Int64Equal(ExpressionRecipe.OriginalTarget, ExpressionRecipe.Int64Literal 1L) }
+        AgentExpressionStructuralWorkflow.simulate ws body
+        |> assertRejectedCode "OriginalTargetOutsideTargetedReplacement"

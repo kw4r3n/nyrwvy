@@ -90,14 +90,24 @@ module internal TargetedReplacementGraph =
                     else
                         Some(SemanticNodeShape.mapNestedGraphs (pruneNodes removedNodeIds) node)) }
 
+    /// The graph whose own node list holds the target node, at any nesting depth.
+    let rec internal tryFindOwningGraph targetNodeId (graph: ValueGraph) =
+        if graph.Nodes |> List.exists (fun node -> node.Id = targetNodeId) then
+            Some graph
+        else
+            graph.Nodes
+            |> List.tryPick (fun node -> SemanticNodeShape.nestedGraphs node |> List.tryPick (tryFindOwningGraph targetNodeId))
+
     let internal materializeReplacement
         index
         target
+        (original: OriginalTargetContext option)
         frames
         targetNodeId
         recipe
         =
-        let nodes, generatedRootId = materialize index target frames recipe
+        let owner = { ownerForExistingFunction target with OriginalTarget = original }
+        let nodes, generatedRootId = materializeWithContext index owner (InferenceCache()) frames recipe
         nodes
         |> List.map (fun node ->
             if node.Id = generatedRootId then

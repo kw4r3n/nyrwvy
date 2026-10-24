@@ -111,6 +111,10 @@ module internal ExpressionRecipeMaterialization =
             | _ -> failwith "Expression recipe passed preflight but failed materialization type recovery."
 
         match recipe with
+        | ExpressionRecipe.OriginalTarget ->
+            match owner.OriginalTarget with
+            | Some original -> original.Nodes, original.RootNodeId
+            | None -> failwith "originalTarget passed preflight outside a targeted replacement."
         | ExpressionRecipe.Parameter parameterId ->
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.ParameterReference parameterId } ], nodeId

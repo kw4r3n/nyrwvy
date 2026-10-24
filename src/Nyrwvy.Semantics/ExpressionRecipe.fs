@@ -18,6 +18,9 @@ type ExpressionRecipe =
     | Parameter of ParameterId
     | ParameterSlot of int
     | PatternReference of RecipePatternReference
+    /// The target node's expression as it was in the base snapshot; accepted at most once, and only
+    /// in the replacement of a targeted replacement.
+    | OriginalTarget
     | StringLiteral of string
     | BoolLiteral of bool
     | UnitLiteral
@@ -248,6 +251,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Parameter _
         | ExpressionRecipe.ParameterSlot _
         | ExpressionRecipe.PatternReference _
+        | ExpressionRecipe.OriginalTarget
         | ExpressionRecipe.StringLiteral _
         | ExpressionRecipe.BoolLiteral _
         | ExpressionRecipe.UnitLiteral
