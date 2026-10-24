@@ -25,6 +25,9 @@ module internal WireRecipeCommon =
         | "boolLiteral" ->
             ensureFields "bool literal recipe" [ "kind"; "value" ] [ "kind"; "value" ] element
             ExpressionRecipe.BoolLiteral(requiredBool "value" element) |> Some
+        | "originalTarget" ->
+            ensureFields "original-target recipe" [ "kind" ] [ "kind" ] element
+            ExpressionRecipe.OriginalTarget |> Some
         | "unitLiteral" ->
             ensureFields "unit literal recipe" [ "kind" ] [ "kind" ] element
             ExpressionRecipe.UnitLiteral |> Some

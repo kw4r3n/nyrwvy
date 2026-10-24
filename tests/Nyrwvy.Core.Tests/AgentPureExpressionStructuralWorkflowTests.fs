@@ -510,6 +510,7 @@ module AgentPureExpressionStructuralWorkflowTests =
             [ "Parameter"
               "ParameterSlot"
               "PatternReference"
+              "OriginalTarget"
               "StringLiteral"
               "BoolLiteral"
               "UnitLiteral"

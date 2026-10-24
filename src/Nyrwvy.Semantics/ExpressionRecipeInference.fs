@@ -451,6 +451,15 @@ module internal ExpressionRecipeInference =
                         validateParameters operation.Parameters
 
             match recipe with
+            | ExpressionRecipe.OriginalTarget ->
+                match owner.OriginalTarget with
+                | Some original -> Ok original.Type
+                | None ->
+                    Error(
+                        diagnostic
+                            "OriginalTargetOutsideTargetedReplacement"
+                            "originalTarget is accepted only in the replacement of a targeted replacement."
+                    )
             | ExpressionRecipe.Parameter parameterId ->
                 match Map.tryFind parameterId owner.ParametersById with
                 | Some parameter -> Ok parameter.Type

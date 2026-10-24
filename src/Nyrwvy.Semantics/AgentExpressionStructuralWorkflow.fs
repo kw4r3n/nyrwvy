@@ -257,7 +257,10 @@ module AgentExpressionStructuralWorkflow =
             { Target: SemanticFunction
               TargetNode: SemanticNode
               Frames: PatternBindingFrame list
-              Pruning: PruningPlan }
+              Pruning: PruningPlan
+              /// With `originalTarget`: what it stands for, and the IDs of the moved same-graph
+              /// nodes, which leave their old position.
+              Original: (OriginalTargetContext * Set<GraphNodeId>) option }
 
         let private affectedUses targetNodeId (target: SemanticFunction) =
             let nodeUses =
@@ -402,12 +405,50 @@ module AgentExpressionStructuralWorkflow =
                                         "The target node type could not be derived from the validated base snapshot."
                                 )
                             | Some targetType ->
+                                let rec originalUses recipe =
+                                    (if recipe = ExpressionRecipe.OriginalTarget then 1 else 0)
+                                    + (recipeChildren recipe |> Seq.sumBy originalUses)
+                                let pruning = planPruning request.TargetNodeId targetNode target
+                                let original =
+                                    match originalUses request.Replacement, targetType with
+                                    | 0, _ -> Ok None
+                                    | 1, GraphCompletion.Normal originalType ->
+                                        // The old target's exclusive dependencies in its own graph move with it;
+                                        // shared ones and those in enclosing graphs stay and remain visible.
+                                        let moved =
+                                            (tryFindOwningGraph request.TargetNodeId target.Body |> Option.get).Nodes
+                                            |> List.filter (fun node -> Set.contains node.Id pruning.RemovedNodeIds)
+                                        let rootNodeId = StableIdAllocator.newGraphNodeId ()
+                                        Ok(
+                                            Some(
+                                                { Type = originalType
+                                                  Nodes = moved @ [ { targetNode with Id = rootNodeId } ]
+                                                  RootNodeId = rootNodeId },
+                                                moved |> List.map (fun node -> node.Id) |> Set.ofList
+                                            )
+                                        )
+                                    | 1, _ ->
+                                        Error(
+                                            diagnostic
+                                                "TargetedExpressionOriginalTargetAborts"
+                                                "originalTarget needs a target that produces a value, but the target node always aborts."
+                                        )
+                                    | _ ->
+                                        Error(
+                                            diagnostic
+                                                "TargetedExpressionOriginalTargetRepeated"
+                                                "originalTarget may appear at most once in a replacement."
+                                        )
                                 match
-                                    inferTypeWithFrames (Some "replacement")
-                                        index
-                                        target
-                                        (bindingTypeFrames frames)
-                                        request.Replacement
+                                    original
+                                    |> Result.bind (fun original ->
+                                        inferTypeWithContext
+                                            index
+                                            { ownerForExistingFunction target with OriginalTarget = Option.map fst original }
+                                            (InferenceCache())
+                                            (bindingTypeFrames frames)
+                                            (Some "replacement")
+                                            request.Replacement)
                                 with
                                 | Error error -> Error error
                                 | Ok(GraphCompletion.Normal replacementType) when targetType <> GraphCompletion.Aborts && GraphCompletion.Normal replacementType <> targetType ->
@@ -435,7 +476,10 @@ module AgentExpressionStructuralWorkflow =
                                             "The replacement recipe is an abort, but the target node is not the result of its graph; an abort may replace only a branch or function result."
                                     )
                                 | Ok _ ->
-                                    let pruning = planPruning request.TargetNodeId targetNode target
+                                    let original = Result.defaultValue None original
+                                    // The old target is reused whole, so nothing of its cone is removed.
+                                    let pruning =
+                                        if Option.isSome original then { pruning with RemovedNodeIds = Set.empty } else pruning
                                     match
                                         baseSnapshot.Obligations
                                         |> List.tryFind (fun obligation ->
@@ -453,7 +497,8 @@ module AgentExpressionStructuralWorkflow =
                                             { Target = target
                                               TargetNode = targetNode
                                               Frames = frames
-                                              Pruning = pruning }
+                                              Pruning = pruning
+                                              Original = original }
 
         let simulate
             (workspace: AgentWorkspace)
@@ -470,12 +515,15 @@ module AgentExpressionStructuralWorkflow =
                             materializeReplacement
                                 index
                                 preflight.Target
+                                (Option.map fst preflight.Original)
                                 preflight.Frames
                                 request.TargetNodeId
                                 request.Replacement
 
+                        let movedNodeIds = preflight.Original |> Option.map snd |> Option.defaultValue Set.empty
                         let replacementBody =
                             preflight.Target.Body
+                            |> pruneNodes movedNodeIds
                             |> replaceTarget request.TargetNodeId replacementNodes
                             |> pruneNodes preflight.Pruning.RemovedNodeIds
 
@@ -816,6 +864,7 @@ module AgentExpressionStructuralWorkflow =
                                       TypeParameters = typeParameters
                                       SelfFunctionId = None
                                       SelfParameters = slots
+                                      OriginalTarget = None
                                       Description = "the function being created" }
 
                                 match validateRecipeBounds recipeChildren request.Body with

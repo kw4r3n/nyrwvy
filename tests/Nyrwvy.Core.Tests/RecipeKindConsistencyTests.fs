@@ -141,6 +141,9 @@ module RecipeKindConsistencyTests =
     /// `SelfCall` persists as `DirectCall` to the function being authored.
     let private recipeOnlyCases = Map.ofList [ "Parameter", "ParameterReference"; "ParameterSlot", "ParameterReference"; "SelfCall", "DirectCall" ]
 
+    /// `ExpressionRecipe` cases that build no node of their own: `OriginalTarget` reuses the old target node.
+    let private nodelessCases = Set.ofList [ "OriginalTarget" ]
+
     /// The readers are probed with kind names drawn from the recipe cases, so a recipe case no
     /// reader accepts, or a node kind with no recipe case, is only caught by comparing the unions.
     [<Fact>]
@@ -150,7 +153,7 @@ module RecipeKindConsistencyTests =
         let nodes = names typeof<SemanticNodeKind>
         let mapped = recipeOnlyCases |> Map.toSeq |> Seq.map snd |> Set.ofSeq
         let problems =
-            [ describe "ExpressionRecipe cases with no SemanticNodeKind case (add the node kind or list the rename)" (recipes - nodes - (recipeOnlyCases.Keys |> Set.ofSeq))
+            [ describe "ExpressionRecipe cases with no SemanticNodeKind case (add the node kind or list the rename)" (recipes - nodes - (recipeOnlyCases.Keys |> Set.ofSeq) - nodelessCases)
               describe "SemanticNodeKind cases no recipe can build (add a recipe case)" (nodes - recipes - mapped)
               describe "Listed renames whose recipe case is gone or now matches a node kind" (recipeOnlyCases.Keys |> Set.ofSeq |> Set.filter (fun name -> not (recipes.Contains name) || nodes.Contains name))
               describe "Listed rename targets that are not SemanticNodeKind cases" (mapped - nodes) ]

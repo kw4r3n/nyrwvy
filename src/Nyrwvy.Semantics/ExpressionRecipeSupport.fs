@@ -26,6 +26,14 @@ module internal ExpressionRecipeSupport =
           ParameterId: ParameterId option
           DisplayName: string }
 
+    /// What `ExpressionRecipe.OriginalTarget` stands for in a targeted replacement: the old target
+    /// node under a fresh ID, preceded by its exclusively owned same-graph dependencies, which move
+    /// with it to wherever the recipe places it.
+    type internal OriginalTargetContext =
+        { Type: TypeRef
+          Nodes: SemanticNode list
+          RootNodeId: GraphNodeId }
+
     type internal ExpressionOwnerContext =
         { ParametersById: Map<ParameterId, SemanticParameter>
           ParameterSlots: ParameterSlotContext list option
@@ -37,6 +45,8 @@ module internal ExpressionRecipeSupport =
           SelfFunctionId: FunctionId option
           /// The owner's parameters in declaration order, addressed by SelfCall slots.
           SelfParameters: ParameterSlotContext list
+          /// Some only while a targeted replacement is preflighted and materialized.
+          OriginalTarget: OriginalTargetContext option
           Description: string }
 
     let internal ownerForExistingFunction (target: SemanticFunction) =
@@ -55,6 +65,7 @@ module internal ExpressionRecipeSupport =
                 { Type = parameter.Type
                   ParameterId = Some parameter.Id
                   DisplayName = parameter.DisplayName })
+          OriginalTarget = None
           Description = $"target function {StableId.describe target.DisplayName target.Id}" }
 
     /// The owner's parameters in a diagnostic, by slot, display name and (when allocated) ID.
@@ -146,6 +157,7 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.Parameter _
         | ExpressionRecipe.ParameterSlot _
         | ExpressionRecipe.PatternReference _
+        | ExpressionRecipe.OriginalTarget
         | ExpressionRecipe.StringLiteral _
         | ExpressionRecipe.BoolLiteral _
         | ExpressionRecipe.UnitLiteral

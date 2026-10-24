@@ -37,6 +37,7 @@ ExpressionRecipe =
   | Parameter(ParameterId)
   | ParameterSlot(index)
   | PatternReference(RecipePatternReference)
+  | OriginalTarget
   | StringLiteral(String)
   | BoolLiteral(Bool)
   | UnitLiteral
@@ -770,5 +771,18 @@ abort. Simulation reports a misplaced abrupt replacement before building the
 proposed snapshot: `TargetedExpressionAbruptValueUse` when another node uses the
 target as a value, and `TargetedExpressionAbortNotGraphResult` when an `abort`
 replaces a node that is not its graph's result. Review reports the owning function, payload and dependent continuations.
+
+A targeted replacement may reuse the target's old expression with `OriginalTarget`
+(wire `{ "kind": "originalTarget" }`), at most once
+(`TargetedExpressionOriginalTargetRepeated`), to wrap it or insert a step before
+it, for example `bind(step, f(originalTarget))`. It has the old target's type; a
+target that always aborts cannot be reused (`TargetedExpressionOriginalTargetAborts`).
+The replacement root keeps the target ID, the old root node gets a fresh ID, and
+its exclusively owned dependencies in the same graph move with it, keeping their
+IDs, to where the recipe places it. Shared dependencies and those in enclosing
+graphs stay where they are. Nothing of the old cone is pruned, so review lists no
+removed nodes. Every other recipe consumer rejects it with
+`OriginalTargetOutsideTargetedReplacement`. See the
+[decision](../decisions/original-target-reference.md).
 See the [complete contract](typed-function-abort.md), including cleanup, worker
 cancellation, ordering and schema compatibility.
