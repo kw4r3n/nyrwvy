@@ -1700,6 +1700,8 @@ module AuthoringSession =
         else
             // A read-only session takes no lock: snapshots are replaced atomically, so it always
             // reads a whole committed snapshot, and Commit refuses to write.
+            // shortcut: a dependency upgrade renames the sidecar and the snapshot separately, so an open
+            // racing one can see a mismatched pair and fail (never misread); retry if that matters.
             match (if readOnly then Ok None else SessionStorage.acquireLock path |> Result.map Some) with
             | Error error -> Error error
             | Ok lockHandle ->
