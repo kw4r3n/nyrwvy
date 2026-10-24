@@ -24,6 +24,21 @@ module RecordCodecTests =
         |> SnapshotCodec.deserialize
         |> unwrap
 
+    [<Fact>]
+    let ``record types near the JSON depth limit still round-trip`` () =
+        let listOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
+        let itemType = [ 1 .. 489 ] |> List.fold (fun item _ -> listOf item) (TypeRef.Primitive PrimitiveType.Bool)
+        let node = StableIdAllocator.newGraphNodeId ()
+        let snapshot =
+            { Snapshot.empty (StableIdAllocator.newSnapshotId ()) with
+                Functions =
+                    [ { Exported = true; Id = StableIdAllocator.newFunctionId (); TypeParameters = []
+                        DisplayName = "deep"; Parameters = []; RequiredEffects = []
+                        ResultType = listOf itemType
+                        Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.ListEmpty itemType } ]; ResultNodeId = node } } ] }
+        let text = RecordCodec.serialize snapshot |> unwrap
+        Assert.Equal(snapshot, RecordCodec.deserialize text |> unwrap)
+
     [<Theory>]
     [<InlineData("verification-planner")>]
     [<InlineData("mini-work-planner")>]
@@ -54,6 +69,20 @@ module RecordCodecTests =
         match RecordCodec.deserialize text with
         | Error error -> Assert.Equal(1, error.Line)
         | Ok _ -> failwith "A resolved snapshot decoded without its dependency."
+
+    [<Theory>]
+    [<InlineData(501)>]
+    [<InlineData(1200)>]
+    let ``excessively nested record types return a depth error without poisoning the next decode`` depth =
+        let original = fixture "verification-planner"
+        let text = RecordCodec.serialize original |> unwrap
+        let nested = String.replicate depth "list(" + "bool" + String.replicate depth ")"
+        let malformed = text.Replace(" result-type=bool ", " result-type=" + nested + " ")
+        Assert.NotEqual<string>(text, malformed)
+        match RecordCodec.deserialize malformed with
+        | Error error -> Assert.Equal(Some(SnapshotCodecError.MaximumDepthExceeded SnapshotCodec.maxJsonDepth), error.Model)
+        | Ok _ -> failwith "Excessively nested type was accepted."
+        Assert.Equal(original, RecordCodec.deserialize text |> unwrap)
 
     /// `edit` rewrites the first line containing `needle`; the expected position is (line, column).
     let private rejected (name: string) (needle: string) (edit: string -> string) =

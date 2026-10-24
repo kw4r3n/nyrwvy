@@ -750,13 +750,18 @@ module ViewerHtml =
                 + " resolved with " + code (StableIdText.graphNodeId item.ValueNodeId) + "</li>")
         writer.Line("</ul></section>")
 
-    let renderChangeReviewDocument (model: ViewerChangeReviewModel): string =
+    let private emitStaleBaseWarning (writer: HtmlWriter) baseIsCommitted =
+        if not baseIsCommitted then
+            writer.Line("<p class=\"status\">The base snapshot is no longer the committed state; committed focus is not shown.</p>")
+
+    let renderChangeReviewDocumentWithBaseState baseIsCommitted (model: ViewerChangeReviewModel): string =
         let writer = HtmlWriter()
         emitDocumentStart writer "Nyrwvy Change Review"
         writer.Line("<header><h1>Change Review</h1>")
         writer.Line("<p>Transaction: " + code (StableIdText.transactionId model.TransactionId) + "</p>")
         writer.Line("<p>Base snapshot: " + code (StableIdText.snapshotId model.BaseSnapshotId) + "</p>")
         writer.Line("<p>Proposed snapshot: " + code (StableIdText.snapshotId model.ProposedSnapshotId) + "</p>")
+        emitStaleBaseWarning writer baseIsCommitted
         writer.Line("<p class=\"status\">Readiness: " + html (readinessLabel model.Readiness) + "</p></header>")
         // The affected functions' focus views name the type parameters an added parameter may use.
         let names =
@@ -780,6 +785,8 @@ module ViewerHtml =
         emitDocumentEnd writer
         writer.ToString()
 
+    let renderChangeReviewDocument model = renderChangeReviewDocumentWithBaseState true model
+
     let private transactionReadinessLabel (readiness: TransactionReadiness): string =
         match readiness with
         | TransactionReadiness.SemanticallyReady -> "semantically ready"
@@ -794,8 +801,7 @@ module ViewerHtml =
         writer.Line("<p>Pending proposal: " + code (StableIdText.transactionId model.TransactionId) + ". Nothing is published until it is committed.</p>")
         writer.Line("<p>Base snapshot: " + code (StableIdText.snapshotId model.BaseSnapshotId) + "</p>")
         writer.Line("<p>Proposed snapshot: " + code (StableIdText.snapshotId model.ProposedSnapshotId) + "</p>")
-        if not model.BaseIsCommitted then
-            writer.Line("<p class=\"status\">The base snapshot is no longer the committed state; committed focus is not shown.</p>")
+        emitStaleBaseWarning writer model.BaseIsCommitted
         writer.Line("<p class=\"status\">Readiness: " + html (transactionReadinessLabel model.Readiness) + "</p></header>")
 
         writer.Line("<section><h2>Functions created or rewritten</h2>")

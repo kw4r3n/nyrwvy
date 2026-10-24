@@ -142,6 +142,9 @@ module ViewerArtifactTests =
             let snapshotPath = Path.Combine(tempRoot, "snapshot.json")
             let outputPath = Path.Combine(tempRoot, "focus.html")
             File.WriteAllText(snapshotPath, json, UTF8Encoding(false))
+            File.WriteAllText(outputPath, "old HTML")
+            let privateMode = UnixFileMode.UserRead ||| UnixFileMode.UserWrite
+            if not (OperatingSystem.IsWindows()) then File.SetUnixFileMode(outputPath, privateMode)
 
             let exitCode, stdout, stderr =
                 runDotnet
@@ -159,6 +162,7 @@ module ViewerArtifactTests =
                 failwith "Viewer export CLI did not create the requested HTML file."
 
             let html = File.ReadAllText(outputPath, Encoding.UTF8)
+            if not (OperatingSystem.IsWindows()) then Assert.Equal(privateMode, File.GetUnixFileMode outputPath)
             if not (html.Contains("Function Focus", StringComparison.Ordinal)) then
                 failwith "Exported HTML does not contain the Focus viewer heading."
             if not (html.Contains(StableId.value fixture.MainFunctionId, StringComparison.Ordinal)) then
@@ -168,6 +172,87 @@ module ViewerArtifactTests =
         finally
             if Directory.Exists tempRoot then
                 Directory.Delete(tempRoot, true)
+
+    [<Fact>]
+    let ``viewer export CLI refuses output aliases of its input directory entry`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let source = SnapshotCodec.serialize fixture.Snapshot |> unwrap
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-export-self-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory root |> ignore
+        let snapshot = Path.Combine(root, "snapshot.json")
+        let run input output =
+            runDotnet (repoRoot ()) (cliArguments
+                [ "focus"; "--input"; input; "--format"; "json"
+                  "--function-id"; StableId.value fixture.MainFunctionId; "--output"; output ])
+        let refused input output =
+            let code, _, stderr = run input output
+            Assert.Equal(2, code)
+            Assert.Contains("must not replace the input snapshot", stderr)
+            Assert.Equal(source, File.ReadAllText snapshot)
+        try
+            File.WriteAllText(snapshot, source)
+            for output in [ snapshot; Path.Combine(root, ".", "snapshot.json"); Path.Combine(root, "pages", "..", "snapshot.json") ] do
+                refused snapshot output
+            let code, _, stderr = run snapshot (Path.GetPathRoot snapshot)
+            Assert.Equal(2, code)
+            Assert.Contains("Output must name a file", stderr)
+            Assert.Equal(source, File.ReadAllText snapshot)
+            if not (OperatingSystem.IsWindows()) then
+                let linkedDirectory = root + "-link"
+                try
+                    Directory.CreateSymbolicLink(linkedDirectory, root) |> ignore
+                    refused snapshot (Path.Combine(linkedDirectory, "snapshot.json"))
+                    let linkedInput = Path.Combine(root, "input-link.json")
+                    File.CreateSymbolicLink(linkedInput, snapshot) |> ignore
+                    refused linkedInput snapshot
+                    refused linkedInput linkedInput
+                finally
+                    if Directory.Exists linkedDirectory then Directory.Delete linkedDirectory
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``viewer export CLI refuses symbolic outputs and replaces hardlinks without changing the input graph`` () =
+        if not (OperatingSystem.IsWindows()) then
+            let fixture = MilestoneZeroGraph.create ()
+            let source = SnapshotCodec.serialize fixture.Snapshot |> unwrap
+            let root = Path.Combine(Path.GetTempPath(), "nyrwvy-export-links-" + Guid.NewGuid().ToString("N"))
+            Directory.CreateDirectory root |> ignore
+            let snapshot = Path.Combine(root, "snapshot.json")
+            let symbolic = Path.Combine(root, "symbolic.html")
+            let hard = Path.Combine(root, "hard.html")
+            try
+                File.WriteAllText(snapshot, source)
+                File.CreateSymbolicLink(symbolic, snapshot) |> ignore
+                let inputLink = Path.Combine(root, "input-link.json")
+                File.CreateSymbolicLink(inputLink, symbolic) |> ignore
+                for input in [ snapshot; inputLink ] do
+                    let code, _, stderr =
+                        runDotnet (repoRoot ()) (cliArguments
+                            [ "focus"; "--input"; input; "--format"; "json"
+                              "--function-id"; StableId.value fixture.MainFunctionId; "--output"; symbolic ])
+                    Assert.Equal(2, code)
+                    Assert.Contains("Output must not be a symbolic link", stderr)
+                    Assert.Equal(source, File.ReadAllText input)
+                let start = ProcessStartInfo("ln")
+                start.UseShellExecute <- false
+                start.ArgumentList.Add(snapshot)
+                start.ArgumentList.Add(hard)
+                use link = Process.Start(start)
+                link.WaitForExit()
+                Assert.Equal(0, link.ExitCode)
+                for output in [ hard ] do
+                    let code, stdout, stderr =
+                        runDotnet (repoRoot ()) (cliArguments
+                            [ "focus"; "--input"; snapshot; "--format"; "json"
+                              "--function-id"; StableId.value fixture.MainFunctionId; "--output"; output ])
+                    Assert.True((code = 0), stdout + stderr)
+                    Assert.Equal(source, File.ReadAllText snapshot)
+                    Assert.Contains("Function Focus", File.ReadAllText output)
+                    Assert.Null(FileInfo(output).LinkTarget)
+                Assert.Empty(Directory.GetFiles(root, "*.tmp"))
+            finally
+                if Directory.Exists root then Directory.Delete(root, true)
 
     [<Fact>]
     let ``viewer export CLI rejects unknown options and two function selectors`` () =
@@ -389,6 +474,26 @@ module ViewerArtifactTests =
             let content = File.ReadAllText(page.RootElement.GetProperty("result").GetProperty("path").GetString(), Encoding.UTF8)
             Assert.Contains("<h1>Change Review</h1>", content)
             Assert.Contains("validate_user → check_user", content)
+            Assert.DoesNotContain("The base snapshot is no longer the committed state", content)
+
+            use competing =
+                AuthoringProtocol.executeLine session
+                    ($"""{{"id":"competing","op":"simulateOperations","operations":[{{"kind":"renameFunction","functionId":"{StableId.value fixture.ValidateFunctionId}","displayName":"verify_user"}}]}}""")
+                |> JsonDocument.Parse
+            Assert.True(competing.RootElement.GetProperty("ok").GetBoolean(), competing.RootElement.ToString())
+            let competingId = competing.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            use committed =
+                AuthoringProtocol.executeLine session ($"""{{"id":"commit","op":"commit","proposalId":"{competingId}"}}""")
+                |> JsonDocument.Parse
+            Assert.True(committed.RootElement.GetProperty("ok").GetBoolean(), committed.RootElement.ToString())
+            use stale =
+                AuthoringProtocol.executeLine session ($"""{{"id":"stale","op":"viewProposal","proposalId":"{proposalId}"}}""")
+                |> JsonDocument.Parse
+            Assert.True(stale.RootElement.GetProperty("ok").GetBoolean(), stale.RootElement.ToString())
+            let staleContent = File.ReadAllText(stale.RootElement.GetProperty("result").GetProperty("path").GetString())
+            Assert.Contains("The base snapshot is no longer the committed state", staleContent)
+            Assert.Contains("validate_user → check_user", staleContent)
+            Assert.DoesNotContain("verify_user", staleContent)
         finally
             if Directory.Exists root then
                 Directory.Delete(root, true)

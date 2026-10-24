@@ -22,6 +22,8 @@ let private usage =
 
 --function takes an exact display name and fails when no function or several functions have it.
 The default output file name is derived from the stable FunctionId, never from the display name.
+The output must not replace the input snapshot or its target.
+An existing output is replaced as a file; output symbolic links are refused.
 Unknown, duplicate, missing-value, and positional options are rejected.
 """
 
@@ -74,7 +76,7 @@ let private runFocus (arguments: string list): Result<string, string> =
             | Error error -> Error $"Viewer export failed: {error}"
             | Ok artifact ->
                 let outputPath = parsed.OutputPath |> Option.defaultValue artifact.SuggestedFileName
-                ExportCli.writeUtf8 outputPath artifact.Content))
+                ExportCli.writeUtf8 parsed.InputPath outputPath artifact.Content))
 
 [<EntryPoint>]
 let main argv =

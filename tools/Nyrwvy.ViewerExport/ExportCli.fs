@@ -32,15 +32,51 @@ let requiredOption (name: string) (options: Map<string, string>) =
     | Some value -> Ok value
     | None -> Error $"Missing required {name} argument."
 
-/// Writes `content` as UTF-8 without a BOM, creating the parent directory, and returns the full path.
-let writeUtf8 (outputPath: string) (content: string) : Result<string, string> =
+let rec private resolveLinks (path: string) =
+    let parent = Path.GetDirectoryName path
+    if String.IsNullOrEmpty parent then path
+    else
+        let candidate = Path.Combine(resolveLinks parent, Path.GetFileName path)
+        let info = FileInfo candidate
+        if isNull info.LinkTarget then candidate
+        else resolveLinks (info.ResolveLinkTarget(true).FullName)
+
+let private resolveEntry (path: string) =
+    let fullPath = Path.GetFullPath path
+    let parent = Path.GetDirectoryName fullPath
+    if String.IsNullOrEmpty parent then fullPath
+    else Path.Combine(resolveLinks parent, Path.GetFileName fullPath)
+
+/// Replaces the output with UTF-8 HTML without writing through links to the input.
+let writeUtf8 (inputPath: string) (outputPath: string) (content: string) : Result<string, string> =
     try
         let fullPath = Path.GetFullPath(outputPath)
-        let directory = Path.GetDirectoryName(fullPath)
-        if not (String.IsNullOrEmpty directory) then
+        let outputEntry = resolveEntry fullPath
+        let comparison =
+            if OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() then StringComparison.OrdinalIgnoreCase
+            else StringComparison.Ordinal
+        if String.IsNullOrEmpty(Path.GetFileName fullPath) then
+            Error "Output must name a file."
+        elif [ resolveEntry inputPath; resolveLinks (Path.GetFullPath inputPath) ]
+           |> List.exists (fun input -> String.Equals(input, outputEntry, comparison)) then
+            Error "Output must not replace the input snapshot."
+        elif not (isNull (FileInfo(outputEntry).LinkTarget)) then
+            Error "Output must not be a symbolic link."
+        else
+            let directory = Path.GetDirectoryName outputEntry
             Directory.CreateDirectory(directory) |> ignore
-        File.WriteAllText(fullPath, content, UTF8Encoding(false))
-        Ok fullPath
+            let temporary = Path.Combine(directory, $".{Path.GetFileName outputEntry}.{Guid.NewGuid():N}.tmp")
+            try
+                do
+                    use stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None)
+                    use writer = new StreamWriter(stream, UTF8Encoding(false))
+                    writer.Write(content)
+                if not (OperatingSystem.IsWindows()) && File.Exists outputEntry then
+                    File.SetUnixFileMode(temporary, File.GetUnixFileMode outputEntry)
+                File.Move(temporary, outputEntry, true)
+                Ok fullPath
+            finally
+                if File.Exists temporary then File.Delete temporary
     with
     | :? IOException as error -> Error $"I/O error: {error.Message}"
     | :? UnauthorizedAccessException as error -> Error $"Access error: {error.Message}"
