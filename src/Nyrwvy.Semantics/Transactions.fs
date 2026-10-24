@@ -26,9 +26,12 @@ type AddFunctionParameterRequest =
       NewParameterType: TypeRef
       CallSitePlans: CallPlan list }
 
+/// `AddedNodes` are materialized value nodes (system-owned IDs) inserted just before the construct
+/// in its own graph; empty when `ValueNodeId` names an existing node.
 type ProductFieldConstructionPlan =
     { ConstructNodeId: GraphNodeId
-      ValueNodeId: GraphNodeId }
+      ValueNodeId: GraphNodeId
+      AddedNodes: SemanticNode list }
 
 type AddProductFieldRequest =
     { TargetTypeId: TypeId
@@ -702,6 +705,20 @@ module Transaction =
                 request.ConstructionPlans
                 |> List.map (fun plan -> plan.ConstructNodeId, plan.ValueNodeId)
                 |> Map.ofList
+            let addedById =
+                request.ConstructionPlans
+                |> List.map (fun plan -> plan.ConstructNodeId, plan.AddedNodes)
+                |> Map.ofList
+            let rec withAddedNodes (graph: ValueGraph) =
+                { graph with
+                    Nodes =
+                        graph.Nodes
+                        |> List.collect (fun node ->
+                            let node = SemanticNodeShape.mapNestedGraphs withAddedNodes node
+                            (Map.tryFind node.Id addedById |> Option.defaultValue []) @ [ node ]) }
+            let inserted =
+                { snapshot with
+                    Functions = snapshot.Functions |> List.map (fun owner -> { owner with Body = withAddedNodes owner.Body }) }
             if String.IsNullOrWhiteSpace request.NewFieldDisplayName then
                 Error("InvalidDisplayName", "The new field display name cannot be blank.")
             elif fields |> List.exists (fun field -> field.DisplayName = request.NewFieldDisplayName) then
@@ -715,7 +732,8 @@ module Transaction =
                     affected
                     |> List.tryFind (fun (owner, constructNodeId) ->
                         let candidate = Map.find constructNodeId plansById
-                        SemanticFacts.createNodeTypeResolver snapshot owner candidate <> Some request.NewFieldType)
+                        let owner = inserted.Functions |> List.find (fun item -> item.Id = owner.Id)
+                        SemanticFacts.createNodeTypeResolver inserted owner candidate <> Some request.NewFieldType)
                 match invalidValue with
                 | Some _ ->
                     Error("ProductFieldValueTypeMismatch", "The planned field value must exist in its owning function and have the new field type.")
@@ -731,7 +749,7 @@ module Transaction =
                                 { item with Kind = SemanticTypeKind.Product(fields @ [ newField ]) }
                             else item)
                     let updatedFunctions =
-                        snapshot.Functions
+                        inserted.Functions
                         |> List.map (fun owner ->
                             let mapNode (node: SemanticNode) =
                                 match node.Kind, Map.tryFind node.Id plansById with

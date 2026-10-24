@@ -80,6 +80,7 @@ type AuthoringDeclarations =
 type AuthoringOperationRequest =
     | Intent of AgentOperationIntent
     | AddUnionVariant of targetTypeId: TypeId * variant: SemanticVariant * arms: AgentUnionVariantArmRecipe list
+    | AddProductField of AgentAddProductFieldIntent * plans: AgentProductFieldValuePlan list
 
 /// Read-only execution inputs; candidate projection never publishes into the session.
 type internal AuthoringExecutionContext =
@@ -1266,9 +1267,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Ok proposal ->
                 register (AgentChangeProposal.transactionId proposal) (PendingProposal.Operations proposal) (AuthoringProposalReview.Operations(AgentChangeProposal.review proposal))
 
-    /// `SimulateOperations` for a batch the wire layer read: `addUnionVariant` arm recipes are
-    /// materialized in their matches' scopes against the current snapshot first, and a recipe that
-    /// does not bind or type-check rejects the whole batch as a simulation rejection.
+    /// `SimulateOperations` for a batch the wire layer read: `addUnionVariant` arm recipes and
+    /// `addProductField` value recipes are materialized in their matches' or constructs' scopes
+    /// against the current snapshot first, and a recipe that does not bind or type-check rejects
+    /// the whole batch as a simulation rejection.
     member this.SimulateOperationRequests(requests: AuthoringOperationRequest list, ?expectedBaseSnapshotId: SnapshotId): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
@@ -1282,6 +1284,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     match AgentUnionVariantArmPlans.prepare workspace targetTypeId variant arms with
                     | Error diagnostic -> Error(AuthoringSessionError.WorkflowSimulationFailure(AgentWorkflowError.SimulationRejected [ diagnostic ]))
                     | Ok intent -> prepare (AgentOperationIntent.AddUnionVariant intent :: acc) rest
+                | AuthoringOperationRequest.AddProductField(intent, plans) :: rest ->
+                    match AgentProductFieldValuePlans.prepare workspace intent plans with
+                    | Error diagnostic -> Error(AuthoringSessionError.WorkflowSimulationFailure(AgentWorkflowError.SimulationRejected [ diagnostic ]))
+                    | Ok intent -> prepare (AgentOperationIntent.AddProductField intent :: acc) rest
             match prepare [] requests with
             | Error error -> Error error
             | Ok operations -> this.SimulateOperations(operations, ?expectedBaseSnapshotId = expectedBaseSnapshotId)
