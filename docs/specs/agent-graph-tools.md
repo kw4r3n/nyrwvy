@@ -42,6 +42,8 @@ For repeated execution checks, the [saved-fixture MCP client](../../examples/run
 
 `nyrwvy_request` reaches `runPure`, whose `hostSources` compile and run arbitrary C# with the user's permissions. The tools therefore start AuthoringSession without host sources, and such requests fail with `RunHostSourcesDisabled`. An operator enables them as configuration, never per request: `NYRWVY_ALLOW_HOST_SOURCES=1` in the environment of the OpenCode or MCP host process (or the MCP server's `--allow-host-sources`, or `allowHostSources: true` in the adapter context) makes `nyrwvy_open` start the session with `--allow-host-sources` and report `hostSourcesAllowed: true`. Do not enable it where tool calls are auto-approved ([MCP guidance](mcp-graph-tools.md#host-sources-run-arbitrary-code)).
 
+`nyrwvy_open` also reports `toolCodeCommit`, the commit of the tool code the server process loaded at startup (absent outside a git checkout), next to `status.build`, the session build that serves the requests. Tool descriptions and `nyrwvy_recipe_reference` come from the loaded code, while each open starts the session from the current build. When the two name different commits, the reply carries a `warning` to reconnect the server so its descriptions and recipe reference match the session.
+
 
 For example, a function proposal takes these arguments directly:
 

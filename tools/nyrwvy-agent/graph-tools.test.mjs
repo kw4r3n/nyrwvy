@@ -100,3 +100,13 @@ test("the OpenCode entry point exports all tools and awaits recipe discovery", a
     kind: "conditional", condition: "<recipe>", whenTrue: "<recipe>", whenFalse: "<recipe>",
   })
 })
+
+test("open warns only when the session build names another commit than the loaded tool code", async () => {
+  const { staleToolWarning } = await import("./authoring.ts")
+  const a = "a".repeat(40), b = "b".repeat(40)
+  assert.equal(staleToolWarning(a, `1.0.0+${a}`), undefined)
+  assert.match(staleToolWarning(a, `1.0.0+${b}`), /runs build bbbbbbbbbbbb, but this server loaded .* from aaaaaaaaaaaa\. Reconnect the MCP server/)
+  assert.equal(staleToolWarning(undefined, `1.0.0+${b}`), undefined)
+  assert.equal(staleToolWarning(a, "1.0.0"), undefined)
+  assert.equal(staleToolWarning(a, undefined), undefined)
+})
