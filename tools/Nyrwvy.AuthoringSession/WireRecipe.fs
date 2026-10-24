@@ -224,7 +224,7 @@ module internal WireRecipe =
 
     /// An exact-ID recipe; a field pattern reference by `field` name is not available here.
     let recipe (element: JsonElement): ExpressionRecipe =
-        recipeIn (fun name -> fail $"Pattern reference by field name '{name}' is available only in an addUnionVariant arm body; use fieldId.") element
+        recipeIn (fun name -> fail $"Pattern reference by field name '{name}' is available only in an addUnionVariant arm body; use fieldId.") (WireRecipeNames.resolve element)
 
     /// An exact-ID recipe whose field pattern references may name one of `newFields` by display
     /// name: the arm bodies of `addUnionVariant`, whose field IDs do not exist on the wire yet.
@@ -236,4 +236,4 @@ module internal WireRecipe =
                 | None ->
                     let known = newFields |> List.map (fun field -> field.DisplayName) |> String.concat ", "
                     fail $"Unknown new variant field '{name}' in a pattern reference; the new variant's fields are: {known}.")
-            element
+            (WireRecipeNames.resolve element)
