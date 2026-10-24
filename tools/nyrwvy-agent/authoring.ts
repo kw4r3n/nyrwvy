@@ -1,8 +1,28 @@
 import { randomUUID } from "node:crypto"
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process"
 import { createInterface } from "node:readline"
 import { stat } from "node:fs/promises"
 import { resolve } from "node:path"
+import { fileURLToPath } from "node:url"
+
+/** The commit of the tool code this process loaded, read once at startup; undefined outside a git checkout. */
+const toolCodeCommit = (() => {
+  try {
+    return execFileSync("git", ["-C", fileURLToPath(new URL(".", import.meta.url)), "rev-parse", "HEAD"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || undefined
+  } catch { return undefined }
+})()
+
+/**
+ * Tool descriptions and the recipe reference are loaded when the MCP server starts, while each open starts the
+ * session from the current build, so a rebuilt session under a long-running server is newer than what the agent
+ * reads. Warns when the session build (`version+commit`) names a different commit than the loaded tool code.
+ */
+export function staleToolWarning(loadedCommit: string | undefined, sessionBuild: unknown): string | undefined {
+  const sessionCommit = typeof sessionBuild === "string" ? sessionBuild.split("+")[1]?.slice(0, 40) : undefined
+  if (loadedCommit === undefined || sessionCommit === undefined || !/^[0-9a-f]{40}$/.test(sessionCommit) || sessionCommit === loadedCommit) return undefined
+  return `The session runs build ${sessionCommit.slice(0, 12)}, but this server loaded its tool descriptions and recipe reference from ${loadedCommit.slice(0, 12)}. Reconnect the MCP server to read the current ones; requests already use the session build.`
+}
 
 /**
  * allowHostSources is operator configuration, never a per-request argument: when true, the session
@@ -288,7 +308,9 @@ async function launchAuthoring(
   try {
     const status = JSON.parse(await client.request({ op: "status" }, context.abort)) as Reply
     if (!status.ok) throw new Error(JSON.stringify(status.error))
-    return JSON.stringify({ worktree, snapshot: workspace, status, hostSourcesAllowed: allowHostSources,
+    const warning = staleToolWarning(toolCodeCommit, (status as { result?: { build?: unknown } }).result?.build)
+    return JSON.stringify({ worktree, snapshot: workspace, status, hostSourcesAllowed: allowHostSources, toolCodeCommit,
+      ...(warning === undefined ? {} : { warning }),
       guide: "Use nyrwvy_inspect, nyrwvy_create_type, nyrwvy_create_function and nyrwvy_replace. Inspect every returned review before nyrwvy_commit or nyrwvy_reject; compact result views are bounded to 16 KiB UTF-8. If projection.requiresDetailedReview is true, read the omitted impact/graph paths with nyrwvy_request op readProposal (proposalId,path,offset,limit; pages at most 8 KiB). Small reviews keep signature, node count, impact facts and fingerprints; detail \"full\" adds the proposed graph without a byte bound. nyrwvy_request exposes the full maintained protocol. No raw snapshot or generated-source edits. Close and open the same snapshot to resume; uncommitted proposal handles do not survive." })
   } catch (error) {
     try { await client.close() } catch (cleanupError) {
