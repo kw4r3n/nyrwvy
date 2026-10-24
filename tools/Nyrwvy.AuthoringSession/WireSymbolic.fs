@@ -6,10 +6,42 @@ open Nyrwvy.Core
 module internal WireSymbolic =
     open WireInput
 
+    let private editDistance (a: string) (b: string) =
+        let mutable previous = Array.init (b.Length + 1) (fun j -> j)
+        for i in 1 .. a.Length do
+            let current = Array.zeroCreate (b.Length + 1)
+            current[0] <- i
+            for j in 1 .. b.Length do
+                let substitution = previous[j - 1] + (if a[i - 1] = b[j - 1] then 0 else 1)
+                current[j] <- min substitution (min previous[j] current[j - 1] + 1)
+            previous <- current
+        previous[b.Length]
+
+    /// Names an unknown-name error can offer: every name when there are few, otherwise
+    /// the closest few, so a misspelt name is fixed without another inspect call.
+    let private candidateHint (displayName: string) (names: string list) =
+        let names = names |> List.filter (fun name -> name <> "") |> List.distinct
+        let quoted = List.map (fun name -> $"'{name}'") >> String.concat ", "
+        if names.IsEmpty then ""
+        elif names.Length <= 10 then $" Available: {quoted names}."
+        else
+            let wanted = displayName.ToLowerInvariant()
+            let close =
+                names
+                |> List.map (fun name -> name, editDistance wanted (name.ToLowerInvariant()))
+                |> List.filter (fun (name, distance) ->
+                    let lowered = name.ToLowerInvariant()
+                    distance <= max 2 (wanted.Length / 3)
+                    || (wanted.Length >= 3 && (lowered.Contains wanted || wanted.Contains lowered)))
+                |> List.sortBy snd
+                |> List.truncate 3
+                |> List.map fst
+            if close.IsEmpty then "" else $" Did you mean {quoted close}?"
+
     let private exactOne label displayName items getDisplayName =
         match items |> List.filter (fun item -> getDisplayName item = displayName) with
         | [ item ] -> item
-        | [] -> fail $"Unknown {label} '{displayName}'."
+        | [] -> fail $"Unknown {label} '{displayName}'.{candidateHint displayName (List.map getDisplayName items)}"
         | _ -> fail $"Ambiguous {label} '{displayName}'."
 
     let resolveType (declarations: AuthoringDeclarations) displayName =
