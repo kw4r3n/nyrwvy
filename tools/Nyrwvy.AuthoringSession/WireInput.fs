@@ -45,7 +45,8 @@ module internal WireInput =
         let missing = Set.difference (Set.ofList required) actual |> Set.toList |> List.sort
         if not (List.isEmpty unknown) then
             let rendered = String.concat ", " unknown
-            fail $"{context} contains unsupported properties: {rendered}."
+            let allowedNames = String.concat ", " allowed
+            fail $"{context} contains unsupported properties: {rendered}. Allowed: {allowedNames}."
         if not (List.isEmpty missing) then
             let rendered = String.concat ", " missing
             fail $"{context} is missing required properties: {rendered}."

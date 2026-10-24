@@ -110,3 +110,11 @@ module FunctionBatchAndBodyWrapTests =
             Assert.DoesNotContain("helper1", close)
             let far = rejected $"""{{"id":"x","op":"simulateCreateFunctionByName",{(fn "user" (call "zzz" n)).TrimStart('{')}"""
             Assert.DoesNotContain("Did you mean", far))
+
+    [<Fact>]
+    let ``an unsupported recipe property lists the allowed ones`` () =
+        withSession (fun _ _ rejected ->
+            let float64 = """{"kind":"primitive","primitive":"float64"}"""
+            let text = rejected $"""{{"id":"f","op":"simulateCreateFunctionByName","displayName":"f","exported":true,"parameters":[],"resultType":{float64},"requiredEffects":[],"body":{{"kind":"float64Literal","value":1.5}}}}"""
+            Assert.Contains("unsupported properties: value.", text)
+            Assert.Contains("Allowed: kind, bits.", text))
