@@ -66,7 +66,8 @@ type MigrationReport =
 module AuthoringSessionMigration =
     let toolName = "Nyrwvy.AuthoringSession migrate"
 
-    let private toolVersion () =
+    /// The build's InformationalVersion (version+source commit), so callers can tell which build runs.
+    let toolVersion () =
         let assembly = typeof<MigrationReport>.Assembly
         let informational =
             assembly.GetCustomAttributes(typeof<Reflection.AssemblyInformationalVersionAttribute>, false)
