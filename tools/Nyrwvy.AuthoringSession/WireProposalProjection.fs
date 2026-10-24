@@ -43,7 +43,7 @@ module internal WireProposalProjection =
         let identity (name: string) = name = "id" || name.EndsWith("Id", StringComparison.Ordinal) || name.EndsWith("Ids", StringComparison.Ordinal) || name.EndsWith("Fingerprint", StringComparison.Ordinal)
         identity parts[parts.Length - 1] || (parts.Length > 1 && identity parts[parts.Length - 2])
 
-    let private project arrayLimit textLimit preserveReceipt rootPath (rootArrayOffset: int option) (root: obj) =
+    let private project objectDepth arrayLimit textLimit preserveReceipt rootPath (rootArrayOffset: int option) (root: obj) =
         let omissions = ResizeArray<obj>()
         let omit path kind total shown =
             omissions.Add(objectValue [ "path", box path; "kind", box kind; "totalCount", box total; "shownCount", box shown ])
@@ -62,7 +62,7 @@ module internal WireProposalProjection =
                 else
                     omit path "object" ((properties value) |> Seq.length) 0
                     null
-            elif depth >= 8 && valueKind value = JsonValueKind.Object then
+            elif depth >= objectDepth && valueKind value = JsonValueKind.Object then
                 omit path "object" ((properties value) |> Seq.length) 0
                 null
             else
@@ -105,9 +105,11 @@ module internal WireProposalProjection =
                     |> fun v -> withProjection v (metadata compactMaxBytes originalBytes [])
         if bytes uncut <= compactMaxBytes then uncut
         else
-            [ true, 8, 256; true, 4, 128; true, 2, 64; true, 1, 32; true, 0, 0; false, 0, 0 ]
-            |> List.tryPick (fun (receipt, arrays, text) ->
-                let projected, omissions = project arrays text receipt "" None raw
+            // The last levels cut whole objects, so a review with very wide objects still returns
+            // its proposalId instead of an error that leaves the stored proposal unexplained.
+            [ 8, true, 8, 256; 8, true, 4, 128; 8, true, 2, 64; 8, true, 1, 32; 8, true, 0, 0; 8, false, 0, 0; 2, false, 0, 0; 1, false, 0, 0 ]
+            |> List.tryPick (fun (depth, receipt, arrays, text) ->
+                let projected, omissions = project depth arrays text receipt "" None raw
                 let result = withProjection projected (metadata compactMaxBytes originalBytes omissions)
                 if bytes result <= compactMaxBytes then Some result else None)
             |> Option.defaultWith (fun () -> invalidOp "A compact proposal envelope exceeded its fixed wire budget.")
@@ -174,7 +176,7 @@ module internal WireProposalProjection =
             else
                 answer <-
                     [ 4, 128; 2, 64; 1, 32; 0, 0 ] |> List.tryPick (fun (arrays, text) ->
-                        let value, omissions = project arrays text false path (if kind = "array" then Some offset else None) value
+                        let value, omissions = project 8 arrays text false path (if kind = "array" then Some offset else None) value
                         let response = header count value (metadata pageMaxBytes originalBytes omissions)
                         if bytes response <= pageMaxBytes then Some response else None)
                 if answer.IsNone then
