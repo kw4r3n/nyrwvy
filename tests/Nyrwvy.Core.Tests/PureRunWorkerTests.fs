@@ -93,6 +93,17 @@ module PureRunWorkerTests =
             Assert.Equal(PureRunValue.String "three", (run "three" "d").Actual))
 
     [<Fact>]
+    let ``warming starts the worker that the first run then uses`` () =
+        withSession (fun session ->
+            let probe, fake = probe session
+            PureRun.warm session.PureRunWorker
+            let pid = session.PureRunWorker.ProcessId |> Option.get
+            Assert.True(alive pid)
+            let result = PureRun.run session probe.Id [ fake [ "one" ]; PureRunValue.String "a" ] None |> unwrap
+            Assert.Equal(PureRunValue.String "one", result.Actual)
+            Assert.Equal(Some pid, session.PureRunWorker.ProcessId))
+
+    [<Fact>]
     let ``disposing the session ends its worker and removes its directory`` () =
         let pid, directory =
             withSession (fun session ->
