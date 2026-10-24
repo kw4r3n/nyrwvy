@@ -674,8 +674,8 @@ module internal WireSymbolic =
         typeRef declarations element |> resolveFunctionTypeParameters fn
 
     let recipeForNewFunction declarations displayName parameters element =
-        recipe declarations (ParameterContext.NewFunction(displayName, parameters)) element
+        recipe declarations (ParameterContext.NewFunction(displayName, parameters)) (WireRecipeNames.resolve element)
 
     let recipeForExistingFunction declarations functionEntity element =
-        recipe declarations (ParameterContext.ExistingFunction functionEntity) element
+        recipe declarations (ParameterContext.ExistingFunction functionEntity) (WireRecipeNames.resolve element)
         |> ExpressionRecipeTypes.map (resolveFunctionTypeParameters functionEntity)

@@ -271,11 +271,12 @@ const references = {
   },
   patternReference: {
     shapes: [
+      { kind: "patternReference", name: "<name given by an enclosing bind.name, matchOption.someName, or matchResult.okName/errName in this recipe>" },
       { kind: "patternReference", scopeDepth: "<non-negative integer>", slot: "value" },
       { kind: "patternReference", scopeDepth: "<non-negative integer>", slot: "error" },
       { kind: "patternReference", scopeDepth: "<non-negative integer>", slot: "field", type: "<union type display name>", variant: "<variant display name>", field: "<field display name>" },
     ],
-    notes: "scopeDepth 0 refers to the innermost Bind/match frame. Count every enclosing Bind body or match arm, including empty MatchOption None and multi-variant/otherwise MatchUnion arms; conditional branches do not add a frame. A Bind value or match input is outside the frame opened for its body/arms. Slot availability does not identify the intended value: several frames can bind value with the same type. For nested left Result Ok, right Result Ok, then Option None, depth 0 has no bindings, depth 1 is right, and depth 2 is left. Use scopeDepth 2 for left and 1 for right. Field slots identify the owning Union, variant, and field by display name.",
+    notes: "scopeDepth 0 refers to the innermost Bind/match frame. Count every enclosing Bind body or match arm, including empty MatchOption None and multi-variant/otherwise MatchUnion arms; conditional branches do not add a frame. A Bind value or match input is outside the frame opened for its body/arms. Slot availability does not identify the intended value: several frames can bind value with the same type. For nested left Result Ok, right Result Ok, then Option None, depth 0 has no bindings, depth 1 is right, and depth 2 is left. Use scopeDepth 2 for left and 1 for right. Field slots identify the owning Union, variant, and field by display name. Prefer the name form for values bound in the same recipe: it is turned into the right scopeDepth and slot before decoding, so it cannot pick another value of the same type. A binding of the existing graph outside the recipe (targeted replacement, arm plans) still needs scopeDepth.",
   },
   originalTarget: {
     shape: { kind: "originalTarget" },
@@ -508,15 +509,15 @@ const references = {
   },
   bind: {
     shape: { kind: "bind", value: recipe, body: recipe },
-    notes: "The body can reuse the bound value with patternReference {scopeDepth:0, slot:'value'}.",
+    notes: "The body can reuse the bound value with patternReference {scopeDepth:0, slot:'value'}. Optional name: \"<binding>\" lets a reference anywhere inside the body use patternReference {name} instead.",
   },
   matchOption: {
     shape: { kind: "matchOption", input: recipe, someBody: recipe, noneBody: recipe },
-    notes: "someBody can read the item with patternReference {scopeDepth:0, slot:'value'}; the None branch still consumes one lexical scope depth.",
+    notes: "someBody can read the item with patternReference {scopeDepth:0, slot:'value'}; the None branch still consumes one lexical scope depth. Optional someName names the item for patternReference {name}.",
   },
   matchResult: {
     shape: { kind: "matchResult", input: recipe, okBody: recipe, errBody: recipe },
-    notes: "okBody uses patternReference slot=value and errBody uses slot=error at scopeDepth 0.",
+    notes: "okBody uses patternReference slot=value and errBody uses slot=error at scopeDepth 0. Optional okName and errName name them for patternReference {name}.",
   },
 }
 

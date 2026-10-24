@@ -14,6 +14,7 @@
     <Compile Include="ChangeVerification.fs" />
     <Compile Include="WireJson.fs" />
     <Compile Include="WireInput.fs" />
+    <Compile Include="WireRecipeNames.fs" />
     <Compile Include="WireRecipeCommon.fs" />
     <Compile Include="WireSymbolic.fs" />
     <Compile Include="WireRecipe.fs" />
