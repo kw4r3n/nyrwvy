@@ -337,3 +337,15 @@ module CompactSimulateReplyTests =
                 | _ -> 0
             Assert.Equal(37, countNodes (root.GetProperty("review").GetProperty("createdFunction").GetProperty("body")))
             Assert.Contains("\"kind\": \"conditional\"", root.GetRawText()))
+
+    [<Fact>]
+    let ``projection of a review with very wide objects still returns the proposal id`` () =
+        let wide = [ for i in 0..4000 -> $"field-{i}", box (WireJson.objectValue [ "kind", box "x" ]) ] |> WireJson.objectValue
+        let raw = WireJson.objectValue [ "proposalId", box "wide-proposal"; "detail", box "compact";
+                                        "review", WireJson.objectValue [ "kind", box "createFunction"; "createdFunction", wide ] ]
+        let text = WireProposalProjection.compact raw |> WireJson.serialize
+        Assert.True(System.Text.Encoding.UTF8.GetByteCount text <= WireProposalProjection.compactMaxBytes)
+        use doc = JsonDocument.Parse text
+        Assert.Equal("wide-proposal", doc.RootElement.GetProperty("proposalId").GetString())
+        Assert.Equal("createFunction", doc.RootElement.GetProperty("review").GetProperty("kind").GetString())
+        Assert.True(doc.RootElement.GetProperty("projection").GetProperty("requiresDetailedReview").GetBoolean())
