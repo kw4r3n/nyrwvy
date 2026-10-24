@@ -72,7 +72,9 @@ The evaluation-only OpenCode bridges that duplicated this transport (the M4 auth
 
 ## Structured graph reading
 
-The additive JSONL operation `readFunction` takes exactly one of `function` (exact display name) and `functionId` (published stable ID). Unknown/ambiguous names fail; IDs are not inferred from spelling. Other properties are rejected.
+The additive JSONL operation `readFunction` takes exactly one of `function` (exact display name) and `functionId` (published stable ID). Unknown/ambiguous names fail; IDs are not inferred from spelling. Other properties are rejected. An optional `detail` is `"full"` (the default for JSONL) or `"compact"`; compact returns the same focus with the function summarized as in compact reviews (signature, `resultNodeId`, `nodeCount`) and without the per-node graph. `nyrwvy_inspect` view `function` sends `compact` unless the caller passes `detail: "full"`.
+
+`search` takes `text` (non-empty) and an optional `limit` (1..200, default 50). It lists, ignoring case, the functions, types, effects, capabilities and capability operations whose display name contains `text`, then every string literal that contains it with its function and node ID (values over 120 UTF-16 code units are cut). `totalCount` counts every match before the limit. `nyrwvy_inspect` view `search` sends it with the default limit.
 
 ```json
 {"id":"read-1","op":"readFunction","function":"identity"}

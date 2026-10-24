@@ -72,6 +72,8 @@ for (const [host, schema, minor] of [["OpenCode", tool.schema, 1], ["MCP", z, 3]
     assert.throws(() => definitions.inspect.execute({ view: "status", function: "Identity" }, context), /view=function/)
     assert.throws(() => definitions.inspect.execute({ view: "proposals", target: { kind: "type", type: "Shape" } }, context), /view=references/)
     assert.throws(() => definitions.inspect.execute({ view: "references" }, context), /requires target/)
+    assert.throws(() => definitions.inspect.execute({ view: "search" }, context), /requires text/)
+    assert.throws(() => definitions.inspect.execute({ view: "status", detail: "full" }, context), /detail requires view=function/)
     assert.throws(() => definitions.inspect.execute({ view: "references", target: { kind: "type", id: "caller-owned" } }, context), /tool-owned/)
     assert.throws(() => definitions.request.execute({ op: "status", arguments: { id: "caller-owned" } }, context), /tool-owned/)
     assert.throws(() => definitions.request.execute({ op: "status", arguments: { op: "commit" } }, context), /Pass op separately/)

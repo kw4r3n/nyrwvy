@@ -184,7 +184,8 @@ The maintained operation set is:
 | `previewDependencyUpgrade` / `previewDependencyUpgrades` | Read-only compatibility review of replacing one pinned dependency, or of an atomic set of replacements or a consolidating/splitting `selection`; nothing is written ([pinned dependencies](#pinned-snapshot-dependencies)). |
 | `simulateDependencyUpgrade` / `simulateDependencyUpgradeByName` | Propose a dependency update together with explicit local repairs, reviewed and committed like any other proposal (shared tool `upgrade_dependencies`). |
 | `declarations` | Stable-ID declaration discovery. |
-| `readFunction` | Structured function graph by exactly one of `function` (display name) and `functionId` ([contract](agent-graph-tools.md)). |
+| `readFunction` | Structured function graph by exactly one of `function` (display name) and `functionId`; `detail: "compact"` leaves out the per-node graph ([contract](agent-graph-tools.md)). |
+| `search` | Declarations whose display name contains `text`, and string literals that contain it, ignoring case ([contract](agent-graph-tools.md)). |
 | `viewFunction` | Write the committed function's human-readable Function Focus HTML and return its path; exactly one of `function` and `functionId`, optional `.html` `output` ([contract](agent-graph-tools.md#human-readable-view)). |
 | `viewProposal` | Write a pending proposal's human-readable Change Review HTML and return its path; required `proposalId`, optional `.html` `output`. Publishes nothing ([contract](agent-graph-tools.md#human-readable-view)). |
 | `simulateOperations` | Simulate a list of existing `AgentOperationIntent` operations, including `addUnionVariant` with one arm recipe per `matchUnion` over the Union. |

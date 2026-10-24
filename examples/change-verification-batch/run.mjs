@@ -145,7 +145,7 @@ async function saveStage(name) {
 }
 try {
   await call("open", { mode: "open", snapshot })
-  const before = await call("inspect", { view: "function", function: "missingLine" })
+  const before = await call("inspect", { view: "function", detail: "full", function: "missingLine" })
   functionId = before.function.id
   const pinned = await readFile(sidecar)
   await timed("baseline-frozen-formatter-oracles", () => ordinaryFormatter(baselineCases))
@@ -156,7 +156,7 @@ try {
   const refactorResult = await verify(refactor, baselineCases, "refactor")
   assert.ok(refactorResult.evidence.cases.every(item => item.status === "tested-agreement"))
   await call("commit", { proposalId: refactor.proposalId })
-  const after = await call("inspect", { view: "function", function: "missingLine" })
+  const after = await call("inspect", { view: "function", detail: "full", function: "missingLine" })
   assert.equal(after.function.id, functionId)
   assert.deepEqual(after.function.parameters, before.function.parameters)
   assert.deepEqual(after.function.resultType, before.function.resultType)

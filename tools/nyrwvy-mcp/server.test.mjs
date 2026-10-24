@@ -90,7 +90,7 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     assert.equal(created.review.createdFunction.body.nodes, undefined)
     assert.equal((await call(first, "inspect", { view: "declarations" })).result.functions.length, 0)
     await call(first, "commit", { proposalId: created.proposalId })
-    const before = (await call(first, "inspect", { view: "function", functionId })).result
+    const before = (await call(first, "inspect", { view: "function", detail: "full", functionId })).result
     const target = before.function.body.resultNodeId
 
     const error = await failed(first, "replace", { function: "missing", replacement: bool(false) })
@@ -140,15 +140,21 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     await assert.rejects(readFile(join(workspace, "workspace.json.lock")), { code: "ENOENT" }, "a clean close removes the lock file")
     const reopened = await call(second, "open", { mode: "open", snapshot: "workspace.json", workspace })
     assert.equal(reopened.snapshot, opened.snapshot)
-    const resumed = (await call(second, "inspect", { view: "function", functionId })).result.function
+    const resumed = (await call(second, "inspect", { view: "function", detail: "full", functionId })).result.function
     assert.equal(resumed.id, functionId)
     assert.equal(resumed.body.nodes[0].kind.value, false)
+    // The function view is compact unless detail "full" is asked for.
+    const compactView = (await call(second, "inspect", { view: "function", functionId })).result.function
+    assert.equal(compactView.body.nodes, undefined)
+    assert.equal(compactView.body.resultNodeId, resumed.body.resultNodeId)
+    const found = (await call(second, "inspect", { view: "search", text: "VAL" })).result
+    assert.deepEqual(found.matches.map(match => [match.kind, match.name]), [["function", "value"]])
     await failed(second, "commit", { proposalId: pending.proposalId })
     // Lifecycle calls share the same queue as requests, even when sent without awaiting one another.
     const concurrent = await Promise.all([
       call(second, "close"),
       call(second, "open", { mode: "open", snapshot: "workspace.json", workspace }),
-      call(second, "inspect", { view: "function", functionId }),
+      call(second, "inspect", { view: "function", detail: "full", functionId }),
     ])
     assert.equal(concurrent[1].snapshot, opened.snapshot)
     assert.deepEqual(concurrent[2].result.function, resumed)

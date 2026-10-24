@@ -105,20 +105,28 @@ export function createGraphTools(schema) {
       },
     }),
     inspect: defineTool({
-      description: "Inspect status (snapshot ID, fingerprints and pendingProposalCount), declarations, the pinned dependency selection, pending proposals (view proposals: each proposalId with its kind, base snapshot, whether that base is still current, and a one-line summary), one function's typed graph, literal values, branch scopes, callers, and declared versus derived body effect requirements with semantic evidence (view function: pass exactly one function name or functionId), or every site that refers to a declaration or one of its members (view references with target: {kind:'function'|'type'|'variant'|'field'|'effect'|'capability'|'capabilityOperation', then the subject by display names (function | type | type+variant | type+field or type+variant+field | effect | capability | capability+operation) or by its exact ID key (functionId | typeId | variantId | fieldId | effectId | capabilityId | operationId)}; each reference names its owner and site, so a type, effect, capability, operation, field, variant or function can be repaired everywhere before deleteType/deleteEffect/deleteCapability/deleteCapabilityOperation/deleteFunction/removeProductField/removeUnionVariant).",
-      args: { view: schema.enum(["status", "declarations", "dependency", "proposals", "function", "references"]), function: selector.optional(), functionId: schema.string().optional(),
+      description: "Inspect status (snapshot ID, fingerprints and pendingProposalCount), declarations, the pinned dependency selection, pending proposals (view proposals: each proposalId with its kind, base snapshot, whether that base is still current, and a one-line summary), one function (view function: pass exactly one function name or functionId; compact by default: signature with resultNodeId and nodeCount, callers, callees, aborts, open obligations and declared versus derived body effect requirements with semantic evidence; detail full adds the typed per-node graph, literal values and branch scopes), declarations whose display name contains text and string literals that contain it, ignoring case (view search with text; at most 50 matches, each match names its function or declaration and IDs, totalCount counts all), or every site that refers to a declaration or one of its members (view references with target: {kind:'function'|'type'|'variant'|'field'|'effect'|'capability'|'capabilityOperation', then the subject by display names (function | type | type+variant | type+field or type+variant+field | effect | capability | capability+operation) or by its exact ID key (functionId | typeId | variantId | fieldId | effectId | capabilityId | operationId)}; each reference names its owner and site, so a type, effect, capability, operation, field, variant or function can be repaired everywhere before deleteType/deleteEffect/deleteCapability/deleteCapabilityOperation/deleteFunction/removeProductField/removeUnionVariant).",
+      args: { view: schema.enum(["status", "declarations", "dependency", "proposals", "function", "references", "search"]), function: selector.optional(), functionId: schema.string().optional(),
+        detail: schema.enum(/** @type {const} */ (["compact", "full"])).describe('function view only: "compact" (default) or "full" (adds the per-node graph).').optional(),
+        text: schema.string().describe("search view only: the text to find.").optional(),
         target: object.describe("references view only: {kind, ...subject keys} as described above.").optional() },
-      /** @param {{ view: "status" | "declarations" | "dependency" | "proposals" | "function" | "references"; function?: string | Record<string, unknown>; functionId?: string; target?: Record<string, unknown> }} args */
+      /** @param {{ view: "status" | "declarations" | "dependency" | "proposals" | "function" | "references" | "search"; function?: string | Record<string, unknown>; functionId?: string; detail?: "compact" | "full"; text?: string; target?: Record<string, unknown> }} args */
       execute(args, context) {
         if (args.view !== "function" && (args.function !== undefined || args.functionId !== undefined)) throw new Error("Function selectors require view=function.")
         if (args.view !== "references" && args.target !== undefined) throw new Error("target requires view=references.")
+        if (args.view !== "function" && args.detail !== undefined) throw new Error("detail requires view=function.")
+        if (args.view !== "search" && args.text !== undefined) throw new Error("text requires view=search.")
+        if (args.view === "search") {
+          if (args.text === undefined) throw new Error("view=search requires text.")
+          return requestAuthoring({ op: "search", text: args.text }, context)
+        }
         if (args.view === "references") {
           if (args.target === undefined) throw new Error("view=references requires target.")
           if ("op" in args.target || "id" in args.target) throw new Error("Pass the subject in target; request ids are tool-owned.")
           return requestAuthoring({ ...args.target, op: "references" }, context)
         }
         if (args.view !== "function") return requestAuthoring({ op: args.view }, context)
-        return requestAuthoring({ op: "readFunction", ...(args.function === undefined ? {} : { function: args.function }),
+        return requestAuthoring({ op: "readFunction", detail: args.detail ?? "compact", ...(args.function === undefined ? {} : { function: args.function }),
           ...(args.functionId === undefined ? {} : { functionId: args.functionId }) }, context)
       },
     }),

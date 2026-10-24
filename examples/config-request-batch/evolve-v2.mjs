@@ -17,7 +17,7 @@ export async function evolveV2({ directory, library, call, exchange, publish, wr
   const snapshot = join(directory, "batch.nyrec"), casesPath = join(directory, "cases.json")
   const evidence = { stages: [], refusals: [], atomicity: "Dependency upgrade and local field migration are separate publications." }
   const pair = () => Promise.all([readFile(snapshot), readFile(snapshot + ".dependency.json")])
-  const inspect = functionName => call("inspect", { view: "function", function: functionName })
+  const inspect = functionName => call("inspect", { view: "function", detail: "full", function: functionName })
   const open = () => call("open", { mode: "open", snapshot })
   async function stage(name) {
     evidence.stages.push({ name, ...(await call("inspect", { view: "status" })) })
