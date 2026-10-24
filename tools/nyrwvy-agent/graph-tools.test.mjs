@@ -17,6 +17,7 @@ const samples = {
     valid: { displayName: "Identity", parameters: [{ displayName: "value", type: {} }], resultType: {}, requiredEffects: [], body: {} },
     invalid: { displayName: "Identity", parameters: [{ displayName: 42, type: {} }], resultType: {}, requiredEffects: [], body: {} },
   },
+  create_functions: { valid: { functions: [{ displayName: "Identity", body: {} }] }, invalid: { functions: [42] } },
   replace: { valid: { function: "Identity", replacement: {} }, invalid: { function: "Identity", replacement: [] } },
   upgrade_dependencies: { valid: { selection: { sources: ["new.json"], replaces: ["old"] }, repairs: {} }, invalid: { selection: {}, repairs: [] } },
   commit: { valid: { proposalId: "proposal" }, invalid: { proposalId: 42 } },

@@ -9,7 +9,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio"
 
 const serverPath = fileURLToPath(new URL("./server.mjs", import.meta.url))
 const bool = value => ({ kind: "boolLiteral", value })
-const names = ["open", "inspect", "view", "recipe_reference", "create_type", "create_function", "replace", "upgrade_dependencies", "commit", "reject", "request", "close"]
+const names = ["open", "inspect", "view", "recipe_reference", "create_type", "create_function", "create_functions", "replace", "upgrade_dependencies", "commit", "reject", "request", "close"]
 
 async function connect(cwd, workspace, options, extraArgs = []) {
   const client = new Client({ name: "nyrwvy-contract", version: "1.0.0" }, options)

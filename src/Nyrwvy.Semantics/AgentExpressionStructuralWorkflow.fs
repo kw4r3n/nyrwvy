@@ -500,6 +500,29 @@ module AgentExpressionStructuralWorkflow =
                                               Pruning = pruning
                                               Original = original }
 
+        /// A whole-body replacement whose recipe uses originalTarget, as a targeted replacement of the
+        /// body's result node; None when the recipe does not use it or the result node changed (the
+        /// body replacement then reports the mismatch).
+        let ofBodyReplacement
+            (workspace: AgentWorkspace)
+            (request: AgentReplaceFunctionBodyWithExpressionRecipe)
+            : Request option =
+            let rec uses recipe =
+                recipe = ExpressionRecipe.OriginalTarget || (recipeChildren recipe |> Seq.exists uses)
+            let rootIsCurrent =
+                (AgentWorkspace.snapshotForStructuralEditing workspace).Functions
+                |> List.exists (fun functionEntity ->
+                    functionEntity.Id = request.TargetFunctionId
+                    && functionEntity.Body.ResultNodeId = request.ExpectedCurrentResultNodeId)
+            if rootIsCurrent && uses request.Replacement then
+                Some
+                    { TargetFunctionId = request.TargetFunctionId
+                      ExpectedBaseSnapshotId = request.ExpectedBaseSnapshotId
+                      TargetNodeId = request.ExpectedCurrentResultNodeId
+                      Replacement = request.Replacement }
+            else
+                None
+
         let simulate
             (workspace: AgentWorkspace)
             (request: Request)
@@ -693,7 +716,9 @@ module AgentExpressionStructuralWorkflow =
               Readiness: TransactionReadiness
               CreatedFunction: SemanticFunction
               MaterializedBody: StructuralNodeSummary list
-              ProposedFocus: FunctionFocusView }
+              ProposedFocus: FunctionFocusView
+              /// The reviews of the other functions a batch creates, in request order; empty for one.
+              Batch: Review list }
 
         type PublishedTransaction =
             { TransactionId: TransactionId
@@ -900,85 +925,111 @@ module AgentExpressionStructuralWorkflow =
                     ResultType = mapType request.ResultType
                     Body = ExpressionRecipeTypes.map mapType request.Body }
 
-        let private simulateWith
+        /// The function a validated request creates, materialized against index.
+        let private materializeFunction (index: SnapshotIndex) (request: Request) (preflight: Preflight): SemanticFunction =
+            let functionId = StableIdAllocator.newFunctionId ()
+            let parameters: SemanticParameter list =
+                request.Parameters
+                |> List.map (fun parameter ->
+                    { Id = StableIdAllocator.newParameterId ()
+                      DisplayName = parameter.DisplayName
+                      Type = parameter.Type })
+            let slots =
+                List.map2
+                    (fun (parameter: SemanticParameter) (intent: ParameterIntent) ->
+                        { Type = intent.Type
+                          ParameterId = Some parameter.Id
+                          DisplayName = intent.DisplayName })
+                    parameters
+                    request.Parameters
+            let materializationOwner =
+                { preflight.Owner with
+                    ParameterSlots = Some slots
+                    SelfFunctionId = Some functionId
+                    SelfParameters = slots }
+            let bodyNodes, bodyResultId =
+                materializeWithContext
+                    index
+                    materializationOwner
+                    (InferenceCache())
+                    []
+                    request.Body
+            let createdFunction: SemanticFunction =
+                { Id = functionId
+                  DisplayName = request.DisplayName
+                  Exported = request.Exported
+                  TypeParameters = preflight.TypeParameters
+                  Parameters = parameters
+                  ResultType = request.ResultType
+                  RequiredEffects = preflight.CanonicalRequiredEffects
+                  Body =
+                    { Nodes = bodyNodes
+                      ResultNodeId = bodyResultId } }
+            createdFunction
+
+        /// Creates the functions in order in one candidate: each request is built from the functions
+        /// created before it, then validated and materialized against the base plus those functions.
+        let private simulateGroupWith
             (requireUniqueName: bool)
             (workspace: AgentWorkspace)
-            (request: Request)
+            (builders: (SemanticFunction list -> Request) list)
             : Result<Proposal, AgentStructuralWorkflowError> =
-            // Undeclared or uninferable type parameters are reported on the request's own names.
-            match validateTypeParameters request with
-            | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
-            | Ok _ ->
-            let request = withFreshTypeParameters request
             simulateStructural
                 workspace
                 (fun baseSnapshot ->
-                    let index = buildSnapshotIndex baseSnapshot
-                    match validatePreflight requireUniqueName request index with
-                    | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
-                    | Ok preflight ->
-                        let functionId = StableIdAllocator.newFunctionId ()
-                        let parameters: SemanticParameter list =
-                            request.Parameters
-                            |> List.map (fun parameter ->
-                                { Id = StableIdAllocator.newParameterId ()
-                                  DisplayName = parameter.DisplayName
-                                  Type = parameter.Type })
-                        let slots =
-                            List.map2
-                                (fun (parameter: SemanticParameter) (intent: ParameterIntent) ->
-                                    { Type = intent.Type
-                                      ParameterId = Some parameter.Id
-                                      DisplayName = intent.DisplayName })
-                                parameters
-                                request.Parameters
-                        let materializationOwner =
-                            { preflight.Owner with
-                                ParameterSlots = Some slots
-                                SelfFunctionId = Some functionId
-                                SelfParameters = slots }
-                        let bodyNodes, bodyResultId =
-                            materializeWithContext
-                                index
-                                materializationOwner
-                                (InferenceCache())
-                                []
-                                request.Body
-                        let createdFunction: SemanticFunction =
-                            { Id = functionId
-                              DisplayName = request.DisplayName
-                              Exported = request.Exported
-                              TypeParameters = preflight.TypeParameters
-                              Parameters = parameters
-                              ResultType = request.ResultType
-                              RequiredEffects = preflight.CanonicalRequiredEffects
-                              Body =
-                                { Nodes = bodyNodes
-                                  ResultNodeId = bodyResultId } }
-                        Ok createdFunction)
-                (fun createdFunction snapshot -> { snapshot with Functions = snapshot.Functions @ [ createdFunction ] })
+                    let rec create created builders =
+                        match builders with
+                        | [] -> Ok(List.rev created)
+                        | build :: rest ->
+                            let request = build (created |> List.rev |> List.map snd)
+                            // Undeclared or uninferable type parameters are reported on the request's own names.
+                            match validateTypeParameters request with
+                            | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
+                            | Ok _ ->
+                                let request = withFreshTypeParameters request
+                                let index =
+                                    buildSnapshotIndex
+                                        { baseSnapshot with Functions = baseSnapshot.Functions @ (created |> List.rev |> List.map snd) }
+                                match validatePreflight requireUniqueName request index with
+                                | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
+                                | Ok preflight -> create ((request, materializeFunction index request preflight) :: created) rest
+                    create [] builders)
+                (fun created snapshot -> { snapshot with Functions = snapshot.Functions @ List.map snd created })
             |> Result.bind (fun candidate ->
-                let createdFunction = candidate.Prepared
-                match SemanticQuery.focusFunction candidate.ProposedSnapshot createdFunction.Id with
-                | Error error ->
-                    Error(AgentStructuralWorkflowError.ReviewProjectionFailed error)
-                | Ok proposedFocus ->
-                    let bodySummary =
-                        ValueGraph.collectNodes createdFunction.Body
-                        |> summarizeNodes candidate.ProposedSnapshot createdFunction
-                    let review =
+                let reviewOf (request, createdFunction: SemanticFunction) =
+                    SemanticQuery.focusFunction candidate.ProposedSnapshot createdFunction.Id
+                    |> Result.mapError AgentStructuralWorkflowError.ReviewProjectionFailed
+                    |> Result.map (fun proposedFocus ->
                         { RequestedChange = request
                           Receipt = candidate.Receipt
                           Readiness = candidate.Readiness
                           CreatedFunction = createdFunction
-                          MaterializedBody = bodySummary
-                          ProposedFocus = proposedFocus }
+                          MaterializedBody =
+                            ValueGraph.collectNodes createdFunction.Body
+                            |> summarizeNodes candidate.ProposedSnapshot createdFunction
+                          ProposedFocus = proposedFocus
+                          Batch = [] })
+                let rec reviews acc items =
+                    match items with
+                    | [] -> Ok(List.rev acc)
+                    | item :: rest -> reviewOf item |> Result.bind (fun review -> reviews (review :: acc) rest)
+                match reviews [] candidate.Prepared with
+                | Error error -> Error error
+                | Ok [] -> Error(AgentStructuralWorkflowError.SimulationRejected [ diagnostic "FunctionBatchEmpty" "A function batch needs at least one function." ])
+                | Ok(first :: others) ->
                     Ok(
                         Proposal
                             { TransactionId = candidate.TransactionId
                               ProposedSnapshot = candidate.ProposedSnapshot
-                              Review = review }
+                              Review = { first with Batch = others } }
                     ))
+
+        let private simulateWith requireUniqueName workspace (request: Request) =
+            simulateGroupWith requireUniqueName workspace [ fun _ -> request ]
+
+        /// Creates several new functions in one proposal, in list order (docs/decisions/function-creation-batches.md).
+        /// Each builder receives the functions created before it, so its body may call them.
+        let simulateGroup workspace builders = simulateGroupWith true workspace builders
 
         /// Creates a new function; its display name must not already name a function,
         /// since by-name requests resolve exactly one declaration.

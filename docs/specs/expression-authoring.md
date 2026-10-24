@@ -783,7 +783,9 @@ The replacement root keeps the target ID, the old root node gets a fresh ID, and
 its exclusively owned dependencies in the same graph move with it, keeping their
 IDs, to where the recipe places it. Shared dependencies and those in enclosing
 graphs stay where they are. Nothing of the old cone is pruned, so review lists no
-removed nodes. Every other recipe consumer rejects it with
+removed nodes. A whole-body replacement whose recipe uses it is simulated as a
+targeted replacement of the body's current result node, so it wraps the whole
+body. Every other recipe consumer rejects it with
 `OriginalTargetOutsideTargetedReplacement`. See the
 [decision](../decisions/original-target-reference.md).
 See the [complete contract](typed-function-abort.md), including cleanup, worker

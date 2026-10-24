@@ -89,6 +89,7 @@ if (values.help) {
     register("recipe_reference", definitions.recipe_reference)
     register("create_type", definitions.create_type)
     register("create_function", definitions.create_function)
+    register("create_functions", definitions.create_functions)
     register("replace", definitions.replace)
     register("upgrade_dependencies", definitions.upgrade_dependencies)
     register("commit", definitions.commit)

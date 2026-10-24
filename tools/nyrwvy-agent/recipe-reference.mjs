@@ -19,7 +19,7 @@ const categories = {
   references: {
     "parameter": "(name) -> the parameter's type",
     "patternReference": "(scopeDepth, slot: value|error|field) -> the bound value's type",
-    "originalTarget": "() -> the targeted node's old type; targeted replacement only",
+    "originalTarget": "() -> the targeted node's old type (the whole body when replace has no targetNodeId); replace only",
   },
   literals: {
     "stringLiteral": "(value: JSON string) -> String",
@@ -280,7 +280,7 @@ const references = {
   },
   originalTarget: {
     shape: { kind: "originalTarget" },
-    notes: "Only in the replacement of a targeted replace (with targetNodeId), at most once. Stands for the target's old expression, so you can wrap it or insert a step before it, e.g. bind(step, originalTarget), without rebuilding it. Its exclusive dependencies move with it; references inside it stay valid at any new depth.",
+    notes: "Only in the replacement of replace, at most once. With targetNodeId it stands for that target's old expression; without one, for the whole current body (the request becomes a targeted replacement of the body's result node). Stands for the old expression, so you can wrap it or insert a step before it, e.g. bind(step, originalTarget), without rebuilding it. Its exclusive dependencies move with it; references inside it stay valid at any new depth.",
   },
   stringLiteral: { shape: { kind: "stringLiteral", value: "<string>" } },
   boolLiteral: { shape: { kind: "boolLiteral", value: "<boolean>" } },

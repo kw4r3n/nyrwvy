@@ -191,6 +191,7 @@ The maintained operation set is:
 | `simulateOperationsByName` | Resolve display names in a list of operations (deletions, removals, renames, parameter/field/operation/variant/effect additions and missing-argument resolution), then simulate them as `simulateOperations` does. |
 | `simulateCreateFunction` | Simulate atomic function creation with an `ExpressionRecipe`. |
 | `simulateCreateFunctionByName` | Resolve display names to current semantic identities, then simulate function creation. |
+| `simulateCreateFunctionsByName` | Create the `functions` list in order in one candidate; each item takes the fields of `simulateCreateFunctionByName` and resolves against the current declarations plus the items before it ([decision](../decisions/function-creation-batches.md)). |
 | `simulateCreateTypeByName` | Resolve display-name type references, then simulate product/union creation. A type that names itself is created as a group of one. |
 | `simulateCreateTypesByName` | Simulate creating a group of product/union types that may name themselves and each other. |
 | `simulateCreateType` | Simulate atomic product/union declaration creation. Like every creation operation it takes optional `"exported": true`; a declaration is private otherwise ([declaration visibility](#declaration-visibility)). |
@@ -504,6 +505,7 @@ The maintained protocol also exposes a convenience layer for AI tool use when pe
 - `simulateCreateTypeByName`
 - `simulateCreateTypesByName`
 - `simulateCreateFunctionByName`
+- `simulateCreateFunctionsByName`
 - `simulateReplaceBodyByName`
 - `simulateCreateCapabilityByName`
 - `simulateOperationsByName`

@@ -15,7 +15,7 @@ Add one recipe kind, `{ "kind": "originalTarget" }`, accepted only in the replac
 - The replacement root keeps `TargetNodeId`, as today, so every existing consumer observes the wrapper. The old root node of the target gets a fresh system-owned ID. Every other node it brings along keeps its ID.
 - The old target moves together with its **exclusively owned dependencies in its own graph**: the nodes of that graph that the current pruning plan would remove. Its nested graphs move inside it. They move to the graph position where the recipe places `originalTarget`. Shared dependencies, and exclusive ones in enclosing graphs, stay where they are and remain visible to the moved nodes.
 - Nothing of the old cone is pruned, since the old expression is reused whole.
-- Every other recipe consumer (whole-body replacement, function creation, field-type migration rewrites, union arm plans) rejects `originalTarget`.
+- Every other recipe consumer (function creation, field-type migration rewrites, union arm plans) rejects `originalTarget`. A whole-body replacement whose recipe uses it is a targeted replacement of the body's result node (see the addendum).
 
 Typical uses, with `T` as the old target:
 
@@ -40,6 +40,12 @@ At most one occurrence keeps the request tree-shaped. Duplication would need a c
 - Preflight infers the recipe with `originalTarget` typed as the old target type. Materialization needs one new step: relocate the cone instead of generating nodes for it. The existing frame reconstruction (`TargetedReplacementGraph.tryFindTarget`) and pruning plan (`planPruning`) are reused.
 - Review lists no removed nodes. Moved nodes keep their IDs, so they are neither added nor removed; the old root under its fresh ID is listed as added.
 - Per-use edits, reuse of nodes outside the target's cone, and general DAG authoring remain separate questions.
+
+## Addendum (2026-10-24): wrapping the whole body
+
+An MCP trial had to read the full function view, tens of thousands of characters for a 124-node function, only to learn the body's `resultNodeId` so it could wrap the body with `originalTarget`.
+
+A whole-body replacement (`replace` without `targetNodeId`, `simulateReplaceBody` or `simulateReplaceBodyByName`) whose recipe uses `originalTarget` is now simulated as a targeted replacement whose target is the body's current result node. Everything above applies unchanged: the result node ID stays the body's result, the old root gets a fresh ID, the whole body moves under the wrapper, and the review is a targeted one. When `expectedResultNodeId` no longer names the current result node, the request stays a whole-body replacement and reports `StructuralExpectedResultMismatch`. A whole-body recipe without `originalTarget` keeps its old meaning.
 
 ## Revisit conditions
 

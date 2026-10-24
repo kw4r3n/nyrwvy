@@ -372,13 +372,17 @@ module internal WireEncode =
                       "baseFocus", focus item.BaseFocus
                       "proposedFocus", focus item.ProposedFocus ]
             | AuthoringProposalReview.CreateFunction item ->
+                let created (review: AgentExpressionStructuralWorkflow.FunctionCreation.Review) =
+                    [ "createdFunction", functionEntity review.CreatedFunction
+                      "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements review.ProposedFocus.BodyEffectRequirements
+                      "aborts", WireEncodeCommon.aborts review.ProposedFocus.Aborts ]
                 objectValue
-                    [ "kind", box "createFunction"
-                      "receipt", receipt item.Receipt
-                      "readiness", readiness item.Readiness
-                      "createdFunction", functionEntity item.CreatedFunction
-                      "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.ProposedFocus.BodyEffectRequirements
-                      "aborts", WireEncodeCommon.aborts item.ProposedFocus.Aborts ]
+                    ([ "kind", box "createFunction"
+                       "receipt", receipt item.Receipt
+                       "readiness", readiness item.Readiness ]
+                     @ created item
+                     // The other functions of a batch, in request order (docs/decisions/function-creation-batches.md).
+                     @ (if List.isEmpty item.Batch then [] else [ "batch", box (item.Batch |> List.map (created >> objectValue)) ]))
             | AuthoringProposalReview.ParameterTypeMigration item ->
                 withRewritten
                     [ "kind", box "parameterTypeMigration"
