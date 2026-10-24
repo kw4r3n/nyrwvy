@@ -325,7 +325,8 @@ module private ProposalSummary =
         | AuthoringProposalReview.ReplaceBody item -> $"replaceBody of {quote item.ProposedFocus.Function.DisplayName}"
         | AuthoringProposalReview.ReplaceTarget item ->
             $"replaceTarget {StableId.value item.RequestedChange.TargetNodeId} in {quote item.ProposedFocus.Function.DisplayName}"
-        | AuthoringProposalReview.CreateFunction item -> $"createFunction {quote item.CreatedFunction.DisplayName}"
+        | AuthoringProposalReview.CreateFunction item ->
+            item :: item.Batch |> List.map (fun created -> $"createFunction {quote created.CreatedFunction.DisplayName}") |> String.concat "; "
         | AuthoringProposalReview.ParameterTypeMigration item ->
             $"parameterTypeMigration of {fn item.ResultingChange.ParameterChange.FunctionId} parameter {named parameters item.ResultingChange.ParameterChange.ParameterId}"
         | AuthoringProposalReview.ResultTypeMigration item -> $"resultTypeMigration of {fn item.ResultingChange.ResultChange.FunctionId}"
@@ -1292,15 +1293,20 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Error error -> Error error
             | Ok operations -> this.SimulateOperations(operations, ?expectedBaseSnapshotId = expectedBaseSnapshotId)
 
-    member _.SimulateReplaceBody(request: AgentReplaceFunctionBodyWithExpressionRecipe): Result<AuthoringProposal, AuthoringSessionError> =
+    /// A recipe that uses originalTarget wraps the current body: it runs as a targeted replacement of
+    /// the body's result node, so the review is a targeted one.
+    member this.SimulateReplaceBody(request: AgentReplaceFunctionBodyWithExpressionRecipe): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
         | Ok() ->
-            match AgentExpressionStructuralWorkflow.simulate workspace request with
-            | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
-            | Ok proposal ->
-                register (AgentExpressionStructuralChangeProposal.transactionId proposal) (PendingProposal.ReplaceBody proposal) (AuthoringProposalReview.ReplaceBody(AgentExpressionStructuralChangeProposal.review proposal))
+            match AgentExpressionStructuralWorkflow.Targeted.ofBodyReplacement workspace request with
+            | Some targeted -> this.SimulateReplaceTarget targeted
+            | None ->
+                match AgentExpressionStructuralWorkflow.simulate workspace request with
+                | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
+                | Ok proposal ->
+                    register (AgentExpressionStructuralChangeProposal.transactionId proposal) (PendingProposal.ReplaceBody proposal) (AuthoringProposalReview.ReplaceBody(AgentExpressionStructuralChangeProposal.review proposal))
 
     member _.SimulateReplaceTarget(request: AgentExpressionStructuralWorkflow.Targeted.Request): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
@@ -1318,6 +1324,18 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         | Error error -> Error error
         | Ok() ->
             match AgentExpressionStructuralWorkflow.FunctionCreation.simulate workspace request with
+            | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
+            | Ok proposal ->
+                register (AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.transactionId proposal) (PendingProposal.CreateFunction proposal) (AuthoringProposalReview.CreateFunction(AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.review proposal))
+
+    /// Several new functions in one proposal, in order; each builder receives the functions
+    /// created before it (docs/decisions/function-creation-batches.md).
+    member _.SimulateCreateFunctions(builders: (SemanticFunction list -> AgentExpressionStructuralWorkflow.FunctionCreation.Request) list): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            match AgentExpressionStructuralWorkflow.FunctionCreation.simulateGroup workspace builders with
             | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
             | Ok proposal ->
                 register (AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.transactionId proposal) (PendingProposal.CreateFunction proposal) (AuthoringProposalReview.CreateFunction(AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.review proposal))
@@ -1548,7 +1566,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 let touched, touchedTypes = ProposalReview.touched proposal.Review
                 let signatureOwners =
                     match proposal.Review with
-                    | AuthoringProposalReview.CreateFunction item -> [ item.CreatedFunction.Id ]
+                    | AuthoringProposalReview.CreateFunction item -> item :: item.Batch |> List.map (fun created -> created.CreatedFunction.Id)
                     | AuthoringProposalReview.ParameterTypeMigration item -> [ item.ResultingChange.ParameterChange.FunctionId ]
                     | AuthoringProposalReview.ResultTypeMigration item -> [ item.ResultingChange.ResultChange.FunctionId ]
                     | _ -> []

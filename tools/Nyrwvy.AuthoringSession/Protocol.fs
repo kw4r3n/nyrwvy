@@ -744,6 +744,21 @@ module AuthoringProtocol =
                 else ReferenceSubject.Field (WireSymbolic.productField owner (requiredString "field" root)).Id
         | value -> WireInput.fail $"Unsupported references subject kind '{value}'; use function, type, variant, field, effect, capability or capabilityOperation."
 
+    /// A by-name function creation read from item against declarations.
+    let private functionCreationByName (declarations: AuthoringDeclarations) expected (item: JsonElement): AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+        let displayName = requiredString "displayName" item
+        if declarations.Functions |> List.exists (fun existing -> existing.DisplayName = displayName) then
+            WireInput.fail $"Function display name '{displayName}' already exists. Choose a unique name or use the exact-ID authoring surface."
+        let parameters = WireSymbolic.functionParameters declarations item
+        { ExpectedBaseSnapshotId = expected
+          DisplayName = displayName
+          Exported = optionalBool "exported" false item
+          TypeParameters = WireInput.functionTypeParameters item
+          Parameters = parameters
+          ResultType = WireSymbolic.typeRef declarations (property "resultType" item)
+          RequiredEffects = WireSymbolic.requiredEffects declarations item
+          Body = WireSymbolic.recipeForNewFunction declarations displayName parameters (property "body" item) }
+
     let private semanticQueryFailure requestId (error: SemanticQueryError) =
         let message =
             match error with
@@ -1065,26 +1080,30 @@ module AuthoringProtocol =
                     [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
+                proposalResponse (session.SimulateCreateFunction(functionCreationByName (session.Declarations()) (expectedSnapshotId ()) root))
+            | "simulateCreateFunctionsByName" ->
+                ensureFields
+                    "simulateCreateFunctionsByName request"
+                    [ "id"; "op"; "functions"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "functions" ]
+                    root
+                let items = array "functions" root
+                if List.isEmpty items then
+                    WireInput.fail "functions must list at least one function."
                 let declarations = session.Declarations()
-                let displayName = requiredString "displayName" root
-                if declarations.Functions |> List.exists (fun item -> item.DisplayName = displayName) then
-                    WireInput.fail $"Function display name '{displayName}' already exists. Choose a unique name or use the exact-ID authoring surface."
-                let parameters = WireSymbolic.functionParameters declarations root
-                let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
-                      DisplayName = displayName
-                      Exported = optionalBool "exported" false root
-                      TypeParameters = WireInput.functionTypeParameters root
-                      Parameters = parameters
-                      ResultType = WireSymbolic.typeRef declarations (property "resultType" root)
-                      RequiredEffects = WireSymbolic.requiredEffects declarations root
-                      Body =
-                        WireSymbolic.recipeForNewFunction
-                            declarations
-                            displayName
-                            parameters
-                            (property "body" root) }
-                proposalResponse (session.SimulateCreateFunction request)
+                let expected = expectedSnapshotId ()
+                let builders =
+                    items
+                    |> List.map (fun item ->
+                        ensureFields
+                            "function in functions"
+                            [ "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body" ]
+                            [ "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
+                            item
+                        // Earlier functions of the batch resolve by name like existing ones.
+                        fun (created: SemanticFunction list) ->
+                            functionCreationByName { declarations with Functions = declarations.Functions @ created } expected item)
+                proposalResponse (session.SimulateCreateFunctions builders)
             | "simulateParameterTypeMigration" ->
                 ensureFields
                     "simulateParameterTypeMigration request"

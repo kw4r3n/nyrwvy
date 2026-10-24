@@ -153,6 +153,7 @@
     <Compile Include="OneShotTests.fs" />
     <Compile Include="ExceptionBoundaryTests.fs" />
     <Compile Include="NamedPatternReferenceTests.fs" />
+    <Compile Include="FunctionBatchAndBodyWrapTests.fs" />
     <Compile Include="ProductFieldEvolutionTests.fs" />
     <Compile Include="TypeDeletionTests.fs" />
     <Compile Include="DeclarationCleanupTests.fs" />

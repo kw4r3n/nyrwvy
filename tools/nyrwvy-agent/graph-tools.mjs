@@ -151,8 +151,14 @@ export function createGraphTools(schema) {
       /** @param {{ displayName: string; exported?: boolean; parameters: { displayName: string; type: Record<string, unknown> }[]; resultType: Record<string, unknown>; requiredEffects: (string | Record<string, unknown>)[]; body: Record<string, unknown>; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: "simulateCreateFunctionByName", ...args }, context),
     }),
+    create_functions: defineTool({
+      description: "Propose several new typed functions in one proposal and one commit, created in list order. Each item is {displayName, exported?, parameters:[{displayName,type}], resultType, requiredEffects, body}, as for nyrwvy_create_function; a body may call itself and any function listed before it by name, not a later one. Any rejected item rejects the batch. The review is the first function's createFunction review with the others under batch. " + reviewDetail,
+      args: { functions: schema.array(object), detail },
+      /** @param {{ functions: Record<string, unknown>[]; detail?: "compact" | "full" }} args */
+      execute: (args, context) => requestAuthoring({ op: "simulateCreateFunctionsByName", ...args }, context),
+    }),
     replace: defineTool({
-      description: "Propose a targeted graph edit, preserving unrelated nodes. replacement is a name-resolved ExpressionRecipe; use nyrwvy_recipe_reference when its shape is unfamiliar. Use a targetNodeId from inspect; omit it only for intentional whole-body replacement. With a targetNodeId, {kind:'originalTarget'} (at most once) stands for the target's old expression, so you can wrap it or insert a step before it (e.g. bind(step, originalTarget)) without rebuilding it. Review before commit. " + reviewDetail,
+      description: "Propose a targeted graph edit, preserving unrelated nodes. replacement is a name-resolved ExpressionRecipe; use nyrwvy_recipe_reference when its shape is unfamiliar. Use a targetNodeId from inspect; omit it for whole-body replacement. {kind:'originalTarget'} (at most once) stands for the target's old expression, so you can wrap it or insert a step before it (e.g. bind(step, originalTarget)) without rebuilding it; without a targetNodeId it stands for the whole current body, which becomes a targeted replacement of the body's result node, so no inspect is needed to wrap a body. Review before commit. " + reviewDetail,
       args: { function: selector, targetNodeId: schema.string().optional(), replacement: recipe, detail },
       /** @param {{ function: string | Record<string, unknown>; targetNodeId?: string; replacement: Record<string, unknown>; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: args.targetNodeId === undefined ? "simulateReplaceBodyByName" : "simulateReplaceTargetByName", ...args }, context),
