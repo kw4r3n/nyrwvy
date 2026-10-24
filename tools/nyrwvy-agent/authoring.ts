@@ -5,11 +5,15 @@ import { stat } from "node:fs/promises"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
-/** The commit of the tool code this process loaded, read once at startup; undefined outside a git checkout. */
+/**
+ * The commit of the tool code this process loaded, read once at startup; undefined outside a git checkout.
+ * shortcut: uncommitted edits are not seen, so a dirty checkout at the session's commit gives no warning; compare
+ * file hashes if tool code is ever served from a dirty tree outside development.
+ */
 const toolCodeCommit = (() => {
   try {
     return execFileSync("git", ["-C", fileURLToPath(new URL(".", import.meta.url)), "rev-parse", "HEAD"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || undefined
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).trim() || undefined
   } catch { return undefined }
 })()
 
