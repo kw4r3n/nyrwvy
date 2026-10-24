@@ -228,10 +228,10 @@ const opening = new Map<string, Promise<void>>()
 function key(context: AuthoringContext) { return `${resolve(context.worktree)}\0${context.sessionID}` }
 
 export async function openAuthoring(
-  mode: "create" | "open" | "pin" | "upgrade", snapshot: string, context: AuthoringContext, workspaceOverride?: string, dependency?: string,
+  mode: "create" | "open" | "read" | "pin" | "upgrade", snapshot: string, context: AuthoringContext, workspaceOverride?: string, dependency?: string,
   dependencies?: string[], upgrade?: UpgradeOptions,
 ): Promise<string> {
-  if (dependency !== undefined && (mode === "open" || dependency.trim() === "")) {
+  if (dependency !== undefined && (mode === "open" || mode === "read" || dependency.trim() === "")) {
     throw new Error("dependency requires mode=create, pin or upgrade and a non-blank source snapshot path.")
   }
   if ((mode === "upgrade") !== (upgrade !== undefined)) throw new Error("Upgrade options require mode=upgrade.")
@@ -276,7 +276,7 @@ export async function openAuthoring(
 }
 
 async function launchAuthoring(
-  sessionKey: string, mode: "create" | "open" | "pin" | "upgrade", snapshot: string, context: AuthoringContext,
+  sessionKey: string, mode: "create" | "open" | "read" | "pin" | "upgrade", snapshot: string, context: AuthoringContext,
   workspaceOverride: string | undefined, dependency: string | undefined, dependencies: string[] | undefined,
   upgrade: UpgradeOptions | undefined,
   markStarted: () => void,
@@ -286,7 +286,8 @@ async function launchAuthoring(
   if (!(await stat(worktree).catch(() => undefined))?.isDirectory()) throw new Error(`workspace directory does not exist: ${worktree}`)
   const workspace = resolve(worktree, snapshot)
   const assembly = resolve(context.repositoryRoot ?? context.worktree, "tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll")
-  const args = [assembly, mode, "--snapshot", workspace]
+  // Mode read is open without the workspace lock; the session cannot commit.
+  const args = mode === "read" ? [assembly, "open", "--snapshot", workspace, "--read-only"] : [assembly, mode, "--snapshot", workspace]
   for (const source of [...(dependency === undefined ? [] : [dependency]), ...(dependencies ?? [])]) {
     args.push("--dependency", resolve(worktree, source))
   }
