@@ -653,6 +653,7 @@ module internal WireEncode =
         | AuthoringSessionError.SnapshotFileAlreadyExists path ->
             "SnapshotFileAlreadyExists", $"A snapshot already exists at {path}. Use open to resume it; create never overwrites.", None
         | AuthoringSessionError.LockUnavailable path -> "LockUnavailable", $"{path} is open in another authoring session. Close that session first.", None
+        | AuthoringSessionError.ReadOnlySession -> "ReadOnlySession", "This session was opened read-only and cannot commit. Reopen it without readOnly to commit.", None
         | AuthoringSessionError.IoFailure message -> "IoFailure", message, None
         | AuthoringSessionError.SnapshotCodecFailure error ->
             let message, details = describeCodecError error

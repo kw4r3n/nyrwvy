@@ -138,3 +138,20 @@ module FunctionBatchAndBodyWrapTests =
             Assert.Equal(1, body.GetProperty("nodeCount").GetInt32())
             let full = execute """{"id":"r","op":"readFunction","function":"planRun"}"""
             Assert.True(full.GetProperty("function").GetProperty("body").TryGetProperty("nodes") |> fst))
+
+    [<Fact>]
+    let ``a read-only session opens beside a writer, reads and emits, and cannot commit`` () =
+        withSession (fun writer execute _ ->
+            commit execute (execute $"""{{"id":"c","op":"simulateCreateFunctionByName",{(fn "inc" (add n (lit 1))).TrimStart('{')}""")
+            use reader = AuthoringSession.openReadOnly writer.Path |> function Ok value -> value | Error error -> failwithf "%A" error
+            Assert.True reader.ReadOnly
+            Assert.Equal(1, reader.Declarations().Functions.Length)
+            let send line = JsonDocument.Parse(AuthoringProtocol.executeLine reader line)
+            use emitted = send """{"id":"e","op":"emitCSharp","profile":{"kind":"empty"}}"""
+            Assert.True(emitted.RootElement.GetProperty("ok").GetBoolean(), emitted.RootElement.ToString())
+            use proposal = send $"""{{"id":"p","op":"simulateCreateFunctionByName",{(fn "dec" n).TrimStart('{')}"""
+            let proposalId = proposal.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            use refused = send $"""{{"id":"x","op":"commit","proposalId":"{proposalId}"}}"""
+            Assert.Equal("ReadOnlySession", refused.RootElement.GetProperty("error").GetProperty("code").GetString())
+            reader.Close()
+            Assert.True(File.Exists(writer.Path + ".lock"), "closing the reader leaves the writer's lock"))
