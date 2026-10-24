@@ -86,9 +86,9 @@ module ProductFieldEvolutionTests =
           ConstructionPlans = plans }
 
     let private plans =
-        [ { ConstructNodeId = directProductId; ValueNodeId = directValueId }
-          { ConstructNodeId = trueProductId; ValueNodeId = trueValueId }
-          { ConstructNodeId = falseProductId; ValueNodeId = falseValueId } ]
+        [ { ConstructNodeId = directProductId; ValueNodeId = directValueId; AddedNodes = [] }
+          { ConstructNodeId = trueProductId; ValueNodeId = trueValueId; AddedNodes = [] }
+          { ConstructNodeId = falseProductId; ValueNodeId = falseValueId; AddedNodes = [] } ]
 
     let private workspace snapshot =
         match AgentWorkspace.create snapshot with
@@ -453,5 +453,95 @@ Console.WriteLine(NyFunctions.{nested}("second").{field});
                 | Error error -> failwithf "Deleted graph invalid: %A" error
             Assert.Equal<FunctionId list>([ nestedId ], afterDelete.Functions |> List.map (fun fn -> fn.Id))
             Assert.Equal<SemanticType list>(initial.Types, afterDelete.Types)
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    let private recipePlans: AgentProductFieldValuePlan list =
+        [ { ConstructNodeId = directProductId
+            Value =
+              AgentProductFieldValue.Recipe(
+                  ExpressionRecipe.StringConcat(ExpressionRecipe.Parameter(stable<ParameterTag> "direct-parameter"), ExpressionRecipe.StringLiteral "!")) }
+          { ConstructNodeId = trueProductId
+            Value = AgentProductFieldValue.Recipe(ExpressionRecipe.Parameter(stable<ParameterTag> "nested-parameter")) }
+          { ConstructNodeId = falseProductId; Value = AgentProductFieldValue.Existing falseValueId } ]
+
+    let private addedValue (snapshot: Snapshot) fieldId constructNodeId =
+        let nodes = snapshot.Functions |> List.collect (fun fn -> ValueGraph.collectNodes fn.Body)
+        let valueNodeId =
+            nodes
+            |> List.pick (fun node ->
+                match node.Kind with
+                | SemanticNodeKind.ProductConstruct(_, _, bindings) when node.Id = constructNodeId ->
+                    bindings |> List.tryFind (fun binding -> binding.TargetFieldId = fieldId) |> Option.map (fun binding -> binding.ValueNodeId)
+                | _ -> None)
+        (nodes |> List.find (fun node -> node.Id = valueNodeId)).Kind
+
+    [<Fact>]
+    let ``Product field value recipes materialize in each construct's scope and publish atomically`` () =
+        let ws = fixture () |> workspace
+        let intentValue =
+            match AgentProductFieldValuePlans.prepare ws (intent []) recipePlans with
+            | Ok value -> value
+            | Error error -> failwithf "Recipe plans were rejected: %A" error
+        let directPlan = intentValue.ConstructionPlans |> List.find (fun plan -> plan.ConstructNodeId = directProductId)
+        Assert.Equal(3, directPlan.AddedNodes.Length)
+        let updated = published ws (simulate ws (AgentOperationIntent.AddProductField intentValue))
+        let snapshot = AgentWorkspace.snapshotForStructuralEditing updated
+        Assert.Empty(SnapshotValidator.validate snapshot)
+        let fieldId = (newField snapshot).Id
+        match addedValue snapshot fieldId directProductId with
+        | SemanticNodeKind.StringConcat _ -> ()
+        | other -> failwithf "Direct construct value was %A" other
+        Assert.Equal(SemanticNodeKind.ParameterReference(stable<ParameterTag> "nested-parameter"), addedValue snapshot fieldId trueProductId)
+        Assert.Equal(SemanticNodeKind.StringLiteral "other", addedValue snapshot fieldId falseProductId)
+
+    [<Fact>]
+    let ``Product field value recipes reject a wrong type or an unknown construct`` () =
+        let ws = fixture () |> workspace
+        let reject expected plans =
+            match AgentProductFieldValuePlans.prepare ws (intent []) plans with
+            | Error diagnostic -> Assert.Equal(expected, diagnostic.Code)
+            | Ok other -> failwithf "Expected %s, got %A" expected other
+        reject "ProductFieldValueTypeMismatch" [ { ConstructNodeId = directProductId; Value = AgentProductFieldValue.Recipe(ExpressionRecipe.Int64Literal 1L) } ]
+        reject "ProductFieldPlanTargetNotFound" [ { ConstructNodeId = stable<GraphNodeTag> "missing"; Value = AgentProductFieldValue.Recipe(ExpressionRecipe.StringLiteral "x") } ]
+
+    [<Fact>]
+    let ``authoring JSONL accepts value recipes in exact and named addProductField plans`` () =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-product-field-value-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(root) |> ignore
+        let path = Path.Combine(root, "workspace.json")
+        try
+            let source = SnapshotCodec.serialize (fixture ()) |> function
+                | Ok text -> text
+                | Error error -> failwithf "Fixture serialization failed: %A" error
+            File.WriteAllText(path, source)
+            use session = AuthoringSession.openExisting path |> function
+                | Ok opened -> opened
+                | Error error -> failwithf "Open failed: %A" error
+            let node = StableId.value
+            let exact =
+                $"""{{"id":"exact","op":"simulateOperations","operations":[{{"kind":"addProductField","typeId":"{StableId.value productId}","displayName":"added","type":{{"kind":"primitive","primitive":"string"}},"constructions":[{{"constructNodeId":"{node directProductId}","value":{{"kind":"stringLiteral","value":"d"}}}},{{"constructNodeId":"{node trueProductId}","valueNodeId":"{node trueValueId}"}},{{"constructNodeId":"{node falseProductId}","value":{{"kind":"stringLiteral","value":"f"}}}}]}}]}}"""
+            use exactResponse = AuthoringProtocol.executeLine session exact |> JsonDocument.Parse
+            Assert.True(exactResponse.RootElement.GetProperty("ok").GetBoolean(), exactResponse.RootElement.ToString())
+            let both =
+                $"""{{"id":"both","op":"simulateOperations","operations":[{{"kind":"addProductField","typeId":"{StableId.value productId}","displayName":"added","type":{{"kind":"primitive","primitive":"string"}},"constructions":[{{"constructNodeId":"{node directProductId}","valueNodeId":"{node directValueId}","value":{{"kind":"stringLiteral","value":"d"}}}}]}}]}}"""
+            use bothResponse = AuthoringProtocol.executeLine session both |> JsonDocument.Parse
+            Assert.False(bothResponse.RootElement.GetProperty("ok").GetBoolean(), bothResponse.RootElement.ToString())
+            let named =
+                $"""{{"id":"named","op":"simulateOperationsByName","operations":[{{"kind":"addProductField","type":"Record","displayName":"added","fieldType":{{"kind":"primitive","primitive":"string"}},"constructions":[{{"constructNodeId":"{node directProductId}","value":{{"kind":"parameter","name":"input"}}}},{{"constructNodeId":"{node trueProductId}","value":{{"kind":"parameter","name":"input"}}}},{{"constructNodeId":"{node falseProductId}","valueNodeId":"{node falseValueId}"}}]}}]}}"""
+            use namedResponse = AuthoringProtocol.executeLine session named |> JsonDocument.Parse
+            Assert.True(namedResponse.RootElement.GetProperty("ok").GetBoolean(), namedResponse.RootElement.ToString())
+            let proposalId = namedResponse.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            use committed =
+                AuthoringProtocol.executeLine session ($"""{{"id":"commit","op":"commit","proposalId":"{proposalId}"}}""")
+                |> JsonDocument.Parse
+            Assert.True(committed.RootElement.GetProperty("ok").GetBoolean(), committed.RootElement.ToString())
+            session.Close()
+            let stored =
+                match SnapshotCodec.deserialize (File.ReadAllText path) with
+                | Ok value -> value
+                | Error error -> failwithf "Stored graph invalid: %A" error
+            Assert.Empty(SnapshotValidator.validate stored)
+            Assert.Equal(SemanticNodeKind.ParameterReference(stable<ParameterTag> "direct-parameter"), addedValue stored (newField stored).Id directProductId)
         finally
             if Directory.Exists root then Directory.Delete(root, true)

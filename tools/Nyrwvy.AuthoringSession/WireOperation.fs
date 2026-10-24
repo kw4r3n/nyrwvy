@@ -26,7 +26,8 @@ module internal WireOperation =
         |> List.map (fun plan ->
             ensureFields "product construction plan" [ "constructNodeId"; "valueNodeId" ] [ "constructNodeId"; "valueNodeId" ] plan
             { ConstructNodeId = id<GraphNodeTag> "constructNodeId" plan
-              ValueNodeId = id<GraphNodeTag> "valueNodeId" plan })
+              ValueNodeId = id<GraphNodeTag> "valueNodeId" plan
+              AddedNodes = [] })
 
     /// The implementation plans of `addCapabilityOperation`: one per `capabilityConstruct` node of
     /// the Capability, naming the implementing function by `functionId` or (`...ByName`) `function`.
@@ -258,14 +259,6 @@ module internal WireOperation =
                   NewParameterDisplayName = requiredString "displayName" element
                   NewParameterType = WireSymbolic.typeRef declarations (property "type" element) |> bindDeclaredTypeParameters owner
                   CallSitePlans = callSitePlans element }
-        | "addProductField" ->
-            // `type` selects the owning Product, so the new field's type is `fieldType`.
-            ensureFields "add-product-field operation" [ "kind"; "type"; "displayName"; "fieldType"; "constructions" ] [ "kind"; "type"; "displayName"; "fieldType"; "constructions" ] element
-            AgentOperationIntent.AddProductField
-                { TargetTypeId = (resolveType ()).Id
-                  NewFieldDisplayName = requiredString "displayName" element
-                  NewFieldType = WireSymbolic.typeRef declarations (property "fieldType" element)
-                  ConstructionPlans = constructionPlans element }
         | "addCapabilityOperation" ->
             ensureFields
                 "add-capability-operation operation"
@@ -358,6 +351,24 @@ module internal WireOperation =
             let matchNodeId = id<GraphNodeTag> "matchNodeId" arm
             { MatchNodeId = matchNodeId; Body = body matchNodeId (property "body" arm) })
 
+    /// The construction plans of `addProductField` in `simulateOperations`: one `{ constructNodeId }`
+    /// per `productConstruct` of the Product, with exactly one of `valueNodeId` or a `value` recipe.
+    let private valuePlans (value: GraphNodeId -> JsonElement -> ExpressionRecipe) (element: JsonElement): AgentProductFieldValuePlan list =
+        array "constructions" element
+        |> List.map (fun plan ->
+            ensureFields "product construction plan" [ "constructNodeId"; "valueNodeId"; "value" ] [ "constructNodeId" ] plan
+            let constructNodeId = id<GraphNodeTag> "constructNodeId" plan
+            match tryProperty "valueNodeId" plan, tryProperty "value" plan with
+            | Some _, None -> { ConstructNodeId = constructNodeId; Value = AgentProductFieldValue.Existing(id<GraphNodeTag> "valueNodeId" plan) }
+            | None, Some recipe -> { ConstructNodeId = constructNodeId; Value = AgentProductFieldValue.Recipe(value constructNodeId recipe) }
+            | _ -> fail "A product construction plan takes exactly one of valueNodeId or value.")
+
+    /// The function that owns an existing node, for resolving parameter names in a plan recipe.
+    let private owningFunction (declarations: AuthoringDeclarations) (nodeId: GraphNodeId) =
+        declarations.Functions
+        |> List.tryFind (fun fn -> ValueGraph.collectNodes fn.Body |> List.exists (fun node -> node.Id = nodeId))
+        |> Option.defaultWith (fun () -> fail $"Unknown node '{StableId.value nodeId}'; plans name an existing node by its exact ID.")
+
     /// `{ "kind": "addUnionVariant", "typeId", "displayName", "fields": [{ "displayName", "type" }],
     /// "arms": [{ "matchNodeId", "body": <recipe> }] }`. The variant and field IDs are allocated here
     /// (system-owned); an arm body names a new field in a pattern reference by `"field": "<name>"`
@@ -374,6 +385,18 @@ module internal WireOperation =
                 |> unionOwner
             let variant = newVariant owner typeRef element
             AuthoringOperationRequest.AddUnionVariant(owner.Id, variant, armRecipes (fun _ body -> WireRecipe.recipeWithNewFields variant.Fields body) element)
+        | "addProductField" ->
+            ensureFields
+                "add-product-field operation"
+                [ "kind"; "typeId"; "displayName"; "type"; "constructions" ]
+                [ "kind"; "typeId"; "displayName"; "type"; "constructions" ]
+                element
+            AuthoringOperationRequest.AddProductField(
+                { TargetTypeId = id<TypeTag> "typeId" element
+                  NewFieldDisplayName = requiredString "displayName" element
+                  NewFieldType = typeRef (property "type" element)
+                  ConstructionPlans = [] },
+                valuePlans (fun _ recipe -> WireRecipe.recipe recipe) element)
         | _ -> AuthoringOperationRequest.Intent(operation element)
 
     /// The name-resolved `addUnionVariant`: `type` selects the Union, field types and arm bodies are
@@ -395,10 +418,17 @@ module internal WireOperation =
                             | SemanticTypeKind.Union variants when item.Id = owner.Id -> { item with Kind = SemanticTypeKind.Union(variants @ [ variant ]) }
                             | _ -> item) }
             let body matchNodeId element =
-                let fn =
-                    declarations.Functions
-                    |> List.tryFind (fun fn -> ValueGraph.collectNodes fn.Body |> List.exists (fun node -> node.Id = matchNodeId))
-                    |> Option.defaultWith (fun () -> fail $"Unknown match node '{StableId.value matchNodeId}'; arm plans name an existing matchUnion node by its exact ID.")
-                WireSymbolic.recipeForExistingFunction extended fn element
+                WireSymbolic.recipeForExistingFunction extended (owningFunction declarations matchNodeId) element
             AuthoringOperationRequest.AddUnionVariant(owner.Id, variant, armRecipes body element)
+        | "addProductField" ->
+            // `type` selects the owning Product, so the new field's type is `fieldType`.
+            ensureFields "add-product-field operation" [ "kind"; "type"; "displayName"; "fieldType"; "constructions" ] [ "kind"; "type"; "displayName"; "fieldType"; "constructions" ] element
+            let value constructNodeId element =
+                WireSymbolic.recipeForExistingFunction declarations (owningFunction declarations constructNodeId) element
+            AuthoringOperationRequest.AddProductField(
+                { TargetTypeId = (WireSymbolic.resolveType declarations (requiredString "type" element)).Id
+                  NewFieldDisplayName = requiredString "displayName" element
+                  NewFieldType = WireSymbolic.typeRef declarations (property "fieldType" element)
+                  ConstructionPlans = [] },
+                valuePlans value element)
         | _ -> AuthoringOperationRequest.Intent(operationByName declarations element)
