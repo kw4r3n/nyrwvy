@@ -39,6 +39,7 @@ module NamedPatternReferenceTests =
         rejects $"""{{"kind":"bind","name":"a","value":{one},"body":{named "b"}}}""" "names in scope: a"
         rejects $"""{{"kind":"bind","name":"a","value":{one},"body":{{"kind":"patternReference","name":"a","scopeDepth":0,"slot":"value"}}}}""" "one form"
         rejects $"""{{"kind":"bind","name":1,"value":{one},"body":{at 0 "value"}}}""" "binding name string"
+        rejects $"""{{"kind":"bind","name":null,"value":{one},"body":{at 0 "value"}}}""" "binding name string"
         let plain = $"""{{"kind":"bind","value":{one},"body":{at 0 "value"}}}"""
         Assert.Equal(plain, resolve plain)
 
