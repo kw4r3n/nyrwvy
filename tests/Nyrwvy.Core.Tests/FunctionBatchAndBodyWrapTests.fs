@@ -90,3 +90,23 @@ module FunctionBatchAndBodyWrapTests =
             let stale =
                 rejected $"""{{"id":"stale","op":"simulateReplaceBodyByName","function":"f","expectedResultNodeId":"{StableId.value other.Id}","replacement":{wrap}}}"""
             Assert.Contains("StructuralExpectedResultMismatch", stale))
+
+    [<Fact>]
+    let ``an unknown name lists the few known names or suggests the closest of many`` () =
+        withSession (fun _ execute rejected ->
+            let few = rejected $"""{{"id":"f","op":"simulateCreateFunctionsByName","functions":[{fn "inc" (add n (lit 1))},{fn "twice" (call "icn" n)}]}}"""
+            Assert.Contains("Unknown function", few)
+            Assert.Contains("Available:", few)
+            Assert.Contains("inc", few)
+            let misnamed = (call "inc" n).Replace("\"parameter\":\"n\"", "\"parameter\":\"m\"")
+            let parameter = rejected $"""{{"id":"p","op":"simulateCreateFunctionsByName","functions":[{fn "inc" (add n (lit 1))},{fn "twice" misnamed}]}}"""
+            Assert.Contains("Unknown parameter on inc", parameter)
+            Assert.Contains("Available:", parameter)
+            let many = [ for index in 1 .. 12 -> fn $"helper{index}" n ] |> String.concat ","
+            commit execute (execute $"""{{"id":"m","op":"simulateCreateFunctionsByName","functions":[{many},{fn "totalCount" n}]}}""")
+            let close = rejected $"""{{"id":"c","op":"simulateCreateFunctionByName",{(fn "user" (call "totalCuont" n)).TrimStart('{')}"""
+            Assert.Contains("Did you mean", close)
+            Assert.Contains("totalCount", close)
+            Assert.DoesNotContain("helper1", close)
+            let far = rejected $"""{{"id":"x","op":"simulateCreateFunctionByName",{(fn "user" (call "zzz" n)).TrimStart('{')}"""
+            Assert.DoesNotContain("Did you mean", far))
