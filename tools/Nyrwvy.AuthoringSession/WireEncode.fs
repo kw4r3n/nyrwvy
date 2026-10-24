@@ -513,6 +513,31 @@ module internal WireEncode =
 
     /// The `references` reply: the subject (kind, exact ID and display name, with its owner for a
     /// member) and every referencing site with its owner's kind, ID and display name.
+    /// Declarations whose display name contains `text` and string literals that contain it,
+    /// both ignoring case, for finding a function whose name is not known.
+    let search (declarations: AuthoringDeclarations) (text: string) (limit: int) =
+        let hit (value: string) = value.Contains(text, System.StringComparison.OrdinalIgnoreCase)
+        let named kind key (id: string) name = objectValue [ "kind", box kind; "name", box name; key, box id ]
+        let matches =
+            [ for item in declarations.Functions do if hit item.DisplayName then named "function" "functionId" (StableId.value item.Id) item.DisplayName
+              for item in declarations.Types do if hit item.DisplayName then named "type" "typeId" (StableId.value item.Id) item.DisplayName
+              for item in declarations.Effects do if hit item.DisplayName then named "effect" "effectId" (StableId.value item.Id) item.DisplayName
+              for item in declarations.Capabilities do
+                  if hit item.DisplayName then named "capability" "capabilityId" (StableId.value item.Id) item.DisplayName
+                  for operation in item.Operations do
+                      if hit operation.DisplayName then
+                          objectValue [ "kind", box "capabilityOperation"; "capability", box item.DisplayName
+                                        "name", box operation.DisplayName; "operationId", box (StableId.value operation.Id) ]
+              for item in declarations.Functions do
+                  for node in ValueGraph.collectNodes item.Body do
+                      match node.Kind with
+                      | SemanticNodeKind.StringLiteral value when hit value ->
+                          let shown = if value.Length <= 120 then value else value.Substring(0, 120) + "…"
+                          objectValue [ "kind", box "stringLiteral"; "function", box item.DisplayName; "functionId", box (StableId.value item.Id)
+                                        "nodeId", box (StableId.value node.Id); "value", runString shown ]
+                      | _ -> () ]
+        objectValue [ "text", box text; "totalCount", box matches.Length; "matches", matches |> List.truncate limit |> arrayValue ]
+
     let references (declarations: AuthoringDeclarations) (subject: ReferenceSubject) (items: DeclarationReference list) =
         let displayName kind (id: string) =
             match kind with
@@ -628,6 +653,7 @@ module internal WireEncode =
         | AuthoringSessionError.SnapshotFileAlreadyExists path ->
             "SnapshotFileAlreadyExists", $"A snapshot already exists at {path}. Use open to resume it; create never overwrites.", None
         | AuthoringSessionError.LockUnavailable path -> "LockUnavailable", $"{path} is open in another authoring session. Close that session first.", None
+        | AuthoringSessionError.ReadOnlySession -> "ReadOnlySession", "This session was opened read-only and cannot commit. Reopen it without readOnly to commit.", None
         | AuthoringSessionError.IoFailure message -> "IoFailure", message, None
         | AuthoringSessionError.SnapshotCodecFailure error ->
             let message, details = describeCodecError error

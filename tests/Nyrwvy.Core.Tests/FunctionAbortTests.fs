@@ -421,7 +421,8 @@ module FunctionAbortTests =
                                     invoke (op "mark") (slot 0) (str "sibling")), ok (str "done"))
             let outcome = session.SimulateCreateFunction(request session "ambiguous" [ "io", capType ] (result textType) [ effect.Id ] ambiguous)
             Assert.True(Result.isError outcome)
-            Assert.Contains("AmbiguousEffectOrder", sprintf "%A" outcome))
+            Assert.Contains("AmbiguousEffectOrder", sprintf "%A" outcome)
+            Assert.Contains("sequence them with bind so one runs first", sprintf "%A" outcome))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``generic abort pure function values and union matches retain their own invocation boundaries`` () =

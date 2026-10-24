@@ -233,6 +233,8 @@ One change has no order number: after probe 11, a pure `ListEffectFold` whose fo
 
 ### Open candidates
 
+The [prompt-desk port improvement memo](prompt-desk-port-improvements.md) records prioritized tooling and host-integration candidates from the 2026-10-24 application port. It is proposed input, not a queued implementation or an addition to the probe hit counts below; costs common to other language migrations are ranked lower.
+
 Counts come from the "Candidate hit counts" tables of the [probe 18](../verification/rrawrlet-slice-probes-summary.md#probe-18-candidate-hit-counts), [probe 19](../verification/rrawrlet-slice-probes-summary.md#probe-19-candidate-hit-counts), [probe 20](../verification/music-logic-probe20-20261001.md#candidate-hit-counts-after-probe-20), [probe 21](../verification/map-set-probes-summary.md#probe-21-candidate-hit-counts), [probe 22](../verification/map-set-probes-summary.md#probe-22-candidate-hit-counts), [probe 23](../verification/map-set-probes-summary.md#probe-23-candidate-hit-counts), [probe 24](../verification/map-set-probes-summary.md#probe-24-candidate-hit-counts) and [probe 25](../verification/rrawrlet-slice-probes-summary.md#probe-25-candidate-hit-counts) records, or from the sections and records named in the row. The breadth-first queue is done as order 55; none of the others is queued.
 
 | Candidate | Observed in | Status and what it waits on |

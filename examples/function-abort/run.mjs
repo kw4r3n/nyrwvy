@@ -63,10 +63,10 @@ try {
       whenTrue: { kind: "abort", error: literal("empty path") }, whenFalse: { kind: "unitLiteral" },
     }, body: { kind: "useResource", acquire: invoke("open", param("path")), releaseCapability: param("files"), capability: "Files", releaseOperation: "close", body: "readBody", context: [{ parameter: "files", value: param("files") }] } },
   }))
-  const before = await call("inspect", { view: "function", function: "readValidated" })
+  const before = await call("inspect", { view: "function", detail: "full", function: "readValidated" })
   await call("close")
   await call("open", { mode: "open", snapshot })
-  const after = await call("inspect", { view: "function", function: "readValidated" })
+  const after = await call("inspect", { view: "function", detail: "full", function: "readValidated" })
   assert.equal(before.function.id, after.function.id)
   assert.equal(before.function.body.resultNodeId, after.function.body.resultNodeId)
   const cap = (await call("inspect", { view: "declarations" })).capabilities.find(c => c.displayName === "Files")

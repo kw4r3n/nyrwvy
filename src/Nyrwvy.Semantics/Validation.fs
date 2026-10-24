@@ -607,6 +607,20 @@ module SnapshotValidator =
                 |> List.filter (fun parameter -> not (context |> List.exists (fun binding -> binding.TargetParameterId = parameter.Id))),
                 substitution
 
+            let callbackEffectsHint (collectionName: string) (callback: SemanticFunction) =
+                let required =
+                    match callback.RequiredEffects with
+                    | [] -> ""
+                    | effects ->
+                        let names = effects |> List.map effectLabel |> String.concat ", "
+                        $" The callback requires effect {names}."
+                let fix =
+                    if collectionName = "List" then
+                        " To run effects once per item, in order, use ListEffectFold instead (its folder takes the accumulator and the item)."
+                    else
+                        " Do the effectful work outside the callback and pass only pure values into it."
+                required + fix
+
             /// A pure callback with exactly one parameter not bound by context, receiving each item of
             /// a List<T> or Set<T> source (`collection` names which).
             let validateCallbackOver
@@ -654,7 +668,7 @@ module SnapshotValidator =
                     if not (PureFunctions.isPure snapshot callback.Id) then
                         add
                             "CallbackEffectsNotAllowed"
-                            $"Higher-order {collectionName} node '{StableId.value nodeId}' requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls."
+                            $"Higher-order {collectionName} node '{StableId.value nodeId}' requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls.{callbackEffectsHint collectionName callback}"
 
                     if predicateResultRequired
                        && TypeParameters.substitute substitution callback.ResultType <> TypeRef.Primitive PrimitiveType.Bool then
@@ -2460,9 +2474,19 @@ module SnapshotValidator =
             | Some _
             | None -> ()
 
+            let describeUnordered nodeId =
+                match nodesById |> Map.tryFind nodeId with
+                | None -> $"'{StableId.value nodeId}'"
+                | Some node ->
+                    let case, _ = Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(node.Kind, typeof<SemanticNodeKind>)
+                    match node.Kind with
+                    | SemanticNodeKind.DirectCall(callee, _) when Map.containsKey callee functionsById ->
+                        $"'{StableId.value nodeId}' (DirectCall to '{functionsById[callee].DisplayName}')"
+                    | _ -> $"'{StableId.value nodeId}' ({case.Name})"
+
             match GraphOrder.tryAbortOrderConflict functionsById functionEntity with
             | Some(first, second) ->
-                add "AmbiguousEffectOrder" $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} has unordered observable nodes '{StableId.value first}' and '{StableId.value second}', including local abort control flow."
+                add "AmbiguousEffectOrder" $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} has unordered observable nodes '{StableId.value first}' and '{StableId.value second}', including local abort control flow. {describeUnordered first} and {describeUnordered second} each observe effects or abort, so their order is undefined; sequence them with bind so one runs first."
             | None -> ()
 
             if hasDependencyCycle nodesById then

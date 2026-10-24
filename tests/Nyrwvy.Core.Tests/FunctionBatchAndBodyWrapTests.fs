@@ -118,3 +118,40 @@ module FunctionBatchAndBodyWrapTests =
             let text = rejected $"""{{"id":"f","op":"simulateCreateFunctionByName","displayName":"f","exported":true,"parameters":[],"resultType":{float64},"requiredEffects":[],"body":{{"kind":"float64Literal","value":1.5}}}}"""
             Assert.Contains("unsupported properties: value.", text)
             Assert.Contains("Allowed: kind, bits.", text))
+
+    [<Fact>]
+    let ``search finds functions by part of a name or a string literal and readFunction can be compact`` () =
+        withSession (fun _ execute rejected ->
+            let greeting = """{"kind":"stringLiteral","value":"async function "}"""
+            let text = $"""{{"displayName":"isDefinition","exported":true,"parameters":[],"resultType":{{"kind":"primitive","primitive":"string"}},"requiredEffects":[],"body":{greeting}}}"""
+            commit execute (execute $"""{{"id":"b","op":"simulateCreateFunctionsByName","functions":[{fn "planRun" n},{text}]}}""")
+            let found (query: string) =
+                (execute $"""{{"id":"s","op":"search","text":"{query}"}}""").GetProperty("matches").EnumerateArray()
+                |> Seq.map (fun item -> item.GetProperty("kind").GetString(), item.GetProperty(if item.GetProperty("kind").GetString() = "stringLiteral" then "function" else "name").GetString())
+                |> List.ofSeq
+            Assert.Equal<(string * string) list>([ "function", "planRun" ], found "PLAN")
+            Assert.Equal<(string * string) list>([ "stringLiteral", "isDefinition" ], found "async func")
+            Assert.Contains("text must not be empty", rejected """{"id":"e","op":"search","text":" "}""")
+            let compact = execute """{"id":"r","op":"readFunction","function":"planRun","detail":"compact"}"""
+            let body = compact.GetProperty("function").GetProperty("body")
+            Assert.False(body.TryGetProperty("nodes") |> fst)
+            Assert.Equal(1, body.GetProperty("nodeCount").GetInt32())
+            let full = execute """{"id":"r","op":"readFunction","function":"planRun"}"""
+            Assert.True(full.GetProperty("function").GetProperty("body").TryGetProperty("nodes") |> fst))
+
+    [<Fact>]
+    let ``a read-only session opens beside a writer, reads and emits, and cannot commit`` () =
+        withSession (fun writer execute _ ->
+            commit execute (execute $"""{{"id":"c","op":"simulateCreateFunctionByName",{(fn "inc" (add n (lit 1))).TrimStart('{')}""")
+            use reader = AuthoringSession.openReadOnly writer.Path |> function Ok value -> value | Error error -> failwithf "%A" error
+            Assert.True reader.ReadOnly
+            Assert.Equal(1, reader.Declarations().Functions.Length)
+            let send line = JsonDocument.Parse(AuthoringProtocol.executeLine reader line)
+            use emitted = send """{"id":"e","op":"emitCSharp","profile":{"kind":"empty"}}"""
+            Assert.True(emitted.RootElement.GetProperty("ok").GetBoolean(), emitted.RootElement.ToString())
+            use proposal = send $"""{{"id":"p","op":"simulateCreateFunctionByName",{(fn "dec" n).TrimStart('{')}"""
+            let proposalId = proposal.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            use refused = send $"""{{"id":"x","op":"commit","proposalId":"{proposalId}"}}"""
+            Assert.Equal("ReadOnlySession", refused.RootElement.GetProperty("error").GetProperty("code").GetString())
+            reader.Close()
+            Assert.True(File.Exists(writer.Path + ".lock"), "closing the reader leaves the writer's lock"))

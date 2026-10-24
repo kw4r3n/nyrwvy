@@ -244,11 +244,11 @@ try {
   await writeHost(original)
   await fixtures(original)
   // A reviewed one-node maintenance edit; no source or snapshot is hand-edited.
-  const before = await call("inspect", { view: "function", function: "missingLine" })
+  const before = await call("inspect", { view: "function", detail: "full", function: "missingLine" })
   const target = before.function.body.nodes.find(node => node.kind.kind === "stringLiteral" && node.kind.value === "error ")
   assert.ok(target, JSON.stringify(before.function.body))
   await publish(await call("replace", { function: "missingLine", targetNodeId: target.id, replacement: text("missing ") }))
-  const after = await call("inspect", { view: "function", function: "missingLine" })
+  const after = await call("inspect", { view: "function", detail: "full", function: "missingLine" })
   assert.equal(after.function.id, before.function.id)
   await writeFile(join(original, "cases.json"), JSON.stringify(cases, null, 2))
   await writeHost(original)
@@ -267,7 +267,7 @@ try {
   await cp(original, moved, { recursive: true, errorOnExist: true, force: false })
   await rename(library, library + ".unavailable")
   await call("open", { mode: "open", snapshot: join(moved, "batch.nyrec") })
-  assert.equal((await call("inspect", { view: "function", function: "missingLine" })).function.id, after.function.id)
+  assert.equal((await call("inspect", { view: "function", detail: "full", function: "missingLine" })).function.id, after.function.id)
   await runSaved(moved)
   console.log(`PASS: ordinary authoring, maintenance, saved tests, reopen and moved dependency pin. ${output}`)
   }

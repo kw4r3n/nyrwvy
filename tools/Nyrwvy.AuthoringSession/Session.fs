@@ -13,6 +13,7 @@ type AuthoringSessionError =
     | SnapshotFileNotFound of string
     | SnapshotFileAlreadyExists of string
     | LockUnavailable of string
+    | ReadOnlySession
     | IoFailure of string
     | SnapshotCodecFailure of SnapshotCodecError
     | WorkspaceValidationFailure of ValidationIssue list
@@ -977,7 +978,7 @@ module internal PinnedDependency =
         | AuthoringDependencyChangeRequest.Upgrades upgrades -> planUpgrades path source current upgrades
         | AuthoringDependencyChangeRequest.Selection request -> planSelectionUpgrade path source current request
 
-type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, initialPersistedSource: string, lockHandle: FileStream, selection: PinnedDependencySelection option) =
+type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, initialPersistedSource: string, lockHandle: FileStream option, selection: PinnedDependencySelection option) =
     let mutable selection = selection
     let mutable dependency = selection |> Option.map (fun item -> item.Imported)
     let mutable dependencyManifest = selection |> Option.map (fun item -> item.Manifest)
@@ -1446,10 +1447,13 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Ok proposal ->
                 register (AgentCapabilityDeclarationProposal.transactionId proposal) (PendingProposal.CreateCapability proposal) (AuthoringProposalReview.CreateCapability(AgentCapabilityDeclarationProposal.review proposal))
 
+    member _.ReadOnly = lockHandle.IsNone
+
     member _.Commit(proposalId: string, policy: CommitPolicy): Result<AuthoringCommitReceipt, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
+        | Ok() when lockHandle.IsNone -> Error AuthoringSessionError.ReadOnlySession
         | Ok() ->
             match proposals.TryGetValue proposalId with
             | false, _ -> Error(AuthoringSessionError.ProposalNotFound proposalId)
@@ -1673,7 +1677,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         if not closed then
             closed <- true
             worker.Dispose()
-            SessionStorage.releaseLock path lockHandle
+            lockHandle |> Option.iter (SessionStorage.releaseLock path)
 
     interface IDisposable with
         member this.Dispose() = this.Close()
@@ -1689,17 +1693,21 @@ module AuthoringSession =
              | Some imported -> AgentWorkspace.createResolved imported snapshot)
             |> Result.mapError AuthoringSessionError.WorkspaceValidationFailure
 
-    let private openUsing (path: string) pin sourceOverride: Result<AuthoringSession, AuthoringSessionError> =
+    let private openUsing (path: string) readOnly pin sourceOverride: Result<AuthoringSession, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         let path = SessionStorage.fullPath path
         if not (File.Exists path) then Error(AuthoringSessionError.SnapshotFileNotFound path)
         else
-            match SessionStorage.acquireLock path with
+            // A read-only session takes no lock: snapshots are replaced atomically, so it always
+            // reads a whole committed snapshot, and Commit refuses to write.
+            // shortcut: a dependency upgrade renames the sidecar and the snapshot separately, so an open
+            // racing one can see a mismatched pair and fail (never misread); retry if that matters.
+            match (if readOnly then Ok None else SessionStorage.acquireLock path |> Result.map Some) with
             | Error error -> Error error
             | Ok lockHandle ->
                 match SessionStorage.readText path with
                 | Error error ->
-                    SessionStorage.releaseLock path lockHandle
+                    lockHandle |> Option.iter (SessionStorage.releaseLock path)
                     Error error
                 | Ok source ->
                     let loaded = PinnedDependency.load path sourceOverride
@@ -1719,7 +1727,7 @@ module AuthoringSession =
                                 | true, Some selected -> PinnedDependency.persistPin path source selected |> Result.map Some
                             prepared |> Result.map (fun selected -> selected, workspace))) with
                     | Error error ->
-                        SessionStorage.releaseLock path lockHandle
+                        lockHandle |> Option.iter (SessionStorage.releaseLock path)
                         // An interrupted dependency replacement leaves the previous sidecar beside the pair;
                         // when that one matches the snapshot it is named, never restored silently.
                         let previous = path + ".dependency.json.previous"
@@ -1735,7 +1743,10 @@ module AuthoringSession =
                     | Ok(selected, workspace) ->
                         Ok(new AuthoringSession(path, workspace, source, lockHandle, selected))
 
-    let openExisting path = openUsing path false None
+    let openExisting path = openUsing path false false None
+
+    /// Open without the workspace lock; the session can read, simulate and run but not commit.
+    let openReadOnly path = openUsing path true false None
 
     /// Apply a reviewed final selection under the existing workspace lock. Storage faults
     /// restore the previous manifest; crash atomicity across the two files is unchanged.
@@ -1773,7 +1784,7 @@ module AuthoringSession =
                 | Error error ->
                     SessionStorage.releaseLock path lockHandle
                     Error error
-                | Ok(source, workspace, selected) -> Ok(new AuthoringSession(path, workspace, source, lockHandle, Some selected))
+                | Ok(source, workspace, selected) -> Ok(new AuthoringSession(path, workspace, source, Some lockHandle, Some selected))
 
     /// Original single-member API remains compatible with its fingerprint review.
     let upgradeDependency path sourcePath replaces expectedFingerprint =
@@ -1803,7 +1814,7 @@ module AuthoringSession =
 
     /// Storage-only recovery: retain exactly the selected ID/fingerprint/digest.
     /// Supplying another semantic version never authorizes an upgrade.
-    let pinExistingDependency path sourceOverride = openUsing path true sourceOverride
+    let pinExistingDependency path sourceOverride = openUsing path false true sourceOverride
 
     /// Creates a workspace whose imported graph combines the exact content of each dependency.
     let createNewWithDependencies (path: string) (dependencyPaths: string list): Result<AuthoringSession, AuthoringSessionError> =
@@ -1870,7 +1881,7 @@ module AuthoringSession =
                                         if selected.IsSome then SessionStorage.cleanupTemporary (path + ".dependency.json")
                                         SessionStorage.releaseLock path lockHandle
                                         Error error
-                                    | Ok() -> Ok(new AuthoringSession(path, workspace, source, lockHandle, selected))
+                                    | Ok() -> Ok(new AuthoringSession(path, workspace, source, Some lockHandle, selected))
 
     let createNewWithDependency (path: string) (dependencyPath: string option) =
         createNewWithDependencies path (Option.toList dependencyPath)

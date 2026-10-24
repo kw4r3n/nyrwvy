@@ -948,9 +948,14 @@ module AuthoringProtocol =
             | "readFunction" ->
                 ensureFields
                     "readFunction request"
-                    [ "id"; "op"; "function"; "functionId" ]
+                    [ "id"; "op"; "function"; "functionId"; "detail" ]
                     [ "id"; "op" ]
                     root
+                let compact =
+                    match tryProperty "detail" root |> Option.map (fun _ -> requiredString "detail" root) with
+                    | None | Some "full" -> false
+                    | Some "compact" -> true
+                    | Some _ -> WireInput.fail "detail must be compact or full."
                 let functionId =
                     match tryProperty "function" root, tryProperty "functionId" root with
                     | Some _, None ->
@@ -958,8 +963,15 @@ module AuthoringProtocol =
                     | None, Some _ -> id<FunctionTag> "functionId" root
                     | _ -> WireInput.fail "readFunction requires exactly one of function and functionId."
                 match session.FocusFunction functionId with
-                | Ok focus -> success requestId (WireGraph.focus focus)
+                | Ok focus -> success requestId (if compact then WireEncodeCommon.compactFocus focus else WireGraph.focus focus)
                 | Error error -> semanticQueryFailure requestId error
+            | "search" ->
+                ensureFields "search request" [ "id"; "op"; "text"; "limit" ] [ "id"; "op"; "text" ] root
+                let text = requiredString "text" root
+                if text.Trim() = "" then WireInput.fail "text must not be empty."
+                let limit = tryProperty "limit" root |> Option.map (fun item -> item.GetInt32()) |> Option.defaultValue 50
+                if limit < 1 || limit > 200 then WireInput.fail "limit must be 1..200."
+                success requestId (WireEncode.search (session.Declarations()) text limit)
             | "readProposal" ->
                 ensureFields "readProposal request" [ "id"; "op"; "proposalId"; "path"; "offset"; "limit"; "structuredReview" ] [ "id"; "op"; "proposalId" ] root
                 let integer name fallback =
