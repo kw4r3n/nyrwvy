@@ -78,6 +78,10 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     // Host C# sources are server configuration, off by default, and never enabled per request.
     assert.equal(opened.hostSourcesAllowed, false)
     await failed(second, "open", { mode: "open", snapshot: "workspace.json", workspace })
+    // Mode read takes no lock, so it opens beside the writer.
+    const reader = await call(second, "open", { mode: "read", snapshot: "workspace.json", workspace })
+    assert.equal(reader.snapshot, opened.snapshot)
+    await call(second, "close", {})
 
     const type = await call(first, "create_type", { displayName: "Request", typeKind: { kind: "product", fields: [{ displayName: "enabled", type: { kind: "primitive", primitive: "bool" } }] } })
     await call(first, "commit", { proposalId: type.result.proposalId })
