@@ -429,6 +429,9 @@ module RecordCodec =
 
     let private decodeWith (dependency: Snapshot option) (text: string) : Result<Snapshot, RecordCodecError> =
         let records = List<Record>()
+        let buffer = buffers.Value
+        buffer.ResetWrittenCount()
+        use w = new Utf8JsonWriter(buffer, JsonWriterOptions(MaxDepth = SnapshotCodec.maxJsonDepth))
         try
             if isNull text || text.Length = 0 then fail 1 1 "missing header"
             if text[0] = '﻿' then fail 1 1 "byte order mark"
@@ -446,9 +449,6 @@ module RecordCodec =
                     let mutable value = 0
                     if isCanonicalInt span && span[0] <> '-' && Int32.TryParse(span, &value) then value else -2
                 else -1
-            let buffer = buffers.Value
-            buffer.ResetWrittenCount()
-            use w = new Utf8JsonWriter(buffer, JsonWriterOptions(MaxDepth = SnapshotCodec.maxJsonDepth))
             // Header.
             let headerEnd = text.IndexOf '\n'
             if headerEnd = 0 then fail 1 1 "missing header"
@@ -917,7 +917,12 @@ module RecordCodec =
                         best <- at
                         where <- r
                 Error { Line = (if isNull where then 1 else where.Line); Column = (if isNull where then 1 else where.Column); Message = message; Model = Some error }
-        with RecordFailure e -> Error e
+        with
+        | RecordFailure e -> Error e
+        | :? InvalidOperationException when w.CurrentDepth >= SnapshotCodec.maxJsonDepth ->
+            Error { Line = 1; Column = 1
+                    Message = $"Maximum JSON depth of {SnapshotCodec.maxJsonDepth} exceeded."
+                    Model = Some(SnapshotCodecError.MaximumDepthExceeded SnapshotCodec.maxJsonDepth) }
 
     /// Record text -> the snapshot, validated by `SnapshotCodec`'s reader. Only canonical bytes decode.
     let deserialize (text: string) : Result<Snapshot, RecordCodecError> = decodeWith None text

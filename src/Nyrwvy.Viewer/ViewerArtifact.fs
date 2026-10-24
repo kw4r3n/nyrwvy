@@ -54,12 +54,14 @@ module ViewerArtifact =
           SuggestedFileName = focusFileName focus.Function.Id
           Content = ViewerHtml.renderFocusDocument model }
 
-    let ofChangeReview (review: ChangeReviewView): ViewerArtifact =
+    let ofChangeReviewWithBaseState baseIsCommitted (review: ChangeReviewView): ViewerArtifact =
         let model = ViewerProjection.changeReview review
         { Kind = ViewerArtifactKind.ChangeReview
           MediaType = "text/html; charset=utf-8"
           SuggestedFileName = reviewFileName review.TransactionId
-          Content = ViewerHtml.renderChangeReviewDocument model }
+          Content = ViewerHtml.renderChangeReviewDocumentWithBaseState baseIsCommitted model }
+
+    let ofChangeReview review = ofChangeReviewWithBaseState true review
 
     /// A pending structural proposal's Change Review; named by transaction ID like `ofChangeReview`.
     let ofProposalReview (model: ViewerProposalReviewModel): ViewerArtifact =

@@ -605,6 +605,167 @@ static class Program
             finally
                 Directory.Delete(root, true))
 
+    let private shutdownProbe =
+        """using System;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
+using Nyrwvy.Generated;
+
+static class Program
+{
+    static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
+    static void Await(WaitHandle handle, string what) => Check(handle.WaitOne(TimeSpan.FromSeconds(10)), "timed out: " + what);
+    static void Join(Task task) => Check(task.Wait(TimeSpan.FromSeconds(10)), "task timed out");
+
+    static void Shutdown(bool bodyThrew, bool taskFails)
+    {
+        using var root = new CancellationTokenSource();
+        var scope = new NyTaskScope(root.Token);
+        using var ready = new CountdownEvent(2);
+        using var cancelled = new CountdownEvent(2);
+        using var release = new ManualResetEventSlim();
+        NyTask<bool> Start(string name, bool callbackThrows) => scope.Start(() =>
+        {
+            var token = NyRuntime.Cancellation.Value;
+            if (callbackThrows) token.Register(() => throw new InvalidOperationException("callback"));
+            ready.Signal();
+            Await(token.WaitHandle, name + " cancellation");
+            cancelled.Signal();
+            Await(release.WaitHandle, name + " cleanup");
+            if (taskFails) throw new InvalidOperationException(name);
+            return true;
+        });
+        var first = Start("first", true);
+        var second = Start("second", false);
+        Await(ready.WaitHandle, "workers ready");
+        var closing = Task.Run<Exception?>(() =>
+        {
+            try { scope.Close(bodyThrew); return null; }
+            catch (Exception error) { return error; }
+        });
+        try
+        {
+            Await(cancelled.WaitHandle, "workers cancelled");
+            Check(!closing.IsCompleted, "scope exited before worker cleanup");
+        }
+        finally { release.Set(); }
+        Join(closing);
+        Check(first.Running.IsCompleted && second.Running.IsCompleted, "scope left running workers");
+        var error = closing.Result;
+        if (bodyThrew) Check(error == null, "shutdown replaced the body error");
+        else if (taskFails) Check(error is InvalidOperationException && error.Message == "first", "earliest task error lost");
+        else Check(error is AggregateException && error.GetBaseException().Message == "callback", "callback error lost");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static WeakReference ClosedScope(CancellationToken parent)
+    {
+        var scope = new NyTaskScope(parent);
+        scope.Close(false);
+        return new WeakReference(scope);
+    }
+
+    static void Retention()
+    {
+        using var root = new CancellationTokenSource();
+        var scopes = new WeakReference[100];
+        for (var i = 0; i < scopes.Length; i++) scopes[i] = ClosedScope(root.Token);
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        Check(Array.TrueForAll(scopes, scope => !scope.IsAlive), "live parent retained closed scopes");
+        GC.KeepAlive(root);
+    }
+
+    static void LateStarts()
+    {
+        using var root = new CancellationTokenSource();
+        var scope = new NyTaskScope(root.Token);
+        using var ready = new ManualResetEventSlim();
+        var task = scope.Start(() =>
+        {
+            NyRuntime.Cancellation.Value.Register(() =>
+            {
+                var reentrant = scope.Start(() => NyRuntime.CancellationRequested);
+                Check(reentrant.Running.GetAwaiter().GetResult(), "callback's late start was not cancelled");
+            });
+            ready.Set();
+            NyRuntime.WaitForCancellation();
+            return true;
+        });
+        Await(ready.WaitHandle, "late-start worker");
+        scope.Close(false);
+        task.Cancel();
+        var late = scope.Start(() => NyRuntime.CancellationRequested);
+        Check(late.Running.GetAwaiter().GetResult(), "closed scope's late start was not cancelled");
+        late.Cancel();
+        root.Cancel();
+        using var alreadyCancelled = new CancellationTokenSource();
+        alreadyCancelled.Cancel();
+        var cancelledScope = new NyTaskScope(alreadyCancelled.Token);
+        var cancelledTask = cancelledScope.Start(() => NyRuntime.CancellationRequested);
+        Join(cancelledTask.Running);
+        Check(cancelledTask.Running.Result, "already-cancelled parent did not reach new scope");
+        cancelledScope.Close(false);
+    }
+
+    static void ConcurrentParentCancellation()
+    {
+        using var root = new CancellationTokenSource();
+        var scope = new NyTaskScope(root.Token);
+        using var ready = new ManualResetEventSlim();
+        using var callbackEntered = new ManualResetEventSlim();
+        using var releaseCallback = new ManualResetEventSlim();
+        scope.Start(() =>
+        {
+            NyRuntime.Cancellation.Value.Register(() =>
+            {
+                callbackEntered.Set();
+                Await(releaseCallback.WaitHandle, "parent callback release");
+            });
+            ready.Set();
+            NyRuntime.WaitForCancellation();
+            return true;
+        });
+        Await(ready.WaitHandle, "parent race worker");
+        var cancelling = Task.Run(() => root.Cancel());
+        Await(callbackEntered.WaitHandle, "parent callback");
+        try { Join(Task.Run(() => scope.Close(false))); }
+        finally { releaseCallback.Set(); }
+        Join(cancelling);
+    }
+
+    static void Main()
+    {
+        Shutdown(bodyThrew: false, taskFails: false);
+        Shutdown(bodyThrew: true, taskFails: true);
+        Shutdown(bodyThrew: false, taskFails: true);
+        Retention();
+        LateStarts();
+        ConcurrentParentCancellation();
+        Console.WriteLine("shutdown and retention passed");
+    }
+}
+"""
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``scope shutdown drains tasks after callback failures and releases the parent link`` () =
+        withTeam (fun session _ ->
+            let profile =
+                CSharpBackendProfile.externalImplementations [ nextId; workId; createId; removeId ]
+                |> CSharpBackendProfile.withConcurrentCapabilities [ agentId; workspacesId ]
+            let source = (session.EmitCSharp profile |> unwrap "emit").Source
+            let root = Path.Combine(Path.GetTempPath(), "nyrwvy-task-shutdown-" + Guid.NewGuid().ToString("N"))
+            Directory.CreateDirectory(root) |> ignore
+            try
+                let assembly = GeneratedBuild.compile root [ "Generated.cs", source; "Program.cs", shutdownProbe ] 30000 |> unwrap "build"
+                let runExit, runOut, runErr = CSharpBackendTests.runDotnet root [ assembly ]
+                Assert.True((runExit = 0), $"Probe failed:\n{runOut}\n{runErr}")
+                Assert.Equal("shutdown and retention passed", runOut.Trim())
+            finally
+                Directory.Delete(root, true))
+
     let private delayed millis response = PureRunFakeResponse.Delayed(millis, response)
 
     [<Fact; Trait("Suite", "Extended")>]

@@ -176,7 +176,7 @@ module ViewerFile =
         : Result<string * ViewerArtifact, string> =
         let artifact =
             match view.Proposal.Review, view.ProposedSnapshot with
-            | AuthoringProposalReview.Operations item, _ -> Ok(ViewerArtifact.ofChangeReview item.ResultingChange)
+            | AuthoringProposalReview.Operations item, _ -> Ok(ViewerArtifact.ofChangeReviewWithBaseState view.BaseIsCommitted item.ResultingChange)
             | _, Some proposed -> proposalReview view proposed committedFocus
             | _, None -> Error "The proposal has no proposed snapshot to render."
         artifact |> Result.bind (write snapshotPath requested)
