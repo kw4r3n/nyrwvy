@@ -112,5 +112,9 @@ let main argv =
         | Ok session ->
             use session = session
             session.HostSourcesAllowed <- Array.contains CommandLine.hostSourcesFlag argv
+            // NYRWVY_RUNPURE_WARMUP=0 turns the background warm-up off.
+            if Environment.GetEnvironmentVariable "NYRWVY_RUNPURE_WARMUP" <> "0" then
+                let worker = session.PureRunWorker
+                System.Threading.Tasks.Task.Run(fun () -> PureRun.warm worker) |> ignore
             AuthoringProtocol.serve session Console.In Console.Out
             0

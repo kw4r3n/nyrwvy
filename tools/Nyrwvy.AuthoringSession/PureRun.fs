@@ -1645,6 +1645,36 @@ module PureRun =
                         | :? IOException
                         | :? UnauthorizedAccessException -> ()
 
+    /// Pays ahead what the session's first run would otherwise wait for: Roslyn start-up, the first
+    /// compile of the generated runtime support and runner helpers, and the runner worker. It reads no
+    /// session state besides the worker, so it may run beside requests; any failure is ignored and the
+    /// first run builds as usual.
+    let internal warm (worker: PureRunWorker) =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-pure-run-warm-" + Guid.NewGuid().ToString("N"))
+        try
+            try
+                Directory.CreateDirectory root |> ignore
+                let emitted =
+                    StableId.tryCreate<SnapshotTag> "warm"
+                    |> Result.mapError string
+                    |> Result.bind (fun snapshotId ->
+                        let empty: ExecutionProgram = { SourceSnapshotId = snapshotId; Types = []; Effects = []; Capabilities = []; Functions = [] }
+                        CSharpBackend.emit empty CSharpBackendProfile.empty |> Result.mapError string)
+                match emitted with
+                | Ok artifact ->
+                    let program =
+                        "using System; using System.Globalization; using System.Linq; using System.Text; using System.Text.Json; using Nyrwvy.Generated;\n"
+                        + "Console.WriteLine(0);\n"
+                        + "sealed class RunnerException(string message) : Exception(message);\n"
+                        + runnerSupport
+                    GeneratedBuild.compile root [ "Generated.cs", artifact.Source; "Program.cs", program ] 30000 |> ignore
+                | Error _ -> ()
+                worker.Warm()
+            with _ -> ()
+        finally
+            try Directory.Delete(root, true)
+            with _ -> ()
+
     /// Reads explicitly registered host C# sources. Relative paths resolve against the directory
     /// containing the session's snapshot file; at most 16 existing `.cs` files of at most 1 MiB
     /// each are accepted.

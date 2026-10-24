@@ -259,6 +259,13 @@ type internal PureRunWorker() =
                     if not disposed && current.IsSome && Stopwatch.GetElapsedTime lastRun > idleLimit then retire () |> ignore
                 finally Monitor.Exit gate), null, TimeSpan.FromMinutes 1.0, TimeSpan.FromMinutes 1.0)
 
+    /// Builds and starts the worker ahead of the first run, so that run skips both.
+    member _.Warm() =
+        lock gate (fun () ->
+            if not disposed then
+                lastRun <- Stopwatch.GetTimestamp()
+                ensure () |> ignore)
+
     /// Runs the program at `assemblyPath` (with its PDB at `symbolsPath`) on `inputPath` within
     /// `timeoutMs`. `phase` names the timed step in the timeout diagnostic. A timeout or a crash retires
     /// the worker; the next run starts another.
