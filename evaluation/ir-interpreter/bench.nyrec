@@ -1,0 +1,47 @@
+snapshot snapshot:01a1701f-88b7-7c40-b190-72d28ed95382 schema=21 parent=snapshot:01a1701f-5ed3-73a2-9265-7b54daf53993
+
+function function:01a1701f-8886-716e-af4c-eb5669dad9d9 name="add" exported=true result-type=int64 body=node:01a1701f-8892-7523-ab8d-2522aef792a9
+parameter parameter:01a1701f-8887-77a5-bcc6-dafc429f4fda in=function:01a1701f-8886-716e-af4c-eb5669dad9d9 position=0 name="a" type=int64
+parameter parameter:01a1701f-8887-7833-8bf6-bdc43480fa43 in=function:01a1701f-8886-716e-af4c-eb5669dad9d9 position=1 name="b" type=int64
+int64-wrapping-add node:01a1701f-8892-7523-ab8d-2522aef792a9 in=function:01a1701f-8886-716e-af4c-eb5669dad9d9/body left=node:01a1701f-8892-7ef9-9c9d-e2747df2fc96 right=node:01a1701f-8892-7d33-b326-1413b9419b71
+parameter-reference node:01a1701f-8892-7d33-b326-1413b9419b71 in=function:01a1701f-8886-716e-af4c-eb5669dad9d9/body parameter=parameter:01a1701f-8887-7833-8bf6-bdc43480fa43
+parameter-reference node:01a1701f-8892-7ef9-9c9d-e2747df2fc96 in=function:01a1701f-8886-716e-af4c-eb5669dad9d9/body parameter=parameter:01a1701f-8887-77a5-bcc6-dafc429f4fda
+
+function function:01a1701f-8896-7c90-a846-226462de7bc1 name="nonEmpty" result-type=bool body=node:01a1701f-8897-7ba8-9325-9328f58411eb
+parameter parameter:01a1701f-8896-74f6-a427-0ff8d6c0abe3 in=function:01a1701f-8896-7c90-a846-226462de7bc1 position=0 name="word" type=string
+parameter-reference node:01a1701f-8897-7719-8b93-8dae01d1a0bf in=function:01a1701f-8896-7c90-a846-226462de7bc1/body parameter=parameter:01a1701f-8896-74f6-a427-0ff8d6c0abe3
+string-is-empty node:01a1701f-8897-77be-9aeb-2529eda78b5f in=function:01a1701f-8896-7c90-a846-226462de7bc1/body value=node:01a1701f-8897-7719-8b93-8dae01d1a0bf
+bool-not node:01a1701f-8897-7ba8-9325-9328f58411eb in=function:01a1701f-8896-7c90-a846-226462de7bc1/body operand=node:01a1701f-8897-77be-9aeb-2529eda78b5f
+
+function function:01a1701f-88a7-7222-bf81-4067de372539 name="wordCount" exported=true result-type=int64 body=node:01a1701f-88a9-721f-869c-0274b30785a8
+parameter parameter:01a1701f-88a7-7d43-ac29-208c0c4a721d in=function:01a1701f-88a7-7222-bf81-4067de372539 position=0 name="text" type=string
+string-split node:01a1701f-88a8-7139-86f1-2deeacb5f040 in=function:01a1701f-88a7-7222-bf81-4067de372539/body value=node:01a1701f-88a8-7b41-8f25-60e6d91cf549 separator=node:01a1701f-88a8-78c1-b29c-6c9a450ce184
+string-literal node:01a1701f-88a8-78c1-b29c-6c9a450ce184 in=function:01a1701f-88a7-7222-bf81-4067de372539/body value=" "
+parameter-reference node:01a1701f-88a8-7b41-8f25-60e6d91cf549 in=function:01a1701f-88a7-7222-bf81-4067de372539/body parameter=parameter:01a1701f-88a7-7d43-ac29-208c0c4a721d
+list-length node:01a1701f-88a9-721f-869c-0274b30785a8 in=function:01a1701f-88a7-7222-bf81-4067de372539/body list=node:01a1701f-88a9-77f5-a883-16a400befabf
+list-filter node:01a1701f-88a9-77f5-a883-16a400befabf in=function:01a1701f-88a7-7222-bf81-4067de372539/body source-list=node:01a1701f-88a8-7139-86f1-2deeacb5f040 predicate-function=function:01a1701f-8896-7c90-a846-226462de7bc1
+
+function function:01a1701f-88ac-74c7-a357-bd7417318da8 name="sumTo" exported=true result-type=int64 body=node:01a1701f-88ad-7361-aa61-6088c3a06e02
+parameter parameter:01a1701f-88ac-7668-aa28-36d093d1c1f3 in=function:01a1701f-88ac-74c7-a357-bd7417318da8 position=0 name="n" type=int64
+list-fold node:01a1701f-88ad-7361-aa61-6088c3a06e02 in=function:01a1701f-88ac-74c7-a357-bd7417318da8/body source-list=node:01a1701f-88ad-7b12-a17d-e15297c078e8 seed=node:01a1701f-88ad-7ffb-8435-b70431c6a0ca folder-function=function:01a1701f-8886-716e-af4c-eb5669dad9d9
+int64-literal node:01a1701f-88ad-7382-8258-db7e443421d2 in=function:01a1701f-88ac-74c7-a357-bd7417318da8/body value=0
+parameter-reference node:01a1701f-88ad-79ff-a8cd-9d553655d324 in=function:01a1701f-88ac-74c7-a357-bd7417318da8/body parameter=parameter:01a1701f-88ac-7668-aa28-36d093d1c1f3
+list-range node:01a1701f-88ad-7b12-a17d-e15297c078e8 in=function:01a1701f-88ac-74c7-a357-bd7417318da8/body start=node:01a1701f-88ad-7382-8258-db7e443421d2 end=node:01a1701f-88ad-79ff-a8cd-9d553655d324
+int64-literal node:01a1701f-88ad-7ffb-8435-b70431c6a0ca in=function:01a1701f-88ac-74c7-a357-bd7417318da8/body value=0
+
+function function:01a1701f-88b6-7450-8301-f096cdb6b970 name="fib" exported=true result-type=int64 body=node:01a1701f-88b7-7f3b-93f7-8978a0d39310
+parameter parameter:01a1701f-88b6-78fe-b1d7-888d8e4ea4f0 in=function:01a1701f-88b6-7450-8301-f096cdb6b970 position=0 name="n" type=int64
+int64-less-than node:01a1701f-88b6-702f-871f-ffe9d45b045c in=function:01a1701f-88b6-7450-8301-f096cdb6b970/body left=node:01a1701f-88b6-79a2-86b0-d374f652594f right=node:01a1701f-88b6-7de1-8baf-e16e3d8dda73
+parameter-reference node:01a1701f-88b6-79a2-86b0-d374f652594f in=function:01a1701f-88b6-7450-8301-f096cdb6b970/body parameter=parameter:01a1701f-88b6-78fe-b1d7-888d8e4ea4f0
+parameter-reference node:01a1701f-88b6-7d69-99c5-39093f05ba19 in=node:01a1701f-88b7-7f3b-93f7-8978a0d39310/when-true parameter=parameter:01a1701f-88b6-78fe-b1d7-888d8e4ea4f0
+int64-literal node:01a1701f-88b6-7de1-8baf-e16e3d8dda73 in=function:01a1701f-88b6-7450-8301-f096cdb6b970/body value=2
+parameter-reference node:01a1701f-88b7-732a-b323-6212364cc493 in=node:01a1701f-88b7-7f3b-93f7-8978a0d39310/when-false parameter=parameter:01a1701f-88b6-78fe-b1d7-888d8e4ea4f0
+direct-call node:01a1701f-88b7-7544-b728-9d0c175aa988 in=node:01a1701f-88b7-7f3b-93f7-8978a0d39310/when-false target-function=function:01a1701f-88b6-7450-8301-f096cdb6b970 arguments=[parameter:01a1701f-88b6-78fe-b1d7-888d8e4ea4f0=node:01a1701f-88b7-772e-936c-5cac79864a57]
+int64-literal node:01a1701f-88b7-7612-b16c-af95e8b187a1 in=node:01a1701f-88b7-7f3b-93f7-8978a0d39310/when-false value=-1
+int64-literal node:01a1701f-88b7-7684-8331-7a2667be4090 in=node:01a1701f-88b7-7f3b-93f7-8978a0d39310/when-false value=-2
+int64-wrapping-add node:01a1701f-88b7-772e-936c-5cac79864a57 in=node:01a1701f-88b7-7f3b-93f7-8978a0d39310/when-false left=node:01a1701f-88b7-732a-b323-6212364cc493 right=node:01a1701f-88b7-7612-b16c-af95e8b187a1
+direct-call node:01a1701f-88b7-77c0-b845-b1292d48ca3d in=node:01a1701f-88b7-7f3b-93f7-8978a0d39310/when-false target-function=function:01a1701f-88b6-7450-8301-f096cdb6b970 arguments=[parameter:01a1701f-88b6-78fe-b1d7-888d8e4ea4f0=node:01a1701f-88b7-7b1e-adaa-2f9647f2bcfb]
+parameter-reference node:01a1701f-88b7-79b5-890c-e14aa7290c13 in=node:01a1701f-88b7-7f3b-93f7-8978a0d39310/when-false parameter=parameter:01a1701f-88b6-78fe-b1d7-888d8e4ea4f0
+int64-wrapping-add node:01a1701f-88b7-7b1e-adaa-2f9647f2bcfb in=node:01a1701f-88b7-7f3b-93f7-8978a0d39310/when-false left=node:01a1701f-88b7-79b5-890c-e14aa7290c13 right=node:01a1701f-88b7-7684-8331-7a2667be4090
+int64-wrapping-add node:01a1701f-88b7-7dcd-8361-f07c364d3663 in=node:01a1701f-88b7-7f3b-93f7-8978a0d39310/when-false left=node:01a1701f-88b7-7544-b728-9d0c175aa988 right=node:01a1701f-88b7-77c0-b845-b1292d48ca3d
+conditional node:01a1701f-88b7-7f3b-93f7-8978a0d39310 in=function:01a1701f-88b6-7450-8301-f096cdb6b970/body condition=node:01a1701f-88b6-702f-871f-ffe9d45b045c when-true=node:01a1701f-88b6-7d69-99c5-39093f05ba19 when-false=node:01a1701f-88b7-7dcd-8361-f07c364d3663

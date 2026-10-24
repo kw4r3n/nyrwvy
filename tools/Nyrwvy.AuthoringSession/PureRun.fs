@@ -1154,6 +1154,230 @@ module PureRun =
             "        return local < queues[selected].Length ? queues[selected][local] : FakeResponse<T>.Exhausted;\n"
             "    }\n}\n" ]
 
+    let private stackOverflowText =
+        "Stack overflow: recursion was too deep. A self DirectCall in tail position runs as a loop (the body's result, "
+        + "a Bind body, a Conditional branch, a match arm or otherwise, or the right operand of BoolAnd/BoolOr); "
+        + "any other self or mutual DirectCall recursion runs on the runner's thread stack, which holds only several "
+        + "thousand frames of a typical function. Make the self call the last step of each continuing branch, "
+        + "or iterate a List with ListFold (for text, over StringCodePoints)."
+
+    /// Which executor runs a program: NYRWVY_RUNPURE_EXECUTOR=interpreter interprets the Execution IR
+    /// in-process when it can, `compare` runs both and appends differences to NYRWVY_RUNPURE_COMPARE_LOG.
+    /// shortcut: an environment switch for the prototype measurement; a real mode belongs in the protocol.
+    let private executorLogGate = obj ()
+
+    let private executorMode () =
+        match Environment.GetEnvironmentVariable "NYRWVY_RUNPURE_EXECUTOR" with
+        | "interpreter" -> Some false
+        | "compare" -> Some true
+        | _ -> None
+
+    /// A program runs in the interpreter when no reachable instruction needs the concurrency or task
+    /// runtime and every capability argument is a fake with immediate responses.
+    let private interpretable (program: ExecutionProgram) (arguments: PureRunValue list) =
+        program.Functions |> List.forall (fun fn ->
+            ExecutionCallGraph.instructions fn |> List.forall (fun instruction -> (ExecutionIrInterpreter.Unsupported instruction.Kind).IsNone))
+        && arguments |> List.forall (function
+            | PureRunValue.HostCapability _ -> false
+            | PureRunValue.FakeCapability(_, operations) ->
+                operations |> List.forall (fun operation ->
+                    PureRunFakeOperation.responses operation |> List.forall (function
+                        | PureRunFakeResponse.Return _
+                        | PureRunFakeResponse.Throw _ -> true
+                        | _ -> false))
+            | _ -> true)
+
+    /// A fake operation failure, reported under the exception name the compiled runner uses.
+    type private FakeRunException(runnerName: string, message: string) =
+        inherit Exception(message)
+        member _.RunnerName = runnerName
+
+    /// A runner limit (the compiled runner's RunnerException); it is reported, never caught by the program.
+    exception private RunnerLimitException of string
+
+    let rec private toIr value =
+        let ofList items = IrList(System.Collections.Immutable.ImmutableList.CreateRange(items: IrValue seq))
+        let scalar = function
+            | PureRunScalar.String text -> IrString text
+            | PureRunScalar.Bool value -> IrBool value
+            | PureRunScalar.Int64 value -> IrInt value
+        let fields items = items |> List.map (fun (id, item) -> id, toIr item) |> List.sortBy (fst >> StableId.value) |> Array.ofList
+        match value with
+        | PureRunValue.Unit -> IrUnit
+        | PureRunValue.String text -> IrString text
+        | PureRunValue.Bool value -> IrBool value
+        | PureRunValue.Int64 value -> IrInt value
+        | PureRunValue.Float64 bits -> IrFloat(BitConverter.UInt64BitsToDouble(Float64Bits.value bits))
+        | PureRunValue.Bits32 bits -> IrBits bits
+        | PureRunValue.StringList items -> ofList (items |> List.map IrString)
+        | PureRunValue.BoolList items -> ofList (items |> List.map IrBool)
+        | PureRunValue.Int64List items -> ofList (items |> List.map IrInt)
+        | PureRunValue.StringOption item -> IrOption(item |> Option.map IrString)
+        | PureRunValue.BoolOption item -> IrOption(item |> Option.map IrBool)
+        | PureRunValue.Int64Option item -> IrOption(item |> Option.map IrInt)
+        | PureRunValue.ResultOk(_, value) -> IrResult(true, scalar value)
+        | PureRunValue.ResultErr(_, error) -> IrResult(false, scalar error)
+        | PureRunValue.Product(_, _, items) -> IrProduct(fields items)
+        | PureRunValue.Union(_, _, variantId, items) -> IrUnion(variantId, fields items)
+        | PureRunValue.ListValue(_, items) -> ofList (items |> List.map toIr)
+        | PureRunValue.OptionValue(_, item) -> IrOption(item |> Option.map toIr)
+        | PureRunValue.MapValue(_, _, entries) ->
+            IrMap(entries |> List.fold (fun (map: IrMapData) (key, item) -> map.Insert(toIr key, toIr item)) IrMapData.Empty)
+        | PureRunValue.SetValue(_, items) -> IrSet(items |> List.fold (fun (set: IrSetData) item -> set.Insert(toIr item)) IrSetData.Empty)
+        | PureRunValue.ResultValue(_, _, isOk, payload) -> IrResult(isOk, toIr payload)
+        | PureRunValue.FakeCapability _
+        | PureRunValue.HostCapability _ -> invalidOp "Capability bindings are converted by the interpreter run."
+
+    /// Encodes an interpreter value at its declared type under the compiled runner's result budget:
+    /// 8192 value nodes, 4096 items per container, 32 composite layers and 65536 String code units.
+    let private fromIr (types: SemanticType list) =
+        let mutable remaining = 8192
+        let mutable textRemaining = 65536L
+        let limit message = raise (RunnerLimitException message)
+        let rec encode itemType value depth =
+            remaining <- remaining - 1
+            if remaining < 0 then limit "Result exceeds 8192 value nodes."
+            let layer () = if depth >= maxValueLayers then limit $"Result exceeds {maxValueLayers} composite layers."
+            let items kind (count: int) =
+                let unit = if kind = "Map" then "entries" else "items"
+                if count > 4096 then limit $"{kind} result exceeds 4096 {unit}."
+            let fields (declared: SemanticField list) (actual: (FieldId * IrValue)[]) =
+                declared |> List.map (fun field -> field.Id, encode field.Type (actual |> Array.find (fst >> (=) field.Id) |> snd) (depth + 1))
+            match itemType, value with
+            | TypeRef.Primitive PrimitiveType.Unit, _ -> PureRunValue.Unit
+            | TypeRef.Primitive PrimitiveType.String, IrString text ->
+                textRemaining <- textRemaining - int64 text.Length
+                if textRemaining < 0L then limit "Result exceeds 65536 String code units."
+                PureRunValue.String text
+            | TypeRef.Primitive PrimitiveType.Bool, IrBool value -> PureRunValue.Bool value
+            | TypeRef.Primitive PrimitiveType.Int64, IrInt value -> PureRunValue.Int64 value
+            | TypeRef.Primitive PrimitiveType.Float64, IrFloat value -> PureRunValue.Float64(Float64Bits.create (BitConverter.DoubleToUInt64Bits value))
+            | TypeRef.Primitive PrimitiveType.Bits32, IrBits value -> PureRunValue.Bits32 value
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]), IrList values ->
+                layer ()
+                items "List" values.Count
+                PureRunValue.ListValue(item, values |> Seq.map (fun value -> encode item value (depth + 1)) |> List.ofSeq)
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]), IrSet values ->
+                layer ()
+                items "Set" (int values.Size)
+                PureRunValue.SetValue(item, values.Items |> Seq.map (fun value -> encode item value (depth + 1)) |> List.ofSeq)
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]), IrMap values ->
+                layer ()
+                items "Map" (int values.Size)
+                PureRunValue.MapValue(keyType, valueType, values.Entries |> Seq.map (fun (key, value) -> encode keyType key (depth + 1), encode valueType value (depth + 1)) |> List.ofSeq)
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]), IrOption value ->
+                layer ()
+                PureRunValue.OptionValue(item, value |> Option.map (fun value -> encode item value (depth + 1)))
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]), IrResult(isOk, payload) ->
+                layer ()
+                PureRunValue.ResultValue(okType, errorType, isOk, encode (if isOk then okType else errorType) payload (depth + 1))
+            | TypeRef.Named(typeId, typeArguments), IrProduct actual when (productFields types typeId typeArguments).IsSome ->
+                layer ()
+                PureRunValue.Product(typeId, typeArguments, fields (productFields types typeId typeArguments).Value actual)
+            | TypeRef.Named(typeId, typeArguments), IrUnion(variantId, actual) ->
+                layer ()
+                let variant = unionVariants types typeId typeArguments |> Option.get |> List.find (fun variant -> variant.Id = variantId)
+                PureRunValue.Union(typeId, typeArguments, variantId, fields variant.Fields actual)
+            | _ -> invalidOp "The interpreter produced a value of another type."
+        fun itemType value ->
+            remaining <- 8192
+            textRemaining <- 65536L
+            encode itemType value 0 |> canonicalValue
+
+    /// Runs the entry function in the Execution IR interpreter on a thread with a large stack. Depth,
+    /// time and result limits mirror the compiled runner's.
+    let private interpret
+        (types: SemanticType list)
+        (program: ExecutionProgram)
+        (fn: SemanticFunction)
+        (arguments: PureRunValue list)
+        (expected: PureRunValue option)
+        (snapshotId: SnapshotId)
+        : Result<PureRunResult, PureRunError> =
+        let encode = fromIr types
+        let calls = ResizeArray<ParameterId * ExecutionCapabilityOperation * IrValue list>()
+        let encodeCall (parameterId, operation: ExecutionCapabilityOperation, values) =
+            { ParameterId = parameterId
+              OperationId = operation.Id
+              Arguments =
+                List.map2 (fun (parameter: ExecutionCapabilityParameter) value -> parameter.Id, encode parameter.Type value) operation.Parameters values
+                |> List.sortBy (fst >> StableId.value) }
+        let fake (parameterId: ParameterId) capabilityId (script: PureRunFakeOperation list) =
+            let capability = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
+            let ordered = Collections.Generic.Dictionary<CapabilityOperationId, int>()
+            let keyed = Collections.Generic.Dictionary<CapabilityOperationId * int, int>(HashIdentity.Structural)
+            let next (dictionary: Collections.Generic.Dictionary<'key, int>) key =
+                let index = match dictionary.TryGetValue key with | true, index -> index | _ -> 0
+                dictionary[key] <- index + 1
+                index
+            IrCapability(capabilityId, fun operationId values ->
+                let operation = capability.Operations |> List.find (fun item -> item.Id = operationId)
+                if calls.Count >= 1024 then raise (RunnerLimitException "The program made more than 1024 capability calls.")
+                calls.Add((parameterId, operation, values))
+                let response =
+                    match script |> List.tryFind (fun item -> item.OperationId = operationId) with
+                    | Some { Cases = Some cases } ->
+                        let actual = (encodeCall (parameterId, operation, values)).Arguments
+                        match cases |> List.tryFindIndex (fun case -> case.Arguments = actual) with
+                        | None -> Error("FakeArgumentsUnmatchedException", "No fake case matches the complete call arguments.")
+                        | Some index -> cases[index].Responses |> List.tryItem (next keyed (operationId, index)) |> Ok
+                    | Some script -> script.Responses |> List.tryItem (next ordered operationId) |> Ok
+                    | None -> Ok None
+                match response with
+                | Ok(Some(PureRunFakeResponse.Return value)) -> toIr value
+                | Ok(Some(PureRunFakeResponse.Throw message)) -> raise (FakeRunException("FakeCapabilityException", message))
+                | Ok _ -> raise (FakeRunException("FakeResponsesExhaustedException", "The fake operation has no scripted response left for this call."))
+                | Error(name, message) -> raise (FakeRunException(name, message)))
+        let values =
+            List.map2 (fun (parameter: SemanticParameter) value ->
+                match value with
+                | PureRunValue.FakeCapability(capabilityId, script) -> fake parameter.Id capabilityId script
+                | other -> toIr other) fn.Parameters arguments
+        let deadline = Stopwatch.GetTimestamp() + 5L * Stopwatch.Frequency
+        let interpreter = ExecutionIrInterpreter(program, deadline, 10000)
+        let mutable outcome = Unchecked.defaultof<Choice<IrValue, exn>>
+        let thread = Threading.Thread((fun () -> outcome <- try Choice1Of2(interpreter.Call(fn.Id, values)) with error -> Choice2Of2 error), 512 * 1024 * 1024)
+        thread.Start()
+        thread.Join()
+        let frames (error: exn) =
+            (match error with IrStackOverflowException -> interpreter.OverflowFrames | _ -> interpreter.FramesOf error)
+            |> List.truncate 256 |> List.map (function
+                | IrFrame.Function id -> PureRunFrame.Function id
+                | IrFrame.CapabilityOperation id -> PureRunFrame.CapabilityOperation id)
+        let failure exceptionType message frames exhausted callList =
+            PureRunError.RuntimeFailure
+                { SnapshotId = snapshotId
+                  FunctionId = fn.Id
+                  ExceptionType = exceptionType
+                  Message = message
+                  Frames = frames
+                  BindingExhausted = exhausted
+                  Calls = callList }
+        try
+            match outcome with
+            | Choice1Of2 value ->
+                let actual = encode fn.ResultType value
+                let callList = calls |> Seq.map encodeCall |> List.ofSeq
+                Ok { SnapshotId = snapshotId
+                     FunctionId = fn.Id
+                     Actual = actual
+                     Expected = expected
+                     Matches = expected |> Option.map ((=) actual)
+                     Mismatch = expected |> Option.bind (fun expected -> mismatch expected actual)
+                     Calls = callList }
+            | Choice2Of2 IrTimeoutException -> Error(diagnostic "RunTimeout" "The pure function exceeded its time limit of 5 s.")
+            | Choice2Of2 IrStackOverflowException ->
+                Error(failure "System.StackOverflowException" stackOverflowText (frames IrStackOverflowException) false [])
+            | Choice2Of2(RunnerLimitException message) -> Error(diagnostic "RunProcessFailure" message)
+            | Choice2Of2 error ->
+                let callList = calls |> Seq.map encodeCall |> List.ofSeq
+                let name, exhausted =
+                    match error with
+                    | :? FakeRunException as fake -> fake.RunnerName, fake.RunnerName = "FakeResponsesExhaustedException"
+                    | other -> other.GetType().FullName, false
+                Error(failure name error.Message (frames error) exhausted callList)
+        with RunnerLimitException message -> Error(diagnostic "RunProcessFailure" message)
+
     let private runVerified
         (context: AuthoringExecutionContext)
         (functionId: FunctionId)
@@ -1243,407 +1467,421 @@ module PureRun =
                     | _ -> false) ->
                 Error(diagnostic "RunBindingShapeMismatch" "awaitCancellation and delayMillis responses need a program that uses ParallelAll, a task construct or CancellationRequested.")
             | Ok(program, artifact) ->
-                let snapshotId = context.SnapshotId
-                let root = Path.Combine(Path.GetTempPath(), "nyrwvy-pure-run-" + Guid.NewGuid().ToString("N"))
-                try
+                let compiledRun () =
+                    let snapshotId = context.SnapshotId
+                    let root = Path.Combine(Path.GetTempPath(), "nyrwvy-pure-run-" + Guid.NewGuid().ToString("N"))
                     try
-                        Directory.CreateDirectory(root) |> ignore
-                        let fakes =
-                            List.zip fn.Parameters arguments |> List.indexed |> List.choose (fun (index, (parameter, value)) ->
-                                let capability capabilityId = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
-                                match value with
-                                | PureRunValue.FakeCapability(capabilityId, operations) ->
-                                    Some(index, parameter.Id, capability capabilityId, Choice1Of2 operations)
-                                | PureRunValue.HostCapability(capabilityId, implementation, _) ->
-                                    Some(index, parameter.Id, capability capabilityId, Choice2Of2 implementation)
-                                | _ -> None)
-                        let sites =
-                            fakes |> List.collect (fun (_, parameterId, capability, _) ->
-                                capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id)
-                                |> List.map (fun operation -> { ParameterId = parameterId; Operation = operation }))
-                        let entry = CSharpBackendNames.functionName fn.Id
-                        let mutable nextName = 0
-                        let fresh () =
-                            nextName <- nextName + 1
-                            "v" + string nextName
-                        // Each named type is encoded by one local function, so recursive types stay finite.
-                        // One encoder per named type instance: a generic type gets one per type-argument list.
-                        let encoders = System.Collections.Generic.Dictionary<TypeRef, string>(HashIdentity.Structural)
-                        let pending = System.Collections.Generic.Queue<TypeRef>()
-                        let layerLimit = string maxValueLayers
-                        let rec encode itemType access (depthBase: string) (offset: int) =
-                            let depth = if offset = 0 then depthBase else depthBase + " + " + string offset
-                            let layer expression =
-                                $"({depth} >= {layerLimit} ? throw new RunnerException(\"Result exceeds {layerLimit} composite layers.\") : {expression})"
-                            let array items = "new object[] { " + String.concat ", " items + " }"
-                            let expression =
-                                match itemType with
-                                | TypeRef.Primitive PrimitiveType.Unit -> "\"unit\""
-                                | TypeRef.Primitive PrimitiveType.String -> "CheckedString(" + access + ")"
-                                | TypeRef.Primitive PrimitiveType.Float64 ->
-                                    "BitConverter.DoubleToUInt64Bits(" + access + ").ToString(\"x16\", CultureInfo.InvariantCulture)"
-                                | TypeRef.Primitive _ -> "(object)" + access
-                                | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
-                                    let name, accumulator = fresh (), fresh ()
-                                    let child = encode item name depthBase (offset + 1)
-                                    layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {name}) => {{ if ({accumulator}.Count >= 4096) throw new RunnerException(\"List result exceeds 4096 items.\"); {accumulator}.Add({child}); return {accumulator}; }})"
-                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) ->
-                                    let name, accumulator = fresh (), fresh ()
-                                    let child = encode item name depthBase (offset + 1)
-                                    layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {name}) => {{ if ({accumulator}.Count >= 4096) throw new RunnerException(\"Set result exceeds 4096 items.\"); {accumulator}.Add({child}); return {accumulator}; }})"
-                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
-                                    let key, value, accumulator = fresh (), fresh (), fresh ()
-                                    let pair = array [ encode keyType key depthBase (offset + 1); encode valueType value depthBase (offset + 1) ]
-                                    layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {key}, {value}) => {{ if ({accumulator}.Count >= 4096) throw new RunnerException(\"Map result exceeds 4096 entries.\"); {accumulator}.Add({pair}); return {accumulator}; }})"
-                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
-                                    let child = encode item (access + ".Value") depthBase (offset + 1)
-                                    layer $"({access}.HasValue ? {array [ child ]} : Array.Empty<object>())"
-                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
-                                    let ok = array [ "true"; encode okType (access + ".OkValue") depthBase (offset + 1) ]
-                                    let error = array [ "false"; encode errorType (access + ".ErrorValue") depthBase (offset + 1) ]
-                                    layer $"({access}.IsOk ? {ok} : {error})"
-                                | TypeRef.Named _ ->
-                                    if not (encoders.ContainsKey itemType) then
-                                        encoders[itemType] <- instanceName "Encode" encoders itemType
-                                        pending.Enqueue itemType
-                                    encoders[itemType] + "(" + access + ", " + depth + ")"
-                                | _ -> invalidOp "Unsupported output type passed validation."
-                            "Count(" + expression + ")"
-                        let encodeNamed (named: TypeRef) =
-                            let typeId, typeArguments = namedParts named
-                            let fields owner (fields: SemanticField list) =
-                                fields |> List.map (fun field -> encode field.Type (owner + "." + CSharpBackendNames.fieldName field.Id) "depth" 1)
-                                |> fun items -> "new object[] { " + String.concat ", " items + " }"
-                            let body =
-                                match productFields declarations.Types typeId typeArguments with
-                                | Some declared -> fields "value" declared
-                                | None ->
-                                    let cases = unionVariants declarations.Types typeId typeArguments |> Option.get
-                                    let fallback = "throw new RunnerException(\"Unknown or null Union variant.\")"
-                                    List.foldBack (fun (variant: SemanticVariant) rest ->
-                                        let name = fresh ()
-                                        let variantName = CSharpBackendNames.variantName variant.Id + typeArgumentSuffix typeArguments
-                                        let tag = JsonSerializer.Serialize(StableId.value variant.Id)
-                                        $"(value is {variantName} {name} ? new object[] {{ {tag}, {fields name variant.Fields} }} : {rest})") cases fallback
-                            $"object {encoders[named]}({sourceType named} value, int depth) => depth >= {layerLimit} ? throw new RunnerException(\"Result exceeds {layerLimit} composite layers.\") : {body};\n"
-                        let encoded = encode fn.ResultType "result" "0" 0
-                        let callArms =
-                            sites |> List.mapi (fun site call ->
-                                let arguments =
-                                    call.Operation.Parameters |> List.mapi (fun index parameter ->
-                                        encode parameter.Type $"(({sourceType parameter.Type})arguments[{index}])" "0" 0)
-                                    |> String.concat ", "
-                                $"    {site} => new object[] {{ {site}, new object[] {{ {arguments} }} }},\n")
-                            |> String.concat ""
-                        // Argument values and fake scripts are decoded from the input file, never compiled in:
-                        // one decoder and one key writer per named type, like the encoders.
-                        let decoders = System.Collections.Generic.Dictionary<TypeRef, string>(HashIdentity.Structural)
-                        let keyWriters = System.Collections.Generic.Dictionary<TypeRef, string>(HashIdentity.Structural)
-                        let decodePending = System.Collections.Generic.Queue<TypeRef>()
-                        let keyPending = System.Collections.Generic.Queue<TypeRef>()
-                        let rec decode itemType =
-                            match itemType with
-                            | TypeRef.Primitive PrimitiveType.Unit -> "input.Unit()"
-                            | TypeRef.Primitive PrimitiveType.String -> "input.String()"
-                            | TypeRef.Primitive PrimitiveType.Bool -> "input.Bool()"
-                            | TypeRef.Primitive PrimitiveType.Int64 -> "input.Long()"
-                            | TypeRef.Primitive PrimitiveType.Float64 -> "input.Double()"
-                            | TypeRef.Primitive PrimitiveType.Bits32 -> "input.UInt()"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
-                                let name = sourceType item
-                                $"NyList<{name}>.Create(input.Items<{name}>(() => {decode item}))"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
-                                let name = sourceType item
-                                $"(input.Bool() ? NyOption<{name}>.Some({decode item}) : NyOption<{name}>.None())"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) ->
-                                let name = sourceType item
-                                $"{sourceType itemType}.FromList(NyList<{name}>.Create(input.Items<{name}>(() => {decode item})))"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
-                                let mapName, keyName, valueName = sourceType itemType, sourceType keyType, sourceType valueType
-                                $"System.Linq.Enumerable.Aggregate(input.Items<({keyName}, {valueName})>(() => ({decode keyType}, {decode valueType})), {mapName}.Empty(), (map, entry) => map.Insert(entry.Item1, entry.Item2))"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
-                                let name = sourceType itemType
-                                $"(input.Bool() ? {name}.Ok({decode okType}) : {name}.Err({decode errorType}))"
-                            | TypeRef.Named _ ->
-                                if not (decoders.ContainsKey itemType) then
-                                    decoders[itemType] <- instanceName "Decode" decoders itemType
-                                    decodePending.Enqueue itemType
-                                "RunnerValues." + decoders[itemType] + "(input)"
-                            | _ -> invalidOp "Unsupported input type passed validation."
-                        let decodeFields (fields: SemanticField list) =
-                            fields |> List.map (fun field -> CSharpBackendNames.fieldName field.Id + ": " + decode field.Type) |> String.concat ", "
-                        let decodeNamed (named: TypeRef) =
-                            let typeId, typeArguments = namedParts named
-                            let typeName = sourceType named
-                            let body =
-                                match productFields declarations.Types typeId typeArguments with
-                                | Some declared -> $"new {typeName}({decodeFields declared})"
-                                | None ->
-                                    let arms =
-                                        unionVariants declarations.Types typeId typeArguments |> Option.get
-                                        |> List.mapi (fun index variant ->
-                                            $"{index} => ({typeName})new {CSharpBackendNames.variantName variant.Id}{typeArgumentSuffix typeArguments}({decodeFields variant.Fields}), ")
-                                        |> String.concat ""
-                                    "input.Count() switch { " + arms + "_ => throw new InvalidOperationException(\"Invalid runner input.\") }"
-                            $"    public static {typeName} {decoders[named]}(RunnerInput input) => {body};\n"
-                        // Writes a value in the input token form, for comparison with a keyed case.
-                        let rec keyStatement itemType access =
-                            match itemType with
-                            | TypeRef.Primitive PrimitiveType.Unit -> "key.Add(\"u\");"
-                            | TypeRef.Primitive PrimitiveType.String -> $"key.String({access});"
-                            | TypeRef.Primitive PrimitiveType.Bool -> $"key.Add({access} ? \"1\" : \"0\");"
-                            | TypeRef.Primitive PrimitiveType.Int64 -> $"key.Add({access});"
-                            | TypeRef.Primitive PrimitiveType.Bits32 -> $"key.Add((long){access});"
-                            | TypeRef.Primitive PrimitiveType.Float64 -> $"key.Double({access});"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
-                                let state, name = fresh (), fresh ()
-                                $"if ({access} == null) key.Null(); else {{ key.Add({access}.Length); {access}.Fold(0, ({state}, {name}) => {{ {keyStatement item name} return {state}; }}); }}"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) ->
-                                let state, name = fresh (), fresh ()
-                                $"if ({access} == null) key.Null(); else {{ key.Add({access}.Size); {access}.Fold(0, ({state}, {name}) => {{ {keyStatement item name} return {state}; }}); }}"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
-                                let state, key, value = fresh (), fresh (), fresh ()
-                                $"if ({access} == null) key.Null(); else {{ key.Add({access}.Size); {access}.Fold(0, ({state}, {key}, {value}) => {{ {keyStatement keyType key} {keyStatement valueType value} return {state}; }}); }}"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
-                                let some = keyStatement item (access + ".Value")
-                                $"if ({access}.HasValue) {{ key.Add(\"1\"); {some} }} else key.Add(\"0\");"
-                            | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
-                                let ok, error = keyStatement okType (access + ".OkValue"), keyStatement errorType (access + ".ErrorValue")
-                                $"if ({access}.IsOk) {{ key.Add(\"1\"); {ok} }} else {{ key.Add(\"0\"); {error} }}"
-                            | TypeRef.Named _ ->
-                                if not (keyWriters.ContainsKey itemType) then
-                                    keyWriters[itemType] <- instanceName "Key" keyWriters itemType
-                                    keyPending.Enqueue itemType
-                                $"RunnerValues.{keyWriters[itemType]}(key, {access});"
-                            | _ -> invalidOp "Unsupported key type passed validation."
-                        let keyFields owner (fields: SemanticField list) =
-                            fields |> List.map (fun field -> keyStatement field.Type (owner + "." + CSharpBackendNames.fieldName field.Id)) |> String.concat " "
-                        let keyNamed (named: TypeRef) =
-                            let typeId, typeArguments = namedParts named
-                            let typeName = sourceType named
-                            let body =
-                                match productFields declarations.Types typeId typeArguments with
-                                | Some declared -> "if (value == null) { key.Null(); return; } " + keyFields "value" declared
-                                | None ->
-                                    let arms =
-                                        unionVariants declarations.Types typeId typeArguments |> Option.get
-                                        |> List.mapi (fun index variant ->
+                        try
+                            Directory.CreateDirectory(root) |> ignore
+                            let fakes =
+                                List.zip fn.Parameters arguments |> List.indexed |> List.choose (fun (index, (parameter, value)) ->
+                                    let capability capabilityId = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
+                                    match value with
+                                    | PureRunValue.FakeCapability(capabilityId, operations) ->
+                                        Some(index, parameter.Id, capability capabilityId, Choice1Of2 operations)
+                                    | PureRunValue.HostCapability(capabilityId, implementation, _) ->
+                                        Some(index, parameter.Id, capability capabilityId, Choice2Of2 implementation)
+                                    | _ -> None)
+                            let sites =
+                                fakes |> List.collect (fun (_, parameterId, capability, _) ->
+                                    capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id)
+                                    |> List.map (fun operation -> { ParameterId = parameterId; Operation = operation }))
+                            let entry = CSharpBackendNames.functionName fn.Id
+                            let mutable nextName = 0
+                            let fresh () =
+                                nextName <- nextName + 1
+                                "v" + string nextName
+                            // Each named type is encoded by one local function, so recursive types stay finite.
+                            // One encoder per named type instance: a generic type gets one per type-argument list.
+                            let encoders = System.Collections.Generic.Dictionary<TypeRef, string>(HashIdentity.Structural)
+                            let pending = System.Collections.Generic.Queue<TypeRef>()
+                            let layerLimit = string maxValueLayers
+                            let rec encode itemType access (depthBase: string) (offset: int) =
+                                let depth = if offset = 0 then depthBase else depthBase + " + " + string offset
+                                let layer expression =
+                                    $"({depth} >= {layerLimit} ? throw new RunnerException(\"Result exceeds {layerLimit} composite layers.\") : {expression})"
+                                let array items = "new object[] { " + String.concat ", " items + " }"
+                                let expression =
+                                    match itemType with
+                                    | TypeRef.Primitive PrimitiveType.Unit -> "\"unit\""
+                                    | TypeRef.Primitive PrimitiveType.String -> "CheckedString(" + access + ")"
+                                    | TypeRef.Primitive PrimitiveType.Float64 ->
+                                        "BitConverter.DoubleToUInt64Bits(" + access + ").ToString(\"x16\", CultureInfo.InvariantCulture)"
+                                    | TypeRef.Primitive _ -> "(object)" + access
+                                    | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
+                                        let name, accumulator = fresh (), fresh ()
+                                        let child = encode item name depthBase (offset + 1)
+                                        layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {name}) => {{ if ({accumulator}.Count >= 4096) throw new RunnerException(\"List result exceeds 4096 items.\"); {accumulator}.Add({child}); return {accumulator}; }})"
+                                    | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) ->
+                                        let name, accumulator = fresh (), fresh ()
+                                        let child = encode item name depthBase (offset + 1)
+                                        layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {name}) => {{ if ({accumulator}.Count >= 4096) throw new RunnerException(\"Set result exceeds 4096 items.\"); {accumulator}.Add({child}); return {accumulator}; }})"
+                                    | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
+                                        let key, value, accumulator = fresh (), fresh (), fresh ()
+                                        let pair = array [ encode keyType key depthBase (offset + 1); encode valueType value depthBase (offset + 1) ]
+                                        layer $"{access}.Fold(new System.Collections.Generic.List<object>(), ({accumulator}, {key}, {value}) => {{ if ({accumulator}.Count >= 4096) throw new RunnerException(\"Map result exceeds 4096 entries.\"); {accumulator}.Add({pair}); return {accumulator}; }})"
+                                    | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
+                                        let child = encode item (access + ".Value") depthBase (offset + 1)
+                                        layer $"({access}.HasValue ? {array [ child ]} : Array.Empty<object>())"
+                                    | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+                                        let ok = array [ "true"; encode okType (access + ".OkValue") depthBase (offset + 1) ]
+                                        let error = array [ "false"; encode errorType (access + ".ErrorValue") depthBase (offset + 1) ]
+                                        layer $"({access}.IsOk ? {ok} : {error})"
+                                    | TypeRef.Named _ ->
+                                        if not (encoders.ContainsKey itemType) then
+                                            encoders[itemType] <- instanceName "Encode" encoders itemType
+                                            pending.Enqueue itemType
+                                        encoders[itemType] + "(" + access + ", " + depth + ")"
+                                    | _ -> invalidOp "Unsupported output type passed validation."
+                                "Count(" + expression + ")"
+                            let encodeNamed (named: TypeRef) =
+                                let typeId, typeArguments = namedParts named
+                                let fields owner (fields: SemanticField list) =
+                                    fields |> List.map (fun field -> encode field.Type (owner + "." + CSharpBackendNames.fieldName field.Id) "depth" 1)
+                                    |> fun items -> "new object[] { " + String.concat ", " items + " }"
+                                let body =
+                                    match productFields declarations.Types typeId typeArguments with
+                                    | Some declared -> fields "value" declared
+                                    | None ->
+                                        let cases = unionVariants declarations.Types typeId typeArguments |> Option.get
+                                        let fallback = "throw new RunnerException(\"Unknown or null Union variant.\")"
+                                        List.foldBack (fun (variant: SemanticVariant) rest ->
+                                            let name = fresh ()
                                             let variantName = CSharpBackendNames.variantName variant.Id + typeArgumentSuffix typeArguments
-                                            if List.isEmpty variant.Fields then $"case {variantName}: key.Add({index}); break; "
-                                            else
-                                                let name = fresh ()
-                                                $"case {variantName} {name}: key.Add({index}); {keyFields name variant.Fields} break; ")
-                                        |> String.concat ""
-                                    "switch (value) { " + arms + "default: key.Null(); break; }"
-                            $"    public static void {keyWriters[named]}(RunnerKey key, {typeName} value) {{ {body} }}\n"
-                        let concurrent = CSharpBackend.usesConcurrencyRuntime program
-                        let fakeClasses =
-                            let mutable site = 0
-                            fakes |> List.map (fun (index, _, capability, binding) ->
-                                let interfaceName = CSharpBackendNames.capabilityName capability.Id
-                                let operations = capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id)
-                                let members =
-                                    operations
-                                    |> List.map (fun operation ->
-                                        let name = CSharpBackendNames.capabilityOperationName operation.Id
-                                        let resultType = sourceType operation.ResultType
-                                        let parameters =
-                                            operation.Parameters |> List.map (fun parameter -> sourceType parameter.Type + " " + CSharpBackendNames.capabilityParameterName parameter.Id)
-                                            |> String.concat ", "
-                                        let values =
-                                            operation.Parameters |> List.map (fun parameter -> "(object)" + CSharpBackendNames.capabilityParameterName parameter.Id)
-                                            |> String.concat ", "
-                                        let names =
-                                            operation.Parameters |> List.map (fun parameter -> CSharpBackendNames.capabilityParameterName parameter.Id)
-                                            |> String.concat ", "
-                                        let text =
-                                            match binding with
-                                            | Choice1Of2 _ ->
-                                                let key =
-                                                    operation.Parameters |> List.sortBy (fun parameter -> StableId.value parameter.Id)
-                                                    |> List.map (fun parameter -> keyStatement parameter.Type (CSharpBackendNames.capabilityParameterName parameter.Id))
-                                                    |> String.concat " "
-                                                let waits =
-                                                    if concurrent then
-                                                        "                case 2: NyRuntime.WaitForCancellation(); return response.Value;\n"
-                                                        + "                case 3: NyRuntime.Delay(response.Delay); response = response.Inner!; break;\n"
-                                                    else ""
-                                                $"    public {resultType} {name}({parameters})\n    {{\n        FakeResponse<{resultType}> response;\n"
-                                                + $"        lock (FakeLog.Calls)\n        {{\n            FakeLog.Record({site}, new object[] {{ {values} }});\n"
-                                                + $"            response = {name}Script.Select({name}Script.Keyed ? RunnerKey.Of({name}Script.KeyLimit, key => {{ {key} }}) : null);\n        }}\n"
-                                                + "        while (true)\n        {\n            switch (response.Kind)\n            {\n"
-                                                + "                case 0: return response.Value;\n"
-                                                + "                case 1: throw new FakeCapabilityException(response.Message);\n"
-                                                + waits
-                                                + "                case 4: throw new FakeArgumentsUnmatchedException();\n"
-                                                + "                default: throw new FakeResponsesExhaustedException();\n"
-                                                + "            }\n        }\n    }\n"
-                                            | Choice2Of2 _ ->
-                                                $"    public {resultType} {name}({parameters})\n    {{\n        FakeLog.Record({site}, new object[] {{ {values} }});\n        return inner.{name}({names});\n    }}\n"
-                                        site <- site + 1
-                                        text)
-                                    |> String.concat ""
-                                match binding with
-                                | Choice1Of2 _ ->
-                                    let scripts =
-                                        operations |> List.map (fun operation ->
-                                            $"    readonly FakeScript<{sourceType operation.ResultType}> {CSharpBackendNames.capabilityOperationName operation.Id}Script;\n")
-                                        |> String.concat ""
-                                    let reads =
-                                        operations |> List.map (fun operation ->
+                                            let tag = JsonSerializer.Serialize(StableId.value variant.Id)
+                                            $"(value is {variantName} {name} ? new object[] {{ {tag}, {fields name variant.Fields} }} : {rest})") cases fallback
+                                $"object {encoders[named]}({sourceType named} value, int depth) => depth >= {layerLimit} ? throw new RunnerException(\"Result exceeds {layerLimit} composite layers.\") : {body};\n"
+                            let encoded = encode fn.ResultType "result" "0" 0
+                            let callArms =
+                                sites |> List.mapi (fun site call ->
+                                    let arguments =
+                                        call.Operation.Parameters |> List.mapi (fun index parameter ->
+                                            encode parameter.Type $"(({sourceType parameter.Type})arguments[{index}])" "0" 0)
+                                        |> String.concat ", "
+                                    $"    {site} => new object[] {{ {site}, new object[] {{ {arguments} }} }},\n")
+                                |> String.concat ""
+                            // Argument values and fake scripts are decoded from the input file, never compiled in:
+                            // one decoder and one key writer per named type, like the encoders.
+                            let decoders = System.Collections.Generic.Dictionary<TypeRef, string>(HashIdentity.Structural)
+                            let keyWriters = System.Collections.Generic.Dictionary<TypeRef, string>(HashIdentity.Structural)
+                            let decodePending = System.Collections.Generic.Queue<TypeRef>()
+                            let keyPending = System.Collections.Generic.Queue<TypeRef>()
+                            let rec decode itemType =
+                                match itemType with
+                                | TypeRef.Primitive PrimitiveType.Unit -> "input.Unit()"
+                                | TypeRef.Primitive PrimitiveType.String -> "input.String()"
+                                | TypeRef.Primitive PrimitiveType.Bool -> "input.Bool()"
+                                | TypeRef.Primitive PrimitiveType.Int64 -> "input.Long()"
+                                | TypeRef.Primitive PrimitiveType.Float64 -> "input.Double()"
+                                | TypeRef.Primitive PrimitiveType.Bits32 -> "input.UInt()"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
+                                    let name = sourceType item
+                                    $"NyList<{name}>.Create(input.Items<{name}>(() => {decode item}))"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
+                                    let name = sourceType item
+                                    $"(input.Bool() ? NyOption<{name}>.Some({decode item}) : NyOption<{name}>.None())"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) ->
+                                    let name = sourceType item
+                                    $"{sourceType itemType}.FromList(NyList<{name}>.Create(input.Items<{name}>(() => {decode item})))"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
+                                    let mapName, keyName, valueName = sourceType itemType, sourceType keyType, sourceType valueType
+                                    $"System.Linq.Enumerable.Aggregate(input.Items<({keyName}, {valueName})>(() => ({decode keyType}, {decode valueType})), {mapName}.Empty(), (map, entry) => map.Insert(entry.Item1, entry.Item2))"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+                                    let name = sourceType itemType
+                                    $"(input.Bool() ? {name}.Ok({decode okType}) : {name}.Err({decode errorType}))"
+                                | TypeRef.Named _ ->
+                                    if not (decoders.ContainsKey itemType) then
+                                        decoders[itemType] <- instanceName "Decode" decoders itemType
+                                        decodePending.Enqueue itemType
+                                    "RunnerValues." + decoders[itemType] + "(input)"
+                                | _ -> invalidOp "Unsupported input type passed validation."
+                            let decodeFields (fields: SemanticField list) =
+                                fields |> List.map (fun field -> CSharpBackendNames.fieldName field.Id + ": " + decode field.Type) |> String.concat ", "
+                            let decodeNamed (named: TypeRef) =
+                                let typeId, typeArguments = namedParts named
+                                let typeName = sourceType named
+                                let body =
+                                    match productFields declarations.Types typeId typeArguments with
+                                    | Some declared -> $"new {typeName}({decodeFields declared})"
+                                    | None ->
+                                        let arms =
+                                            unionVariants declarations.Types typeId typeArguments |> Option.get
+                                            |> List.mapi (fun index variant ->
+                                                $"{index} => ({typeName})new {CSharpBackendNames.variantName variant.Id}{typeArgumentSuffix typeArguments}({decodeFields variant.Fields}), ")
+                                            |> String.concat ""
+                                        "input.Count() switch { " + arms + "_ => throw new InvalidOperationException(\"Invalid runner input.\") }"
+                                $"    public static {typeName} {decoders[named]}(RunnerInput input) => {body};\n"
+                            // Writes a value in the input token form, for comparison with a keyed case.
+                            let rec keyStatement itemType access =
+                                match itemType with
+                                | TypeRef.Primitive PrimitiveType.Unit -> "key.Add(\"u\");"
+                                | TypeRef.Primitive PrimitiveType.String -> $"key.String({access});"
+                                | TypeRef.Primitive PrimitiveType.Bool -> $"key.Add({access} ? \"1\" : \"0\");"
+                                | TypeRef.Primitive PrimitiveType.Int64 -> $"key.Add({access});"
+                                | TypeRef.Primitive PrimitiveType.Bits32 -> $"key.Add((long){access});"
+                                | TypeRef.Primitive PrimitiveType.Float64 -> $"key.Double({access});"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
+                                    let state, name = fresh (), fresh ()
+                                    $"if ({access} == null) key.Null(); else {{ key.Add({access}.Length); {access}.Fold(0, ({state}, {name}) => {{ {keyStatement item name} return {state}; }}); }}"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) ->
+                                    let state, name = fresh (), fresh ()
+                                    $"if ({access} == null) key.Null(); else {{ key.Add({access}.Size); {access}.Fold(0, ({state}, {name}) => {{ {keyStatement item name} return {state}; }}); }}"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ]) ->
+                                    let state, key, value = fresh (), fresh (), fresh ()
+                                    $"if ({access} == null) key.Null(); else {{ key.Add({access}.Size); {access}.Fold(0, ({state}, {key}, {value}) => {{ {keyStatement keyType key} {keyStatement valueType value} return {state}; }}); }}"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) ->
+                                    let some = keyStatement item (access + ".Value")
+                                    $"if ({access}.HasValue) {{ key.Add(\"1\"); {some} }} else key.Add(\"0\");"
+                                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+                                    let ok, error = keyStatement okType (access + ".OkValue"), keyStatement errorType (access + ".ErrorValue")
+                                    $"if ({access}.IsOk) {{ key.Add(\"1\"); {ok} }} else {{ key.Add(\"0\"); {error} }}"
+                                | TypeRef.Named _ ->
+                                    if not (keyWriters.ContainsKey itemType) then
+                                        keyWriters[itemType] <- instanceName "Key" keyWriters itemType
+                                        keyPending.Enqueue itemType
+                                    $"RunnerValues.{keyWriters[itemType]}(key, {access});"
+                                | _ -> invalidOp "Unsupported key type passed validation."
+                            let keyFields owner (fields: SemanticField list) =
+                                fields |> List.map (fun field -> keyStatement field.Type (owner + "." + CSharpBackendNames.fieldName field.Id)) |> String.concat " "
+                            let keyNamed (named: TypeRef) =
+                                let typeId, typeArguments = namedParts named
+                                let typeName = sourceType named
+                                let body =
+                                    match productFields declarations.Types typeId typeArguments with
+                                    | Some declared -> "if (value == null) { key.Null(); return; } " + keyFields "value" declared
+                                    | None ->
+                                        let arms =
+                                            unionVariants declarations.Types typeId typeArguments |> Option.get
+                                            |> List.mapi (fun index variant ->
+                                                let variantName = CSharpBackendNames.variantName variant.Id + typeArgumentSuffix typeArguments
+                                                if List.isEmpty variant.Fields then $"case {variantName}: key.Add({index}); break; "
+                                                else
+                                                    let name = fresh ()
+                                                    $"case {variantName} {name}: key.Add({index}); {keyFields name variant.Fields} break; ")
+                                            |> String.concat ""
+                                        "switch (value) { " + arms + "default: key.Null(); break; }"
+                                $"    public static void {keyWriters[named]}(RunnerKey key, {typeName} value) {{ {body} }}\n"
+                            let concurrent = CSharpBackend.usesConcurrencyRuntime program
+                            let fakeClasses =
+                                let mutable site = 0
+                                fakes |> List.map (fun (index, _, capability, binding) ->
+                                    let interfaceName = CSharpBackendNames.capabilityName capability.Id
+                                    let operations = capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id)
+                                    let members =
+                                        operations
+                                        |> List.map (fun operation ->
+                                            let name = CSharpBackendNames.capabilityOperationName operation.Id
                                             let resultType = sourceType operation.ResultType
-                                            $"        {CSharpBackendNames.capabilityOperationName operation.Id}Script = new FakeScript<{resultType}>(input, () => {decode operation.ResultType});\n")
+                                            let parameters =
+                                                operation.Parameters |> List.map (fun parameter -> sourceType parameter.Type + " " + CSharpBackendNames.capabilityParameterName parameter.Id)
+                                                |> String.concat ", "
+                                            let values =
+                                                operation.Parameters |> List.map (fun parameter -> "(object)" + CSharpBackendNames.capabilityParameterName parameter.Id)
+                                                |> String.concat ", "
+                                            let names =
+                                                operation.Parameters |> List.map (fun parameter -> CSharpBackendNames.capabilityParameterName parameter.Id)
+                                                |> String.concat ", "
+                                            let text =
+                                                match binding with
+                                                | Choice1Of2 _ ->
+                                                    let key =
+                                                        operation.Parameters |> List.sortBy (fun parameter -> StableId.value parameter.Id)
+                                                        |> List.map (fun parameter -> keyStatement parameter.Type (CSharpBackendNames.capabilityParameterName parameter.Id))
+                                                        |> String.concat " "
+                                                    let waits =
+                                                        if concurrent then
+                                                            "                case 2: NyRuntime.WaitForCancellation(); return response.Value;\n"
+                                                            + "                case 3: NyRuntime.Delay(response.Delay); response = response.Inner!; break;\n"
+                                                        else ""
+                                                    $"    public {resultType} {name}({parameters})\n    {{\n        FakeResponse<{resultType}> response;\n"
+                                                    + $"        lock (FakeLog.Calls)\n        {{\n            FakeLog.Record({site}, new object[] {{ {values} }});\n"
+                                                    + $"            response = {name}Script.Select({name}Script.Keyed ? RunnerKey.Of({name}Script.KeyLimit, key => {{ {key} }}) : null);\n        }}\n"
+                                                    + "        while (true)\n        {\n            switch (response.Kind)\n            {\n"
+                                                    + "                case 0: return response.Value;\n"
+                                                    + "                case 1: throw new FakeCapabilityException(response.Message);\n"
+                                                    + waits
+                                                    + "                case 4: throw new FakeArgumentsUnmatchedException();\n"
+                                                    + "                default: throw new FakeResponsesExhaustedException();\n"
+                                                    + "            }\n        }\n    }\n"
+                                                | Choice2Of2 _ ->
+                                                    $"    public {resultType} {name}({parameters})\n    {{\n        FakeLog.Record({site}, new object[] {{ {values} }});\n        return inner.{name}({names});\n    }}\n"
+                                            site <- site + 1
+                                            text)
                                         |> String.concat ""
-                                    $"sealed class Fake{index} : {interfaceName}\n{{\n{scripts}    public Fake{index}(RunnerInput input)\n    {{\n{reads}    }}\n{members}}}\n"
-                                | Choice2Of2 implementation ->
-                                    // Records each call, then forwards it to the registered host implementation.
-                                    $"sealed class Host{index} : {interfaceName}\n{{\n    readonly {interfaceName} inner = new {implementation}();\n{members}}}\n")
-                            |> String.concat ""
-                        let args =
-                            List.zip fn.Parameters arguments |> List.mapi (fun index (parameter, value) ->
-                                match value with
-                                | PureRunValue.FakeCapability _ -> $"new Fake{index}(input)"
-                                | PureRunValue.HostCapability _ -> $"new Host{index}()"
-                                | _ -> decode parameter.Type)
-                            |> String.concat ", "
-                        let runnerValues = StringBuilder()
-                        while decodePending.Count > 0 || keyPending.Count > 0 do
-                            if decodePending.Count > 0 then runnerValues.Append(decodeNamed (decodePending.Dequeue())) |> ignore
-                            else runnerValues.Append(keyNamed (keyPending.Dequeue())) |> ignore
-                        let runnerValues = runnerValues.ToString()
-                        let input = ResizeArray<string>()
-                        arguments |> List.iter (function
-                            | PureRunValue.FakeCapability(capabilityId, script) ->
-                                let capability = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
-                                let operations = capability.Operations |> List.map (fun operation -> operation.Id) |> List.sortBy StableId.value
-                                fakeInput declarations.Types operations script input
-                            | PureRunValue.HostCapability _ -> ()
-                            | value -> inputTokens declarations.Types input value)
-                        let namedEncoders = StringBuilder()
-                        while pending.Count > 0 do
-                            namedEncoders.Append(encodeNamed (pending.Dequeue())) |> ignore
-                        let namedEncoders = namedEncoders.ToString()
-                        let checksText = (encoded + callArms + namedEncoders).Contains("CheckedString(")
-                        // The child prints one envelope: ["value", v], ["limit", message] for runner-owned
-                        // conversion limits, or ["exception", type, message, frames] for a program failure.
-                        // String values and the exception message are text tokens ("s" and the Base64 of the
-                        // UTF-16 code units), so lone surrogates reach the session unchanged.
-                        let program =
-                            "using System; using System.Globalization; using System.Linq; using System.Text; using System.Text.Json; using Nyrwvy.Generated;\n"
-                            // A stack overflow aborts the child. Where the OS captures core dumps (for example
-                            // systemd-coredump), writing the dump delays process exit by seconds under load and
-                            // consumes the run's time limit, so the runner opts out of core dumps first.
-                            + "if (OperatingSystem.IsLinux()) RunnerProcess.prctl(4 /* PR_SET_DUMPABLE */, 0, 0, 0, 0);\n"
-                            // Arguments and fake scripts arrive as input, so the program does not depend on them.
-                            + "var input = new RunnerInput(System.IO.File.ReadAllText(args[0]));\n"
-                            + "var options = new JsonSerializerOptions { MaxDepth = 256 };\n"
-                            + "int remaining = 8192;\n"
-                            + (if checksText then "long textRemaining = 65536;\n" else "")
-                            + "try\n{\n"
-                            // Concurrent programs run on a virtual clock, so waits and delays are deterministic.
-                            + (if CSharpBackend.usesConcurrencyRuntime program then "    NyRuntime.Clock = new NyVirtualClock();\n" else "")
-                            + $"    var result = NyFunctions.{entry}({args});\n"
-                            + $"    Console.WriteLine(JsonSerializer.Serialize(new object[] {{ \"value\", {encoded}, EncodeCalls() }}, options));\n"
-                            + "}\n"
-                            + "catch (RunnerException error) { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"limit\", error.Message })); }\n"
-                            + "catch (Exception error)\n{\n"
-                            + "    var frames = (new System.Diagnostics.StackTrace(error, false).GetFrames() ?? Array.Empty<System.Diagnostics.StackFrame>()).Select(frame => frame.GetMethod()?.Name ?? \"\").ToArray();\n"
-                            + "    try { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"exception\", error.GetType().FullName ?? \"\", RunnerText.ToToken(error.Message), frames, EncodeCalls(), error is FakeResponsesExhaustedException }, options)); }\n"
-                            + "    catch (RunnerException limit) { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"limit\", limit.Message })); }\n"
-                            + "}\n"
-                            // Calls are encoded after the result, with their own value budget.
-                            + "object[] EncodeCalls()\n{\n    remaining = 8192;\n"
-                            + (if checksText then "    textRemaining = 65536;\n" else "")
-                            + "    return FakeLog.Calls.Select(call => EncodeCall(call.Site, call.Arguments)).ToArray();\n}\n"
-                            + "object EncodeCall(int site, object[] arguments) => site switch\n{\n"
-                            + callArms
-                            + "    _ => throw new RunnerException(\"Unknown capability call site.\"),\n};\n"
-                            + "object Count(object value) { if (--remaining < 0) throw new RunnerException(\"Result exceeds 8192 value nodes.\"); return value; }\n"
-                            + (if checksText then
-                                "string CheckedString(string value) { if (value == null) throw new RunnerException(\"Null String result.\"); textRemaining -= value.Length; if (textRemaining < 0) throw new RunnerException(\"Result exceeds 65536 String code units.\"); return RunnerText.ToToken(value); }\n"
-                               else "")
-                            + namedEncoders
-                            + "static class RunnerProcess { [System.Runtime.InteropServices.DllImport(\"libc\")] public static extern int prctl(int option, nuint arg2, nuint arg3, nuint arg4, nuint arg5); }\n"
-                            + "sealed class RunnerException(string message) : Exception(message);\n"
-                            + "sealed class FakeCapabilityException(string message) : Exception(message);\n"
-                            + "sealed class FakeArgumentsUnmatchedException() : Exception(\"No fake case matches the complete call arguments.\");\n"
-                            + "sealed class FakeResponsesExhaustedException() : Exception(\"The fake operation has no scripted response left for this call.\");\n"
-                            + "static class FakeLog\n{\n"
-                            + "    public static readonly System.Collections.Generic.List<(int Site, object[] Arguments)> Calls = new();\n"
-                            + "    public static void Record(int site, object[] arguments)\n    {\n"
-                            // Workers of ParallelAll and tasks may call fakes concurrently.
-                            + "        lock (Calls)\n        {\n"
-                            + "            if (Calls.Count >= 1024) throw new RunnerException(\"The program made more than 1024 capability calls.\");\n"
-                            + "            Calls.Add((site, arguments));\n        }\n    }\n}\n"
-                            + runnerSupport
-                            + "static class RunnerValues\n{\n" + runnerValues + "}\n"
-                            + fakeClasses
-                        let frames = frameResolver artifact.Symbols
-                        let stackOverflowMessage =
-                            "Stack overflow: recursion was too deep. A self DirectCall in tail position runs as a loop (the body's result, "
-                            + "a Bind body, a Conditional branch, a match arm or otherwise, or the right operand of BoolAnd/BoolOr); "
-                            + "any other self or mutual DirectCall recursion runs on the runner's thread stack, which holds only several "
-                            + "thousand frames of a typical function. Make the self call the last step of each continuing branch, "
-                            + "or iterate a List with ListFold (for text, over StringCodePoints)."
-                        let runtimeFailure exceptionType message frameNames exhausted calls =
-                            PureRunError.RuntimeFailure
+                                    match binding with
+                                    | Choice1Of2 _ ->
+                                        let scripts =
+                                            operations |> List.map (fun operation ->
+                                                $"    readonly FakeScript<{sourceType operation.ResultType}> {CSharpBackendNames.capabilityOperationName operation.Id}Script;\n")
+                                            |> String.concat ""
+                                        let reads =
+                                            operations |> List.map (fun operation ->
+                                                let resultType = sourceType operation.ResultType
+                                                $"        {CSharpBackendNames.capabilityOperationName operation.Id}Script = new FakeScript<{resultType}>(input, () => {decode operation.ResultType});\n")
+                                            |> String.concat ""
+                                        $"sealed class Fake{index} : {interfaceName}\n{{\n{scripts}    public Fake{index}(RunnerInput input)\n    {{\n{reads}    }}\n{members}}}\n"
+                                    | Choice2Of2 implementation ->
+                                        // Records each call, then forwards it to the registered host implementation.
+                                        $"sealed class Host{index} : {interfaceName}\n{{\n    readonly {interfaceName} inner = new {implementation}();\n{members}}}\n")
+                                |> String.concat ""
+                            let args =
+                                List.zip fn.Parameters arguments |> List.mapi (fun index (parameter, value) ->
+                                    match value with
+                                    | PureRunValue.FakeCapability _ -> $"new Fake{index}(input)"
+                                    | PureRunValue.HostCapability _ -> $"new Host{index}()"
+                                    | _ -> decode parameter.Type)
+                                |> String.concat ", "
+                            let runnerValues = StringBuilder()
+                            while decodePending.Count > 0 || keyPending.Count > 0 do
+                                if decodePending.Count > 0 then runnerValues.Append(decodeNamed (decodePending.Dequeue())) |> ignore
+                                else runnerValues.Append(keyNamed (keyPending.Dequeue())) |> ignore
+                            let runnerValues = runnerValues.ToString()
+                            let input = ResizeArray<string>()
+                            arguments |> List.iter (function
+                                | PureRunValue.FakeCapability(capabilityId, script) ->
+                                    let capability = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
+                                    let operations = capability.Operations |> List.map (fun operation -> operation.Id) |> List.sortBy StableId.value
+                                    fakeInput declarations.Types operations script input
+                                | PureRunValue.HostCapability _ -> ()
+                                | value -> inputTokens declarations.Types input value)
+                            let namedEncoders = StringBuilder()
+                            while pending.Count > 0 do
+                                namedEncoders.Append(encodeNamed (pending.Dequeue())) |> ignore
+                            let namedEncoders = namedEncoders.ToString()
+                            let checksText = (encoded + callArms + namedEncoders).Contains("CheckedString(")
+                            // The child prints one envelope: ["value", v], ["limit", message] for runner-owned
+                            // conversion limits, or ["exception", type, message, frames] for a program failure.
+                            // String values and the exception message are text tokens ("s" and the Base64 of the
+                            // UTF-16 code units), so lone surrogates reach the session unchanged.
+                            let program =
+                                "using System; using System.Globalization; using System.Linq; using System.Text; using System.Text.Json; using Nyrwvy.Generated;\n"
+                                // A stack overflow aborts the child. Where the OS captures core dumps (for example
+                                // systemd-coredump), writing the dump delays process exit by seconds under load and
+                                // consumes the run's time limit, so the runner opts out of core dumps first.
+                                + "if (OperatingSystem.IsLinux()) RunnerProcess.prctl(4 /* PR_SET_DUMPABLE */, 0, 0, 0, 0);\n"
+                                // Arguments and fake scripts arrive as input, so the program does not depend on them.
+                                + "var input = new RunnerInput(System.IO.File.ReadAllText(args[0]));\n"
+                                + "var options = new JsonSerializerOptions { MaxDepth = 256 };\n"
+                                + "int remaining = 8192;\n"
+                                + (if checksText then "long textRemaining = 65536;\n" else "")
+                                + "try\n{\n"
+                                // Concurrent programs run on a virtual clock, so waits and delays are deterministic.
+                                + (if CSharpBackend.usesConcurrencyRuntime program then "    NyRuntime.Clock = new NyVirtualClock();\n" else "")
+                                + $"    var result = NyFunctions.{entry}({args});\n"
+                                + $"    Console.WriteLine(JsonSerializer.Serialize(new object[] {{ \"value\", {encoded}, EncodeCalls() }}, options));\n"
+                                + "}\n"
+                                + "catch (RunnerException error) { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"limit\", error.Message })); }\n"
+                                + "catch (Exception error)\n{\n"
+                                + "    var frames = (new System.Diagnostics.StackTrace(error, false).GetFrames() ?? Array.Empty<System.Diagnostics.StackFrame>()).Select(frame => frame.GetMethod()?.Name ?? \"\").ToArray();\n"
+                                + "    try { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"exception\", error.GetType().FullName ?? \"\", RunnerText.ToToken(error.Message), frames, EncodeCalls(), error is FakeResponsesExhaustedException }, options)); }\n"
+                                + "    catch (RunnerException limit) { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"limit\", limit.Message })); }\n"
+                                + "}\n"
+                                // Calls are encoded after the result, with their own value budget.
+                                + "object[] EncodeCalls()\n{\n    remaining = 8192;\n"
+                                + (if checksText then "    textRemaining = 65536;\n" else "")
+                                + "    return FakeLog.Calls.Select(call => EncodeCall(call.Site, call.Arguments)).ToArray();\n}\n"
+                                + "object EncodeCall(int site, object[] arguments) => site switch\n{\n"
+                                + callArms
+                                + "    _ => throw new RunnerException(\"Unknown capability call site.\"),\n};\n"
+                                + "object Count(object value) { if (--remaining < 0) throw new RunnerException(\"Result exceeds 8192 value nodes.\"); return value; }\n"
+                                + (if checksText then
+                                    "string CheckedString(string value) { if (value == null) throw new RunnerException(\"Null String result.\"); textRemaining -= value.Length; if (textRemaining < 0) throw new RunnerException(\"Result exceeds 65536 String code units.\"); return RunnerText.ToToken(value); }\n"
+                                   else "")
+                                + namedEncoders
+                                + "static class RunnerProcess { [System.Runtime.InteropServices.DllImport(\"libc\")] public static extern int prctl(int option, nuint arg2, nuint arg3, nuint arg4, nuint arg5); }\n"
+                                + "sealed class RunnerException(string message) : Exception(message);\n"
+                                + "sealed class FakeCapabilityException(string message) : Exception(message);\n"
+                                + "sealed class FakeArgumentsUnmatchedException() : Exception(\"No fake case matches the complete call arguments.\");\n"
+                                + "sealed class FakeResponsesExhaustedException() : Exception(\"The fake operation has no scripted response left for this call.\");\n"
+                                + "static class FakeLog\n{\n"
+                                + "    public static readonly System.Collections.Generic.List<(int Site, object[] Arguments)> Calls = new();\n"
+                                + "    public static void Record(int site, object[] arguments)\n    {\n"
+                                // Workers of ParallelAll and tasks may call fakes concurrently.
+                                + "        lock (Calls)\n        {\n"
+                                + "            if (Calls.Count >= 1024) throw new RunnerException(\"The program made more than 1024 capability calls.\");\n"
+                                + "            Calls.Add((site, arguments));\n        }\n    }\n}\n"
+                                + runnerSupport
+                                + "static class RunnerValues\n{\n" + runnerValues + "}\n"
+                                + fakeClasses
+                            let frames = frameResolver artifact.Symbols
+                            let stackOverflowMessage = stackOverflowText
+                            let runtimeFailure exceptionType message frameNames exhausted calls =
+                                PureRunError.RuntimeFailure
+                                    { SnapshotId = snapshotId
+                                      FunctionId = fn.Id
+                                      ExceptionType = exceptionType
+                                      Message = message
+                                      Frames = frames frameNames
+                                      BindingExhausted = exhausted
+                                      Calls = calls }
+                            let sources =
+                                [ "Generated.cs", artifact.Source ]
+                                @ (hostSources |> List.mapi (fun index (_, text) -> $"HostSource{index}.cs", text))
+                                @ [ "Program.cs", program ]
+                            let inputPath = Path.Combine(root, "input.txt")
+                            File.WriteAllText(inputPath, String.Join(" ", input))
+                            match GeneratedBuild.compileCached root sources 30000 with
+                            | Error GeneratedBuild.TimedOut -> Error(diagnostic "RunTimeout" "The build exceeded its time limit of 30 s.")
+                            | Error(GeneratedBuild.Rejected errors) -> Error(processFailure "" errors)
+                            | Ok assembly ->
+                                // Arbitrary host C# may change process-wide state, so it runs in a process of
+                                // its own; generated programs with values and fakes share the session's worker.
+                                if not (List.isEmpty hostSources) then launchRaw "pure function" root [ assembly; inputPath ] 5000
+                                else
+                                    match context.Worker.Run("pure function", assembly, Path.ChangeExtension(assembly, ".pdb"), inputPath, 5000) with
+                                    | PureRunWorkerOutcome.Completed output ->
+                                        if output.Length > 1048576 then Error(diagnostic "RunOutputTooLarge" "The process produced more than 1 MiB of output.")
+                                        else Ok(0, output, "")
+                                    | PureRunWorkerOutcome.Crashed(output, errors) -> Ok(1, output, errors)
+                                    | PureRunWorkerOutcome.Failed(code, message) -> Error(diagnostic code message)
+                            |> Result.bind (fun (exitCode, output, errors) ->
+                                if exitCode = 0 then
+                                    parseEnvelope declarations.Types fn.ResultType sites output
+                                    |> Result.bind (function
+                                        | Envelope.Value(actual, calls) -> Ok(actual, calls)
+                                        | Envelope.Limit message -> Error(diagnostic "RunProcessFailure" message)
+                                        | Envelope.Exception(exceptionType, message, frameNames, calls, exhausted) ->
+                                            Error(runtimeFailure exceptionType message frameNames exhausted calls))
+                                elif errors.Contains("Stack overflow", StringComparison.Ordinal) then
+                                    // A stack overflow cannot be caught; the runtime prints the stack to stderr.
+                                    let names = stackOverflowFrames.Matches(errors) |> Seq.map (fun item -> item.Value) |> Seq.toList
+                                    Error(runtimeFailure "System.StackOverflowException" stackOverflowMessage names false [])
+                                else Error(processFailure output errors))
+                            |> Result.map (fun (actual, calls) ->
                                 { SnapshotId = snapshotId
                                   FunctionId = fn.Id
-                                  ExceptionType = exceptionType
-                                  Message = message
-                                  Frames = frames frameNames
-                                  BindingExhausted = exhausted
-                                  Calls = calls }
-                        let sources =
-                            [ "Generated.cs", artifact.Source ]
-                            @ (hostSources |> List.mapi (fun index (_, text) -> $"HostSource{index}.cs", text))
-                            @ [ "Program.cs", program ]
-                        let inputPath = Path.Combine(root, "input.txt")
-                        File.WriteAllText(inputPath, String.Join(" ", input))
-                        match GeneratedBuild.compileCached root sources 30000 with
-                        | Error GeneratedBuild.TimedOut -> Error(diagnostic "RunTimeout" "The build exceeded its time limit of 30 s.")
-                        | Error(GeneratedBuild.Rejected errors) -> Error(processFailure "" errors)
-                        | Ok assembly ->
-                            // Arbitrary host C# may change process-wide state, so it runs in a process of
-                            // its own; generated programs with values and fakes share the session's worker.
-                            if not (List.isEmpty hostSources) then launchRaw "pure function" root [ assembly; inputPath ] 5000
-                            else
-                                match context.Worker.Run("pure function", assembly, Path.ChangeExtension(assembly, ".pdb"), inputPath, 5000) with
-                                | PureRunWorkerOutcome.Completed output ->
-                                    if output.Length > 1048576 then Error(diagnostic "RunOutputTooLarge" "The process produced more than 1 MiB of output.")
-                                    else Ok(0, output, "")
-                                | PureRunWorkerOutcome.Crashed(output, errors) -> Ok(1, output, errors)
-                                | PureRunWorkerOutcome.Failed(code, message) -> Error(diagnostic code message)
-                        |> Result.bind (fun (exitCode, output, errors) ->
-                            if exitCode = 0 then
-                                parseEnvelope declarations.Types fn.ResultType sites output
-                                |> Result.bind (function
-                                    | Envelope.Value(actual, calls) -> Ok(actual, calls)
-                                    | Envelope.Limit message -> Error(diagnostic "RunProcessFailure" message)
-                                    | Envelope.Exception(exceptionType, message, frameNames, calls, exhausted) ->
-                                        Error(runtimeFailure exceptionType message frameNames exhausted calls))
-                            elif errors.Contains("Stack overflow", StringComparison.Ordinal) then
-                                // A stack overflow cannot be caught; the runtime prints the stack to stderr.
-                                let names = stackOverflowFrames.Matches(errors) |> Seq.map (fun item -> item.Value) |> Seq.toList
-                                Error(runtimeFailure "System.StackOverflowException" stackOverflowMessage names false [])
-                            else Error(processFailure output errors))
-                        |> Result.map (fun (actual, calls) ->
-                            { SnapshotId = snapshotId
-                              FunctionId = fn.Id
-                              Actual = actual
-                              Expected = expected
-                              Matches = expected |> Option.map ((=) actual)
-                              Mismatch = expected |> Option.bind (fun expected -> mismatch expected actual)
-                              Calls = calls })
-                    with
-                    | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
-                    | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message)
-                finally
-                    if Directory.Exists(root) then
-                        try Directory.Delete(root, true)
+                                  Actual = actual
+                                  Expected = expected
+                                  Matches = expected |> Option.map ((=) actual)
+                                  Mismatch = expected |> Option.bind (fun expected -> mismatch expected actual)
+                                  Calls = calls })
                         with
-                        | :? IOException
-                        | :? UnauthorizedAccessException -> ()
+                        | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
+                        | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message)
+                    finally
+                        if Directory.Exists(root) then
+                            try Directory.Delete(root, true)
+                            with
+                            | :? IOException
+                            | :? UnauthorizedAccessException -> ()
+                let log (status: string) (detail: string) =
+                    match Environment.GetEnvironmentVariable "NYRWVY_RUNPURE_COMPARE_LOG" with
+                    | null | "" -> ()
+                    | path -> lock executorLogGate (fun () -> File.AppendAllText(path, status + "\t" + StableId.value fn.Id + "\t" + detail.Replace('\n', ' ') + "\n"))
+                match executorMode () with
+                | Some compare when interpretable program arguments ->
+                    let interpreted = interpret declarations.Types program fn arguments expected context.SnapshotId
+                    if compare then
+                        let compiled = compiledRun ()
+                        let shown (value: Result<PureRunResult, PureRunError>) = sprintf "%A" value
+                        if shown compiled = shown interpreted then log "MATCH" ""
+                        else log "DIFF" ("interpreted=" + shown interpreted + " compiled=" + shown compiled)
+                        compiled
+                    else interpreted
+                | Some _ ->
+                    log "FALLBACK" ""
+                    compiledRun ()
+                | None -> compiledRun ()
 
     /// Reads explicitly registered host C# sources. Relative paths resolve against the directory
     /// containing the session's snapshot file; at most 16 existing `.cs` files of at most 1 MiB

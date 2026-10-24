@@ -9,6 +9,7 @@
     <Compile Include="ExecutionIrDeclarations.fs" />
     <Compile Include="ExecutionIrLoweringCore.fs" />
     <Compile Include="ExecutionIrSerializer.fs" />
+    <Compile Include="ExecutionIrInterpreter.fs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
