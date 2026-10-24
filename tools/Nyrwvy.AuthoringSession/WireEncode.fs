@@ -489,7 +489,8 @@ module internal WireEncode =
             [ "snapshotId", box (StableId.value value.SnapshotId)
               "snapshotFingerprint", box (SnapshotFingerprint.value value.SnapshotFingerprint)
               "semanticFingerprint", box (SemanticFingerprint.value value.SemanticFingerprint)
-              "pendingProposalCount", box value.PendingProposalCount ]
+              "pendingProposalCount", box value.PendingProposalCount
+              "build", box (AuthoringSessionMigration.toolVersion ()) ]
 
     /// The `proposals` listing: every pending proposal with its kind, base and one-line summary.
     let pendingProposals (items: AuthoringPendingProposalSummary list) =

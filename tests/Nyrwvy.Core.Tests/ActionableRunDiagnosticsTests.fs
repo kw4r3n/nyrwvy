@@ -199,3 +199,17 @@ module ActionableRunDiagnosticsTests =
                   Replacement = ExpressionRecipe.Bind(invoke, ExpressionRecipe.Bind(invoke, ExpressionRecipe.Int64Literal 0L)) }
             |> fun p -> session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             session.ProjectEntryExecution fn.Id |> unwrap |> ignore)
+
+    [<Fact>]
+    let ``status reports the build and misshaped run values explain the expected form`` () =
+        withSession (fun session fn _ ->
+            use status = AuthoringProtocol.executeLine session """{"id":"status","op":"status"}""" |> JsonDocument.Parse
+            Assert.False(String.IsNullOrWhiteSpace(status.RootElement.GetProperty("result").GetProperty("build").GetString()))
+            let message argument =
+                use reply =
+                    AuthoringProtocol.executeLine session ($"""{{"id":"run","op":"runPure","functionId":"{StableId.value fn.Id}","arguments":[{argument}]}}""")
+                    |> JsonDocument.Parse
+                Assert.False(reply.RootElement.GetProperty("ok").GetBoolean())
+                reply.RootElement.GetProperty("error").GetProperty("message").GetString()
+            Assert.Contains("positional", message """{"parameter":"input","value":{"kind":"int64","value":1}}""")
+            Assert.Contains("isOk", message """{"kind":"result","case":"err","value":{"kind":"string","value":"e"}}"""))

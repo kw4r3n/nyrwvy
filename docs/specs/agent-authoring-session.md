@@ -177,7 +177,7 @@ The maintained operation set is:
 
 | `op` | Purpose |
 | --- | --- |
-| `status` | Current snapshot ID and fingerprints, and `pendingProposalCount`, the number of proposals simulated in this session and neither committed nor rejected. |
+| `status` | Current snapshot ID and fingerprints, and `pendingProposalCount`, the number of proposals simulated in this session and neither committed nor rejected, and `build`, the session tool's InformationalVersion (version and source commit) so a caller can tell which build is running. `open` of the agent tools includes this status. |
 | `proposals` | The pending proposals: `{ count, proposals: [{ proposalId, kind, baseSnapshotId, baseIsCurrent, summary }] }` in proposal-ID order. `kind` is the review kind the simulate reply reported; `baseIsCurrent` is false for a proposal simulated against an earlier snapshot, which commit will reject as stale; `summary` is one line naming the requested change and its targets by display name (for an operations proposal, each operation). Reading lists nothing but handles; the review itself is read with `readProposal`. |
 | `references` | Every site of the current snapshot that refers to a declaration or one of its members ([reference query](#reference-query)). |
 | `dependency` | Read-only provenance path, snapshot ID, fingerprint and `storage` (`embedded` or `legacySource`), or null. Does not return the retained graph payload. |

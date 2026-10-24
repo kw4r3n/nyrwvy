@@ -129,6 +129,8 @@ module AuthoringProtocol =
 
     and private pureValueBody (names: AuthoringDeclarations option) (remaining: int ref) depth location (item: JsonElement): PureRunValue =
         if item.ValueKind <> JsonValueKind.Object then fail "Run values must be non-null typed objects."
+        if (tryProperty "kind" item).IsNone && (tryProperty "parameter" item).IsSome then
+            fail "Run values are typed objects with a kind. runPure arguments are positional, one typed value per parameter in declaration order (for example [{\"kind\":\"string\",\"value\":\"a\"}]); {parameter, value} pairs are the form of fake capability case arguments."
         let kind = requiredString "kind" item
         if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "float64" && kind <> "bits32" && kind <> "unit" then
             fail $"Run values may have at most {PureRun.maxValueLayers} nested composite layers."
@@ -309,6 +311,8 @@ module AuthoringProtocol =
             match variantId with
             | Some variantId -> PureRunValue.Union(typeId, typeArguments, variantId, fields)
             | None -> PureRunValue.Product(typeId, typeArguments, fields)
+        | "result" when tryProperty "case" item |> Option.isSome ->
+            fail "Result run values select Ok or Err with isOk, not case: nested {kind:'result', okType, errorType, isOk, value:<typed value>} or flat {kind:'result', okKind, errorKind, isOk, value:<raw scalar>}."
         | "result" when tryProperty "okType" item |> Option.isSome ->
             let fields = [ "kind"; "okType"; "errorType"; "isOk"; "value" ]
             ensureFields "Nested Result run value" fields fields item
