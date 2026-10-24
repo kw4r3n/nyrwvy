@@ -501,6 +501,8 @@ type ExecutionIrInterpreter(program: ExecutionProgram, deadlineTimestamp: int64,
     let stack = Stack<IrFrame>()
     let frames = ConditionalWeakTable<exn, IrFrame list>()
     let mutable overflowFrames = []
+    let compiledBodies = Dictionary<FunctionId, IrValue[] -> IrValue>()
+    let mutable checks = 0
 
     let blocksOf (fn: ExecutionFunction) =
         match blocks.TryGetValue fn.SemanticFunctionId with
@@ -545,11 +547,12 @@ type ExecutionIrInterpreter(program: ExecutionProgram, deadlineTimestamp: int64,
     let set = function IrSet value -> value | _ -> bad "Set"
     let option = function IrOption value -> value | _ -> bad "Option"
     let result = function IrResult(isOk, payload) -> isOk, payload | _ -> bad "Result"
-    let ofList (items: IrValue seq) = IrList(ImmutableList.CreateRange items)
+    // ImmutableList builds a balanced tree directly from an array, several times faster than from a lazy sequence.
+    let ofList (items: IrValue seq) = IrList(ImmutableList.CreateRange(match items with :? (IrValue[]) as array -> array | _ -> Seq.toArray items))
     let someInt = Option.map IrInt >> IrOption
     let strings items = items |> List.map IrString |> ofList
-    let fieldsOf (fields: ExecutionFieldValue list) (env: Dictionary<ExecutionValueId, IrValue>) =
-        fields |> List.map (fun field -> field.TargetFieldId, env[field.ValueId]) |> List.sortBy (fst >> StableId.value) |> Array.ofList
+    let fieldsOf (fields: ExecutionFieldValue list) (read: ExecutionValueId -> IrValue) =
+        fields |> List.map (fun field -> field.TargetFieldId, read field.ValueId) |> List.sortBy (fst >> StableId.value) |> Array.ofList
     let field (items: (FieldId * IrValue)[]) fieldId = items |> Array.find (fun (id, _) -> id = fieldId) |> snd
 
     /// Supported instruction kinds; everything else falls back to the compiled backend.
@@ -576,24 +579,68 @@ type ExecutionIrInterpreter(program: ExecutionProgram, deadlineTimestamp: int64,
     /// The frames running when the depth limit was reached, innermost first.
     member _.OverflowFrames = overflowFrames
 
-    /// Calls a function with its arguments in parameter declaration order.
-    member this.Call(functionId: FunctionId, arguments: IrValue list) : IrValue =
-        let fn = functions[functionId]
+    /// Uses a compiled body for the function instead of interpreting it.
+    member _.Register(functionId: FunctionId, body: IrValue[] -> IrValue) = compiledBodies[functionId] <- body
+
+    /// Runs one function frame: the depth limit, the deadline and exception frame recording.
+    member _.Enter(functionId: FunctionId, run: unit -> IrValue) : IrValue =
         if stack.Count >= maxDepth then
             overflowFrames <- List.ofSeq stack
             raise IrStackOverflowException
+        if Diagnostics.Stopwatch.GetTimestamp() > deadlineTimestamp then raise IrTimeoutException
         stack.Push(IrFrame.Function functionId)
         try
-            try
+            try run ()
+            with error when not (isInternal error) ->
+                record error
+                reraise ()
+        finally
+            stack.Pop() |> ignore
+
+    /// Raises the timeout once the deadline has passed, reading the clock every 256th time; compiled
+    /// code calls it on back edges and calls.
+    member _.CheckDeadline() =
+        checks <- checks + 1
+        if checks &&& 255 = 0 && Diagnostics.Stopwatch.GetTimestamp() > deadlineTimestamp then raise IrTimeoutException
+
+    /// Runs a compiled function frame without allocating: the frame object is made once per function.
+    member this.EnterCompiled(frame: IrFrame, body: Func<IrValue[], IrValue>, arguments: IrValue[]) : IrValue =
+        if stack.Count >= maxDepth then
+            overflowFrames <- List.ofSeq stack
+            raise IrStackOverflowException
+        this.CheckDeadline()
+        stack.Push frame
+        try
+            try body.Invoke arguments
+            with error when not (isInternal error) ->
+                record error
+                reraise ()
+        finally
+            stack.Pop() |> ignore
+
+    /// Calls a function with its arguments in parameter declaration order.
+    member this.CallArray(functionId: FunctionId, arguments: IrValue[]) : IrValue =
+        match compiledBodies.TryGetValue functionId with
+        | true, body -> this.Enter(functionId, fun () -> body arguments)
+        | _ -> this.Call(functionId, List.ofArray arguments)
+
+    /// Calls a function with its arguments in parameter declaration order.
+    member this.Call(functionId: FunctionId, arguments: IrValue list) : IrValue =
+        match compiledBodies.TryGetValue functionId with
+        | true, body -> this.Enter(functionId, fun () -> body (Array.ofList arguments))
+        | _ -> this.Enter(functionId, fun () -> this.Interpret(functions[functionId], arguments))
+
+    member private this.Interpret(fn: ExecutionFunction, arguments: IrValue list) : IrValue =
                 let env = Dictionary<ExecutionValueId, IrValue>()
                 List.iter2 (fun (parameter: ExecutionParameter) value -> env[parameter.Value.Id] <- value) fn.Parameters arguments
+                let read (id: ExecutionValueId) = env[id]
                 let table = blocksOf fn
                 let mutable block = table[fn.EntryBlockId]
                 let mutable returned = None
                 while returned.IsNone do
                     if Diagnostics.Stopwatch.GetTimestamp() > deadlineTimestamp then raise IrTimeoutException
                     for instruction in block.Instructions do
-                        env[instruction.Result.Id] <- this.Evaluate(fn, env, instruction)
+                        env[instruction.Result.Id] <- this.Evaluate(fn, read, instruction)
                     match block.Terminator with
                     | ExecutionTerminator.Return valueId -> returned <- Some env[valueId]
                     | ExecutionTerminator.Abort(_, errorValueId) -> returned <- Some(IrResult(false, env[errorValueId]))
@@ -621,20 +668,15 @@ type ExecutionIrInterpreter(program: ExecutionProgram, deadlineTimestamp: int64,
                             | None -> raise (InvalidOperationException "Execution IR union value did not match a declared variant.")
                         | _ -> bad "Union"
                 returned.Value
-            with error when not (isInternal error) ->
-                record error
-                reraise ()
-        finally
-            stack.Pop() |> ignore
 
     /// Calls a callback: `context` binds some parameters and the iteration values fill the others in order.
-    member private this.Invoke(functionId: FunctionId, context: ExecutionCallArgument list, env: Dictionary<ExecutionValueId, IrValue>, iteration: IrValue list) =
+    member private this.Invoke(functionId: FunctionId, context: ExecutionCallArgument list, read: ExecutionValueId -> IrValue, iteration: IrValue list) =
         let fn = functions[functionId]
         let mutable remaining = iteration
         let arguments =
             fn.Parameters |> List.map (fun parameter ->
                 match context |> List.tryFind (fun argument -> argument.TargetParameterId = parameter.SemanticParameterId) with
-                | Some argument -> env[argument.ValueId]
+                | Some argument -> read argument.ValueId
                 | None ->
                     let value = List.head remaining
                     remaining <- List.tail remaining
@@ -654,9 +696,10 @@ type ExecutionIrInterpreter(program: ExecutionProgram, deadlineTimestamp: int64,
                 stack.Pop() |> ignore
         | _ -> bad "Capability"
 
-    member private this.Evaluate(fn: ExecutionFunction, env: Dictionary<ExecutionValueId, IrValue>, instruction: ExecutionInstruction) : IrValue =
-        let v (id: ExecutionValueId) = env[id]
-        let call functionId context iteration = this.Invoke(functionId, context, env, iteration)
+    /// Evaluates one instruction, reading its operands through `read`.
+    member this.Evaluate(fn: ExecutionFunction, read: ExecutionValueId -> IrValue, instruction: ExecutionInstruction) : IrValue =
+        let v (id: ExecutionValueId) = read id
+        let call functionId context iteration = this.Invoke(functionId, context, read, iteration)
         let predicate functionId context = fun item -> bool (call functionId context [ item ])
         match instruction.Kind with
         | ExecutionInstructionKind.ReadParameter id
@@ -793,7 +836,7 @@ type ExecutionIrInterpreter(program: ExecutionProgram, deadlineTimestamp: int64,
             else
                 let count = uint64 (last - first)
                 if count > uint64 Array.MaxLength then raise (OutOfMemoryException())
-                ofList (Seq.init (Operators.int count) (fun index -> IrInt(first + int64 index)))
+                ofList (Array.init (Operators.int count) (fun index -> IrInt(first + int64 index)))
         | ExecutionInstructionKind.StringRepeat(textId, countId) ->
             let text, count = str (v textId), int (v countId)
             if count <= 0L || text.Length = 0 then IrString ""
@@ -1060,7 +1103,7 @@ type ExecutionIrInterpreter(program: ExecutionProgram, deadlineTimestamp: int64,
                 operations[operationId].Parameters |> List.map (fun parameter ->
                     v (arguments |> List.find (fun argument -> argument.TargetCapabilityParameterId = parameter.Id)).ValueId)
             this.InvokeCapability(v capabilityId, operationId, values)
-        | ExecutionInstructionKind.ProductConstruct fields -> IrProduct(fieldsOf fields env)
+        | ExecutionInstructionKind.ProductConstruct fields -> IrProduct(fieldsOf fields read)
         | ExecutionInstructionKind.FieldAccess(sourceId, fieldId) ->
             match v sourceId with
             | IrProduct fields -> field fields fieldId
@@ -1068,13 +1111,13 @@ type ExecutionIrInterpreter(program: ExecutionProgram, deadlineTimestamp: int64,
         | ExecutionInstructionKind.ProductUpdate(sourceId, updates) ->
             match v sourceId with
             | IrProduct fields ->
-                let replaced = fieldsOf updates env
+                let replaced = fieldsOf updates read
                 IrProduct(fields |> Array.map (fun (id, value) ->
                     match replaced |> Array.tryFind (fun (replacedId, _) -> replacedId = id) with
                     | Some update -> update
                     | None -> id, value))
             | _ -> bad "Product"
-        | ExecutionInstructionKind.UnionConstruct(variantId, fields) -> IrUnion(variantId, fieldsOf fields env)
+        | ExecutionInstructionKind.UnionConstruct(variantId, fields) -> IrUnion(variantId, fieldsOf fields read)
         | ExecutionInstructionKind.OptionNone -> IrOption None
         | ExecutionInstructionKind.OptionSome id -> IrOption(Some(v id))
         | ExecutionInstructionKind.ResultOk id -> IrResult(true, v id)

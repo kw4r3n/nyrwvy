@@ -262,6 +262,9 @@ type internal PureRunWorker() =
     /// Runs the program at `assemblyPath` (with its PDB at `symbolsPath`) on `inputPath` within
     /// `timeoutMs`. `phase` names the timed step in the timeout diagnostic. A timeout or a crash retires
     /// the worker; the next run starts another.
+    /// Builds and starts the worker ahead of the first run.
+    member _.Warm() = lock gate (fun () -> ensure () |> ignore)
+
     member _.Run(phase: string, assemblyPath: string, symbolsPath: string, inputPath: string, timeoutMs: int) =
         lock gate (fun () ->
             lastRun <- Stopwatch.GetTimestamp()

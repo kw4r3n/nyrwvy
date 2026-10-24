@@ -112,5 +112,15 @@ let main argv =
         | Ok session ->
             use session = session
             session.HostSourcesAllowed <- Array.contains CommandLine.hostSourcesFlag argv
+            // shortcut: a prototype switch; warms Roslyn in the background so the first runPure skips compiler start-up.
+            if Environment.GetEnvironmentVariable "NYRWVY_RUNPURE_WARMUP" = "1" then
+                System.Threading.Tasks.Task.Run(fun () ->
+                    let directory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "nyrwvy-warmup-" + Guid.NewGuid().ToString("N"))
+                    try
+                        System.IO.Directory.CreateDirectory directory |> ignore
+                        GeneratedBuild.compile directory [ "Warmup.cs", "System.Console.WriteLine(0);" ] 30000 |> ignore
+                        session.PureRunWorker.Warm()
+                    finally
+                        try System.IO.Directory.Delete(directory, true) with _ -> ()) |> ignore
             AuthoringProtocol.serve session Console.In Console.Out
             0

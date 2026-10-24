@@ -52,3 +52,40 @@ The two executors complement each other: the interpreter for programs the agent 
 - a decision on in-process memory exhaustion;
 - the concurrency kinds, or keeping the fallback;
 - the differential compare kept in the fast suite, so the two executors cannot drift.
+
+## Faster on .NET (second round)
+
+Two further options, measured with the same `bench.mjs`, the same four entries and a 3 s idle time after the session opens (the time an agent spends reading and writing before its first run). Three runs, load average 4–5. The results are in `results.jsonl`.
+
+- **Warmed compiled path** (`NYRWVY_RUNPURE_WARMUP=1`): when the session opens, a background task compiles a trivial program with Roslyn and starts the persistent worker (`PureRunWorker.Warm`). Nothing else changes.
+- **In-process JIT** (`NYRWVY_RUNPURE_EXECUTOR=jit`, `ExecutionIrCompiler.fs`): every function of the program is compiled with `System.Linq.Expressions` into a `Func<IrValue[], IrValue>` that the JIT runs.
+  - Each frame keeps its values in one `IrValue[]` slot array. Control flow, Int64 and Bool arithmetic, comparisons, direct calls and `ListFold` have generated code. Every other instruction calls back into the interpreter's `Evaluate`, which reads its operands from the slots.
+  - Calls go through `EnterCompiled`. It enforces the same depth limit and records frames like the interpreter, but makes no allocation, and it reads the deadline clock only on every 256th call or back edge.
+  - In the same round, the interpreter now builds lists from arrays, which brought its `sumTo` from 150 ms to 136 ms.
+
+| Entry | Compiled | Warmed compiled | Interpreter | JIT |
+| --- | --- | --- | --- | --- |
+| `add`, first call of the process | 1,773–1,788 ms | 658–666 ms | 230–233 ms | 204–208 ms |
+| `wordCount`, first call | 167–176 ms | 240–253 ms | 27 ms | 72–76 ms |
+| `sumTo`, first call | 349–359 ms | 202–209 ms | 313–338 ms | 45–46 ms |
+| `fib`, first call | 185–192 ms | 194–210 ms | 65–66 ms | 22 ms |
+| `add`, steady | 2.4–2.6 ms | 2.3 ms | 0.7 ms | 1.1–1.2 ms |
+| `wordCount`, steady | 5.5–5.6 ms | 5.2–5.5 ms | 1.3 ms | 2.2–2.3 ms |
+| `sumTo(100000)`, steady | 7.8–8.2 ms | 7.9–8.0 ms | 134–139 ms | 39.7–40.1 ms |
+| `fib(20)`, steady | 3.2–3.3 ms | 3.0–3.2 ms | 77–79 ms | 8.7–9.2 ms |
+
+- **Warm-up** cuts the first call from 1.8 s to 0.66 s. It costs one background compile and a worker process per session. What remains is emission and the first real Roslyn compile of a generated program, which the trivial program does not warm. New entries still build in 160–250 ms.
+- **The JIT** is 3–4 times faster than the interpreter on loops and recursion: `fib` is 2.8 times slower than C# and `sumTo` 5 times slower. Its first call needs no build. The gap that remains is boxing: every Int64 result allocates an `IrInt`, and every call allocates an argument array and a slot array. `ImmutableList` construction also costs about 10 ms per 100,000 items, against NyList's arrays. Typed locals (`long`/`bool` in place of `IrValue` where the IR type is primitive) would be the next step; it has not been measured.
+- **JIT compile time** (2,441 runs in the suites): median 0.9 ms and p90 5.3 ms per program. 99 programs took more than 20 ms and 31 more than 100 ms. The largest, a 19-function program, took 2–7 s while the parallel test run loaded the machine. `Expression.Compile` grows badly with very large function bodies, so a real mode needs tiering: interpret first, then compile a function once it has been called enough times, or compile lazily per function.
+
+**JIT parity** (`compare-jit`, the same suites): fast 66 match and 2 fall back. Extended: 2,363 match, 40 fall back, and 12 differ only at limits (9 timeouts, 3 stack-overflow frame lists). No result value differed.
+
+**Not measured:** a runtime-support assembly prebuilt once per session (the per-program Roslyn input would shrink; the 160–250 ms new-entry builds are the ceiling of what it can save), typed locals, and tiering. Under Native AOT `Expression.Compile` falls back to its own interpreter, so the JIT row depends on keeping the session JIT-based (D-008 names AOT only as a future path).
+
+### Reading after the second round
+
+On .NET the options stack up rather than compete:
+
+1. Warm-up is nearly free and removes most of the first-call wait for the compiled path.
+2. An in-process executor removes per-program builds. Interpreting first and tiering hot functions to Expression-compiled code gives about 0.2 s on the first call, about 1 ms on small calls, and loops within 3–5 times of C#.
+3. The generated C# remains the path for heavy, long-running and concurrent programs.

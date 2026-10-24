@@ -14,8 +14,10 @@ const cases = [
 
 async function session(mode) {
   const env = { ...process.env }
-  if (mode === "interpreter") env.NYRWVY_RUNPURE_EXECUTOR = "interpreter"
-  else delete env.NYRWVY_RUNPURE_EXECUTOR
+  delete env.NYRWVY_RUNPURE_EXECUTOR
+  delete env.NYRWVY_RUNPURE_WARMUP
+  if (mode === "interpreter" || mode === "jit") env.NYRWVY_RUNPURE_EXECUTOR = mode
+  if (mode === "compiled-warm") env.NYRWVY_RUNPURE_WARMUP = "1"
   const child = spawn("dotnet", [dll, "open", "--snapshot", snapshot, "--read-only"], { env, stdio: ["pipe", "pipe", "inherit"] })
   const lines = createInterface({ input: child.stdout })
   const pending = []
@@ -29,11 +31,14 @@ async function session(mode) {
 }
 
 const median = values => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]
-for (const mode of ["compiled", "interpreter"]) {
+const idleMs = Number(process.env.BENCH_IDLE_MS ?? 3000)
+for (const mode of (process.env.BENCH_MODES ?? "compiled,compiled-warm,interpreter,jit").split(",")) {
   const started = performance.now()
   const { send, close } = await session(mode)
   await send({ op: "status" })
   const ready = performance.now() - started
+  // An agent reads and authors before its first run; every mode gets the same idle time.
+  await new Promise(resolve => setTimeout(resolve, idleMs))
   const rows = []
   for (const c of cases) {
     const times = []

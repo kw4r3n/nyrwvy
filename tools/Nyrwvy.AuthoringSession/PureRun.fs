@@ -1168,8 +1168,10 @@ module PureRun =
 
     let private executorMode () =
         match Environment.GetEnvironmentVariable "NYRWVY_RUNPURE_EXECUTOR" with
-        | "interpreter" -> Some false
-        | "compare" -> Some true
+        | "interpreter" -> Some(false, false)
+        | "compare" -> Some(true, false)
+        | "jit" -> Some(false, true)
+        | "compare-jit" -> Some(true, true)
         | _ -> None
 
     /// A program runs in the interpreter when no reachable instruction needs the concurrency or task
@@ -1293,6 +1295,8 @@ module PureRun =
         (arguments: PureRunValue list)
         (expected: PureRunValue option)
         (snapshotId: SnapshotId)
+        (jit: bool)
+        (log: string -> string -> unit)
         : Result<PureRunResult, PureRunError> =
         let encode = fromIr types
         let calls = ResizeArray<ParameterId * ExecutionCapabilityOperation * IrValue list>()
@@ -1335,6 +1339,10 @@ module PureRun =
                 | other -> toIr other) fn.Parameters arguments
         let deadline = Stopwatch.GetTimestamp() + 5L * Stopwatch.Frequency
         let interpreter = ExecutionIrInterpreter(program, deadline, 10000)
+        if jit then
+            let started = Stopwatch.GetTimestamp()
+            ExecutionIrCompiler.compile interpreter program
+            log "JITCOMPILE" (Stopwatch.GetElapsedTime(started).TotalMilliseconds.ToString("0.00", CultureInfo.InvariantCulture) + " ms " + string program.Functions.Length + " functions")
         let mutable outcome = Unchecked.defaultof<Choice<IrValue, exn>>
         let thread = Threading.Thread((fun () -> outcome <- try Choice1Of2(interpreter.Call(fn.Id, values)) with error -> Choice2Of2 error), 512 * 1024 * 1024)
         thread.Start()
@@ -1869,8 +1877,8 @@ module PureRun =
                     | null | "" -> ()
                     | path -> lock executorLogGate (fun () -> File.AppendAllText(path, status + "\t" + StableId.value fn.Id + "\t" + detail.Replace('\n', ' ') + "\n"))
                 match executorMode () with
-                | Some compare when interpretable program arguments ->
-                    let interpreted = interpret declarations.Types program fn arguments expected context.SnapshotId
+                | Some(compare, jit) when interpretable program arguments ->
+                    let interpreted = interpret declarations.Types program fn arguments expected context.SnapshotId jit log
                     if compare then
                         let compiled = compiledRun ()
                         let shown (value: Result<PureRunResult, PureRunError>) = sprintf "%A" value
