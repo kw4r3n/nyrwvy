@@ -6,7 +6,7 @@ In plain terms: an AI agent writes and maintains a small, strongly typed program
 
 ## Quick start
 
-Prerequisites: a .NET 10 SDK (any patch of the feature band pinned in [`global.json`](global.json), currently 10.0.1xx), Node 22.6+ (22.22.2 recommended, see [`.node-version`](.node-version); older 22.x releases install the development dependencies with engine warnings) and npm. Nothing else is required for this section.
+Prerequisites: a .NET 10 SDK (any patch of the feature band pinned in [`global.json`](global.json), currently 10.0.4xx), Node 22.6+ (22.22.2 recommended, see [`.node-version`](.node-version); older 22.x releases install the development dependencies with engine warnings) and npm. Nothing else is required for this section.
 
 ```shell
 npm ci
@@ -72,7 +72,7 @@ Completed controlled evaluations are reusable design evidence; they are not a re
 
 ## Build and verify
 
-Install a .NET 10 SDK of the feature band selected by [`global.json`](global.json) (currently 10.0.1xx; the pinned patch or any newer one is accepted through `rollForward: latestPatch`) and Node 22.6+ (22.22.2 recommended, see [`.node-version`](.node-version)); fish 3.4+ is needed only for the `.fish` wrapper scripts. Moving to another feature band or major version is an explicit repository change. Shared F# settings live in `Directory.Build.props`. Routine local development runs the fast test graph plus the ordinary-authoring and script contracts:
+Install a .NET 10 SDK of the feature band selected by [`global.json`](global.json) (currently 10.0.4xx; the pinned patch or any newer one is accepted through `rollForward: latestPatch`) and Node 22.6+ (22.22.2 recommended, see [`.node-version`](.node-version)); fish 3.4+ is needed only for the `.fish` wrapper scripts. Moving to another feature band or major version is an explicit repository change. Shared F# settings live in `Directory.Build.props`. Routine local development runs the fast test graph plus the ordinary-authoring and script contracts:
 
 ```shell
 dotnet test tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --settings tests/fast.runsettings
