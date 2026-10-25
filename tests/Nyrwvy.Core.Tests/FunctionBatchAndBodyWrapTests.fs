@@ -226,6 +226,33 @@ module FunctionBatchAndBodyWrapTests =
             let body = $"""{{"kind":"matchOption","input":{{"kind":"parameter","name":"maybe"}},"someName":"x","someBody":{someBody},"noneBody":{lit 0}}}"""
             commit execute (execute $"""{{"id":"c","op":"simulateCreateFunctionByName","displayName":"g","exported":true,"parameters":[{{"displayName":"maybe","type":{maybe}}}],"resultType":{int64},"requiredEffects":[],"body":{body}}}""")
             let compact = execute """{"id":"r","op":"readFunction","function":"g","detail":"compact"}"""
+            let outline = execute """{"id":"r","op":"readFunction","function":"g","detail":"outline"}"""
+            let lines = outline.GetProperty("outline").EnumerateArray() |> Seq.map (fun line -> line.GetString()) |> List.ofSeq
+            let full = execute """{"id":"r","op":"readFunction","function":"g","detail":"full"}"""
+            let rec fullIds (graph: JsonElement) =
+                graph.GetProperty("nodes").EnumerateArray()
+                |> Seq.collect (fun node ->
+                    let kind = node.GetProperty("kind")
+                    let nested =
+                        [ "someArm"; "noneBody"; "body" ]
+                        |> List.choose (fun key ->
+                            match kind.TryGetProperty(key) with
+                            | true, item when key = "someArm" -> Some(item.GetProperty("body"))
+                            | true, item -> Some item
+                            | _ -> None)
+                        |> List.collect fullIds
+                    seq { yield node.GetProperty("id").GetString(); yield! nested })
+                |> List.ofSeq
+            let ids = fullIds (full.GetProperty("function").GetProperty("body"))
+            Assert.Equal(ids.Length, lines.Length)
+            for id in ids do Assert.Contains(lines, fun line -> line.Contains(id))
+            Assert.StartsWith("matchOption ", lines.Head)
+            Assert.Contains(lines, fun line -> line.StartsWith("  int64WrappingAdd "))
+            Assert.Contains(lines, fun line -> line.StartsWith("    int64Literal ") && line.EndsWith(" 7"))
+            Assert.Contains(lines, fun line -> line.Contains("scopeDepth=0"))
+            Assert.False(outline.GetProperty("outlineTruncated").GetBoolean())
+            Assert.False(outline.TryGetProperty("nodeTypes") |> fst)
+            Assert.False(outline.GetProperty("function").GetProperty("body").TryGetProperty("nodes") |> fst)
             let seven =
                 compact.GetProperty("literals").EnumerateArray()
                 |> Seq.find (fun item -> item.GetProperty("literal").GetProperty("value").GetString() = "7")
@@ -242,3 +269,19 @@ module FunctionBatchAndBodyWrapTests =
             Assert.Equal("optionSome", reference.GetProperty("role").GetString())
             Assert.Equal(frame.GetProperty("ownerNodeId").GetString(), reference.GetProperty("ownerNodeId").GetString())
             Assert.Equal(binding.GetProperty("bindingId").GetString(), reference.GetProperty("binding").GetProperty("bindingId").GetString()))
+
+    [<Fact>]
+    let ``readFunction outline reports truncation within its byte cap`` () =
+        withSession (fun _ execute _ ->
+            let textType = """{"kind":"primitive","primitive":"string"}"""
+            let items =
+                [ 1 .. 240 ]
+                |> List.map (fun index -> $"""{{"kind":"stringLiteral","value":"{String.replicate 60 "a"}{index}"}}""")
+                |> String.concat ","
+            let body = $"""{{"kind":"listConstruct","itemType":{textType},"items":[{items}]}}"""
+            let listType = $"""{{"kind":"builtinGeneric","generic":"list","arguments":[{textType}]}}"""
+            commit execute (execute $"""{{"id":"c","op":"simulateCreateFunctionByName","displayName":"large","parameters":[],"resultType":{listType},"requiredEffects":[],"body":{body}}}""")
+            let outline = execute """{"id":"r","op":"readFunction","function":"large","detail":"outline"}"""
+            Assert.True(outline.GetProperty("outlineTruncated").GetBoolean())
+            Assert.True(outline.GetProperty("outline").GetArrayLength() < 241)
+            Assert.True(System.Text.Encoding.UTF8.GetByteCount(outline.GetRawText()) <= 16384))

@@ -824,6 +824,7 @@ module AuthoringProtocol =
                     match tryProperty "detail" root with
                     | None -> false
                     | Some value when value.ValueKind = JsonValueKind.String && value.GetString() = "compact" -> false
+                    | Some value when operationName = "readFunction" && value.ValueKind = JsonValueKind.String && value.GetString() = "outline" -> false
                     | Some value when value.ValueKind = JsonValueKind.String && value.GetString() = "full" -> true
                     | Some _ -> WireInput.fail "detail must be \"compact\" or \"full\"."
                 if not full then
@@ -985,11 +986,11 @@ module AuthoringProtocol =
                     [ "id"; "op"; "function"; "functionId"; "detail" ]
                     [ "id"; "op" ]
                     root
-                let compact =
+                let detail =
                     match tryProperty "detail" root |> Option.map (fun _ -> requiredString "detail" root) with
-                    | None | Some "full" -> false
-                    | Some "compact" -> true
-                    | Some _ -> WireInput.fail "detail must be compact or full."
+                    | None -> "full"
+                    | Some ("compact" | "outline" | "full" as detail) -> detail
+                    | Some _ -> WireInput.fail "detail must be compact, outline or full."
                 let functionId =
                     match tryProperty "function" root, tryProperty "functionId" root with
                     | Some _, None ->
@@ -997,10 +998,12 @@ module AuthoringProtocol =
                     | None, Some _ -> id<FunctionTag> "functionId" root
                     | _ -> WireInput.fail "readFunction requires exactly one of function and functionId."
                 match session.FocusFunction functionId with
-                | Ok focus when compact ->
+                | Ok focus when detail = "compact" ->
                     let value = WireEncodeCommon.compactFocus focus :?> Collections.Generic.IDictionary<string, obj>
                     value["literals"] <- WireEncodeCommon.literals focus.Function.Body
                     success requestId value
+                | Ok focus when detail = "outline" ->
+                    success requestId (WireOutline.focus (session.Declarations()) focus)
                 | Ok focus -> success requestId (WireGraph.focus focus)
                 | Error error -> semanticQueryFailure requestId error
             | "bindingScopes" ->
