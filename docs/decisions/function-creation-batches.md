@@ -29,8 +29,8 @@ Creating the functions in order inside one candidate reuses the single-function 
 - A group of new functions takes one simulate and one commit.
 - Functions must be listed after the functions they call. Mutual recursion still needs an existing placeholder callee, as before; declaring every signature first would need another resolution path and is not part of this decision.
 - The commit receipt still names one created function (the first); the review's `batch` lists the others.
-- Reading recipes from a file (`bodyFile`) was proposed by the same trial and is not added: it would let the server read arbitrary paths, and a batch already removes the second copy of each recipe.
+- Reading recipes from a file was proposed by the same trial and first left out because it would let the server read arbitrary paths. #479 later added `bodyFile`, `functionsFile` and `replacementFile`, confined to the snapshot's directory.
 
 ## Revisit conditions
 
-Revisit when a workflow needs mutually recursive new functions in one request, when the commit receipt should list every created function, or when proposals for unrelated edits need to commit on the same base.
+Revisit when a workflow needs mutually recursive new functions in one request, when the commit receipt should list every created function, or when proposals for unrelated edits need to commit on the same base (met by #477; see [mixed authoring batches](mixed-authoring-batches.md)).

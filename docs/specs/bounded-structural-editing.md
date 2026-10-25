@@ -255,7 +255,7 @@ This contract does not define:
 - identity-preserving local rewrites;
 - existing-local-node reuse;
 - general dead-node analysis/GC;
-- combining structural and M1 operations atomically;
+- combining structural and M1 operations atomically (superseded by [mixed authoring batches](../decisions/mixed-authoring-batches.md), accepted, not yet implemented);
 - a general List or higher-order expression recipe (the specialized ListMap workflow is a separate maintained surface);
 - generic lambdas/closures;
 - implicit numeric conversions or generic numeric operators;
