@@ -1081,7 +1081,36 @@ module CSharpBackend =
             writer.Line("public delegate TResult NyFunction" + string count + "<" + generics + ">(" + arguments + ");")
         if not (List.isEmpty requiredArities) then writer.Line("")
 
+    /// Products emitted as readonly record structs, so a fold that rebuilds its state record each step
+    /// does not allocate. A product that reaches itself through fields held by value (products, Option,
+    /// Result, and type arguments of products) stays a class, since a struct cannot contain itself.
+    /// shortcut: every non-cyclic product becomes a struct whatever its field count; add a size cutoff
+    /// if copying a wide product regresses.
+    let private structProducts (program: ExecutionProgram) =
+        let products =
+            program.Types
+            |> List.choose (fun t ->
+                match t.Kind with
+                | ExecutionTypeKind.Product fields -> Some(t.Id, fields)
+                | ExecutionTypeKind.Union _ -> None)
+            |> Map.ofList
+        let rec embedded (typeRef: TypeRef) =
+            match typeRef with
+            | TypeRef.Named(typeId, arguments) when products.ContainsKey typeId -> typeId :: List.collect embedded arguments
+            | TypeRef.BuiltinGeneric((BuiltinGenericType.Option | BuiltinGenericType.Result), arguments) -> List.collect embedded arguments
+            | _ -> []
+        let reachesItself start =
+            let rec visit seen pending =
+                match pending with
+                | [] -> false
+                | typeId :: rest when typeId = start -> true
+                | typeId :: rest when Set.contains typeId seen -> visit seen rest
+                | typeId :: rest -> visit (Set.add typeId seen) ((products[typeId] |> List.collect (fun f -> embedded f.Type)) @ rest)
+            visit Set.empty (products[start] |> List.collect (fun f -> embedded f.Type))
+        products |> Map.keys |> Seq.filter (reachesItself >> not) |> Set.ofSeq
+
     let private emitTypes (writer: SourceWriter) (program: ExecutionProgram) =
+        let structs = structProducts program
         for typeEntity in program.Types |> List.sortBy (fun item -> StableId.value item.Id) do
             // A generic Product or Union is a generic record; its variants share its type parameters.
             let parameterList =
@@ -1095,7 +1124,8 @@ module CSharpBackend =
                     |> List.sortBy (fun field -> StableId.value field.Id)
                     |> List.map fieldParameter
                     |> String.concat ", "
-                writer.Line("public sealed record " + typeName + "(" + parameters + ");")
+                let kind = if structs.Contains typeEntity.Id then "public readonly record struct " else "public sealed record "
+                writer.Line(kind + typeName + "(" + parameters + ");")
             | ExecutionTypeKind.Union variants ->
                 writer.Line("public abstract record " + typeName + ";")
                 for variant in variants |> List.sortBy (fun item -> StableId.value item.Id) do

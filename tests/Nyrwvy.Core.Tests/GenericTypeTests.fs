@@ -155,7 +155,7 @@ module GenericTypeTests =
                 |> ExecutionIr.lower
                 |> Result.defaultWith (failwithf "lower: %A")
             let source = (CSharpBackend.emit execution CSharpBackendProfile.empty |> Result.defaultWith (failwithf "emit: %A")).Source
-            Assert.Contains("public sealed record " + CSharpBackendNames.typeName box.Id + "<", source))
+            Assert.Contains("public readonly record struct " + CSharpBackendNames.typeName box.Id + "<", source))
 
     let private boxValue (value: int64) =
         $"""{{"kind":"product","type":"Box","typeArguments":[{int64Type}],"fields":[{{"field":"value","value":{{"kind":"int64","value":"{value}"}}}}]}}"""

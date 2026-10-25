@@ -1423,7 +1423,8 @@ module PureRun =
                             let typeName = sourceType named
                             let body =
                                 match productFields declarations.Types typeId typeArguments with
-                                | Some declared -> "if (value == null) { key.Null(); return; } " + keyFields "value" declared
+                                // The cast keeps the check valid when the backend emits the Product as a record struct.
+                                | Some declared -> "if ((object)value == null) { key.Null(); return; } " + keyFields "value" declared
                                 | None ->
                                     let arms =
                                         unionVariants declarations.Types typeId typeArguments |> Option.get

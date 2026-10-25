@@ -470,10 +470,10 @@ module internal WireEncode =
         |> List.map (fun item -> objectValue [ "id", box (StableId.value item.Id); "name", box item.Name ])
         |> arrayValue
 
-    let csharpArtifact (value: CSharpArtifact) =
+    let private csharpArtifactWith (source: string * obj) (value: CSharpArtifact) =
         let symbols = value.Symbols
         objectValue
-            [ "source", box value.Source
+            [ source
               "symbols",
                 objectValue
                     [ "namespace", box symbols.Namespace
@@ -487,6 +487,11 @@ module internal WireEncode =
                       "capabilityOperations", csharpSymbols symbols.CapabilityOperations
                       "capabilityParameters", csharpSymbols symbols.CapabilityParameters
                       "capabilityAdapters", csharpSymbols symbols.CapabilityAdapters ] ]
+
+    let csharpArtifact (value: CSharpArtifact) = csharpArtifactWith ("source", box value.Source) value
+
+    /// emitCSharp with output: the written path replaces the inline source.
+    let csharpArtifactFile (path: string) (value: CSharpArtifact) = csharpArtifactWith ("path", box path) value
 
     let declarations = WireEncodeCommon.declarations
 

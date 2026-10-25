@@ -18,15 +18,15 @@ module ViewerFile =
         not (Path.IsPathRooted relative) && relative <> ".." && not (relative.StartsWith(".." + string Path.DirectorySeparatorChar, StringComparison.Ordinal))
 
     /// A requested output resolves against the snapshot's directory and must stay inside it, so an
-    /// auto-approved agent can only write pages next to the graph it was given; an existing .html
-    /// file there is replaced.
-    let private outputPath (snapshotPath: string) (requested: string option) (artifact: ViewerArtifact) =
+    /// auto-approved agent can only write files next to the graph it was given; an existing file
+    /// with the required extension there is replaced.
+    let private outputPath (snapshotPath: string) (requested: string option) (extension: string) (defaultName: string) =
         let directory = Path.GetDirectoryName(Path.GetFullPath snapshotPath)
         match requested with
-        | None -> Ok(directory, Path.Combine(directory, defaultDirectoryName, artifact.SuggestedFileName))
+        | None -> Ok(directory, Path.Combine(directory, defaultDirectoryName, defaultName))
         | Some path when String.IsNullOrWhiteSpace path -> Error "output must not be blank."
-        | Some path when not (path.EndsWith(".html", StringComparison.OrdinalIgnoreCase)) ->
-            Error "output must name an .html file."
+        | Some path when not (path.EndsWith(extension, StringComparison.OrdinalIgnoreCase)) ->
+            Error $"output must name a {extension} file."
         | Some path ->
             let resolved = Path.GetFullPath(Path.Combine(directory, path))
             let snapshot = Path.GetFullPath snapshotPath
@@ -46,8 +46,8 @@ module ViewerFile =
         |> Array.tail
         |> Array.tryFind (fun (item: string) -> not (isNull (FileInfo(item).LinkTarget)))
 
-    let private write (snapshotPath: string) (requested: string option) (artifact: ViewerArtifact) =
-        outputPath snapshotPath requested artifact
+    let private write (snapshotPath: string) (requested: string option) (extension: string) (defaultName: string) (content: string) =
+        outputPath snapshotPath requested extension defaultName
         |> Result.bind (fun (directory, path) ->
             match linkedComponent directory path with
             | Some link -> Error $"output must not pass through a symbolic link or reparse point; {link} is one."
@@ -57,8 +57,8 @@ module ViewerFile =
                 ConfinedDirectory.openBelow directory parents
                 |> Result.bind (fun handle ->
                     use handle = handle
-                    ConfinedDirectory.writeFile handle name (UTF8Encoding(false).GetBytes artifact.Content))
-                |> Result.map (fun () -> path, artifact)
+                    ConfinedDirectory.writeFile handle name (UTF8Encoding(false).GetBytes content))
+                |> Result.map (fun () -> path)
             | None ->
                 // Without directory handles a parent swapped for a link between the check above and
                 // this write is not caught.
@@ -69,21 +69,28 @@ module ViewerFile =
                     // final name after the check above instead of writing through it.
                     let temporary = Path.Combine(parent, $".{Path.GetFileName path}.{Guid.NewGuid():N}.tmp")
                     try
-                        File.WriteAllText(temporary, artifact.Content, UTF8Encoding(false))
+                        File.WriteAllText(temporary, content, UTF8Encoding(false))
                         File.Move(temporary, path, true)
                     finally
                         if File.Exists temporary then File.Delete temporary
-                    Ok(path, artifact)
+                    Ok path
                 with
                 | :? IOException as error -> Error $"I/O error: {error.Message}"
                 | :? UnauthorizedAccessException as error -> Error $"Access error: {error.Message}")
+
+    let private writeArtifact snapshotPath requested (artifact: ViewerArtifact) =
+        write snapshotPath requested ".html" artifact.SuggestedFileName artifact.Content |> Result.map (fun path -> path, artifact)
+
+    /// Writes emitCSharp source to an explicit .cs path, confined like a view.
+    let writeCSharp (snapshotPath: string) (requested: string) (source: string) : Result<string, string> =
+        write snapshotPath (Some requested) ".cs" "" source
 
     let writeFocus
         (snapshotPath: string)
         (requested: string option)
         (focus: FunctionFocusView)
         : Result<string * ViewerArtifact, string> =
-        write snapshotPath requested (ViewerArtifact.ofFocus focus)
+        writeArtifact snapshotPath requested (ViewerArtifact.ofFocus focus)
 
     let private engineReview (proposal: AuthoringProposal) =
         let options = JsonSerializerOptions(MaxDepth = WireJson.responseMaxJsonDepth, WriteIndented = true)
@@ -179,7 +186,7 @@ module ViewerFile =
             | AuthoringProposalReview.Operations item, _ -> Ok(ViewerArtifact.ofChangeReviewWithBaseState view.BaseIsCommitted item.ResultingChange)
             | _, Some proposed -> proposalReview view proposed committedFocus
             | _, None -> Error "The proposal has no proposed snapshot to render."
-        artifact |> Result.bind (write snapshotPath requested)
+        artifact |> Result.bind (writeArtifact snapshotPath requested)
 
     /// One review artifact contains the structural proposal and the computed behavioral evidence.
     let writeVerificationReview snapshotPath requested (view: AuthoringPendingProposalView) committedFocus (evidence: ChangeVerificationEvidence) evidenceJson =
@@ -208,4 +215,4 @@ module ViewerFile =
                     .Replace("</body>", evidenceSection + "</body>")
             // Only the page header: each function focus on the page closes a header of its own.
             let content = content.Insert(content.IndexOf("</header>", StringComparison.Ordinal), banner)
-            write snapshotPath requested { artifact with Content = content })
+            writeArtifact snapshotPath requested { artifact with Content = content })

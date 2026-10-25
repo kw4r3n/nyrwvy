@@ -1635,9 +1635,10 @@ module AuthoringProtocol =
             | "emitCSharp" ->
                 ensureFields
                     "emitCSharp request"
-                    [ "id"; "op"; "profile" ]
+                    [ "id"; "op"; "profile"; "output" ]
                     [ "id"; "op"; "profile" ]
                     root
+                let output = tryProperty "output" root |> Option.map (fun _ -> requiredString "output" root)
                 let profileValue = property "profile" root
                 let profile =
                     match requiredString "kind" profileValue with
@@ -1676,6 +1677,11 @@ module AuthoringProtocol =
                         |> CSharpBackendProfile.withConcurrentCapabilities concurrentIds
                     | value -> WireInput.fail $"Unsupported C# profile '{value}'."
                 match session.EmitCSharp profile with
+                | Ok artifact when output.IsSome ->
+                    // The source goes to the file only, so a large program stays out of the reply.
+                    match ViewerFile.writeCSharp session.Path output.Value artifact.Source with
+                    | Error message -> failure requestId (objectValue [ "code", box "EmitWriteFailed"; "message", box message ])
+                    | Ok path -> success requestId (WireEncode.csharpArtifactFile path artifact)
                 | Ok artifact -> success requestId (WireEncode.csharpArtifact artifact)
                 | Error error -> sessionFailure requestId error
             | value ->

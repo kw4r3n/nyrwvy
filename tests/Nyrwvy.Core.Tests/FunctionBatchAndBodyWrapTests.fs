@@ -157,6 +157,24 @@ module FunctionBatchAndBodyWrapTests =
             Assert.True(File.Exists(writer.Path + ".lock"), "closing the reader leaves the writer's lock"))
 
     [<Fact>]
+    let ``emitCSharp writes the source to output and keeps products that contain themselves as classes`` () =
+        withSession (fun session execute rejected ->
+            let product name fields = $"""{{"id":"t","op":"simulateCreateTypeByName","exported":true,"displayName":"{name}","typeKind":{{"kind":"product","fields":[{fields}]}}}}"""
+            commit execute (execute (product "Pair" $"""{{"displayName":"a","type":{int64}}}"""))
+            let chain = """{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"named","name":"Chain"}]}"""
+            commit execute (execute (product "Chain" $"""{{"displayName":"next","type":{chain}}}"""))
+            let emitted = execute """{"id":"e","op":"emitCSharp","profile":{"kind":"empty"},"output":"gen/Program.cs"}"""
+            Assert.False(emitted.TryGetProperty("source") |> fst)
+            let path = emitted.GetProperty("path").GetString()
+            Assert.Equal(Path.Combine(Path.GetDirectoryName session.Path, "gen", "Program.cs"), path)
+            let typeName name = (session.Declarations().Types |> List.find (fun t -> t.DisplayName = name)).Id |> CSharpBackendNames.typeName
+            let source = File.ReadAllText path
+            Assert.Contains("public readonly record struct " + typeName "Pair" + "(", source)
+            Assert.Contains("public sealed record " + typeName "Chain" + "(", source)
+            Assert.Contains("must name a .cs file", rejected """{"id":"e","op":"emitCSharp","profile":{"kind":"empty"},"output":"gen/Program.txt"}""")
+            Assert.Contains("output must stay inside", rejected """{"id":"e","op":"emitCSharp","profile":{"kind":"empty"},"output":"../escape.cs"}"""))
+
+    [<Fact>]
     let ``scopes list the bindings at a node and a targeted review names the binding a reference reads`` () =
         withSession (fun _ execute _ ->
             let maybe = """{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]}"""
