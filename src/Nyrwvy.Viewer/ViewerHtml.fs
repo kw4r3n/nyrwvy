@@ -1,7 +1,9 @@
 namespace Nyrwvy.Core
 
+open System
 open System.Net
 open System.Text
+open System.Globalization
 
 [<RequireQualifiedAccess>]
 module ViewerHtml =
@@ -20,6 +22,8 @@ module ViewerHtml =
 
     let private html (value: string): string = WebUtility.HtmlEncode(value)
     let private code (value: string): string = "<code>" + html value + "</code>"
+    /// Marks a page as viewer output, so a tool replaces only its own pages, never a person's file.
+    let generatorMeta = "<meta name=\"generator\" content=\"Nyrwvy viewer\">"
     /// Type parameter display names come from the declaring function or type, never from an
     /// occurrence; a focus document collects them from every declaration it shows.
     let rec private typeRefTextIn (names: Map<TypeParameterId, string>) (typeRef: TypeRef): string =
@@ -259,9 +263,34 @@ module ViewerHtml =
         |> Seq.mapi (fun index word -> if index = 0 then word else word.ToLowerInvariant())
         |> String.concat " "
 
+    let private escapeViewerStringLiteral (value: string) =
+        let escaped = StringBuilder(value.Length)
+        let appendEscape character =
+            escaped.Append("\\u").Append((int character).ToString("X4", CultureInfo.InvariantCulture)) |> ignore
+        let mutable index = 0
+        while index < value.Length do
+            let character = value[index]
+            if character = '\\' then
+                escaped.Append("\\\\") |> ignore
+            elif Char.IsHighSurrogate character && index + 1 < value.Length && Char.IsLowSurrogate value[index + 1] then
+                escaped.Append(character).Append(value[index + 1]) |> ignore
+                index <- index + 1
+            elif Char.IsSurrogate character
+                 || Char.IsControl character
+                 || (match CharUnicodeInfo.GetUnicodeCategory character with
+                     | UnicodeCategory.Format
+                     | UnicodeCategory.LineSeparator
+                     | UnicodeCategory.ParagraphSeparator -> true
+                     | _ -> false) then
+                appendEscape character
+            else
+                escaped.Append(character) |> ignore
+            index <- index + 1
+        escaped.ToString()
+
     let private nodeRoleLabel (role: ViewerNodeRole): string =
         match role with
-        | ViewerNodeRole.StringLiteral value -> "string literal “" + value + "”"
+        | ViewerNodeRole.StringLiteral value -> "string literal “" + escapeViewerStringLiteral value + "”"
         | ViewerNodeRole.BoolLiteral value -> "bool literal " + (if value then "true" else "false")
         | ViewerNodeRole.Int64Literal value -> "Int64 literal " + string value
         | ViewerNodeRole.Float64Literal bits -> "Float64 literal 0x" + Float64Bits.toHex bits
@@ -304,6 +333,7 @@ module ViewerHtml =
         writer.Line("<head>")
         writer.Push()
         writer.Line("<meta charset=\"utf-8\">")
+        writer.Line(generatorMeta)
         writer.Line("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">")
         writer.Line("<title>" + html title + "</title>")
         writer.Line("<style>")

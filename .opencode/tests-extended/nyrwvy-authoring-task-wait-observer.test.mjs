@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process'
 import { openAuthoring, requestAuthoring, closeAuthoring } from '../../tools/nyrwvy-agent/authoring.ts'
 import { defineRender, defineFixture, defineController } from '../../examples/task-wait-observer/fixture.mjs'
 import { string } from '../../examples/task-wait-observer/author.mjs'
-import { compileRuntime } from '../../examples/dynamic-worker-collector/compile-runtime.mjs'
+import { compileRuntime } from '../../examples/shared/compile-runtime.mjs'
 
 const hash = value => createHash('sha256').update(value).digest('hex')
 const unit = { kind: 'unit' }, sv = value => ({ kind: 'string', value })

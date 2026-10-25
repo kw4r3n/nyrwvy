@@ -201,6 +201,74 @@ if (NyFunctions.{literalProbeName}() != {expectedLiteral})
         | result -> failwithf "Expected MissingCapabilityBinding, got %A" result
 
     [<Fact>]
+    let ``C# backend rejects duplicate capability bindings`` () =
+        let fixture, execution = lowerRepresentative ()
+        let binding =
+            { OperationId = fixture.ConsoleWriteLineOperationId
+              Kind = CSharpCapabilityBindingKind.SystemConsoleWriteLine }
+        let profile = { CSharpBackendProfile.empty with CapabilityBindings = [ binding; binding ] }
+        match CSharpBackend.emit execution profile with
+        | Error(CSharpBackendError.DuplicateCapabilityBinding operationId) -> Assert.Equal(fixture.ConsoleWriteLineOperationId, operationId)
+        | result -> failwithf "Expected DuplicateCapabilityBinding, got %A" result
+
+    [<Fact>]
+    let ``C# backend rejects unknown capability binding operations`` () =
+        let _, execution = lowerRepresentative ()
+        let unknown = StableId.createForTesting<CapabilityOperationTag> "operation-backend-unknown-binding"
+        match CSharpBackend.emit execution (CSharpBackendProfile.systemConsoleWriteLine unknown) with
+        | Error(CSharpBackendError.UnknownCapabilityBindingOperation operationId) -> Assert.Equal(unknown, operationId)
+        | result -> failwithf "Expected UnknownCapabilityBindingOperation, got %A" result
+
+    [<Fact>]
+    let ``C# backend rejects incompatible System Console WriteLine bindings`` () =
+        let fixture, execution = lowerRepresentative ()
+        let incompatible =
+            { execution with
+                Capabilities =
+                    execution.Capabilities
+                    |> List.map (fun capability ->
+                        if capability.Id <> fixture.ConsoleCapabilityId then capability
+                        else
+                            { capability with
+                                Operations =
+                                    capability.Operations
+                                    |> List.map (fun operation ->
+                                        if operation.Id = fixture.ConsoleWriteLineOperationId then
+                                            { operation with Parameters = [] }
+                                        else operation) }) }
+        match CSharpBackend.emit incompatible (CSharpBackendProfile.systemConsoleWriteLine fixture.ConsoleWriteLineOperationId) with
+        | Error(CSharpBackendError.IncompatibleSystemConsoleWriteLineBinding operationId) -> Assert.Equal(fixture.ConsoleWriteLineOperationId, operationId)
+        | result -> failwithf "Expected IncompatibleSystemConsoleWriteLineBinding, got %A" result
+
+    [<Fact>]
+    let ``C# backend rejects unknown capability operations used by instructions`` () =
+        let _, execution = lowerRepresentative ()
+        let unknown = StableId.createForTesting<CapabilityOperationTag> "operation-backend-unknown-use"
+        let mutable replaced = false
+        let poisoned =
+            { execution with
+                Functions =
+                    execution.Functions
+                    |> List.map (fun fn ->
+                        { fn with
+                            Blocks =
+                                fn.Blocks
+                                |> List.map (fun block ->
+                                    { block with
+                                        Instructions =
+                                            block.Instructions
+                                            |> List.map (fun instruction ->
+                                                match instruction.Kind with
+                                                | ExecutionInstructionKind.CapabilityInvoke(receiver, _, arguments) when not replaced ->
+                                                    replaced <- true
+                                                    { instruction with Kind = ExecutionInstructionKind.CapabilityInvoke(receiver, unknown, arguments) }
+                                                | _ -> instruction) }) }) }
+        Assert.True(replaced, "Representative execution program had no capability invocation.")
+        match CSharpBackend.emit poisoned CSharpBackendProfile.empty with
+        | Error(CSharpBackendError.UnknownCapabilityOperation operationId) -> Assert.Equal(unknown, operationId)
+        | result -> failwithf "Expected UnknownCapabilityOperation, got %A" result
+
+    [<Fact>]
     let ``external binding does not erase FailureType or silently translate host exceptions`` () =
         let fixture, execution = lowerRepresentative ()
         let withFailure =

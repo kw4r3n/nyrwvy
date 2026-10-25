@@ -3,7 +3,7 @@ import {readFile,writeFile} from 'node:fs/promises'
 import {resolve,join} from 'node:path'
 import {execFileSync} from 'node:child_process'
 import {createHash} from 'node:crypto'
-import {compileRuntime} from '../dynamic-worker-collector/compile-runtime.mjs'
+import {compileRuntime} from '../shared/compile-runtime.mjs'
 const dir=resolve(process.argv[2]),hash=x=>createHash('sha256').update(x).digest('hex')
 const declarations=JSON.parse(await readFile(join(dir,'declarations.json'),'utf8')),symbols=JSON.parse(await readFile(join(dir,'symbols.json'),'utf8'))
 const probe=declarations.capabilities.find(c=>c.displayName==='Probe')

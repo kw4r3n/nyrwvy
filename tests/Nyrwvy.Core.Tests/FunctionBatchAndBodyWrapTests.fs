@@ -216,7 +216,13 @@ module FunctionBatchAndBodyWrapTests =
             Assert.Contains("public readonly record struct " + typeName "Pair" + "(", source)
             Assert.Contains("public sealed record " + typeName "Chain" + "(", source)
             Assert.Contains("must name a .cs file", rejected """{"id":"e","op":"emitCSharp","profile":{"kind":"empty"},"output":"gen/Program.txt"}""")
-            Assert.Contains("output must stay inside", rejected """{"id":"e","op":"emitCSharp","profile":{"kind":"empty"},"output":"../escape.cs"}"""))
+            Assert.Contains("output must stay inside", rejected """{"id":"e","op":"emitCSharp","profile":{"kind":"empty"},"output":"../escape.cs"}""")
+            // Generated output is replaced again; a person's own source beside the snapshot is not.
+            execute """{"id":"e","op":"emitCSharp","profile":{"kind":"empty"},"output":"gen/Program.cs"}""" |> ignore
+            let hand = Path.Combine(Path.GetDirectoryName session.Path, "gen", "Hand.cs")
+            File.WriteAllText(hand, "class Hand {}")
+            Assert.Contains("did not write", rejected """{"id":"e","op":"emitCSharp","profile":{"kind":"empty"},"output":"gen/Hand.cs"}""")
+            Assert.Equal("class Hand {}", File.ReadAllText hand))
 
     [<Fact>]
     let ``scopes list the bindings at a node and a targeted review names the binding a reference reads`` () =
