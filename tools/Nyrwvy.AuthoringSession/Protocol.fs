@@ -482,13 +482,130 @@ module AuthoringProtocol =
             | _ -> fail "List itemKind must be string, bool or int64."
         | value -> fail $"Unsupported pure run value kind '{value}'."
 
-    let private pureValue names location item =
-        try pureValueAt names (ref 8192) 0 location item
+    /// Decodes a plain JSON value against its declared type, so `[[1,2],[3]]` needs no run-value tags.
+    /// Leaves read as their tagged `value` does, Unit is null, List and Set are arrays, a Map is an
+    /// array of [key, value] pairs, an Option is null or its value, a Result is {"ok": v} or
+    /// {"error": v}, a Product is an object keyed by field display names and a Union is
+    /// {"Variant": {fields}}. An object with a string "kind" stays a tagged run value at any depth;
+    /// only a Product that declares its own "kind" field reads such an object as plain fields.
+    let rec private plainValueAt (names: AuthoringDeclarations option) (declarations: AuthoringDeclarations) (remaining: int ref) depth location (valueType: TypeRef) (item: JsonElement): PureRunValue =
+        let tagged =
+            item.ValueKind = JsonValueKind.Object
+            && (match tryProperty "kind" item, valueType with
+                | Some kind, TypeRef.Named(typeId, _) when kind.ValueKind = JsonValueKind.String ->
+                    // Only a Product with its own "kind" field can read a string kind as plain data.
+                    declarations.Types |> List.exists (fun declared ->
+                        declared.Id = typeId
+                        && match declared.Kind with
+                           | SemanticTypeKind.Product fields -> fields |> List.exists (fun field -> field.DisplayName = "kind")
+                           | _ -> false)
+                    |> not
+                | Some kind, _ -> kind.ValueKind = JsonValueKind.String
+                // A {parameter, value} pair is the fake case form; the tagged parser explains that mistake.
+                | None, _ -> (item.EnumerateObject() |> Seq.map (fun property -> property.Name) |> Set.ofSeq) = set [ "parameter"; "value" ])
+        if tagged then pureValueAt names remaining depth location item else
+        remaining.Value <- remaining.Value - 1
+        if remaining.Value < 0 then raise (RunValueNodeBudgetExceeded(8192 - remaining.Value))
+        let child suffix childType value = plainValueAt names declarations remaining (depth + 1) $"{location}{suffix}" childType value
+        let composite () =
+            if depth >= PureRun.maxValueLayers then fail $"Run values may have at most {PureRun.maxValueLayers} nested composite layers."
+        let elements what =
+            composite ()
+            if item.ValueKind <> JsonValueKind.Array then fail $"Expected a JSON array for the {what} at {location}."
+            let items = item.EnumerateArray() |> Seq.toList
+            if items.Length > 4096 then fail $"{what}s may contain at most 4096 items."
+            items
+        let objectFields what =
+            composite ()
+            if item.ValueKind <> JsonValueKind.Object then fail $"Expected a JSON object for the {what} at {location}."
+            item.EnumerateObject() |> Seq.toList
+        let fieldsOf (owner: string) (fields: SemanticField list) (properties: JsonProperty list) =
+            if (properties |> List.map (fun property -> property.Name) |> List.distinct).Length <> properties.Length then
+                fail $"{owner} names a field more than once at {location}."
+            for property in properties do
+                if fields |> List.forall (fun field -> field.DisplayName <> property.Name) then
+                    fail $"{owner} has no field '{property.Name}' at {location}."
+            fields |> List.map (fun field ->
+                match properties |> List.tryFind (fun property -> property.Name = field.DisplayName) with
+                | Some property -> field.Id, child $".{field.DisplayName}" field.Type property.Value
+                | None -> fail $"Missing field '{field.DisplayName}' of {owner} at {location}.")
+        match valueType with
+        | TypeRef.Primitive PrimitiveType.String ->
+            if item.ValueKind <> JsonValueKind.String then fail $"Expected a JSON string at {location}."
+            PureRunValue.String(runText item)
+        | TypeRef.Primitive PrimitiveType.Bool ->
+            if item.ValueKind <> JsonValueKind.True && item.ValueKind <> JsonValueKind.False then fail $"Expected a JSON boolean at {location}."
+            PureRunValue.Bool(item.GetBoolean())
+        | TypeRef.Primitive PrimitiveType.Int64 ->
+            match item.ValueKind with
+            | JsonValueKind.Number -> item.TryGetInt64()
+            | JsonValueKind.String -> Int64.TryParse(item.GetString(), Globalization.NumberStyles.AllowLeadingSign, Globalization.CultureInfo.InvariantCulture)
+            | _ -> false, 0L
+            |> function
+                | true, number -> PureRunValue.Int64 number
+                | false, _ -> fail $"Expected an exact integer or decimal integer string at {location}."
+        | TypeRef.Primitive PrimitiveType.Float64 -> PureRunValue.Float64(float64Value item)
+        | TypeRef.Primitive PrimitiveType.Bits32 -> PureRunValue.Bits32(bits32Value item)
+        | TypeRef.Primitive PrimitiveType.Unit ->
+            if item.ValueKind <> JsonValueKind.Null then fail $"Expected null for Unit at {location}."
+            PureRunValue.Unit
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ]) ->
+            PureRunValue.ListValue(itemType, elements "List" |> List.mapi (fun index value -> child $"[{index}]" itemType value))
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ itemType ]) ->
+            PureRunValue.SetValue(itemType, elements "Set" |> List.mapi (fun index value -> child $"[{index}]" itemType value))
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; mapValueType ]) ->
+            let entries =
+                elements "Map" |> List.mapi (fun index entry ->
+                    if entry.ValueKind <> JsonValueKind.Array || entry.GetArrayLength() <> 2 then
+                        fail $"Expected a [key, value] pair at {location}[{index}]."
+                    child $"[{index}][0]" keyType entry[0], child $"[{index}][1]" mapValueType entry[1])
+            if (entries |> List.map fst |> List.distinct).Length <> entries.Length then fail "A Map run value names a key more than once."
+            PureRunValue.MapValue(keyType, mapValueType, entries)
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.BuiltinGeneric(BuiltinGenericType.Option, _) | TypeRef.Primitive PrimitiveType.Unit ]) ->
+            fail $"An Option of Option or Unit is ambiguous as plain JSON at {location}; write it as a tagged run value."
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ itemType ]) ->
+            composite ()
+            PureRunValue.OptionValue(itemType, if item.ValueKind = JsonValueKind.Null then None else Some(child "" itemType item))
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ okType; errorType ]) ->
+            match objectFields "Result" with
+            | [ property ] when property.Name = "ok" -> PureRunValue.ResultValue(okType, errorType, true, child ".ok" okType property.Value)
+            | [ property ] when property.Name = "error" -> PureRunValue.ResultValue(okType, errorType, false, child ".error" errorType property.Value)
+            | _ -> fail $"Expected {{\"ok\": value}} or {{\"error\": value}} for the Result at {location}."
+        | TypeRef.Named(typeId, typeArguments) ->
+            let owner =
+                match declarations.Types |> List.tryFind (fun declared -> declared.Id = typeId) with
+                | Some owner -> owner
+                | None -> fail $"Unknown type at {location}; write it as a tagged run value."
+            let instantiate (fields: SemanticField list) =
+                fields |> List.map (fun field -> { field with Type = TypeParameters.instantiate owner typeArguments field.Type })
+            match owner.Kind with
+            | SemanticTypeKind.Product fields ->
+                PureRunValue.Product(typeId, typeArguments, fieldsOf owner.DisplayName (instantiate fields) (objectFields owner.DisplayName))
+            | SemanticTypeKind.Union _ ->
+                match objectFields owner.DisplayName with
+                | [ property ] ->
+                    let variant = WireSymbolic.unionVariant owner property.Name
+                    let fields =
+                        if property.Value.ValueKind = JsonValueKind.Object then property.Value.EnumerateObject() |> Seq.toList
+                        else fail $"Expected an object of fields for variant '{property.Name}' at {location}."
+                    PureRunValue.Union(typeId, typeArguments, variant.Id, fieldsOf variant.DisplayName (instantiate variant.Fields) fields)
+                | _ -> fail $"Expected {{\"Variant\": {{fields}}}} for the {owner.DisplayName} Union at {location}."
+        | _ -> fail $"This parameter type has no plain JSON form at {location}; write it as a tagged run value."
+
+    let private pureValueWith decode location =
+        try decode (ref 8192)
         with
         | RunValueSelectorException message -> fail message
         | RunValueShapeException(path, expected, reason) -> fail $"Invalid run value at {path}. {reason}Expected {expected}."
         | RunValueNodeBudgetExceeded charged ->
             fail $"Run values may contain at most 8192 value nodes per argument or expected value. At {location}: at least {charged} nodes were charged, including containers and their values. Split the input into smaller batches or build it inside the graph and return an aggregate."
+
+    let private pureValue names location item =
+        pureValueWith (fun remaining -> pureValueAt names remaining 0 location item) location
+
+    /// A runPure argument or expected value: plain JSON decoded against `valueType`, or a tagged run value.
+    let private runInputValue names declarations valueType location item =
+        pureValueWith (fun remaining -> plainValueAt names declarations remaining 0 location valueType item) location
 
     /// Writes a Float64 run value: the shortest round-trip decimal as a JSON number for finite values
     /// other than -0.0, and the strings "NaN", "Infinity", "-Infinity" and "-0" otherwise.
@@ -1737,8 +1854,15 @@ module AuthoringProtocol =
                     match names with
                     | Some declarations -> (WireSymbolic.resolveFunctionAt declarations functionKey root).Id
                     | None -> id<FunctionTag> functionKey root
-                let arguments = array "arguments" root |> List.mapi (fun index value -> pureValue names $"arguments[{index}]" value)
-                let expected = tryProperty "expected" root |> Option.map (pureValue names "expected")
+                let declarations = names |> Option.defaultWith session.Declarations
+                let fn = declarations.Functions |> List.tryFind (fun item -> item.Id = functionId)
+                let parameterTypes = fn |> Option.map (fun fn -> fn.Parameters |> List.map (fun parameter -> parameter.Type)) |> Option.defaultValue []
+                let input location valueType value =
+                    match valueType with
+                    | Some valueType -> runInputValue names declarations valueType location value
+                    | None -> pureValue names location value
+                let arguments = array "arguments" root |> List.mapi (fun index value -> input $"arguments[{index}]" (List.tryItem index parameterTypes) value)
+                let expected = tryProperty "expected" root |> Option.map (input "expected" (fn |> Option.map (fun fn -> fn.ResultType)))
                 let hostSources =
                     tryProperty "hostSources" root
                     |> Option.map (fun _ ->
