@@ -163,19 +163,19 @@ export function createGraphTools(schema) {
       description: "Propose a typed function directly in the semantic graph. Pass exactly one of body (a name-resolved ExpressionRecipe) or bodyFile (a JSON recipe file beside the snapshot). Use nyrwvy_recipe_reference when its shape is unfamiliar. Parameter references use names, not caller-allocated IDs. The function is private unless exported: true; only exported declarations are usable from snapshots that depend on this one, and a dependency's private declarations are absent from declarations and name resolution here. " + reviewDetail,
       args: { displayName: schema.string(), exported, parameters: schema.array(schema.object({ displayName: schema.string(), type: typeRef })),
         resultType: typeRef, requiredEffects: schema.array(selector), body: recipe.optional(), bodyFile: schema.string().optional(), detail },
-      /** @param {{ displayName: string; exported?: boolean; parameters: { displayName: string; type: Record<string, unknown> }[]; resultType: Record<string, unknown>; requiredEffects: (string | Record<string, unknown>)[]; body: Record<string, unknown>; detail?: "compact" | "full" }} args */
+      /** @param {{ displayName: string; exported?: boolean; parameters: { displayName: string; type: Record<string, unknown> }[]; resultType: Record<string, unknown>; requiredEffects: (string | Record<string, unknown>)[]; body?: Record<string, unknown>; bodyFile?: string; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: "simulateCreateFunctionByName", ...args }, context),
     }),
     create_functions: defineTool({
       description: "Propose several new typed functions in one proposal and one commit, created in list order. Pass exactly one of functions or functionsFile (a JSON file containing the functions array beside the snapshot). Each item has the fields of nyrwvy_create_function; a body may call itself and any function listed before it by name. Name resolution reports every invalid item together with its index and displayName, and any rejected item rejects the batch. " + reviewDetail,
       args: { functions: schema.array(object).optional(), functionsFile: schema.string().optional(), detail },
-      /** @param {{ functions: Record<string, unknown>[]; detail?: "compact" | "full" }} args */
+      /** @param {{ functions?: Record<string, unknown>[]; functionsFile?: string; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: "simulateCreateFunctionsByName", ...args }, context),
     }),
     replace: defineTool({
       description: "Propose a targeted graph edit, preserving unrelated nodes. Pass exactly one of replacement (a name-resolved ExpressionRecipe) or replacementFile (a JSON recipe file beside the snapshot). Use a targetNodeId from inspect; omit it for whole-body replacement. {kind:'originalTarget'} (at most once) stands for the target's old expression, so you can wrap it or insert a step before it. Review before commit. " + reviewDetail,
       args: { function: selector, targetNodeId: schema.string().optional(), replacement: recipe.optional(), replacementFile: schema.string().optional(), detail },
-      /** @param {{ function: string | Record<string, unknown>; targetNodeId?: string; replacement: Record<string, unknown>; detail?: "compact" | "full" }} args */
+      /** @param {{ function: string | Record<string, unknown>; targetNodeId?: string; replacement?: Record<string, unknown>; replacementFile?: string; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: args.targetNodeId === undefined ? "simulateReplaceBodyByName" : "simulateReplaceTargetByName", ...args }, context),
     }),
     upgrade_dependencies: defineTool({
