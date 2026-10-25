@@ -1,6 +1,6 @@
 # Mixed authoring batches
 
-- **Status:** Accepted; not yet implemented
+- **Status:** Accepted; implemented
 - **Date:** 2026-10-25
 - **Issue:** [#477](https://github.com/kw4r3n/nyrwvy/issues/477)
 

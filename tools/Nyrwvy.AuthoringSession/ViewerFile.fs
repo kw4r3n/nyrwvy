@@ -115,6 +115,7 @@ module ViewerFile =
         | AuthoringProposalReview.UnionVariantEvolution _ -> "unionVariantEvolution"
         | AuthoringProposalReview.CreateEffect _ -> "createEffect"
         | AuthoringProposalReview.CreateCapability _ -> "createCapability"
+        | AuthoringProposalReview.Batch _ -> "batch"
 
     let private readiness (review: AuthoringProposalReview) =
         match review with
@@ -132,6 +133,7 @@ module ViewerFile =
         | AuthoringProposalReview.UnionVariantEvolution item -> item.Readiness
         | AuthoringProposalReview.CreateEffect item -> item.Readiness
         | AuthoringProposalReview.CreateCapability item -> item.Readiness
+        | AuthoringProposalReview.Batch item -> item.Readiness
 
     let private proposalReview
         (view: AuthoringPendingProposalView)

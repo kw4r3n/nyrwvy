@@ -46,7 +46,8 @@ type AuthoringSessionStatus =
 /// to decide which to read, commit or reject, without the review itself.
 type AuthoringPendingProposalSummary =
     { ProposalId: string
-      /// The review kind, as the proposal's `review.kind` names it.
+      /// The review kind, as the proposal's `review.kind` names it; a batch is `batch`, whose
+      /// `review.kind` is its first step's.
       Kind: string
       BaseSnapshotId: SnapshotId
       /// Whether the proposal was simulated against the current committed snapshot; a stale one is
@@ -159,13 +160,23 @@ type AuthoringProposalReview =
     | UnionVariantEvolution of AgentUnionVariantEvolutionReview
     | CreateEffect of AgentEffectDeclarationReview
     | CreateCapability of AgentCapabilityDeclarationReview
+    /// Several steps in one proposal over the base snapshot (docs/decisions/mixed-authoring-batches.md).
+    | Batch of AuthoringBatchReview
 
-type AuthoringProposal =
+and AuthoringProposal =
     { ProposalId: string
       Review: AuthoringProposalReview
       /// Proposed bodies of the functions a migration or union-variant evolution rewrites, in
       /// review order; empty for other reviews. Rendered only by a full review.
       RewrittenFunctions: SemanticFunction list }
+
+/// The receipt and readiness belong to the whole batch. `Steps` holds each step's kind and the
+/// proposal it made on the snapshot the earlier steps produced, in order; the step proposals'
+/// own receipts and readiness are intermediate and never committed.
+and AuthoringBatchReview =
+    { Receipt: TransactionPreviewReceipt
+      Readiness: TransactionReadiness
+      Steps: (string * AuthoringProposal) list }
 
 /// What a human Change Review page of a pending proposal reads. `ProposedSnapshot` is absent
 /// for an operations proposal, whose review already carries its Change Review projection.
@@ -205,6 +216,7 @@ type private PendingProposal =
     | UnionVariantEvolution of AgentUnionVariantEvolutionProposal
     | CreateEffect of AgentEffectDeclarationProposal
     | CreateCapability of AgentCapabilityDeclarationProposal
+    | Batch of AgentBatchProposal
 
 module private PendingProposal =
     let proposedSnapshot (pending: PendingProposal): Snapshot option =
@@ -223,11 +235,18 @@ module private PendingProposal =
         | PendingProposal.UnionVariantEvolution proposal -> Some(AgentUnionVariantEvolutionProposal.proposedSnapshot proposal)
         | PendingProposal.CreateEffect proposal -> Some(AgentEffectDeclarationProposal.proposedSnapshot proposal)
         | PendingProposal.CreateCapability proposal -> Some(AgentCapabilityDeclarationProposal.proposedSnapshot proposal)
+        | PendingProposal.Batch proposal -> Some(AgentBatchProposal.proposedSnapshot proposal)
+
+    /// The candidate snapshot, which an operations proposal keeps out of its review pages.
+    let candidateSnapshot (pending: PendingProposal): Snapshot option =
+        match pending with
+        | PendingProposal.Operations proposal -> Some(AgentChangeProposal.proposedSnapshot proposal)
+        | other -> proposedSnapshot other
 
 module private ProposalReview =
     /// Functions and types a proposal rewrites, from its resulting change as well as its
     /// intent: signature/variant edits can rewrite other callers or match owners.
-    let touched (review: AuthoringProposalReview): FunctionId list * TypeId list =
+    let rec touched (review: AuthoringProposalReview): FunctionId list * TypeId list =
         match review with
         | AuthoringProposalReview.DependencyUpgrade item -> item.Repair.ChangedFunctions |> List.map (fun f -> f.Id), item.Repair.ChangedTypes |> List.map (fun t -> t.Id)
         | AuthoringProposalReview.Operations item ->
@@ -245,11 +264,31 @@ module private ProposalReview =
             item.ResultingChange.BodyRewrites |> List.map (fun rewrite -> rewrite.OwnerFunctionId), [ item.ResultingChange.FieldChange.TypeId ]
         | AuthoringProposalReview.UnionVariantEvolution item ->
             item.RepairedFunctionIds, [ item.UpdatedType.Id ]
+        | AuthoringProposalReview.Batch item ->
+            let steps = item.Steps |> List.map (fun (_, step) -> touched step.Review)
+            steps |> List.collect fst, steps |> List.collect snd
         | AuthoringProposalReview.CreateFunction _
         | AuthoringProposalReview.CreateType _
         | AuthoringProposalReview.CreateTypeGroup _
         | AuthoringProposalReview.CreateEffect _
         | AuthoringProposalReview.CreateCapability _ -> [], []
+
+    /// Functions whose signature a proposal creates or changes, for a human review page.
+    let rec signatureOwners (review: AuthoringProposalReview): FunctionId list =
+        match review with
+        | AuthoringProposalReview.CreateFunction item -> item :: item.Batch |> List.map (fun created -> created.CreatedFunction.Id)
+        | AuthoringProposalReview.ParameterTypeMigration item -> [ item.ResultingChange.ParameterChange.FunctionId ]
+        | AuthoringProposalReview.ResultTypeMigration item -> [ item.ResultingChange.ResultChange.FunctionId ]
+        | AuthoringProposalReview.Batch item -> item.Steps |> List.collect (fun (_, step) -> signatureOwners step.Review)
+        | _ -> []
+
+    /// Types a proposal creates or rewrites, for a human review page.
+    let rec declaredTypes (review: AuthoringProposalReview): TypeId list =
+        match review with
+        | AuthoringProposalReview.CreateType item -> [ item.CreatedType.Id ]
+        | AuthoringProposalReview.CreateTypeGroup item -> item.CreatedTypes |> List.map (fun typeEntity -> typeEntity.Id)
+        | AuthoringProposalReview.Batch item -> item.Steps |> List.collect (fun (_, step) -> declaredTypes step.Review)
+        | _ -> snd (touched review)
 
 /// One-line summaries of pending proposals for the `proposals` listing. Names come from the
 /// snapshot the proposal was simulated against where the review carries them, otherwise from the
@@ -260,7 +299,7 @@ module private ProposalSummary =
     let private named (items: (StableId<'Kind> * string) list) (id: StableId<'Kind>) =
         items |> List.tryFind (fun (candidate, _) -> candidate = id) |> Option.map (snd >> quote) |> Option.defaultValue (StableId.value id)
 
-    let describe (declarations: AuthoringDeclarations) (review: AuthoringProposalReview) =
+    let rec describe (declarations: AuthoringDeclarations) (review: AuthoringProposalReview) =
         let functions = declarations.Functions |> List.map (fun item -> item.Id, item.DisplayName)
         let types = declarations.Types |> List.map (fun item -> item.Id, item.DisplayName)
         let effects = declarations.Effects |> List.map (fun item -> item.Id, item.DisplayName)
@@ -342,6 +381,8 @@ module private ProposalSummary =
             $"addUnionVariantLike {quote item.AddedVariant.DisplayName} on {quote item.UpdatedType.DisplayName} ({item.RepairedMatchCount} matches repaired)"
         | AuthoringProposalReview.CreateEffect item -> $"createEffect {quote item.CreatedEffect.DisplayName}"
         | AuthoringProposalReview.CreateCapability item -> $"createCapability {quote item.CreatedCapability.DisplayName}"
+        | AuthoringProposalReview.Batch item ->
+            "batch of " + (item.Steps |> List.map (fun (_, step) -> describe declarations step.Review) |> String.concat "; ")
 
     let kind (review: AuthoringProposalReview) =
         match review with
@@ -359,6 +400,7 @@ module private ProposalSummary =
         | AuthoringProposalReview.UnionVariantEvolution _ -> "unionVariantEvolution"
         | AuthoringProposalReview.CreateEffect _ -> "createEffect"
         | AuthoringProposalReview.CreateCapability _ -> "createCapability"
+        | AuthoringProposalReview.Batch _ -> "batch"
 
 /// Test seam for storage failures that cannot be produced reliably through the file system.
 module internal SessionStorageFaults =
@@ -1014,10 +1056,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     let registerAgainst (imported: Snapshot option) (proposedFunctions: SemanticFunction list) transactionId pending review =
         let functions, types = ProposalReview.touched review
         // An operations proposal keeps its candidate out of the review pages, but the check reads it.
-        let candidate =
-            match pending with
-            | PendingProposal.Operations proposal -> Some(AgentChangeProposal.proposedSnapshot proposal)
-            | other -> PendingProposal.proposedSnapshot other
+        let candidate = PendingProposal.candidateSnapshot pending
         let hiddenReferences =
             match imported, candidate with
             | Some imported, Some candidate -> DeclarationVisibility.hiddenReferences imported candidate
@@ -1447,6 +1486,48 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
             | Ok proposal ->
                 register (AgentCapabilityDeclarationProposal.transactionId proposal) (PendingProposal.CreateCapability proposal) (AuthoringProposalReview.CreateCapability(AgentCapabilityDeclarationProposal.review proposal))
 
+    /// A read-only session over the current snapshot for the first step of a batch. Nothing it
+    /// registers reaches this session, and without a lock handle it cannot commit; close it when
+    /// the step's result has been read.
+    member internal _.BatchScratch(): Result<AuthoringSession, AuthoringSessionError> =
+        ensureUsable () |> Result.map (fun () -> new AuthoringSession(path, workspace, persistedSource, None, selection))
+
+    /// `BatchScratch` over a later step's candidate. A candidate already holds the imported
+    /// declarations of the session's dependency, so it opens as it is, not resolved again.
+    member internal _.BatchScratchOver(candidate: Snapshot): Result<AuthoringSession, AuthoringSessionError> =
+        ensureUsable ()
+        |> Result.bind (fun () ->
+            AgentWorkspace.create candidate
+            |> Result.mapError AuthoringSessionError.WorkspaceValidationFailure
+            |> Result.map (fun stepWorkspace -> new AuthoringSession(path, stepWorkspace, persistedSource, None, selection)))
+
+    /// The candidate snapshot of a pending proposal, including an operations proposal's.
+    member internal _.CandidateSnapshot(proposalId: string): Result<Snapshot, AuthoringSessionError> =
+        match proposals.TryGetValue proposalId with
+        | true, (_, pending) ->
+            match PendingProposal.candidateSnapshot pending with
+            | Some candidate -> Ok candidate
+            | None -> Error(AuthoringSessionError.ProposalNotFound proposalId)
+        | _ -> Error(AuthoringSessionError.ProposalNotFound proposalId)
+
+    /// One proposal over the current snapshot for steps simulated one after the other on scratch
+    /// sessions; `final` is the last step's candidate (docs/decisions/mixed-authoring-batches.md).
+    member internal _.SimulateBatch(steps: (string * AuthoringProposal) list, final: Snapshot): Result<AuthoringProposal, AuthoringSessionError> =
+        use _scope = SnapshotComputationScope.Start()
+        match ensureUsable () with
+        | Error error -> Error error
+        | Ok() ->
+            match AgentBatchWorkflow.simulate workspace final with
+            | Error error -> Error(AuthoringSessionError.StructuralSimulationFailure error)
+            | Ok proposal ->
+                register
+                    (AgentBatchProposal.transactionId proposal)
+                    (PendingProposal.Batch proposal)
+                    (AuthoringProposalReview.Batch
+                        { Receipt = AgentBatchProposal.receipt proposal
+                          Readiness = AgentBatchProposal.readiness proposal
+                          Steps = steps })
+
     member _.ReadOnly = lockHandle.IsNone
 
     member _.Commit(proposalId: string, policy: CommitPolicy): Result<AuthoringCommitReceipt, AuthoringSessionError> =
@@ -1559,6 +1640,12 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 | AgentCapabilityDeclarationCommitResult.Rejected diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
                 | AgentCapabilityDeclarationCommitResult.Committed(candidate, publication) ->
                     commitCandidate proposalId publication.TransactionId publication.PublishedSnapshotId publication.Readiness candidate
+            | true, (_, PendingProposal.Batch proposal) ->
+                match AgentBatchWorkflow.commitWithPolicy workspace proposal policy with
+                | Error diagnostics -> Error(AuthoringSessionError.CommitRejected diagnostics)
+                | Ok candidate ->
+                    let receipt = AgentBatchProposal.receipt proposal
+                    commitCandidate proposalId receipt.TransactionId receipt.ProposedSnapshotId (AgentBatchProposal.readiness proposal) candidate
 
     /// Read-only: the review of a pending proposal and the snapshots a human review page renders.
     member _.PendingProposalView(proposalId: string): Result<AuthoringPendingProposalView, AuthoringSessionError> =
@@ -1567,25 +1654,15 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         | Ok() ->
             match proposals.TryGetValue proposalId, registered.TryGetValue proposalId with
             | (true, (transactionId, pending)), (true, (proposal, baseSnapshotId)) ->
-                let touched, touchedTypes = ProposalReview.touched proposal.Review
-                let signatureOwners =
-                    match proposal.Review with
-                    | AuthoringProposalReview.CreateFunction item -> item :: item.Batch |> List.map (fun created -> created.CreatedFunction.Id)
-                    | AuthoringProposalReview.ParameterTypeMigration item -> [ item.ResultingChange.ParameterChange.FunctionId ]
-                    | AuthoringProposalReview.ResultTypeMigration item -> [ item.ResultingChange.ResultChange.FunctionId ]
-                    | _ -> []
+                let touched, _ = ProposalReview.touched proposal.Review
+                let signatureOwners = ProposalReview.signatureOwners proposal.Review
                 Ok { TransactionId = transactionId
                      Proposal = proposal
                      BaseSnapshotId = baseSnapshotId
                      BaseIsCommitted = (AgentWorkspace.currentSnapshotId workspace = baseSnapshotId)
                      ProposedSnapshot = PendingProposal.proposedSnapshot pending
                      FunctionIds = signatureOwners @ touched |> List.distinct
-                     TypeIds =
-                        match proposal.Review with
-                        | AuthoringProposalReview.CreateType item -> [ item.CreatedType.Id ]
-                        | AuthoringProposalReview.CreateTypeGroup item -> item.CreatedTypes |> List.map (fun typeEntity -> typeEntity.Id)
-                        | _ -> touchedTypes
-                        |> List.distinct }
+                     TypeIds = ProposalReview.declaredTypes proposal.Review |> List.distinct }
             | _ -> Error(AuthoringSessionError.ProposalNotFound proposalId)
 
     member _.Reject(proposalId: string): Result<AuthoringRejectionReceipt, AuthoringSessionError> =

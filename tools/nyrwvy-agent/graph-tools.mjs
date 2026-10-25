@@ -172,6 +172,12 @@ export function createGraphTools(schema) {
       /** @param {{ functions?: Record<string, unknown>[]; functionsFile?: string; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: "simulateCreateFunctionsByName", ...args }, context),
     }),
+    batch: defineTool({
+      description: "Propose several different edits as one proposal and one commit, applied in list order. Pass exactly one of steps or stepsFile (a JSON steps array beside the snapshot). A step is {kind, ...fields of that request}: createType, createTypes, createFunction, createFunctions, operations (simulateOperationsByName), replaceBody or replaceTarget. Each step sees the graph plus earlier steps. Any rejected step rejects the batch (error names stepIndex and stepKind); readiness is judged on the final result. " + reviewDetail,
+      args: { steps: schema.array(object).optional(), stepsFile: schema.string().optional(), detail },
+      /** @param {{ steps?: Record<string, unknown>[]; stepsFile?: string; detail?: "compact" | "full" }} args */
+      execute: (args, context) => requestAuthoring({ op: "simulateBatchByName", ...args }, context),
+    }),
     replace: defineTool({
       description: "Propose a targeted graph edit, preserving unrelated nodes. Pass exactly one of replacement (a name-resolved ExpressionRecipe) or replacementFile (a JSON recipe file beside the snapshot). Use a targetNodeId from inspect; omit it for whole-body replacement. {kind:'originalTarget'} (at most once) stands for the target's old expression, so you can wrap it or insert a step before it. Review before commit. " + reviewDetail,
       args: { function: selector, targetNodeId: schema.string().optional(), replacement: recipe.optional(), replacementFile: schema.string().optional(), detail },

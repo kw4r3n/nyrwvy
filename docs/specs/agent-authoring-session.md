@@ -195,6 +195,7 @@ The maintained operation set is:
 | `simulateCreateFunction` | Simulate atomic function creation with an `ExpressionRecipe`. |
 | `simulateCreateFunctionByName` | Resolve display names to current semantic identities, then simulate function creation. |
 | `simulateCreateFunctionsByName` | Create the `functions` list in order in one candidate; each item takes the fields of `simulateCreateFunctionByName` and resolves against the current declarations plus the items before it ([decision](../decisions/function-creation-batches.md)). |
+| `simulateBatchByName` | Simulate the non-empty `steps` list (or `stepsFile`) in order as one proposal. A step is `{kind, ...}` with `kind` one of `createType`, `createTypes`, `createFunction`, `createFunctions`, `operations`, `replaceBody`, `replaceTarget` and the fields of the matching `simulate…ByName` request without `id`, `op`, `structuredReview`, `detail` and `expectedSnapshotId`. Each step resolves names against the current declarations plus the earlier steps. The first rejected step rejects the batch with `BatchStepRejected` (`stepIndex`, `stepKind`, `stepError`) and nothing is proposed. The candidate is the last step's result with a fresh ID and the current snapshot as parent, validated once against it; readiness is judged on that candidate only. The review is the first step's with the later steps' reviews under `steps` ([decision](../decisions/mixed-authoring-batches.md)). |
 | `simulateCreateTypeByName` | Resolve display-name type references, then simulate product/union creation. A type that names itself is created as a group of one. |
 | `simulateCreateTypesByName` | Simulate creating a group of product/union types that may name themselves and each other. |
 | `simulateCreateType` | Simulate atomic product/union declaration creation. Like every creation operation it takes optional `"exported": true`; a declaration is private otherwise ([declaration visibility](#declaration-visibility)). |
@@ -475,7 +476,7 @@ Every `simulate*` request accepts optional `"expectedSnapshotId": "<SnapshotId>"
 
 After commit, `readFunction` returns the published graph. `nodeCount` counts every node of the body, including those in nested branch, arm and Bind regions.
 
-For name-resolved creation, `simulateCreateFunctionByName` accepts exactly one of `body` or `bodyFile`. `simulateCreateFunctionsByName` accepts exactly one of `functions` or `functionsFile`; the file contains the JSON array itself. Each function in the array may also use `bodyFile`. `simulateReplaceBodyByName` and `simulateReplaceTargetByName` accept exactly one of `replacement` or `replacementFile`. File paths resolve against the snapshot's directory, must remain inside it, cannot pass through links, and are limited to 1 MiB. Invalid paths and JSON are protocol errors.
+For name-resolved creation, `simulateCreateFunctionByName` accepts exactly one of `body` or `bodyFile`. `simulateCreateFunctionsByName` accepts exactly one of `functions` or `functionsFile`; the file contains the JSON array itself. Each function in the array may also use `bodyFile`. `simulateReplaceBodyByName` and `simulateReplaceTargetByName` accept exactly one of `replacement` or `replacementFile`. `simulateBatchByName` accepts exactly one of `steps` or `stepsFile` (the file contains the JSON array itself), and its steps may use the file forms of their kinds. File paths resolve against the snapshot's directory, must remain inside it, cannot pass through links, and are limited to 1 MiB. Invalid paths and JSON are protocol errors.
 
 ### Create-function review projection
 
@@ -513,6 +514,7 @@ The maintained protocol also exposes a convenience layer for AI tool use when pe
 - `simulateCreateTypesByName`
 - `simulateCreateFunctionByName`
 - `simulateCreateFunctionsByName`
+- `simulateBatchByName`
 - `simulateReplaceBodyByName`
 - `simulateCreateCapabilityByName`
 - `simulateOperationsByName`
