@@ -58,10 +58,10 @@ module FunctionBatchAndBodyWrapTests =
             runs execute "first" 2 4
             let target = session.Declarations().Functions |> List.find (fun item -> item.DisplayName = "first")
             commit execute (execute $"""{{"id":"target","op":"simulateReplaceTargetByName","function":"first","targetNodeId":"{StableId.value target.Body.ResultNodeId}","replacementFile":"replacement.json"}}""")
-            Assert.Contains("exactly one", rejected (first.TrimEnd('}') + ",\"body\":" + n + "}"))
+            Assert.Contains("exactly one", rejected (first.Replace("\"displayName\":\"first\"", "\"displayName\":\"third\"").TrimEnd('}') + ",\"body\":" + n + "}"))
             Assert.Contains("exactly one", rejected """{"id":"both","op":"simulateCreateFunctionsByName","functions":[],"functionsFile":"functions.json"}""")
             Assert.Contains("exactly one", rejected """{"id":"both","op":"simulateReplaceBodyByName","function":"first","replacement":{"kind":"parameter","name":"n"},"replacementFile":"replacement.json"}""")
-            Assert.Contains("stay inside", rejected (first.Replace("body.json", "../outside.json")))
+            Assert.Contains("stay inside", rejected (first.Replace("\"displayName\":\"first\"", "\"displayName\":\"third\"").Replace("body.json", "../outside.json")))
             Assert.Contains("stay inside", rejected """{"id":"escape","op":"simulateCreateFunctionsByName","functionsFile":"../outside.json"}""")
             Assert.Contains("stay inside", rejected """{"id":"escape","op":"simulateReplaceBodyByName","function":"first","replacementFile":"../outside.json"}"""))
 
