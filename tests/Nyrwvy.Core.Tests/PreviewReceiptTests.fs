@@ -55,6 +55,110 @@ module PreviewReceiptTests =
         if result.Receipt.ProposedSemanticFingerprint <> expectedSemantic then
             failwith "Preview receipt semantic fingerprint differs from direct computation."
 
+    [<Theory>]
+    [<InlineData("type")>]
+    [<InlineData("function")>]
+    [<InlineData("field")>]
+    [<InlineData("variant")>]
+    [<InlineData("parameter")>]
+    [<InlineData("effect")>]
+    [<InlineData("capability")>]
+    [<InlineData("operation")>]
+    [<InlineData("capability-parameter")>]
+    let ``every display-name rename retains the direct proposed semantic fingerprint`` (kind: string) =
+        Assert.Equal(9, Microsoft.FSharp.Reflection.FSharpType.GetUnionCases(typeof<RenameTarget>).Length)
+        let fixture = MilestoneZeroGraph.create ()
+        let target =
+            match kind with
+            | "type" -> RenameTarget.TypeTarget fixture.PolicyTypeId
+            | "function" -> RenameTarget.FunctionTarget fixture.ValidateFunctionId
+            | "field" ->
+                fixture.Snapshot.Types |> List.pick (fun t ->
+                    match t.Kind with
+                    | SemanticTypeKind.Product(field :: _) -> Some(RenameTarget.FieldTarget field.Id)
+                    | _ -> None)
+            | "variant" ->
+                fixture.Snapshot.Types |> List.pick (fun t ->
+                    match t.Kind with
+                    | SemanticTypeKind.Union(variant :: _) -> Some(RenameTarget.VariantTarget variant.Id)
+                    | _ -> None)
+            | "parameter" -> RenameTarget.ParameterTarget fixture.ValidateInputParameterId
+            | "effect" -> RenameTarget.EffectTarget fixture.ConsoleEffectId
+            | "capability" -> RenameTarget.CapabilityTarget fixture.ConsoleCapabilityId
+            | "operation" -> RenameTarget.CapabilityOperationTarget fixture.ConsoleWriteLineOperationId
+            | "capability-parameter" ->
+                fixture.Snapshot.Capabilities
+                |> List.collect (fun c -> c.Operations)
+                |> List.pick (fun op -> op.Parameters |> List.tryHead)
+                |> fun p -> RenameTarget.CapabilityParameterTarget p.Id
+            | _ -> failwith "unknown rename target"
+        let request =
+            { renameRequest fixture ("rename-" + kind) ("renamed-" + kind) "renamed" with
+                Operations = [ SemanticOperation.RenameDisplayName(target, "renamed") ] }
+        let result = preview (createWorkspace fixture) request
+        let direct = SemanticFingerprint.compute result.Simulation.ProposedSnapshot |> unwrap "direct fingerprint"
+        Assert.Equal(direct, result.Receipt.ProposedSemanticFingerprint)
+
+    [<Fact>]
+    let ``reviewed rename reuses base semantic facts but still validates the regenerated candidate`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let workspace = createWorkspace fixture
+        let request = renameRequest fixture "rename-reuse" "snapshot-rename-reuse" "renamed"
+        let reviewed =
+            use scope = SnapshotComputationScope.Start(measure = true)
+            let result = preview workspace request
+            let semantic = scope.Measurements |> List.find (fun m -> m.Name = "semanticFingerprint")
+            Assert.Equal(1, semantic.Computations)
+            result
+        use scope = SnapshotComputationScope.Start(measure = true)
+        match SemanticWorkspace.commitReviewed workspace request reviewed.Receipt with
+        | WorkspaceCommitResult.Rejected errors -> failwithf "commit failed: %A" errors
+        | WorkspaceCommitResult.Committed(_, publication) -> Assert.Equal(reviewed.Receipt, publication.Receipt)
+        let semantic = scope.Measurements |> List.find (fun m -> m.Name = "semanticFingerprint")
+        Assert.Equal(0, semantic.Computations)
+        Assert.Equal(1, semantic.CacheHits)
+        let validation = scope.Measurements |> List.find (fun m -> m.Name = "validation")
+        Assert.Equal(1, validation.Computations)
+
+    [<Fact>]
+    let ``a mixed rename and visibility edit computes the proposed semantic state`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let request =
+            { renameRequest fixture "rename-and-visibility" "snapshot-rename-and-visibility" "renamed" with
+                Operations =
+                    [ SemanticOperation.RenameDisplayName(RenameTarget.FunctionTarget fixture.ValidateFunctionId, "renamed")
+                      SemanticOperation.SetExported(VisibilityTarget.FunctionTarget fixture.ValidateFunctionId, false) ] }
+        let result =
+            use scope = SnapshotComputationScope.Start(measure = true)
+            let result = preview (createWorkspace fixture) request
+            let semantic = scope.Measurements |> List.find (fun m -> m.Name = "semanticFingerprint")
+            Assert.Equal(1, semantic.Computations)
+            result
+        let direct = SemanticFingerprint.compute result.Simulation.ProposedSnapshot |> unwrap "direct fingerprint"
+        let original = SemanticFingerprint.compute fixture.Snapshot |> unwrap "base fingerprint"
+        Assert.Equal(direct, result.Receipt.ProposedSemanticFingerprint)
+        Assert.NotEqual(original, result.Receipt.ProposedSemanticFingerprint)
+
+    [<Fact>]
+    let ``a rename followed by an unchanged visibility operation is still rejected`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let request =
+            { renameRequest fixture "rename-noop" "snapshot-rename-noop" "renamed" with
+                Operations =
+                    [ SemanticOperation.RenameDisplayName(RenameTarget.FunctionTarget fixture.ValidateFunctionId, "renamed")
+                      SemanticOperation.SetExported(VisibilityTarget.FunctionTarget fixture.ValidateFunctionId, true) ] }
+        match SemanticWorkspace.simulate (createWorkspace fixture) request with
+        | WorkspaceSimulationResult.Rejected [ diagnostic ] -> Assert.Equal("VisibilityUnchanged", diagnostic.Code)
+        | other -> failwithf "Expected unchanged-visibility rejection, got %A" other
+
+    [<Fact>]
+    let ``an empty request cannot reach receipt creation`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let request = { renameRequest fixture "empty-request" "empty-proposed" "unused" with Operations = [] }
+        match SemanticWorkspace.simulate (createWorkspace fixture) request with
+        | WorkspaceSimulationResult.Rejected [ diagnostic ] -> Assert.Equal("NoOperations", diagnostic.Code)
+        | other -> failwithf "Expected empty-operation rejection, got %A" other
+
     [<Fact>]
     let ``reviewed commit publishes the exact re-simulated receipt`` () =
         let fixture = MilestoneZeroGraph.create ()

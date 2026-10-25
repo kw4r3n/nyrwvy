@@ -1,0 +1,29 @@
+{
+  "bytes": 159484,
+  "sha256": "3d276619c3c59439c39ec6769c7b75bbe9348537df76d6da9815368742f97496",
+  "completeFiles": [
+    "docs/verification/nyrec-scaling-20261025.md",
+    "docs/verification/nyrec-scaling-20261025/environment.json",
+    "evaluation/nyrec-scaling/profile.fsx",
+    "evaluation/nyrec-scaling/profile.py",
+    "evaluation/nyrec-scaling/summarize.py",
+    "src/Nyrwvy.Semantics/SnapshotComputationScope.fs"
+  ],
+  "sourceExcerptFiles": [
+    "src/Nyrwvy.Semantics/Validation.fs",
+    "src/Nyrwvy.Semantics/SemanticFacts.fs",
+    "src/Nyrwvy.Semantics/SnapshotCodec.fs",
+    "src/Nyrwvy.Semantics/Fingerprint.fs",
+    "src/Nyrwvy.Semantics/RecordCodec.fs",
+    "tools/Nyrwvy.AuthoringSession/Session.fs",
+    "src/Nyrwvy.Semantics/Workspace.fs"
+  ],
+  "rawData": "all 3 measured samples for listed groups; warmups omitted",
+  "destination": "https://api.anthropic.com",
+  "tools": false,
+  "model": "opus",
+  "effort": "high",
+  "actualModel": "claude-opus-5-5",
+  "durationMs": 349052,
+  "isError": false
+}

@@ -1,0 +1,33 @@
+{
+  "revision": "a5b6f0b56242af081951cf9c2e8ec823130f8bc5",
+  "dotnet": "10.0.113",
+  "platform": "Linux-7.3.0-4-cachyos-x86_64-with-glibc2.44",
+  "cpu": "AMD Ryzen 9 5900X 12-Core Processor",
+  "filesystem": "btrfs on NVMe /dev/nvme0n1p6; /tmp is tmpfs",
+  "clockFrequency": 1000000000,
+  "warmups": 1,
+  "samples": 3,
+  "copyCounts": [
+    100,
+    1000,
+    3000
+  ],
+  "baselineTimingsAreAuthoritative": false,
+  "api": "AuthoringSession.openExisting / SimulateOperations RenameDisplayName / Commit RejectBlockingObligations",
+  "dependencies": false,
+  "transportIncluded": false,
+  "serverGC": true,
+  "filesystemMountOptions": "rw,nosuid,nodev,noatime,compress=zstd:1,ssd,discard=async,space_cache=v2,subvolid=257,subvol=/@home",
+  "runtimeEnvironment": {
+    "DOTNET_gcServer": "default",
+    "DOTNET_gcConcurrent": "default",
+    "DOTNET_TieredCompilation": "default",
+    "DOTNET_TieredPGO": "default",
+    "COMPlus_gcServer": "default"
+  },
+  "headlineTimings": "FSI Server GC API-call measurements only; control.jsonl counters off. Stock-host Workstation GC timing pending.",
+  "stockHostRuntimeConfig": "tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.runtimeconfig.json",
+  "stockRuntimeConfigServerGCProbe": false,
+  "workstationGCOverrideProbe": false,
+  "matchedStockGCControlRun": false
+}

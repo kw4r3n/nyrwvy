@@ -58,27 +58,28 @@ module SnapshotCodec =
         =
         ensureObject context element
 
-        let propertyNames =
-            element.EnumerateObject()
-            |> Seq.map (fun property ->
+        let actual = HashSet<string>(allowed.Count, StringComparer.Ordinal)
+        let mutable duplicate = false
+        let mutable unsupported = false
+        for property in element.EnumerateObject() do
+            let name =
                 try property.Name
                 with :? InvalidOperationException as error ->
-                    invalidShape $"Invalid JSON property name encoding: {error.Message}")
-            |> List.ofSeq
+                    invalidShape $"Invalid JSON property name encoding: {error.Message}"
+            if not (actual.Add name) then duplicate <- true
+            if not (allowed.Contains name) then unsupported <- true
 
-        let actual = Set.ofList propertyNames
-
-        if propertyNames.Length <> actual.Count then
+        // Decode every name before reporting duplicates, retaining malformed-name error precedence.
+        if duplicate then
             invalidShape $"{context} contains duplicate property names."
 
-        let missing = Set.difference required actual
-        let unexpected = Set.difference actual allowed
-
-        if not missing.IsEmpty then
+        if required |> Set.exists (fun name -> not (actual.Contains name)) then
+            let missing = required |> Set.filter (fun name -> not (actual.Contains name))
             let missingText = String.Join(", ", missing)
             invalidShape $"{context} is missing required properties: {missingText}."
 
-        if not unexpected.IsEmpty then
+        if unsupported then
+            let unexpected = actual |> Seq.filter (fun name -> not (allowed.Contains name)) |> Set.ofSeq
             let unexpectedText = String.Join(", ", unexpected)
             invalidShape $"{context} contains unsupported properties: {unexpectedText}."
 
@@ -1335,7 +1336,7 @@ module SnapshotCodec =
         try
             writeSnapshotBody writer atLeast dependencyMarker snapshot
             writer.Flush()
-            Ok(Encoding.UTF8.GetString(stream.ToArray()))
+            Ok(Encoding.UTF8.GetString(stream.GetBuffer(), 0, int stream.Length))
         with :? InvalidOperationException when writer.CurrentDepth >= maxJsonDepth ->
             Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
 
@@ -1435,6 +1436,9 @@ module SnapshotCodec =
     let internal serializeResolvedCanonical (dependency: Snapshot) (local: Snapshot): Result<string, SnapshotCodecError> =
         serializeResolvedAt None dependency local
 
+    let private unaryNodeProperties = set [ "id"; "kind"; "valueNodeId" ]
+    let private typedDeclarationProperties = set [ "id"; "displayName"; "type" ]
+
     let rec private readTypeRef (element: JsonElement): TypeRef =
         let kind = readString "kind" element
         match kind with
@@ -1500,7 +1504,7 @@ module SnapshotCodec =
             | arguments -> arguments
 
     let private readField (element: JsonElement): SemanticField =
-        ensureProperties "Field" (set [ "id"; "displayName"; "type" ]) (set [ "id"; "displayName"; "type" ]) element
+        ensureProperties "Field" typedDeclarationProperties typedDeclarationProperties element
         { Id = readId<FieldTag> "id" element
           DisplayName = readString "displayName" element
           Type = readTypeRef (requireProperty "type" element) }
@@ -1566,7 +1570,7 @@ module SnapshotCodec =
           Exported = readVisibility explicitVisibility element }
 
     let private readCapabilityParameter (element: JsonElement): SemanticCapabilityParameter =
-        ensureProperties "Capability parameter" (set [ "id"; "displayName"; "type" ]) (set [ "id"; "displayName"; "type" ]) element
+        ensureProperties "Capability parameter" typedDeclarationProperties typedDeclarationProperties element
         { Id = readId<CapabilityParameterTag> "id" element
           DisplayName = readString "displayName" element
           Type = readTypeRef (requireProperty "type" element) }
@@ -1593,7 +1597,7 @@ module SnapshotCodec =
           Operations = readArray "operations" readCapabilityOperation element }
 
     let private readParameter (element: JsonElement): SemanticParameter =
-        ensureProperties "Parameter" (set [ "id"; "displayName"; "type" ]) (set [ "id"; "displayName"; "type" ]) element
+        ensureProperties "Parameter" typedDeclarationProperties typedDeclarationProperties element
         { Id = readId<ParameterTag> "id" element
           DisplayName = readString "displayName" element
           Type = readTypeRef (requireProperty "type" element) }
@@ -1618,7 +1622,7 @@ module SnapshotCodec =
           ValueNodeId = readId<GraphNodeTag> "valueNodeId" element }
 
     let private readPatternBinding (element: JsonElement): PatternBinding =
-        ensureProperties "Pattern binding" (set [ "id"; "type" ]) (set [ "id"; "displayName"; "type" ]) element
+        ensureProperties "Pattern binding" (set [ "id"; "type" ]) typedDeclarationProperties element
         let displayName =
             match tryProperty "displayName" element with
             | Some _ -> Some(readString "displayName" element)
@@ -1645,8 +1649,8 @@ module SnapshotCodec =
     let private readUnaryNode kind element constructor =
         ensureProperties
             kind
-            (set [ "id"; "kind"; "valueNodeId" ])
-            (set [ "id"; "kind"; "valueNodeId" ])
+            unaryNodeProperties
+            unaryNodeProperties
             element
         constructor (readId<GraphNodeTag> "valueNodeId" element)
 
@@ -1703,76 +1707,76 @@ module SnapshotCodec =
                 ensureProperties "Float64 literal node" (set [ "id"; "kind"; "bits" ]) (set [ "id"; "kind"; "bits" ]) element
                 SemanticNodeKind.Float64Literal(readFloat64Bits "bits" element)
             | "stringIsEmpty" ->
-                ensureProperties "StringIsEmpty node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringIsEmpty node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringIsEmpty(readId<GraphNodeTag> "valueNodeId" element)
             | "int64ToString" ->
-                ensureProperties "Int64ToString node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "Int64ToString node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.Int64ToString(readId<GraphNodeTag> "valueNodeId" element)
             | "int64ToHexString" ->
-                ensureProperties "Int64ToHexString node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "Int64ToHexString node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.Int64ToHexString(readId<GraphNodeTag> "valueNodeId" element)
             | "stringParseInt64" ->
-                ensureProperties "StringParseInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringParseInt64 node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringParseInt64(readId<GraphNodeTag> "valueNodeId" element)
             | "stringParseInt64Hex" ->
-                ensureProperties "StringParseInt64Hex node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringParseInt64Hex node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringParseInt64Hex(readId<GraphNodeTag> "valueNodeId" element)
             | "float64ToString" ->
-                ensureProperties "Float64ToString node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "Float64ToString node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.Float64ToString(readId<GraphNodeTag> "valueNodeId" element)
             | "stringParseFloat64" ->
-                ensureProperties "StringParseFloat64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringParseFloat64 node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringParseFloat64(readId<GraphNodeTag> "valueNodeId" element)
             | "stringCodePoints" ->
-                ensureProperties "StringCodePoints node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringCodePoints node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringCodePoints(readId<GraphNodeTag> "valueNodeId" element)
             | "stringToLower" ->
-                ensureProperties "StringToLower node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringToLower node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringToLower(readId<GraphNodeTag> "valueNodeId" element)
             | "stringToUpper" ->
-                ensureProperties "StringToUpper node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringToUpper node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringToUpper(readId<GraphNodeTag> "valueNodeId" element)
             | "stringDecodeUtf8Lossy" ->
-                ensureProperties "StringDecodeUtf8Lossy node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringDecodeUtf8Lossy node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringDecodeUtf8Lossy(readId<GraphNodeTag> "valueNodeId" element)
             | "stringEncodeUtf8" ->
-                ensureProperties "StringEncodeUtf8 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringEncodeUtf8 node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringEncodeUtf8(readId<GraphNodeTag> "valueNodeId" element)
             | "float64RoundToInt64" ->
-                ensureProperties "Float64RoundToInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "Float64RoundToInt64 node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.Float64RoundToInt64(readId<GraphNodeTag> "valueNodeId" element)
             | "float64FloorToInt64" ->
-                ensureProperties "Float64FloorToInt64 node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "Float64FloorToInt64 node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.Float64FloorToInt64(readId<GraphNodeTag> "valueNodeId" element)
             | "float64Sqrt" ->
-                ensureProperties "Float64Sqrt node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "Float64Sqrt node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.Float64Sqrt(readId<GraphNodeTag> "valueNodeId" element)
             | "float64Abs" ->
-                ensureProperties "Float64Abs node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "Float64Abs node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.Float64Abs(readId<GraphNodeTag> "valueNodeId" element)
             | "float64Negate" ->
-                ensureProperties "Float64Negate node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "Float64Negate node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.Float64Negate(readId<GraphNodeTag> "valueNodeId" element)
             | "float64Floor" ->
-                ensureProperties "Float64Floor node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "Float64Floor node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.Float64Floor(readId<GraphNodeTag> "valueNodeId" element)
             | "float64Ceiling" ->
-                ensureProperties "Float64Ceiling node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "Float64Ceiling node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.Float64Ceiling(readId<GraphNodeTag> "valueNodeId" element)
             | "float64Truncate" ->
-                ensureProperties "Float64Truncate node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "Float64Truncate node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.Float64Truncate(readId<GraphNodeTag> "valueNodeId" element)
             | "stringUtf8ByteCount" ->
-                ensureProperties "StringUtf8ByteCount node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringUtf8ByteCount node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringUtf8ByteCount(readId<GraphNodeTag> "valueNodeId" element)
             | "stringFromCodePoint" ->
-                ensureProperties "StringFromCodePoint node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringFromCodePoint node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringFromCodePoint(readId<GraphNodeTag> "valueNodeId" element)
             | "stringToCodePoint" ->
-                ensureProperties "StringToCodePoint node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringToCodePoint node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringToCodePoint(readId<GraphNodeTag> "valueNodeId" element)
             | "stringLength" ->
-                ensureProperties "StringLength node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "StringLength node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.StringLength(readId<GraphNodeTag> "valueNodeId" element)
             | "stringSlice" ->
                 ensureProperties
@@ -1869,7 +1873,7 @@ module SnapshotCodec =
                     | "stringTrimStart" -> "StringTrimStart node", SemanticNodeKind.StringTrimStart
                     | "stringTrimEnd" -> "StringTrimEnd node", SemanticNodeKind.StringTrimEnd
                     | _ -> "StringTrim node", SemanticNodeKind.StringTrim
-                ensureProperties label (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties label unaryNodeProperties unaryNodeProperties element
                 build (readId<GraphNodeTag> "valueNodeId" element)
             | "stringEqual" ->
                 readBinaryNode "StringEqual node" element (fun left right -> SemanticNodeKind.StringEqual(left, right))
@@ -2288,10 +2292,10 @@ module SnapshotCodec =
                 ensureProperties "ExceptionCatch node" (set [ "id"; "kind"; "bodyFunctionId"; "handlerFunctionId" ]) (set [ "id"; "kind"; "bodyFunctionId"; "handlerFunctionId"; "bodyContext"; "handlerContext" ]) element
                 SemanticNodeKind.ExceptionCatch(readId<FunctionTag> "bodyFunctionId" element, readNamedCallbackContext "bodyContext" element, readId<FunctionTag> "handlerFunctionId" element, readNamedCallbackContext "handlerContext" element)
             | "exceptionIsCancellation" ->
-                ensureProperties "ExceptionIsCancellation node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "ExceptionIsCancellation node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.ExceptionIsCancellation(readId<GraphNodeTag> "valueNodeId" element)
             | "exceptionMessage" ->
-                ensureProperties "ExceptionMessage node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "ExceptionMessage node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.ExceptionMessage(readId<GraphNodeTag> "valueNodeId" element)
             | "exceptionRethrow" ->
                 ensureProperties "ExceptionRethrow node" (set [ "id"; "kind"; "valueNodeId"; "resultType" ]) (set [ "id"; "kind"; "valueNodeId"; "resultType" ]) element
@@ -2387,16 +2391,16 @@ module SnapshotCodec =
                 ensureProperties "OptionOkOr node" (set [ "id"; "kind"; "optionNodeId"; "errorNodeId" ]) (set [ "id"; "kind"; "optionNodeId"; "errorNodeId" ]) element
                 SemanticNodeKind.OptionOkOr(readId<GraphNodeTag> "optionNodeId" element, readId<GraphNodeTag> "errorNodeId" element)
             | "resultOkValue" ->
-                ensureProperties "ResultOkValue node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "ResultOkValue node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.ResultOkValue(readId<GraphNodeTag> "valueNodeId" element)
             | "resultErrValue" ->
-                ensureProperties "ResultErrValue node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "ResultErrValue node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.ResultErrValue(readId<GraphNodeTag> "valueNodeId" element)
             | "optionIsSome" ->
-                ensureProperties "OptionIsSome node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "OptionIsSome node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.OptionIsSome(readId<GraphNodeTag> "valueNodeId" element)
             | "resultIsOk" ->
-                ensureProperties "ResultIsOk node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "ResultIsOk node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.ResultIsOk(readId<GraphNodeTag> "valueNodeId" element)
             | "optionMap" ->
                 ensureProperties "OptionMap node" (set [ "id"; "kind"; "sourceOptionNodeId"; "mapperFunctionId" ]) (set [ "id"; "kind"; "sourceOptionNodeId"; "mapperFunctionId"; "context" ]) element
@@ -2476,7 +2480,7 @@ module SnapshotCodec =
                 ensureProperties "Option.None node" (set [ "id"; "kind"; "itemType" ]) (set [ "id"; "kind"; "itemType" ]) element
                 SemanticNodeKind.OptionNone(readTypeRef (requireProperty "itemType" element))
             | "optionSome" ->
-                ensureProperties "Option.Some node" (set [ "id"; "kind"; "valueNodeId" ]) (set [ "id"; "kind"; "valueNodeId" ]) element
+                ensureProperties "Option.Some node" unaryNodeProperties unaryNodeProperties element
                 SemanticNodeKind.OptionSome(readId<GraphNodeTag> "valueNodeId" element)
             | "resultOk" ->
                 ensureProperties "Result.Ok node" (set [ "id"; "kind"; "errorType"; "valueNodeId" ]) (set [ "id"; "kind"; "errorType"; "valueNodeId" ]) element

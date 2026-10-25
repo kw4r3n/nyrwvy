@@ -187,17 +187,30 @@ module internal GraphOrder =
     /// (same body and declared effects) whose conflict already existed in `baseline`. A function
     /// that is new, edited, or newly ambiguous because a callee became observable is reported.
     let newEffectOrderConflicts (baseline: Snapshot) (proposed: Snapshot) : (SemanticFunction * GraphNodeId * GraphNodeId) list =
-        let observableAfter = semanticObservableFunctions proposed.Functions
-        let observableBefore = lazy (semanticObservableFunctions baseline.Functions)
-        let baseById = baseline.Functions |> List.map (fun fn -> fn.Id, fn) |> Map.ofList
-        proposed.Functions
-        |> List.choose (fun fn ->
-            match tryEffectOrderConflict observableAfter fn with
-            | None -> None
-            | Some(first, second) ->
-                let preExisting =
-                    match Map.tryFind fn.Id baseById with
-                    | Some old when old.Body = fn.Body && old.RequiredEffects = fn.RequiredEffects ->
-                        tryEffectOrderConflict observableBefore.Value old |> Option.isSome
-                    | _ -> false
-                if preExisting then None else Some(fn, first, second))
+        let functionIds = System.Collections.Generic.HashSet<FunctionId>()
+        let rec unchangedOrdering (before: SemanticFunction list) (after: SemanticFunction list) =
+            match before, after with
+            | [], [] -> true
+            | old :: oldRest, fn :: rest
+                when old.Id = fn.Id
+                     && functionIds.Add old.Id
+                     && obj.ReferenceEquals(old.Body, fn.Body)
+                     && old.RequiredEffects = fn.RequiredEffects -> unchangedOrdering oldRest rest
+            | _ -> false
+        // Metadata edits leave both observability and dependency order unchanged, including old conflicts.
+        if unchangedOrdering baseline.Functions proposed.Functions then []
+        else
+            let observableAfter = semanticObservableFunctions proposed.Functions
+            let observableBefore = lazy (semanticObservableFunctions baseline.Functions)
+            let baseById = baseline.Functions |> List.map (fun fn -> fn.Id, fn) |> Map.ofList
+            proposed.Functions
+            |> List.choose (fun fn ->
+                match tryEffectOrderConflict observableAfter fn with
+                | None -> None
+                | Some(first, second) ->
+                    let preExisting =
+                        match Map.tryFind fn.Id baseById with
+                        | Some old when old.Body = fn.Body && old.RequiredEffects = fn.RequiredEffects ->
+                            tryEffectOrderConflict observableBefore.Value old |> Option.isSome
+                        | _ -> false
+                    if preExisting then None else Some(fn, first, second))

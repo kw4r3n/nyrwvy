@@ -165,7 +165,12 @@ module SemanticWorkspace =
             match SnapshotFingerprint.compute simulation.ProposedSnapshot with
             | Error error -> Error [ fingerprintDiagnostic "Proposed snapshot" error ]
             | Ok proposedFingerprint ->
-                match SemanticFingerprint.compute simulation.ProposedSnapshot with
+                // Renames leave the normalized state unchanged; the immutable base survives reviewed re-simulation.
+                let semanticSnapshot =
+                    if request.Operations |> List.forall (function SemanticOperation.RenameDisplayName _ -> true | _ -> false) then
+                        baseSnapshot
+                    else simulation.ProposedSnapshot
+                match SemanticFingerprint.compute semanticSnapshot with
                 | Error error -> Error [ fingerprintDiagnostic "Proposed semantic state" error ]
                 | Ok semanticFingerprint ->
                     Ok(

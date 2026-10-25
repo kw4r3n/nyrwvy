@@ -1,0 +1,8 @@
+{
+  "src/Nyrwvy.Semantics/SnapshotCodec.fs": "986366c1fdd7cee37c49adab829c1e99038aac1cfa472750f2c0663b38c156b8",
+  "src/Nyrwvy.Semantics/Validation.fs": "c120097df9f19ad5d03186c6fecf658c39ec054f844d9d6674bb499d47961287",
+  "src/Nyrwvy.Semantics/SemanticFacts.fs": "2d7461bab17e8c0ae9baf1eb49f4f3c69e12b579f449d4e898a5da65d33ea858",
+  "src/Nyrwvy.Semantics/Fingerprint.fs": "577608fd5c75ddfbb37db28590585a7cc988e5b285d43c27f3fa03f1177930cc",
+  "src/Nyrwvy.Execution/Nyrwvy.Execution.fsproj": "97911ec91eab0bec20c8d5011e7a5fdff91686cc683e7768f1dbb50ce808407c",
+  "src/Nyrwvy.Execution/ExecutionIrInterpreter.fs": "26c40d2d90e96a2f6d218e80f29dbde02907f1691ee1be54502ffed79f2d50b5"
+}

@@ -1,0 +1,47 @@
+✔ authoring transport serializes calls and preserves split JSONL responses (38.416807ms)
+✔ typed Float64 values survive transport in arguments, expectations and fake responses without weakening integer guards (32.378413ms)
+✔ stdout EOF while idle invalidates the session before another request (24.652298ms)
+✔ cancelling a sent request rejects its queue without replaying mutations (28.415477ms)
+✔ a missing workspace directory is reported before anything is launched (1.531996ms)
+✔ lost responses reject pending and queued calls without retrying mutations (29.68053ms)
+✔ healthy close drains a final response even when process exit precedes stdout drainage (27.836336ms)
+✔ healthy close drains in-flight and queued responses before EOF, and concurrent closes join (38.109739ms)
+✔ close bounds a hung request queue, settles all callers, and never replays a sent mutation (32.113073ms)
+✔ close escalates EOF and ignored SIGTERM and waits for the child's close event (28.774474ms)
+✔ transport failure reaps a SIGTERM-ignoring child even before explicit close (33.891602ms)
+✔ an unreaped child keeps its authoring slot even when the SIGKILL wait expires (67.325453ms)
+✔ concurrent opens of one session start at most one child (32.635006ms)
+✔ a close racing an open closes the child that open starts (27.474786ms)
+✔ close bounds a silent initial status, settles open and close, and permits reopening (10096.272986ms)
+✔ a close before spawn waits for the owned child and keeps duplicate opens out (46.180693ms)
+✔ a close racing a failure before spawn releases the reservation for reopening (47.260096ms)
+✔ startup failures surface the session's own diagnostic without replay advice (323.7445ms)
+✔ a cancelled open does not create a snapshot or reserve a session (243.367812ms)
+✔ authoring sessions are isolated by both worktree and session ID (267.883643ms)
+✔ ordinary tool bridge authors Verification Planner and maintains one branch across reopen (1552.381036ms)
+✔ structured reads preserve exact literals and duplicate display names are refused on every creation route (831.599351ms)
+✔ structured review and read retain nested branch scopes across reopen (1232.991535ms)
+✔ Node ownership discovers every maintained test, including new files, and rejects gaps or overlaps (23.238545ms)
+✔ Node discovery rejects a tracked test file missing from the working tree (14.173179ms)
+✔ Node shards are disjoint and exhaustive and reject malformed selectors (1.064555ms)
+✔ maintained entry points select shared discovery and keep ordinary and MCP coverage in root npm (7.934657ms)
+✔ suite wrappers forward dotnet arguments once and propagate either stage's failure (48.755693ms)
+✔ every recipe kind has a reference entry, and self calls document keepUnlisted (1.789431ms)
+✔ every generated fixed signature is listed under one category (3.690392ms)
+✔ patternReference guidance counts empty frames without guessing the intended binding (0.264969ms)
+✔ saved fixtures keep Unicode and send the ordinary MCP wrapper unchanged, retaining full evidence (15.360946ms)
+✔ mismatches, semantic errors and missing comparison results never count as passes (2.543271ms)
+✔ transport interruption is unknown, records the sent request and stops without replay (1.726011ms)
+✔ only expected-bearing run requests are accepted before any server is started (4.909297ms)
+✔ the real CLI resolves the workspace-owned SDK and crosses MCP before running fixtures (482.951485ms)
+✔ production F# sources are owned and compiled by their physical assembly directory (8.709106ms)
+✔ clean verification removes only project outputs and preserves dependency executables (49.169262ms)
+✔ verification fails when the test run leaves only a stale encoding report (20.548327ms)
+ℹ tests 39
+ℹ suites 0
+ℹ pass 39
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 10765.108401

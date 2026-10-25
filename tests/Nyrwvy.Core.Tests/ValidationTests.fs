@@ -14,6 +14,82 @@ module ValidationTests =
         let issues = SnapshotValidator.validate fixture.Snapshot
         Assert.Empty(issues)
 
+    let private withResolvedObligation (fixture: GraphFixture) =
+        let transactionId = StableId.createForTesting<TransactionTag> "transaction-owner-check"
+        { fixture.Snapshot with
+            Obligations =
+                [ { Id = StableId.createForTesting<ObligationTag> "obligation-owner-check"
+                    OriginTransactionId = transactionId
+                    CallNodeId = fixture.RunCallNodeId
+                    ParameterId = fixture.ValidateInputParameterId
+                    Status =
+                        ObligationStatus.Resolved
+                            { TransactionId = transactionId
+                              ValueNodeId = fixture.RunInputNodeId } } ] }
+
+    [<Fact>]
+    let ``resolved obligation accepts a value owned by its caller`` () =
+        TestGraph.create () |> withResolvedObligation |> SnapshotValidator.validate |> Assert.Empty
+
+    [<Theory>]
+    [<InlineData("call", false)>]
+    [<InlineData("call", true)>]
+    [<InlineData("value", false)>]
+    [<InlineData("value", true)>]
+    let ``duplicate node ownership keeps last owner diagnostics without leaking function types`` duplicateKind duplicateLast =
+        let fixture = TestGraph.create ()
+        let snapshot = withResolvedObligation fixture
+        let duplicateId = if duplicateKind = "call" then fixture.RunCallNodeId else fixture.RunInputNodeId
+        let duplicate: SemanticFunction =
+            { Exported = true
+              Id = StableId.createForTesting<FunctionTag> "function-duplicate-owner"
+              DisplayName = "duplicate_owner"
+              TypeParameters = []
+              Parameters = []
+              ResultType = TypeRef.Primitive PrimitiveType.Int64
+              RequiredEffects = []
+              Body =
+                { Nodes = [ { Id = duplicateId; Kind = SemanticNodeKind.Int64Literal 1L } ]
+                  ResultNodeId = duplicateId } }
+        let functions =
+            if duplicateLast then snapshot.Functions @ [ duplicate ]
+            else duplicate :: snapshot.Functions
+        let obligation = List.exactlyOne snapshot.Obligations
+        let expected: ValidationIssue list =
+            [ { Code = "DuplicateGraphNodeId"
+                Message = $"Graph node ID '{StableId.value duplicateId}' occurs more than once." }
+              if duplicateLast then
+                  if duplicateKind = "call" then
+                      { Code = "InvalidObligationTarget"
+                        Message = $"Obligation '{StableId.value obligation.Id}' does not target a direct-call node." }
+                  else
+                      { Code = "InvalidObligationResolutionValue"
+                        Message = $"Resolved obligation '{StableId.value obligation.Id}' references a value node outside the call's owning function." } ]
+        Assert.Equal<ValidationIssue list>(expected, SnapshotValidator.validate { snapshot with Functions = functions })
+
+    [<Theory>]
+    [<InlineData("call")>]
+    [<InlineData("value")>]
+    let ``obligation ownership checks preserve unknown node diagnostics`` missingKind =
+        let snapshot = TestGraph.create () |> withResolvedObligation
+        let obligation = List.exactlyOne snapshot.Obligations
+        let missingId = StableId.createForTesting<GraphNodeTag> "node-owner-missing"
+        let changed, expected: MissingArgumentObligation * ValidationIssue list =
+            if missingKind = "call" then
+                { obligation with CallNodeId = missingId },
+                [ { Code = "InvalidObligationTarget"
+                    Message = $"Obligation '{StableId.value obligation.Id}' targets unknown graph node '{StableId.value missingId}'." } ]
+            else
+                let resolution =
+                    { TransactionId = obligation.OriginTransactionId
+                      ValueNodeId = missingId }
+                { obligation with Status = ObligationStatus.Resolved resolution },
+                [ { Code = "InvalidObligationResolution"
+                    Message = $"Resolved obligation '{StableId.value obligation.Id}' does not match the call's argument binding." }
+                  { Code = "InvalidObligationResolutionValue"
+                    Message = $"Resolved obligation '{StableId.value obligation.Id}' references a value node outside the call's owning function." } ]
+        Assert.Equal<ValidationIssue list>(expected, SnapshotValidator.validate { snapshot with Obligations = [ changed ] })
+
     [<Fact>]
     let ``null string literals are rejected`` () =
         let fixture = TestGraph.create ()

@@ -1,0 +1,483 @@
+{
+  "baseCommit": "a5b6f0b56242af081951cf9c2e8ec823130f8bc5",
+  "gcMode": "Workstation (DOTNET_gcServer=0)",
+  "scopeCounters": false,
+  "instrumentation": false,
+  "copies": [
+    1000,
+    3000
+  ],
+  "measuredSamples": 3,
+  "warmupSamples": 1,
+  "profileFsxSha256": "f979db7d110069afb21fbf7bfecf172a8a02218f032c099dcf7500f6f11e866c",
+  "changedProductionSources": [
+    "src/Nyrwvy.Semantics/Fingerprint.fs",
+    "src/Nyrwvy.Semantics/GraphOrder.fs",
+    "src/Nyrwvy.Semantics/SnapshotCodec.fs",
+    "src/Nyrwvy.Semantics/Validation.fs",
+    "src/Nyrwvy.Semantics/Workspace.fs"
+  ],
+  "allOtherMirroredSourceHashesEqual": true,
+  "sources": [
+    {
+      "path": "Directory.Build.props",
+      "before": "815f28b2d9da54980c10b1b3a53ee126f08b35381626c12cba57ad14b57ee7b1",
+      "after": "815f28b2d9da54980c10b1b3a53ee126f08b35381626c12cba57ad14b57ee7b1"
+    },
+    {
+      "path": "global.json",
+      "before": "687318203b29066b8ce9465540d53dadeef6195d0380cf08d373867e116348f8",
+      "after": "687318203b29066b8ce9465540d53dadeef6195d0380cf08d373867e116348f8"
+    },
+    {
+      "path": "src/Nyrwvy.Backend.CSharp/CSharpBackendEmitter.fs",
+      "before": "e2c07c2905d42bc95bcdf24a04aa5d0bfd205cf2a0465a933196f12997440a94",
+      "after": "e2c07c2905d42bc95bcdf24a04aa5d0bfd205cf2a0465a933196f12997440a94"
+    },
+    {
+      "path": "src/Nyrwvy.Backend.CSharp/CSharpBackendModel.fs",
+      "before": "4073c0f782d4e96b3d66441555f27232e853e7f79ba3fb89cc972e6f31381973",
+      "after": "4073c0f782d4e96b3d66441555f27232e853e7f79ba3fb89cc972e6f31381973"
+    },
+    {
+      "path": "src/Nyrwvy.Backend.CSharp/CSharpBackendRuntime.fs",
+      "before": "dfe3d4a052149d29d6504580a9e7344c231035c95ed0e4571606f2a6381410e7",
+      "after": "dfe3d4a052149d29d6504580a9e7344c231035c95ed0e4571606f2a6381410e7"
+    },
+    {
+      "path": "src/Nyrwvy.Backend.CSharp/CSharpBackendValidation.fs",
+      "before": "9ed761d7113bda07f51906bcd3e2c529a1e96c5f439c62d2d04a7773da3d14bd",
+      "after": "9ed761d7113bda07f51906bcd3e2c529a1e96c5f439c62d2d04a7773da3d14bd"
+    },
+    {
+      "path": "src/Nyrwvy.Backend.CSharp/Nyrwvy.Backend.CSharp.fsproj",
+      "before": "f4ed54cd26acbbef6e97b96f0ef163b3a652590e6534c0549f62c820f48dbfd4",
+      "after": "f4ed54cd26acbbef6e97b96f0ef163b3a652590e6534c0549f62c820f48dbfd4"
+    },
+    {
+      "path": "src/Nyrwvy.Execution/AgentExecution.fs",
+      "before": "10968a1b1553dd3dcf6010f4399bbbb4df0970caff50aae3085528bffc0a890e",
+      "after": "10968a1b1553dd3dcf6010f4399bbbb4df0970caff50aae3085528bffc0a890e"
+    },
+    {
+      "path": "src/Nyrwvy.Execution/ExecutionCallGraph.fs",
+      "before": "f6185285ea4c65ff80c705d3c371111f885ec6eecef61693e6810633677aaacf",
+      "after": "f6185285ea4c65ff80c705d3c371111f885ec6eecef61693e6810633677aaacf"
+    },
+    {
+      "path": "src/Nyrwvy.Execution/ExecutionIrAnalysis.fs",
+      "before": "29ecf7ccc4fa1b3195a3126d629fe8be86a31d0d09161346edc7a7cb4b4a9eea",
+      "after": "29ecf7ccc4fa1b3195a3126d629fe8be86a31d0d09161346edc7a7cb4b4a9eea"
+    },
+    {
+      "path": "src/Nyrwvy.Execution/ExecutionIrDeclarations.fs",
+      "before": "f96e08ce5e39d798d1f76ec5f8ec2a41ce97e89386849f206fae0746fd71e4ea",
+      "after": "f96e08ce5e39d798d1f76ec5f8ec2a41ce97e89386849f206fae0746fd71e4ea"
+    },
+    {
+      "path": "src/Nyrwvy.Execution/ExecutionIrInterpreter.fs",
+      "before": "26c40d2d90e96a2f6d218e80f29dbde02907f1691ee1be54502ffed79f2d50b5",
+      "after": "26c40d2d90e96a2f6d218e80f29dbde02907f1691ee1be54502ffed79f2d50b5"
+    },
+    {
+      "path": "src/Nyrwvy.Execution/ExecutionIrLoweringCore.fs",
+      "before": "b460ea4821ce925352e7b44510bae2e85e2d83eff18c813de10611030bdc0151",
+      "after": "b460ea4821ce925352e7b44510bae2e85e2d83eff18c813de10611030bdc0151"
+    },
+    {
+      "path": "src/Nyrwvy.Execution/ExecutionIrModel.fs",
+      "before": "e94d16117f2a76439fc86753080eecc46927851e2f33846439f7a1454b14d09e",
+      "after": "e94d16117f2a76439fc86753080eecc46927851e2f33846439f7a1454b14d09e"
+    },
+    {
+      "path": "src/Nyrwvy.Execution/ExecutionIrSerializer.fs",
+      "before": "70a6ddca392257336defffa2eba135efdcd811aa825ec2eb1706187361a356c7",
+      "after": "70a6ddca392257336defffa2eba135efdcd811aa825ec2eb1706187361a356c7"
+    },
+    {
+      "path": "src/Nyrwvy.Execution/Nyrwvy.Execution.fsproj",
+      "before": "97911ec91eab0bec20c8d5011e7a5fdff91686cc683e7768f1dbb50ce808407c",
+      "after": "97911ec91eab0bec20c8d5011e7a5fdff91686cc683e7768f1dbb50ce808407c"
+    },
+    {
+      "path": "src/Nyrwvy.Execution/TypedSemanticIr.fs",
+      "before": "cb07337c80ce69d32b0b5db9b39bf12acdc26cfa77eff512214cb37b1734c78f",
+      "after": "cb07337c80ce69d32b0b5db9b39bf12acdc26cfa77eff512214cb37b1734c78f"
+    },
+    {
+      "path": "src/Nyrwvy.Execution/TypedSemanticIrSerializer.fs",
+      "before": "9d57b40eb57eb838550e94a78f228cdb195ff6bf0fb2c49ec1f785758d13653c",
+      "after": "9d57b40eb57eb838550e94a78f228cdb195ff6bf0fb2c49ec1f785758d13653c"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/AgentCapabilityDeclarationWorkflow.fs",
+      "before": "17094a349cd9cc20dec3f601f4b4ae67e0ee0e37f55559520706b6855e7ef0f0",
+      "after": "17094a349cd9cc20dec3f601f4b4ae67e0ee0e37f55559520706b6855e7ef0f0"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/AgentCapabilityOperationSignatureMigrationWorkflow.fs",
+      "before": "c9c7121962de16668a3f69c2c0225d85785d1e775c4767a60591d35dde0938d9",
+      "after": "c9c7121962de16668a3f69c2c0225d85785d1e775c4767a60591d35dde0938d9"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/AgentDependencyUpgradeWorkflow.fs",
+      "before": "e59e2279f4567328cbda7b9d37955d3a97ad8d67c90d01d2fe34c583229525fc",
+      "after": "e59e2279f4567328cbda7b9d37955d3a97ad8d67c90d01d2fe34c583229525fc"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/AgentEffectDeclarationWorkflow.fs",
+      "before": "bd20863b0fa9309e1cbcfecb75952f0244585c1cedd5887757ff0b05ae8407cb",
+      "after": "bd20863b0fa9309e1cbcfecb75952f0244585c1cedd5887757ff0b05ae8407cb"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/AgentExpressionStructuralWorkflow.fs",
+      "before": "5e0bf5d532022473482fbdbc183f4b83cedf47ed35ba9e7984d3ba60c51994bc",
+      "after": "5e0bf5d532022473482fbdbc183f4b83cedf47ed35ba9e7984d3ba60c51994bc"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/AgentParameterTypeMigrationWorkflow.fs",
+      "before": "5327196f3810bfa919c2c211e6160e194927f038e5eb133312e20bb33c268103",
+      "after": "5327196f3810bfa919c2c211e6160e194927f038e5eb133312e20bb33c268103"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/AgentProductFieldTypeMigrationWorkflow.fs",
+      "before": "927f8a726847380ed9a5a69e7169daf7c9caee0f0915edc0cc801c896928511b",
+      "after": "927f8a726847380ed9a5a69e7169daf7c9caee0f0915edc0cc801c896928511b"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/AgentProductFieldValuePlans.fs",
+      "before": "2b115e4cee9a47dd30e46a8269c38dad2c98197a678f750aebb2594ddfc946cd",
+      "after": "2b115e4cee9a47dd30e46a8269c38dad2c98197a678f750aebb2594ddfc946cd"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/AgentTypeDeclarationWorkflow.fs",
+      "before": "22dbe608c668425e030417dcb1c197d1f52cd557987de466cecd4240f17b1cc1",
+      "after": "22dbe608c668425e030417dcb1c197d1f52cd557987de466cecd4240f17b1cc1"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/AgentUnionVariantArmPlans.fs",
+      "before": "8e65ffb0f4cba0864cd9afa4fffb7fee05369c03845eefec91d245d6adf76759",
+      "after": "8e65ffb0f4cba0864cd9afa4fffb7fee05369c03845eefec91d245d6adf76759"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/AgentUnionVariantEvolutionWorkflow.fs",
+      "before": "913966c184cf48b1106bad5d1b7fe45bc5ed46114a158bf9fc0e1c151224d258",
+      "after": "913966c184cf48b1106bad5d1b7fe45bc5ed46114a158bf9fc0e1c151224d258"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/AgentWorkflow.fs",
+      "before": "01362daaa1dc247b2c3eb58a3171b616af031d18212623bbb4db8f814ecdb26d",
+      "after": "01362daaa1dc247b2c3eb58a3171b616af031d18212623bbb4db8f814ecdb26d"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/CapabilityImplementations.fs",
+      "before": "76eab9ddb229eecf1f10e98b9758e83f4fdb8d93525e2f4e369ceb310d90d063",
+      "after": "76eab9ddb229eecf1f10e98b9758e83f4fdb8d93525e2f4e369ceb310d90d063"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/ChangeReviewQuery.fs",
+      "before": "cbf45f6e8afa1f5a860d5dc4683496e5a3ec8c8ab8123db0fa0dba7ac93080b4",
+      "after": "cbf45f6e8afa1f5a860d5dc4683496e5a3ec8c8ab8123db0fa0dba7ac93080b4"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/DeclarationVisibility.fs",
+      "before": "442a7e3467c8335763e55d18dfa7181c2e3eb3efba5cbe943c2d504ff3a8bd35",
+      "after": "442a7e3467c8335763e55d18dfa7181c2e3eb3efba5cbe943c2d504ff3a8bd35"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/DependencyGraph.fs",
+      "before": "ae2ad554647e2497c18ed0298bcce4a73beb3a27b5766b50ae37e66baccdf73e",
+      "after": "ae2ad554647e2497c18ed0298bcce4a73beb3a27b5766b50ae37e66baccdf73e"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/DiagnosticText.fs",
+      "before": "e5f82d777b60431cd9f68309799f573b2c09f2e33127a03ad682e0b3380d461a",
+      "after": "e5f82d777b60431cd9f68309799f573b2c09f2e33127a03ad682e0b3380d461a"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/EffectRequirements.fs",
+      "before": "b2fe3a592827b35c34ed2c3542959285d0cde37362bf7f80c3c690d94bcf234a",
+      "after": "b2fe3a592827b35c34ed2c3542959285d0cde37362bf7f80c3c690d94bcf234a"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/ExpressionRecipe.fs",
+      "before": "2168886c9f92db7c1ad5ff3e2f66cc419a5ec53fdc229576e17a68afcecb41d1",
+      "after": "2168886c9f92db7c1ad5ff3e2f66cc419a5ec53fdc229576e17a68afcecb41d1"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/ExpressionRecipeInference.fs",
+      "before": "268df81744245827203239e4ed3b3af6d06839723e99ef28df09170b459d1923",
+      "after": "268df81744245827203239e4ed3b3af6d06839723e99ef28df09170b459d1923"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/ExpressionRecipeMaterialization.fs",
+      "before": "e44c802f3f7abb626f0a31d19ebdfdcb4ab4d919474fa781673b11580eba0b5d",
+      "after": "e44c802f3f7abb626f0a31d19ebdfdcb4ab4d919474fa781673b11580eba0b5d"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/ExpressionRecipeSupport.fs",
+      "before": "fead1222e995c73badfa6104917806ab43014b01542f04d5706c109ab370bfb3",
+      "after": "fead1222e995c73badfa6104917806ab43014b01542f04d5706c109ab370bfb3"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/Fingerprint.fs",
+      "before": "577608fd5c75ddfbb37db28590585a7cc988e5b285d43c27f3fa03f1177930cc",
+      "after": "ff4131fd14daad38db9029e9d4e8bd59595b020411f41923b87da8b06fc41b32"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/Foundation.fs",
+      "before": "2767ef8ab5b9b8e3d97a6ee82af6c264812dc0e41181d0517d16d3b1c4d71e07",
+      "after": "2767ef8ab5b9b8e3d97a6ee82af6c264812dc0e41181d0517d16d3b1c4d71e07"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/GraphOrder.fs",
+      "before": "01a68926fa0756def2809382c2dae7bbeefebe623ced59718c17eb28e3b09966",
+      "after": "defd1bf65b7c0d67192b8e291a05f3cd6bc79470fa35c3fe783eb4ec99315628"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/LooseJsonString.fs",
+      "before": "d8713ed0a1c9632850a4502f52ebd544fed5aef323c565f39634e95e657b1e5a",
+      "after": "d8713ed0a1c9632850a4502f52ebd544fed5aef323c565f39634e95e657b1e5a"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj",
+      "before": "d7382d765afa09117fe17dd0c33db25d6a0a259e87c6d5d06c729d1ea601a0b0",
+      "after": "d7382d765afa09117fe17dd0c33db25d6a0a259e87c6d5d06c729d1ea601a0b0"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/OneShotPayloadRequirements.fs",
+      "before": "1ca3b63a5fc89dba2653d88784261a7622c8a347229c97fd5df1875b13e97f1b",
+      "after": "1ca3b63a5fc89dba2653d88784261a7622c8a347229c97fd5df1875b13e97f1b"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/OperationSignatures.fs",
+      "before": "3e228aa1de52a3c6c37af92a8a5e8a84f4d497e81f0f3ccc4c1abba00ddc2b91",
+      "after": "3e228aa1de52a3c6c37af92a8a5e8a84f4d497e81f0f3ccc4c1abba00ddc2b91"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/PureFunctions.fs",
+      "before": "524032232636d1d8f96de029540ce8e4acaf73465dc538f9c7107a28ba84bd52",
+      "after": "524032232636d1d8f96de029540ce8e4acaf73465dc538f9c7107a28ba84bd52"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/Readiness.fs",
+      "before": "7e6d4cd2593e11253352e344851b4ef39f129c0c8c244158e32b58166629ec28",
+      "after": "7e6d4cd2593e11253352e344851b4ef39f129c0c8c244158e32b58166629ec28"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/RecordCodec.fs",
+      "before": "17a9d2cddc4cc76acd359b0208c121cb0b487f9bcf4ea116b7d511940daa07d9",
+      "after": "17a9d2cddc4cc76acd359b0208c121cb0b487f9bcf4ea116b7d511940daa07d9"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/RecordKinds.fs",
+      "before": "23559aa8afeec19a52d3698b1098cbee026781d68274a9be1c0df5b1f1ad5c27",
+      "after": "23559aa8afeec19a52d3698b1098cbee026781d68274a9be1c0df5b1f1ad5c27"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/SemanticFacts.fs",
+      "before": "2d7461bab17e8c0ae9baf1eb49f4f3c69e12b579f449d4e898a5da65d33ea858",
+      "after": "2d7461bab17e8c0ae9baf1eb49f4f3c69e12b579f449d4e898a5da65d33ea858"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/SemanticQuery.fs",
+      "before": "5488059ffb5cbfca86d539432b91b8b2ac73dacf5c5d7f7c9d287dc223d8afcf",
+      "after": "5488059ffb5cbfca86d539432b91b8b2ac73dacf5c5d7f7c9d287dc223d8afcf"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/SnapshotCodec.fs",
+      "before": "986366c1fdd7cee37c49adab829c1e99038aac1cfa472750f2c0663b38c156b8",
+      "after": "69f7578bc5474fd774f945f96de7a33c46b09bbe23d34a3730341f1bf5fada92"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/SnapshotComputationScope.fs",
+      "before": "0c2cafa3d44cc222472d4ef89d7ba858f603ad1e197e0974082582e20834c435",
+      "after": "0c2cafa3d44cc222472d4ef89d7ba858f603ad1e197e0974082582e20834c435"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/SnapshotMigration.fs",
+      "before": "b59b0542bf664d43b8f6fae7e7fa04e99f14af476c525b6248bc78457079729c",
+      "after": "b59b0542bf664d43b8f6fae7e7fa04e99f14af476c525b6248bc78457079729c"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/SnapshotSchema.fs",
+      "before": "333dae14ce60faa494972ae7d50d280622f64a4698a6e33ee9fe8d07bbec1469",
+      "after": "333dae14ce60faa494972ae7d50d280622f64a4698a6e33ee9fe8d07bbec1469"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/StableId.fs",
+      "before": "1ed41e3d8f2ff00d7b363c0c870f0f2262b752fdcc62b61a73fa58b5e3945ad7",
+      "after": "1ed41e3d8f2ff00d7b363c0c870f0f2262b752fdcc62b61a73fa58b5e3945ad7"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/StableIdAllocator.fs",
+      "before": "d00a3735969d7b6ec59ed70c5f7fd44940ca17f7e92acae0921e96c0ecf7f6f3",
+      "after": "d00a3735969d7b6ec59ed70c5f7fd44940ca17f7e92acae0921e96c0ecf7f6f3"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/StructuralContracts.fs",
+      "before": "cbe27fa380c27f4f4d8bbeebda5f8f0a7821d7f152cdb2feafc25009a61c7a31",
+      "after": "cbe27fa380c27f4f4d8bbeebda5f8f0a7821d7f152cdb2feafc25009a61c7a31"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/StructuralTransactionInternals.fs",
+      "before": "06d7b9deb5abef2782e00ad9a98249224fae596ccd21340a6246e8cae43d12c9",
+      "after": "06d7b9deb5abef2782e00ad9a98249224fae596ccd21340a6246e8cae43d12c9"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/TargetedReplacementGraph.fs",
+      "before": "31c0697904cb11c9ccde2848381e56e01dc594fa6c8d3feb18625d7c92286016",
+      "after": "31c0697904cb11c9ccde2848381e56e01dc594fa6c8d3feb18625d7c92286016"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/Transactions.fs",
+      "before": "7fdfe987c8bd0f2cfc45036df13f05ca9d21b498f6f9872bc007bfca31501f19",
+      "after": "7fdfe987c8bd0f2cfc45036df13f05ca9d21b498f6f9872bc007bfca31501f19"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/Validation.fs",
+      "before": "c120097df9f19ad5d03186c6fecf658c39ec054f844d9d6674bb499d47961287",
+      "after": "826b91053507e58c3155ce5c059e0431e500550f0bcc5e779b6c8f4b5104c9b4"
+    },
+    {
+      "path": "src/Nyrwvy.Semantics/Workspace.fs",
+      "before": "83b1ca6aff42891c03162d2ef6dc650f006761b2f3879de1a6791bd957d91d11",
+      "after": "3437db966aea584eff2fe453233a5fc1d35d82c9d594101ad02ce549e55b7dc9"
+    },
+    {
+      "path": "src/Nyrwvy.Viewer/Nyrwvy.Viewer.fsproj",
+      "before": "a9a2985a7cab1dcec514bf92d4ef810c8b30fb77395b05bd45f52d7c0c1261e6",
+      "after": "a9a2985a7cab1dcec514bf92d4ef810c8b30fb77395b05bd45f52d7c0c1261e6"
+    },
+    {
+      "path": "src/Nyrwvy.Viewer/ViewerArtifact.fs",
+      "before": "d6a30d049bd418ad4e7d65a7eb50665a6cff08e59606f83f5544a9b618594e0b",
+      "after": "d6a30d049bd418ad4e7d65a7eb50665a6cff08e59606f83f5544a9b618594e0b"
+    },
+    {
+      "path": "src/Nyrwvy.Viewer/ViewerHtml.fs",
+      "before": "6a20ff2c387a00e28fd4569aa552c74f859db47b351fec44c885de7fcee2a946",
+      "after": "6a20ff2c387a00e28fd4569aa552c74f859db47b351fec44c885de7fcee2a946"
+    },
+    {
+      "path": "src/Nyrwvy.Viewer/ViewerModel.fs",
+      "before": "3e3ee4239bb37371523d446b0772f27dc6f909858ae6586875d1d1da89061357",
+      "after": "3e3ee4239bb37371523d446b0772f27dc6f909858ae6586875d1d1da89061357"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/ChangeVerification.fs",
+      "before": "25991454b11be2d7b409287b3c807381cfb72095f445c8f3491fd3150b0c1e43",
+      "after": "25991454b11be2d7b409287b3c807381cfb72095f445c8f3491fd3150b0c1e43"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/ConfinedDirectory.fs",
+      "before": "df352b3ce6cd87b4890509ae822c8f90ccdac901365ba20ee525b44d4d9bb8ad",
+      "after": "df352b3ce6cd87b4890509ae822c8f90ccdac901365ba20ee525b44d4d9bb8ad"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/GeneratedBuild.fs",
+      "before": "8d6d586a8dfafa3e285c8406358bdb9ce515b4482e08d37c77fff53faee4bb4f",
+      "after": "8d6d586a8dfafa3e285c8406358bdb9ce515b4482e08d37c77fff53faee4bb4f"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/Migration.fs",
+      "before": "d5db5835b09bbb54a01775781a98fc22fe8a873d558c0064d871ded249bc00d5",
+      "after": "d5db5835b09bbb54a01775781a98fc22fe8a873d558c0064d871ded249bc00d5"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/Nyrwvy.AuthoringSession.fsproj",
+      "before": "75a38f1eb191963117dd4fb7df29fb00949b605d5b2401ba4357c417c061bd85",
+      "after": "75a38f1eb191963117dd4fb7df29fb00949b605d5b2401ba4357c417c061bd85"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/Program.fs",
+      "before": "8cc7d6b5526debdd8b836ab1e0c1721d6e3e96c17247ff51a34da9bfad5491b7",
+      "after": "8cc7d6b5526debdd8b836ab1e0c1721d6e3e96c17247ff51a34da9bfad5491b7"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/Protocol.fs",
+      "before": "6119e6b463caa52d1811673e49cb6c7744c1495f3ae58ce322c9e4f9b4f02eae",
+      "after": "6119e6b463caa52d1811673e49cb6c7744c1495f3ae58ce322c9e4f9b4f02eae"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/PureRun.fs",
+      "before": "f559d36bd61d35a9ae24d4bef2d3e99f1853f80f6aadeffd9f34b738c8a17e12",
+      "after": "f559d36bd61d35a9ae24d4bef2d3e99f1853f80f6aadeffd9f34b738c8a17e12"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/PureRunWorker.fs",
+      "before": "32b8eb62e95b3c1affb646a17eeb55c9a41460c53fcc018a34bb8b146b60baf1",
+      "after": "32b8eb62e95b3c1affb646a17eeb55c9a41460c53fcc018a34bb8b146b60baf1"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/Session.fs",
+      "before": "09973ea405094e998a363e01b92eaa263b7335a3d8763c5200c4acd332c70857",
+      "after": "09973ea405094e998a363e01b92eaa263b7335a3d8763c5200c4acd332c70857"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/ViewerFile.fs",
+      "before": "708f368e6227b3b9c19903973b5df6ed11b6250712089197b68593f04ad8f0b6",
+      "after": "708f368e6227b3b9c19903973b5df6ed11b6250712089197b68593f04ad8f0b6"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/WireEncode.fs",
+      "before": "d7e152090961d17e152cc61804055dec8ee152be48153d57ca214a4336530a26",
+      "after": "d7e152090961d17e152cc61804055dec8ee152be48153d57ca214a4336530a26"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/WireEncodeCommon.fs",
+      "before": "e2b62c2539562ab53981d24701779612bee828cc68b820441b9a6d0cad6ea4d0",
+      "after": "e2b62c2539562ab53981d24701779612bee828cc68b820441b9a6d0cad6ea4d0"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/WireGraph.fs",
+      "before": "27c3d9cfba5d3d4c01fe453f8898ef022d8f60a8f695db678f174a5eb8a24db3",
+      "after": "27c3d9cfba5d3d4c01fe453f8898ef022d8f60a8f695db678f174a5eb8a24db3"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/WireInput.fs",
+      "before": "8c6e2d6d1d0f2a488efebe459d316a12f20ba487eda918de18a69da83450d3ce",
+      "after": "8c6e2d6d1d0f2a488efebe459d316a12f20ba487eda918de18a69da83450d3ce"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/WireJson.fs",
+      "before": "36b6af704a4669d3a10a8ad4d1f64415267c0f8279c255327faaf2730dc4692b",
+      "after": "36b6af704a4669d3a10a8ad4d1f64415267c0f8279c255327faaf2730dc4692b"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/WireOperation.fs",
+      "before": "61dfce75ca1f99ef18da0096f0de7281f3892809e11a33c753505ab9ac2cef08",
+      "after": "61dfce75ca1f99ef18da0096f0de7281f3892809e11a33c753505ab9ac2cef08"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/WireProposalProjection.fs",
+      "before": "b9b61d221797702621ca0a16c6109b8ec3374ad1be1223b5556731aad6ad5f0b",
+      "after": "b9b61d221797702621ca0a16c6109b8ec3374ad1be1223b5556731aad6ad5f0b"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/WireProtocolAdapters.fs",
+      "before": "52b4678132afac7b223f0a48c86c63f25527a9986638423e1cd15c8bccfac41d",
+      "after": "52b4678132afac7b223f0a48c86c63f25527a9986638423e1cd15c8bccfac41d"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/WireRecipe.fs",
+      "before": "c834e946a00fb9ff55eece16645e07abead8bdf34fcc42b888679ef49ea5824e",
+      "after": "c834e946a00fb9ff55eece16645e07abead8bdf34fcc42b888679ef49ea5824e"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/WireRecipeCommon.fs",
+      "before": "183c9b3909df4f3dcb5669770b20afd3174a6544ab1174435769bbe555018f7f",
+      "after": "183c9b3909df4f3dcb5669770b20afd3174a6544ab1174435769bbe555018f7f"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/WireRecipeNames.fs",
+      "before": "13773643b98d97f79dcedc6223f3fdfbacebd3ac7deb46090cf8948ced5bf958",
+      "after": "13773643b98d97f79dcedc6223f3fdfbacebd3ac7deb46090cf8948ced5bf958"
+    },
+    {
+      "path": "tools/Nyrwvy.AuthoringSession/WireSymbolic.fs",
+      "before": "42b074df08a3ef33876b69c6b76fc6d320e607e32830365198751ff4a766bd19",
+      "after": "42b074df08a3ef33876b69c6b76fc6d320e607e32830365198751ff4a766bd19"
+    }
+  ]
+}

@@ -15,10 +15,10 @@ module private FingerprintHash =
     let sha256 domain (canonicalText: string) =
         let domainBytes = Encoding.UTF8.GetBytes(domain + "\u0000")
         let contentBytes = Encoding.UTF8.GetBytes(canonicalText)
-        let bytes = Array.zeroCreate<byte> (domainBytes.Length + contentBytes.Length)
-        Buffer.BlockCopy(domainBytes, 0, bytes, 0, domainBytes.Length)
-        Buffer.BlockCopy(contentBytes, 0, bytes, domainBytes.Length, contentBytes.Length)
-        SHA256.HashData(bytes)
+        use hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256)
+        hash.AppendData domainBytes
+        hash.AppendData contentBytes
+        hash.GetHashAndReset()
         |> Convert.ToHexString
         |> fun value -> value.ToLowerInvariant()
         |> fun value -> "sha256:" + value
@@ -60,20 +60,8 @@ module SemanticFingerprint =
     let private neutralSnapshotId: SnapshotId = stable<SnapshotTag> "semantic-fingerprint-root"
     let private neutralTransactionId: TransactionId = stable<TransactionTag> "semantic-fingerprint-transaction"
 
-    let rec private normalizeTypeRef (typeRef: TypeRef): TypeRef =
-        match typeRef with
-        | TypeRef.Function(arguments, result) -> TypeRef.Function(List.map normalizeTypeRef arguments, normalizeTypeRef result)
-        | TypeRef.TypeParameter _ -> typeRef
-        | TypeRef.BuiltinGeneric(generic, arguments) ->
-            TypeRef.BuiltinGeneric(generic, arguments |> List.map normalizeTypeRef)
-        | TypeRef.Named(typeId, arguments) -> TypeRef.Named(typeId, arguments |> List.map normalizeTypeRef)
-        | TypeRef.Primitive _
-        | TypeRef.Capability _ -> typeRef
-
     let private normalizeField (field: SemanticField) =
-        { field with
-            DisplayName = displayPlaceholder
-            Type = normalizeTypeRef field.Type }
+        { field with DisplayName = displayPlaceholder }
 
     let private normalizeVariant (variant: SemanticVariant) =
         { variant with
@@ -97,16 +85,12 @@ module SemanticFingerprint =
         { effect with DisplayName = displayPlaceholder }
 
     let private normalizeCapabilityParameter (parameter: SemanticCapabilityParameter) =
-        { parameter with
-            DisplayName = displayPlaceholder
-            Type = normalizeTypeRef parameter.Type }
+        { parameter with DisplayName = displayPlaceholder }
 
     let private normalizeCapabilityOperation (operation: SemanticCapabilityOperation) =
         { operation with
             DisplayName = displayPlaceholder
-            Parameters = operation.Parameters |> List.map normalizeCapabilityParameter
-            ResultType = normalizeTypeRef operation.ResultType
-            FailureType = operation.FailureType |> Option.map normalizeTypeRef }
+            Parameters = operation.Parameters |> List.map normalizeCapabilityParameter }
 
     let private normalizeCapability (capability: SemanticCapability) =
         { capability with
@@ -114,21 +98,14 @@ module SemanticFingerprint =
             Operations = capability.Operations |> List.map normalizeCapabilityOperation }
 
     let private normalizeParameter (parameter: SemanticParameter) =
-        { parameter with
-            DisplayName = displayPlaceholder
-            Type = normalizeTypeRef parameter.Type }
+        { parameter with DisplayName = displayPlaceholder }
 
     let private normalizePatternBinding (binding: PatternBinding) =
-        { binding with
-            DisplayName = None
-            Type = normalizeTypeRef binding.Type }
+        { binding with DisplayName = None }
 
-    /// Pattern binding names live in nested scopes; the two shared shape functions enumerate
-    /// payload types and bindings for every node kind.
+    /// Type references contain stable IDs only; only nested binding names need neutralizing.
     let private normalizeNode (node: SemanticNode) =
-        node
-        |> SemanticNodeShape.mapPayloadTypeRefs normalizeTypeRef
-        |> SemanticNodeShape.mapNested normalizePatternBinding id
+        node |> SemanticNodeShape.mapNested normalizePatternBinding id
 
     /// Type parameter names are neutralized in the declared list. A list that is exactly the one
     /// the parameter types imply is written in the pre-21 form by the codec, so a snapshot read
@@ -139,7 +116,6 @@ module SemanticFingerprint =
             DisplayName = displayPlaceholder
             TypeParameters = normalizeTypeParameters functionEntity.TypeParameters
             Parameters = functionEntity.Parameters |> List.map normalizeParameter
-            ResultType = normalizeTypeRef functionEntity.ResultType
             Body = functionEntity.Body |> ValueGraph.mapNodes normalizeNode }
 
     let private obligationKey (obligation: MissingArgumentObligation) =
