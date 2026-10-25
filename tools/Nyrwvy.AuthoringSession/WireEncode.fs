@@ -326,7 +326,7 @@ module internal WireEncode =
                   "declaredEffectIds", item.DeclaredEffectIds |> List.map (StableId.value >> box) |> arrayValue
                   "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.Body ]) |> arrayValue
 
-    let proposalWith (detail: string) functionEntity focus (value: AuthoringProposal) =
+    let rec proposalWith (detail: string) functionEntity focus (value: AuthoringProposal): obj =
         // A full review of a migration or union-variant evolution adds each rewritten function's
         // proposed body; the compact review keeps only the diff's node summaries.
         let withRewritten fields =
@@ -458,6 +458,26 @@ module internal WireEncode =
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
                       "createdCapability", capabilityEntity item.CreatedCapability ]
+            | AuthoringProposalReview.Batch item ->
+                // The first step's review carries the batch's receipt and readiness; the later steps
+                // follow in order without theirs (docs/decisions/mixed-authoring-batches.md).
+                let stepFields (step: string * AuthoringProposal) =
+                    let encoded = proposalWith detail functionEntity focus (snd step) :?> System.Collections.Generic.IDictionary<string, obj>
+                    (encoded["review"] :?> System.Collections.Generic.IDictionary<string, obj>) |> Seq.map (fun field -> field.Key, field.Value) |> List.ofSeq
+                let batchFields =
+                    match item.Steps with
+                    | [] -> [ "kind", box "batch" ]
+                    | first :: _ ->
+                        stepFields first
+                        |> List.map (function
+                            | "receipt", _ -> "receipt", receipt item.Receipt
+                            | "readiness", _ -> "readiness", readiness item.Readiness
+                            | field -> field)
+                let later =
+                    item.Steps
+                    |> List.skip (min 1 item.Steps.Length)
+                    |> List.map (stepFields >> List.filter (fun (name, _) -> name <> "receipt" && name <> "readiness") >> objectValue)
+                objectValue (batchFields @ [ "steps", arrayValue later ])
         objectValue [ "proposalId", box value.ProposalId; "detail", box detail; "review", review ]
 
     let proposal value = proposalWith "full" WireEncodeCommon.functionEntity WireEncodeCommon.focus value

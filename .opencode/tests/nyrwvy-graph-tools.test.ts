@@ -19,7 +19,7 @@ test("ordinary OpenCode graph tools load under Bun with native plugin schemas", 
   const rootPlugin = new URL("../../node_modules/@opencode-ai/plugin/dist/index.js", import.meta.url)
   expect(import.meta.resolve("@opencode-ai/plugin")).toBe((existsSync(localPlugin) ? localPlugin : rootPlugin).href)
   expect(Object.keys(tools).sort()).toEqual([
-    "close", "commit", "create_function", "create_functions", "create_type", "inspect", "open", "recipe_reference", "reject", "replace", "request", "upgrade_dependencies", "view",
+    "batch", "close", "commit", "create_function", "create_functions", "create_type", "inspect", "open", "recipe_reference", "reject", "replace", "request", "upgrade_dependencies", "view",
   ])
   const input = tool.schema.strictObject(tools.open.args)
   expect(input.parse({ mode: "create", snapshot: "workspace.json" })).toEqual({ mode: "create", snapshot: "workspace.json" })

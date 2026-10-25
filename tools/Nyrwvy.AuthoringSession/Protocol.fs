@@ -984,6 +984,248 @@ module AuthoringProtocol =
           RequiredEffects = WireSymbolic.requiredEffects declarations item
           Body = WireSymbolic.recipeForNewFunction declarations displayName parameters (recipeInput session "body" "bodyFile" item) }
 
+    /// The fields each by-name simulate request reads as a request of its own: allowed, then required.
+    let private simulateByNameFields operationName =
+        match operationName with
+        | "simulateOperationsByName" ->
+            [ "id"; "op"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ],
+            [ "id"; "op"; "operations" ]
+        | "simulateCreateFunctionByName" ->
+            [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile"; "structuredReview"; "detail"; "expectedSnapshotId" ],
+            [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects" ]
+        | "simulateCreateFunctionsByName" ->
+            [ "id"; "op"; "functions"; "functionsFile"; "structuredReview"; "detail"; "expectedSnapshotId" ],
+            [ "id"; "op" ]
+        | "simulateCreateTypeByName" ->
+            [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "typeKind"; "structuredReview"; "detail"; "expectedSnapshotId" ],
+            [ "id"; "op"; "displayName"; "typeKind" ]
+        | "simulateCreateTypesByName" ->
+            [ "id"; "op"; "types"; "structuredReview"; "detail"; "expectedSnapshotId" ],
+            [ "id"; "op"; "types" ]
+        | "simulateReplaceBodyByName" ->
+            [ "id"; "op"; "function"; "replacement"; "replacementFile"; "structuredReview"; "detail"; "expectedSnapshotId"; "expectedResultNodeId" ],
+            [ "id"; "op"; "function" ]
+        | "simulateReplaceTargetByName" ->
+            [ "id"; "op"; "function"; "targetNodeId"; "replacement"; "replacementFile"; "structuredReview"; "detail"; "expectedSnapshotId" ],
+            [ "id"; "op"; "function"; "targetNodeId" ]
+        | other -> invalidOp $"{other} is not a by-name simulate request."
+
+    /// The by-name simulate requests, read from `root` against the session's declarations. Each
+    /// request and each step of `simulateBatchByName` shares this reading; the caller has checked
+    /// the fields. `expectedSnapshotId` names the snapshot the author inspected.
+    let private simulateByName (session: AuthoringSession) (operationName: string) (expectedSnapshotId: unit -> SnapshotId) (root: JsonElement): Result<AuthoringProposal, AuthoringSessionError> =
+        match operationName with
+        | "simulateOperationsByName" ->
+            let declarations = session.Declarations()
+            let operations = array "operations" root |> List.map (WireOperation.operationRequestByName declarations)
+            session.SimulateOperationRequests(operations, expectedSnapshotId ())
+        | "simulateCreateFunctionByName" ->
+            session.SimulateCreateFunction(functionCreationByName session (session.Declarations()) (expectedSnapshotId ()) root)
+        | "simulateCreateFunctionsByName" ->
+            let functions = recipeInput session "functions" "functionsFile" root
+            if functions.ValueKind <> JsonValueKind.Array then fail "functions must be an array."
+            let items = functions.EnumerateArray() |> List.ofSeq
+            if List.isEmpty items then
+                WireInput.fail "functions must list at least one function."
+            let declarations = session.Declarations()
+            let expected = expectedSnapshotId ()
+            let builders =
+                items
+                |> List.map (fun item ->
+                    // Earlier functions of the batch resolve by name like existing ones.
+                    fun (created: SemanticFunction list) ->
+                        try
+                            ensureFields
+                                "function in functions"
+                                [ "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile" ]
+                                [ "displayName"; "parameters"; "resultType"; "requiredEffects" ]
+                                item
+                            Ok(functionCreationByName session { declarations with Functions = declarations.Functions @ created } expected item)
+                        with WireInput.ProtocolInputException message ->
+                            let displayName =
+                                if item.ValueKind <> JsonValueKind.Object then "<unknown>"
+                                else
+                                    match tryProperty "displayName" item with
+                                    | Some value when value.ValueKind = JsonValueKind.String -> value.GetString()
+                                    | _ -> "<unknown>"
+                            Error(displayName, message))
+            session.SimulateCreateFunctions builders
+        | "simulateCreateTypeByName" ->
+            let declarations = session.Declarations()
+            let displayName = requiredString "displayName" root
+            let exported = optionalBool "exported" false root
+            let typeParameters = typeParameterNames root
+            // A declaration that names itself is a recursive type: it is created as a group of one.
+            let self = StableIdAllocator.newTypeId ()
+            let kind = WireSymbolic.typeKindIntentIn (Map.ofList [ displayName, self ]) declarations (property "typeKind" root)
+            let simulated =
+                if WireSymbolic.kindReferences self kind then
+                    session.SimulateCreateTypeGroup
+                        { ExpectedBaseSnapshotId = expectedSnapshotId ()
+                          Declarations = [ { Reference = self; DisplayName = displayName; Exported = exported; TypeParameters = typeParameters; Kind = kind } ] }
+                else
+                    session.SimulateCreateType
+                        { ExpectedBaseSnapshotId = expectedSnapshotId ()
+                          DisplayName = displayName
+                          Exported = exported
+                          TypeParameters = typeParameters
+                          Kind = kind }
+            simulated
+        | "simulateCreateTypesByName" ->
+            let declarations = session.Declarations()
+            let items =
+                array "types" root
+                |> List.map (fun item ->
+                    ensureFields "type declaration" [ "displayName"; "exported"; "typeParameters"; "typeKind" ] [ "displayName"; "typeKind" ] item
+                    requiredString "displayName" item, (optionalBool "exported" false item, typeParameterNames item, property "typeKind" item))
+            let references = items |> List.map (fun (name, _) -> name, StableIdAllocator.newTypeId ())
+            // A name declared twice keeps its first reference; the workflow rejects the duplicate.
+            let group = references |> List.rev |> Map.ofList
+            let request: AgentCreateTypeDeclarationGroupRequest =
+                { ExpectedBaseSnapshotId = expectedSnapshotId ()
+                  Declarations =
+                    List.map2
+                        (fun (name, (exported, typeParameters, kind)) (_, reference) ->
+                            { Reference = reference
+                              DisplayName = name
+                              Exported = exported
+                              TypeParameters = typeParameters
+                              Kind = WireSymbolic.typeKindIntentIn group declarations kind })
+                        items
+                        references }
+            session.SimulateCreateTypeGroup request
+        | "simulateReplaceBodyByName" ->
+            let declarations = session.Declarations()
+            let functionEntity =
+                WireSymbolic.resolveFunctionAt declarations "function" root
+            let request: AgentReplaceFunctionBodyWithExpressionRecipe =
+                { TargetFunctionId = functionEntity.Id
+                  ExpectedBaseSnapshotId = expectedSnapshotId ()
+                  ExpectedCurrentResultNodeId =
+                    match tryProperty "expectedResultNodeId" root with
+                    | Some _ -> id<GraphNodeTag> "expectedResultNodeId" root
+                    | None -> functionEntity.Body.ResultNodeId
+                  Replacement =
+                    WireSymbolic.recipeForExistingFunction
+                        declarations
+                        functionEntity
+                        (recipeInput session "replacement" "replacementFile" root) }
+            session.SimulateReplaceBody request
+        | "simulateReplaceTargetByName" ->
+            let declarations = session.Declarations()
+            let functionEntity = WireSymbolic.resolveFunctionAt declarations "function" root
+            let request: AgentExpressionStructuralWorkflow.Targeted.Request =
+                { TargetFunctionId = functionEntity.Id
+                  ExpectedBaseSnapshotId = expectedSnapshotId ()
+                  TargetNodeId = id<GraphNodeTag> "targetNodeId" root
+                  Replacement = WireSymbolic.recipeForExistingFunction declarations functionEntity (recipeInput session "replacement" "replacementFile" root) }
+            session.SimulateReplaceTarget request
+        | other -> invalidOp $"{other} is not a by-name simulate request."
+
+    /// The step kinds of `simulateBatchByName` and the by-name request each one reads.
+    let private batchStepOperations =
+        [ "createType", "simulateCreateTypeByName"
+          "createTypes", "simulateCreateTypesByName"
+          "createFunction", "simulateCreateFunctionByName"
+          "createFunctions", "simulateCreateFunctionsByName"
+          "operations", "simulateOperationsByName"
+          "replaceBody", "simulateReplaceBodyByName"
+          "replaceTarget", "simulateReplaceTargetByName" ]
+
+    /// A step reads its request's fields without the request envelope, plus `kind`.
+    let private batchStepFields operationName =
+        let allowed, required = simulateByNameFields operationName
+        let step names = "kind" :: (names |> List.filter (fun name -> not (List.contains name [ "id"; "op"; "structuredReview"; "detail"; "expectedSnapshotId" ])))
+        step allowed, step required
+
+    /// The message and error of a function batch that has unresolved functions (`BatchResolutionProblems`).
+    let private batchResolutionError problems =
+        let message =
+            problems
+            |> List.map (fun (index, displayName, problem) -> $"[{index}] {displayName}: {problem}")
+            |> String.concat "\n"
+        let entries =
+            problems
+            |> List.map (fun (index, displayName, problem) ->
+                objectValue [ "index", box index; "displayName", box displayName; "message", box problem ])
+        message, objectValue [ "code", box "ProtocolError"; "message", box message; "problems", box entries ]
+
+    let private protocolError message = message, objectValue [ "code", box "ProtocolError"; "message", box message ]
+
+    /// The text of a wire error with its first diagnostic, for a message that does not carry `details`.
+    let private errorText (error: obj) =
+        let fields = error :?> Collections.Generic.IDictionary<string, obj>
+        let message = string fields["message"]
+        match fields.TryGetValue "details" with
+        | true, (:? Collections.Generic.IDictionary<string, obj> as details) ->
+            match details.TryGetValue "diagnostics" with
+            | true, (:? (obj array) as items) when items.Length > 0 ->
+                let first = items[0] :?> Collections.Generic.IDictionary<string, obj>
+                message + " " + string first["code"] + ": " + string first["message"]
+            | _ -> message
+        | _ -> message
+
+    /// Simulates `steps` in order, each on a read-only scratch session over the snapshot the
+    /// earlier steps produced, then registers one proposal over the session's current snapshot
+    /// (docs/decisions/mixed-authoring-batches.md). The first rejected step rejects the batch and
+    /// nothing is registered. `expected` names the snapshot the author inspected, for the first step.
+    let private simulateBatch (session: AuthoringSession) (expected: SnapshotId) (steps: JsonElement list): Result<AuthoringProposal, obj> =
+        let runStep index (scratch: AuthoringSession) (expectedSnapshotId: unit -> SnapshotId) (step: JsonElement) =
+            let kind =
+                if step.ValueKind <> JsonValueKind.Object then None
+                else
+                    match tryProperty "kind" step with
+                    | Some value when value.ValueKind = JsonValueKind.String -> Some(value.GetString())
+                    | _ -> None
+            let label = defaultArg kind "<unknown>"
+            let rejected (message, inner: obj) =
+                Error(objectValue
+                    [ "code", box "BatchStepRejected"
+                      "message", box $"Step {index} ({label}) was rejected: {message}"
+                      "stepIndex", box index
+                      "stepKind", box label
+                      "stepError", inner ])
+            try
+                try
+                    if step.ValueKind <> JsonValueKind.Object then fail "A step must be a JSON object."
+                    let accepted = batchStepOperations |> List.map fst |> String.concat ", "
+                    match kind |> Option.bind (fun name -> batchStepOperations |> List.tryFind (fun (known, _) -> known = name)) with
+                    | None -> rejected (protocolError $"A step needs a kind: {accepted}.")
+                    | Some(_, operationName) ->
+                        let allowed, required = batchStepFields operationName
+                        ensureFields $"{label} step" allowed required step
+                        match simulateByName scratch operationName expectedSnapshotId step with
+                        | Error error ->
+                            let inner = WireEncode.errorWithDeclarations (scratch.Declarations()) error
+                            rejected (errorText inner, inner)
+                        | Ok proposal ->
+                            match scratch.CandidateSnapshot proposal.ProposalId with
+                            | Ok candidate -> Ok(label, proposal, candidate)
+                            | Error error -> rejected (protocolError (errorText (WireEncode.error error)))
+                with
+                | AgentExpressionStructuralWorkflow.FunctionCreation.BatchResolutionProblems problems -> rejected (batchResolutionError problems)
+                | WireInput.ProtocolInputException message -> rejected (protocolError message)
+            finally
+                scratch.Close()
+        let sessionError error = WireEncode.errorWithDeclarations (session.Declarations()) error
+        let rec loop index (remaining: JsonElement list) (scratch: AuthoringSession) expectedSnapshotId completed =
+            match remaining with
+            | [] -> invalidOp "A batch needs at least one step."
+            | step :: rest ->
+                match runStep index scratch expectedSnapshotId step with
+                | Error error -> Error error
+                | Ok(kind, proposal, candidate) ->
+                    let completed = (kind, proposal) :: completed
+                    if List.isEmpty rest then
+                        session.SimulateBatch(List.rev completed, candidate) |> Result.mapError sessionError
+                    else
+                        match session.BatchScratchOver candidate with
+                        | Error error -> Error(sessionError error)
+                        | Ok next -> loop (index + 1) rest next (fun () -> next.SnapshotId) completed
+        match session.BatchScratch() with
+        | Error error -> Error(sessionError error)
+        | Ok first -> loop 0 steps first (fun () -> expected) []
+
     let private semanticQueryFailure requestId (error: SemanticQueryError) =
         let message =
             match error with
@@ -1308,15 +1550,26 @@ module AuthoringProtocol =
                 let declarations = session.Declarations()
                 let operations = array "operations" root |> List.map (WireOperation.operationRequest declarations)
                 proposalResponse (session.SimulateOperationRequests(operations, expectedSnapshotId ()))
-            | "simulateOperationsByName" ->
+            | "simulateOperationsByName" | "simulateCreateTypeByName" | "simulateCreateTypesByName"
+            | "simulateCreateFunctionByName" | "simulateCreateFunctionsByName"
+            | "simulateReplaceBodyByName" | "simulateReplaceTargetByName" as op ->
+                let allowed, required = simulateByNameFields op
+                ensureFields $"{op} request" allowed required root
+                proposalResponse (simulateByName session op expectedSnapshotId root)
+            | "simulateBatchByName" ->
                 ensureFields
-                    "simulateOperationsByName request"
-                    [ "id"; "op"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "operations" ]
+                    "simulateBatchByName request"
+                    [ "id"; "op"; "steps"; "stepsFile"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op" ]
                     root
-                let declarations = session.Declarations()
-                let operations = array "operations" root |> List.map (WireOperation.operationRequestByName declarations)
-                proposalResponse (session.SimulateOperationRequests(operations, expectedSnapshotId ()))
+                let steps = recipeInput session "steps" "stepsFile" root
+                if steps.ValueKind <> JsonValueKind.Array then fail "steps must be an array."
+                let items = steps.EnumerateArray() |> List.ofSeq
+                if List.isEmpty items then
+                    WireInput.fail "steps must list at least one step."
+                match simulateBatch session (expectedSnapshotId ()) items with
+                | Ok proposal -> success requestId (encodeProposal proposal)
+                | Error error -> failure requestId error
             | "simulateCreateFunction" ->
                 ensureFields
                     "simulateCreateFunction request"
@@ -1351,47 +1604,6 @@ module AuthoringProtocol =
                       RequiredEffects = requiredEffects
                       Body = recipe (property "body" root) }
                 proposalResponse (session.SimulateCreateFunction request)
-            | "simulateCreateFunctionByName" ->
-                ensureFields
-                    "simulateCreateFunctionByName request"
-                    [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects" ]
-                    root
-                proposalResponse (session.SimulateCreateFunction(functionCreationByName session (session.Declarations()) (expectedSnapshotId ()) root))
-            | "simulateCreateFunctionsByName" ->
-                ensureFields
-                    "simulateCreateFunctionsByName request"
-                    [ "id"; "op"; "functions"; "functionsFile"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op" ]
-                    root
-                let functions = recipeInput session "functions" "functionsFile" root
-                if functions.ValueKind <> JsonValueKind.Array then fail "functions must be an array."
-                let items = functions.EnumerateArray() |> List.ofSeq
-                if List.isEmpty items then
-                    WireInput.fail "functions must list at least one function."
-                let declarations = session.Declarations()
-                let expected = expectedSnapshotId ()
-                let builders =
-                    items
-                    |> List.map (fun item ->
-                        // Earlier functions of the batch resolve by name like existing ones.
-                        fun (created: SemanticFunction list) ->
-                            try
-                                ensureFields
-                                    "function in functions"
-                                    [ "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile" ]
-                                    [ "displayName"; "parameters"; "resultType"; "requiredEffects" ]
-                                    item
-                                Ok(functionCreationByName session { declarations with Functions = declarations.Functions @ created } expected item)
-                            with WireInput.ProtocolInputException message ->
-                                let displayName =
-                                    if item.ValueKind <> JsonValueKind.Object then "<unknown>"
-                                    else
-                                        match tryProperty "displayName" item with
-                                        | Some value when value.ValueKind = JsonValueKind.String -> value.GetString()
-                                        | _ -> "<unknown>"
-                                Error(displayName, message))
-                proposalResponse (session.SimulateCreateFunctions builders)
             | "simulateParameterTypeMigration" ->
                 ensureFields
                     "simulateParameterTypeMigration request"
@@ -1542,60 +1754,6 @@ module AuthoringProtocol =
                       TypeParameters = typeParameterNames root
                       Kind = typeKindIntent (property "typeKind" root) }
                 proposalResponse (session.SimulateCreateType request)
-            | "simulateCreateTypeByName" ->
-                ensureFields
-                    "simulateCreateTypeByName request"
-                    [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "typeKind"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "displayName"; "typeKind" ]
-                    root
-                let declarations = session.Declarations()
-                let displayName = requiredString "displayName" root
-                let exported = optionalBool "exported" false root
-                let typeParameters = typeParameterNames root
-                // A declaration that names itself is a recursive type: it is created as a group of one.
-                let self = StableIdAllocator.newTypeId ()
-                let kind = WireSymbolic.typeKindIntentIn (Map.ofList [ displayName, self ]) declarations (property "typeKind" root)
-                let simulated =
-                    if WireSymbolic.kindReferences self kind then
-                        session.SimulateCreateTypeGroup
-                            { ExpectedBaseSnapshotId = expectedSnapshotId ()
-                              Declarations = [ { Reference = self; DisplayName = displayName; Exported = exported; TypeParameters = typeParameters; Kind = kind } ] }
-                    else
-                        session.SimulateCreateType
-                            { ExpectedBaseSnapshotId = expectedSnapshotId ()
-                              DisplayName = displayName
-                              Exported = exported
-                              TypeParameters = typeParameters
-                              Kind = kind }
-                proposalResponse simulated
-            | "simulateCreateTypesByName" ->
-                ensureFields
-                    "simulateCreateTypesByName request"
-                    [ "id"; "op"; "types"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "types" ]
-                    root
-                let declarations = session.Declarations()
-                let items =
-                    array "types" root
-                    |> List.map (fun item ->
-                        ensureFields "type declaration" [ "displayName"; "exported"; "typeParameters"; "typeKind" ] [ "displayName"; "typeKind" ] item
-                        requiredString "displayName" item, (optionalBool "exported" false item, typeParameterNames item, property "typeKind" item))
-                let references = items |> List.map (fun (name, _) -> name, StableIdAllocator.newTypeId ())
-                // A name declared twice keeps its first reference; the workflow rejects the duplicate.
-                let group = references |> List.rev |> Map.ofList
-                let request: AgentCreateTypeDeclarationGroupRequest =
-                    { ExpectedBaseSnapshotId = expectedSnapshotId ()
-                      Declarations =
-                        List.map2
-                            (fun (name, (exported, typeParameters, kind)) (_, reference) ->
-                                { Reference = reference
-                                  DisplayName = name
-                                  Exported = exported
-                                  TypeParameters = typeParameters
-                                  Kind = WireSymbolic.typeKindIntentIn group declarations kind })
-                            items
-                            references }
-                proposalResponse (session.SimulateCreateTypeGroup request)
             | "simulateAddUnionVariantLike" ->
                 ensureFields
                     "simulateAddUnionVariantLike request"
@@ -1682,28 +1840,6 @@ module AuthoringProtocol =
                       ExpectedCurrentResultNodeId = id<GraphNodeTag> "expectedCurrentResultNodeId" root
                       Replacement = recipe (property "replacement" root) }
                 proposalResponse (session.SimulateReplaceBody request)
-            | "simulateReplaceBodyByName" ->
-                ensureFields
-                    "simulateReplaceBodyByName request"
-                    [ "id"; "op"; "function"; "replacement"; "replacementFile"; "structuredReview"; "detail"; "expectedSnapshotId"; "expectedResultNodeId" ]
-                    [ "id"; "op"; "function" ]
-                    root
-                let declarations = session.Declarations()
-                let functionEntity =
-                    WireSymbolic.resolveFunctionAt declarations "function" root
-                let request: AgentReplaceFunctionBodyWithExpressionRecipe =
-                    { TargetFunctionId = functionEntity.Id
-                      ExpectedBaseSnapshotId = expectedSnapshotId ()
-                      ExpectedCurrentResultNodeId =
-                        match tryProperty "expectedResultNodeId" root with
-                        | Some _ -> id<GraphNodeTag> "expectedResultNodeId" root
-                        | None -> functionEntity.Body.ResultNodeId
-                      Replacement =
-                        WireSymbolic.recipeForExistingFunction
-                            declarations
-                            functionEntity
-                            (recipeInput session "replacement" "replacementFile" root) }
-                proposalResponse (session.SimulateReplaceBody request)
             | "simulateReplaceTarget" ->
                 ensureFields
                     "simulateReplaceTarget request"
@@ -1715,20 +1851,6 @@ module AuthoringProtocol =
                       ExpectedBaseSnapshotId = expectedSnapshotId ()
                       TargetNodeId = id<GraphNodeTag> "targetNodeId" root
                       Replacement = recipe (property "replacement" root) }
-                proposalResponse (session.SimulateReplaceTarget request)
-            | "simulateReplaceTargetByName" ->
-                ensureFields
-                    "simulateReplaceTargetByName request"
-                    [ "id"; "op"; "function"; "targetNodeId"; "replacement"; "replacementFile"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "function"; "targetNodeId" ]
-                    root
-                let declarations = session.Declarations()
-                let functionEntity = WireSymbolic.resolveFunctionAt declarations "function" root
-                let request: AgentExpressionStructuralWorkflow.Targeted.Request =
-                    { TargetFunctionId = functionEntity.Id
-                      ExpectedBaseSnapshotId = expectedSnapshotId ()
-                      TargetNodeId = id<GraphNodeTag> "targetNodeId" root
-                      Replacement = WireSymbolic.recipeForExistingFunction declarations functionEntity (recipeInput session "replacement" "replacementFile" root) }
                 proposalResponse (session.SimulateReplaceTarget request)
             | "commit" ->
                 ensureFields
@@ -1945,15 +2067,7 @@ module AuthoringProtocol =
                           "message", box $"Unsupported operation '{value}'." ])
         with
         | AgentExpressionStructuralWorkflow.FunctionCreation.BatchResolutionProblems problems ->
-            let message =
-                problems
-                |> List.map (fun (index, displayName, problem) -> $"[{index}] {displayName}: {problem}")
-                |> String.concat "\n"
-            let entries =
-                problems
-                |> List.map (fun (index, displayName, problem) ->
-                    objectValue [ "index", box index; "displayName", box displayName; "message", box problem ])
-            failure requestId (objectValue [ "code", box "ProtocolError"; "message", box message; "problems", box entries ])
+            failure requestId (snd (batchResolutionError problems))
         | WireInput.ProtocolInputException message ->
             failure
                 requestId

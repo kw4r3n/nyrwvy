@@ -34,6 +34,7 @@
     <Compile Include="AgentWorkflow.fs" />
     <Compile Include="StructuralContracts.fs" />
     <Compile Include="StructuralTransactionInternals.fs" />
+    <Compile Include="AgentBatchWorkflow.fs" />
     <Compile Include="AgentTypeDeclarationWorkflow.fs" />
     <Compile Include="AgentEffectDeclarationWorkflow.fs" />
     <Compile Include="AgentCapabilityDeclarationWorkflow.fs" />
