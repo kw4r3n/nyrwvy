@@ -199,7 +199,7 @@ module DeclarationVisibilityTests =
             Assert.False((declared.Functions |> List.find (fun fn -> fn.DisplayName = "quiet")).Exported)
             Assert.True((declared.Types |> List.find (fun t -> t.DisplayName = "Shown")).Exported)
             let stored = File.ReadAllText path
-            Assert.Contains("\"schemaVersion\":21", stored)
+            Assert.Contains(sprintf "\"schemaVersion\":%d" SnapshotSchema.current.Json, stored)
 
             // Exact form, with the review's visibilityChanges, then the by-name form.
             let quiet = declared.Functions |> List.find (fun fn -> fn.DisplayName = "quiet")

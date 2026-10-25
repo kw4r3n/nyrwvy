@@ -174,6 +174,7 @@ module FoundationTests =
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
+                | SemanticNodeKind.ListScan _
                 | SemanticNodeKind.MapFold _
                 | SemanticNodeKind.SetFold _
                 | SemanticNodeKind.ListEffectFold _

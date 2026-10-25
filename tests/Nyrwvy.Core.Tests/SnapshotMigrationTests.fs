@@ -305,7 +305,7 @@ module SnapshotMigrationTests =
             let json = JsonNode.Parse(AuthoringSessionMigration.reportJson report)
             Assert.Equal(report.Before.SnapshotFingerprint, (json["before"]["snapshotFingerprint"]).GetValue<string>())
             Assert.Equal(report.After.SemanticFingerprint, (json["after"]["semanticFingerprint"]).GetValue<string>())
-            Assert.Equal(21, json["targetSchemaVersion"].GetValue<int>())
+            Assert.Equal(SnapshotSchema.current.Json, json["targetSchemaVersion"].GetValue<int>())
             Assert.True(json["semanticFingerprintExpectedEqual"].GetValue<bool>()))
 
     [<Fact>]
@@ -326,9 +326,11 @@ module SnapshotMigrationTests =
             let fixture = (TestGraph.create()).Snapshot
             let withPrivate = { fixture with Types = fixture.Types |> List.map (fun item -> { item with Exported = false }) }
             save privatePath withPrivate
-            Assert.Equal(SnapshotSchema.current, declaredVersion privatePath)
+            Assert.Equal(21, (declaredVersion privatePath).Json)
             let report = migrate privatePath
-            Assert.False report.Changed
+            // Only the header moves to the current schema; the declared visibility is kept.
+            Assert.True report.Changed
+            Assert.Equal(SnapshotSchema.current, declaredVersion privatePath)
             Assert.Equal(0, report.DeclarationsMarkedExported)
             Assert.Equal(canonical withPrivate, decode privatePath))
 
@@ -544,7 +546,7 @@ module SnapshotMigrationTests =
             let report = JsonNode.Parse stdout
             Assert.True(report["changed"].GetValue<bool>())
             Assert.Equal(9, report["sourceSchemaVersion"].GetValue<int>())
-            Assert.Equal(21, report["targetSchemaVersion"].GetValue<int>())
+            Assert.Equal(SnapshotSchema.current.Json, report["targetSchemaVersion"].GetValue<int>())
             Assert.Equal((report["before"]["semanticFingerprint"]).GetValue<string>(), (report["after"]["semanticFingerprint"]).GetValue<string>())
             Assert.Equal(SnapshotSchema.current, declaredVersion path)
             assertLockReleased path

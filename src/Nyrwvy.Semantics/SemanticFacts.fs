@@ -457,6 +457,10 @@ module SemanticFacts =
                         | _ -> None
                     | SemanticNodeKind.ListFold(_, seedNodeId, _, _) ->
                         tryNodeType nextVisiting seedNodeId
+                    | SemanticNodeKind.ListScan(_, seedNodeId, _, _) ->
+                        // The seed followed by every intermediate state: a List of the seed type.
+                        tryNodeType nextVisiting seedNodeId
+                        |> Option.map (fun seedType -> TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ seedType ]))
                     | SemanticNodeKind.MapFold(_, seedNodeId, _, _)
                     | SemanticNodeKind.SetFold(_, seedNodeId, _, _) ->
                         tryNodeType nextVisiting seedNodeId

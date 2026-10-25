@@ -91,6 +91,7 @@
     <Compile Include="Int64BitwiseFloat64MinMaxTests.fs" />
     <Compile Include="ListPositionalUpdateTests.fs" />
     <Compile Include="ListZipWithAndFlatMapTests.fs" />
+    <Compile Include="ListScanTests.fs" />
     <Compile Include="OptionResultCombinatorTests.fs" />
     <Compile Include="OptionResultAccessorTests.fs" />
     <Compile Include="ListContainsTests.fs" />

@@ -733,6 +733,31 @@ module internal ExpressionRecipeInference =
                                         // Same shape as ListEffectFold's Result mode: point there instead of a pass-through arm.
                                         Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ListFold folder {callbackName folder} must return the accumulator type {ty seedType}; the folder has type {callbackSignature folder}. To stop at the first Err, use ListEffectFold with the same seed and folder: it accepts a pure folder returning Result<S, E> and yields Result<S, E>.")
                                     | _ -> Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ListFold folder {callbackName folder} must have type (accumulator, item) -> accumulator, here ({ty seedType}, {ty itemType}) -> {ty seedType}; the folder has type {callbackSignature folder}.")
+            | ExpressionRecipe.ListScan(source, seed, folderFunctionId, context) ->
+                match infer frames source with
+                | Error error -> Error error
+                | Ok sourceType ->
+                    match listItemType sourceType with
+                    | None -> Error(listMismatch "ListScan" "source" sourceType)
+                    | Some itemType ->
+                        match infer frames seed with
+                        | Error error -> Error error
+                        | Ok seedType ->
+                            match Map.tryFind folderFunctionId functionsById with
+                            | None -> Error(diagnostic "PureExpressionCallbackNotFound" $"ListScan folder '{StableId.value folderFunctionId}' does not exist.")
+                            | Some folder ->
+                                match validateCallbackContext "ListScan" folder context (infer frames) with
+                                | Error error -> Error error
+                                | Ok(unbound, _) when unbound.Length <> 2 ->
+                                    Error(diagnostic "PureExpressionCallbackArityMismatch" $"ListScan folder {callbackName folder} must have exactly two parameters not bound by context (accumulator, item); it has type {callbackSignature folder} and context binds {List.length context}.")
+                                | Ok(unbound, substitution) ->
+                                    let matched =
+                                        TypeParameters.matchFrom substitution [ unbound.Head.Type, seedType; unbound.Tail.Head.Type, itemType ]
+                                    match matched with
+                                    | Some current when TypeParameters.substitute current folder.ResultType = seedType ->
+                                        if PureFunctions.isPure snapshot folder.Id then Ok(listType seedType)
+                                        else Error(diagnostic "PureExpressionCallbackEffectsNotAllowed" $"ListScan folder {callbackName folder} must be pure, including its transitive calls and ambient task or cancellation behavior.")
+                                    | _ -> Error(diagnostic "PureExpressionCallbackInputTypeMismatch" $"ListScan folder {callbackName folder} must have type (accumulator, item) -> accumulator, here ({ty seedType}, {ty itemType}) -> {ty seedType}; the folder has type {callbackSignature folder}.")
             | ExpressionRecipe.MapFold(source, seed, folderFunctionId, context) ->
                 match infer frames source with
                 | Error error -> Error error

@@ -230,6 +230,7 @@ module ValueDependency =
             create ValueDependencyRole.Source sourceNodeId
             :: contextDependencies context
         | SemanticNodeKind.ListFold(sourceNodeId, seedNodeId, _, context)
+        | SemanticNodeKind.ListScan(sourceNodeId, seedNodeId, _, context)
         | SemanticNodeKind.MapFold(sourceNodeId, seedNodeId, _, context)
         | SemanticNodeKind.SetFold(sourceNodeId, seedNodeId, _, context)
         | SemanticNodeKind.ListEffectFold(sourceNodeId, seedNodeId, _, context) ->

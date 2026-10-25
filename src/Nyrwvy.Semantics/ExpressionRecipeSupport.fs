@@ -309,6 +309,7 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.SetIsSubset(left, right)
         | ExpressionRecipe.MapUnion(left, right) -> seq { yield left; yield right }
         | ExpressionRecipe.ListFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
+        | ExpressionRecipe.ListScan(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.MapFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.SetFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }
         | ExpressionRecipe.ListEffectFold(source, seed, _, context) -> seq { yield source; yield seed; yield! context |> Seq.map snd }

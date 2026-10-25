@@ -149,6 +149,7 @@ ExpressionRecipe =
   | OneShotWait(cell, limit?)
   | TaskCancel(task)
   | UseResource(acquire, releaseCapability, releaseOperationId, bodyFunctionId, context)
+  | ListScan(source, seed, folderFunctionId, context)
   | ListMap(source, mapperFunctionId, context)
   | ListZipWith(left, right, combinerFunctionId, context)
   | ListFlatMap(source, mapperFunctionId, context)
@@ -349,12 +350,13 @@ for purity, persistence, dependency and host-boundary contracts.
 
 ## Higher-order List callbacks
 
-`ListFold`, `ListMap`, `ListZipWith`, `ListFlatMap`, `ListFilter`, `ListSortBy`, `ListMinBy`, `ListMaxBy`, `ListFindIndex`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
+`ListFold`, `ListScan`, `ListMap`, `ListZipWith`, `ListFlatMap`, `ListFilter`, `ListSortBy`, `ListMinBy`, `ListMaxBy`, `ListFindIndex`, `ListAny`, and `ListAll` reference an existing callback by stable `FunctionId`. They do not embed a lambda or construct a new function.
 
 For a source `List<T>`:
 
 - `ListFold(source, seed, f)` requires a pure binary `f : (S, T) -> S` where `seed : S`; it returns `S`, traverses left to right, and returns the seed for an empty source;
 - `ListMap(source, f)` requires a pure unary `f : T -> R` and produces `List<R>`;
+- `ListScan(source, seed, f)` requires the pure binary `f : (S, T) -> S` that `ListFold` takes, with the seed of type `S`, and produces the `List<S>` of the seed followed by every intermediate state: item 0 is the seed and item i + 1 is `f(item i, source[i])`, so the length is the source length plus one and the last item equals `ListFold(source, seed, f)`, as F# `List.scan`. Wire `listScan` with the fields `source`, `seed`, `function` (name-resolved) or `functionId`, and `context`; Nyason `list-scan`; persisted `sourceListNodeId`, `seedNodeId`, `folderFunctionId`. The diagnostics are `ListFold`'s: `PureExpressionCallbackArityMismatch`, `PureExpressionCallbackInputTypeMismatch` (parameters not matching the seed and item types, or a folder not returning the seed type) and `PureExpressionCallbackEffectsNotAllowed`; persisted graphs report `CallbackArityMismatch`, `CallbackParameterTypeMismatch`, `CallbackResultTypeMismatch` and `CallbackEffectsNotAllowed`;
 - `ListZipWith(left, right, f)` takes a second list `right : List<U>` and requires a pure binary `f : (T, U) -> R` receiving `(left item, right item)`; it produces `List<R>` of `f(left[i], right[i])` for every index below the shorter length, ignoring the longer list's extra items as Python `zip` does. Wire `listZipWith` with the fields `left`, `right`, `function` (name-resolved) or `functionId`, and `context`; Nyason `list-zip-with` with `left`, `right`, `combiner`; persisted `leftListNodeId`, `rightListNodeId`, `combinerFunctionId`. A non-List operand reports `PureExpressionOperandTypeMismatch`, another number of unbound parameters `PureExpressionCallbackArityMismatch`, parameters that do not match the item types `PureExpressionCallbackInputTypeMismatch`, and an impure combiner `PureExpressionCallbackEffectsNotAllowed`; persisted graphs report `CallbackArityMismatch`, `CallbackParameterTypeMismatch` and `CallbackEffectsNotAllowed`;
 - `ListFlatMap(source, f)` requires a pure unary `f : T -> List<R>` and produces the `List<R>` concatenating `f(item)` for each item in source order, in time linear in the output length; wire `listFlatMap` (the `listMap` fields), Nyason `list-flat-map`, persisted callback field `mapperFunctionId`. A mapper that does not return a List reports `PureExpressionCallbackResultTypeMismatch` (persisted: `CallbackResultTypeMismatch`); the other diagnostics are `ListMap`'s;
 - `ListFilter(source, p)` requires a pure unary `p : T -> Bool` and produces `List<T>`;

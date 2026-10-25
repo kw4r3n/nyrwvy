@@ -655,7 +655,7 @@ Types, effects, capabilities and functions carry a visibility ([decision](../dec
 
 ## Snapshot migration
 
-`Nyrwvy.AuthoringSession migrate --snapshot <local>` rewrites a workspace to the current snapshot schema (JSON 21, schema identifier `nayamnyam.snapshot.v17` in the migrate report) under the rules of the [schema evolution policy](schema-evolution-policy.md#migration-is-not-an-ordinary-semantic-edit). It is the migration step of the [legacy cutover](../plans/post-m2-roadmap.md#legacy-cutover-planned): once the old readers are removed, a document below the current version is opened by migrating it first. The command takes the single-writer lock, rewrites, validates, writes and exits; it starts no session and answers no JSONL request.
+`Nyrwvy.AuthoringSession migrate --snapshot <local>` rewrites a workspace to the current snapshot schema (JSON 22, schema identifier `nayamnyam.snapshot.v18` in the migrate report) under the rules of the [schema evolution policy](schema-evolution-policy.md#migration-is-not-an-ordinary-semantic-edit). It is the migration step of the [legacy cutover](../plans/post-m2-roadmap.md#legacy-cutover-planned): once the old readers are removed, a document below the current version is opened by migrating it first. The command takes the single-writer lock, rewrites, validates, writes and exits; it starts no session and answers no JSONL request.
 
 What it rewrites, in the local snapshot and in every dependency retained in the sidecar:
 

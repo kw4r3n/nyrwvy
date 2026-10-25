@@ -140,6 +140,7 @@ ListDropLast
 ListAppendItem
 ListConcat
 ListFold
+ListScan
 ListEffectFold
 UseResource
 ParallelAll
@@ -172,6 +173,8 @@ Higher-order operations reference callbacks by stable `FunctionId`. Apart from `
 `ListMinBy(source, lessThan, context)` returns the smallest item as `Option<T>`, under the same kind of callback. The empty list gives `None`. Otherwise it scans left to right: the first item is the best so far, and a later item replaces it only when `lessThan(item, best)` holds. Among equal items the first wins, and any callback gives a deterministic result. It calls the callback at most `n - 1` times and never fails. `ListMaxBy(source, lessThan, context)` is its counterpart under the same callback: the same scan replacing the best only when `lessThan(best, item)` holds, so the first of equal largest items wins, as Python `max` ([decision](../decisions/list-max-by.md)).
 
 `ListSetAt(list, index, item)` returns the list with the item at zero-based `index` replaced, `ListInsertAt(list, index, item)` the list with `item` inserted before `index`, and `ListRemoveAt(list, index)` the list without the item at `index`. `item` must have the list's item type (any type). Set and remove return the list unchanged for an index outside `[0, length)`, where Python raises `IndexError`; insert clamps the index to `[0, length]` like Python's `list.insert`, except that a negative index inserts first instead of counting from the end. None of them fails or changes its input. `ListSetAt` is O(log n); `ListInsertAt` and `ListRemoveAt` are O(log n + length − index), so appending and removing the first or last item are cheap and updating near the front copies the rest ([decision](../decisions/list-positional-update.md)).
+
+`ListScan(source, seed, folder, context)` gives the `List<S>` of the seed followed by every intermediate `ListFold` state: item 0 is the seed and item i + 1 is `folder(item i, source[i])`, so the length is the source length plus one, an empty source gives `[seed]`, and the last item equals `ListFold`, as F# `List.scan` and Python `itertools.accumulate(xs, f, initial=seed)`. The folder is a pure `(S, T) -> S` as for `ListFold`, and the scan never fails; it builds the result in one array, so it replaces a `ListFold` over `ListAppendItem` for running totals ([decision](../decisions/list-scan.md)).
 
 `ListZipWith(left, right, combiner, context)` gives the `List<R>` whose item i is `combiner(left[i], right[i])` for every index below the shorter length; the extra items of the longer list are ignored, as Python `zip`. There is no tuple type, so a pairing combiner builds a product. `ListFlatMap(source, mapper, context)` concatenates, in source order, the `List<R>` a pure `T -> List<R>` mapper returns for each item, as Python `[y for x in xs for y in f(x)]`; a mapper returning `[]` drops its item, and the time is linear in the output length, so it replaces a `ListFold` over `ListConcat`. Neither fails ([decision](../decisions/list-zip-with-and-flat-map.md)).
 
@@ -406,6 +409,7 @@ ListDropLast
 ListAppendItem
 ListConcat
 ListFold
+ListScan
 ListEffectFold
 ParallelAll
 CancellationRequested
@@ -469,7 +473,7 @@ Before materialization the workflow checks target/base guards, the 32-depth / 25
 
 `ListEmpty`, `ListConstruct`, `OptionNone`, and one side of each `Result` constructor carry explicit type information when it cannot be inferred from a child. Named/capability references and builtin-generic arity are checked before materialization.
 
-Higher-order List cases reference existing callbacks by `FunctionId`. `ListFold` accepts a pure binary `(S, T) -> S` with seed `S`; `ListMap` accepts a pure unary `T -> R`; `ListZipWith` accepts a pure binary `(A, B) -> R` over the left and right item types; `ListFlatMap` accepts a pure unary `T -> List<R>`; `ListFilter`, `ListFindIndex`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. `ListSortBy` and `ListMinBy` accept a pure binary less-than `(T, T) -> Bool`. An optional context binds further callback parameters by identity to values computed before the traversal, and these arities apply to the remaining unbound parameters (see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks)). `ListEffectFold` accepts a binary `(S, T) -> S` folder (or one returning `Result<S, E>`) that may use effects the target declares. The workflow does not construct lambdas or permit any other effectful callback. Source expressions may use effects already declared by the target.
+Higher-order List cases reference existing callbacks by `FunctionId`. `ListFold` accepts a pure binary `(S, T) -> S` with seed `S`; `ListScan` accepts the same folder and returns the `List<S>` of running states; `ListMap` accepts a pure unary `T -> R`; `ListZipWith` accepts a pure binary `(A, B) -> R` over the left and right item types; `ListFlatMap` accepts a pure unary `T -> List<R>`; `ListFilter`, `ListFindIndex`, `ListAny`, and `ListAll` accept a pure unary `T -> Bool`. `ListSortBy` and `ListMinBy` accept a pure binary less-than `(T, T) -> Bool`. An optional context binds further callback parameters by identity to values computed before the traversal, and these arities apply to the remaining unbound parameters (see [expression authoring](../specs/expression-authoring.md#higher-order-list-callbacks)). `ListEffectFold` accepts a binary `(S, T) -> S` folder (or one returning `Result<S, E>`) that may use effects the target declares. The workflow does not construct lambdas or permit any other effectful callback. Source expressions may use effects already declared by the target.
 
 Product and union construction bind declaration fields by stable `FieldId`. Preflight requires the exact declared field set with no duplicates and exact field-value types. Caller binding order is not semantic: materialization follows declaration field order and creates ordinary persistent `FieldValueBinding` values only after child nodes receive system-owned IDs. `FieldAccess` requires the exact owning product type. `ProductUpdate` copies a source of exactly the named product type with one or more of its fields replaced, each at most once, and keeps every other field; it never fails. `UnionConstruct` derives its result type from the referenced stable `VariantId`.
 

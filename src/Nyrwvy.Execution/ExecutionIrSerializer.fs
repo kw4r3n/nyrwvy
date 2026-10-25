@@ -673,6 +673,12 @@ module ExecutionIrSerializer =
               property "seedValueId" (executionValueIdValue seedValueId)
               property "folderFunctionId" (stableIdValue folderFunctionId) ]
             @ writeCallbackContext context
+        | ExecutionInstructionKind.ListScan(sourceListValueId, seedValueId, folderFunctionId, context) ->
+            [ property "kind" (quote "listScan")
+              property "sourceListValueId" (executionValueIdValue sourceListValueId)
+              property "seedValueId" (executionValueIdValue seedValueId)
+              property "folderFunctionId" (stableIdValue folderFunctionId) ]
+            @ writeCallbackContext context
         | ExecutionInstructionKind.MapFold(sourceMapValueId, seedValueId, folderFunctionId, context) ->
             [ property "kind" (quote "mapFold")
               property "sourceMapValueId" (executionValueIdValue sourceMapValueId)

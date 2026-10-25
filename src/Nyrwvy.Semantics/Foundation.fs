@@ -601,6 +601,10 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// The concatenation, in source order, of the List<R> the mapper returns for each item, built in
     /// time linear in the total output length. Never fails.
     | ListFlatMap of sourceListNodeId: GraphNodeId * mapperFunctionId: FunctionId * context: ArgumentBinding list
+    /// The List<S> of the seed followed by every intermediate fold state: item 0 is the seed and item i + 1
+    /// is folder(item i, source[i]), so the length is the source length plus one and the last item equals
+    /// ListFold; as F# List.scan. The folder's unbound parameters receive (state, item). Never fails.
+    | ListScan of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: ArgumentBinding list
     /// The items of a List<T> indexed by a pure `T -> K` callback, as Map<K, T>: a repeated key
     /// keeps its first position and takes the last item, as repeated MapInsert does. K must be
     /// equatable. Never fails.
@@ -759,7 +763,7 @@ type FunctionReferenceRole =
     /// ListFold, ListMap, ListFilter, ListSortBy, ListMinBy, ListMaxBy, ListFindIndex, ListAny, ListAll,
     /// MapFold, MapFromList, MapFilter, MapMapValues, SetFold, SetFilter or SetMap: a callback
     /// validation requires to be pure.
-    /// ListZipWith and ListFlatMap callbacks are pure in the same way.
+    /// ListZipWith, ListFlatMap and ListScan callbacks are pure in the same way.
     /// MapFromList, MapFilter, MapMapValues, OptionMap, OptionAndThen, ResultMap, ResultMapErr or
     /// ResultAndThen: a callback validation requires to be pure.
     | PureListCallback
@@ -1033,6 +1037,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.ListRemoveAt(listNodeId, indexNodeId) -> [ listNodeId; indexNodeId ]
         | SemanticNodeKind.MapInsert(sourceMapNodeId, keyNodeId, valueNodeId) -> [ sourceMapNodeId; keyNodeId; valueNodeId ]
         | SemanticNodeKind.ListFold(sourceNodeId, seedNodeId, _, context)
+        | SemanticNodeKind.ListScan(sourceNodeId, seedNodeId, _, context)
         | SemanticNodeKind.MapFold(sourceNodeId, seedNodeId, _, context)
         | SemanticNodeKind.SetFold(sourceNodeId, seedNodeId, _, context)
         | SemanticNodeKind.ListEffectFold(sourceNodeId, seedNodeId, _, context) ->
@@ -1314,6 +1319,8 @@ module SemanticNodeShape =
                 SemanticNodeKind.ListConcat(mapNodeId leftNodeId, mapNodeId rightNodeId)
             | SemanticNodeKind.ListFold(listNodeId, seedNodeId, functionId, context) ->
                 SemanticNodeKind.ListFold(mapNodeId listNodeId, mapNodeId seedNodeId, functionId, mapContextValues mapNodeId context)
+            | SemanticNodeKind.ListScan(listNodeId, seedNodeId, functionId, context) ->
+                SemanticNodeKind.ListScan(mapNodeId listNodeId, mapNodeId seedNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.MapFold(listNodeId, seedNodeId, functionId, context) ->
                 SemanticNodeKind.MapFold(mapNodeId listNodeId, mapNodeId seedNodeId, functionId, mapContextValues mapNodeId context)
             | SemanticNodeKind.SetFold(listNodeId, seedNodeId, functionId, context) ->
@@ -1601,6 +1608,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapGetOrDefault _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
+        | SemanticNodeKind.ListScan _
         | SemanticNodeKind.MapFold _
         | SemanticNodeKind.SetFold _
         | SemanticNodeKind.ParallelAll _
@@ -1866,6 +1874,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
+        | SemanticNodeKind.ListScan _
         | SemanticNodeKind.MapFold _
         | SemanticNodeKind.SetFold _
         | SemanticNodeKind.ParallelAll _
@@ -1937,6 +1946,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.DirectCall(functionId, arguments) ->
             [ reference FunctionReferenceRole.DirectCall arguments functionId ], []
         | SemanticNodeKind.ListFold(_, _, functionId, context)
+        | SemanticNodeKind.ListScan(_, _, functionId, context)
         | SemanticNodeKind.MapFold(_, _, functionId, context)
         | SemanticNodeKind.SetFold(_, _, functionId, context)
         | SemanticNodeKind.ListZipWith(_, _, functionId, context)
@@ -2323,6 +2333,7 @@ module SemanticNodeShape =
         | SemanticNodeKind.MapInsert _
         | SemanticNodeKind.ListConcat _
         | SemanticNodeKind.ListFold _
+        | SemanticNodeKind.ListScan _
         | SemanticNodeKind.MapFold _
         | SemanticNodeKind.SetFold _
         | SemanticNodeKind.ListEffectFold _
