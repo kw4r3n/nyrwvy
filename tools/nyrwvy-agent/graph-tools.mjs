@@ -167,7 +167,7 @@ export function createGraphTools(schema) {
       execute: (args, context) => requestAuthoring({ op: "simulateCreateFunctionByName", ...args }, context),
     }),
     create_functions: defineTool({
-      description: "Propose several new typed functions in one proposal and one commit, created in list order. Pass exactly one of functions or functionsFile (a JSON file containing the functions array beside the snapshot). Each item has the fields of nyrwvy_create_function; a body may call itself and any function listed before it by name. Any rejected item rejects the batch. " + reviewDetail,
+      description: "Propose several new typed functions in one proposal and one commit, created in list order. Pass exactly one of functions or functionsFile (a JSON file containing the functions array beside the snapshot). Each item has the fields of nyrwvy_create_function; a body may call itself and any function listed before it by name. Name resolution reports every invalid item together with its index and displayName, and any rejected item rejects the batch. " + reviewDetail,
       args: { functions: schema.array(object).optional(), functionsFile: schema.string().optional(), detail },
       /** @param {{ functions: Record<string, unknown>[]; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: "simulateCreateFunctionsByName", ...args }, context),

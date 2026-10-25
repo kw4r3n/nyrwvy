@@ -92,6 +92,27 @@ module FunctionBatchAndBodyWrapTests =
             Assert.Empty((execute """{"id":"p","op":"proposals"}""").GetProperty("proposals").EnumerateArray()))
 
     [<Fact>]
+    let ``a batch reports every name resolution problem with its item`` () =
+        withSession (fun session execute rejected ->
+            let badParameter = (call "first" n).Replace("\"parameter\":\"n\"", "\"parameter\":\"missing\"")
+            let response = rejected $"""{{"id":"bad","op":"simulateCreateFunctionsByName","functions":[{fn "first" n},{fn "second" (call "unknown" n)},{fn "third" badParameter}]}}"""
+            use document = JsonDocument.Parse(response)
+            let error = document.RootElement.GetProperty("error")
+            Assert.Equal("ProtocolError", error.GetProperty("code").GetString())
+            let problems = error.GetProperty("problems").EnumerateArray() |> Seq.toArray
+            Assert.Equal(2, problems.Length)
+            Assert.Equal(1, problems[0].GetProperty("index").GetInt32())
+            Assert.Equal("second", problems[0].GetProperty("displayName").GetString())
+            Assert.Contains("Unknown function", problems[0].GetProperty("message").GetString())
+            Assert.Equal(2, problems[1].GetProperty("index").GetInt32())
+            Assert.Equal("third", problems[1].GetProperty("displayName").GetString())
+            Assert.Contains("Unknown parameter", problems[1].GetProperty("message").GetString())
+            Assert.Contains("[1] second:", error.GetProperty("message").GetString())
+            Assert.Contains("[2] third:", error.GetProperty("message").GetString())
+            Assert.Empty(session.Declarations().Functions)
+            Assert.Empty((execute """{"id":"p","op":"proposals"}""").GetProperty("proposals").EnumerateArray()))
+
+    [<Fact>]
     let ``originalTarget in a whole-body replacement wraps the body and keeps its result node`` () =
         withSession (fun session execute rejected ->
             commit execute (execute $"""{{"id":"create","op":"simulateCreateFunctionByName",{(fn "f" (add n (lit 1))).TrimStart('{')}""")

@@ -1173,14 +1173,23 @@ module AuthoringProtocol =
                 let builders =
                     items
                     |> List.map (fun item ->
-                        ensureFields
-                            "function in functions"
-                            [ "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile" ]
-                            [ "displayName"; "parameters"; "resultType"; "requiredEffects" ]
-                            item
                         // Earlier functions of the batch resolve by name like existing ones.
                         fun (created: SemanticFunction list) ->
-                            functionCreationByName session { declarations with Functions = declarations.Functions @ created } expected item)
+                            try
+                                ensureFields
+                                    "function in functions"
+                                    [ "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile" ]
+                                    [ "displayName"; "parameters"; "resultType"; "requiredEffects" ]
+                                    item
+                                Ok(functionCreationByName session { declarations with Functions = declarations.Functions @ created } expected item)
+                            with WireInput.ProtocolInputException message ->
+                                let displayName =
+                                    if item.ValueKind <> JsonValueKind.Object then "<unknown>"
+                                    else
+                                        match tryProperty "displayName" item with
+                                        | Some value when value.ValueKind = JsonValueKind.String -> value.GetString()
+                                        | _ -> "<unknown>"
+                                Error(displayName, message))
                 proposalResponse (session.SimulateCreateFunctions builders)
             | "simulateParameterTypeMigration" ->
                 ensureFields
@@ -1727,6 +1736,16 @@ module AuthoringProtocol =
                         [ "code", box "UnsupportedOperation"
                           "message", box $"Unsupported operation '{value}'." ])
         with
+        | AgentExpressionStructuralWorkflow.FunctionCreation.BatchResolutionProblems problems ->
+            let message =
+                problems
+                |> List.map (fun (index, displayName, problem) -> $"[{index}] {displayName}: {problem}")
+                |> String.concat "\n"
+            let entries =
+                problems
+                |> List.map (fun (index, displayName, problem) ->
+                    objectValue [ "index", box index; "displayName", box displayName; "message", box problem ])
+            failure requestId (objectValue [ "code", box "ProtocolError"; "message", box message; "problems", box entries ])
         | WireInput.ProtocolInputException message ->
             failure
                 requestId

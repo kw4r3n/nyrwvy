@@ -1331,7 +1331,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
 
     /// Several new functions in one proposal, in order; each builder receives the functions
     /// created before it (docs/decisions/function-creation-batches.md).
-    member _.SimulateCreateFunctions(builders: (SemanticFunction list -> AgentExpressionStructuralWorkflow.FunctionCreation.Request) list): Result<AuthoringProposal, AuthoringSessionError> =
+    member _.SimulateCreateFunctions(builders: (SemanticFunction list -> Result<AgentExpressionStructuralWorkflow.FunctionCreation.Request, string * string>) list): Result<AuthoringProposal, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
         match ensureUsable () with
         | Error error -> Error error
