@@ -71,6 +71,60 @@ module DeclarationCleanupTests =
           AgentOperationIntent.DeleteEffect effectId ]
 
     [<Fact>]
+    let ``unreferenced reports local operations and types and follows operation uses`` () =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-unreferenced-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(root) |> ignore
+        try
+            let unusedTypeId = id<TypeTag> "unused-type"
+            let usedTypeId = id<TypeTag> "used-type"
+            let nestedTypeId = id<TypeTag> "nested-type"
+            let idleOperationId = id<CapabilityOperationTag> "idle-operation"
+            let initial = fixture ()
+            let extraOperation =
+                { initial.Capabilities.Head.Operations.Head with
+                    Id = idleOperationId; DisplayName = "idle"; Parameters = [] }
+            let usedParameter: SemanticParameter =
+                { Id = id<ParameterTag> "used-parameter"; DisplayName = "used"; Type = TypeRef.Named(usedTypeId, []) }
+            let functions = initial.Functions |> List.map (fun fn -> { fn with Parameters = fn.Parameters @ [ usedParameter ] })
+            let snapshot =
+                { initial with
+                    Types =
+                        [ { Id = unusedTypeId; DisplayName = "Unused"; Exported = false
+                            TypeParameters = []; Kind = SemanticTypeKind.Product [] }
+                          { Id = usedTypeId; DisplayName = "Used"; Exported = false
+                            TypeParameters = []
+                            Kind = SemanticTypeKind.Product
+                                [ { Id = id<FieldTag> "nested-field"; DisplayName = "nested"; Type = TypeRef.Named(nestedTypeId, []) } ] }
+                          { Id = nestedTypeId; DisplayName = "Nested"; Exported = false
+                            TypeParameters = []; Kind = SemanticTypeKind.Product [] } ]
+                    Functions = functions
+                    Capabilities = [ { initial.Capabilities.Head with Operations = initial.Capabilities.Head.Operations @ [ extraOperation ] } ] }
+            let path = Path.Combine(root, "workspace.json")
+            File.WriteAllText(path, SnapshotCodec.serialize snapshot |> function
+                | Ok text -> text
+                | Error error -> failwithf "Fixture encoding failed: %A" error)
+            use session = AuthoringSession.openExisting path |> function
+                | Ok value -> value
+                | Error error -> failwithf "Open failed: %A" error
+            let query roots =
+                use response = AuthoringProtocol.executeLine session ($"""{{"id":"u","op":"unreferenced"{roots}}}""") |> JsonDocument.Parse
+                Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
+                response.RootElement.GetProperty("result").Clone()
+            let names (field: string) (result: JsonElement) =
+                result.GetProperty(field).EnumerateArray()
+                |> Seq.map (fun item -> item.GetProperty("name").GetString()) |> Set.ofSeq
+            let withoutRoots = query ""
+            Assert.Equal<Set<string>>(set [ "useNotifier" ], names "functions" withoutRoots)
+            Assert.Equal<Set<string>>(set [ "idle" ], names "operations" withoutRoots)
+            Assert.Equal<Set<string>>(set [ "Unused" ], names "types" withoutRoots)
+            let withRoots = query ",\"roots\":[\"useNotifier\"]"
+            Assert.Empty(names "functions" withRoots)
+            Assert.Equal<Set<string>>(set [ "idle" ], names "operations" withRoots)
+            Assert.Equal<Set<string>>(set [ "Unused" ], names "types" withRoots)
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
     let ``capability and effect cleanup preserves exact reviewed identities and can be composed`` () =
         let initial = fixture ()
         let ws = workspace initial
@@ -160,15 +214,16 @@ module DeclarationCleanupTests =
         Assert.Empty(SnapshotValidator.validate snapshot)
 
     [<Fact>]
-    let ``operation deletion refuses live invocations missing targets and invalid batch order`` () =
+    let ``operation deletion refuses live invocations and missing targets but accepts any batch order`` () =
         let initial = fixture ()
         let reject operations expected =
             match AgentWorkflow.simulate (workspace initial) operations with
             | Error(AgentWorkflowError.SimulationRejected [ diagnostic ]) -> Assert.Equal(expected, diagnostic.Code)
             | other -> failwithf "Expected %s, got %A" expected other
         reject [ AgentOperationIntent.DeleteCapabilityOperation operationId ] "CapabilityOperationStillReferenced"
-        reject [ AgentOperationIntent.DeleteCapabilityOperation operationId; AgentOperationIntent.DeleteFunction functionId ]
-            "CapabilityOperationStillReferenced"
+        match AgentWorkflow.simulate (workspace initial) [ AgentOperationIntent.DeleteCapabilityOperation operationId; AgentOperationIntent.DeleteFunction functionId ] with
+        | Ok _ -> ()
+        | Error error -> failwithf "Callee-first batch was rejected: %A" error
         reject [ AgentOperationIntent.DeleteCapabilityOperation(id<CapabilityOperationTag> "missing") ] "TargetNotFound"
         reject [ AgentOperationIntent.DeleteFunction functionId
                  AgentOperationIntent.DeleteCapabilityOperation operationId
@@ -259,7 +314,7 @@ module DeclarationCleanupTests =
                 | Ok value -> value
                 | Error error -> failwithf "Open failed: %A" error
             let command =
-                $"""{{"id":"cleanup","op":"simulateOperations","operations":[{{"kind":"deleteFunction","functionId":"{StableId.value functionId}"}},{{"kind":"deleteCapabilityOperation","operationId":"{StableId.value operationId}"}},{{"kind":"deleteEffect","effectId":"{StableId.value effectId}"}}]}}"""
+                $"""{{"id":"cleanup","op":"simulateOperations","operations":[{{"kind":"deleteEffect","effectId":"{StableId.value effectId}"}},{{"kind":"deleteCapabilityOperation","operationId":"{StableId.value operationId}"}},{{"kind":"deleteFunction","functionId":"{StableId.value functionId}"}}]}}"""
             use response = AuthoringProtocol.executeLine session command |> JsonDocument.Parse
             Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
             let result = response.RootElement.GetProperty("result")

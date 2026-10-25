@@ -59,6 +59,80 @@ module AuthoringProtocol =
 
     let private sessionFailure id error = failure id (WireEncode.error error)
 
+    let private unreferenced (session: AuthoringSession) (roots: string list option) =
+        let declarations = session.Declarations()
+        let functions = declarations.Functions
+        let types = declarations.Types
+        let operations = declarations.Capabilities |> List.collect (fun capability ->
+            capability.Operations |> List.map (fun operation -> capability, operation))
+        let local kind id =
+            declarations.Provenance |> List.exists (fun item -> item.Kind = kind && item.Id = id && item.IsLocal)
+        let key kind id = kind, StableId.value id
+        let functionKey (item: SemanticFunction) = key "function" item.Id
+        let typeKey (item: SemanticType) = key "type" item.Id
+        let operationKey (item: SemanticCapabilityOperation) = key "operation" item.Id
+        let capabilityKey (item: SemanticCapability) = key "capability" item.Id
+        let subjects =
+            [ for item in functions -> functionKey item, ReferenceSubject.Function item.Id
+              for item in types -> typeKey item, ReferenceSubject.Type item.Id
+              for capability, operation in operations -> operationKey operation, ReferenceSubject.CapabilityOperation operation.Id
+              for item in declarations.Capabilities -> capabilityKey item, ReferenceSubject.Capability item.Id ]
+        let ownerKey (reference: DeclarationReference) =
+            match reference.Owner with
+            | ReferenceOwner.Function id -> key "function" id
+            | ReferenceOwner.Type id -> key "type" id
+            | ReferenceOwner.Capability id ->
+                match reference.Site with
+                | ReferenceSite.OperationParameterType(operationId, _)
+                | ReferenceSite.OperationResultType operationId
+                | ReferenceSite.OperationFailureType operationId
+                | ReferenceSite.OperationEffect operationId -> key "operation" operationId
+                | _ -> key "capability" id
+        let edges =
+            subjects |> List.collect (fun (subjectKey, subject) ->
+                match session.References subject with
+                | Ok references -> references |> List.map (fun reference -> ownerKey reference, subjectKey)
+                | Error _ -> [])
+            |> Set.ofList
+        let roots = roots |> Option.map (List.map (fun name ->
+            match functions |> List.filter (fun item -> item.DisplayName = name) with
+            | [ item ] -> functionKey item
+            | [] -> fail $"Unknown function '{name}'."
+            | _ -> fail $"Ambiguous function '{name}'."))
+        let selected =
+            match roots with
+            | None ->
+                let referenced = edges |> Set.filter (fun (owner, target) -> owner <> target) |> Set.map snd
+                fun item -> not (Set.contains item referenced)
+            | Some roots ->
+                let rec visit seen frontier =
+                    match frontier with
+                    | [] -> seen
+                    | item :: rest when Set.contains item seen -> visit seen rest
+                    | item :: rest ->
+                        let next = edges |> Seq.choose (fun (owner, target) -> if owner = item then Some target else None) |> Seq.toList
+                        visit (Set.add item seen) (next @ rest)
+                let reachable = visit Set.empty roots
+                fun item -> not (Set.contains item reachable)
+        let named id name = objectValue [ "id", box (StableId.value id); "name", box name ]
+        let unusedFunctions =
+            functions |> List.filter (fun item -> local "function" (StableId.value item.Id) && selected (functionKey item))
+            |> List.sortBy (fun item -> item.DisplayName, StableId.value item.Id)
+            |> List.map (fun item -> named item.Id item.DisplayName) |> arrayValue
+        let unusedOperations =
+            operations |> List.filter (fun (capability, operation) ->
+                local "capability" (StableId.value capability.Id) && selected (operationKey operation))
+            |> List.sortBy (fun (capability, operation) -> operation.DisplayName, capability.DisplayName, StableId.value operation.Id)
+            |> List.map (fun (capability, operation) ->
+                objectValue [ "capabilityId", box (StableId.value capability.Id); "capability", box capability.DisplayName
+                              "id", box (StableId.value operation.Id); "name", box operation.DisplayName ])
+            |> arrayValue
+        let unusedTypes =
+            types |> List.filter (fun item -> local "type" (StableId.value item.Id) && selected (typeKey item))
+            |> List.sortBy (fun item -> item.DisplayName, StableId.value item.Id)
+            |> List.map (fun item -> named item.Id item.DisplayName) |> arrayValue
+        objectValue [ "functions", unusedFunctions; "operations", unusedOperations; "types", unusedTypes ]
+
     let private pureScalar (item: JsonElement): PureRunScalar =
         ensureFields "Scalar run value" [ "kind"; "value" ] [ "kind"; "value" ] item
         match requiredString "kind" item with
@@ -980,6 +1054,13 @@ module AuthoringProtocol =
                 match session.References subject with
                 | Ok items -> success requestId (WireEncode.references declarations subject items)
                 | Error error -> semanticQueryFailure requestId error
+            | "unreferenced" ->
+                ensureFields "unreferenced request" [ "id"; "op"; "roots" ] [ "id"; "op" ] root
+                let roots = tryProperty "roots" root |> Option.map (fun _ ->
+                    array "roots" root |> List.map (fun item ->
+                        if item.ValueKind <> JsonValueKind.String then fail "roots entries must be function names."
+                        item.GetString()))
+                success requestId (unreferenced session roots)
             | "readFunction" ->
                 ensureFields
                     "readFunction request"
