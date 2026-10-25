@@ -1664,6 +1664,28 @@ module SnapshotValidator =
                                     add "CallbackEffectsNotAllowed" $"ListFold node '{StableId.value node.Id}' folder must be pure, including its transitive calls and ambient task or cancellation behavior."
                         | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" $"ListFold node '{StableId.value node.Id}' requires List<T> input."
                         | _ -> ()
+                    | SemanticNodeKind.ListScan(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                        match nodeType sourceListNodeId, nodeType seedNodeId with
+                        | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some seedType ->
+                            match Map.tryFind folderFunctionId functionsById with
+                            | None -> add "UnknownCallbackFunction" $"ListScan node '{StableId.value node.Id}' references an unknown folder."
+                            | Some folder ->
+                                let unbound, contextSubstitution = validateCallbackContext node.Id folder context
+                                let mutable substitution = contextSubstitution
+                                if unbound.Length <> 2 then
+                                    add "CallbackArityMismatch" $"ListScan node '{StableId.value node.Id}' folder must have exactly two parameters not bound by context (accumulator, item)."
+                                else
+                                    match
+                                        TypeParameters.matchFrom substitution [ unbound.Head.Type, seedType; unbound.Tail.Head.Type, itemType ]
+                                    with
+                                    | Some extended -> substitution <- extended
+                                    | None -> add "CallbackParameterTypeMismatch" $"ListScan node '{StableId.value node.Id}' folder input types must match seed and list item types."
+                                if TypeParameters.substitute substitution folder.ResultType <> seedType then
+                                    add "CallbackResultTypeMismatch" $"ListScan node '{StableId.value node.Id}' folder must return the seed type."
+                                if not (PureFunctions.isPure snapshot folder.Id) then
+                                    add "CallbackEffectsNotAllowed" $"ListScan node '{StableId.value node.Id}' folder must be pure, including its transitive calls and ambient task or cancellation behavior."
+                        | Some _, Some _ -> add "HigherOrderSourceTypeMismatch" $"ListScan node '{StableId.value node.Id}' requires List<T> input."
+                        | _ -> ()
                     | SemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
                         match nodeType sourceMapNodeId, nodeType seedNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ keyType; valueType ])), Some seedType ->
@@ -2688,6 +2710,7 @@ module SnapshotValidator =
                 | SemanticNodeKind.ListAppendItem _
                 | SemanticNodeKind.ListConcat _
                 | SemanticNodeKind.ListFold _
+                | SemanticNodeKind.ListScan _
                 | SemanticNodeKind.MapFold _
                 | SemanticNodeKind.ListEffectFold _
                 | SemanticNodeKind.UseResource _

@@ -219,6 +219,7 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | MapInsert of mapNodeId: GraphNodeId * keyNodeId: GraphNodeId * valueNodeId: GraphNodeId
     | ListConcat of leftListNodeId: GraphNodeId * rightListNodeId: GraphNodeId
     | ListFold of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
+    | ListScan of sourceListNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | MapFold of sourceMapNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | SetFold of sourceSetNodeId: GraphNodeId * seedNodeId: GraphNodeId * folderFunctionId: FunctionId * context: TypedSemanticArgument list
     | ParallelAll of sourceListNodeId: GraphNodeId * workerFunctionId: FunctionId * context: TypedSemanticArgument list
@@ -454,6 +455,7 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.MapInsert _
         | TypedSemanticNodeKind.ListConcat _
         | TypedSemanticNodeKind.ListFold _
+        | TypedSemanticNodeKind.ListScan _
         | TypedSemanticNodeKind.MapFold _
         | TypedSemanticNodeKind.SetFold _
         | TypedSemanticNodeKind.ParallelAll _
@@ -656,6 +658,8 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.ListFindIndex(listNodeId, _, context)
         | TypedSemanticNodeKind.ListAll(listNodeId, _, context) -> listNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.ListFold(listNodeId, seedNodeId, _, context) ->
+            listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
+        | TypedSemanticNodeKind.ListScan(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
         | TypedSemanticNodeKind.MapFold(listNodeId, seedNodeId, _, context) ->
             listNodeId :: seedNodeId :: (context |> List.map (fun argument -> argument.ValueNodeId))
@@ -1099,6 +1103,8 @@ module TypedSemanticIr =
                         Ok(TypedSemanticNodeKind.ListConcat(leftListNodeId, rightListNodeId))
                     | SemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.ListFold(sourceListNodeId, seedNodeId, folderFunctionId, projectContext context))
+                    | SemanticNodeKind.ListScan(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                        Ok(TypedSemanticNodeKind.ListScan(sourceListNodeId, seedNodeId, folderFunctionId, projectContext context))
                     | SemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
                         Ok(TypedSemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, projectContext context))
                     | SemanticNodeKind.SetFold(sourceSetNodeId, seedNodeId, folderFunctionId, context) ->

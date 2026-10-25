@@ -41,6 +41,7 @@ module internal OneShotPayloadRequirements =
                             | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ resource; _ ])) -> [ resource ]
                             | _ -> []
                         | SemanticNodeKind.ListFold(source, seed, _, _)
+                        | SemanticNodeKind.ListScan(source, seed, _, _)
                         | SemanticNodeKind.ListEffectFold(source, seed, _, _) -> (nodeType seed |> Option.toList) @ listItem source
                         | SemanticNodeKind.MapFold(source, seed, _, _) -> (nodeType seed |> Option.toList) @ mapItems source
                         | SemanticNodeKind.SetFold(source, seed, _, _) -> (nodeType seed |> Option.toList) @ setItem source

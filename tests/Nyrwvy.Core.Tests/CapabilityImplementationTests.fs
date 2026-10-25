@@ -58,7 +58,7 @@ module CapabilityImplementationTests =
             create session "join" [ "a", stringType; "b", stringType ] stringType "[]"
                 """{"kind":"stringConcat","left":{"kind":"parameter","name":"a"},"right":{"kind":"parameter","name":"b"}}"""
             let oldBytes = File.ReadAllText path
-            Assert.Contains("\"schemaVersion\":21", oldBytes)
+            Assert.Contains(sprintf "\"schemaVersion\":%d" SnapshotSchema.current.Json, oldBytes)
             Assert.Equal(oldBytes, SnapshotCodec.serialize (snapshot path) |> unwrap)
             create session "low" [] capType "[]" (construct "ten")
             create session "high" [] capType "[]" (construct "twenty")

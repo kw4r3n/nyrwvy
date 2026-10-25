@@ -45,6 +45,8 @@ type SnapshotSchemaFeature =
     | ListPositionalUpdate
     /// ListZipWith and ListFlatMap.
     | ListZipWithAndFlatMap
+    /// ListScan.
+    | ListScan
     /// A Product or Union with type parameters, a named type with type arguments, or a construct
     /// node with type arguments.
     | GenericTypes
@@ -108,12 +110,14 @@ module SnapshotSchema =
 
     let private v21 = version 21 "nayamnyam.snapshot.v17"
 
+    let private v22 = version 22 "nayamnyam.snapshot.v18"
+
     /// Every version the codecs read, oldest first.
-    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19; v20; v21 ]
+    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19; v20; v21; v22 ]
 
     /// The newest version: the one ordinary writers and migration write every snapshot at, whatever
     /// constructs it uses (docs/specs/schema-evolution-policy.md, deprecation policy).
-    let current = v21
+    let current = v22
 
     /// The first version that writes function type parameters as a declared list and type
     /// parameter occurrences without display names; older documents derive the list on reading.
@@ -121,7 +125,8 @@ module SnapshotSchema =
 
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
-        [ SnapshotSchemaFeature.DeclaredFunctionTypeParameters, v21, "Declared function type parameters"
+        [ SnapshotSchemaFeature.ListScan, v22, "ListScan"
+          SnapshotSchemaFeature.DeclaredFunctionTypeParameters, v21, "Declared function type parameters"
           SnapshotSchemaFeature.DeclarationVisibility, v21, "A private declaration"
           SnapshotSchemaFeature.SetCallbacks, v20, "SetFold, SetFilter and SetMap"
           SnapshotSchemaFeature.ListMaxBy, v20, "ListMaxBy"
@@ -260,6 +265,7 @@ module SnapshotSchema =
         | SemanticNodeKind.ListRemoveAt _ -> Some SnapshotSchemaFeature.ListPositionalUpdate
         | SemanticNodeKind.ListZipWith _
         | SemanticNodeKind.ListFlatMap _ -> Some SnapshotSchemaFeature.ListZipWithAndFlatMap
+        | SemanticNodeKind.ListScan _ -> Some SnapshotSchemaFeature.ListScan
         | SemanticNodeKind.ProductConstruct(_, _ :: _, _)
         | SemanticNodeKind.UnionConstruct(_, _ :: _, _) -> Some SnapshotSchemaFeature.GenericTypes
         | SemanticNodeKind.TaskWait _

@@ -1735,6 +1735,8 @@ module CSharpBackend =
             writer.Line(target + " = " + valueName leftListValueId + ".Concat(" + valueName rightListValueId + ");")
         | ExecutionInstructionKind.ListFold(sourceListValueId, seedValueId, folderFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceListValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
+        | ExecutionInstructionKind.ListScan(sourceListValueId, seedValueId, folderFunctionId, context) ->
+            writer.Line(target + " = " + valueName sourceListValueId + ".Scan(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
         | ExecutionInstructionKind.MapFold(sourceMapValueId, seedValueId, folderFunctionId, context) ->
             writer.Line(target + " = " + valueName sourceMapValueId + ".Fold(" + valueName seedValueId + ", " + callback folderFunctionId context + ");")
         | ExecutionInstructionKind.SetFold(sourceSetValueId, seedValueId, folderFunctionId, context) ->

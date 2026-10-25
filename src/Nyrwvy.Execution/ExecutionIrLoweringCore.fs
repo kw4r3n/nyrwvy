@@ -611,6 +611,12 @@ module ExecutionIr =
                             | Ok lowered ->
                                 lowerBinaryNode node sourceListNodeId seedNodeId (fun source seed ->
                                     ExecutionInstructionKind.ListFold(source, seed, folderFunctionId, lowered))
+                        | TypedSemanticNodeKind.ListScan(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+                            match lowerCallArguments context with
+                            | Error error -> Error error
+                            | Ok lowered ->
+                                lowerBinaryNode node sourceListNodeId seedNodeId (fun source seed ->
+                                    ExecutionInstructionKind.ListScan(source, seed, folderFunctionId, lowered))
                         | TypedSemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
                             match lowerCallArguments context with
                             | Error error -> Error error

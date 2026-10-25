@@ -73,6 +73,9 @@ module internal WireRecipe =
         | "listFold" ->
             ensureFields "list-fold recipe" [ "kind"; "source"; "seed"; "functionId"; "context" ] [ "kind"; "source"; "seed"; "functionId" ] element
             ExpressionRecipe.ListFold(recipe (property "source" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
+        | "listScan" ->
+            ensureFields "list-scan recipe" [ "kind"; "source"; "seed"; "functionId"; "context" ] [ "kind"; "source"; "seed"; "functionId" ] element
+            ExpressionRecipe.ListScan(recipe (property "source" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())
         | "mapFold" ->
             ensureFields "map-fold recipe" [ "kind"; "map"; "seed"; "functionId"; "context" ] [ "kind"; "map"; "seed"; "functionId" ] element
             ExpressionRecipe.MapFold(recipe (property "map" element), recipe (property "seed" element), id<FunctionTag> "functionId" element, callbackContext ())

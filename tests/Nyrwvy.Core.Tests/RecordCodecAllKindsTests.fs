@@ -168,6 +168,7 @@ module RecordCodecAllKindsTests =
           "MapEmpty", fn "MapEmpty" [] [] mapT (fun g -> g.Add(SemanticNodeKind.MapEmpty(stringT, int64T)))
           "ListConstruct", fn "ListConstruct" [] [] (listOf int64T) (fun g -> g.Add(SemanticNodeKind.ListConstruct(int64T, [ g.Lit 1L; g.Lit 2L ])))
           fold "ListFold" (listOf int64T) (fun s seed -> SemanticNodeKind.ListFold(s, seed, fold2.Id, []))
+          "ListScan", fn1 "ListScan" ("source", listOf int64T) [] (listOf int64T) (fun g source -> g.Add(SemanticNodeKind.ListScan(source, g.Lit 0L, fold2.Id, [])))
           fold "MapFold" mapT (fun s seed -> SemanticNodeKind.MapFold(s, seed, fold3.Id, []))
           fold "SetFold" setT (fun s seed -> SemanticNodeKind.SetFold(s, seed, fold2.Id, []))
           fold "ListEffectFold" (listOf int64T) (fun s seed -> SemanticNodeKind.ListEffectFold(s, seed, fold2.Id, []))

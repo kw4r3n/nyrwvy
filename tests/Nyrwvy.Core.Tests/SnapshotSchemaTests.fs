@@ -182,7 +182,10 @@ module SnapshotSchemaTests =
               create "sums" [ "xs", listOf int64Type; "ys", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListZipWith(slot 0, slot 1, add.Id, [])) |> ignore)
           "flat map", SnapshotSchemaFeature.ListZipWithAndFlatMap, (fun create _ ->
               let twice = create "twice" [ "a", int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListConstruct(int64Type, [ slot 0; slot 0 ]))
-              create "doubled" [ "xs", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListFlatMap(slot 0, twice.Id, [])) |> ignore) ]
+              create "doubled" [ "xs", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListFlatMap(slot 0, twice.Id, [])) |> ignore)
+          "scan", SnapshotSchemaFeature.ListScan, (fun create _ ->
+              let add = create "add" [ "total", int64Type; "item", int64Type ] int64Type [] (ExpressionRecipe.Int64WrappingAdd(slot 0, slot 1))
+              create "running" [ "xs", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListScan(slot 0, ExpressionRecipe.Int64Literal 0L, add.Id, [])) |> ignore) ]
 
     let caseNames: obj array seq = cases |> Seq.map (fun (name, _, _) -> [| box name |])
 

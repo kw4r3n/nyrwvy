@@ -442,6 +442,11 @@ module internal SignatureMigrationCore =
                 |> Result.bind (fun () -> two (fun (source, seed) -> source, seed) source seed)
                 |> Result.bind (fun (source, seed) ->
                     rewritePairs context |> Result.map (fun context -> ExpressionRecipe.ListFold(source, seed, folder, context)))
+            | ExpressionRecipe.ListScan(source, seed, folder, context) ->
+                nonCallTargetUse folder
+                |> Result.bind (fun () -> two (fun (source, seed) -> source, seed) source seed)
+                |> Result.bind (fun (source, seed) ->
+                    rewritePairs context |> Result.map (fun context -> ExpressionRecipe.ListScan(source, seed, folder, context)))
             | ExpressionRecipe.MapFold(source, seed, folder, context) ->
                 nonCallTargetUse folder
                 |> Result.bind (fun () -> two (fun (source, seed) -> source, seed) source seed)

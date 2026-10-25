@@ -870,6 +870,12 @@ module SnapshotCodec =
             writer.WriteString("seedNodeId", StableId.value seedNodeId)
             writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
             writeCallbackContext writer context
+        | SemanticNodeKind.ListScan(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+            writer.WriteString("kind", "listScan")
+            writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
+            writer.WriteString("seedNodeId", StableId.value seedNodeId)
+            writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
+            writeCallbackContext writer context
         | SemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
             writer.WriteString("kind", "mapFold")
             writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)
@@ -2264,6 +2270,9 @@ module SnapshotCodec =
             | "listFold" ->
                 ensureProperties "ListFold node" (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId"; "context" ]) element
                 SemanticNodeKind.ListFold(readId<GraphNodeTag> "sourceListNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element, readCallbackContext element)
+            | "listScan" ->
+                ensureProperties "ListScan node" (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceListNodeId"; "seedNodeId"; "folderFunctionId"; "context" ]) element
+                SemanticNodeKind.ListScan(readId<GraphNodeTag> "sourceListNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element, readCallbackContext element)
             | "mapFold" ->
                 ensureProperties "MapFold node" (set [ "id"; "kind"; "sourceMapNodeId"; "seedNodeId"; "folderFunctionId" ]) (set [ "id"; "kind"; "sourceMapNodeId"; "seedNodeId"; "folderFunctionId"; "context" ]) element
                 SemanticNodeKind.MapFold(readId<GraphNodeTag> "sourceMapNodeId" element, readId<GraphNodeTag> "seedNodeId" element, readId<FunctionTag> "folderFunctionId" element, readCallbackContext element)

@@ -754,6 +754,12 @@ module TypedSemanticIrSerializer =
             writer.WriteString("seedNodeId", StableId.value seedNodeId)
             writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
             writeCallbackContext writer context
+        | TypedSemanticNodeKind.ListScan(sourceListNodeId, seedNodeId, folderFunctionId, context) ->
+            writer.WriteString("kind", "listScan")
+            writer.WriteString("sourceListNodeId", StableId.value sourceListNodeId)
+            writer.WriteString("seedNodeId", StableId.value seedNodeId)
+            writer.WriteString("folderFunctionId", StableId.value folderFunctionId)
+            writeCallbackContext writer context
         | TypedSemanticNodeKind.MapFold(sourceMapNodeId, seedNodeId, folderFunctionId, context) ->
             writer.WriteString("kind", "mapFold")
             writer.WriteString("sourceMapNodeId", StableId.value sourceMapNodeId)

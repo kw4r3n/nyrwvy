@@ -297,6 +297,7 @@ module SemanticNodeShapeTests =
         Map.ofList
             [ "DirectCall", "DirectCall"
               "ListFold", "PureListCallback"
+              "ListScan", "PureListCallback"
               "ListMap", "PureListCallback"
               "ListZipWith", "PureListCallback"
               "ListFlatMap", "PureListCallback"

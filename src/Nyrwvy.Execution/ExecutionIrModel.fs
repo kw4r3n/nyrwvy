@@ -228,6 +228,7 @@ type ExecutionInstructionKind =
     | ListConcat of leftListValueId: ExecutionValueId * rightListValueId: ExecutionValueId
     /// `context` binds callback parameters to values computed before iteration.
     | ListFold of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
+    | ListScan of sourceListValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | MapFold of sourceMapValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | SetFold of sourceSetValueId: ExecutionValueId * seedValueId: ExecutionValueId * folderFunctionId: FunctionId * context: ExecutionCallArgument list
     | ParallelAll of sourceListValueId: ExecutionValueId * workerFunctionId: FunctionId * context: ExecutionCallArgument list
@@ -319,6 +320,7 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.FunctionReference functionId -> [ callback FunctionReferenceRole.FunctionValue functionId ]
         | ExecutionInstructionKind.DirectCall(functionId, _) -> [ callback FunctionReferenceRole.DirectCall functionId ]
         | ExecutionInstructionKind.ListFold(_, _, functionId, _)
+        | ExecutionInstructionKind.ListScan(_, _, functionId, _)
         | ExecutionInstructionKind.MapFold(_, _, functionId, _)
         | ExecutionInstructionKind.SetFold(_, _, functionId, _)
         | ExecutionInstructionKind.ListZipWith(_, _, functionId, _)

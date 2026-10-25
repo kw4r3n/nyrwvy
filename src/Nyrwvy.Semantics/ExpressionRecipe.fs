@@ -157,6 +157,8 @@ type ExpressionRecipe =
     | MapUnion of left: ExpressionRecipe * right: ExpressionRecipe
     /// `context` binds callback parameters by identity; the unbound ones receive iteration values.
     | ListFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
+    /// The seed followed by every intermediate ListFold state, as F# List.scan.
+    | ListScan of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | MapFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | SetFold of source: ExpressionRecipe * seed: ExpressionRecipe * folderFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
     | ParallelAll of source: ExpressionRecipe * workerFunctionId: FunctionId * context: (ParameterId * ExpressionRecipe) list
@@ -387,6 +389,7 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.SetIsSubset(left, right) -> ExpressionRecipe.SetIsSubset(go left, go right)
         | ExpressionRecipe.MapUnion(left, right) -> ExpressionRecipe.MapUnion(go left, go right)
         | ExpressionRecipe.ListFold(source, seed, folder, context) -> ExpressionRecipe.ListFold(go source, go seed, folder, pairs context)
+        | ExpressionRecipe.ListScan(source, seed, folder, context) -> ExpressionRecipe.ListScan(go source, go seed, folder, pairs context)
         | ExpressionRecipe.MapFold(source, seed, folder, context) -> ExpressionRecipe.MapFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.SetFold(source, seed, folder, context) -> ExpressionRecipe.SetFold(go source, go seed, folder, pairs context)
         | ExpressionRecipe.UseResource(acquire, capability, operation, body, context) ->

@@ -360,6 +360,15 @@ module internal WireSymbolic =
                 callback.Id,
                 callbackContext callback
             )
+        | "listScan" ->
+            ensureFields "list-scan recipe" [ "kind"; "source"; "seed"; "function"; "context" ] [ "kind"; "source"; "seed"; "function" ] element
+            let callback = resolveReferencedFunction declarations parameterContext (property "function" element)
+            ExpressionRecipe.ListScan(
+                recipe declarations parameterContext (property "source" element),
+                recipe declarations parameterContext (property "seed" element),
+                callback.Id,
+                callbackContext callback
+            )
         | "mapFold" ->
             ensureFields "map-fold recipe" [ "kind"; "map"; "seed"; "function"; "context" ] [ "kind"; "map"; "seed"; "function" ] element
             let callback = resolveReferencedFunction declarations parameterContext (property "function" element)

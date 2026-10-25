@@ -208,6 +208,8 @@ module internal WireGraph =
             | SemanticNodeKind.ListConcat(left, right) -> binary "listConcat" left right
             | SemanticNodeKind.ListFold(source, seed, folder, bindings) ->
                 tagged "listFold" ([ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
+            | SemanticNodeKind.ListScan(source, seed, folder, bindings) ->
+                tagged "listScan" ([ "sourceListNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
             | SemanticNodeKind.MapFold(source, seed, folder, bindings) ->
                 tagged "mapFold" ([ "sourceMapNodeId", identity source; "seedNodeId", identity seed; "folderFunctionId", identity folder ] @ context bindings)
             | SemanticNodeKind.SetFold(source, seed, folder, bindings) ->

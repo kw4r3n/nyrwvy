@@ -117,6 +117,7 @@ list-min-by=listMinBy: id kind sourceListNodeId/source-list:id(node) lessThanFun
 list-range=listRange: id kind startNodeId/start:id(node) endNodeId/end:id(node)
 list-remove-at=listRemoveAt: id kind listNodeId/list:id(node) indexNodeId/index:id(node)
 list-reverse=listReverse: id kind listNodeId/list:id(node)
+list-scan=listScan: id kind sourceListNodeId/source-list:id(node) seedNodeId/seed:id(node) folderFunctionId/folder-function:id(function) context/context:pairs(targetParameterId:parameter,valueNodeId:node)?~
 list-set-at=listSetAt: id kind listNodeId/list:id(node) indexNodeId/index:id(node) itemNodeId/item:id(node)
 list-slice=listSlice: id kind listNodeId/list:id(node) startNodeId/start:id(node) endNodeId/end:id(node)
 list-sort-by=listSortBy: id kind sourceListNodeId/source-list:id(node) lessThanFunctionId/less-than-function:id(function) context/context:pairs(targetParameterId:parameter,valueNodeId:node)?~

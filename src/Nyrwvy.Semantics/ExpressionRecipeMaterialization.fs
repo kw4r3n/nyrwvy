@@ -361,6 +361,12 @@ module internal ExpressionRecipeMaterialization =
             let contextNodes, contextBindings = materializeContext folderFunctionId context
             let nodeId = StableIdAllocator.newGraphNodeId ()
             sourceNodes @ seedNodes @ contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListFold(sourceResult, seedResult, folderFunctionId, contextBindings) } ], nodeId
+        | ExpressionRecipe.ListScan(source, seed, folderFunctionId, context) ->
+            let sourceNodes, sourceResult = materializeRecipe source
+            let seedNodes, seedResult = materializeRecipe seed
+            let contextNodes, contextBindings = materializeContext folderFunctionId context
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            sourceNodes @ seedNodes @ contextNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.ListScan(sourceResult, seedResult, folderFunctionId, contextBindings) } ], nodeId
         | ExpressionRecipe.MapFold(source, seed, folderFunctionId, context) ->
             let sourceNodes, sourceResult = materializeRecipe source
             let seedNodes, seedResult = materializeRecipe seed
