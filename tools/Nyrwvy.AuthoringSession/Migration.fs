@@ -225,18 +225,18 @@ module AuthoringSessionMigration =
                     match target, selected, migratedSelection with
                     | Some written, _, _ ->
                         // Create, never replace: `migrateTo` checked the target absent under its lock. The
-                        // snapshot goes first so a failed or interrupted sidecar never leaves an orphan
-                        // sidecar that makes a later `migrate --to` or `create` refuse the target.
-                        SessionStorage.createAtomically written migratedSource
+                        // sidecar goes first, as in `create`, so an interruption never leaves a snapshot
+                        // without its sidecar; at worst an orphan sidecar makes a retry refuse the target.
+                        let sidecar = written + ".dependency.json"
+                        (match migratedSelection with
+                         | None -> Ok()
+                         | Some(combined, _) -> SessionStorage.createAtomically sidecar combined.Manifest)
                         |> Result.bind (fun () ->
-                            match migratedSelection with
-                            | None -> Ok()
-                            | Some(combined, _) ->
-                                match SessionStorage.createAtomically (written + ".dependency.json") combined.Manifest with
-                                | Ok() -> Ok()
-                                | Error error ->
-                                    SessionStorage.cleanupTemporary written
-                                    Error error)
+                            match SessionStorage.createAtomically written migratedSource with
+                            | Ok() -> Ok()
+                            | Error error ->
+                                if migratedSelection.IsSome && not (File.Exists written) then SessionStorage.cleanupTemporary sidecar
+                                Error error)
                     | None, Some current, Some(combined, _) ->
                         SessionStorage.replaceDependencyPair path source current.Manifest migratedSource combined.Manifest
                     | _ ->

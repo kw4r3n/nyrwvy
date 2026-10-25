@@ -31,6 +31,12 @@ module AuthoringSessionTests =
         | Ok value -> value
         | Error error -> failwithf "Unexpected authoring-session open failure: %A" error
 
+    let private assertLockReleased path message =
+        try
+            use _handle = new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)
+            Assert.True(true, message)
+        with :? IOException -> Assert.True(false, message)
+
     let private parameter displayName typeRef: AgentExpressionStructuralWorkflow.FunctionCreation.ParameterIntent =
         { DisplayName = displayName
           Type = typeRef }
@@ -147,7 +153,7 @@ module AuthoringSessionTests =
             | Error error -> failwithf "Unexpected missing-manifest error: %A" error
             Assert.Equal<byte>(sourceBeforeMissingOpen, File.ReadAllBytes plannerPath)
             Assert.False(File.Exists manifestPath, "Failed open must not guess or recreate the lost selection.")
-            Assert.False(File.Exists(plannerPath + ".lock"), "Failed open must release the workspace lock.")
+            assertLockReleased plannerPath "Failed open must release the workspace lock."
             File.WriteAllText(manifestPath, manifest)
 
             use plannerBeforePolicyUpdate = openSession plannerPath
@@ -442,7 +448,7 @@ module AuthoringSessionTests =
         document
 
     [<Fact>]
-    let ``close removes the lock file and a failed open leaves none behind`` () =
+    let ``close releases the lock and a failed open releases it too`` () =
         let root = tempDirectory ()
         let path = Path.Combine(root, "workspace.json")
         let lockPath = path + ".lock"
@@ -453,12 +459,12 @@ module AuthoringSessionTests =
             | Error(AuthoringSessionError.LockUnavailable _) -> ()
             | result -> failwithf "Expected the second writer to be rejected, got %A" result
             session.Close()
-            Assert.False(File.Exists lockPath)
+            assertLockReleased path "Close must release the workspace lock."
             File.WriteAllText(path, "not a snapshot")
             match AuthoringSession.openExisting path with
             | Error(AuthoringSessionError.SnapshotCodecFailure _) -> ()
             | result -> failwithf "Expected a codec failure, got %A" result
-            Assert.False(File.Exists lockPath)
+            assertLockReleased path "Failed open must release the workspace lock."
         finally
             if Directory.Exists root then Directory.Delete(root, true)
 
@@ -487,7 +493,7 @@ module AuthoringSessionTests =
             Assert.Equal(2, existsCode)
             Assert.StartsWith("SnapshotFileAlreadyExists: ", exists)
             Assert.Contains("open", exists)
-            Assert.False(File.Exists(path + ".lock"))
+            assertLockReleased path "Failed open must release the workspace lock."
         finally
             if Directory.Exists root then Directory.Delete(root, true)
 
@@ -857,5 +863,21 @@ module AuthoringSessionTests =
             match session.Commit(proposalId, CommitPolicy.RejectBlockingObligations) with
             | Ok _ -> ()
             | Error error -> failwithf "Unexpected commit failure: %A" error
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``a locked open removes this snapshot's interrupted temporaries and no one else's`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        try
+            (createSession path).Close()
+            let guid () = Guid.NewGuid().ToString("N")
+            let stale = [ $".workspace.json.{guid ()}.tmp"; $".workspace.json.dependency.json.{guid ()}.tmp" ] |> List.map (fun name -> Path.Combine(root, name))
+            let foreign = Path.Combine(root, $".workspace.json.other.json.{guid ()}.tmp")
+            for file in foreign :: stale do File.WriteAllText(file, "partial")
+            (AuthoringSession.openExisting path |> function Ok session -> session | Error error -> failwithf "%A" error).Close()
+            for file in stale do Assert.False(File.Exists file, file)
+            Assert.True(File.Exists foreign)
         finally
             if Directory.Exists root then Directory.Delete(root, true)

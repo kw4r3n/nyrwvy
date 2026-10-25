@@ -46,6 +46,10 @@ type Reply = { id: string; ok: boolean; result?: unknown; error?: unknown }
 type Pending = { id: string; resolve: (line: string) => void; reject: (error: Error) => void }
 
 const shutdownTimeoutMs = 5_000
+/** Generous enough for a runPure or verifyChange that builds and runs several cases. */
+const requestTimeoutMs = 600_000
+const stderrLimit = 8_192
+const replyLimit = 64 * 1024 * 1024
 const recoveryAdvice = "A sent request's outcome is unknown if its response was lost. Reopen and inspect committed state before retrying; requests are never replayed."
 
 async function settlesWithin(promise: Promise<unknown>): Promise<boolean> {
@@ -97,9 +101,18 @@ export class AuthoringClient {
 
   constructor(child: ChildProcessWithoutNullStreams) {
     this.child = child
+    // Registered before readline, so an oversized reply fails before it is parsed.
+    let lineLength = 0
+    child.stdout.on("data", (chunk: Buffer) => {
+      const first = chunk.indexOf(10)
+      const longest = first < 0 ? lineLength + chunk.length : lineLength + first
+      lineLength = first < 0 ? longest : chunk.length - chunk.lastIndexOf(10) - 1
+      if (longest > replyLimit || lineLength > replyLimit) this.fail(new Error(`AuthoringSession sent a reply line longer than ${replyLimit} bytes.`))
+    })
     const lines = createInterface({ input: child.stdout })
     child.stderr.setEncoding("utf8")
-    child.stderr.on("data", (chunk: string) => { this.stderr += chunk })
+    // Only the tail is kept: it is quoted in failure messages, and a chatty child must not grow memory.
+    child.stderr.on("data", (chunk: string) => { this.stderr = (this.stderr + chunk).slice(-stderrLimit) })
     lines.on("line", (line) => {
       try {
         const reply = JSON.parse(line) as Reply
@@ -181,6 +194,9 @@ export class AuthoringClient {
         return value
       })
       const abort = () => this.fail(new Error("Authoring request cancelled after sending."))
+      // Replies arrive in order on one pipe, so a request that never answers can only be ended by
+      // stopping the child, exactly as a cancel does; uncommitted proposals are lost either way.
+      const timer = setTimeout(() => this.fail(new Error(`AuthoringSession did not answer within ${requestTimeoutMs / 1000} s.`)), requestTimeoutMs)
       try {
         return await new Promise<string>((accept, reject) => {
           this.pending = { id, resolve: accept, reject }
@@ -192,6 +208,7 @@ export class AuthoringClient {
           }
         })
       } finally {
+        clearTimeout(timer)
         signal?.removeEventListener("abort", abort)
       }
     })

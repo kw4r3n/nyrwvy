@@ -28,6 +28,9 @@ module SnapshotMigrationTests =
         try run root
         finally Directory.Delete(root, true)
 
+    let private assertLockReleased path =
+        (new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)).Dispose()
+
     let private save path snapshot = File.WriteAllText(path, SnapshotCodec.serializeCanonical snapshot |> unwrap "serialize")
     let private manifestPath path = path + ".dependency.json"
     let private status (session: AuthoringSession) = session.Status() |> unwrap "status"
@@ -117,7 +120,7 @@ module SnapshotMigrationTests =
             | Error(AuthoringSessionError.SnapshotCodecFailure _) -> ()
             | other -> failwithf "Malformed snapshot accepted: %A" other
             Assert.Equal("{malformed", File.ReadAllText path)
-            Assert.False(File.Exists(path + ".lock"))
+            assertLockReleased path
             File.WriteAllText(path, original)
             migrate path |> ignore)
 
@@ -137,7 +140,7 @@ module SnapshotMigrationTests =
             | Error(AuthoringSessionError.SnapshotCodecFailure _) -> ()
             | other -> failwithf "ID collision accepted: %A" other
             Assert.Equal(original, File.ReadAllText path)
-            Assert.False(File.Exists(path + ".lock")))
+            assertLockReleased path)
 
     [<Fact>]
     let ``a failed dependent snapshot replacement restores the exact legacy sidecar`` () =
@@ -155,7 +158,7 @@ module SnapshotMigrationTests =
                 | other -> failwithf "Failed replacement accepted: %A" other
             finally SessionStorageFaults.failReplacement <- fun _ -> false
             Assert.Equal(original, (File.ReadAllText path, File.ReadAllText(manifestPath path)))
-            Assert.False(File.Exists(path + ".lock"))
+            assertLockReleased path
             Assert.Empty(Directory.GetFiles(root, ".*.tmp"))
             migrate path |> ignore)
 
@@ -544,7 +547,7 @@ module SnapshotMigrationTests =
             Assert.Equal(21, report["targetSchemaVersion"].GetValue<int>())
             Assert.Equal((report["before"]["semanticFingerprint"]).GetValue<string>(), (report["after"]["semanticFingerprint"]).GetValue<string>())
             Assert.Equal(SnapshotSchema.current, declaredVersion path)
-            Assert.False(File.Exists(path + ".lock"))
+            assertLockReleased path
             let failing = Path.Combine(root, "failing.json")
             let effectId = id<EffectTag> "cli-notify"
             save failing

@@ -8,6 +8,7 @@ node_modules/
 
 # AuthoringSession lock files and default nyrwvy_view output next to a snapshot
 *.json.lock
+*.nyrec.lock
 nyrwvy-views/
 
 # Agent worktrees created by Claude Code

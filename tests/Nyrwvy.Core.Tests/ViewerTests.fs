@@ -317,6 +317,21 @@ module ViewerTests =
             failwith "Viewer unexpectedly relies on innerHTML."
 
     [<Fact>]
+    let ``string literal labels escape bidi overrides and line breaks`` () =
+        let fixture = MilestoneZeroGraph.create ()
+        let model = focus fixture fixture.ValidateFunctionId
+        let node: ViewerNode =
+            { Id = StableId.createForTesting<GraphNodeTag> "node-label-spoof"
+              Type = None
+              Role = ViewerNodeRole.StringLiteral "a\u202Eb\nc"
+              Relations = []
+              ValueDependencies = []
+              Branches = [] }
+        let document = ViewerHtml.renderFocusDocument { model with Graph = { Nodes = [ node ]; ResultNodeId = node.Id } }
+        Assert.Contains("a\\u202Eb\\u000Ac", document)
+        Assert.False(document.Contains('\u202E'), "The raw bidi override reached the page.")
+
+    [<Fact>]
     let ``focus HTML exposes stable IDs and textual branch labels`` () =
         let fixture = MilestoneZeroGraph.create ()
         let model = focus fixture fixture.ValidateFunctionId

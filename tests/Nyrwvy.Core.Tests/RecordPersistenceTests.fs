@@ -26,6 +26,9 @@ module RecordPersistenceTests =
         try run root
         finally Directory.Delete(root, true)
 
+    let private assertLockReleased path =
+        (new FileStream(path + ".lock", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)).Dispose()
+
     let private int64Type = TypeRef.Primitive PrimitiveType.Int64
     let private status (session: AuthoringSession) = session.Status() |> unwrap "status"
     let private isRecordText (text: string) = text.StartsWith "snapshot snapshot:"
@@ -71,7 +74,7 @@ module RecordPersistenceTests =
                 commitLiteral session "one"
                 Assert.True(isRecordText (File.ReadAllText path), "commit wrote JSON to a .nyrec path")
                 (status session).SnapshotFingerprint
-            Assert.False(File.Exists(path + ".lock"))
+            assertLockReleased path
             let bytes = File.ReadAllBytes path
             let reopened =
                 use session = AuthoringSession.openExisting path |> unwrap "reopen"
@@ -79,14 +82,14 @@ module RecordPersistenceTests =
                 (status session).SnapshotFingerprint
             Assert.Equal(fingerprint, reopened)
             Assert.Equal<byte[]>(bytes, File.ReadAllBytes path)
-            Assert.False(File.Exists(path + ".lock"))
+            assertLockReleased path
             // A record decode failure names its line and column.
             File.WriteAllText(path, File.ReadAllText(path).Replace("schema=", "schema=x"))
             match AuthoringSession.openExisting path with
             | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidShape message)) ->
                 Assert.StartsWith("line 1, column ", message)
             | other -> failwithf "Corrupt record text was accepted: %A" other
-            Assert.False(File.Exists(path + ".lock")))
+            assertLockReleased path)
 
     [<Fact>]
     let ``a nyrec dependency is embedded as snapshotRecords and a JSON one as snapshotJson`` () =
@@ -133,8 +136,8 @@ module RecordPersistenceTests =
             | Error(AuthoringSessionError.IoFailure _) -> ()
             | other -> failwithf "Sidecar creation failure not reported: %A" other
             Assert.False(File.Exists target, "An orphan target snapshot was left behind.")
-            Assert.False(File.Exists(source + ".lock"))
-            Assert.False(File.Exists(target + ".lock"))
+            assertLockReleased source
+            assertLockReleased target
             Directory.Delete(target + ".dependency.json")
             AuthoringSessionMigration.migrateTo source None target |> unwrap "retry" |> ignore
             (AuthoringSession.openExisting target |> unwrap "open target").Close())
@@ -164,8 +167,8 @@ module RecordPersistenceTests =
             Assert.Equal<byte[]>(sidecarBytes, File.ReadAllBytes(source + ".dependency.json"))
             Assert.True(isRecordText (File.ReadAllText target))
             Assert.Equal<string list>([ "fingerprint"; "path"; "snapshotId"; "snapshotJson" ], sidecarKeys target)
-            Assert.False(File.Exists(source + ".lock"))
-            Assert.False(File.Exists(target + ".lock"))
+            assertLockReleased source
+            assertLockReleased target
             let converted =
                 use session = AuthoringSession.openExisting target |> unwrap "open target"
                 Assert.Equal<string list>([ "lib"; "mine" ], session.Declarations().Functions |> List.map (fun fn -> fn.DisplayName) |> List.sort)

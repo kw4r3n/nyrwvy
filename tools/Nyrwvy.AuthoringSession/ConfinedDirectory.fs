@@ -92,7 +92,8 @@ module internal ConfinedDirectory =
     /// Writes `content` as `name` in `directory`: to a new temporary file there first, then renamed over
     /// `name`. Both steps resolve against the same handle, and a link at `name` is replaced, not followed.
     let writeFile (directory: Handle) (name: string) (content: byte[]) : Result<unit, string> =
-        let temporary = $".{name}.{Guid.NewGuid():N}.tmp"
+        // Not derived from `name`, so a target name near the 255-byte limit still fits.
+        let temporary = $".nyrwvy-{Guid.NewGuid():N}.tmp"
         let fd = openat(directory.Fd, temporary, oWrOnly ||| oCreat ||| oExcl ||| oNoFollow ||| oCloexec, 0o666)
         if fd < 0 then failure "create" temporary
         else

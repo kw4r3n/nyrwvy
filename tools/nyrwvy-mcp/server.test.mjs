@@ -141,8 +141,8 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
 
     // EOF must release the actual AuthoringSession lock without nyrwvy_close.
     await first.close()
-    await assert.rejects(readFile(join(workspace, "workspace.json.lock")), { code: "ENOENT" }, "a clean close removes the lock file")
     const reopened = await call(second, "open", { mode: "open", snapshot: "workspace.json", workspace })
+    assert.ok(reopened.snapshot, "a clean close releases the lock while keeping its file reusable")
     assert.equal(reopened.snapshot, opened.snapshot)
     const resumed = (await call(second, "inspect", { view: "function", detail: "full", functionId })).result.function
     assert.equal(resumed.id, functionId)

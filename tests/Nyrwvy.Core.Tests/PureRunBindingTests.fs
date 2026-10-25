@@ -254,6 +254,12 @@ public sealed class Noisy : {capability}
     public NyResult<{response}, NyStr> {lookup}({request} {argument}) {{ Console.Error.Write(new string('x', 2 * 1048576)); return NyResult<{response}, NyStr>.Err("noisy"); }}
     public NyResult<{response}, NyStr> {fallback}() => NyResult<{response}, NyStr>.Err("noisy");
 }}
+
+public sealed class Loud : {capability}
+{{
+    public NyResult<{response}, NyStr> {lookup}({request} {argument}) {{ Console.Out.Write(new string('x', 2 * 1048576)); return NyResult<{response}, NyStr>.Err("loud"); }}
+    public NyResult<{response}, NyStr> {fallback}() => NyResult<{response}, NyStr>.Err("loud");
+}}
 """
 
     [<Fact>]
@@ -325,6 +331,9 @@ public sealed class Noisy : {capability}
             match PureRun.runWithHost fixture.Session query.Id [ request fixture "k"; host "Example.Hosts.Noisy" ] None [ "Hosts.cs" ] with
             | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunOutputTooLarge", code)
             | other -> failwithf "2 MiB of host output was not refused: %A" other
+            match PureRun.runWithHost fixture.Session query.Id [ request fixture "k"; host "Example.Hosts.Loud" ] None [ "Hosts.cs" ] with
+            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunOutputTooLarge", code)
+            | other -> failwithf "2 MiB of host standard output was not refused: %A" other
             let line =
                 $"""{{"id":"host","op":"runPure","functionId":"{StableId.value query.Id}","hostSources":["Hosts.cs"],"arguments":[{{"kind":"product","typeId":"{StableId.value fixture.Request.Id}","fields":[{{"fieldId":"{StableId.value fixture.Key.Id}","value":{{"kind":"string","value":"yes"}}}}]}},{{"kind":"hostCapability","capabilityId":"{StableId.value fixture.Provider.Id}","implementation":"Example.Hosts.Directory"}}],"expected":{{"kind":"string","value":"found"}}}}"""
             use response = AuthoringProtocol.executeLine fixture.Session line |> JsonDocument.Parse

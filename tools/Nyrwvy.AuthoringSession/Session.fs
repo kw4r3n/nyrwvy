@@ -418,21 +418,11 @@ module internal SessionStorage =
         | :? IOException -> Error(AuthoringSessionError.LockUnavailable path)
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
-    /// Releases the lock and removes its file, so a clean close or a failed open leaves nothing
-    /// behind. The file is unlinked before the handle closes where the OS allows it (POSIX), so a
-    /// concurrent opener either fails against the still-held lock or creates a fresh file; where it
-    /// does not (Windows), the delete is retried after the close and fails harmlessly if another
-    /// session has already taken the lock. Session commits verify the persisted source digest, so
-    /// the remaining POSIX window (an opener between its open and lock calls) cannot corrupt a snapshot.
-    let releaseLock (path: string) (lockHandle: FileStream) =
-        let tryDelete () =
-            try File.Delete(lockPath path); true
-            with
-            | :? IOException
-            | :? UnauthorizedAccessException -> false
-        let deleted = tryDelete ()
+    /// Releases the lock by disposing its handle; the harmless file is reused. Deleting it before
+    /// close races with an opener holding the old inode, which could lock it as another opener
+    /// creates and locks a new file.
+    let releaseLock (_path: string) (lockHandle: FileStream) =
         lockHandle.Dispose()
-        if not deleted then tryDelete () |> ignore
 
     let readText (path: string): Result<string, AuthoringSessionError> =
         try Ok(File.ReadAllText(path, Encoding.UTF8))
@@ -528,6 +518,19 @@ module internal SessionStorage =
     // Cleanup must not mask the original failure or prevent lock disposal.
     let cleanupTemporary (tempPath: string) =
         try if File.Exists tempPath then File.Delete tempPath
+        with
+        | :? IOException
+        | :? UnauthorizedAccessException -> ()
+
+    /// Removes temporary files an interrupted write of this snapshot or its sidecars left behind. Called
+    /// under the snapshot's lock, so no live writer of this snapshot owns them; the exact-name pattern
+    /// leaves other snapshots' temporaries alone.
+    let sweepTemporaries (path: string) =
+        let name = Path.GetFileName path
+        let pattern = RegularExpressions.Regex($"^\\.{RegularExpressions.Regex.Escape name}(\\.dependency\\.json(\\.previous)?)?\\.[0-9a-f]{{32}}\\.tmp$")
+        try
+            for file in Directory.EnumerateFiles(Path.GetDirectoryName path, $".{name}*.tmp") do
+                if pattern.IsMatch(Path.GetFileName file) then cleanupTemporary file
         with
         | :? IOException
         | :? UnauthorizedAccessException -> ()
@@ -1782,6 +1785,7 @@ module AuthoringSession =
             match (if readOnly then Ok None else SessionStorage.acquireLock path |> Result.map Some) with
             | Error error -> Error error
             | Ok lockHandle ->
+                if lockHandle.IsSome then SessionStorage.sweepTemporaries path
                 match SessionStorage.readText path with
                 | Error error ->
                     lockHandle |> Option.iter (SessionStorage.releaseLock path)
@@ -1955,7 +1959,8 @@ module AuthoringSession =
                                 | Ok() ->
                                     match SessionStorage.createAtomically path source with
                                     | Error error ->
-                                        if selected.IsSome then SessionStorage.cleanupTemporary (path + ".dependency.json")
+                                        // Only while no snapshot owns it: a racing writer's snapshot keeps its sidecar.
+                                        if selected.IsSome && not (File.Exists path) then SessionStorage.cleanupTemporary (path + ".dependency.json")
                                         SessionStorage.releaseLock path lockHandle
                                         Error error
                                     | Ok() -> Ok(new AuthoringSession(path, workspace, source, Some lockHandle, selected))

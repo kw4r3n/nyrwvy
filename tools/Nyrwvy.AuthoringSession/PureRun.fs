@@ -392,20 +392,6 @@ module PureRun =
             | _ -> false
         local || (children value |> List.exists oversized)
 
-    /// Reads a stream to its end but keeps at most `limit` characters, so a flood of output neither
-    /// grows memory nor blocks the child on a full pipe.
-    let private readBounded (reader: StreamReader) (limit: int) =
-        task {
-            let text = StringBuilder()
-            let buffer = Array.zeroCreate<char> 8192
-            let mutable reading = true
-            while reading do
-                let! count = reader.ReadAsync(buffer, 0, buffer.Length)
-                if count = 0 then reading <- false
-                elif text.Length < limit then text.Append(buffer, 0, min count (limit - text.Length)) |> ignore
-            return text.ToString()
-        }
-
     /// Runs dotnet and returns its exit code with bounded output; timeouts and I/O failures are errors.
     /// `phase` names the timed step in the timeout diagnostic.
     let private launchRaw (phase: string) (workingDirectory: string) (args: string list) (timeoutMs: int) =
@@ -418,8 +404,8 @@ module PureRun =
             use child = Process.Start(info)
             if isNull child then Error(diagnostic "RunStartupFailure" "Could not start dotnet.") else
                 // One character beyond the 1 MiB limit, so the check below sees the overflow.
-                let stdout = readBounded child.StandardOutput 1048577
-                let stderr = readBounded child.StandardError 1048577
+                let stdout = BoundedOutput.read child.StandardOutput 1048577
+                let stderr = BoundedOutput.read child.StandardError 1048577
                 if not (child.WaitForExit(timeoutMs)) then
                     try child.Kill(true)
                     with

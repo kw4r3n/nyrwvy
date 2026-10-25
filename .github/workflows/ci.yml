@@ -5,6 +5,11 @@ name: CI
 # see docs/developer/verification.md.
 on:
   workflow_dispatch:
+    inputs:
+      extended:
+        description: Also run the extended suites (scripts/test-extended.fish)
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -78,4 +83,8 @@ jobs:
 
       - name: Test MCP transport contract
         run: node scripts/run-node-tests.mjs fast-mcp
+
+      - name: Test extended suites
+        if: ${{ inputs.extended }}
+        run: fish scripts/test-extended.fish
 

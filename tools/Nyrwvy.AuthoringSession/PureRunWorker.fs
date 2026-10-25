@@ -7,6 +7,21 @@ open System.Text.Json
 open System.Threading
 open System.Threading.Tasks
 
+/// Reads a child's stream to its end but keeps at most `limit` characters, so a flood of output
+/// neither grows memory nor blocks the child on a full pipe.
+module internal BoundedOutput =
+    let read (reader: StreamReader) (limit: int) =
+        task {
+            let text = Text.StringBuilder()
+            let buffer = Array.zeroCreate<char> 8192
+            let mutable reading = true
+            while reading do
+                let! count = reader.ReadAsync(buffer, 0, buffer.Length)
+                if count = 0 then reading <- false
+                elif text.Length < limit then text.Append(buffer, 0, min count (limit - text.Length)) |> ignore
+            return text.ToString()
+        }
+
 /// What became of one runner program handed to the worker.
 [<RequireQualifiedAccess>]
 type internal PureRunWorkerOutcome =
@@ -18,7 +33,7 @@ type internal PureRunWorkerOutcome =
     /// A runner limit or failure, as a runPure diagnostic code and message.
     | Failed of code: string * message: string
 
-/// The worker program. It reads one request per line from standard input, `["run", assembly, pdb,
+/// The worker program. It first writes `["ready"]`, then reads one request per line from standard input, `["run", assembly, pdb,
 /// input]`, and answers with one line: `["ok", output]` when the program's entry point returned,
 /// `["crash", output, text]` when it threw, or `["refused", message]` when the assembly could not be
 /// loaded. The entry point runs on the worker's main thread, so it has the stack a child process's
@@ -57,6 +72,9 @@ module internal PureRunWorkerProgram =
             "        if (OperatingSystem.IsLinux()) prctl(4 /* PR_SET_DUMPABLE */, 0, 0, 0, 0);"
             "        var replies = Console.Out;"
             "        var requests = Console.In;"
+            // Announces start-up, so a run's time limit never includes dotnet start-up and the first JIT.
+            "        replies.WriteLine(\"[\\\"ready\\\"]\");"
+            "        replies.Flush();"
             "        var pristine = ExecutionContext.Capture()!;"
             "        while (true)"
             "        {"
@@ -149,12 +167,15 @@ type private PureRunWorkerProcess =
 type internal PureRunWorker() =
     let gate = obj ()
     let mutable current: PureRunWorkerProcess option = None
+    /// A retired worker that outlived its kill; no new worker starts while it lives.
+    let mutable stray: PureRunWorkerProcess option = None
     let mutable disposed = false
     let mutable lastRun = Stopwatch.GetTimestamp()
     let mutable served = 0
     let idleLimit = TimeSpan.FromMinutes 10.0
     /// Programs stay loaded in a worker, so it is replaced after this many runs.
     let runsPerWorker = 64
+    let startupLimitMs = 30000
 
     let deleteRoot root =
         if Directory.Exists root then
@@ -177,8 +198,10 @@ type internal PureRunWorker() =
             current <- None
             kill worker
             let exited = worker.Process.WaitForExit 5000
-            worker.Process.Dispose()
-            deleteRoot worker.Root
+            if exited then
+                worker.Process.Dispose()
+                deleteRoot worker.Root
+            else stray <- Some worker
             exited
 
     let start () =
@@ -200,10 +223,24 @@ type internal PureRunWorker() =
                     deleteRoot root
                     Error("RunStartupFailure", "Could not start dotnet.")
                 else
-                    let worker = { Process = child; Errors = child.StandardError.ReadToEndAsync(); Root = root }
-                    current <- Some worker
-                    served <- 0
-                    Ok worker
+                    // One character beyond the 1 MiB limit PureRun applies to a child's output.
+                    let worker = { Process = child; Errors = BoundedOutput.read child.StandardError 1048577; Root = root }
+                    let ready = child.StandardOutput.ReadLineAsync()
+                    if ready.Wait startupLimitMs && ready.Result = "[\"ready\"]" then
+                        current <- Some worker
+                        served <- 0
+                        Ok worker
+                    else
+                        // A worker that answered or exited instead of announcing itself crashed on start-up.
+                        let reason = if ready.IsCompleted then "did not announce readiness" else $"did not start within {startupLimitMs / 1000} s"
+                        kill worker
+                        let exited = child.WaitForExit 5000
+                        let errors = if exited && worker.Errors.Wait 5000 then worker.Errors.Result.Trim() else ""
+                        if exited then
+                            child.Dispose()
+                            deleteRoot root
+                        else stray <- Some worker
+                        Error("RunStartupFailure", $"The runner worker {reason}." + (if errors = "" then "" else " " + errors))
             with
             | :? System.ComponentModel.Win32Exception as error ->
                 deleteRoot root
@@ -220,7 +257,14 @@ type internal PureRunWorker() =
         | Some worker when not worker.Process.HasExited && served < runsPerWorker -> Ok worker
         | _ ->
             retire () |> ignore
-            start ()
+            match stray with
+            | Some worker when not worker.Process.HasExited ->
+                kill worker
+                Error("RunReapFailure", "An earlier runner worker has not been confirmed terminated.")
+            | _ ->
+                stray |> Option.iter (fun worker -> worker.Process.Dispose(); deleteRoot worker.Root)
+                stray <- None
+                start ()
 
     /// The worker's answer line as an outcome; a worker that answers nonsense is replaced.
     let parseReply (line: string) =
@@ -246,9 +290,12 @@ type internal PureRunWorker() =
             if not exited || not (worker.Errors.Wait 5000) then
                 PureRunWorkerOutcome.Failed("RunOutputTimeout", "The process exited but its output streams did not close.")
             else PureRunWorkerOutcome.Crashed("", worker.Errors.Result)
-        if not exited then kill worker
-        worker.Process.Dispose()
-        deleteRoot worker.Root
+        if exited then
+            worker.Process.Dispose()
+            deleteRoot worker.Root
+        else
+            kill worker
+            stray <- Some worker
         outcome
 
     // Retires a worker that has been idle for the limit; the gate keeps it clear of a run.
@@ -315,14 +362,14 @@ type internal PureRunWorker() =
             if not disposed then
                 disposed <- true
                 idle.Dispose()
-                retire () |> ignore)
+                retire () |> ignore
+                stray |> Option.iter kill)
         GC.SuppressFinalize this
 
     /// A session that was never closed still takes its worker down with it.
     override _.Finalize() =
-        match current with
-        | Some worker -> kill worker
-        | None -> ()
+        current |> Option.iter kill
+        stray |> Option.iter kill
 
     interface IDisposable with
         member this.Dispose() = this.Dispose()

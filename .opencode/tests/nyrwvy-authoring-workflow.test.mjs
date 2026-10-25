@@ -44,7 +44,9 @@ test("startup failures surface the session's own diagnostic without replay advic
     // The failed open released its slot: the same context can create the snapshot.
     await openAuthoring("create", snapshot, context)
     await closeAuthoring(context)
-    await assert.rejects(stat(`${snapshot}.lock`), { code: "ENOENT" }, "a clean close removes the lock file")
+    // A clean close releases the lock; its file may stay and is reused.
+    await openAuthoring("open", snapshot, context)
+    await closeAuthoring(context)
   } finally {
     await closeAuthoring(context).catch(() => undefined)
     await rm(directory, { recursive: true, force: true })

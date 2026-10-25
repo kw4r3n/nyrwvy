@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { compileRuntime } from './compile-runtime.mjs'
+import { compileRuntime } from '../shared/compile-runtime.mjs'
 
 if (!process.argv[2]) throw new Error('Usage: test-runtime.mjs <emitted-bundle-directory>')
 const input = resolve(process.argv[2])
