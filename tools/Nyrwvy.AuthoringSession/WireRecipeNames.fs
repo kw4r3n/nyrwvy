@@ -54,7 +54,7 @@ module internal WireRecipeNames =
                     | None ->
                         let inScope = frames |> List.choose (Option.map fst) |> List.distinct
                         let listed = if List.isEmpty inScope then "none" else inScope |> String.concat ", "
-                        fail $"No binder in this recipe names '{name}' (names in scope: {listed}). A binding outside the recipe still needs scopeDepth."
+                        fail $"No binder in this recipe names '{name}' (names in scope: {listed}). A binding outside the recipe still needs scopeDepth; nyrwvy_inspect view scopes (op bindingScopes) lists the bindings visible at a node with their scopeDepth."
             | "bind" ->
                 let name = takeName item "name"
                 rest [ "body" ]

@@ -963,8 +963,38 @@ module AuthoringProtocol =
                     | None, Some _ -> id<FunctionTag> "functionId" root
                     | _ -> WireInput.fail "readFunction requires exactly one of function and functionId."
                 match session.FocusFunction functionId with
-                | Ok focus -> success requestId (if compact then WireEncodeCommon.compactFocus focus else WireGraph.focus focus)
+                | Ok focus when compact ->
+                    let value = WireEncodeCommon.compactFocus focus :?> Collections.Generic.IDictionary<string, obj>
+                    value["literals"] <- WireEncodeCommon.literals focus.Function.Body
+                    success requestId value
+                | Ok focus -> success requestId (WireGraph.focus focus)
                 | Error error -> semanticQueryFailure requestId error
+            | "bindingScopes" ->
+                ensureFields "bindingScopes request" [ "id"; "op"; "function"; "functionId"; "nodeId" ] [ "id"; "op"; "nodeId" ] root
+                let declarations = session.Declarations()
+                let fn =
+                    match tryProperty "function" root, tryProperty "functionId" root with
+                    | Some _, None -> WireSymbolic.resolveFunctionAt declarations "function" root
+                    | None, Some _ ->
+                        let functionId = id<FunctionTag> "functionId" root
+                        declarations.Functions |> List.tryFind (fun item -> item.Id = functionId)
+                        |> Option.defaultWith (fun () -> WireInput.fail $"No function has the ID '{StableId.value functionId}'.")
+                    | _ -> WireInput.fail "bindingScopes requires exactly one of function and functionId."
+                let nodeId = id<GraphNodeTag> "nodeId" root
+                match WireEncodeCommon.bindingFrames fn.Body |> List.tryFind (fun (node, _) -> node.Id = nodeId) with
+                | None -> WireInput.fail $"Function '{fn.DisplayName}' has no node '{StableId.value nodeId}'."
+                | Some(_, frames) ->
+                    let variants, fields =
+                        declarations.Types
+                        |> List.fold (fun (variants, fields) item ->
+                            match item.Kind with
+                            | SemanticTypeKind.Product items -> variants, items |> List.fold (fun map field -> Map.add field.Id field.DisplayName map) fields
+                            | SemanticTypeKind.Union items ->
+                                items |> List.fold (fun (variants, fields) variant ->
+                                    Map.add variant.Id variant.DisplayName variants,
+                                    variant.Fields |> List.fold (fun map field -> Map.add field.Id field.DisplayName map) fields) (variants, fields)) (Map.empty, Map.empty)
+                    success requestId (objectValue [ "functionId", box (StableId.value fn.Id); "nodeId", box (StableId.value nodeId)
+                                                     "frames", WireEncodeCommon.bindingScopes variants fields fn frames ])
             | "search" ->
                 ensureFields "search request" [ "id"; "op"; "text"; "limit" ] [ "id"; "op"; "text" ] root
                 let text = requiredString "text" root

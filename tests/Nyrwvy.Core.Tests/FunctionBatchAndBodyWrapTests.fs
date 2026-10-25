@@ -155,3 +155,28 @@ module FunctionBatchAndBodyWrapTests =
             Assert.Equal("ReadOnlySession", refused.RootElement.GetProperty("error").GetProperty("code").GetString())
             reader.Close()
             Assert.True(File.Exists(writer.Path + ".lock"), "closing the reader leaves the writer's lock"))
+
+    [<Fact>]
+    let ``scopes list the bindings at a node and a targeted review names the binding a reference reads`` () =
+        withSession (fun _ execute _ ->
+            let maybe = """{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]}"""
+            let someBody = add """{"kind":"patternReference","name":"x"}""" (lit 7)
+            let body = $"""{{"kind":"matchOption","input":{{"kind":"parameter","name":"maybe"}},"someName":"x","someBody":{someBody},"noneBody":{lit 0}}}"""
+            commit execute (execute $"""{{"id":"c","op":"simulateCreateFunctionByName","displayName":"g","exported":true,"parameters":[{{"displayName":"maybe","type":{maybe}}}],"resultType":{int64},"requiredEffects":[],"body":{body}}}""")
+            let compact = execute """{"id":"r","op":"readFunction","function":"g","detail":"compact"}"""
+            let seven =
+                compact.GetProperty("literals").EnumerateArray()
+                |> Seq.find (fun item -> item.GetProperty("literal").GetProperty("value").GetString() = "7")
+            let nodeId = seven.GetProperty("nodeId").GetString()
+            let scopes = execute $"""{{"id":"s","op":"bindingScopes","function":"g","nodeId":"{nodeId}"}}"""
+            let frame = scopes.GetProperty("frames").EnumerateArray() |> Seq.exactlyOne
+            Assert.Equal(0, frame.GetProperty("scopeDepth").GetInt32())
+            Assert.Equal("optionSome", frame.GetProperty("role").GetString())
+            let binding = frame.GetProperty("bindings").EnumerateArray() |> Seq.exactlyOne
+            Assert.Equal("value", binding.GetProperty("slot").GetString())
+            let proposal = execute $"""{{"id":"t","op":"simulateReplaceTargetByName","function":"g","targetNodeId":"{nodeId}","replacement":{{"kind":"patternReference","scopeDepth":0,"slot":"value"}}}}"""
+            let reference = proposal.GetProperty("review").GetProperty("diff").GetProperty("patternReferences").EnumerateArray() |> Seq.exactlyOne
+            Assert.Equal(nodeId, reference.GetProperty("nodeId").GetString())
+            Assert.Equal("optionSome", reference.GetProperty("role").GetString())
+            Assert.Equal(frame.GetProperty("ownerNodeId").GetString(), reference.GetProperty("ownerNodeId").GetString())
+            Assert.Equal(binding.GetProperty("bindingId").GetString(), reference.GetProperty("binding").GetProperty("bindingId").GetString()))

@@ -269,7 +269,8 @@ module internal WireEncode =
                 |> List.map (fun item -> box (StableId.value item.NodeId))
                 |> arrayValue ]
 
-    let private targetDiff (value: AgentExpressionStructuralWorkflow.Targeted.ReplacementDiff) =
+    let private targetDiff (proposed: SemanticFunction) (value: AgentExpressionStructuralWorkflow.Targeted.ReplacementDiff) =
+        let referenceNodes = value.AddedNodes |> List.map (fun item -> item.NodeId) |> Set.ofList |> Set.add value.TargetNodeId
         objectValue
             [ "ownerFunctionId", box (StableId.value value.OwnerFunctionId)
               "targetNodeId", box (StableId.value value.TargetNodeId)
@@ -281,6 +282,7 @@ module internal WireEncode =
                 value.AddedPatternBindings
                 |> List.map (fun binding -> box (StableId.value binding.Id))
                 |> arrayValue
+              "patternReferences", WireEncodeCommon.patternReferences proposed referenceNodes
               "retainedSharedDependencies", value.RetainedSharedDependencies |> List.map nodeSummary |> arrayValue
               "affectedUses", value.AffectedUses |> List.map affectedUse |> arrayValue ]
 
@@ -368,7 +370,7 @@ module internal WireEncode =
                     [ "kind", box "replaceTarget"
                       "receipt", receipt item.Receipt
                       "readiness", readiness item.Readiness
-                      "diff", targetDiff item.ResultingChange
+                      "diff", targetDiff item.ProposedFocus.Function item.ResultingChange
                       "baseFocus", focus item.BaseFocus
                       "proposedFocus", focus item.ProposedFocus ]
             | AuthoringProposalReview.CreateFunction item ->

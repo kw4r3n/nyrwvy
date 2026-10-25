@@ -246,6 +246,105 @@ module internal WireEncodeCommon =
               "literal", optional value.Literal nodeLiteral
               "referenceDisplayName", optional value.ReferenceDisplayName box ]
 
+    type internal BindingFrame =
+        { OwnerNodeId: GraphNodeId
+          Role: NestedGraphRole
+          Bindings: NestedBinding list }
+
+    /// Every node of a body with the binding frames enclosing it, innermost first: the order a
+    /// recipe's scopeDepth counts. Branches and Bool operands open no frame; OptionNone opens an
+    /// empty one, as TargetedReplacementGraph does.
+    let bindingFrames (body: ValueGraph) =
+        let rec walk frames (graph: ValueGraph) =
+            graph.Nodes
+            |> List.collect (fun node ->
+                (node, frames)
+                :: (SemanticNodeShape.nestedScopes node
+                    |> List.collect (fun scope ->
+                        match scope.Role with
+                        | NestedGraphRole.WhenTrue
+                        | NestedGraphRole.WhenFalse
+                        | NestedGraphRole.BoolAndRight
+                        | NestedGraphRole.BoolOrRight -> walk frames scope.Graph
+                        | role -> walk ({ OwnerNodeId = node.Id; Role = role; Bindings = scope.Bindings } :: frames) scope.Graph)))
+        walk [] body
+
+    /// A frame without its bindings; names come from `variantNames`/`fieldNames` when they are known.
+    let private frameFields (variantNames: Map<VariantId, string>) depth (frame: BindingFrame) =
+        let role, variants =
+            match frame.Role with
+            | NestedGraphRole.UnionArm ids -> "unionArm", ids
+            | NestedGraphRole.BindBody -> "bind", []
+            | NestedGraphRole.OptionSome -> "optionSome", []
+            | NestedGraphRole.OptionNone -> "optionNone", []
+            | NestedGraphRole.ResultOk -> "resultOk", []
+            | NestedGraphRole.ResultErr -> "resultErr", []
+            | other -> sprintf "%A" other, []
+        [ "scopeDepth", box depth
+          "ownerNodeId", box (StableId.value frame.OwnerNodeId)
+          "role", box role ]
+        @ (if variants.IsEmpty then []
+           else
+               [ "variantIds", variants |> List.map (StableId.value >> box) |> arrayValue ]
+               @ (match variants |> List.map (fun item -> Map.tryFind item variantNames) with
+                  | names when List.forall Option.isSome names -> [ "variants", names |> List.map (Option.get >> box) |> arrayValue ]
+                  | _ -> []))
+
+    let private bindingSlot (fieldNames: Map<FieldId, string>) names (binding: NestedBinding) =
+        let pattern = NestedBinding.pattern binding
+        let slot =
+            match binding with
+            | NestedBinding.Field(fieldId, _) ->
+                [ "slot", box "field"; "fieldId", box (StableId.value fieldId) ]
+                @ (Map.tryFind fieldId fieldNames |> Option.map (fun name -> [ "field", box name ]) |> Option.defaultValue [])
+            | NestedBinding.Value _ -> [ "slot", box "value" ]
+            | NestedBinding.Error _ -> [ "slot", box "error" ]
+        objectValue
+            (slot
+             @ [ "bindingId", box (StableId.value pattern.Id); "type", typeRefIn names pattern.Type ]
+             @ (pattern.DisplayName |> Option.map (fun name -> [ "displayName", box name ]) |> Option.defaultValue []))
+
+    /// The frames visible at one node, innermost first, as a recipe's patternReference counts them.
+    let bindingScopes variantNames fieldNames (fn: SemanticFunction) (frames: BindingFrame list) =
+        let names = functionTypeParameterNames fn
+        frames
+        |> List.mapi (fun depth frame ->
+            objectValue (frameFields variantNames depth frame @ [ "bindings", frame.Bindings |> List.map (bindingSlot fieldNames names) |> arrayValue ]))
+        |> arrayValue
+
+    /// The binding each pattern reference among `nodeIds` reads, with its scopeDepth from that node,
+    /// so a review shows which match arm a replacement's reference resolved to.
+    let patternReferences (fn: SemanticFunction) (nodeIds: Set<GraphNodeId>) =
+        let names = functionTypeParameterNames fn
+        bindingFrames fn.Body
+        |> List.choose (fun (node, frames) ->
+            match node.Kind with
+            | SemanticNodeKind.PatternReference bindingId when nodeIds.Contains node.Id ->
+                frames
+                |> List.indexed
+                |> List.tryPick (fun (depth, frame) ->
+                    frame.Bindings
+                    |> List.tryFind (fun binding -> (NestedBinding.pattern binding).Id = bindingId)
+                    |> Option.map (fun binding ->
+                        objectValue
+                            ([ "nodeId", box (StableId.value node.Id) ]
+                             @ frameFields Map.empty depth frame
+                             @ [ "binding", bindingSlot Map.empty names binding ])))
+            | _ -> None)
+        |> arrayValue
+
+    /// String, Int64 and Bool literals of a body, for checking conditions without the full graph.
+    let literals (body: ValueGraph) =
+        ValueGraph.collectNodes body
+        |> List.choose (fun node ->
+            match node.Kind with
+            | SemanticNodeKind.StringLiteral value -> Some(StructuralNodeLiteral.String value)
+            | SemanticNodeKind.Int64Literal value -> Some(StructuralNodeLiteral.Int64 value)
+            | SemanticNodeKind.BoolLiteral value -> Some(StructuralNodeLiteral.Bool value)
+            | _ -> None
+            |> Option.map (fun literal -> objectValue [ "nodeId", box (StableId.value node.Id); "literal", nodeLiteral literal ]))
+        |> arrayValue
+
     let callSite (value: QueryCallSite) =
         objectValue
             [ "callerFunctionId", box (StableId.value value.CallerFunctionId)

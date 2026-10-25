@@ -185,6 +185,7 @@ The maintained operation set is:
 | `simulateDependencyUpgrade` / `simulateDependencyUpgradeByName` | Propose a dependency update together with explicit local repairs, reviewed and committed like any other proposal (shared tool `upgrade_dependencies`). |
 | `declarations` | Stable-ID declaration discovery. |
 | `readFunction` | Structured function graph by exactly one of `function` (display name) and `functionId`; `detail: "compact"` leaves out the per-node graph ([contract](agent-graph-tools.md)). |
+| `bindingScopes` | The pattern bindings visible at one node of a function, innermost first with their `scopeDepth` ([contract](agent-graph-tools.md)). |
 | `search` | Declarations whose display name contains `text`, and string literals that contain it, ignoring case ([contract](agent-graph-tools.md)). |
 | `viewFunction` | Write the committed function's human-readable Function Focus HTML and return its path; exactly one of `function` and `functionId`, optional `.html` `output` ([contract](agent-graph-tools.md#human-readable-view)). |
 | `viewProposal` | Write a pending proposal's human-readable Change Review HTML and return its path; required `proposalId`, optional `.html` `output`. Publishes nothing ([contract](agent-graph-tools.md#human-readable-view)). |
