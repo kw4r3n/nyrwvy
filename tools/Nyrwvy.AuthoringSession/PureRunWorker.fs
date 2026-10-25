@@ -231,12 +231,16 @@ type internal PureRunWorker() =
                         served <- 0
                         Ok worker
                     else
+                        // A worker that answered or exited instead of announcing itself crashed on start-up.
+                        let reason = if ready.IsCompleted then "did not announce readiness" else $"did not start within {startupLimitMs / 1000} s"
                         kill worker
-                        if child.WaitForExit 5000 then
+                        let exited = child.WaitForExit 5000
+                        let errors = if exited && worker.Errors.Wait 5000 then worker.Errors.Result.Trim() else ""
+                        if exited then
                             child.Dispose()
                             deleteRoot root
                         else stray <- Some worker
-                        Error("RunStartupFailure", $"The runner worker did not start within {startupLimitMs / 1000} s.")
+                        Error("RunStartupFailure", $"The runner worker {reason}." + (if errors = "" then "" else " " + errors))
             with
             | :? System.ComponentModel.Win32Exception as error ->
                 deleteRoot root
