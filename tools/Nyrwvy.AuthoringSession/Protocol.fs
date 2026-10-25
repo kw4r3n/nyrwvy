@@ -1,6 +1,7 @@
 namespace Nyrwvy.Tools.AuthoringSession
 
 open System
+open System.IO
 open System.Text.Json
 open Nyrwvy.Core
 
@@ -8,6 +9,39 @@ open Nyrwvy.Core
 module AuthoringProtocol =
     open WireInput
     open WireJson
+
+    let private recipeInput (session: AuthoringSession) inlineName fileName (item: JsonElement) =
+        match tryProperty inlineName item, tryProperty fileName item with
+        | Some value, None -> value
+        | None, Some file ->
+            if file.ValueKind <> JsonValueKind.String || String.IsNullOrWhiteSpace(file.GetString()) then
+                fail $"{fileName} must be a file path."
+            let requested = file.GetString()
+            let directory = Path.GetDirectoryName(Path.GetFullPath session.Path)
+            try
+                let full = Path.GetFullPath(requested, directory)
+                let relative = Path.GetRelativePath(directory, full)
+                if Path.IsPathRooted relative || relative = ".." || relative.StartsWith(".." + string Path.DirectorySeparatorChar, StringComparison.Ordinal) || relative = "." then
+                    fail $"{fileName} must stay inside the snapshot's directory."
+                let parts = relative.Split([| Path.DirectorySeparatorChar; Path.AltDirectorySeparatorChar |], StringSplitOptions.RemoveEmptyEntries)
+                let mutable current = directory
+                for part in parts do
+                    current <- Path.Combine(current, part)
+                    if not (isNull (FileInfo(current).LinkTarget)) then
+                        fail $"{fileName} must not pass through a symbolic link or reparse point."
+                let info = FileInfo(full)
+                if not info.Exists then fail $"{fileName} must name an existing JSON file."
+                if info.Length > 1048576L then fail $"{fileName} exceeds 1 MiB."
+                use stream = File.OpenRead(full)
+                if stream.Length > 1048576L then fail $"{fileName} exceeds 1 MiB."
+                use document = JsonDocument.Parse(stream)
+                if stream.Position > 1048576L then fail $"{fileName} exceeds 1 MiB."
+                document.RootElement.Clone()
+            with
+            | :? IOException | :? UnauthorizedAccessException | :? ArgumentException | :? NotSupportedException ->
+                fail $"{fileName} cannot be read as a JSON file inside the snapshot's directory."
+            | :? JsonException -> fail $"{fileName} must contain valid JSON."
+        | _ -> fail $"Pass exactly one of {inlineName} and {fileName}."
 
     let private success id result =
         objectValue
@@ -24,6 +58,80 @@ module AuthoringProtocol =
         |> serialize
 
     let private sessionFailure id error = failure id (WireEncode.error error)
+
+    let private unreferenced (session: AuthoringSession) (roots: string list option) =
+        let declarations = session.Declarations()
+        let functions = declarations.Functions
+        let types = declarations.Types
+        let operations = declarations.Capabilities |> List.collect (fun capability ->
+            capability.Operations |> List.map (fun operation -> capability, operation))
+        let local kind id =
+            declarations.Provenance |> List.exists (fun item -> item.Kind = kind && item.Id = id && item.IsLocal)
+        let key kind id = kind, StableId.value id
+        let functionKey (item: SemanticFunction) = key "function" item.Id
+        let typeKey (item: SemanticType) = key "type" item.Id
+        let operationKey (item: SemanticCapabilityOperation) = key "operation" item.Id
+        let capabilityKey (item: SemanticCapability) = key "capability" item.Id
+        let subjects =
+            [ for item in functions -> functionKey item, ReferenceSubject.Function item.Id
+              for item in types -> typeKey item, ReferenceSubject.Type item.Id
+              for capability, operation in operations -> operationKey operation, ReferenceSubject.CapabilityOperation operation.Id
+              for item in declarations.Capabilities -> capabilityKey item, ReferenceSubject.Capability item.Id ]
+        let ownerKey (reference: DeclarationReference) =
+            match reference.Owner with
+            | ReferenceOwner.Function id -> key "function" id
+            | ReferenceOwner.Type id -> key "type" id
+            | ReferenceOwner.Capability id ->
+                match reference.Site with
+                | ReferenceSite.OperationParameterType(operationId, _)
+                | ReferenceSite.OperationResultType operationId
+                | ReferenceSite.OperationFailureType operationId
+                | ReferenceSite.OperationEffect operationId -> key "operation" operationId
+                | _ -> key "capability" id
+        let edges =
+            subjects |> List.collect (fun (subjectKey, subject) ->
+                match session.References subject with
+                | Ok references -> references |> List.map (fun reference -> ownerKey reference, subjectKey)
+                | Error _ -> [])
+            |> Set.ofList
+        let roots = roots |> Option.map (List.map (fun name ->
+            match functions |> List.filter (fun item -> item.DisplayName = name) with
+            | [ item ] -> functionKey item
+            | [] -> fail $"Unknown function '{name}'."
+            | _ -> fail $"Ambiguous function '{name}'."))
+        let selected =
+            match roots with
+            | None ->
+                let referenced = edges |> Set.filter (fun (owner, target) -> owner <> target) |> Set.map snd
+                fun item -> not (Set.contains item referenced)
+            | Some roots ->
+                let rec visit seen frontier =
+                    match frontier with
+                    | [] -> seen
+                    | item :: rest when Set.contains item seen -> visit seen rest
+                    | item :: rest ->
+                        let next = edges |> Seq.choose (fun (owner, target) -> if owner = item then Some target else None) |> Seq.toList
+                        visit (Set.add item seen) (next @ rest)
+                let reachable = visit Set.empty roots
+                fun item -> not (Set.contains item reachable)
+        let named id name = objectValue [ "id", box (StableId.value id); "name", box name ]
+        let unusedFunctions =
+            functions |> List.filter (fun item -> local "function" (StableId.value item.Id) && selected (functionKey item))
+            |> List.sortBy (fun item -> item.DisplayName, StableId.value item.Id)
+            |> List.map (fun item -> named item.Id item.DisplayName) |> arrayValue
+        let unusedOperations =
+            operations |> List.filter (fun (capability, operation) ->
+                local "capability" (StableId.value capability.Id) && selected (operationKey operation))
+            |> List.sortBy (fun (capability, operation) -> operation.DisplayName, capability.DisplayName, StableId.value operation.Id)
+            |> List.map (fun (capability, operation) ->
+                objectValue [ "capabilityId", box (StableId.value capability.Id); "capability", box capability.DisplayName
+                              "id", box (StableId.value operation.Id); "name", box operation.DisplayName ])
+            |> arrayValue
+        let unusedTypes =
+            types |> List.filter (fun item -> local "type" (StableId.value item.Id) && selected (typeKey item))
+            |> List.sortBy (fun item -> item.DisplayName, StableId.value item.Id)
+            |> List.map (fun item -> named item.Id item.DisplayName) |> arrayValue
+        objectValue [ "functions", unusedFunctions; "operations", unusedOperations; "types", unusedTypes ]
 
     let private pureScalar (item: JsonElement): PureRunScalar =
         ensureFields "Scalar run value" [ "kind"; "value" ] [ "kind"; "value" ] item
@@ -745,7 +853,7 @@ module AuthoringProtocol =
         | value -> WireInput.fail $"Unsupported references subject kind '{value}'; use function, type, variant, field, effect, capability or capabilityOperation."
 
     /// A by-name function creation read from item against declarations.
-    let private functionCreationByName (declarations: AuthoringDeclarations) expected (item: JsonElement): AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+    let private functionCreationByName (session: AuthoringSession) (declarations: AuthoringDeclarations) expected (item: JsonElement): AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         let displayName = requiredString "displayName" item
         if declarations.Functions |> List.exists (fun existing -> existing.DisplayName = displayName) then
             WireInput.fail $"Function display name '{displayName}' already exists. Choose a unique name or use the exact-ID authoring surface."
@@ -757,7 +865,7 @@ module AuthoringProtocol =
           Parameters = parameters
           ResultType = WireSymbolic.typeRef declarations (property "resultType" item)
           RequiredEffects = WireSymbolic.requiredEffects declarations item
-          Body = WireSymbolic.recipeForNewFunction declarations displayName parameters (property "body" item) }
+          Body = WireSymbolic.recipeForNewFunction declarations displayName parameters (recipeInput session "body" "bodyFile" item) }
 
     let private semanticQueryFailure requestId (error: SemanticQueryError) =
         let message =
@@ -790,6 +898,7 @@ module AuthoringProtocol =
                     match tryProperty "detail" root with
                     | None -> false
                     | Some value when value.ValueKind = JsonValueKind.String && value.GetString() = "compact" -> false
+                    | Some value when operationName = "readFunction" && value.ValueKind = JsonValueKind.String && value.GetString() = "outline" -> false
                     | Some value when value.ValueKind = JsonValueKind.String && value.GetString() = "full" -> true
                     | Some _ -> WireInput.fail "detail must be \"compact\" or \"full\"."
                 if not full then
@@ -945,17 +1054,24 @@ module AuthoringProtocol =
                 match session.References subject with
                 | Ok items -> success requestId (WireEncode.references declarations subject items)
                 | Error error -> semanticQueryFailure requestId error
+            | "unreferenced" ->
+                ensureFields "unreferenced request" [ "id"; "op"; "roots" ] [ "id"; "op" ] root
+                let roots = tryProperty "roots" root |> Option.map (fun _ ->
+                    array "roots" root |> List.map (fun item ->
+                        if item.ValueKind <> JsonValueKind.String then fail "roots entries must be function names."
+                        item.GetString()))
+                success requestId (unreferenced session roots)
             | "readFunction" ->
                 ensureFields
                     "readFunction request"
                     [ "id"; "op"; "function"; "functionId"; "detail" ]
                     [ "id"; "op" ]
                     root
-                let compact =
+                let detail =
                     match tryProperty "detail" root |> Option.map (fun _ -> requiredString "detail" root) with
-                    | None | Some "full" -> false
-                    | Some "compact" -> true
-                    | Some _ -> WireInput.fail "detail must be compact or full."
+                    | None -> "full"
+                    | Some ("compact" | "outline" | "full" as detail) -> detail
+                    | Some _ -> WireInput.fail "detail must be compact, outline or full."
                 let functionId =
                     match tryProperty "function" root, tryProperty "functionId" root with
                     | Some _, None ->
@@ -963,10 +1079,12 @@ module AuthoringProtocol =
                     | None, Some _ -> id<FunctionTag> "functionId" root
                     | _ -> WireInput.fail "readFunction requires exactly one of function and functionId."
                 match session.FocusFunction functionId with
-                | Ok focus when compact ->
+                | Ok focus when detail = "compact" ->
                     let value = WireEncodeCommon.compactFocus focus :?> Collections.Generic.IDictionary<string, obj>
                     value["literals"] <- WireEncodeCommon.literals focus.Function.Body
                     success requestId value
+                | Ok focus when detail = "outline" ->
+                    success requestId (WireOutline.focus (session.Declarations()) focus)
                 | Ok focus -> success requestId (WireGraph.focus focus)
                 | Error error -> semanticQueryFailure requestId error
             | "bindingScopes" ->
@@ -1119,17 +1237,19 @@ module AuthoringProtocol =
             | "simulateCreateFunctionByName" ->
                 ensureFields
                     "simulateCreateFunctionByName request"
-                    [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
+                    [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects" ]
                     root
-                proposalResponse (session.SimulateCreateFunction(functionCreationByName (session.Declarations()) (expectedSnapshotId ()) root))
+                proposalResponse (session.SimulateCreateFunction(functionCreationByName session (session.Declarations()) (expectedSnapshotId ()) root))
             | "simulateCreateFunctionsByName" ->
                 ensureFields
                     "simulateCreateFunctionsByName request"
-                    [ "id"; "op"; "functions"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "functions" ]
+                    [ "id"; "op"; "functions"; "functionsFile"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op" ]
                     root
-                let items = array "functions" root
+                let functions = recipeInput session "functions" "functionsFile" root
+                if functions.ValueKind <> JsonValueKind.Array then fail "functions must be an array."
+                let items = functions.EnumerateArray() |> List.ofSeq
                 if List.isEmpty items then
                     WireInput.fail "functions must list at least one function."
                 let declarations = session.Declarations()
@@ -1137,14 +1257,23 @@ module AuthoringProtocol =
                 let builders =
                     items
                     |> List.map (fun item ->
-                        ensureFields
-                            "function in functions"
-                            [ "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body" ]
-                            [ "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
-                            item
                         // Earlier functions of the batch resolve by name like existing ones.
                         fun (created: SemanticFunction list) ->
-                            functionCreationByName { declarations with Functions = declarations.Functions @ created } expected item)
+                            try
+                                ensureFields
+                                    "function in functions"
+                                    [ "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile" ]
+                                    [ "displayName"; "parameters"; "resultType"; "requiredEffects" ]
+                                    item
+                                Ok(functionCreationByName session { declarations with Functions = declarations.Functions @ created } expected item)
+                            with WireInput.ProtocolInputException message ->
+                                let displayName =
+                                    if item.ValueKind <> JsonValueKind.Object then "<unknown>"
+                                    else
+                                        match tryProperty "displayName" item with
+                                        | Some value when value.ValueKind = JsonValueKind.String -> value.GetString()
+                                        | _ -> "<unknown>"
+                                Error(displayName, message))
                 proposalResponse (session.SimulateCreateFunctions builders)
             | "simulateParameterTypeMigration" ->
                 ensureFields
@@ -1439,8 +1568,8 @@ module AuthoringProtocol =
             | "simulateReplaceBodyByName" ->
                 ensureFields
                     "simulateReplaceBodyByName request"
-                    [ "id"; "op"; "function"; "replacement"; "structuredReview"; "detail"; "expectedSnapshotId"; "expectedResultNodeId" ]
-                    [ "id"; "op"; "function"; "replacement" ]
+                    [ "id"; "op"; "function"; "replacement"; "replacementFile"; "structuredReview"; "detail"; "expectedSnapshotId"; "expectedResultNodeId" ]
+                    [ "id"; "op"; "function" ]
                     root
                 let declarations = session.Declarations()
                 let functionEntity =
@@ -1456,7 +1585,7 @@ module AuthoringProtocol =
                         WireSymbolic.recipeForExistingFunction
                             declarations
                             functionEntity
-                            (property "replacement" root) }
+                            (recipeInput session "replacement" "replacementFile" root) }
                 proposalResponse (session.SimulateReplaceBody request)
             | "simulateReplaceTarget" ->
                 ensureFields
@@ -1473,8 +1602,8 @@ module AuthoringProtocol =
             | "simulateReplaceTargetByName" ->
                 ensureFields
                     "simulateReplaceTargetByName request"
-                    [ "id"; "op"; "function"; "targetNodeId"; "replacement"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "function"; "targetNodeId"; "replacement" ]
+                    [ "id"; "op"; "function"; "targetNodeId"; "replacement"; "replacementFile"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "function"; "targetNodeId" ]
                     root
                 let declarations = session.Declarations()
                 let functionEntity = WireSymbolic.resolveFunctionAt declarations "function" root
@@ -1482,7 +1611,7 @@ module AuthoringProtocol =
                     { TargetFunctionId = functionEntity.Id
                       ExpectedBaseSnapshotId = expectedSnapshotId ()
                       TargetNodeId = id<GraphNodeTag> "targetNodeId" root
-                      Replacement = WireSymbolic.recipeForExistingFunction declarations functionEntity (property "replacement" root) }
+                      Replacement = WireSymbolic.recipeForExistingFunction declarations functionEntity (recipeInput session "replacement" "replacementFile" root) }
                 proposalResponse (session.SimulateReplaceTarget request)
             | "commit" ->
                 ensureFields
@@ -1691,6 +1820,16 @@ module AuthoringProtocol =
                         [ "code", box "UnsupportedOperation"
                           "message", box $"Unsupported operation '{value}'." ])
         with
+        | AgentExpressionStructuralWorkflow.FunctionCreation.BatchResolutionProblems problems ->
+            let message =
+                problems
+                |> List.map (fun (index, displayName, problem) -> $"[{index}] {displayName}: {problem}")
+                |> String.concat "\n"
+            let entries =
+                problems
+                |> List.map (fun (index, displayName, problem) ->
+                    objectValue [ "index", box index; "displayName", box displayName; "message", box problem ])
+            failure requestId (objectValue [ "code", box "ProtocolError"; "message", box message; "problems", box entries ])
         | WireInput.ProtocolInputException message ->
             failure
                 requestId

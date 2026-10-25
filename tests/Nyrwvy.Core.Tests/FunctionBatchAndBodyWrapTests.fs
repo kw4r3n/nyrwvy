@@ -43,6 +43,29 @@ module FunctionBatchAndBodyWrapTests =
         Assert.True(run.GetProperty("matches").GetBoolean(), run.ToString())
 
     [<Fact>]
+    let ``named recipes may be loaded from confined JSON files`` () =
+        withSession (fun session execute rejected ->
+            let dir = Path.GetDirectoryName(session.Path)
+            File.WriteAllText(Path.Combine(dir, "body.json"), add n (lit 1))
+            let second = fn "second" (call "first" n)
+            File.WriteAllText(Path.Combine(dir, "functions.json"), $"[{second}]")
+            let first = $"""{{"id":"first","op":"simulateCreateFunctionByName","displayName":"first","exported":true,"parameters":[{{"displayName":"n","type":{int64}}}],"resultType":{int64},"requiredEffects":[],"bodyFile":"body.json"}}"""
+            commit execute (execute first)
+            commit execute (execute """{"id":"batch","op":"simulateCreateFunctionsByName","functionsFile":"functions.json"}""")
+            runs execute "second" 2 3
+            File.WriteAllText(Path.Combine(dir, "replacement.json"), add n (lit 2))
+            commit execute (execute """{"id":"replace","op":"simulateReplaceBodyByName","function":"first","replacementFile":"replacement.json"}""")
+            runs execute "first" 2 4
+            let target = session.Declarations().Functions |> List.find (fun item -> item.DisplayName = "first")
+            commit execute (execute $"""{{"id":"target","op":"simulateReplaceTargetByName","function":"first","targetNodeId":"{StableId.value target.Body.ResultNodeId}","replacementFile":"replacement.json"}}""")
+            Assert.Contains("exactly one", rejected (first.Replace("\"displayName\":\"first\"", "\"displayName\":\"third\"").TrimEnd('}') + ",\"body\":" + n + "}"))
+            Assert.Contains("exactly one", rejected """{"id":"both","op":"simulateCreateFunctionsByName","functions":[],"functionsFile":"functions.json"}""")
+            Assert.Contains("exactly one", rejected """{"id":"both","op":"simulateReplaceBodyByName","function":"first","replacement":{"kind":"parameter","name":"n"},"replacementFile":"replacement.json"}""")
+            Assert.Contains("stay inside", rejected (first.Replace("\"displayName\":\"first\"", "\"displayName\":\"third\"").Replace("body.json", "../outside.json")))
+            Assert.Contains("stay inside", rejected """{"id":"escape","op":"simulateCreateFunctionsByName","functionsFile":"../outside.json"}""")
+            Assert.Contains("stay inside", rejected """{"id":"escape","op":"simulateReplaceBodyByName","function":"first","replacementFile":"../outside.json"}"""))
+
+    [<Fact>]
     let ``a batch creates functions in order in one proposal and later ones may call earlier ones`` () =
         withSession (fun session execute _ ->
             let batch = $"""[{fn "inc" (add n (lit 1))},{fn "twice" (call "inc" (call "inc" n))},{fn "down" (call "down" n)}]"""
@@ -65,6 +88,27 @@ module FunctionBatchAndBodyWrapTests =
             Assert.Contains("already exists", repeated)
             let empty = rejected """{"id":"b3","op":"simulateCreateFunctionsByName","functions":[]}"""
             Assert.Contains("at least one function", empty)
+            Assert.Empty(session.Declarations().Functions)
+            Assert.Empty((execute """{"id":"p","op":"proposals"}""").GetProperty("proposals").EnumerateArray()))
+
+    [<Fact>]
+    let ``a batch reports every name resolution problem with its item`` () =
+        withSession (fun session execute rejected ->
+            let badParameter = (call "first" n).Replace("\"parameter\":\"n\"", "\"parameter\":\"missing\"")
+            let response = rejected $"""{{"id":"bad","op":"simulateCreateFunctionsByName","functions":[{fn "first" n},{fn "second" (call "unknown" n)},{fn "third" badParameter}]}}"""
+            use document = JsonDocument.Parse(response)
+            let error = document.RootElement.GetProperty("error")
+            Assert.Equal("ProtocolError", error.GetProperty("code").GetString())
+            let problems = error.GetProperty("problems").EnumerateArray() |> Seq.toArray
+            Assert.Equal(2, problems.Length)
+            Assert.Equal(1, problems[0].GetProperty("index").GetInt32())
+            Assert.Equal("second", problems[0].GetProperty("displayName").GetString())
+            Assert.Contains("Unknown function", problems[0].GetProperty("message").GetString())
+            Assert.Equal(2, problems[1].GetProperty("index").GetInt32())
+            Assert.Equal("third", problems[1].GetProperty("displayName").GetString())
+            Assert.Contains("Unknown parameter", problems[1].GetProperty("message").GetString())
+            Assert.Contains("[1] second:", error.GetProperty("message").GetString())
+            Assert.Contains("[2] third:", error.GetProperty("message").GetString())
             Assert.Empty(session.Declarations().Functions)
             Assert.Empty((execute """{"id":"p","op":"proposals"}""").GetProperty("proposals").EnumerateArray()))
 
@@ -182,6 +226,33 @@ module FunctionBatchAndBodyWrapTests =
             let body = $"""{{"kind":"matchOption","input":{{"kind":"parameter","name":"maybe"}},"someName":"x","someBody":{someBody},"noneBody":{lit 0}}}"""
             commit execute (execute $"""{{"id":"c","op":"simulateCreateFunctionByName","displayName":"g","exported":true,"parameters":[{{"displayName":"maybe","type":{maybe}}}],"resultType":{int64},"requiredEffects":[],"body":{body}}}""")
             let compact = execute """{"id":"r","op":"readFunction","function":"g","detail":"compact"}"""
+            let outline = execute """{"id":"r","op":"readFunction","function":"g","detail":"outline"}"""
+            let lines = outline.GetProperty("outline").EnumerateArray() |> Seq.map (fun line -> line.GetString()) |> List.ofSeq
+            let full = execute """{"id":"r","op":"readFunction","function":"g","detail":"full"}"""
+            let rec fullIds (graph: JsonElement) =
+                graph.GetProperty("nodes").EnumerateArray()
+                |> Seq.collect (fun node ->
+                    let kind = node.GetProperty("kind")
+                    let nested =
+                        [ "someArm"; "noneBody"; "body" ]
+                        |> List.choose (fun key ->
+                            match kind.TryGetProperty(key) with
+                            | true, item when key = "someArm" -> Some(item.GetProperty("body"))
+                            | true, item -> Some item
+                            | _ -> None)
+                        |> List.collect fullIds
+                    seq { yield node.GetProperty("id").GetString(); yield! nested })
+                |> List.ofSeq
+            let ids = fullIds (full.GetProperty("function").GetProperty("body"))
+            Assert.Equal(ids.Length, lines.Length)
+            for id in ids do Assert.Contains(lines, fun line -> line.Contains(id))
+            Assert.StartsWith("matchOption ", lines.Head)
+            Assert.Contains(lines, fun line -> line.StartsWith("  int64WrappingAdd "))
+            Assert.Contains(lines, fun line -> line.StartsWith("    int64Literal ") && line.EndsWith(" 7"))
+            Assert.Contains(lines, fun line -> line.Contains("scopeDepth=0"))
+            Assert.False(outline.GetProperty("outlineTruncated").GetBoolean())
+            Assert.False(outline.TryGetProperty("nodeTypes") |> fst)
+            Assert.False(outline.GetProperty("function").GetProperty("body").TryGetProperty("nodes") |> fst)
             let seven =
                 compact.GetProperty("literals").EnumerateArray()
                 |> Seq.find (fun item -> item.GetProperty("literal").GetProperty("value").GetString() = "7")
@@ -198,3 +269,19 @@ module FunctionBatchAndBodyWrapTests =
             Assert.Equal("optionSome", reference.GetProperty("role").GetString())
             Assert.Equal(frame.GetProperty("ownerNodeId").GetString(), reference.GetProperty("ownerNodeId").GetString())
             Assert.Equal(binding.GetProperty("bindingId").GetString(), reference.GetProperty("binding").GetProperty("bindingId").GetString()))
+
+    [<Fact>]
+    let ``readFunction outline reports truncation within its byte cap`` () =
+        withSession (fun _ execute _ ->
+            let textType = """{"kind":"primitive","primitive":"string"}"""
+            let items =
+                [ 1 .. 240 ]
+                |> List.map (fun index -> $"""{{"kind":"stringLiteral","value":"{String.replicate 60 "a"}{index}"}}""")
+                |> String.concat ","
+            let body = $"""{{"kind":"listConstruct","itemType":{textType},"items":[{items}]}}"""
+            let listType = $"""{{"kind":"builtinGeneric","generic":"list","arguments":[{textType}]}}"""
+            commit execute (execute $"""{{"id":"c","op":"simulateCreateFunctionByName","displayName":"large","parameters":[],"resultType":{listType},"requiredEffects":[],"body":{body}}}""")
+            let outline = execute """{"id":"r","op":"readFunction","function":"large","detail":"outline"}"""
+            Assert.True(outline.GetProperty("outlineTruncated").GetBoolean())
+            Assert.True(outline.GetProperty("outline").GetArrayLength() < 241)
+            Assert.True(System.Text.Encoding.UTF8.GetByteCount(outline.GetRawText()) <= 16384))

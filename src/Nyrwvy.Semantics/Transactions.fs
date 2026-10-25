@@ -839,13 +839,30 @@ module Transaction =
     // Earlier operations in a batch may leave the intermediate snapshot invalid. Only issues the
     // deletion itself introduces are blamed on it; issues already present before the deletion are
     // left for a later operation to repair or for the final whole-snapshot validation to report.
-    let private ensureDeletionSafe code name (beforeDeletion: Snapshot) (candidate: Snapshot) =
-        match SnapshotValidator.validate candidate with
+    let private afterScheduledDeletions (operations: SemanticOperation list) (snapshot: Snapshot) =
+        let functions = operations |> List.choose (function DeleteFunction id -> Some id | _ -> None) |> Set.ofList
+        let types = operations |> List.choose (function DeleteType id -> Some id | _ -> None) |> Set.ofList
+        let effects = operations |> List.choose (function DeleteEffect id -> Some id | _ -> None) |> Set.ofList
+        let capabilities = operations |> List.choose (function DeleteCapability id -> Some id | _ -> None) |> Set.ofList
+        let capabilityOperations = operations |> List.choose (function DeleteCapabilityOperation id -> Some id | _ -> None) |> Set.ofList
+        { snapshot with
+            Functions = snapshot.Functions |> List.filter (fun item -> not (Set.contains item.Id functions))
+            Types = snapshot.Types |> List.filter (fun item -> not (Set.contains item.Id types))
+            Effects = snapshot.Effects |> List.filter (fun item -> not (Set.contains item.Id effects))
+            Capabilities = snapshot.Capabilities |> List.filter (fun item -> not (Set.contains item.Id capabilities)) |> List.map (fun item ->
+                { item with Operations = item.Operations |> List.filter (fun operation -> not (Set.contains operation.Id capabilityOperations)) }) }
+
+    let private ensureDeletionSafe code name (scheduled: SemanticOperation list) (current: SemanticOperation option) (beforeDeletion: Snapshot) (candidate: Snapshot) =
+        let beforeScheduled =
+            match current with
+            | Some operation -> scheduled |> List.filter ((<>) operation)
+            | None -> scheduled
+        match candidate |> afterScheduledDeletions scheduled |> SnapshotValidator.validate with
         | [] -> Ok candidate
         | candidateIssues ->
             let key (issue: ValidationIssue) = issue.Code, issue.Message
             // Matched as a multiset so a deletion that repeats an existing issue is still blamed.
-            let preExisting = SnapshotValidator.validate beforeDeletion |> List.countBy key |> Map.ofList
+            let preExisting = beforeDeletion |> afterScheduledDeletions beforeScheduled |> SnapshotValidator.validate |> List.countBy key |> Map.ofList
             let introduced =
                 candidateIssues
                 |> List.fold
@@ -867,6 +884,7 @@ module Transaction =
                 Error(code, $"Repair all references before deleting this {name}{count}: {listed}")
 
     let private deleteType
+        (scheduled: SemanticOperation list)
         (typeId: TypeId)
         (snapshot: Snapshot)
         (changes: ChangeAccumulator)
@@ -880,7 +898,7 @@ module Transaction =
                 Error("TypeModifiedInTransaction", "Delete a type in a separate reviewed change from its field edits.")
             else
                 let candidate = { snapshot with Types = snapshot.Types |> List.filter (fun item -> item.Id <> typeId) }
-                match ensureDeletionSafe "TypeStillReferenced" "type" snapshot candidate with
+                match ensureDeletionSafe "TypeStillReferenced" "type" scheduled (Some(DeleteType typeId)) snapshot candidate with
                 | Error error -> Error error
                 | Ok candidate ->
                     let variantIds, fieldIds =
@@ -897,6 +915,7 @@ module Transaction =
                     Ok(candidate, { changes with TypesRemoved = removed :: changes.TypesRemoved })
 
     let private deleteEffect
+        (scheduled: SemanticOperation list)
         (effectId: EffectId)
         (snapshot: Snapshot)
         (changes: ChangeAccumulator)
@@ -905,7 +924,7 @@ module Transaction =
         | None -> Error("TargetNotFound", "The effect to delete was not found.")
         | Some target ->
             let candidate = { snapshot with Effects = snapshot.Effects |> List.filter (fun item -> item.Id <> effectId) }
-            ensureDeletionSafe "EffectStillReferenced" "effect" snapshot candidate
+            ensureDeletionSafe "EffectStillReferenced" "effect" scheduled (Some(DeleteEffect effectId)) snapshot candidate
             |> Result.map (fun safe ->
                 safe,
                 { changes with
@@ -913,6 +932,7 @@ module Transaction =
                         { EffectId = target.Id; DisplayName = target.DisplayName } :: changes.EffectsRemoved })
 
     let private deleteCapability
+        (scheduled: SemanticOperation list)
         (capabilityId: CapabilityId)
         (snapshot: Snapshot)
         (changes: ChangeAccumulator)
@@ -922,7 +942,7 @@ module Transaction =
         | Some target ->
             let candidate =
                 { snapshot with Capabilities = snapshot.Capabilities |> List.filter (fun item -> item.Id <> capabilityId) }
-            ensureDeletionSafe "CapabilityStillReferenced" "capability" snapshot candidate
+            ensureDeletionSafe "CapabilityStillReferenced" "capability" scheduled (Some(DeleteCapability capabilityId)) snapshot candidate
             |> Result.map (fun safe ->
                 let removed: CapabilityRemoved =
                     { CapabilityId = target.Id
@@ -935,6 +955,7 @@ module Transaction =
                 safe, { changes with CapabilitiesRemoved = removed :: changes.CapabilitiesRemoved })
 
     let private deleteCapabilityOperation
+        (scheduled: SemanticOperation list)
         (operationId: CapabilityOperationId)
         (snapshot: Snapshot)
         (changes: ChangeAccumulator)
@@ -954,7 +975,7 @@ module Transaction =
                         if capability.Id = owner.Id then
                             { capability with Operations = capability.Operations |> List.filter (fun item -> item.Id <> operationId) }
                         else capability) }
-            ensureDeletionSafe "CapabilityOperationStillReferenced" "capability operation" snapshot candidate
+            ensureDeletionSafe "CapabilityOperationStillReferenced" "capability operation" scheduled (Some(DeleteCapabilityOperation operationId)) snapshot candidate
             |> Result.map (fun safe ->
                 let removed: CapabilityOperationRemoved =
                     { OwnerCapabilityId = owner.Id
@@ -1062,6 +1083,7 @@ module Transaction =
                     )
 
     let private deleteFunction
+        (scheduled: SemanticOperation list)
         (functionId: FunctionId)
         (snapshot: Snapshot)
         (changes: ChangeAccumulator)
@@ -1073,7 +1095,9 @@ module Transaction =
             // its body, so only other functions' references block the deletion.
             let callers =
                 SemanticQuery.getCallers snapshot functionId
-                |> Result.map (List.filter (fun site -> site.CallerFunctionId <> functionId))
+                |> Result.map (List.filter (fun site ->
+                    site.CallerFunctionId <> functionId
+                    && not (scheduled |> List.exists (function DeleteFunction id -> id = site.CallerFunctionId | _ -> false))))
             let bodyNodeIds =
                 ValueGraph.collectNodes target.Body |> List.map (fun node -> node.Id) |> Set.ofList
             let ownedObligations =
@@ -1091,7 +1115,7 @@ module Transaction =
                     |> String.concat ", "
                 Error(
                     "FunctionStillReferenced",
-                    $"Function {describe functionId} is still referenced by {referrers}. Repair or remove those direct calls, callbacks and function references, or delete the referring functions earlier in the same batch, before deleting this function."
+                    $"Function {describe functionId} is still referenced by {referrers}. Repair or remove those direct calls, callbacks and function references before deleting this function."
                 )
             | Ok [] when ownedObligations |> List.exists (fun item -> item.Status = ObligationStatus.Open) ->
                 Error("FunctionHasObligations", "Resolve open obligations attached to this function before deletion. Deleting the function retires only its resolved obligations, with their exact records in the reviewed diff.")
@@ -1311,7 +1335,7 @@ module Transaction =
                                 |> List.map (fun fn ->
                                     let inputType = SemanticFacts.createNodeTypeResolver snapshot fn
                                     { fn with Body = ValueGraph.mapNodes (pruneMatch inputType) fn.Body }) }
-                    ensureDeletionSafe "UnionVariantStillReferenced" "Union variant" snapshot candidate
+                    ensureDeletionSafe "UnionVariantStillReferenced" "Union variant" [] None snapshot candidate
                     |> Result.map (fun safe ->
                         let removed: UnionVariantRemoved =
                             { OwnerTypeId = owner.Id
@@ -1553,6 +1577,7 @@ module Transaction =
 
     let private applyOperation
         (transactionId: TransactionId)
+        (scheduled: SemanticOperation list)
         ((snapshot, changes): Snapshot * ChangeAccumulator)
         (operation: SemanticOperation)
         : Result<Snapshot * ChangeAccumulator, string * string> =
@@ -1581,11 +1606,11 @@ module Transaction =
         | AddFunctionParameter request -> addFunctionParameter transactionId request snapshot changes
         | AddProductField request -> addProductField request snapshot changes
         | RemoveProductField fieldId -> removeProductField fieldId snapshot changes
-        | DeleteFunction functionId -> deleteFunction functionId snapshot changes
-        | DeleteType typeId -> deleteType typeId snapshot changes
-        | DeleteEffect effectId -> deleteEffect effectId snapshot changes
-        | DeleteCapability capabilityId -> deleteCapability capabilityId snapshot changes
-        | DeleteCapabilityOperation operationId -> deleteCapabilityOperation operationId snapshot changes
+        | DeleteFunction functionId -> deleteFunction scheduled functionId snapshot changes
+        | DeleteType typeId -> deleteType scheduled typeId snapshot changes
+        | DeleteEffect effectId -> deleteEffect scheduled effectId snapshot changes
+        | DeleteCapability capabilityId -> deleteCapability scheduled capabilityId snapshot changes
+        | DeleteCapabilityOperation operationId -> deleteCapabilityOperation scheduled operationId snapshot changes
         | AddCapabilityOperation request -> addCapabilityOperation request snapshot changes
         | ResolveMissingArgument request -> resolveMissingArgument transactionId request snapshot changes
         | AddFunctionRequiredEffect request -> changeFunctionRequiredEffect true request snapshot changes
@@ -1867,7 +1892,7 @@ module Transaction =
                     (fun state operation ->
                         match state with
                         | Error error -> Error error
-                        | Ok current -> applyOperation request.Id current operation)
+                        | Ok current -> applyOperation request.Id request.Operations current operation)
                     (Ok(baseSnapshot, emptyChanges))
 
             match applied with

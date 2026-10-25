@@ -70,10 +70,10 @@ module ResolvedObligationDeletionTests =
             Assert.Equal(encoded,encoded |> SnapshotCodec.deserialize |> unwrap |> SnapshotCodec.serialize |> unwrap)
         | other -> failwithf "%A" other
         Assert.Equal(source,SnapshotCodec.serialize before |> unwrap)
-        // Retiring is part of this exact DeleteFunction intent, never authority to delete the callee first.
+        // The receipt is bound to the exact ordered request, so it never authorizes a reordered one.
         let reversed = { change with Operations=List.rev change.Operations }
         match SemanticWorkspace.commitReviewed workspace reversed preview.Receipt with
-        | WorkspaceCommitResult.Rejected diagnostics -> Assert.Contains(diagnostics,fun item -> item.Code="FunctionStillReferenced")
+        | WorkspaceCommitResult.Rejected diagnostics -> Assert.Contains(diagnostics,fun item -> item.Code="PreviewReceiptRequestMismatch")
         | other -> failwithf "%A" other
 
     [<Fact>]

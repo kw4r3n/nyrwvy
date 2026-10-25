@@ -681,6 +681,8 @@ module AgentExpressionStructuralWorkflow =
 
     [<RequireQualifiedAccess>]
     module FunctionCreation =
+        exception BatchResolutionProblems of (int * string * string) list
+
         type ParameterIntent =
             { DisplayName: string
               Type: TypeRef }
@@ -972,28 +974,33 @@ module AgentExpressionStructuralWorkflow =
         let private simulateGroupWith
             (requireUniqueName: bool)
             (workspace: AgentWorkspace)
-            (builders: (SemanticFunction list -> Request) list)
+            (builders: (SemanticFunction list -> Result<Request, string * string>) list)
             : Result<Proposal, AgentStructuralWorkflowError> =
             simulateStructural
                 workspace
                 (fun baseSnapshot ->
-                    let rec create created builders =
+                    let rec create created problems index builders =
                         match builders with
-                        | [] -> Ok(List.rev created)
+                        | [] ->
+                            if List.isEmpty problems then Ok(List.rev created)
+                            else raise (BatchResolutionProblems(List.rev problems))
                         | build :: rest ->
-                            let request = build (created |> List.rev |> List.map snd)
-                            // Undeclared or uninferable type parameters are reported on the request's own names.
-                            match validateTypeParameters request with
-                            | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
-                            | Ok _ ->
-                                let request = withFreshTypeParameters request
-                                let index =
-                                    buildSnapshotIndex
-                                        { baseSnapshot with Functions = baseSnapshot.Functions @ (created |> List.rev |> List.map snd) }
-                                match validatePreflight requireUniqueName request index with
+                            match build (created |> List.rev |> List.map snd) with
+                            | Error(displayName, message) ->
+                                create created ((index, displayName, message) :: problems) (index + 1) rest
+                            | Ok request ->
+                                // Undeclared or uninferable type parameters are reported on the request's own names.
+                                match validateTypeParameters request with
                                 | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
-                                | Ok preflight -> create ((request, materializeFunction index request preflight) :: created) rest
-                    create [] builders)
+                                | Ok _ ->
+                                    let request = withFreshTypeParameters request
+                                    let snapshotIndex =
+                                        buildSnapshotIndex
+                                            { baseSnapshot with Functions = baseSnapshot.Functions @ (created |> List.rev |> List.map snd) }
+                                    match validatePreflight requireUniqueName request snapshotIndex with
+                                    | Error error -> Error(AgentStructuralWorkflowError.SimulationRejected [ error ])
+                                    | Ok preflight -> create ((request, materializeFunction snapshotIndex request preflight) :: created) problems (index + 1) rest
+                    create [] [] 0 builders)
                 (fun created snapshot -> { snapshot with Functions = snapshot.Functions @ List.map snd created })
             |> Result.bind (fun candidate ->
                 let reviewOf (request, createdFunction: SemanticFunction) =
@@ -1025,7 +1032,7 @@ module AgentExpressionStructuralWorkflow =
                     ))
 
         let private simulateWith requireUniqueName workspace (request: Request) =
-            simulateGroupWith requireUniqueName workspace [ fun _ -> request ]
+            simulateGroupWith requireUniqueName workspace [ fun _ -> Ok request ]
 
         /// Creates several new functions in one proposal, in list order (docs/decisions/function-creation-batches.md).
         /// Each builder receives the functions created before it, so its body may call them.

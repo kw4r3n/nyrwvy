@@ -161,7 +161,7 @@ module TypeDeletionTests =
                 | Ok value -> value
                 | Error error -> failwithf "Open failed: %A" error
             let command =
-                $"""{{"id":"cleanup","op":"simulateOperations","operations":[{{"kind":"deleteFunction","functionId":"{StableId.value obsoleteFunctionId}"}},{{"kind":"deleteType","typeId":"{StableId.value removedTypeId}"}}]}}"""
+                $"""{{"id":"cleanup","op":"simulateOperations","operations":[{{"kind":"deleteType","typeId":"{StableId.value removedTypeId}"}},{{"kind":"deleteFunction","functionId":"{StableId.value obsoleteFunctionId}"}}]}}"""
             use response = AuthoringProtocol.executeLine session command |> JsonDocument.Parse
             Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
             let result = response.RootElement.GetProperty("result")

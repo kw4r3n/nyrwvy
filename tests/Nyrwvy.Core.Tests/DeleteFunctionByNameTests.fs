@@ -81,9 +81,32 @@ module DeleteFunctionByNameTests =
                 let id = functionId session name
                 Assert.Contains($"'{name}' ({id})", message)
 
-            // Deleting the referrers earlier in the same batch clears the references.
-            let result = send session (deleteByName [ deleteFunction "caller"; deleteFunction "other"; deleteFunction "leaf" ])
+            // The callee may appear before its referrers in one atomic batch.
+            let result = send session (deleteByName [ deleteFunction "leaf"; deleteFunction "caller"; deleteFunction "other" ])
             Assert.Equal<Set<string>>(set [ "leaf"; "caller"; "other" ], removedNames result))
+
+    [<Fact>]
+    let ``exact-ID batch deletes a callee before its caller`` () =
+        withSession (fun session ->
+            create session "leaf" flag
+            create session "caller" (call "leaf")
+            let leaf = functionId session "leaf"
+            let caller = functionId session "caller"
+            let result = send session $"""{{"id":"delete","op":"simulateOperations","operations":[{{"kind":"deleteFunction","functionId":"{leaf}"}},{{"kind":"deleteFunction","functionId":"{caller}"}}]}}"""
+            Assert.Equal<Set<string>>(set [ "leaf"; "caller" ], removedNames result))
+
+    [<Fact>]
+    let ``unreferenced lists unused functions and follows roots`` () =
+        withSession (fun session ->
+            create session "leaf" flag
+            create session "caller" (call "leaf")
+            create session "unused" flag
+            let names line =
+                send session line |> fun result ->
+                    result.GetProperty("functions").EnumerateArray()
+                    |> Seq.map (fun item -> item.GetProperty("name").GetString()) |> Set.ofSeq
+            Assert.Equal<Set<string>>(set [ "caller"; "unused" ], names """{"id":"u","op":"unreferenced"}""")
+            Assert.Equal<Set<string>>(set [ "unused" ], names """{"id":"u","op":"unreferenced","roots":["caller"]}"""))
 
     [<Fact>]
     let ``simulateOperationsByName rejects unknown names, exact-ID keys and unsupported kinds`` () =
