@@ -145,6 +145,54 @@ module SnapshotCodecTests =
         | result -> failwithf "Expected duplicate-property InvalidShape, got %A" result
 
     [<Theory>]
+    [<InlineData("\"snapshotId\"", "Snapshot contains duplicate property names.")>]
+    [<InlineData("\"snapshot\\u0049d\"", "Snapshot contains duplicate property names.")>]
+    let ``snapshot codec rejects duplicate decoded names before missing or unsupported properties`` duplicateName expected =
+        let json = "{\"snapshotId\":\"snapshot-a\"," + duplicateName + ":\"snapshot-b\",\"unexpected\":0}"
+        Assert.Equal(Error(SnapshotCodecError.InvalidShape expected), SnapshotCodec.deserialize json)
+
+    [<Theory>]
+    [<InlineData("{\"schemaVersion\":9,\"z\":0,\"a\":0}", "Snapshot is missing required properties: capabilities, effects, functions, obligations, snapshotId, types.")>]
+    [<InlineData("{\"schemaVersion\":9,\"snapshotId\":\"snapshot\",\"types\":[],\"effects\":[],\"capabilities\":[],\"functions\":[],\"obligations\":[],\"z\":0,\"a\":0}", "Snapshot contains unsupported properties: a, z.")>]
+    let ``snapshot property diagnostics retain sorted names and missing property precedence`` json expected =
+        Assert.Equal(Error(SnapshotCodecError.InvalidShape expected), SnapshotCodec.deserialize json)
+
+    [<Fact>]
+    let ``malformed property names take precedence even after a duplicate`` () =
+        let malformed = "{\"snapshotId\":\"a\",\"snapshotId\":\"b\",\"\\uD800\":0}"
+        match SnapshotCodec.deserialize malformed with
+        | Error(SnapshotCodecError.InvalidShape message) -> Assert.StartsWith("Invalid JSON property name encoding:", message)
+        | result -> failwithf "Expected malformed-name InvalidShape, got %A" result
+
+    [<Theory>]
+    [<InlineData("valueNodeId")>]
+    [<InlineData(@"valueNode\u0049d")>]
+    let ``shared unary property sets reject nested duplicate decoded names`` duplicateName =
+        let literalId = StableId.createForTesting<GraphNodeTag> "unary-literal"
+        let resultId = StableId.createForTesting<GraphNodeTag> "unary-result"
+        let fn: SemanticFunction =
+            { Id = StableId.createForTesting<FunctionTag> "unary-function"
+              DisplayName = "isEmpty"; Exported = true; TypeParameters = []; Parameters = []
+              ResultType = TypeRef.Primitive PrimitiveType.Bool; RequiredEffects = []
+              Body =
+                { Nodes = [ { Id = literalId; Kind = SemanticNodeKind.StringLiteral "" }
+                            { Id = resultId; Kind = SemanticNodeKind.StringIsEmpty literalId } ]
+                  ResultNodeId = resultId } }
+        let snapshot = { Snapshot.empty (StableId.createForTesting<SnapshotTag> "unary-snapshot") with Functions = [ fn ] }
+        let json = SnapshotCodec.serialize snapshot |> unwrap
+        let duplicate = json.Replace("\"kind\":\"stringIsEmpty\"", "\"kind\":\"stringIsEmpty\",\"" + duplicateName + "\":\"extra\"")
+        Assert.NotEqual<string>(json, duplicate)
+        Assert.Equal(Error(SnapshotCodecError.InvalidShape "StringIsEmpty node contains duplicate property names."), SnapshotCodec.deserialize duplicate)
+
+    [<Fact>]
+    let ``empty snapshots retain exact frozen and current JSON`` () =
+        let snapshot = Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-empty")
+        let expected version =
+            "{\"schemaVersion\":" + string version + ",\"snapshotId\":\"snapshot-empty\",\"types\":[],\"effects\":[],\"capabilities\":[],\"functions\":[],\"obligations\":[]}"
+        Assert.Equal(expected 9, SnapshotCodec.serializeCanonical snapshot |> unwrap)
+        Assert.Equal(expected SnapshotSchema.current.Json, SnapshotCodec.serialize snapshot |> unwrap)
+
+    [<Theory>]
     [<InlineData("null")>]
     [<InlineData("[]")>]
     [<InlineData("true")>]

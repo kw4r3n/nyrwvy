@@ -1,0 +1,65 @@
+{
+  "sha256": "9f94f36beab0839d7a2b31540c92e260ad01379949c0103e3c3d573c237c0ae6",
+  "bytes": 139086,
+  "completeFiles": [
+    "src/Nyrwvy.Semantics/Fingerprint.fs",
+    "src/Nyrwvy.Semantics/GraphOrder.fs",
+    "src/Nyrwvy.Semantics/SnapshotComputationScope.fs",
+    "src/Nyrwvy.Semantics/Workspace.fs",
+    "tests/Nyrwvy.Core.Tests/GraphOrderMetadataTests.fs"
+  ],
+  "excerptRanges": {
+    "src/Nyrwvy.Semantics/Foundation.fs": [
+      [
+        85,
+        108
+      ],
+      [
+        1640,
+        1730
+      ]
+    ],
+    "src/Nyrwvy.Semantics/Transactions.fs": [
+      [
+        12,
+        96
+      ],
+      [
+        1540,
+        1595
+      ]
+    ],
+    "src/Nyrwvy.Semantics/SnapshotCodec.fs": [
+      [
+        1,
+        100
+      ],
+      [
+        1450,
+        1530
+      ],
+      [
+        2740,
+        2870
+      ]
+    ],
+    "src/Nyrwvy.Semantics/Validation.fs": [
+      [
+        175,
+        245
+      ],
+      [
+        2485,
+        2585
+      ]
+    ]
+  },
+  "diff": "all current Semantics and Core test tracked diffs; plus complete untracked GraphOrderMetadataTests.fs",
+  "destination": "https://api.anthropic.com",
+  "tools": false,
+  "model": "opus",
+  "effort": "high",
+  "actualModel": "claude-opus-5-5",
+  "durationMs": 96046,
+  "isError": false
+}

@@ -226,10 +226,12 @@ module SnapshotValidator =
                 | None -> Some(field.Id, (ownerId, field))
                 | Some _ -> None)
             |> Map.ofList
-        let nodeOwners =
-            nodeEntries
-            |> List.map (fun (ownerId, node) -> node.Id, (ownerId, node))
-            |> Map.ofList
+        let nodeOwners = lazy (
+            let owners = System.Collections.Generic.Dictionary<GraphNodeId, FunctionId * SemanticNode>(nodeEntries.Length)
+            for ownerId, node in nodeEntries do
+                // Match Map.ofList: diagnostics for invalid duplicate IDs use the last owner.
+                owners[node.Id] <- (ownerId, node)
+            owners)
 
         let rec validateTypeRef (context: string) (typeRef: TypeRef) =
             match typeRef with
@@ -2495,12 +2497,12 @@ module SnapshotValidator =
                     $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} contains a cycle between value-producing graph nodes."
 
         for obligation in snapshot.Obligations do
-            match Map.tryFind obligation.CallNodeId nodeOwners with
-            | None ->
+            match nodeOwners.Value.TryGetValue obligation.CallNodeId with
+            | false, _ ->
                 add
                     "InvalidObligationTarget"
                     $"Obligation '{StableId.value obligation.Id}' targets unknown graph node '{StableId.value obligation.CallNodeId}'."
-            | Some(ownerFunctionId, callNode) ->
+            | true, (ownerFunctionId, callNode) ->
                 match callNode.Kind with
                 | SemanticNodeKind.DirectCall(targetFunctionId, arguments) ->
                     let targetParameter =
@@ -2534,10 +2536,9 @@ module SnapshotValidator =
                                 "InvalidObligationResolution"
                                 $"Resolved obligation '{StableId.value obligation.Id}' does not match the call's argument binding."
 
-                        match Map.tryFind resolution.ValueNodeId nodeOwners with
-                        | Some(valueOwnerId, _) when valueOwnerId = ownerFunctionId -> ()
-                        | Some _
-                        | None ->
+                        match nodeOwners.Value.TryGetValue resolution.ValueNodeId with
+                        | true, (valueOwnerId, _) when valueOwnerId = ownerFunctionId -> ()
+                        | _ ->
                             add
                                 "InvalidObligationResolutionValue"
                                 $"Resolved obligation '{StableId.value obligation.Id}' references a value node outside the call's owning function."

@@ -245,3 +245,43 @@ module FingerprintTests =
             failwith "Snapshot fingerprint changed across canonical persistence round-trip."
         if semanticFingerprint fixture.Snapshot <> semanticFingerprint decoded then
             failwith "Semantic fingerprint changed across canonical persistence round-trip."
+
+    [<Theory>]
+    [<InlineData("empty", "sha256:c0041b103b92b69915c21878b53763996e26b17759443957d909466c298cd7b3", "sha256:4d0eb753fcd58a541a10f71e6176b595df149673906e8e73186d0075d7d6cf62")>]
+    [<InlineData("milestone", "sha256:16d40073c7312051310deb367266f189e5000ea89bf7ea3f01be685996314969", "sha256:4f0135d81e18f50eba891b4dd933178e43fbea69227763bd64818d1618b8f335")>]
+    [<InlineData("unicode", "sha256:e5b2ac9e36c1c8ea578ba8c7eb6291595bc3f433bce77aaea3fcc8d1e323c405", "sha256:4f0135d81e18f50eba891b4dd933178e43fbea69227763bd64818d1618b8f335")>]
+    let ``fingerprint bytes retain pre-optimization golden values`` kind expectedSnapshot expectedSemantic =
+        let snapshot =
+            match kind with
+            | "empty" -> Snapshot.empty (StableId.createForTesting<SnapshotTag> "fingerprint-frozen-empty")
+            | "milestone" -> MilestoneZeroGraph.create().Snapshot
+            | "unicode" ->
+                let fixture = MilestoneZeroGraph.create().Snapshot
+                { fixture with Functions = fixture.Functions |> List.mapi (fun i f -> { f with DisplayName = $"鴎_🎵_e\u0301_{i}" }) }
+            | _ -> failwith "unknown golden fixture"
+        Assert.Equal(expectedSnapshot, snapshotFingerprint snapshot |> SnapshotFingerprint.value)
+        Assert.Equal(expectedSemantic, semanticFingerprint snapshot |> SemanticFingerprint.value)
+
+    [<Fact>]
+    let ``normalization retains existing handling of invalid presentation and parent metadata`` () =
+        let snapshot = MilestoneZeroGraph.create().Snapshot
+        let invalid =
+            { snapshot with
+                ParentId = Some snapshot.Id
+                Functions = snapshot.Functions |> List.map (fun f -> { f with DisplayName = "" }) }
+        Assert.NotEmpty(SnapshotValidator.validate invalid)
+        Assert.Equal(semanticFingerprint snapshot, semanticFingerprint invalid)
+
+    [<Fact>]
+    let ``semantic fingerprint still rejects invalid normalized structure`` () =
+        let snapshot = MilestoneZeroGraph.create().Snapshot
+        let invalid =
+            { snapshot with
+                Functions = snapshot.Functions |> List.mapi (fun index f ->
+                    if index = 0 then
+                        { f with ResultType = TypeRef.Primitive PrimitiveType.Unit }
+                    else f) }
+        match SemanticFingerprint.compute invalid with
+        | Error(SnapshotCodecError.InvalidSnapshot issues) ->
+            Assert.Contains(issues, fun issue -> issue.Code = "FunctionResultTypeMismatch")
+        | other -> failwithf "Expected invalid normalized structure, got %A" other

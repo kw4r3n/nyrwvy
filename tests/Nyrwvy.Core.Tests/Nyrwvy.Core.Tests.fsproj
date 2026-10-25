@@ -12,6 +12,7 @@
     <Compile Include="ValidationTests.fs" />
     <Compile Include="SemanticFactsTests.fs" />
     <Compile Include="DependencyChainTests.fs" />
+    <Compile Include="GraphOrderMetadataTests.fs" />
     <Compile Include="SemanticNodeShapeTests.fs" />
     <Compile Include="SnapshotComputationScopeTests.fs" />
     <Compile Include="SnapshotCodecTests.fs" />

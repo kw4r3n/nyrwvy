@@ -1,0 +1,20 @@
+{
+  "buildWarnings": 0,
+  "buildErrors": 0,
+  "coreFast": {
+    "passed": 1173,
+    "failed": 0,
+    "skipped": 0
+  },
+  "nodeFastContracts": {
+    "passed": 39,
+    "failed": 0
+  },
+  "frozenFixtureComparisons": 6,
+  "fingerprintGoldens": 3,
+  "instrumentationAnchors": [
+    "regular",
+    "deep"
+  ],
+  "diffCheck": "passed"
+}
