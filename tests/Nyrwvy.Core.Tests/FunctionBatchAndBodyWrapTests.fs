@@ -43,6 +43,29 @@ module FunctionBatchAndBodyWrapTests =
         Assert.True(run.GetProperty("matches").GetBoolean(), run.ToString())
 
     [<Fact>]
+    let ``named recipes may be loaded from confined JSON files`` () =
+        withSession (fun session execute rejected ->
+            let dir = Path.GetDirectoryName(session.Path)
+            File.WriteAllText(Path.Combine(dir, "body.json"), add n (lit 1))
+            let second = fn "second" (call "first" n)
+            File.WriteAllText(Path.Combine(dir, "functions.json"), $"[{second}]")
+            let first = $"""{{"id":"first","op":"simulateCreateFunctionByName","displayName":"first","exported":true,"parameters":[{{"displayName":"n","type":{int64}}}],"resultType":{int64},"requiredEffects":[],"bodyFile":"body.json"}}"""
+            commit execute (execute first)
+            commit execute (execute """{"id":"batch","op":"simulateCreateFunctionsByName","functionsFile":"functions.json"}""")
+            runs execute "second" 2 3
+            File.WriteAllText(Path.Combine(dir, "replacement.json"), add n (lit 2))
+            commit execute (execute """{"id":"replace","op":"simulateReplaceBodyByName","function":"first","replacementFile":"replacement.json"}""")
+            runs execute "first" 2 4
+            let target = session.Declarations().Functions |> List.find (fun item -> item.DisplayName = "first")
+            commit execute (execute $"""{{"id":"target","op":"simulateReplaceTargetByName","function":"first","targetNodeId":"{StableId.value target.Body.ResultNodeId}","replacementFile":"replacement.json"}}""")
+            Assert.Contains("exactly one", rejected (first.TrimEnd('}') + ",\"body\":" + n + "}"))
+            Assert.Contains("exactly one", rejected """{"id":"both","op":"simulateCreateFunctionsByName","functions":[],"functionsFile":"functions.json"}""")
+            Assert.Contains("exactly one", rejected """{"id":"both","op":"simulateReplaceBodyByName","function":"first","replacement":{"kind":"parameter","name":"n"},"replacementFile":"replacement.json"}""")
+            Assert.Contains("stay inside", rejected (first.Replace("body.json", "../outside.json")))
+            Assert.Contains("stay inside", rejected """{"id":"escape","op":"simulateCreateFunctionsByName","functionsFile":"../outside.json"}""")
+            Assert.Contains("stay inside", rejected """{"id":"escape","op":"simulateReplaceBodyByName","function":"first","replacementFile":"../outside.json"}"""))
+
+    [<Fact>]
     let ``a batch creates functions in order in one proposal and later ones may call earlier ones`` () =
         withSession (fun session execute _ ->
             let batch = $"""[{fn "inc" (add n (lit 1))},{fn "twice" (call "inc" (call "inc" n))},{fn "down" (call "down" n)}]"""

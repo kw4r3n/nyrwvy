@@ -1,6 +1,7 @@
 namespace Nyrwvy.Tools.AuthoringSession
 
 open System
+open System.IO
 open System.Text.Json
 open Nyrwvy.Core
 
@@ -8,6 +9,39 @@ open Nyrwvy.Core
 module AuthoringProtocol =
     open WireInput
     open WireJson
+
+    let private recipeInput (session: AuthoringSession) inlineName fileName (item: JsonElement) =
+        match tryProperty inlineName item, tryProperty fileName item with
+        | Some value, None -> value
+        | None, Some file ->
+            if file.ValueKind <> JsonValueKind.String || String.IsNullOrWhiteSpace(file.GetString()) then
+                fail $"{fileName} must be a file path."
+            let requested = file.GetString()
+            let directory = Path.GetDirectoryName(Path.GetFullPath session.Path)
+            try
+                let full = Path.GetFullPath(requested, directory)
+                let relative = Path.GetRelativePath(directory, full)
+                if Path.IsPathRooted relative || relative = ".." || relative.StartsWith(".." + string Path.DirectorySeparatorChar, StringComparison.Ordinal) || relative = "." then
+                    fail $"{fileName} must stay inside the snapshot's directory."
+                let parts = relative.Split([| Path.DirectorySeparatorChar; Path.AltDirectorySeparatorChar |], StringSplitOptions.RemoveEmptyEntries)
+                let mutable current = directory
+                for part in parts do
+                    current <- Path.Combine(current, part)
+                    if not (isNull (FileInfo(current).LinkTarget)) then
+                        fail $"{fileName} must not pass through a symbolic link or reparse point."
+                let info = FileInfo(full)
+                if not info.Exists then fail $"{fileName} must name an existing JSON file."
+                if info.Length > 1048576L then fail $"{fileName} exceeds 1 MiB."
+                use stream = File.OpenRead(full)
+                if stream.Length > 1048576L then fail $"{fileName} exceeds 1 MiB."
+                use document = JsonDocument.Parse(stream)
+                if stream.Position > 1048576L then fail $"{fileName} exceeds 1 MiB."
+                document.RootElement.Clone()
+            with
+            | :? IOException | :? UnauthorizedAccessException | :? ArgumentException | :? NotSupportedException ->
+                fail $"{fileName} cannot be read as a JSON file inside the snapshot's directory."
+            | :? JsonException -> fail $"{fileName} must contain valid JSON."
+        | _ -> fail $"Pass exactly one of {inlineName} and {fileName}."
 
     let private success id result =
         objectValue
@@ -745,7 +779,7 @@ module AuthoringProtocol =
         | value -> WireInput.fail $"Unsupported references subject kind '{value}'; use function, type, variant, field, effect, capability or capabilityOperation."
 
     /// A by-name function creation read from item against declarations.
-    let private functionCreationByName (declarations: AuthoringDeclarations) expected (item: JsonElement): AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+    let private functionCreationByName (session: AuthoringSession) (declarations: AuthoringDeclarations) expected (item: JsonElement): AgentExpressionStructuralWorkflow.FunctionCreation.Request =
         let displayName = requiredString "displayName" item
         if declarations.Functions |> List.exists (fun existing -> existing.DisplayName = displayName) then
             WireInput.fail $"Function display name '{displayName}' already exists. Choose a unique name or use the exact-ID authoring surface."
@@ -757,7 +791,7 @@ module AuthoringProtocol =
           Parameters = parameters
           ResultType = WireSymbolic.typeRef declarations (property "resultType" item)
           RequiredEffects = WireSymbolic.requiredEffects declarations item
-          Body = WireSymbolic.recipeForNewFunction declarations displayName parameters (property "body" item) }
+          Body = WireSymbolic.recipeForNewFunction declarations displayName parameters (recipeInput session "body" "bodyFile" item) }
 
     let private semanticQueryFailure requestId (error: SemanticQueryError) =
         let message =
@@ -1119,17 +1153,19 @@ module AuthoringProtocol =
             | "simulateCreateFunctionByName" ->
                 ensureFields
                     "simulateCreateFunctionByName request"
-                    [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
+                    [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects" ]
                     root
-                proposalResponse (session.SimulateCreateFunction(functionCreationByName (session.Declarations()) (expectedSnapshotId ()) root))
+                proposalResponse (session.SimulateCreateFunction(functionCreationByName session (session.Declarations()) (expectedSnapshotId ()) root))
             | "simulateCreateFunctionsByName" ->
                 ensureFields
                     "simulateCreateFunctionsByName request"
-                    [ "id"; "op"; "functions"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "functions" ]
+                    [ "id"; "op"; "functions"; "functionsFile"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op" ]
                     root
-                let items = array "functions" root
+                let functions = recipeInput session "functions" "functionsFile" root
+                if functions.ValueKind <> JsonValueKind.Array then fail "functions must be an array."
+                let items = functions.EnumerateArray() |> List.ofSeq
                 if List.isEmpty items then
                     WireInput.fail "functions must list at least one function."
                 let declarations = session.Declarations()
@@ -1139,12 +1175,12 @@ module AuthoringProtocol =
                     |> List.map (fun item ->
                         ensureFields
                             "function in functions"
-                            [ "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body" ]
-                            [ "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
+                            [ "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile" ]
+                            [ "displayName"; "parameters"; "resultType"; "requiredEffects" ]
                             item
                         // Earlier functions of the batch resolve by name like existing ones.
                         fun (created: SemanticFunction list) ->
-                            functionCreationByName { declarations with Functions = declarations.Functions @ created } expected item)
+                            functionCreationByName session { declarations with Functions = declarations.Functions @ created } expected item)
                 proposalResponse (session.SimulateCreateFunctions builders)
             | "simulateParameterTypeMigration" ->
                 ensureFields
@@ -1439,8 +1475,8 @@ module AuthoringProtocol =
             | "simulateReplaceBodyByName" ->
                 ensureFields
                     "simulateReplaceBodyByName request"
-                    [ "id"; "op"; "function"; "replacement"; "structuredReview"; "detail"; "expectedSnapshotId"; "expectedResultNodeId" ]
-                    [ "id"; "op"; "function"; "replacement" ]
+                    [ "id"; "op"; "function"; "replacement"; "replacementFile"; "structuredReview"; "detail"; "expectedSnapshotId"; "expectedResultNodeId" ]
+                    [ "id"; "op"; "function" ]
                     root
                 let declarations = session.Declarations()
                 let functionEntity =
@@ -1456,7 +1492,7 @@ module AuthoringProtocol =
                         WireSymbolic.recipeForExistingFunction
                             declarations
                             functionEntity
-                            (property "replacement" root) }
+                            (recipeInput session "replacement" "replacementFile" root) }
                 proposalResponse (session.SimulateReplaceBody request)
             | "simulateReplaceTarget" ->
                 ensureFields
@@ -1473,8 +1509,8 @@ module AuthoringProtocol =
             | "simulateReplaceTargetByName" ->
                 ensureFields
                     "simulateReplaceTargetByName request"
-                    [ "id"; "op"; "function"; "targetNodeId"; "replacement"; "structuredReview"; "detail"; "expectedSnapshotId" ]
-                    [ "id"; "op"; "function"; "targetNodeId"; "replacement" ]
+                    [ "id"; "op"; "function"; "targetNodeId"; "replacement"; "replacementFile"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "function"; "targetNodeId" ]
                     root
                 let declarations = session.Declarations()
                 let functionEntity = WireSymbolic.resolveFunctionAt declarations "function" root
@@ -1482,7 +1518,7 @@ module AuthoringProtocol =
                     { TargetFunctionId = functionEntity.Id
                       ExpectedBaseSnapshotId = expectedSnapshotId ()
                       TargetNodeId = id<GraphNodeTag> "targetNodeId" root
-                      Replacement = WireSymbolic.recipeForExistingFunction declarations functionEntity (property "replacement" root) }
+                      Replacement = WireSymbolic.recipeForExistingFunction declarations functionEntity (recipeInput session "replacement" "replacementFile" root) }
                 proposalResponse (session.SimulateReplaceTarget request)
             | "commit" ->
                 ensureFields

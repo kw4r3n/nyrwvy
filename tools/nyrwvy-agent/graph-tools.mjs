@@ -160,21 +160,21 @@ export function createGraphTools(schema) {
       execute: (args, context) => requestAuthoring({ op: "simulateCreateTypeByName", ...args }, context),
     }),
     create_function: defineTool({
-      description: "Propose a typed function directly in the semantic graph. Body is a name-resolved ExpressionRecipe; use nyrwvy_recipe_reference when its shape is unfamiliar. Parameter references use names, not caller-allocated IDs. The function is private unless exported: true; only exported declarations are usable from snapshots that depend on this one, and a dependency's private declarations are absent from declarations and name resolution here. " + reviewDetail,
+      description: "Propose a typed function directly in the semantic graph. Pass exactly one of body (a name-resolved ExpressionRecipe) or bodyFile (a JSON recipe file beside the snapshot). Use nyrwvy_recipe_reference when its shape is unfamiliar. Parameter references use names, not caller-allocated IDs. The function is private unless exported: true; only exported declarations are usable from snapshots that depend on this one, and a dependency's private declarations are absent from declarations and name resolution here. " + reviewDetail,
       args: { displayName: schema.string(), exported, parameters: schema.array(schema.object({ displayName: schema.string(), type: typeRef })),
-        resultType: typeRef, requiredEffects: schema.array(selector), body: recipe, detail },
+        resultType: typeRef, requiredEffects: schema.array(selector), body: recipe.optional(), bodyFile: schema.string().optional(), detail },
       /** @param {{ displayName: string; exported?: boolean; parameters: { displayName: string; type: Record<string, unknown> }[]; resultType: Record<string, unknown>; requiredEffects: (string | Record<string, unknown>)[]; body: Record<string, unknown>; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: "simulateCreateFunctionByName", ...args }, context),
     }),
     create_functions: defineTool({
-      description: "Propose several new typed functions in one proposal and one commit, created in list order. Each item is {displayName, exported?, parameters:[{displayName,type}], resultType, requiredEffects, body}, as for nyrwvy_create_function; a body may call itself and any function listed before it by name, not a later one. Any rejected item rejects the batch. The review is the first function's createFunction review with the others under batch. " + reviewDetail,
-      args: { functions: schema.array(object), detail },
+      description: "Propose several new typed functions in one proposal and one commit, created in list order. Pass exactly one of functions or functionsFile (a JSON file containing the functions array beside the snapshot). Each item has the fields of nyrwvy_create_function; a body may call itself and any function listed before it by name. Any rejected item rejects the batch. " + reviewDetail,
+      args: { functions: schema.array(object).optional(), functionsFile: schema.string().optional(), detail },
       /** @param {{ functions: Record<string, unknown>[]; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: "simulateCreateFunctionsByName", ...args }, context),
     }),
     replace: defineTool({
-      description: "Propose a targeted graph edit, preserving unrelated nodes. replacement is a name-resolved ExpressionRecipe; use nyrwvy_recipe_reference when its shape is unfamiliar. Use a targetNodeId from inspect; omit it for whole-body replacement. {kind:'originalTarget'} (at most once) stands for the target's old expression, so you can wrap it or insert a step before it (e.g. bind(step, originalTarget)) without rebuilding it; without a targetNodeId it stands for the whole current body, which becomes a targeted replacement of the body's result node, so no inspect is needed to wrap a body. Review before commit. " + reviewDetail,
-      args: { function: selector, targetNodeId: schema.string().optional(), replacement: recipe, detail },
+      description: "Propose a targeted graph edit, preserving unrelated nodes. Pass exactly one of replacement (a name-resolved ExpressionRecipe) or replacementFile (a JSON recipe file beside the snapshot). Use a targetNodeId from inspect; omit it for whole-body replacement. {kind:'originalTarget'} (at most once) stands for the target's old expression, so you can wrap it or insert a step before it. Review before commit. " + reviewDetail,
+      args: { function: selector, targetNodeId: schema.string().optional(), replacement: recipe.optional(), replacementFile: schema.string().optional(), detail },
       /** @param {{ function: string | Record<string, unknown>; targetNodeId?: string; replacement: Record<string, unknown>; detail?: "compact" | "full" }} args */
       execute: (args, context) => requestAuthoring({ op: args.targetNodeId === undefined ? "simulateReplaceBodyByName" : "simulateReplaceTargetByName", ...args }, context),
     }),
