@@ -60,6 +60,19 @@ Check("Pty.resize", ReadUntil("40 120").Contains("40 120"));
 Check("Pty.read at end of output", !pty.read().HasValue);
 ptys.close(pty);
 Check("use after close fails", Throws(() => pty.read()));
+// snap's pattern: the loop thread blocks in read while another thread closes the pty.
+var blocked = (PtyHost)ptys.open(Strings("sh", "-c", "exec sleep 30"), 80, 24).OkValue;
+string? readerEnd = null;
+var reader = new System.Threading.Thread(() =>
+{
+    try { readerEnd = blocked.read().HasValue ? "Some" : "None"; }
+    catch (Exception e) { readerEnd = e.GetType().Name; }
+});
+reader.Start();
+System.Threading.Thread.Sleep(200);
+ptys.close(blocked);
+var readerEnded = reader.Join(5000);
+Check($"close while another thread reads (reader got {readerEnd ?? "nothing"})", readerEnded && readerEnd == "None");
 Check("Ptys.open missing program", !ptys.open(Strings("nyr-host-no-such-program"), 80, 24).IsOk);
 
 dir.Delete(true);

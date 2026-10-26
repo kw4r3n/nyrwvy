@@ -18,7 +18,7 @@ All operations use the effect `System`.
 | `Pty` | `resize(cols, rows)` | `Unit` |
 | `Pty` | `foregroundCommand()` | `Option<String>`; the foreground process group leader's name |
 
-`Pty` is a [capability handle](../../docs/decisions/capability-handles.md): an operation on a closed `Pty` throws "Handle is not open".
+`Pty` is a [capability handle](../../docs/decisions/capability-handles.md): an operation on a closed `Pty` throws "Handle is not open". `close` may run while another thread is blocked in `read`; that `read` then returns `None`. `close` waits for the child after the hangup, so a child that ignores SIGHUP keeps `close` waiting.
 
 ## Using it
 
