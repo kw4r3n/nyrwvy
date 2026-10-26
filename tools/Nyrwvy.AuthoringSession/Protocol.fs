@@ -1452,7 +1452,7 @@ module AuthoringProtocol =
                 // present only when the function has one and the program lowers.
                 let withCopiedUpdates (focus: FunctionFocusView) (encoded: obj) =
                     let updates =
-                        focus.Function.Body.Nodes
+                        ValueGraph.collectNodes focus.Function.Body
                         |> List.exists (fun node ->
                             match node.Kind with
                             | SemanticNodeKind.BytesSet _
