@@ -750,7 +750,9 @@ module internal SignatureMigrationCore =
         let remap = remapGraph ownerParameterMap ownerTypeParameters temporaryTarget targetFunctionId
 
         let mapNode (node: SemanticNode) =
-            let node = SemanticNodeShape.mapNested mapBinding remap node
+            let node =
+                SemanticNodeShape.mapNested mapBinding remap node
+                |> SemanticNodeShape.mapPayloadTypeRefs mapType
             let kind =
                 match node.Kind with
                 | SemanticNodeKind.ParameterReference parameterId ->
@@ -768,13 +770,6 @@ module internal SignatureMigrationCore =
                                     mapTargetParameter
                                         argument.TargetParameterId })
                     )
-                | SemanticNodeKind.ListEmpty itemType -> SemanticNodeKind.ListEmpty(mapType itemType)
-                | SemanticNodeKind.SetEmpty itemType -> SemanticNodeKind.SetEmpty(mapType itemType)
-                | SemanticNodeKind.MapEmpty(keyType, valueType) -> SemanticNodeKind.MapEmpty(mapType keyType, mapType valueType)
-                | SemanticNodeKind.ListConstruct(itemType, items) -> SemanticNodeKind.ListConstruct(mapType itemType, items)
-                | SemanticNodeKind.OptionNone itemType -> SemanticNodeKind.OptionNone(mapType itemType)
-                | SemanticNodeKind.ResultOk(errorType, valueNodeId) -> SemanticNodeKind.ResultOk(mapType errorType, valueNodeId)
-                | SemanticNodeKind.ResultErr(okType, errorNodeId) -> SemanticNodeKind.ResultErr(mapType okType, errorNodeId)
                 | other -> other
             { node with Kind = kind }
 

@@ -184,6 +184,49 @@ module SignatureMigrationGenericRecursiveTests =
         Assert.Equal<TypeRef list>([ listOf firstOrEmptyU; firstOrEmptyU ], bodyTypes migratedCaller |> List.distinct)
         Assert.Equal<(FunctionId * ParameterId list) list>([ pick.Id, [ pick.Parameters.[0].Id ] ], directCalls migratedCaller)
 
+    let private boxId = StableId.createForTesting<TypeTag> "box"
+    let private contentId = StableId.createForTesting<FieldTag> "box-content"
+
+    /// Box<T> = { content: T }; wrap<T>(x: T, n: Int64): Box<T> = Box<T>{ content = x }.
+    let private boxFixture name =
+        let boxT = StableId.createForTesting<TypeParameterTag> "box-t"
+        let box: SemanticType =
+            { Exported = true; TypeParameters = [ boxT, "T" ]; Id = boxId; DisplayName = "Box"
+              Kind = SemanticTypeKind.Product [ { Id = contentId; DisplayName = "content"; Type = TypeRef.TypeParameter boxT } ] }
+        let ws = AgentWorkspace.create { Snapshot.empty (StableId.createForTesting<SnapshotTag> name) with Types = [ box ] } |> unwrap "workspace"
+        let t = typeParameter "T"
+        let ws =
+            create ws "wrap" [ "x", t; "n", intType ] (TypeRef.Named(boxId, [ t ]))
+                (ExpressionRecipe.ProductConstruct(boxId, [ t ], [ contentId, slot 0 ]))
+        let wrap = find ws "wrap"
+        ws, wrap, ownTypeParameter wrap
+
+    let private construct wrapT (wrap: SemanticFunction) = ExpressionRecipe.ProductConstruct(boxId, [ wrapT ], [ contentId, parameter wrap 0 ])
+
+    [<Fact>]
+    let ``parameter and result type migrations keep a generic target's Product construction type arguments`` () =
+        let ws, wrap, wrapT = boxFixture "generic-product-migration"
+        let request: AgentParameterTypeMigrationRequest =
+            { ExpectedBaseSnapshotId = (snapshot ws).Id
+              TargetFunctionId = wrap.Id
+              TargetParameterId = wrap.Parameters.[1].Id
+              NewParameterType = stringType
+              TargetReplacement = construct wrapT wrap
+              CallerRewrites = [] }
+        let _, next = commitParameterMigration ws request
+        assertValidAndLowerable next
+        Assert.Equal<TypeRef list>([ wrapT; stringType ], (byId next wrap).Parameters |> List.map (fun parameter -> parameter.Type))
+        let ws, wrap, wrapT = boxFixture "generic-product-result-migration"
+        let request: AgentResultTypeMigrationRequest =
+            { ExpectedBaseSnapshotId = (snapshot ws).Id
+              TargetFunctionId = wrap.Id
+              NewResultType = optionOf (TypeRef.Named(boxId, [ wrapT ]))
+              TargetReplacement = ExpressionRecipe.OptionSome(construct wrapT wrap)
+              CallerRewrites = [] }
+        let _, next = commitResultMigration ws request
+        assertValidAndLowerable next
+        Assert.Equal(optionOf (TypeRef.Named(boxId, [ wrapT ])), (byId next wrap).ResultType)
+
     /// measure(n: Int64): Int64 = if n <= 0 then 0 else 1 + measure(n - 1), calling itself by FunctionId.
     let private recursiveFixture name =
         let ws = workspace name
