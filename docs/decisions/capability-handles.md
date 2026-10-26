@@ -4,7 +4,7 @@
 - **Date:** 2026-10-26
 - **Issue:** none yet
 
-This decision proposes how a host hands a program an opaque handle (an open file, a connection, a process stream): an acquiring capability operation returns a **capability value**, and the handle's operations are that capability's operations. No new type kind is added. Nothing here is verified end to end.
+This decision proposes how a host hands a program an opaque handle (an open file, a connection, a process stream): an acquiring capability operation returns a **capability value**, and the handle's operations are that capability's operations. No new type kind is added. The route was checked by a port outside `runPure`; `runPure` bindings still need one change.
 
 ## Decision
 
@@ -18,10 +18,13 @@ This decision proposes how a host hands a program an opaque handle (an open file
 
 **Boundaries.** Capability values are already excluded from run values: `runPure` accepts capability arguments only as top-level `fakeCapability` or `hostCapability` bindings. The [standard host runner](standard-host-runner.md) serves only functions without capability parameters. `TaskTypeAtCapabilityBoundary` is unaffected, because a handle is not task-bearing.
 
-**What remains to check before acceptance:**
+**Checked on 2026-10-26** by porting `examples/config-request-batch` to an `OpenFile` handle (branch `claude/openfile-handle-port`, not merged):
 
-1. No test or example declares an operation whose result type is a capability. Validation accepts `TypeRef.Capability` wherever a type reference is checked (`ExpressionRecipeSupport.fs`, `StructuralTransactionInternals.fs`) and the C# emitter maps it to the generated interface name (`CSharpBackendEmitter.fs`, type names), but the whole route (authoring, validation, emission, a host returning an interface object, `UseResource` release) has not been run. A probe that ports `examples/config-request-batch` to an `OpenFile` handle is the check.
-2. Whether a `runPure` entry may *return* a capability value, or a declared type holding one, is not checked; the entry checks in `PureRun.fs` cover arguments. If it can, add a rejection alongside `RunTaskTypeUnsupported`.
+1. **The route works outside `runPure`.** Authoring, validation and commit accept `open(root): Result<OpenFile, String>` and `close(handle: OpenFile): Unit`. `emitCSharp` emits `OpenFile` as a generated interface, and the host's `Files.open` returns its own `OpenFile` object through it. Compiled directly against the generated source, `runBatch` gave the expected outcome for the success, retry, invalid-configuration and host-exception fixtures, each with exactly one `close disposed`, and a second `close` on the same handle failed with "Handle is not open". The host needed no lookup table. The cancellation fixture needs the virtual clock, so it was not run this way.
+2. **`runPure` cannot bind the issuing capability yet.** A capability bound as `hostCapability` or `fakeCapability` must have run-value types in every operation's parameters and result (`PureRun.fs`, `fakeProblem`), so binding `BatchFiles` fails with `RunBindingTypeUnsupported`. The reason is the call log: the `Host{n}` adapter records each call's arguments, and `EncodeCall` has no form for a capability argument. Results are never recorded for host bindings, so the result half of the check is stricter than a host binding needs.
+3. **`runPure` already rejects a capability result.** An entry `echoControl(control: CancellationControl): CancellationControl` fails with `RunResultTypeUnsupported`; no new rejection is needed. A Product holding a capability goes through the same type predicate but was not run.
+
+**Change needed before acceptance.** Host and fake bindings accept capability-typed operation parameters and results; a recorded capability argument appears in `calls` as an opaque marker (generated `EncodeCall`, the session-side call decoding, the `calls` section of the [agent authoring session spec](../specs/agent-authoring-session.md), `PureRunBindingTests`). A fake *response* for an operation that returns a capability stays rejected, because no run value can script it. The saved cases of the ported example need this change.
 
 ## Reason
 
@@ -35,7 +38,7 @@ A capability value removes all of that with contracts that already exist: opacit
 
 ## Consequences
 
-- No snapshot schema, codec, IR or backend change is expected if check 1 passes; the probe may still find a gap in emission or host binding, which this decision would then name.
+- No snapshot schema, codec, IR or backend change is needed; the one required change is the `runPure` binding and call-log rule above.
 - A capability declared only to be a handle is an ordinary capability: it appears in review, needs a host binding when invoked, and follows declaration visibility.
 - A program-defined `CapabilityConstruct` can implement a handle capability with pure functions, which is useful for tests and fakes. It has no state, so it cannot model an open/closed lifecycle; that remains the host's.
 - Host implementations become simpler: the issuing operation returns the object, and handle operations act on `this`.
@@ -47,4 +50,4 @@ A capability value removes all of that with contracts that already exist: opacit
 
 ## Revisit conditions
 
-Revisit when the probe in check 1 fails in a way a backend fix cannot cover, when a handle must exist without operations of its own, or when use-after-release failures are observed often enough to justify static checking.
+Revisit when the `runPure` binding change proves larger than the call-log marker, when a handle must exist without operations of its own, or when use-after-release failures are observed often enough to justify static checking.
