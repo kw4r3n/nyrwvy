@@ -1,6 +1,6 @@
 # Configured request batch
 
-A small program reads JSON configuration, requests three local responses, retries missing responses, uppercases successful values, aggregates successes and expected failures, and saves a report. `UseResource` releases its file handle on success, expected failure, host exception and cancellation.
+A small program reads JSON configuration, requests three local responses, retries missing responses, uppercases successful values, aggregates successes and expected failures, and saves a report. `UseResource` releases its file handle on success, expected failure, host exception and cancellation. The handle is an `OpenFile` capability value that `BatchFiles.open` returns ([host handles as capability values](../../docs/decisions/capability-handles.md)): the program reads, fetches and saves through its operations, and the host keeps the open lease stream in that object instead of a table keyed by a String.
 
 From the repository root:
 
@@ -49,7 +49,7 @@ The script rejects an incompatible upstream result type, a source modified after
 
 The dependency upgrade and field migration are independent publications, not one atomic combined update. A refusal retains the immediately preceding committed state, which may already include an earlier successful step. This exercise adds no rollback manager and makes no machine-crash or cross-file crash-atomicity guarantee. Existing upgrade/migration primitives provide the workflow; no language-core change or agent command wrapper is added.
 
-The host also owns cleanup when acquisition itself throws, before `UseResource` has received a handle. A focused regression forces `trace.txt` to be a directory, checks that the original trace I/O exception retains its path, directly checks the private handle collection is empty, opens the exclusive lease file again, and successfully reacquires and releases through the same host instance. It compiles the bundle's unedited projection and host in a temporary directory with the local .NET 10 SDK, without fetching packages:
+The host also owns cleanup when acquisition itself throws, before `UseResource` has received a handle. A focused regression forces `trace.txt` to be a directory, checks that the original trace I/O exception retains its path, opens the exclusive lease file again, successfully reacquires and releases through the same host instance, and checks that closing the released handle again fails with "Handle is not open". It compiles the bundle's unedited projection and host in a temporary directory with the local .NET 10 SDK, without fetching packages:
 
 ```sh
 node examples/config-request-batch/test-acquisition.mjs /path/to/output/moved
@@ -67,7 +67,7 @@ All responses are local fixtures. No network, models, provider credentials or pa
 node examples/config-request-batch/run.mjs --signature
 ```
 
-This mode authors v1, then declares `FetchFailure = Retryable(message: String) | Permanent(message: String)` and reviews one `simulateCapabilityOperationSignatureMigrationByName` proposal. It changes `BatchFiles.fetch` to `Result<String,FetchFailure>` and replaces `fetchWithRetry` together. The caller returns its existing `Result<String,String>` by explicitly extracting the error message. Retryable errors retry to the configured limit, even for messages other than `missing`; permanent errors stop immediately, even when their message is `missing`.
+This mode authors v1, then declares `FetchFailure = Retryable(message: String) | Permanent(message: String)` and reviews one `simulateCapabilityOperationSignatureMigrationByName` proposal. It changes `OpenFile.fetch` to `Result<String,FetchFailure>` and replaces `fetchWithRetry` together. The caller returns its existing `Result<String,String>` by explicitly extracting the error message. Retryable errors retry to the configured limit, even for messages other than `missing`; permanent errors stop immediately, even when their message is `missing`.
 
 The operation parameter type map and each repaired function's parameter type map cover every retained parameter exactly once. IDs, ordering and names remain stable. This API also supports argument type changes and affected implementation/function signature repairs, demonstrated by maintained regressions. It does not add/remove parameters or alter effects/FailureType.
 

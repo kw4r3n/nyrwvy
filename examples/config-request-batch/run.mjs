@@ -61,8 +61,11 @@ const choose = (condition, whenTrue, whenFalse) => ({ kind: "conditional", condi
 const match = (input, okBody, errBody) => ({ kind: "matchResult", input, okBody, errBody })
 const direct = (functionName, values) => ({ kind: "directCall", function: functionName,
   arguments: Object.entries(values).map(([parameter, value]) => ({ parameter, value })) })
-const invoke = (operation, values) => ({ kind: "capabilityInvoke", capabilityValue: p("files"), capability: "BatchFiles", operation,
+const invoke = (operation, values, receiver = "files", capability = "BatchFiles") => ({ kind: "capabilityInvoke", capabilityValue: p(receiver), capability, operation,
   arguments: Object.entries(values).map(([parameter, value]) => ({ parameter, value })) })
+// The handle is an OpenFile capability value returned by BatchFiles.open.
+const onHandle = (operation, values) => invoke(operation, values, "handle", "OpenFile")
+const handleType = capability("OpenFile")
 const summary = (succeeded, failed, contents) => ({ kind: "productConstruct", type: "BatchSummary",
   fields: [{ field: "succeeded", value: succeeded }, { field: "failed", value: failed }, { field: "contents", value: contents }] })
 async function create(displayName, parameters, resultType, body, effects = ["FileIO"], exported = false) {
@@ -81,14 +84,19 @@ async function author() {
     ["BatchSummary", [parameter("succeeded", int64), parameter("failed", int64), parameter("contents", string)]],
   ]) await publish(await call("create_type", { displayName, typeKind: { kind: "product", fields } }))
   await publish(await call("request", { op: "simulateCreateEffect", arguments: { displayName: "FileIO" } }))
+  const operations = list => list.map(([displayName, parameters, resultType]) => ({ displayName, parameters, resultType, effect: "FileIO" }))
   await publish(await call("request", { op: "simulateCreateCapabilityByName", arguments: {
-    displayName: "BatchFiles", operations: [
-      ["open", [parameter("root", string)], result(string)],
-      ["readConfig", [parameter("handle", string)], result(configType)],
-      ["fetch", [parameter("handle", string), parameter("request", string), parameter("attempt", int64)], result(string)],
-      ["save", [parameter("handle", string), parameter("path", string), parameter("contents", string)], result(unit)],
-      ["close", [parameter("handle", string)], unit],
-    ].map(([displayName, parameters, resultType]) => ({ displayName, parameters, resultType, effect: "FileIO" })),
+    displayName: "OpenFile", operations: operations([
+      ["readConfig", [], result(configType)],
+      ["fetch", [parameter("request", string), parameter("attempt", int64)], result(string)],
+      ["save", [parameter("path", string), parameter("contents", string)], result(unit)],
+    ]),
+  } }))
+  await publish(await call("request", { op: "simulateCreateCapabilityByName", arguments: {
+    displayName: "BatchFiles", operations: operations([
+      ["open", [parameter("root", string)], result(handleType)],
+      ["close", [parameter("handle", handleType)], unit],
+    ]),
   } }))
   // Test coordination is another explicit host boundary, not a scheduler in the core.
   await publish(await call("request", { op: "simulateCreateCapabilityByName", arguments: {
@@ -97,10 +105,10 @@ async function author() {
 
   await create("missingLine", [parameter("request", string), parameter("error", string)], string,
     concat(text("error "), p("request"), text(": "), p("error"), text("\n")), [])
-  await create("fetchWithRetry", [parameter("files", capability("BatchFiles")), parameter("handle", string),
+  await create("fetchWithRetry", [parameter("files", capability("BatchFiles")), parameter("handle", handleType),
     parameter("request", string), parameter("attempt", int64), parameter("limit", int64)], result(string),
     choose({ kind: "cancellationRequested" }, err(text("cancelled"), string),
-      match(invoke("fetch", { handle: p("handle"), request: p("request"), attempt: p("attempt") }),
+      match(onHandle("fetch", { request: p("request"), attempt: p("attempt") }),
         ok(direct("normalizeValue", { value: pattern() })),
         choose(binary("boolAnd", binary("valueEqual", pattern("error"), text("missing")),
           binary("int64LessThan", p("attempt"), p("limit"))),
@@ -108,24 +116,24 @@ async function author() {
             arguments: [{ parameter: "attempt", value: add(p("attempt"), integer(1)) }] },
           err(pattern("error"), string)))))
   const acc = name => field(p("accumulator"), "BatchSummary", name)
-  await create("collectRequest", [parameter("files", capability("BatchFiles")), parameter("handle", string), parameter("limit", int64),
+  await create("collectRequest", [parameter("files", capability("BatchFiles")), parameter("handle", handleType), parameter("limit", int64),
     parameter("accumulator", summaryType), parameter("request", string)], summaryType,
     choose({ kind: "cancellationRequested" }, p("accumulator"),
       match(direct("fetchWithRetry", { files: p("files"), handle: p("handle"), request: p("request"), attempt: integer(1), limit: p("limit") }),
         summary(add(acc("succeeded"), integer(1)), acc("failed"), concat(acc("contents"), text("ok "), p("request"), text(": "), pattern(), text("\n"))),
         summary(acc("succeeded"), add(acc("failed"), integer(1)), concat(acc("contents"), direct("missingLine", { request: p("request"), error: pattern("error") }))))))
-  await create("saveSummary", [parameter("files", capability("BatchFiles")), parameter("handle", string), parameter("path", string), parameter("summary", summaryType)], result(summaryType),
+  await create("saveSummary", [parameter("files", capability("BatchFiles")), parameter("handle", handleType), parameter("path", string), parameter("summary", summaryType)], result(summaryType),
     choose({ kind: "cancellationRequested" }, err(text("cancelled")),
-      match(invoke("save", { handle: p("handle"), path: p("path"), contents: field(p("summary"), "BatchSummary", "contents") }),
+      match(onHandle("save", { path: p("path"), contents: field(p("summary"), "BatchSummary", "contents") }),
         ok(p("summary")), err(pattern("error")))))
-  await create("processConfig", [parameter("files", capability("BatchFiles")), parameter("handle", string), parameter("config", configType)], result(summaryType),
+  await create("processConfig", [parameter("files", capability("BatchFiles")), parameter("handle", handleType), parameter("config", configType)], result(summaryType),
     choose(binary("int64LessThan", field(p("config"), "BatchConfig", "maxAttempts"), integer(1)), err(text("maxAttempts must be positive")),
       bind({ kind: "listEffectFold", source: field(p("config"), "BatchConfig", "requests"), seed: summary(integer(0), integer(0), text("")),
         function: "collectRequest", context: [{ parameter: "files", value: p("files") }, { parameter: "handle", value: p("handle") },
           { parameter: "limit", value: field(p("config"), "BatchConfig", "maxAttempts") }] },
       direct("saveSummary", { files: p("files"), handle: p("handle"), path: field(p("config"), "BatchConfig", "output"), summary: pattern() }))))
-  await create("resourceBody", [parameter("files", capability("BatchFiles")), parameter("handle", string)], result(summaryType),
-    match(invoke("readConfig", { handle: p("handle") }),
+  await create("resourceBody", [parameter("files", capability("BatchFiles")), parameter("handle", handleType)], result(summaryType),
+    match(onHandle("readConfig", {}),
       direct("processConfig", { files: p("files"), handle: p("handle"), config: pattern() }), err(pattern("error"))))
   await create("runBatch", [parameter("root", string), parameter("files", capability("BatchFiles"))], result(summaryType),
     { kind: "useResource", acquire: invoke("open", { root: p("root") }), releaseCapability: p("files"), capability: "BatchFiles",
@@ -155,6 +163,7 @@ async function writeHost(directory) {
     concurrentCapabilityIds: declarations.capabilities.map(c => c.id) } } })
   const symbol = (kind, id) => artifact.symbols[kind].find(item => item.id === id).name
   const files = declarations.capabilities.find(c => c.displayName === "BatchFiles")
+  const openFile = declarations.capabilities.find(c => c.displayName === "OpenFile")
   const control = declarations.capabilities.find(c => c.displayName === "CancellationControl")
   const config = declarations.types.find(t => t.displayName === "BatchConfig")
   const failure = declarations.types.find(t => t.displayName === "FetchFailure")
@@ -162,11 +171,11 @@ async function writeHost(directory) {
   const failureValue = (variant, message) => failure ? `new ${symbol("variants", failure.typeKind.variants.find(v => v.displayName === variant).id)}(${JSON.stringify(message)})` : JSON.stringify(message)
   const substitutions = {
     FETCH_ERROR: failureType, FETCH_MISSING: failureValue("Retryable", "missing"), FETCH_CANCELLED: failureValue("Permanent", "cancelled"), FETCH_PERMANENT: failureValue("Permanent", "denied"),
-    FILES: symbol("capabilities", files.id), CONTROL: symbol("capabilities", control.id), CONFIG: symbol("types", config.id),
+    FILES: symbol("capabilities", files.id), OPENFILE: symbol("capabilities", openFile.id), CONTROL: symbol("capabilities", control.id), CONFIG: symbol("types", config.id),
     CONFIG_ARGUMENTS: config.typeKind.fields.map(f => `${symbol("fields", f.id)}: ` + ({ requests: 'NyList<NyStr>.Create(settings.GetProperty("requests").EnumerateArray().Select(item => (NyStr)item.GetString()!).ToArray())',
       maxAttempts: 'settings.GetProperty("maxAttempts").GetInt64()', output: '(NyStr)settings.GetProperty("output").GetString()!' })[f.displayName]).join(",\n                "),
   }
-  for (const op of [...files.operations, ...control.operations]) substitutions[op.displayName.toUpperCase()] = symbol("capabilityOperations", op.id)
+  for (const op of [...files.operations, ...openFile.operations, ...control.operations]) substitutions[op.displayName.toUpperCase()] = symbol("capabilityOperations", op.id)
   const template = await readFile(new URL("./Host.cs.template", import.meta.url), "utf8")
   const host = template.replace(/@@([A-Z_]+)@@/g, (_, key) => { assert.ok(substitutions[key], key); return substitutions[key] })
   await writeFile(join(directory, "Host.cs"), host)

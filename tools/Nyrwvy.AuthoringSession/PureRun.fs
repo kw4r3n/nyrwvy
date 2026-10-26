@@ -824,6 +824,8 @@ module PureRun =
         let invalid () = Error(diagnostic "RunInvalidResult" "The process did not return one JSON result.")
         let collect (items: Result<'T, PureRunError> list) =
             List.foldBack (fun item state -> state |> Result.bind (fun rest -> item |> Result.map (fun value -> value :: rest))) items (Ok [])
+        let supported = typeSupport types
+        let recorded (operation: ExecutionCapabilityOperation) = operation.Parameters |> List.filter (fun parameter -> supported 0 parameter.Type)
         let parseCalls (value: JsonElement) =
             if value.ValueKind <> JsonValueKind.Array then invalid () else
                 value.EnumerateArray() |> Seq.toList |> List.map (fun call ->
@@ -834,8 +836,8 @@ module PureRun =
                             | _ -> None
                         else None
                     match site with
-                    | Some site when call[1].ValueKind = JsonValueKind.Array && call[1].GetArrayLength() = site.Operation.Parameters.Length ->
-                        site.Operation.Parameters
+                    | Some site when call[1].ValueKind = JsonValueKind.Array && call[1].GetArrayLength() = (recorded site.Operation).Length ->
+                        recorded site.Operation
                         |> List.mapi (fun index parameter ->
                             let item = call[1].[index]
                             parseElement types parameter.Type item |> Result.map (fun value -> parameter.Id, value))
@@ -1031,16 +1033,27 @@ module PureRun =
     let private hostTypeName =
         System.Text.RegularExpressions.Regex(@"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)
 
+    /// A type that mentions a capability, directly or through type arguments. Such values (handles a
+    /// host returns) are not run values: calls leave out arguments of these types, and a fake can only
+    /// throw from an operation that returns one.
+    let rec private bearsCapability itemType =
+        match itemType with
+        | TypeRef.Capability _ -> true
+        | TypeRef.BuiltinGeneric(_, arguments)
+        | TypeRef.Named(_, arguments) -> List.exists bearsCapability arguments
+        | _ -> false
+
     /// Checks one binding against its capability declaration. Every operation of a bound capability must
-    /// have runner-supported parameter and result types, because the program may call any of them and
-    /// the runner records each call.
+    /// have runner-supported or capability-bearing parameter and result types, because the program may
+    /// call any of them and the runner records each call.
     let private fakeProblem (declarations: AuthoringDeclarations) (supported: int -> TypeRef -> bool) value =
+        let bindable itemType = supported 0 itemType || bearsCapability itemType
         let capabilityProblem capabilityId =
             match declarations.Capabilities |> List.tryFind (fun item -> item.Id = capabilityId) with
             | None -> Error("RunBindingShapeMismatch", "The binding names an unknown capability.")
             | Some capability when capability.Operations |> List.exists (fun operation ->
-                not (supported 0 operation.ResultType) || operation.Parameters |> List.exists (fun parameter -> not (supported 0 parameter.Type))) ->
-                Error("RunBindingTypeUnsupported", "Every operation of a bound capability needs parameter and result types that runPure values support.")
+                not (bindable operation.ResultType) || operation.Parameters |> List.exists (fun parameter -> not (bindable parameter.Type))) ->
+                Error("RunBindingTypeUnsupported", "Every operation of a bound capability needs parameter and result types that runPure values support, or that mention a capability.")
             | Some capability -> Ok capability
         match value with
         | PureRunValue.HostCapability(capabilityId, implementation, _) ->
@@ -1316,8 +1329,9 @@ module PureRun =
                         let callArms =
                             sites |> List.mapi (fun site call ->
                                 let arguments =
-                                    call.Operation.Parameters |> List.mapi (fun index parameter ->
-                                        encode parameter.Type $"(({sourceType parameter.Type})arguments[{index}])" "0" 0)
+                                    call.Operation.Parameters |> List.mapi (fun index parameter -> index, parameter)
+                                    |> List.filter (fun (_, parameter) -> supported 0 parameter.Type)
+                                    |> List.map (fun (index, parameter) -> encode parameter.Type $"(({sourceType parameter.Type})arguments[{index}])" "0" 0)
                                     |> String.concat ", "
                                 $"    {site} => new object[] {{ {site}, new object[] {{ {arguments} }} }},\n")
                             |> String.concat ""
@@ -1401,6 +1415,7 @@ module PureRun =
                                     keyWriters[itemType] <- instanceName "Key" keyWriters itemType
                                     keyPending.Enqueue itemType
                                 $"RunnerValues.{keyWriters[itemType]}(key, {access});"
+                            | TypeRef.Capability _ -> "key.Add(\"c\");"
                             | _ -> invalidOp "Unsupported key type passed validation."
                         let keyFields owner (fields: SemanticField list) =
                             fields |> List.map (fun field -> keyStatement field.Type (owner + "." + CSharpBackendNames.fieldName field.Id)) |> String.concat " "
@@ -1479,7 +1494,8 @@ module PureRun =
                                     let reads =
                                         operations |> List.map (fun operation ->
                                             let resultType = sourceType operation.ResultType
-                                            $"        {CSharpBackendNames.capabilityOperationName operation.Id}Script = new FakeScript<{resultType}>(input, () => {decode operation.ResultType});\n")
+                                            let read = if supported 0 operation.ResultType then decode operation.ResultType else "throw new RunnerException(\"A fake cannot return a capability value.\")"
+                                            $"        {CSharpBackendNames.capabilityOperationName operation.Id}Script = new FakeScript<{resultType}>(input, () => {read});\n")
                                         |> String.concat ""
                                     $"sealed class Fake{index} : {interfaceName}\n{{\n{scripts}    public Fake{index}(RunnerInput input)\n    {{\n{reads}    }}\n{members}}}\n"
                                 | Choice2Of2 implementation ->
