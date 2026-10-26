@@ -37,6 +37,7 @@ A capability value removes all of that with contracts that already exist: opacit
 ## Consequences
 
 - No snapshot schema, codec, IR or backend change is needed; the only change was the `runPure` binding and call-log rule above.
+- `runPure` records only calls to capabilities bound to entry parameters, so a handle's own operations (`OpenFile.fetch` on a handle the host returned) do not appear in `calls`; the ported example's `fetch` calls are no longer listed. A test that needs them binds a fake handle at the entry, as `evolve-signature.mjs` does.
 - A capability declared only to be a handle is an ordinary capability: it appears in review, needs a host binding when invoked, and follows declaration visibility.
 - A program-defined `CapabilityConstruct` can implement a handle capability with pure functions, which is useful for tests and fakes. It has no state, so it cannot model an open/closed lifecycle; that remains the host's.
 - Host implementations become simpler: the issuing operation returns the object, and handle operations act on `this`.
@@ -48,4 +49,4 @@ A capability value removes all of that with contracts that already exist: opacit
 
 ## Revisit conditions
 
-Revisit when a host needs to observe handle arguments in `calls`, when a handle must exist without operations of its own, or when use-after-release failures are observed often enough to justify static checking.
+Revisit when a test needs to observe handle arguments or handle operations in `calls`, when a handle must exist without operations of its own, or when use-after-release failures are observed often enough to justify static checking.
