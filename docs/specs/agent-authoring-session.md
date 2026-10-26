@@ -81,7 +81,7 @@ See `AuthoringSessionTests` for acknowledged publication/reopen, abrupt process 
 
 The maintained session is intentionally not collaborative storage.
 
-- One authoring session owns a sidecar exclusive lock for the selected workspace path.
+- One authoring session owns a sidecar exclusive lock for the selected workspace path. A workspace path that is a symbolic link is refused with `IoFailure` (open the file it points to), since the link and its target would get separate locks.
 - The session remembers the exact persisted source it opened or last published.
 - Immediately before publication it verifies that the authoritative snapshot file still contains that exact source.
 - A mismatch, deletion, or replacement is reported as an external-modification error. The session does not merge, rebase, or revive an earlier approval against the new file.
