@@ -132,8 +132,12 @@ module RecordCodecTests =
         match RecordCodec.deserialize (text.TrimEnd '\n') with
         | Error error -> Assert.Equal((lines.Length - 1, "missing final newline"), (error.Line, error.Message))
         | Ok _ -> failwith "A missing final newline was accepted."
-        // An earlier schema version: the record form has only the current one.
+        // A version from before the record form existed is rejected; a record version decodes
+        // (issue #496) and re-encodes at the current one.
         let current = $" schema={SnapshotSchema.current.Json}"
+        let earlier = text.Replace(current, $" schema={SnapshotSchema.firstRecord.Json}")
+        Assert.NotEqual<string>(text, earlier)
+        Assert.Equal(text, RecordCodec.deserialize earlier |> unwrap |> RecordCodec.serialize |> unwrap)
         match RecordCodec.deserialize (text.Replace(current, " schema=20")) with
         | Error error -> Assert.Equal((1, text.IndexOf(current) + 2), (error.Line, error.Column))
         | Ok _ -> failwith "An earlier schema version was accepted."
