@@ -1,6 +1,6 @@
 # Bytes and in-place buffer updates (design note)
 
-**Status:** Proposed. Nothing here is implemented. The measurements below are the evidence; the first implementation slice waits for the owner's review of this note.
+**Status:** Accepted by the owner on 2026-10-26, with the three questions answered as proposed (see the end). Implementation in progress.
 
 **Date:** 2026-10-26
 
@@ -66,7 +66,7 @@ This is the "one copy per external call" column of the table. It needs no owners
 
 - C#: `NyBytes` holds `byte[]`, a length (capacity grows by doubling for `BytesAppend`) and the owner token. Equality and hash by content.
 - Run values: `{ "kind": "bytes", "hex": "00ff7f" }`; the plain JSON form is the hex string.
-- Nyason and snapshot literals follow the run value. A `Bytes` literal needs a new literal node; Snapshot and Execution IR schemas gain one version each, as `Bits32` did.
+- No literal node (see the owner decisions); Execution IR and Typed Semantic IR gain the new operation nodes, as `Bits32` did.
 
 ## First slice
 
@@ -78,8 +78,10 @@ The footprint is that of `Bits32` (commit `f9dc39a`: 48 files across Foundation,
 
 Not in the slice: UTF-8 operations on `Bytes`, `Float64` buffers, bulk operations (`BytesIndexOf`, copy-into), and moving snap's grid. snap's PTY path and cell grid are the acceptance consumer after the slice lands.
 
-## Questions for the owner
+## Owner decisions (2026-10-26)
 
-1. Should a forced copy stay a review fact (proposed), or become a validation error?
-2. Masking out-of-range byte values (proposed) or rejecting them by returning the input unchanged?
-3. Hex for run values (proposed) or base64?
+1. A forced copy is a review fact (`copiedUpdates`), not a validation error.
+2. A stored value outside 0..255 keeps its low 8 bits.
+3. Run values write bytes as hex.
+
+`Bytes` has no literal node in the first slice, as `Bits32` has none: a constant is `BytesFromLatin1` of a String literal. The schema bumps for a literal are therefore deferred.
