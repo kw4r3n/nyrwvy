@@ -156,6 +156,7 @@
     <Compile Include="ExceptionBoundaryTests.fs" />
     <Compile Include="NamedPatternReferenceTests.fs" />
     <Compile Include="FunctionBatchAndBodyWrapTests.fs" />
+    <Compile Include="CSharpFacadeTests.fs" />
     <Compile Include="MixedBatchTests.fs" />
     <Compile Include="ProductFieldEvolutionTests.fs" />
     <Compile Include="TypeDeletionTests.fs" />
