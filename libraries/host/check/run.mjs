@@ -29,23 +29,19 @@ const invoke = (capabilityValue, capability, operation, args = {}) => ({ kind: "
   arguments: Object.entries(args).map(([parameter, value]) => ({ parameter, value })) })
 const int = v => ({ kind: "int64Literal", value: String(v) })
 
-// ptyEcho(ptys, text): run cat on a pty, write text, return the first chunk read back.
+// ptyEcho(ptys, text): run cat on a pty (TERM=dumb), write text, return the first chunk read back.
 const created = await send({ op: "simulateCreateFunctionByName", displayName: "ptyEcho", exported: true,
   parameters: [{ displayName: "ptys", type: { kind: "capability", name: "Ptys" } }, { displayName: "text", type: str }],
   resultType: str, requiredEffects: ["System"],
   body: { kind: "matchResult", okName: "pty", errName: "failure",
-    input: invoke(P("ptys"), "Ptys", "open", { argv: { kind: "listConstruct", itemType: str, items: [{ kind: "stringLiteral", value: "cat" }] }, cols: int(80), rows: int(24) }),
+    input: invoke(P("ptys"), "Ptys", "open", { argv: { kind: "listConstruct", itemType: str, items: [{ kind: "stringLiteral", value: "cat" }] }, environment: { kind: "mapInsert", map: { kind: "mapEmpty", keyType: str, valueType: str },
+      key: { kind: "stringLiteral", value: "TERM" }, value: { kind: "stringLiteral", value: "dumb" } }, cols: int(80), rows: int(24) }),
     okBody: { kind: "bind", value: invoke(R("pty"), "Pty", "write", { data: { kind: "bytesFromLatin1", value: P("text") } }),
       body: { kind: "bind", name: "chunk", value: invoke(R("pty"), "Pty", "read"),
         body: { kind: "bind", value: invoke(P("ptys"), "Ptys", "close", { pty: R("pty") }),
           body: { kind: "bytesToLatin1", value: { kind: "optionGetOrDefault", option: R("chunk"), default: { kind: "bytesEmpty" } } } } } },
     errBody: { kind: "stringConcat", left: { kind: "stringLiteral", value: "open failed: " }, right: R("failure") } } })
 await send({ op: "commit", proposalId: created.proposalId })
-// The facade has base classes only for capabilities the program reaches.
-const reach = await send({ op: "simulateCreateFunctionByName", displayName: "reach", exported: true,
-  parameters: ["Fs", "Env", "Process"].map(name => ({ displayName: name.toLowerCase(), type: { kind: "capability", name } })),
-  resultType: { kind: "primitive", primitive: "unit" }, requiredEffects: [], body: { kind: "unitLiteral" } })
-await send({ op: "commit", proposalId: reach.proposalId })
 const host = JSON.parse(readFileSync(join(work, "host.json"), "utf8"))
 const operationIds = host.capabilities.flatMap(capability => capability.operations.map(operation => operation.id))
 await send({ op: "emitCSharp", profile: { kind: "externalImplementations", operationIds }, output: join(work, "Generated.cs"), facade: join(work, "Facade.cs") })

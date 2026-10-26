@@ -14,26 +14,21 @@ namespace NyrHost;
 
 public sealed class FsHost : FsBase
 {
-    /// The file's text, or None when it is missing or unreadable.
-    public override NyOption<NyStr> readText(NyStr path)
+    static NyResult<T, NyStr> Attempt<T>(Func<T> action)
     {
-        try { return NyOption<NyStr>.Some(File.ReadAllText(path)); }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return NyOption<NyStr>.None(); }
+        try { return NyResult<T, NyStr>.Ok(action()); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        { return NyResult<T, NyStr>.Err(e.Message); }
     }
 
-    /// The file's bytes, or None when it is missing or unreadable.
-    public override NyOption<NyBytes> readBytes(NyStr path)
-    {
-        try { return NyOption<NyBytes>.Some(NyBytes.FromOwnedArray(File.ReadAllBytes(path))); }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return NyOption<NyBytes>.None(); }
-    }
+    /// The file's text decoded as UTF-8.
+    public override NyResult<NyStr, NyStr> readText(NyStr path) => Attempt<NyStr>(() => File.ReadAllText(path));
 
-    /// Replaces the file's contents; false when it cannot be written.
-    public override bool writeBytes(NyStr path, NyBytes data)
-    {
-        try { File.WriteAllBytes(path, data.Span); return true; }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
-    }
+    public override NyResult<NyBytes, NyStr> readBytes(NyStr path) => Attempt(() => NyBytes.FromOwnedArray(File.ReadAllBytes(path)));
+
+    /// Creates or replaces the file.
+    public override NyResult<NyUnit, NyStr> writeBytes(NyStr path, NyBytes data) =>
+        Attempt(() => { File.WriteAllBytes(path, data.Span); return NyUnit.Value; });
 }
 
 public sealed class EnvHost : EnvBase
@@ -45,40 +40,68 @@ public sealed class EnvHost : EnvBase
 
 public sealed class ProcessHost : ProcessBase
 {
-    /// Starts the program without waiting; false when it cannot be started (for example, not installed).
-    public override bool spawn(NyStr program, NyList<NyStr> args)
+    static System.Diagnostics.ProcessStartInfo StartInfo(NyStr program, NyList<NyStr> args)
     {
-        var list = new List<string>();
-        for (long i = 0; i < args.Length; i++) list.Add(args.ItemAt(i).Value);
-        try { System.Diagnostics.Process.Start(program, list)?.Dispose(); return true; }
-        catch (System.ComponentModel.Win32Exception) { return false; }
+        var info = new System.Diagnostics.ProcessStartInfo(program);
+        for (long i = 0; i < args.Length; i++) info.ArgumentList.Add(args.ItemAt(i).Value);
+        return info;
+    }
+
+    /// Starts the program without waiting for it.
+    public override NyResult<NyUnit, NyStr> spawn(NyStr program, NyList<NyStr> args)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(StartInfo(program, args))?.Dispose();
+            return NyResult<NyUnit, NyStr>.Ok(NyUnit.Value);
+        }
+        catch (System.ComponentModel.Win32Exception e) { return NyResult<NyUnit, NyStr>.Err(e.Message); }
+    }
+
+    /// Runs the program to completion with empty standard input and returns its exit code and output.
+    public override NyResult<ProcessOutput, NyStr> run(NyStr program, NyList<NyStr> args)
+    {
+        var info = StartInfo(program, args);
+        info.RedirectStandardInput = info.RedirectStandardOutput = info.RedirectStandardError = true;
+        try
+        {
+            using var child = System.Diagnostics.Process.Start(info)!;
+            child.StandardInput.Close();
+            var stdout = new MemoryStream();
+            var stderr = new MemoryStream();
+            // Both pipes drain at once, so a child filling one while the other is read never blocks.
+            var copies = System.Threading.Tasks.Task.WhenAll(
+                child.StandardOutput.BaseStream.CopyToAsync(stdout), child.StandardError.BaseStream.CopyToAsync(stderr));
+            child.WaitForExit();
+            copies.Wait();
+            return NyResult<ProcessOutput, NyStr>.Ok(NyFacade.NewProcessOutput(
+                exitCode: child.ExitCode, stdout: NyBytes.FromOwnedArray(stdout.ToArray()), stderr: NyBytes.FromOwnedArray(stderr.ToArray())));
+        }
+        catch (System.ComponentModel.Win32Exception e) { return NyResult<ProcessOutput, NyStr>.Err(e.Message); }
     }
 }
 
-/// Opens shells and other programs on pseudo terminals (Linux; posix_spawn, no fork from managed code).
-/// The child inherits this process's environment with the given variables replaced, for example TERM.
-public sealed class PtysHost(params (string Name, string Value)[] environment) : PtysBase
+/// Opens programs on pseudo terminals (Linux with glibc; posix_spawn, no fork from managed code).
+public sealed class PtysHost : PtysBase
 {
-    public override NyResult<Pty, NyStr> open(NyList<NyStr> argv, long cols, long rows)
+    /// The child inherits this process's environment with `environment`'s variables replaced or added.
+    public override NyResult<Pty, NyStr> open(NyList<NyStr> argv, NyMap<NyStr, NyStr> environment, long cols, long rows)
     {
         var args = new string[argv.Length];
         for (long i = 0; i < argv.Length; i++) args[i] = argv.ItemAt(i).Value;
         if (args.Length == 0) return NyResult<Pty, NyStr>.Err("empty argv");
-        var replaced = environment.Select(v => v.Name).ToHashSet();
         var env = Environment.GetEnvironmentVariables().Cast<DictionaryEntry>()
-            .Where(e => !replaced.Contains((string)e.Key))
+            .Where(e => !environment.ContainsKey((string)e.Key))
             .Select(e => $"{e.Key}={e.Value}")
-            .Concat(environment.Select(v => $"{v.Name}={v.Value}")).ToArray();
+            .Concat(environment.Fold(new List<string>(), (list, name, value) => { list.Add($"{(string)name}={(string)value}"); return list; }))
+            .ToArray();
         try { return NyResult<Pty, NyStr>.Ok(new PtyHost(args, env, cols, rows)); }
         catch (IOException e) { return NyResult<Pty, NyStr>.Err(e.Message); }
     }
 
-    /// Hangs up the child's process group, as closing a terminal does, and waits for the child.
-    public override NyUnit close(Pty pty)
-    {
-        ((PtyHost)pty).Close();
-        return NyUnit.Value;
-    }
+    /// Hangs up the child's process group, as closing a terminal does, and reaps the child: its exit code,
+    /// or None when a signal ended it. A child still running after the grace period is killed.
+    public override NyOption<long> close(Pty pty) => ((PtyHost)pty).Close();
 }
 
 public sealed unsafe class PtyHost : PtyBase
@@ -172,20 +195,32 @@ public sealed unsafe class PtyHost : PtyBase
         catch (IOException) { return NyOption<NyStr>.None(); }
     }
 
-    internal void Close()
+    internal NyOption<long> Close()
     {
         Open();
         _closed = true;
-        Libc.Kill(-_pid, 1); // SIGHUP
+        Libc.Kill(-_pid, Libc.SIGHUP);
         _stream.Dispose();
-        Libc.WaitPid(_pid, out _, 0);
+        int status = 0;
+        var deadline = Environment.TickCount64 + 2000;
+        while (Libc.WaitPid(_pid, out status, Libc.WNOHANG) == 0)
+        {
+            if (Environment.TickCount64 >= deadline)
+            {
+                Libc.Kill(-_pid, Libc.SIGKILL);
+                Libc.WaitPid(_pid, out status, 0);
+                break;
+            }
+            System.Threading.Thread.Sleep(10);
+        }
+        return (status & 0x7f) == 0 ? NyOption<long>.Some((status >> 8) & 0xff) : NyOption<long>.None();
     }
 }
 
 static unsafe partial class Libc
 {
     const string Lib = "libc.so.6";
-    public const int O_RDWR = 2, POSIX_SPAWN_SETSID = 0x80;
+    public const int O_RDWR = 2, POSIX_SPAWN_SETSID = 0x80, WNOHANG = 1, SIGHUP = 1, SIGKILL = 9;
     public const nuint TIOCSWINSZ = 0x5414;
 
     [StructLayout(LayoutKind.Sequential)] public struct WinSize { public ushort Rows, Cols, XPixel, YPixel; }
