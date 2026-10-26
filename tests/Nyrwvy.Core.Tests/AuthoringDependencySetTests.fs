@@ -609,3 +609,66 @@ module AuthoringDependencySetTests =
             Assert.Equal<string list>(canonicalSources, savedPaths)
             use reopened = AuthoringSession.openExisting path |> unwrap "reopen canonical selection"
             Assert.Contains(local.Functions.Head, reopened.Declarations().Functions))
+
+    /// A workspace created without dependencies, holding one local type.
+    let private standalone root =
+        let note: SemanticType =
+            { Exported = true; TypeParameters = []; Id = id<TypeTag> "note"; DisplayName = "Note"
+              Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> "note-text"; DisplayName = "text"; Type = TypeRef.Primitive PrimitiveType.String } ] }
+        writeVersion root "standalone" (library "standalone" [ note ] [])
+
+    [<Fact>]
+    let ``an empty replaces adds a first dependency to a standalone workspace and then another one`` () =
+        withLibraries (fun root a b _ ->
+            let path = standalone root
+            let original = File.ReadAllText path
+            let add = { Sources = [ a ]; Replaces = [] }
+            let preview =
+                use session = AuthoringSession.openExisting path |> unwrap "open standalone"
+                Assert.True(session.PreviewDependencySelectionUpgrade { Sources = []; Replaces = [] } |> Result.isError)
+                Assert.True(session.PreviewDependencyUpgrades [ replacement a libraryA ] |> Result.isError)
+                let preview = session.PreviewDependencySelectionUpgrade add |> unwrap "add preview"
+                Assert.Empty(preview.Issues)
+                Assert.Empty(preview.Replaced)
+                Assert.Equal<string list>([ StableId.value libraryA.Id ], preview.Selected |> List.map (fun item -> item.SnapshotId))
+                Assert.Equal<string list>([ "function"; "type" ], preview.Added |> List.map (fun item -> item.Kind) |> List.sort)
+                let wire = JsonSerializer.Serialize({| id = "add"; op = "previewDependencyUpgrades"; selection = {| sources = add.Sources; replaces = add.Replaces |} |})
+                use result = JsonDocument.Parse(AuthoringProtocol.executeLine session wire)
+                Assert.True(result.RootElement.GetProperty("ok").GetBoolean(), result.RootElement.ToString())
+                preview
+            Assert.False(File.Exists(path + ".dependency.json"))
+            let added = AuthoringSession.upgradeDependencySelection path add preview.ReviewFingerprint |> unwrap "add"
+            let declarations = added.Declarations()
+            Assert.Equal<string list>([ "keep" ], declarations.Functions |> List.map (fun fn -> fn.DisplayName))
+            Assert.Equal<string list>([ "Money"; "Note" ], declarations.Types |> List.map (fun item -> item.DisplayName) |> List.sort)
+            added.Close()
+            Assert.True(File.Exists(path + ".dependency.json"))
+            File.Delete a
+            let second =
+                use reopened = AuthoringSession.openExisting path |> unwrap "reopen without source"
+                let keep = reopened.Declarations().Provenance |> List.find (fun item -> item.Id = StableId.value (identity "keep").Id)
+                Assert.False(keep.IsLocal)
+                reopened.PreviewDependencySelectionUpgrade { Sources = [ b ]; Replaces = [] } |> unwrap "second add preview"
+            use both = AuthoringSession.upgradeDependencySelection path { Sources = [ b ]; Replaces = [] } second.ReviewFingerprint |> unwrap "second add"
+            Assert.Equal<string list>([ "keep"; "pass" ], both.Declarations().Functions |> List.map (fun fn -> fn.DisplayName) |> List.sort)
+            Assert.NotEqual<string>(original, File.ReadAllText path))
+
+    [<Fact>]
+    let ``an interrupted first add whose snapshot is still standalone is reported, not misread`` () =
+        withLibraries (fun root a _ _ ->
+            let path = standalone root
+            let original = File.ReadAllText path
+            let add = { Sources = [ a ]; Replaces = [] }
+            let preview =
+                use session = AuthoringSession.openExisting path |> unwrap "open"
+                session.PreviewDependencySelectionUpgrade add |> unwrap "preview"
+            (AuthoringSession.upgradeDependencySelection path add preview.ReviewFingerprint |> unwrap "add").Close()
+            // The crash window: the sidecar was created but the snapshot not yet replaced.
+            File.WriteAllText(path, original)
+            match AuthoringSession.openExisting path with
+            | Error(AuthoringSessionError.DependencyFailure message) -> Assert.Contains("adding a first dependency was interrupted", message)
+            | Ok session -> session.Close(); Assert.Fail "A standalone snapshot was read through a dependency sidecar."
+            | Error other -> Assert.Fail $"Unexpected error: %A{other}"
+            File.Delete(path + ".dependency.json")
+            use recovered = AuthoringSession.openExisting path |> unwrap "recovered"
+            Assert.Equal<string list>([ "Note" ], recovered.Declarations().Types |> List.map (fun item -> item.DisplayName)))
