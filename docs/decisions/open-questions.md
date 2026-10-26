@@ -227,6 +227,8 @@ Current semantics are managed. No backend-independent zero-cost ownership guaran
 
 The proposed [real-time processor design note](../plans/realtime-processors.md) needs in-place buffer updates only inside processors and recommends a use-after-update check local to one body there, not a core ownership model. It does not resolve this question.
 
+The [bytes and buffers note](../plans/bytes-and-buffers.md) proposes in-place `Bytes` updates for ordinary functions without an ownership model: a static read-before-update fact computed while lowering plus a per-invocation owner token at runtime, so semantics stay value semantics. It does not resolve this question either.
+
 ### Resolution target
 
 Revisit only when a backend or resource-management use case makes ownership semantics necessary.
