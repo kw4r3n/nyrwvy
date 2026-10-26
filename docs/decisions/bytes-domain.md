@@ -4,7 +4,7 @@
 - **Date:** 2026-10-26
 - **Design note:** [Bytes and in-place buffer updates](../plans/bytes-and-buffers.md), Decision 1 and the owner decisions
 
-This record settles the first half of the design note: the `Bytes` type, its operations, codecs and run values, with copying semantics in every backend. In-place updates (Decision 2: the static fact in lowering, the owner token and the `copiedUpdates` review fact) are a later step. The implemented surface is described by the [language subset](../reference/language-subset.md#bytes), the [expression authoring specification](../specs/expression-authoring.md#bytes), the [C# backend](../specs/csharp-backend.md) and the [agent authoring session](../specs/agent-authoring-session.md), which remain the authority.
+This record settles the first half of the design note: the `Bytes` type, its operations, codecs and run values, with copying semantics in every backend. In-place updates (Decision 2) are settled below under [In-place updates](#in-place-updates). The implemented surface is described by the [language subset](../reference/language-subset.md#bytes), the [expression authoring specification](../specs/expression-authoring.md#bytes), the [C# backend](../specs/csharp-backend.md) and the [agent authoring session](../specs/agent-authoring-session.md), which remain the authority.
 
 ## Decision
 
@@ -35,6 +35,15 @@ A stored Int64 keeps its low 8 bits (`value mod 256` of the two's complement for
 
 **Schema version 23.** Unlike Bits32 (which predates per-construct gating), the type and its node kinds have a row in `SnapshotSchema.minimumVersions`: a snapshot that mentions the `Bytes` type anywhere or uses any Bytes node kind needs schema 23 (`nayamnyam.snapshot.v19`), now the current version. Typed Semantic IR and Execution IR are in-process and gain the ten node and instruction kinds without a version change, as `ListScan` did.
 
+## In-place updates
+
+Decision 2 of the design note, as implemented:
+
+- **The plan.** `ExecutionIrBytesOwnership.plan` reads one lowered function. Jump arguments, `ReadParameter` and `ReadPatternBinding` join one buffer's names into an alias class. A `BytesSet` or `BytesAppend` is in place when no other use of its input's class can run after it: no later position in its block and no block reachable from it (a tail self-call is not an edge; it starts the next turn). Reads (`BytesGet`, `BytesLength`, `BytesConcat`, `BytesSlice`, `BytesToLatin1`, `ValueEqual`) do not escape; every other use does. Operands are found by walking each instruction's fields, so a new instruction kind cannot be missed.
+- **The runtime.** Each emitted function that updates Bytes creates an owner token before its entry label, so a tail self-call keeps it. An in-place update writes into the object only when the object's owner is that token; otherwise it copies once, and the copy is owned. The emitter clears the owner of every escaping operand before the instruction, and of tail-call arguments that alias another argument of the same call. Constructors (`Fill`, `Concat`, `Slice`, `FromLatin1`) return unowned values, so the first update after them copies once. Operations that return an existing object (a `Concat` with an empty side, a full `Slice`, an out-of-range copying `Set`) clear its owner.
+- **Review.** `readFunction` reports `copiedUpdates` (`updateNodeId`, `forcedByNodeId`) when an update must copy because its old value is read later. Proposal reviews do not show it yet: their focus is built in the semantic layer, which cannot lower.
+- **Interpreters** may copy on every update; `runPure` runs the emitted C#, so it uses the same plan.
+
 ## Not decided here
 
-In-place updates and `copiedUpdates`, UTF-8 operations on Bytes, bulk operations (`BytesIndexOf`, copy-into) and `Float64` buffers, as the design note lists. `BytesFill` with a length above the .NET array limit fails with `OutOfMemoryException` in the C# runtime, as a String that large does; the language rule stays total.
+`copiedUpdates` in proposal reviews, UTF-8 operations on Bytes, bulk operations (`BytesIndexOf`, copy-into) and `Float64` buffers, as the design note lists. `BytesFill` with a length above the .NET array limit fails with `OutOfMemoryException` in the C# runtime, as a String that large does; the language rule stays total.

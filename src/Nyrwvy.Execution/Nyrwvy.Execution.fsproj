@@ -6,6 +6,7 @@
     <Compile Include="ExecutionCallGraph.fs" />
     <Compile Include="AgentExecution.fs" />
     <Compile Include="ExecutionIrAnalysis.fs" />
+    <Compile Include="ExecutionIrBytesOwnership.fs" />
     <Compile Include="ExecutionIrDeclarations.fs" />
     <Compile Include="ExecutionIrLoweringCore.fs" />
     <Compile Include="ExecutionIrSerializer.fs" />

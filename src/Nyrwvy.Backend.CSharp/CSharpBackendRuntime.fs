@@ -432,19 +432,24 @@ module internal CSharpBackendRuntime =
           "    }"
           "}" ]
 
-    /// Bytes: an immutable sequence of 0..255 over a byte array and a length. Every update copies into
-    /// a new array (no in-place writes yet), so no NyBytes ever changes after it is made. A stored Int64
-    /// keeps its low 8 bits; indexes outside [0, length) read None and leave Set unchanged; slice bounds
-    /// clamp to [0, length]. Equality and hash are by content.
-    /// shortcut: Concat with an empty side, a full-range Slice and an out-of-range Set return an existing
-    /// object; harmless while every update copies, must copy or clear ownership once in-place updates land.
+    /// Bytes: an immutable sequence of 0..255 over a byte array and a length. A stored Int64 keeps its low
+    /// 8 bits; indexes outside [0, length) read None and leave Set unchanged; slice bounds clamp to
+    /// [0, length]. Equality and hash are by content.
+    /// In place (docs/plans/bytes-and-buffers.md): Set and Append write into this object only when the
+    /// emitter proved the old value unused (`inPlace`) and the calling invocation owns it (`owner`); any
+    /// other update copies, and the copy belongs to the caller's invocation. An operation that returns an
+    /// existing object (Concat with an empty side, a full Slice, an out-of-range copying Set) clears its
+    /// owner, so the result and the input it aliases are never changed in place.
     let bytesRuntime =
         [ "public sealed class NyBytes : IEquatable<NyBytes>"
           "{"
           "    private static readonly NyBytes EmptyBytes = new(Array.Empty<byte>(), 0);"
-          "    private readonly byte[] _items;"
-          "    private readonly int _length;"
-          "    private NyBytes(byte[] items, int length) { _items = items; _length = length; }"
+          "    private byte[] _items;"
+          "    private int _length;"
+          "    private object? _owner;"
+          "    private NyBytes(byte[] items, int length, object? owner = null) { _items = items; _length = length; _owner = owner; }"
+          "    public void ReleaseOwner() => _owner = null;"
+          "    private NyBytes Shared() { _owner = null; return this; }"
           "    public static NyBytes Empty() => EmptyBytes;"
           "    public static NyBytes FromOwnedArray(byte[] items) => items.Length == 0 ? EmptyBytes : new NyBytes(items, items.Length);"
           "    public long Length => _length;"
@@ -458,24 +463,35 @@ module internal CSharpBackendRuntime =
           "        return new NyBytes(items, items.Length);"
           "    }"
           "    public NyOption<long> Get(long index) => index >= 0L && index < _length ? NyOption<long>.Some(_items[index]) : NyOption<long>.None();"
-          "    public NyBytes Set(long index, long value)"
+          "    public NyBytes Set(long index, long value) => Set(index, value, null, false);"
+          "    public NyBytes Set(long index, long value, object? owner, bool inPlace)"
           "    {"
-          "        if (index < 0L || index >= _length) return this;"
+          "        if (index < 0L || index >= _length) return inPlace ? this : Shared();"
+          "        if (inPlace && owner is not null && ReferenceEquals(_owner, owner)) { _items[index] = unchecked((byte)value); return this; }"
           "        var items = Span.ToArray();"
           "        items[index] = unchecked((byte)value);"
-          "        return new NyBytes(items, items.Length);"
+          "        return new NyBytes(items, items.Length, owner);"
           "    }"
-          "    public NyBytes Append(long value)"
+          "    public NyBytes Append(long value) => Append(value, null, false);"
+          "    public NyBytes Append(long value, object? owner, bool inPlace)"
           "    {"
-          "        var items = Allocate(_length + 1L);"
+          "        if (inPlace && owner is not null && ReferenceEquals(_owner, owner))"
+          "        {"
+          "            if (_length == _items.Length) Array.Resize(ref _items, (int)Math.Min(Array.MaxLength, Math.Max(16L, 2L * _length)));"
+          "            if (_length == _items.Length) throw new OutOfMemoryException();"
+          "            _items[_length++] = unchecked((byte)value);"
+          "            return this;"
+          "        }"
+          "        // Room to grow, so the appends that follow in the same invocation write in place."
+          "        var items = Allocate(Math.Max(_length + 1L, Math.Min(Array.MaxLength, Math.Max(16L, 2L * (_length + 1L)))));"
           "        Span.CopyTo(items);"
           "        items[_length] = unchecked((byte)value);"
-          "        return new NyBytes(items, items.Length);"
+          "        return new NyBytes(items, _length + 1, owner);"
           "    }"
           "    public NyBytes Concat(NyBytes other)"
           "    {"
-          "        if (other._length == 0) return this;"
-          "        if (_length == 0) return other;"
+          "        if (other._length == 0) return Shared();"
+          "        if (_length == 0) return other.Shared();"
           "        var items = Allocate((long)_length + other._length);"
           "        Span.CopyTo(items);"
           "        other.Span.CopyTo(items.AsSpan(_length));"
@@ -486,7 +502,7 @@ module internal CSharpBackendRuntime =
           "        var from = Math.Clamp(start, 0L, _length);"
           "        var to = Math.Clamp(end, 0L, _length);"
           "        if (to <= from) return EmptyBytes;"
-          "        if (from == 0L && to == _length) return this;"
+          "        if (from == 0L && to == _length) return Shared();"
           "        return FromOwnedArray(Span.Slice((int)from, (int)(to - from)).ToArray());"
           "    }"
           "    // One byte per code point, as NyText.DecodeUtf8Lossy reads: a surrogate pair or any unit above U+00FF is 0xFF."

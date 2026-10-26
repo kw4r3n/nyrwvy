@@ -1448,14 +1448,41 @@ module AuthoringProtocol =
                         (WireSymbolic.resolveFunctionAt (session.Declarations()) "function" root).Id
                     | None, Some _ -> id<FunctionTag> "functionId" root
                     | _ -> WireInput.fail "readFunction requires exactly one of function and functionId."
+                // Bytes updates that must copy because the old value is read later (docs/plans/bytes-and-buffers.md);
+                // present only when the function has one and the program lowers.
+                let withCopiedUpdates (focus: FunctionFocusView) (encoded: obj) =
+                    let updates =
+                        focus.Function.Body.Nodes
+                        |> List.exists (fun node ->
+                            match node.Kind with
+                            | SemanticNodeKind.BytesSet _
+                            | SemanticNodeKind.BytesAppend _ -> true
+                            | _ -> false)
+                    match encoded, updates with
+                    | :? Collections.Generic.IDictionary<string, obj> as value, true ->
+                        match session.ProjectExecution() with
+                        | Ok program ->
+                            program.Functions
+                            |> List.tryFind (fun item -> item.SemanticFunctionId = functionId)
+                            |> Option.bind ExecutionIrBytesOwnership.plan
+                            |> Option.filter (fun plan -> not plan.CopiedUpdates.IsEmpty)
+                            |> Option.iter (fun plan ->
+                                value["copiedUpdates"] <-
+                                    plan.CopiedUpdates
+                                    |> List.map (fun (update, forcedBy) ->
+                                        objectValue [ "updateNodeId", box (StableId.value update); "forcedByNodeId", box (StableId.value forcedBy) ])
+                                    |> arrayValue)
+                        | Error _ -> ()
+                    | _ -> ()
+                    encoded
                 match session.FocusFunction functionId with
                 | Ok focus when detail = "compact" ->
                     let value = WireEncodeCommon.compactFocus focus :?> Collections.Generic.IDictionary<string, obj>
                     value["literals"] <- WireEncodeCommon.literals focus.Function.Body
-                    success requestId value
+                    success requestId (withCopiedUpdates focus value)
                 | Ok focus when detail = "outline" ->
-                    success requestId (WireOutline.focus (session.Declarations()) focus)
-                | Ok focus -> success requestId (WireGraph.focus focus)
+                    success requestId (withCopiedUpdates focus (WireOutline.focus (session.Declarations()) focus))
+                | Ok focus -> success requestId (withCopiedUpdates focus (WireGraph.focus focus))
                 | Error error -> semanticQueryFailure requestId error
             | "bindingScopes" ->
                 ensureFields "bindingScopes request" [ "id"; "op"; "function"; "functionId"; "nodeId" ] [ "id"; "op"; "nodeId" ] root

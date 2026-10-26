@@ -2157,6 +2157,23 @@ module CSharpBackend =
         for parameter in functionEntity.Parameters do
             writer.Line(valueName parameter.Value.Id + " = " + CSharpBackendNames.parameterName parameter.SemanticParameterId + ";")
 
+        // The invocation's owner token for in-place Bytes updates; set before the entry label, so a tail
+        // self-call keeps it and later loop turns keep writing in place.
+        let bytesOwnership = ExecutionIrBytesOwnership.plan functionEntity
+        let bytesOwner = "nyBytesOwner"
+        let updatesBytes =
+            functionEntity.Blocks
+            |> List.exists (fun block ->
+                block.Instructions
+                |> List.exists (fun instruction ->
+                    match instruction.Kind with
+                    | ExecutionInstructionKind.BytesSet _
+                    | ExecutionInstructionKind.BytesAppend _ -> true
+                    | _ -> false))
+        if updatesBytes then writer.Line("object " + bytesOwner + " = new();")
+        let releaseBytes (valueIds: ExecutionValueId list) =
+            for valueId in valueIds do writer.Line(valueName valueId + ".ReleaseOwner();")
+
         // The ref overload is used only by TaskStart with fresh, distinct snapshot slots.
         // Clear those slots after all values reach the loop locals, before any worker code runs.
         if consumeCaptures then
@@ -2171,7 +2188,16 @@ module CSharpBackend =
             writer.Line(CSharpBackendNames.executionBlockLabel block.Id + ":")
             writer.Push()
             for instruction in block.Instructions do
-                emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf instruction
+                let inPlace = bytesOwnership |> Option.exists (fun plan -> Set.contains instruction.Result.Id plan.InPlace)
+                let flag = if inPlace then "true" else "false"
+                bytesOwnership |> Option.bind (fun plan -> Map.tryFind instruction.Result.Id plan.Escapes) |> Option.iter releaseBytes
+                match instruction.Kind with
+                | ExecutionInstructionKind.BytesSet(bytesId, indexId, valueId) ->
+                    writer.Line(valueName instruction.Result.Id + " = " + valueName bytesId + ".Set(" + valueName indexId + ", " + valueName valueId + ", " + bytesOwner + ", " + flag + ");")
+                | ExecutionInstructionKind.BytesAppend(bytesId, valueId) ->
+                    writer.Line(valueName instruction.Result.Id + " = " + valueName bytesId + ".Append(" + valueName valueId + ", " + bytesOwner + ", " + flag + ");")
+                | _ -> emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf instruction
+            bytesOwnership |> Option.bind (fun plan -> Map.tryFind block.Id plan.TailCallReleases) |> Option.iter releaseBytes
             emitTerminator functionEntity (fun valueId -> Map.find valueId valueTypes) writer block block.Terminator
             writer.Line("")
 

@@ -303,3 +303,90 @@ module BytesTests =
             let missed = runByName "fill" "2,-1" "\"fffe\""
             Assert.False(missed.GetProperty("matches").GetBoolean())
             Assert.Equal("\"ffff\"", missed.GetProperty("mismatch").GetProperty("actual").GetProperty("hex").GetRawText()))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Bytes updates write in place only where no holder can see the old value`` () =
+        withSession (fun session path ->
+            let value = ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Value }
+            let plus1 recipe = ExpressionRecipe.Int64WrappingAdd(recipe, ExpressionRecipe.Int64Literal 1L)
+            // A tail-recursive fill: after the first copy, every turn writes into the same buffer.
+            let fillLoop =
+                create session "fillLoop" [ "b", bytesType; "i", intType; "n", intType ] bytesType
+                    (ExpressionRecipe.Conditional(
+                        ExpressionRecipe.Int64LessThan(slot 1, slot 2),
+                        ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, slot 1, plus1 (slot 1)); 1, plus1 (slot 1); 2, slot 2 ],
+                        slot 0))
+            // The caller's buffer is unchanged by the loop it was passed to.
+            let keepsArgument =
+                create session "keepsArgument" [ "b", bytesType ] (listOf bytesType)
+                    (ExpressionRecipe.ListConstruct(bytesType,
+                        [ slot 0; ExpressionRecipe.DirectCall(fillLoop.Id, [ fillLoop.Parameters[0].Id, slot 0; fillLoop.Parameters[1].Id, ExpressionRecipe.Int64Literal 0L; fillLoop.Parameters[2].Id, ExpressionRecipe.Int64Literal 3L ]) ]))
+            // A buffer stored into a list must not change when the loop updates it on a later turn.
+            let snapshots =
+                create session "snapshots" [ "buf", bytesType; "acc", listOf bytesType; "i", intType ] (listOf bytesType)
+                    (ExpressionRecipe.Conditional(
+                        ExpressionRecipe.Int64LessThan(slot 2, ExpressionRecipe.Int64Literal 3L),
+                        ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, slot 2); 1, ExpressionRecipe.ListAppendItem(slot 1, slot 0); 2, plus1 (slot 2) ],
+                        slot 1))
+            // One buffer passed as two arguments of a tail self-call: updating one must not change the other.
+            let twins =
+                create session "twins" [ "a", bytesType; "c", bytesType; "i", intType ] (listOf bytesType)
+                    (ExpressionRecipe.Conditional(
+                        ExpressionRecipe.Int64LessThan(slot 2, ExpressionRecipe.Int64Literal 1L),
+                        ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 1L),
+                            ExpressionRecipe.SelfCall [ 0, value; 1, value; 2, ExpressionRecipe.Int64Literal 1L ]),
+                        ExpressionRecipe.ListConstruct(bytesType, [ ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 5L); slot 1 ])))
+            // The old value is read after the update: the update copies.
+            let oldAndNew =
+                create session "oldAndNew" [ "b", bytesType ] (listOf bytesType)
+                    (ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
+                        ExpressionRecipe.ListConstruct(bytesType, [ value; slot 0 ])))
+            // The same read-after-update on a buffer the invocation already owns (second loop turn): a wrong
+            // in-place decision would show up in the result here, not only in the plan.
+            let ownedOldAndNew =
+                create session "ownedOldAndNew" [ "b", bytesType; "i", intType ] (listOf bytesType)
+                    (ExpressionRecipe.Conditional(
+                        ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 1L),
+                        ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 1L, ExpressionRecipe.Int64Literal 1L); 1, plus1 (slot 1) ],
+                        ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
+                            ExpressionRecipe.ListConstruct(bytesType, [ value; slot 0 ]))))
+            // Appending in a loop grows one buffer.
+            let appendLoop =
+                create session "appendLoop" [ "b", bytesType; "i", intType ] bytesType
+                    (ExpressionRecipe.Conditional(
+                        ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 300L),
+                        ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesAppend(slot 0, slot 1); 1, plus1 (slot 1) ],
+                        slot 0))
+            session.Close()
+            use reopened = AuthoringSession.openExisting path |> unwrap
+            let run (fn: SemanticFunction) arguments = (PureRun.run reopened fn.Id arguments None |> unwrap).Actual
+            let bytes (value: byte[]) = PureRunValue.Bytes value
+            let listOfBytes items = PureRunValue.ListValue(bytesType, items |> List.map bytes)
+            Assert.Equal(bytes [| 1uy; 2uy; 3uy; 0uy; 0uy |], run fillLoop [ bytes (Array.zeroCreate 5); PureRunValue.Int64 0L; PureRunValue.Int64 3L ])
+            Assert.Equal(listOfBytes [ [| 9uy; 9uy; 9uy; 9uy |]; [| 1uy; 2uy; 3uy; 9uy |] ], run keepsArgument [ bytes [| 9uy; 9uy; 9uy; 9uy |] ])
+            Assert.Equal(listOfBytes [ [| 9uy |]; [| 0uy |]; [| 1uy |] ], run snapshots [ bytes [| 9uy |]; PureRunValue.ListValue(bytesType, []); PureRunValue.Int64 0L ])
+            Assert.Equal(listOfBytes [ [| 5uy |]; [| 1uy |] ], run twins [ bytes [| 0uy |]; bytes [| 0uy |]; PureRunValue.Int64 0L ])
+            Assert.Equal(listOfBytes [ [| 7uy; 2uy |]; [| 1uy; 2uy |] ], run oldAndNew [ bytes [| 1uy; 2uy |] ])
+            Assert.Equal(listOfBytes [ [| 7uy; 1uy |]; [| 0uy; 1uy |] ], run ownedOldAndNew [ bytes [| 0uy; 0uy |]; PureRunValue.Int64 0L ])
+            Assert.Equal(bytes (Array.init 300 byte), run appendLoop [ bytes [||]; PureRunValue.Int64 0L ])
+            // The plan behind those results.
+            let graph = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap
+            let execution = TypedSemanticIr.project graph |> unwrap |> ExecutionIr.lower |> unwrap
+            let planOf (fn: SemanticFunction) =
+                execution.Functions |> List.find (fun item -> item.SemanticFunctionId = fn.Id) |> ExecutionIrBytesOwnership.plan |> Option.get
+            for fn in [ fillLoop; appendLoop ] do
+                let plan = planOf fn
+                Assert.Single(plan.InPlace) |> ignore
+                Assert.Empty(plan.CopiedUpdates)
+            Assert.Single((planOf oldAndNew).CopiedUpdates) |> ignore
+            Assert.Empty((planOf oldAndNew).InPlace)
+            Assert.NotEmpty((planOf snapshots).Escapes)
+            Assert.NotEmpty((planOf twins).TailCallReleases)
+            // readFunction shows a forced copy; a function whose updates all write in place shows none.
+            let copied (fn: SemanticFunction) =
+                let response = send reopened (sprintf """{"id":"read","op":"readFunction","functionId":"%s","detail":"compact"}""" (StableId.value fn.Id))
+                match response.RootElement.GetProperty("result").TryGetProperty "copiedUpdates" with
+                | true, items -> items.GetArrayLength()
+                | false, _ -> 0
+            Assert.Equal(1, copied oldAndNew)
+            Assert.Equal(0, copied fillLoop))

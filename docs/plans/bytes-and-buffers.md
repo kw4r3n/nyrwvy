@@ -1,6 +1,6 @@
 # Bytes and in-place buffer updates (design note)
 
-**Status:** Accepted by the owner on 2026-10-26, with the three questions answered as proposed (see the end). Implementation in progress. Decision 1 (the type, operations, codecs and run values, copying everywhere) is implemented: [decision record](../decisions/bytes-domain.md).
+**Status:** Accepted by the owner on 2026-10-26, with the three questions answered as proposed (see the end). Implemented; see the [decision record](../decisions/bytes-domain.md), which also lists where the implementation narrowed this note (unowned constructors; `copiedUpdates` in `readFunction` only). Decision 1 (the type, operations, codecs and run values, copying everywhere) is implemented: [decision record](../decisions/bytes-domain.md).
 
 **Date:** 2026-10-26
 
