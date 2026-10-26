@@ -2010,10 +2010,11 @@ module AuthoringProtocol =
             | "emitCSharp" ->
                 ensureFields
                     "emitCSharp request"
-                    [ "id"; "op"; "profile"; "output" ]
+                    [ "id"; "op"; "profile"; "output"; "facade" ]
                     [ "id"; "op"; "profile" ]
                     root
                 let output = tryProperty "output" root |> Option.map (fun _ -> requiredString "output" root)
+                let facade = tryProperty "facade" root |> Option.map (fun _ -> requiredString "facade" root)
                 let profileValue = property "profile" root
                 let profile =
                     match requiredString "kind" profileValue with
@@ -2051,13 +2052,39 @@ module AuthoringProtocol =
                         CSharpBackendProfile.externalImplementations operationIds
                         |> CSharpBackendProfile.withConcurrentCapabilities concurrentIds
                     | value -> WireInput.fail $"Unsupported C# profile '{value}'."
+                let writeFailed message = failure requestId (objectValue [ "code", box "EmitWriteFailed"; "message", box message ])
                 match session.EmitCSharp profile with
-                | Ok artifact when output.IsSome ->
-                    // The source goes to the file only, so a large program stays out of the reply.
-                    match ViewerFile.writeCSharp session.Path output.Value artifact.Source with
-                    | Error message -> failure requestId (objectValue [ "code", box "EmitWriteFailed"; "message", box message ])
-                    | Ok path -> success requestId (WireEncode.csharpArtifactFile path artifact)
-                | Ok artifact -> success requestId (WireEncode.csharpArtifact artifact)
+                | Ok artifact ->
+                    // The facade is checked before anything is written, so a name problem leaves no files.
+                    let facadeSource =
+                        match facade with
+                        | None -> Ok None
+                        | Some _ -> CSharpFacade.emit (session.Declarations()) |> Result.map Some
+                    match facadeSource with
+                    | Error problems ->
+                        let first = List.head problems
+                        failure requestId (objectValue
+                            [ "code", box first.Code
+                              "message", box $"The facade cannot name '{first.Name}': {problems.Length} display name problem(s) among the exported declarations and the types they reach."
+                              "problems", problems |> List.map (fun problem ->
+                                  objectValue
+                                      [ "code", box problem.Code
+                                        "name", box problem.Name
+                                        "declarations", problem.Declarations |> List.map (fun (kind, id) -> objectValue [ "kind", box kind; "id", box id ]) |> arrayValue ])
+                                  |> arrayValue ])
+                    | Ok facadeSource ->
+                        // The source goes to the file only, so a large program stays out of the reply.
+                        let written = output |> Option.map (fun path -> ViewerFile.writeCSharp session.Path path artifact.Source)
+                        match written with
+                        | Some(Error message) -> writeFailed message
+                        | _ ->
+                            let facadeWritten = Option.map2 (fun path text -> ViewerFile.writeCSharp session.Path path text) facade facadeSource
+                            match facadeWritten with
+                            | Some(Error message) -> writeFailed message
+                            | _ ->
+                                let path = match written with Some(Ok path) -> Some path | _ -> None
+                                let facadePath = match facadeWritten with Some(Ok path) -> Some path | _ -> None
+                                success requestId (WireEncode.csharpArtifact path facadePath artifact)
                 | Error error -> sessionFailure requestId error
             | value ->
                 failure

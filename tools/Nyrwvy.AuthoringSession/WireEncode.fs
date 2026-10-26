@@ -490,11 +490,10 @@ module internal WireEncode =
         |> List.map (fun item -> objectValue [ "id", box (StableId.value item.Id); "name", box item.Name ])
         |> arrayValue
 
-    let private csharpArtifactWith (source: string * obj) (value: CSharpArtifact) =
+    let private csharpArtifactWith (entries: (string * obj) list) (value: CSharpArtifact) =
         let symbols = value.Symbols
         objectValue
-            [ source
-              "symbols",
+            (entries @ [ "symbols",
                 objectValue
                     [ "namespace", box symbols.Namespace
                       "functionContainer", box symbols.FunctionContainer
@@ -506,12 +505,12 @@ module internal WireEncode =
                       "capabilities", csharpSymbols symbols.Capabilities
                       "capabilityOperations", csharpSymbols symbols.CapabilityOperations
                       "capabilityParameters", csharpSymbols symbols.CapabilityParameters
-                      "capabilityAdapters", csharpSymbols symbols.CapabilityAdapters ] ]
+                      "capabilityAdapters", csharpSymbols symbols.CapabilityAdapters ] ])
 
-    let csharpArtifact (value: CSharpArtifact) = csharpArtifactWith ("source", box value.Source) value
-
-    /// emitCSharp with output: the written path replaces the inline source.
-    let csharpArtifactFile (path: string) (value: CSharpArtifact) = csharpArtifactWith ("path", box path) value
+    /// emitCSharp reply: the inline source, or with output the written path; with facade, its path too.
+    let csharpArtifact (path: string option) (facadePath: string option) (value: CSharpArtifact) =
+        let source = match path with Some path -> "path", box path | None -> "source", box value.Source
+        csharpArtifactWith (source :: (facadePath |> Option.map (fun path -> "facadePath", box path) |> Option.toList)) value
 
     let declarations = WireEncodeCommon.declarations
 
