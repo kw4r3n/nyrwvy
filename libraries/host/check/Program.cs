@@ -1,0 +1,73 @@
+// Calls every host class of NyHost.cs against the real OS; run by run.mjs, which emits the program's C#.
+using System;
+using System.IO;
+using System.Text;
+using Nyrwvy.Generated;
+using NyrHost;
+
+int failures = 0;
+void Check(string name, bool ok)
+{
+    Console.WriteLine($"{(ok ? "ok  " : "FAIL")} {name}");
+    if (!ok) failures++;
+}
+NyList<NyStr> Strings(params string[] items)
+{
+    var list = NyList<NyStr>.Empty();
+    foreach (var item in items) list = list.AppendItem(item);
+    return list;
+}
+
+var dir = Directory.CreateTempSubdirectory("nyr-host-");
+var fs = new FsHost();
+var file = Path.Combine(dir.FullName, "data.bin");
+var data = NyBytes.FromOwnedArray([0, 1, 127, 128, 255]);
+Check("Fs.writeBytes", fs.writeBytes(file, data));
+Check("Fs.readBytes round trip", fs.readBytes(file) is { HasValue: true } read && read.Value.Equals(data));
+Check("Fs.readText", fs.readText(file).HasValue);
+Check("Fs.readBytes missing", !fs.readBytes(Path.Combine(dir.FullName, "missing")).HasValue);
+Check("Fs.writeBytes into a missing directory", !fs.writeBytes(Path.Combine(dir.FullName, "no/such/file"), data));
+
+var env = new EnvHost();
+Environment.SetEnvironmentVariable("NYR_HOST_CHECK", "set");
+Check("Env.get set", env.get("NYR_HOST_CHECK") is { HasValue: true } value && value.Value.Text == "set");
+Check("Env.get unset", !env.get("NYR_HOST_CHECK_UNSET").HasValue);
+
+var process = new ProcessHost();
+Check("Process.spawn", process.spawn("true", Strings()));
+Check("Process.spawn missing program", !process.spawn("nyr-host-no-such-program", Strings()));
+
+// The Nyrwvy function opens cat on a pty, writes, reads the first chunk back and closes.
+var ptys = new PtysHost(("TERM", "xterm-256color"));
+var echoed = NyFacade.ptyEcho(ptys, "hello\n").Text;
+Check($"ptyEcho through Nyrwvy ({echoed.Replace("\r", "\\r").Replace("\n", "\\n")})", echoed.StartsWith("hello"));
+
+var opened = ptys.open(Strings("sh", "-c", "stty size; echo $TERM; read x; stty size"), 100, 30);
+Check("Ptys.open", opened.IsOk);
+var pty = (PtyHost)opened.OkValue;
+string ReadUntil(string marker)
+{
+    var output = new StringBuilder();
+    while (!output.ToString().Contains(marker) && pty.read() is { HasValue: true } chunk)
+        output.Append(Encoding.Latin1.GetString(chunk.Value.Span));
+    return output.ToString();
+}
+Check("Pty size and environment", ReadUntil("xterm-256color").Contains("30 100"));
+Check("Pty.foregroundCommand", pty.foregroundCommand() is { HasValue: true } command && command.Value.Text == "sh");
+pty.resize(120, 40);
+pty.write(NyBytes.FromOwnedArray("\n"u8.ToArray()));
+Check("Pty.resize", ReadUntil("40 120").Contains("40 120"));
+Check("Pty.read at end of output", !pty.read().HasValue);
+ptys.close(pty);
+Check("use after close fails", Throws(() => pty.read()));
+Check("Ptys.open missing program", !ptys.open(Strings("nyr-host-no-such-program"), 80, 24).IsOk);
+
+dir.Delete(true);
+Console.WriteLine(failures == 0 ? "all checks passed" : $"{failures} checks failed");
+return failures == 0 ? 0 : 1;
+
+static bool Throws(Action action)
+{
+    try { action(); return false; }
+    catch (InvalidOperationException) { return true; }
+}

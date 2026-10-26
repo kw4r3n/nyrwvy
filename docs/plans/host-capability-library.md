@@ -1,6 +1,6 @@
 # A shared host capability library (design note)
 
-**Status:** Proposed, 2026-10-27. Owner questions with proposed answers at the end.
+**Status:** Accepted by the owner on 2026-10-27 with the three answers as proposed. Implemented in [`libraries/host`](../../libraries/host/README.md); snap's move is still to do.
 
 **Date:** 2026-10-27
 
@@ -44,7 +44,7 @@ All under the existing effect `System`.
 
 `Pty.foregroundCommand` replaces snap's read of `/proc/<pgrp>/comm`, which snap uses to label panes. A clock is left out: snap's agent states already take elapsed milliseconds as arguments from its event loop's host, and no consumer needs another source of time yet.
 
-Use after `close` is a host failure, as the handle decision sets.
+Use after `close` is a host failure, as the handle decision sets. `Ptys` is implemented by `PtysHost`, which takes environment variables that replace the inherited ones in the child (snap sets `TERM`).
 
 ## Verification
 
