@@ -2097,7 +2097,12 @@ module AuthoringProtocol =
                     let facadeSource =
                         match facade with
                         | None -> Ok None
-                        | Some _ -> CSharpFacade.emit (session.Declarations()) |> Result.map Some
+                        | Some _ ->
+                            let hostOperationIds =
+                                profile.CapabilityBindings
+                                |> List.filter (fun binding -> binding.Kind = CSharpCapabilityBindingKind.ExternalImplementation)
+                                |> List.map (fun binding -> binding.OperationId)
+                            CSharpFacade.emit (session.Declarations()) hostOperationIds |> Result.map Some
                     match facadeSource with
                     | Error problems ->
                         let first = List.head problems

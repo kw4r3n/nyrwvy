@@ -61,7 +61,9 @@ module CSharpFacade =
 
 
     /// Emits the facade, or the names that are invalid or carried by more than one declaration.
-    let emit (declarations: AuthoringDeclarations) : Result<string, CSharpFacadeProblem list> =
+    /// `hostOperationIds` are the operations the host implements: their capabilities get a base class even
+    /// when no exported signature reaches them, as an imported library's capabilities often are not.
+    let emit (declarations: AuthoringDeclarations) (hostOperationIds: CapabilityOperationId list) : Result<string, CSharpFacadeProblem list> =
         let isLocal kind (id: string) =
             declarations.Provenance |> List.exists (fun p -> p.Kind = kind && p.Id = id && p.IsLocal)
         let functions =
@@ -75,6 +77,9 @@ module CSharpFacade =
             (functions |> List.collect (fun f -> f.ResultType :: (f.Parameters |> List.map (fun p -> p.Type))))
             @ (localTypes |> List.map (fun t -> TypeRef.Named(t.Id, t.TypeParameters |> List.map (fst >> TypeRef.TypeParameter))))
             @ (localCapabilities |> List.map (fun c -> TypeRef.Capability c.Id))
+            @ (declarations.Capabilities
+               |> List.filter (fun c -> c.Operations |> List.exists (fun op -> List.contains op.Id hostOperationIds))
+               |> List.map (fun c -> TypeRef.Capability c.Id))
         let typeIds, capabilityIds = reachable declarations roots
         let types = declarations.Types |> List.filter (fun t -> Set.contains t.Id typeIds) |> List.sortBy (fun t -> StableId.value t.Id)
         let capabilities =

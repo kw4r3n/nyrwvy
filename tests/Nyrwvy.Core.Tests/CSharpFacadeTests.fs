@@ -121,3 +121,23 @@ static class Runner
             Assert.Equal("NewPair", problem.GetProperty("name").GetString())
             Assert.Equal(2, problem.GetProperty("declarations").GetArrayLength())
             Assert.False(Directory.Exists(Path.Combine(Path.GetDirectoryName session.Path, "gen"))))
+
+    [<Fact>]
+    let ``an imported capability the host implements gets a base class without an exported signature reaching it`` () =
+        withSession (fun library execute _ ->
+            execute """{"id":"e","op":"simulateCreateEffect","exported":true,"displayName":"io"}""" |> ignore
+            execute $"""{{"id":"k","op":"simulateCreateCapabilityByName","displayName":"Store","exported":true,"operations":[{{"displayName":"get","parameters":[{{"displayName":"key","type":{string}}}],"resultType":{int64},"effect":"io"}}]}}""" |> ignore
+            let operation = (library.Declarations().Capabilities |> List.exactlyOne).Operations |> List.exactlyOne
+            library.Close()
+            let path = Path.Combine(Path.GetDirectoryName library.Path, "program.json")
+            use program = AuthoringSession.createNewWithDependencies path [ library.Path ] |> function Ok value -> value | Error error -> failwithf "%A" error
+            let emit operationIds =
+                use document =
+                    JsonDocument.Parse(
+                        AuthoringProtocol.executeLine program
+                            $"""{{"id":"e","op":"emitCSharp","profile":{{"kind":"externalImplementations","operationIds":[{operationIds}]}},"output":"gen/Generated.cs","facade":"gen/Facade.cs"}}""")
+                Assert.True(document.RootElement.GetProperty("ok").GetBoolean(), document.RootElement.ToString())
+                File.ReadAllText(document.RootElement.GetProperty("result").GetProperty("facadePath").GetString())
+            Assert.Contains("public abstract class StoreBase", emit $"\"{StableId.value operation.Id}\"")
+            // Without the host implementing it, an unreached imported capability stays out (no re-export).
+            Assert.DoesNotContain("StoreBase", emit ""))
