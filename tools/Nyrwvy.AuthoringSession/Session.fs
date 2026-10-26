@@ -412,11 +412,16 @@ module internal SessionStorage =
     let lockPath (path: string): string = path + ".lock"
 
     let acquireLock (path: string): Result<FileStream, AuthoringSessionError> =
-        try
-            Ok(new FileStream(lockPath path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
-        with
-        | :? IOException -> Error(AuthoringSessionError.LockUnavailable path)
-        | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
+        // A link and its target would each get their own lock, and the rename on commit would replace
+        // the link with a regular file, so two writers could fork one graph.
+        if not (isNull (FileInfo(path).LinkTarget)) then
+            Error(AuthoringSessionError.IoFailure $"The snapshot path {path} is a symbolic link; open the file it points to instead.")
+        else
+            try
+                Ok(new FileStream(lockPath path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+            with
+            | :? IOException -> Error(AuthoringSessionError.LockUnavailable path)
+            | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
 
     /// Releases the lock by disposing its handle; the harmless file is reused. Deleting it before
     /// close races with an opener holding the old inode, which could lock it as another opener

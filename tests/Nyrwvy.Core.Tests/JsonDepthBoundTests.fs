@@ -101,6 +101,38 @@ module JsonDepthBoundTests =
             Assert.Equal(835, requestBound)
             Assert.Contains($"maximum configured depth of {requestBound} has been exceeded", message))
 
+    /// `depth` nested by-name directCalls of `inc` ending in parameter `n`: three JSON levels per call.
+    let private namedCallChain depth =
+        let text = StringBuilder()
+        for _ in 1..depth do
+            text.Append("""{"kind":"directCall","function":"inc","arguments":[{"parameter":"n","value":""") |> ignore
+        text.Append("""{"kind":"parameter","name":"n"}""") |> ignore
+        for _ in 1..depth do
+            text.Append("}]}") |> ignore
+        text.ToString()
+
+    [<Fact>]
+    let ``a named recipe deeper than 64 JSON levels is judged by the recipe bounds, inline and from a file`` () =
+        withSession (fun session ->
+            let createByName name body =
+                sprintf
+                    """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"%s","parameters":[{"displayName":"n","type":%s}],"resultType":%s,"requiredEffects":[],%s}"""
+                    name int64Type int64Type body
+            let execute line =
+                use reply = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
+                Assert.True(reply.RootElement.GetProperty("ok").GetBoolean(), reply.RootElement.ToString())
+                reply.RootElement.GetProperty("result").Clone()
+            let created = execute (createByName "inc" "\"body\":{\"kind\":\"parameter\",\"name\":\"n\"}")
+            execute (sprintf """{"id":"c","op":"commit","proposalId":"%s"}""" (created.GetProperty("proposalId").GetString())) |> ignore
+            // 31 calls and a leaf are 32 nodes, the depth limit, nested 93 JSON levels deep.
+            execute (createByName "deepest" ("\"body\":" + namedCallChain (ExpressionRecipeBounds.maxDepth - 1))) |> ignore
+            let tooDeep = namedCallChain 80
+            let code, _ = errorOf session (createByName "deep" ("\"body\":" + tooDeep)) |> diagnosticOf
+            Assert.Equal("StructuralRecipeDepthLimitExceeded", code)
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName session.Path, "body.json"), tooDeep)
+            let code, _ = errorOf session (createByName "deep" "\"bodyFile\":\"body.json\"") |> diagnosticOf
+            Assert.Equal("StructuralRecipeDepthLimitExceeded", code))
+
     let mutable private counter = 0
     let private fresh<'tag> () =
         counter <- counter + 1

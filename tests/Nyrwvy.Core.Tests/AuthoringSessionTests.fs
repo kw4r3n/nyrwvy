@@ -343,6 +343,22 @@ module AuthoringSessionTests =
             if Directory.Exists root then Directory.Delete(root, true)
 
     [<Fact>]
+    let ``a snapshot path that is a symbolic link is refused for writing`` () =
+        let root = tempDirectory ()
+        let path = Path.Combine(root, "workspace.json")
+        let link = Path.Combine(root, "alias.json")
+        try
+            (createSession path).Close()
+            File.CreateSymbolicLink(link, path) |> ignore
+            // Without the refusal the link gets a lock of its own beside a session holding the target.
+            use _session = AuthoringSession.openExisting path |> function Ok value -> value | Error error -> failwithf "%A" error
+            match AuthoringSession.openExisting link with
+            | Error(AuthoringSessionError.IoFailure message) -> Assert.Contains("symbolic link", message)
+            | result -> failwithf "Expected the link to be refused, got %A" result
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
     let ``session enforces one writer and does not publish after persistence failure or external modification`` () =
         let root = tempDirectory ()
         let path = Path.Combine(root, "workspace.json")
