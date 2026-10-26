@@ -460,9 +460,11 @@ module RecordCodec =
             let mutable fi = 0
             if fi >= fields.Length || fields[fi].Key <> "schema" then fail 1 head.EndColumn "missing schema="
             if not (isCanonicalInt (text.AsSpan(fields[fi].Start, fields[fi].Length))) then fail 1 fields[fi].Column "schema= must be an integer"
-            // The record form has no earlier versions: `serialize` always writes the current one.
-            if not ((text.AsSpan(fields[fi].Start, fields[fi].Length)).SequenceEqual(string SnapshotSchema.current.Json)) then
-                fail 1 fields[fi].Column $"schema= must be {SnapshotSchema.current.Json}"
+            // `serialize` writes the current version, but a document saved at an earlier record version
+            // still decodes (and re-encodes at the current one); the JSON reader checks construct minimums.
+            let mutable declared = 0
+            if not (Int32.TryParse(text.AsSpan(fields[fi].Start, fields[fi].Length), &declared)) || declared < SnapshotSchema.firstRecord.Json || declared > SnapshotSchema.current.Json then
+                fail 1 fields[fi].Column $"schema= must be from {SnapshotSchema.firstRecord.Json} to {SnapshotSchema.current.Json}"
             w.WritePropertyName "schemaVersion"
             w.WriteRawValue(text.AsSpan(fields[fi].Start, fields[fi].Length), true)
             w.WriteString("snapshotId", head.Subject.AsSpan 9)
@@ -924,7 +926,8 @@ module RecordCodec =
                     Message = $"Maximum JSON depth of {SnapshotCodec.maxJsonDepth} exceeded."
                     Model = Some(SnapshotCodecError.MaximumDepthExceeded SnapshotCodec.maxJsonDepth) }
 
-    /// Record text -> the snapshot, validated by `SnapshotCodec`'s reader. Only canonical bytes decode.
+    /// Record text -> the snapshot, validated by `SnapshotCodec`'s reader. Only canonical bytes decode,
+    /// except that an earlier `schema=` re-encodes at the current version.
     let deserialize (text: string) : Result<Snapshot, RecordCodecError> = decodeWith None text
 
     /// A local snapshot whose header carries the `dependency=` marker, validated against the dependency

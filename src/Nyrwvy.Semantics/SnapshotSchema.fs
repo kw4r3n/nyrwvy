@@ -119,6 +119,9 @@ module SnapshotSchema =
     /// constructs it uses (docs/specs/schema-evolution-policy.md, deprecation policy).
     let current = v22
 
+    /// The first version the record form (`.nyrec`) was written at; its reader accepts this one onward.
+    let firstRecord = v21
+
     /// The first version that writes function type parameters as a declared list and type
     /// parameter occurrences without display names; older documents derive the list on reading.
     let declaredFunctionTypeParameters = v21
