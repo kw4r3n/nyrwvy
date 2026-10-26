@@ -1,6 +1,6 @@
 # Readable C# names for exported declarations
 
-- **Status:** Proposed
+- **Status:** Accepted 2026-10-26, after kw4r3n/nyrwvy#494 and snap's `nyrwvy-facade` branch replaced its hand-written alias layer
 - **Date:** 2026-10-26
 - **Issue:** none
 
