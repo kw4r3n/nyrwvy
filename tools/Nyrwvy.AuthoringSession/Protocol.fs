@@ -2116,18 +2116,27 @@ module AuthoringProtocol =
                                         "declarations", problem.Declarations |> List.map (fun (kind, id) -> objectValue [ "kind", box kind; "id", box id ]) |> arrayValue ])
                                   |> arrayValue ])
                     | Ok facadeSource ->
-                        // The source goes to the file only, so a large program stays out of the reply.
-                        let written = output |> Option.map (fun path -> ViewerFile.writeCSharp session.Path path artifact.Source)
-                        match written with
-                        | Some(Error message) -> writeFailed message
+                        // Both targets are checked before either is written, so a refused facade leaves no output file.
+                        let checkedOutput = output |> Option.map (fun path -> ViewerFile.checkCSharp session.Path path artifact.Source)
+                        let checkedFacade = Option.map2 (fun path text -> ViewerFile.checkCSharp session.Path path text) facade facadeSource
+                        match checkedOutput, checkedFacade with
+                        | Some(Error message), _
+                        | _, Some(Error message) -> writeFailed message
+                        | Some(Ok outputPath), Some(Ok facadePath) when outputPath = facadePath ->
+                            writeFailed $"output and facade must name different files; both resolve to {outputPath}."
                         | _ ->
-                            let facadeWritten = Option.map2 (fun path text -> ViewerFile.writeCSharp session.Path path text) facade facadeSource
-                            match facadeWritten with
+                            // The source goes to the file only, so a large program stays out of the reply.
+                            let written = output |> Option.map (fun path -> ViewerFile.writeCSharp session.Path path artifact.Source)
+                            match written with
                             | Some(Error message) -> writeFailed message
                             | _ ->
-                                let path = match written with Some(Ok path) -> Some path | _ -> None
-                                let facadePath = match facadeWritten with Some(Ok path) -> Some path | _ -> None
-                                success requestId (WireEncode.csharpArtifact path facadePath artifact)
+                                let facadeWritten = Option.map2 (fun path text -> ViewerFile.writeCSharp session.Path path text) facade facadeSource
+                                match facadeWritten with
+                                | Some(Error message) -> writeFailed message
+                                | _ ->
+                                    let path = match written with Some(Ok path) -> Some path | _ -> None
+                                    let facadePath = match facadeWritten with Some(Ok path) -> Some path | _ -> None
+                                    success requestId (WireEncode.csharpArtifact path facadePath artifact)
                 | Error error -> sessionFailure requestId error
             | value ->
                 failure

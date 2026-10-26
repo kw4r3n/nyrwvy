@@ -123,6 +123,19 @@ static class Runner
             Assert.False(Directory.Exists(Path.Combine(Path.GetDirectoryName session.Path, "gen"))))
 
     [<Fact>]
+    let ``a refused facade path leaves no output file and output and facade cannot share a file`` () =
+        withSession (fun session _ respond ->
+            let directory = Path.GetDirectoryName session.Path
+            let emit output facade =
+                let response = respond $"""{{"id":"e","op":"emitCSharp","profile":{{"kind":"empty"}},"output":"{output}","facade":"{facade}"}}"""
+                Assert.False(response.GetProperty("ok").GetBoolean(), response.ToString())
+                Assert.Equal("EmitWriteFailed", response.GetProperty("error").GetProperty("code").GetString())
+            emit "out.cs" "../f.cs"
+            Assert.False(File.Exists(Path.Combine(directory, "out.cs")))
+            emit "same.cs" "./same.cs"
+            Assert.False(File.Exists(Path.Combine(directory, "same.cs"))))
+
+    [<Fact>]
     let ``an imported capability the host implements gets a base class without an exported signature reaching it`` () =
         withSession (fun library execute _ ->
             execute """{"id":"e","op":"simulateCreateEffect","exported":true,"displayName":"io"}""" |> ignore
