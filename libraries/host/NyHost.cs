@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Win32.SafeHandles;
 using Nyrwvy.Generated;
 
@@ -21,8 +22,14 @@ public sealed class FsHost : FsBase
         { return NyResult<T, NyStr>.Err(e.Message); }
     }
 
-    /// The file's text decoded as UTF-8.
-    public override NyResult<NyStr, NyStr> readText(NyStr path) => Attempt<NyStr>(() => File.ReadAllText(path));
+    /// The file's text decoded as UTF-8 (a UTF-8 byte order mark is dropped, invalid bytes read as U+FFFD).
+    public override NyResult<NyStr, NyStr> readText(NyStr path) => Attempt<NyStr>(() =>
+    {
+        // File.ReadAllText would also honour UTF-16 and UTF-32 byte order marks.
+        var bytes = File.ReadAllBytes(path);
+        int start = bytes is [0xEF, 0xBB, 0xBF, ..] ? 3 : 0;
+        return new UTF8Encoding(false).GetString(bytes, start, bytes.Length - start);
+    });
 
     public override NyResult<NyBytes, NyStr> readBytes(NyStr path) => Attempt(() => NyBytes.FromOwnedArray(File.ReadAllBytes(path)));
 
@@ -55,10 +62,12 @@ public sealed class ProcessHost : ProcessBase
             System.Diagnostics.Process.Start(StartInfo(program, args))?.Dispose();
             return NyResult<NyUnit, NyStr>.Ok(NyUnit.Value);
         }
-        catch (System.ComponentModel.Win32Exception e) { return NyResult<NyUnit, NyStr>.Err(e.Message); }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { return NyResult<NyUnit, NyStr>.Err(e.Message); }
     }
 
     /// Runs the program to completion with empty standard input and returns its exit code and output.
+    /// Like Python's subprocess.run, it waits until stdout and stderr close, so a background process the
+    /// program leaves holding them keeps it waiting.
     public override NyResult<ProcessOutput, NyStr> run(NyStr program, NyList<NyStr> args)
     {
         var info = StartInfo(program, args);
@@ -77,7 +86,7 @@ public sealed class ProcessHost : ProcessBase
             return NyResult<ProcessOutput, NyStr>.Ok(NyFacade.NewProcessOutput(
                 exitCode: child.ExitCode, stdout: NyBytes.FromOwnedArray(stdout.ToArray()), stderr: NyBytes.FromOwnedArray(stderr.ToArray())));
         }
-        catch (System.ComponentModel.Win32Exception e) { return NyResult<ProcessOutput, NyStr>.Err(e.Message); }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException) { return NyResult<ProcessOutput, NyStr>.Err(e.Message); }
     }
 }
 
@@ -114,24 +123,33 @@ public sealed unsafe class PtyHost : PtyBase
 
     internal PtyHost(string[] argv, string[] env, long cols, long rows)
     {
+        // Close-on-exec from the start, and no slave fd in this process: neither can leak into a child
+        // that another thread starts, which would keep this pty's reads from ever seeing EIO.
+        _master = Libc.OpenPt(Libc.O_RDWR | Libc.O_NOCTTY | Libc.O_CLOEXEC);
+        if (_master < 0) throw new IOException($"posix_openpt failed: {Marshal.GetLastPInvokeError()}");
         byte* name = stackalloc byte[128];
-        if (Libc.OpenPty(out _master, out int slave, name, 0, 0) != 0)
-            throw new IOException($"openpty failed: {Marshal.GetLastPInvokeError()}");
+        if (Libc.GrantPt(_master) != 0 || Libc.UnlockPt(_master) != 0 || Libc.PtsName(_master, name, 128) != 0)
+        {
+            Libc.Close(_master);
+            throw new IOException($"pty setup failed: {Marshal.GetLastPInvokeError()}");
+        }
         SetSize(cols, rows);
         // A session leader that opens the slave by path gets it as its controlling terminal.
         byte* fa = stackalloc byte[512];
         byte* attr = stackalloc byte[512];
-        Libc.ActionsInit(fa);
-        Libc.ActionsOpen(fa, 0, name, Libc.O_RDWR, 0);
-        Libc.ActionsDup2(fa, 0, 1);
-        Libc.ActionsDup2(fa, 0, 2);
-        Libc.ActionsClose(fa, _master);
-        Libc.ActionsClose(fa, slave);
-        Libc.AttrInit(attr);
-        Libc.AttrSetFlags(attr, Libc.POSIX_SPAWN_SETSID);
+        int r = Libc.ActionsInit(fa);
+        if (r != 0) { Libc.Close(_master); throw new IOException($"posix_spawn_file_actions_init failed: {r}"); }
         int pid = 0;
-        int r = WithCStrings(argv, a => WithCStrings(env, e => Libc.SpawnP(out pid, a[0], fa, attr, a, e)));
-        Libc.Close(slave);
+        try
+        {
+            r = Libc.ActionsOpen(fa, 0, name, Libc.O_RDWR, 0);
+            if (r == 0) r = Libc.ActionsDup2(fa, 0, 1);
+            if (r == 0) r = Libc.ActionsDup2(fa, 0, 2);
+            if (r == 0) r = Libc.AttrInit(attr);
+            if (r == 0) r = Libc.AttrSetFlags(attr, Libc.POSIX_SPAWN_SETSID);
+            if (r == 0) r = WithCStrings(argv, a => WithCStrings(env, e => Libc.SpawnP(out pid, a[0], fa, attr, a, e)));
+        }
+        finally { Libc.ActionsDestroy(fa); }
         if (r != 0)
         {
             Libc.Close(_master);
@@ -203,29 +221,34 @@ public sealed unsafe class PtyHost : PtyBase
         _stream.Dispose();
         int status = 0;
         var deadline = Environment.TickCount64 + 2000;
-        while (Libc.WaitPid(_pid, out status, Libc.WNOHANG) == 0)
+        int reaped;
+        while ((reaped = Libc.WaitPid(_pid, out status, Libc.WNOHANG)) == 0)
         {
             if (Environment.TickCount64 >= deadline)
             {
                 Libc.Kill(-_pid, Libc.SIGKILL);
-                Libc.WaitPid(_pid, out status, 0);
+                reaped = Libc.WaitPid(_pid, out status, 0);
                 break;
             }
             System.Threading.Thread.Sleep(10);
         }
-        return (status & 0x7f) == 0 ? NyOption<long>.Some((status >> 8) & 0xff) : NyOption<long>.None();
+        // A failed wait (for example ECHILD when SIGCHLD is ignored) leaves no status to report.
+        return reaped == _pid && (status & 0x7f) == 0 ? NyOption<long>.Some((status >> 8) & 0xff) : NyOption<long>.None();
     }
 }
 
 static unsafe partial class Libc
 {
     const string Lib = "libc.so.6";
-    public const int O_RDWR = 2, POSIX_SPAWN_SETSID = 0x80, WNOHANG = 1, SIGHUP = 1, SIGKILL = 9;
+    public const int O_RDWR = 2, O_NOCTTY = 0x100, O_CLOEXEC = 0x80000, POSIX_SPAWN_SETSID = 0x80, WNOHANG = 1, SIGHUP = 1, SIGKILL = 9;
     public const nuint TIOCSWINSZ = 0x5414;
 
     [StructLayout(LayoutKind.Sequential)] public struct WinSize { public ushort Rows, Cols, XPixel, YPixel; }
 
-    [LibraryImport(Lib, EntryPoint = "openpty", SetLastError = true)] public static partial int OpenPty(out int master, out int slave, byte* name, nint termios, nint winsize);
+    [LibraryImport(Lib, EntryPoint = "posix_openpt", SetLastError = true)] public static partial int OpenPt(int flags);
+    [LibraryImport(Lib, EntryPoint = "grantpt", SetLastError = true)] public static partial int GrantPt(int fd);
+    [LibraryImport(Lib, EntryPoint = "unlockpt", SetLastError = true)] public static partial int UnlockPt(int fd);
+    [LibraryImport(Lib, EntryPoint = "ptsname_r", SetLastError = true)] public static partial int PtsName(int fd, byte* buffer, nuint length);
     [LibraryImport(Lib, EntryPoint = "ioctl", SetLastError = true)] public static partial int IoctlWinSize(int fd, nuint request, ref WinSize ws);
     [LibraryImport(Lib, EntryPoint = "kill")] public static partial int Kill(int pid, int sig);
     [LibraryImport(Lib, EntryPoint = "tcgetpgrp")] public static partial int TcGetPgrp(int fd);
@@ -233,9 +256,9 @@ static unsafe partial class Libc
     [LibraryImport(Lib, EntryPoint = "waitpid")] public static partial int WaitPid(int pid, out int status, int options);
     [LibraryImport(Lib, EntryPoint = "posix_spawnp")] public static partial int SpawnP(out int pid, byte* file, void* actions, void* attr, byte** argv, byte** envp);
     [LibraryImport(Lib, EntryPoint = "posix_spawn_file_actions_init")] public static partial int ActionsInit(void* fa);
+    [LibraryImport(Lib, EntryPoint = "posix_spawn_file_actions_destroy")] public static partial int ActionsDestroy(void* fa);
     [LibraryImport(Lib, EntryPoint = "posix_spawn_file_actions_addopen")] public static partial int ActionsOpen(void* fa, int fd, byte* path, int flags, uint mode);
     [LibraryImport(Lib, EntryPoint = "posix_spawn_file_actions_adddup2")] public static partial int ActionsDup2(void* fa, int fd, int newFd);
-    [LibraryImport(Lib, EntryPoint = "posix_spawn_file_actions_addclose")] public static partial int ActionsClose(void* fa, int fd);
     [LibraryImport(Lib, EntryPoint = "posix_spawnattr_init")] public static partial int AttrInit(void* attr);
     [LibraryImport(Lib, EntryPoint = "posix_spawnattr_setflags")] public static partial int AttrSetFlags(void* attr, short flags);
 }

@@ -28,6 +28,11 @@ Check("Fs.readText", fs.readText(file).IsOk);
 Check("Fs.readBytes missing gives the reason", fs.readBytes(Path.Combine(dir.FullName, "missing")) is { IsOk: false } missing && missing.ErrorValue.Text.Contains("missing"));
 Check("Fs.writeBytes into a missing directory", !fs.writeBytes(Path.Combine(dir.FullName, "no/such/file"), data).IsOk);
 
+fs.writeBytes(file, NyBytes.FromOwnedArray([0xFF, 0xFE, 0x41, 0x00]));
+Check("Fs.readText ignores UTF-16 byte order marks", fs.readText(file) is { IsOk: true } utf16 && utf16.OkValue.Text != "A");
+fs.writeBytes(file, NyBytes.FromOwnedArray([0xEF, 0xBB, 0xBF, 0x41]));
+Check("Fs.readText drops a UTF-8 byte order mark", fs.readText(file) is { IsOk: true } utf8 && utf8.OkValue.Text == "A");
+
 var env = new EnvHost();
 Environment.SetEnvironmentVariable("NYR_HOST_CHECK", "set");
 Check("Env.get set", env.get("NYR_HOST_CHECK") is { HasValue: true } value && value.Value.Text == "set");
@@ -40,6 +45,7 @@ var ran = process.run("sh", Strings("-c", "cat; printf out; printf err >&2; exit
 Check("Process.run exit code and output", ran.IsOk && ran.OkValue.exitCode == 3
     && Encoding.Latin1.GetString(ran.OkValue.stdout.Span) == "out" && Encoding.Latin1.GetString(ran.OkValue.stderr.Span) == "err");
 Check("Process.run missing program", !process.run("nyr-host-no-such-program", Strings()).IsOk);
+Check("Process.run and spawn with an empty program name", !process.run("", Strings()).IsOk && !process.spawn("", Strings()).IsOk);
 
 // The Nyrwvy function opens cat on a pty, writes, reads the first chunk back and closes.
 var ptys = new PtysHost();
@@ -59,6 +65,9 @@ string ReadUntil(string marker)
 }
 Check("Pty size and environment", ReadUntil("xterm-256color").Contains("30 100"));
 Check("Pty.foregroundCommand", pty.foregroundCommand() is { HasValue: true } command && command.Value.Text == "sh");
+var fds = process.run("sh", Strings("-c", "for f in /proc/self/fd/*; do readlink $f; done"));
+var fdList = Encoding.Latin1.GetString(fds.OkValue.stdout.Span);
+Check("an open pty does not leak into other children", fds.IsOk && !fdList.Contains("ptmx") && !fdList.Contains("/dev/pts"));
 pty.resize(120, 40);
 pty.write(NyBytes.FromOwnedArray("\n"u8.ToArray()));
 Check("Pty.resize", ReadUntil("40 120").Contains("40 120"));

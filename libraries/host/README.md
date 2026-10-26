@@ -6,12 +6,12 @@ All operations use the effect `System`. A failure the program can act on is a `R
 
 | Capability | Operation | Result |
 | --- | --- | --- |
-| `Fs` | `readText(path)` | `Result<String, String>`; decoded as UTF-8 |
+| `Fs` | `readText(path)` | `Result<String, String>`; decoded as UTF-8 (a UTF-8 byte order mark is dropped, invalid bytes read as U+FFFD) |
 | `Fs` | `readBytes(path)` | `Result<Bytes, String>` |
 | `Fs` | `writeBytes(path, data)` | `Result<Unit, String>`; creates or replaces the file |
 | `Env` | `get(name)` | `Option<String>`; `None` when unset |
 | `Process` | `spawn(program, args)` | `Result<Unit, String>`; starts without waiting |
-| `Process` | `run(program, args)` | `Result<ProcessOutput, String>`; runs to completion with empty standard input; `ProcessOutput` has `exitCode`, `stdout` and `stderr` (Bytes) |
+| `Process` | `run(program, args)` | `Result<ProcessOutput, String>`; runs to completion with empty standard input and waits until stdout and stderr close, as Python's `subprocess.run` does (a background process left holding them keeps it waiting); `ProcessOutput` has `exitCode`, `stdout` and `stderr` (Bytes) |
 | `Ptys` | `open(argv, environment, cols, rows)` | `Result<Pty, String>`; a program on a new pseudo terminal, inheriting this process's environment with `environment` (`Map<String, String>`, for example `TERM`) replaced or added |
 | `Ptys` | `close(pty)` | `Option<Int64>`; hangs up the child's process group and reaps it: its exit code, or `None` when a signal ended it. A child still running 2 s after the hangup is killed. |
 | `Pty` | `read()` | `Option<Bytes>`; blocks for the next chunk, `None` once the child has exited |

@@ -51,7 +51,7 @@ jobs:
       # they took). It writes its log and exit status; the step after the build waits for them.
       - name: Start fish installation beside the build
         run: |
-          ( set +e; { sudo apt-get update && sudo apt-get install --yes fish; } > "$RUNNER_TEMP/fish.log" 2>&1; echo $? > "$RUNNER_TEMP/fish.status" ) < /dev/null > /dev/null 2>&1 &
+          ( set +e; { sudo apt-get update && sudo apt-get install --yes fish; } > "$RUNNER_TEMP/fish.log" 2>&1; echo $? > "$RUNNER_TEMP/fish.status.tmp"; mv "$RUNNER_TEMP/fish.status.tmp" "$RUNNER_TEMP/fish.status" ) < /dev/null > /dev/null 2>&1 &
 
       - name: Restore fast test graph
         run: dotnet restore tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj
