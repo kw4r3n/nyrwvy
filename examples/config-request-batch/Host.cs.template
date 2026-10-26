@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -12,42 +11,71 @@ namespace BatchExample;
 // result aggregation and cancellation policy are in the Nyrwvy graph.
 public class Files : @@FILES@@
 {
-    private readonly ConcurrentDictionary<string, FileStream> handles = new();
     private static readonly object traceGate = new();
 
-    protected static void Trace(string root, string message)
+    internal static void Trace(string root, string message)
     {
         lock (traceGate) File.AppendAllText(Path.Combine(root, "trace.txt"), message + "\n");
     }
 
-    public NyResult<NyStr, NyStr> @@OPEN@@(NyStr rootValue)
+    protected virtual OpenFile CreateHandle(string root, FileStream stream) => new(root, stream);
+
+    public NyResult<@@OPENFILE@@, NyStr> @@OPEN@@(NyStr rootValue)
     {
         string root = rootValue;
         try
         {
+            // The exclusive lease is the handle's state; no lookup table is needed.
             var stream = new FileStream(Path.Combine(root, "lease.tmp"), FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
-            if (!handles.TryAdd(root, stream)) { stream.Dispose(); throw new InvalidOperationException("Handle already open"); }
             try
             {
                 Trace(root, "open");
-                return NyResult<NyStr, NyStr>.Ok(root);
+                return NyResult<@@OPENFILE@@, NyStr>.Ok(CreateHandle(root, stream));
             }
             catch (Exception primary)
             {
                 // Acquire has not returned a handle: UseResource cannot release it.
-                handles.TryRemove(new System.Collections.Generic.KeyValuePair<string, FileStream>(root, stream));
                 try { stream.Dispose(); }
                 catch (Exception cleanup) { primary.Data["acquireCleanupFailure"] = cleanup; }
                 throw; // Keep the original trace failure, including its path and stack.
             }
         }
-        catch (DirectoryNotFoundException) { return NyResult<NyStr, NyStr>.Err("directory missing"); }
+        catch (DirectoryNotFoundException) { return NyResult<@@OPENFILE@@, NyStr>.Err("directory missing"); }
     }
 
-    public NyResult<@@CONFIG@@, NyStr> @@READCONFIG@@(NyStr handle)
+    public NyUnit @@CLOSE@@(@@OPENFILE@@ handle)
     {
-        string root = handle;
-        Trace(root, "readConfig");
+        ((OpenFile)handle).Close();
+        return NyUnit.Value;
+    }
+}
+
+public class OpenFile : @@OPENFILE@@
+{
+    protected readonly string root;
+    private FileStream? stream;
+
+    public OpenFile(string root, FileStream stream) { this.root = root; this.stream = stream; }
+
+    internal FileStream? Stream => stream;
+
+    private void EnsureOpen()
+    {
+        if (stream is null) throw new InvalidOperationException("Handle is not open");
+    }
+
+    internal void Close()
+    {
+        var current = Interlocked.Exchange(ref stream, null) ?? throw new InvalidOperationException("Handle is not open");
+        current.Dispose();
+        if (current.CanWrite) throw new InvalidOperationException("Stream was not disposed");
+        Files.Trace(root, "close disposed");
+    }
+
+    public NyResult<@@CONFIG@@, NyStr> @@READCONFIG@@()
+    {
+        EnsureOpen();
+        Files.Trace(root, "readConfig");
         try
         {
             using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "config.json")));
@@ -58,10 +86,10 @@ public class Files : @@FILES@@
         catch (FileNotFoundException) { return NyResult<@@CONFIG@@, NyStr>.Err("config missing"); }
     }
 
-    public virtual NyResult<NyStr, @@FETCH_ERROR@@> @@FETCH@@(NyStr handle, NyStr request, long attempt)
+    public virtual NyResult<NyStr, @@FETCH_ERROR@@> @@FETCH@@(NyStr request, long attempt)
     {
-        string root = handle;
-        Trace(root, $"fetch {request} {attempt}");
+        EnsureOpen();
+        Files.Trace(root, $"fetch {request} {attempt}");
         if (File.Exists(Path.Combine(root, "responses", $"{request}.permanent")))
             return NyResult<NyStr, @@FETCH_ERROR@@>.Err(@@FETCH_PERMANENT@@);
         try
@@ -71,22 +99,12 @@ public class Files : @@FILES@@
         catch (FileNotFoundException) { return NyResult<NyStr, @@FETCH_ERROR@@>.Err(@@FETCH_MISSING@@); }
     }
 
-    public NyResult<NyUnit, NyStr> @@SAVE@@(NyStr handle, NyStr path, NyStr contents)
+    public NyResult<NyUnit, NyStr> @@SAVE@@(NyStr path, NyStr contents)
     {
-        string root = handle;
-        Trace(root, $"save {path}");
+        EnsureOpen();
+        Files.Trace(root, $"save {path}");
         File.WriteAllText(Path.Combine(root, (string)path), (string)contents);
         return NyResult<NyUnit, NyStr>.Ok(NyUnit.Value);
-    }
-
-    public NyUnit @@CLOSE@@(NyStr handle)
-    {
-        string root = handle;
-        if (!handles.TryRemove(root, out var stream)) throw new InvalidOperationException("Handle is not open");
-        stream.Dispose();
-        if (stream.CanWrite) throw new InvalidOperationException("Stream was not disposed");
-        Trace(root, "close disposed");
-        return NyUnit.Value;
     }
 }
 
@@ -96,12 +114,17 @@ public sealed class WaitingFiles : Files
 {
     internal static readonly ManualResetEventSlim RequestEntered = new(false);
 
-    public override NyResult<NyStr, @@FETCH_ERROR@@> @@FETCH@@(NyStr handle, NyStr request, long attempt)
+    protected override OpenFile CreateHandle(string root, FileStream stream) => new WaitingFile(root, stream);
+
+    private sealed class WaitingFile(string root, FileStream stream) : OpenFile(root, stream)
     {
-        Trace(handle, $"fetch {request} {attempt}");
-        RequestEntered.Set();
-        NyRuntime.WaitForCancellation();
-        return NyResult<NyStr, @@FETCH_ERROR@@>.Err(@@FETCH_CANCELLED@@);
+        public override NyResult<NyStr, @@FETCH_ERROR@@> @@FETCH@@(NyStr request, long attempt)
+        {
+            Files.Trace(root, $"fetch {request} {attempt}");
+            RequestEntered.Set();
+            NyRuntime.WaitForCancellation();
+            return NyResult<NyStr, @@FETCH_ERROR@@>.Err(@@FETCH_CANCELLED@@);
+        }
     }
 }
 

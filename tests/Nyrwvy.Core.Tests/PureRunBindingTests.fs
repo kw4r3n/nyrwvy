@@ -30,6 +30,7 @@ module PureRunBindingTests =
           Log: SemanticCapability
           Write: SemanticCapabilityOperation
           Metric: SemanticCapability
+          Issuer: SemanticCapability
           Function: string -> SemanticFunction }
 
     let private current (session: AuthoringSession) = (session.Status() |> unwrap "status").SnapshotId
@@ -92,6 +93,11 @@ module PureRunBindingTests =
             // Nine nested Lists exceed the eight composite layers a run value type may have.
             let rec nestedLists depth = if depth = 0 then TypeRef.Primitive PrimitiveType.Int64 else TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ nestedLists (depth - 1) ])
             let metric = createCapability session "Metric" [ operation "record" [ "value", nestedLists 9 ] unitType ]
+            // A host handle: Issuer returns and takes Log capability values, which are not run values.
+            let issuer =
+                createCapability session "Issuer"
+                    [ operation "open" [ "name", stringType ] (TypeRef.Capability log.Id)
+                      operation "close" [ "log", TypeRef.Capability log.Id; "note", stringType ] unitType ]
             let lookup = provider.Operations |> List.find (fun item -> item.DisplayName = "lookup")
             let fallback = provider.Operations |> List.find (fun item -> item.DisplayName = "fallback")
             let write = List.exactlyOne log.Operations
@@ -111,12 +117,17 @@ module PureRunBindingTests =
                     writeWith (ExpressionRecipe.StringConcat(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.StringLiteral "!"))))
             createFunction session "measure" [ "metric", TypeRef.Capability metric.Id ] (TypeRef.Primitive PrimitiveType.Bool) []
                 (ExpressionRecipe.BoolLiteral true)
+            let close = issuer.Operations |> List.find (fun item -> item.DisplayName = "close")
+            let closeArgument name = (close.Parameters |> List.find (fun item -> item.DisplayName = name)).Id
+            createFunction session "closeWith" [ "issuer", TypeRef.Capability issuer.Id; "log", TypeRef.Capability log.Id ] unitType [ effect.Id ]
+                (ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, close.Id,
+                    [ closeArgument "log", ExpressionRecipe.ParameterSlot 1; closeArgument "note", ExpressionRecipe.StringLiteral "done" ]))
             createFunction session "declaresEffect" [ "text", stringType ] stringType [ effect.Id ] (ExpressionRecipe.ParameterSlot 0)
             session.Close()
             use reopened = AuthoringSession.openExisting path |> unwrap "reopen"
             let functionNamed name = reopened.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
             run { Session = reopened; Path = path; Request = requestType; Key = key; Response = responseType; Value = value
-                  Provider = provider; Lookup = lookup; Fallback = fallback; Log = log; Write = write; Metric = metric
+                  Provider = provider; Lookup = lookup; Fallback = fallback; Log = log; Write = write; Metric = metric; Issuer = issuer
                   Function = functionNamed }
         finally
             if Directory.Exists root then Directory.Delete(root, true)
@@ -580,3 +591,25 @@ public sealed class Loud : {capability}
             let result = PureRun.run fixture.Session (fixture.Function "typedEcho").Id [ binding ] (Some(PureRunValue.String "echoed")) |> unwrap "typed fake"
             Assert.Equal(Some true, result.Matches)
             Assert.Single(result.Calls) |> ignore)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``runPure binds capabilities whose operations take or return capability values`` () =
+        withFixture (fun fixture ->
+            let closeWith = fixture.Function "closeWith"
+            let operation name = fixture.Issuer.Operations |> List.find (fun item -> item.DisplayName = name)
+            let close, opening = operation "close", operation "open"
+            let note = (close.Parameters |> List.find (fun item -> item.DisplayName = "note")).Id
+            let issuer responses =
+                PureRunValue.FakeCapability(fixture.Issuer.Id,
+                    [ { OperationId = close.Id; Cases = None; Responses = [ PureRunFakeResponse.Return PureRunValue.Unit ] }
+                      { OperationId = opening.Id; Cases = None; Responses = responses } ])
+            let log = PureRunValue.FakeCapability(fixture.Log.Id, [])
+            // The capability argument is left out of the recorded call; the String argument stays.
+            let result = PureRun.run fixture.Session closeWith.Id [ issuer [ PureRunFakeResponse.Throw "not opened" ]; log ] None |> unwrap "close"
+            Assert.Equal<PureRunCall list>(
+                [ { ParameterId = (List.head closeWith.Parameters).Id; OperationId = close.Id; Arguments = [ note, PureRunValue.String "done" ] } ],
+                result.Calls)
+            // No run value has a capability type, so a fake can only throw from an operation returning one.
+            match PureRun.run fixture.Session closeWith.Id [ issuer [ PureRunFakeResponse.Return(PureRunValue.String "x") ]; log ] None with
+            | Error(PureRunError.Unsupported(code, _)) -> Assert.Equal("RunBindingShapeMismatch", code)
+            | other -> failwithf "Capability-returning fake value accepted: %A" other)

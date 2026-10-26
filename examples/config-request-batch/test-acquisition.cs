@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -17,27 +16,28 @@ var trace = Path.Combine(root, "trace.txt");
 Directory.CreateDirectory(trace); // Force a real append failure after handle registration.
 var files = new Files();
 var open = typeof(Files).GetMethods().Single(method =>
-    method.ReturnType == typeof(NyResult<NyStr, NyStr>) && method.GetParameters().Length == 1);
+    method.GetParameters().Select(parameter => parameter.ParameterType).SequenceEqual(new[] { typeof(NyStr) }));
 var close = typeof(Files).GetMethods().Single(method =>
     method.ReturnType == typeof(NyUnit) && method.GetParameters().Length == 1);
-// Inspect the owned handles directly; no production visibility or helper is added.
-var handles = (ConcurrentDictionary<string, FileStream>)typeof(Files)
-    .GetField("handles", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(files)!;
 Exception? primary = null;
 try { open.Invoke(files, new object[] { (NyStr)root }); }
 catch (TargetInvocationException failure) { primary = failure.InnerException; }
 Check(primary is IOException or UnauthorizedAccessException, "Acquire must retain the trace I/O failure");
 Check(primary!.Message.Contains(trace, StringComparison.Ordinal), "Primary failure must name the trace path");
-Check(handles.IsEmpty, "Failed acquire left an owned handle registered");
 // The original FileShare.None stream must have released the same lease file.
 using (var lease = new FileStream(Path.Combine(root, "lease.tmp"), FileMode.Open, FileAccess.Write, FileShare.None))
     Check(lease.CanWrite, "Failed acquire retained its exclusive stream");
 
 Directory.Delete(trace);
-var reopened = (NyResult<NyStr, NyStr>)open.Invoke(files, new object[] { (NyStr)root })!;
-Check(reopened.IsOk && handles.Count == 1, "Same host and root must reopen after failed acquisition");
-var stream = handles[root];
-close.Invoke(files, new object[] { (NyStr)root });
-Check(handles.IsEmpty && !stream.CanWrite, "Reopened handle was not released");
+dynamic reopened = open.Invoke(files, new object[] { (NyStr)root })!;
+Check(reopened.IsOk, "Same host and root must reopen after failed acquisition");
+var handle = (OpenFile)reopened.OkValue;
+var stream = handle.Stream!;
+close.Invoke(files, new object[] { handle });
+Check(handle.Stream is null && !stream.CanWrite, "Reopened handle was not released");
+Exception? reused = null;
+try { close.Invoke(files, new object[] { handle }); }
+catch (TargetInvocationException failure) { reused = failure.InnerException; }
+Check(reused?.Message == "Handle is not open", "Closing a released handle must be a host failure");
 Check(File.ReadAllText(trace) == "open\nclose disposed\n", "Expected one successful acquire/release after recovery");
-Console.WriteLine("PASS: trace failure retained; owned handle removed; exclusive lease released; same host reopened and closed.");
+Console.WriteLine("PASS: trace failure retained; exclusive lease released; same host reopened and closed; released handle rejected.");

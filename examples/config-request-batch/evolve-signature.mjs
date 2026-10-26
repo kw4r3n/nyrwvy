@@ -16,7 +16,7 @@ export async function evolveSignature({ directory, call, exchange, publish, writ
   const snapshot = join(directory, "batch.nyrec")
   const persisted = () => Promise.all([readFile(snapshot), readFile(snapshot + ".dependency.json")])
   const before = await call("inspect", { view: "declarations" })
-  const operation = before.capabilities.find(c => c.displayName === "BatchFiles").operations.find(o => o.displayName === "fetch")
+  const operation = before.capabilities.find(c => c.displayName === "OpenFile").operations.find(o => o.displayName === "fetch")
   const fn = before.functions.find(f => f.displayName === "fetchWithRetry")
   const runString = value => ({ kind: "string", value })
   const runResult = (isOk, value, errorType = string) => errorType === string
@@ -25,7 +25,7 @@ export async function evolveSignature({ directory, call, exchange, publish, writ
   const responses = values => values.map(value => ({ kind: "return", value }))
   async function fakeCase(label, values, expected, attempts) {
     const reply = await call("request", { op: "runPureByName", arguments: {
-      function: "fetchWithRetry", arguments: [{ kind: "fakeCapability", capability: "BatchFiles", operations: [{ operation: "fetch", responses: responses(values) }] }, runString("handle"), runString("request"), { kind: "int64", value: "1" }, { kind: "int64", value: "2" }], expected,
+      function: "fetchWithRetry", arguments: [{ kind: "fakeCapability", capability: "BatchFiles", operations: [] }, { kind: "fakeCapability", capability: "OpenFile", operations: [{ operation: "fetch", responses: responses(values) }] }, runString("request"), { kind: "int64", value: "1" }, { kind: "int64", value: "2" }], expected,
     } })
     assert.equal(reply.matches, true, JSON.stringify(reply))
     assert.equal(reply.calls.filter(c => c.operation === "fetch").length, attempts)
@@ -36,8 +36,8 @@ export async function evolveSignature({ directory, call, exchange, publish, writ
   await publish(await call("create_type", { displayName: "FetchFailure", typeKind: { kind: "union", variants: ["Retryable", "Permanent"].map(displayName => ({ displayName, fields: [{ displayName: "message", type: string }] })) } }))
   const body = choose({ kind: "cancellationRequested" }, err(text("cancelled")), {
     kind: "matchResult",
-    input: { kind: "capabilityInvoke", capabilityValue: p("files"), capability: "BatchFiles", operation: "fetch",
-      arguments: ["handle", "request", "attempt"].map(parameter => ({ parameter, value: p(parameter) })) },
+    input: { kind: "capabilityInvoke", capabilityValue: p("handle"), capability: "OpenFile", operation: "fetch",
+      arguments: ["request", "attempt"].map(parameter => ({ parameter, value: p(parameter) })) },
     okBody: { kind: "resultOk", value: direct("normalizeValue", { value: pattern() }), errorType: string },
     errBody: { kind: "matchUnion", type: "FetchFailure", input: pattern("error"), arms: [
       { variant: "Retryable", body: choose(binary("int64LessThan", p("attempt"), p("limit")),
@@ -47,13 +47,14 @@ export async function evolveSignature({ directory, call, exchange, publish, writ
     ] },
   })
   const request = {
-    capability: "BatchFiles", operation: "fetch",
+    capability: "OpenFile", operation: "fetch",
     parameterTypes: operation.parameters.map(p => ({ parameter: p.displayName, type: p.type })),
     resultType: { kind: "builtinGeneric", generic: "result", arguments: [string, { kind: "named", name: "FetchFailure" }] },
     functionRepairs: [{ function: fn.displayName, parameterTypes: fn.parameters.map(p => ({ parameter: p.displayName, type: p.type })), resultType: fn.resultType, replacement: body }],
   }
   // By-name types must refer to capabilities by name; inspection exposes stable IDs.
   request.functionRepairs[0].parameterTypes[0].type = { kind: "capability", name: "BatchFiles" }
+  request.functionRepairs[0].parameterTypes[1].type = { kind: "capability", name: "OpenFile" }
   const evidence = { refusals: [], atomicity: "Graph declaration and repairs publish together; host boundary deployment is explicit." }
   async function refused(arguments_, code) {
     const bytes = await persisted()
