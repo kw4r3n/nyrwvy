@@ -174,6 +174,16 @@ and [<RequireQualifiedAccess>] TypedSemanticNodeKind =
     | Bits32RotateRight of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
     | Bits32ShiftRight of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
     | Bits32ShiftLeft of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
+    | BytesEmpty
+    | BytesFill of lengthNodeId: GraphNodeId * valueNodeId: GraphNodeId
+    | BytesLength of valueNodeId: GraphNodeId
+    | BytesGet of bytesNodeId: GraphNodeId * indexNodeId: GraphNodeId
+    | BytesSet of bytesNodeId: GraphNodeId * indexNodeId: GraphNodeId * valueNodeId: GraphNodeId
+    | BytesAppend of bytesNodeId: GraphNodeId * valueNodeId: GraphNodeId
+    | BytesConcat of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    | BytesSlice of bytesNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
+    | BytesFromLatin1 of valueNodeId: GraphNodeId
+    | BytesToLatin1 of valueNodeId: GraphNodeId
     | ListEmpty
     | SetEmpty
     | MapEmpty
@@ -410,6 +420,16 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Bits32RotateRight _
         | TypedSemanticNodeKind.Bits32ShiftRight _
         | TypedSemanticNodeKind.Bits32ShiftLeft _
+        | TypedSemanticNodeKind.BytesEmpty
+        | TypedSemanticNodeKind.BytesFill _
+        | TypedSemanticNodeKind.BytesLength _
+        | TypedSemanticNodeKind.BytesGet _
+        | TypedSemanticNodeKind.BytesSet _
+        | TypedSemanticNodeKind.BytesAppend _
+        | TypedSemanticNodeKind.BytesConcat _
+        | TypedSemanticNodeKind.BytesSlice _
+        | TypedSemanticNodeKind.BytesFromLatin1 _
+        | TypedSemanticNodeKind.BytesToLatin1 _
         | TypedSemanticNodeKind.ListEmpty
         | TypedSemanticNodeKind.SetEmpty
         | TypedSemanticNodeKind.MapEmpty
@@ -553,6 +573,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.StringLength valueNodeId
         | TypedSemanticNodeKind.StringIsEmpty valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) -> [ valueNodeId; startNodeId; endNodeId ]
+        | TypedSemanticNodeKind.BytesSet(firstNodeId, secondNodeId, thirdNodeId)
+        | TypedSemanticNodeKind.BytesSlice(firstNodeId, secondNodeId, thirdNodeId) -> [ firstNodeId; secondNodeId; thirdNodeId ]
+        | TypedSemanticNodeKind.BytesEmpty -> []
         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) -> [ valueNodeId; substringNodeId ]
         | TypedSemanticNodeKind.StringIndexOf(valueNodeId, substringNodeId, fromNodeId) -> [ valueNodeId; substringNodeId; fromNodeId ]
         | TypedSemanticNodeKind.StringSpan(valueNodeId, setNodeId, boundNodeId)
@@ -609,6 +632,10 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Bits32RotateRight(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Bits32ShiftRight(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.Bits32ShiftLeft(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.BytesFill(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.BytesGet(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.BytesAppend(leftNodeId, rightNodeId)
+        | TypedSemanticNodeKind.BytesConcat(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.ListConcat(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.SetUnion(leftNodeId, rightNodeId)
         | TypedSemanticNodeKind.SetIntersection(leftNodeId, rightNodeId)
@@ -624,6 +651,9 @@ module TypedSemanticNodeKind =
         | TypedSemanticNodeKind.Bits32FromInt64 valueNodeId
         | TypedSemanticNodeKind.Bits32ToInt64 valueNodeId
         | TypedSemanticNodeKind.Bits32Not valueNodeId
+        | TypedSemanticNodeKind.BytesLength valueNodeId
+        | TypedSemanticNodeKind.BytesFromLatin1 valueNodeId
+        | TypedSemanticNodeKind.BytesToLatin1 valueNodeId
         | TypedSemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
         | TypedSemanticNodeKind.ListConstruct itemNodeIds -> itemNodeIds
         | TypedSemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
@@ -1017,6 +1047,18 @@ module TypedSemanticIr =
                     | SemanticNodeKind.Bits32RotateRight(leftNodeId, rightNodeId) -> Ok(TypedSemanticNodeKind.Bits32RotateRight(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Bits32ShiftRight(leftNodeId, rightNodeId) -> Ok(TypedSemanticNodeKind.Bits32ShiftRight(leftNodeId, rightNodeId))
                     | SemanticNodeKind.Bits32ShiftLeft(leftNodeId, rightNodeId) -> Ok(TypedSemanticNodeKind.Bits32ShiftLeft(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.BytesEmpty -> Ok TypedSemanticNodeKind.BytesEmpty
+                    | SemanticNodeKind.BytesFill(lengthNodeId, valueNodeId) -> Ok(TypedSemanticNodeKind.BytesFill(lengthNodeId, valueNodeId))
+                    | SemanticNodeKind.BytesLength valueNodeId -> Ok(TypedSemanticNodeKind.BytesLength valueNodeId)
+                    | SemanticNodeKind.BytesGet(bytesNodeId, indexNodeId) -> Ok(TypedSemanticNodeKind.BytesGet(bytesNodeId, indexNodeId))
+                    | SemanticNodeKind.BytesSet(bytesNodeId, indexNodeId, valueNodeId) ->
+                        Ok(TypedSemanticNodeKind.BytesSet(bytesNodeId, indexNodeId, valueNodeId))
+                    | SemanticNodeKind.BytesAppend(bytesNodeId, valueNodeId) -> Ok(TypedSemanticNodeKind.BytesAppend(bytesNodeId, valueNodeId))
+                    | SemanticNodeKind.BytesConcat(leftNodeId, rightNodeId) -> Ok(TypedSemanticNodeKind.BytesConcat(leftNodeId, rightNodeId))
+                    | SemanticNodeKind.BytesSlice(bytesNodeId, startNodeId, endNodeId) ->
+                        Ok(TypedSemanticNodeKind.BytesSlice(bytesNodeId, startNodeId, endNodeId))
+                    | SemanticNodeKind.BytesFromLatin1 valueNodeId -> Ok(TypedSemanticNodeKind.BytesFromLatin1 valueNodeId)
+                    | SemanticNodeKind.BytesToLatin1 valueNodeId -> Ok(TypedSemanticNodeKind.BytesToLatin1 valueNodeId)
                     | SemanticNodeKind.ListEmpty _ ->
                         Ok TypedSemanticNodeKind.ListEmpty
                     | SemanticNodeKind.SetEmpty _ ->

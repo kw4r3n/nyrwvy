@@ -1312,6 +1312,59 @@ module SnapshotValidator =
                             $"Bits32 node '{StableId.value node.Id}' requires an Int64 amount."
                             (TypeRef.Primitive PrimitiveType.Int64)
                             amountNodeId
+                    | SemanticNodeKind.BytesEmpty -> ()
+                    | SemanticNodeKind.BytesFill(lengthNodeId, valueNodeId) ->
+                        let int64Type = TypeRef.Primitive PrimitiveType.Int64
+                        requireNodeType "BytesOperandTypeMismatch" $"BytesFill node '{StableId.value node.Id}' requires an Int64 length." int64Type lengthNodeId
+                        requireNodeType "BytesOperandTypeMismatch" $"BytesFill node '{StableId.value node.Id}' requires an Int64 value." int64Type valueNodeId
+                    | SemanticNodeKind.BytesLength valueNodeId
+                    | SemanticNodeKind.BytesToLatin1 valueNodeId ->
+                        requireNodeType
+                            "BytesOperandTypeMismatch"
+                            $"Bytes node '{StableId.value node.Id}' requires a Bytes operand."
+                            (TypeRef.Primitive PrimitiveType.Bytes)
+                            valueNodeId
+                    | SemanticNodeKind.BytesFromLatin1 valueNodeId ->
+                        requireNodeType
+                            "BytesOperandTypeMismatch"
+                            $"BytesFromLatin1 node '{StableId.value node.Id}' requires a String value."
+                            (TypeRef.Primitive PrimitiveType.String)
+                            valueNodeId
+                    | SemanticNodeKind.BytesConcat(leftNodeId, rightNodeId) ->
+                        requireBinaryOperands
+                            "BytesOperandTypeMismatch" "Bytes" (TypeRef.Primitive PrimitiveType.Bytes)
+                            node.Id leftNodeId rightNodeId
+                    | SemanticNodeKind.BytesGet(bytesNodeId, indexNodeId)
+                    | SemanticNodeKind.BytesAppend(bytesNodeId, indexNodeId) ->
+                        let operand = match node.Kind with SemanticNodeKind.BytesGet _ -> "index" | _ -> "value"
+                        requireNodeType
+                            "BytesOperandTypeMismatch"
+                            $"Bytes node '{StableId.value node.Id}' requires a Bytes value."
+                            (TypeRef.Primitive PrimitiveType.Bytes)
+                            bytesNodeId
+                        requireNodeType
+                            "BytesOperandTypeMismatch"
+                            $"Bytes node '{StableId.value node.Id}' requires an Int64 {operand}."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            indexNodeId
+                    | SemanticNodeKind.BytesSet(bytesNodeId, firstNodeId, secondNodeId)
+                    | SemanticNodeKind.BytesSlice(bytesNodeId, firstNodeId, secondNodeId) ->
+                        let first, second = match node.Kind with SemanticNodeKind.BytesSet _ -> "index", "value" | _ -> "start", "end"
+                        requireNodeType
+                            "BytesOperandTypeMismatch"
+                            $"Bytes node '{StableId.value node.Id}' requires a Bytes value."
+                            (TypeRef.Primitive PrimitiveType.Bytes)
+                            bytesNodeId
+                        requireNodeType
+                            "BytesOperandTypeMismatch"
+                            $"Bytes node '{StableId.value node.Id}' requires an Int64 {first}."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            firstNodeId
+                        requireNodeType
+                            "BytesOperandTypeMismatch"
+                            $"Bytes node '{StableId.value node.Id}' requires an Int64 {second}."
+                            (TypeRef.Primitive PrimitiveType.Int64)
+                            secondNodeId
                     | SemanticNodeKind.ListEmpty itemType ->
                         validateTypeRef $"ListEmpty node '{StableId.value node.Id}' item type" itemType
                     | SemanticNodeKind.SetEmpty itemType ->
@@ -2665,6 +2718,16 @@ module SnapshotValidator =
                 | SemanticNodeKind.Bits32RotateRight _
                 | SemanticNodeKind.Bits32ShiftRight _
                 | SemanticNodeKind.Bits32ShiftLeft _
+                | SemanticNodeKind.BytesEmpty
+                | SemanticNodeKind.BytesFill _
+                | SemanticNodeKind.BytesLength _
+                | SemanticNodeKind.BytesGet _
+                | SemanticNodeKind.BytesSet _
+                | SemanticNodeKind.BytesAppend _
+                | SemanticNodeKind.BytesConcat _
+                | SemanticNodeKind.BytesSlice _
+                | SemanticNodeKind.BytesFromLatin1 _
+                | SemanticNodeKind.BytesToLatin1 _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.SetEmpty _
                 | SemanticNodeKind.MapEmpty _

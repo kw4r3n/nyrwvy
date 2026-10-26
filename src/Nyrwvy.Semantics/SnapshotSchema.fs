@@ -47,6 +47,8 @@ type SnapshotSchemaFeature =
     | ListZipWithAndFlatMap
     /// ListScan.
     | ListScan
+    /// The Bytes type anywhere, or any Bytes node kind.
+    | Bytes
     /// A Product or Union with type parameters, a named type with type arguments, or a construct
     /// node with type arguments.
     | GenericTypes
@@ -112,12 +114,14 @@ module SnapshotSchema =
 
     let private v22 = version 22 "nayamnyam.snapshot.v18"
 
+    let private v23 = version 23 "nayamnyam.snapshot.v19"
+
     /// Every version the codecs read, oldest first.
-    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19; v20; v21; v22 ]
+    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19; v20; v21; v22; v23 ]
 
     /// The newest version: the one ordinary writers and migration write every snapshot at, whatever
     /// constructs it uses (docs/specs/schema-evolution-policy.md, deprecation policy).
-    let current = v22
+    let current = v23
 
     /// The first version the record form (`.nyrec`) was written at; its reader accepts this one onward.
     let firstRecord = v21
@@ -128,7 +132,8 @@ module SnapshotSchema =
 
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
-        [ SnapshotSchemaFeature.ListScan, v22, "ListScan"
+        [ SnapshotSchemaFeature.Bytes, v23, "Bytes"
+          SnapshotSchemaFeature.ListScan, v22, "ListScan"
           SnapshotSchemaFeature.DeclaredFunctionTypeParameters, v21, "Declared function type parameters"
           SnapshotSchemaFeature.DeclarationVisibility, v21, "A private declaration"
           SnapshotSchemaFeature.SetCallbacks, v20, "SetFold, SetFilter and SetMap"
@@ -269,6 +274,16 @@ module SnapshotSchema =
         | SemanticNodeKind.ListZipWith _
         | SemanticNodeKind.ListFlatMap _ -> Some SnapshotSchemaFeature.ListZipWithAndFlatMap
         | SemanticNodeKind.ListScan _ -> Some SnapshotSchemaFeature.ListScan
+        | SemanticNodeKind.BytesEmpty
+        | SemanticNodeKind.BytesFill _
+        | SemanticNodeKind.BytesLength _
+        | SemanticNodeKind.BytesGet _
+        | SemanticNodeKind.BytesSet _
+        | SemanticNodeKind.BytesAppend _
+        | SemanticNodeKind.BytesConcat _
+        | SemanticNodeKind.BytesSlice _
+        | SemanticNodeKind.BytesFromLatin1 _
+        | SemanticNodeKind.BytesToLatin1 _ -> Some SnapshotSchemaFeature.Bytes
         | SemanticNodeKind.ProductConstruct(_, _ :: _, _)
         | SemanticNodeKind.UnionConstruct(_, _ :: _, _) -> Some SnapshotSchemaFeature.GenericTypes
         | SemanticNodeKind.TaskWait _
@@ -395,6 +410,7 @@ module SnapshotSchema =
 
     let rec private typeFeatures (typeRef: TypeRef): SnapshotSchemaFeature list =
         match typeRef with
+        | TypeRef.Primitive PrimitiveType.Bytes -> [ SnapshotSchemaFeature.Bytes ]
         | TypeRef.Primitive _
         | TypeRef.Named(_, [])
         | TypeRef.Capability _

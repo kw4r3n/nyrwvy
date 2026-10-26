@@ -56,6 +56,7 @@ module CSharpBackend =
         | TypeRef.Primitive PrimitiveType.Int64 -> "long"
         | TypeRef.Primitive PrimitiveType.Float64 -> "double"
         | TypeRef.Primitive PrimitiveType.Bits32 -> "uint"
+        | TypeRef.Primitive PrimitiveType.Bytes -> "NyBytes"
         | TypeRef.Named(typeId, arguments) -> CSharpBackendNames.typeName typeId + typeArgumentList arguments
         | TypeRef.Capability capabilityId -> CSharpBackendNames.capabilityName capabilityId
         | TypeRef.Function(arguments, result) ->
@@ -1010,6 +1011,9 @@ module CSharpBackend =
         for line in CSharpBackendRuntime.listRuntime do
             writer.Line(line)
         writer.Line("")
+        for line in CSharpBackendRuntime.bytesRuntime do
+            writer.Line(line)
+        writer.Line("")
 
     let private fieldParameter (field: ExecutionField) =
         formatType field.Type + " " + CSharpBackendNames.fieldName field.Id
@@ -1635,6 +1639,23 @@ module CSharpBackend =
         | ExecutionInstructionKind.Bits32ShiftLeft(valueId, amountValueId) ->
             let amount = valueName amountValueId
             writer.Line(target + " = " + amount + " <= 0L ? " + valueName valueId + " : " + amount + " >= 32L ? 0u : " + valueName valueId + " << (int)" + amount + ";")
+        // Bytes is NyBytes; every operation is total and returns a new value (see CSharpBackendRuntime.bytesRuntime).
+        | ExecutionInstructionKind.BytesEmpty -> writer.Line(target + " = NyBytes.Empty();")
+        | ExecutionInstructionKind.BytesFill(lengthId, valueId) ->
+            writer.Line(target + " = NyBytes.Fill(" + valueName lengthId + ", " + valueName valueId + ");")
+        | ExecutionInstructionKind.BytesLength valueId -> writer.Line(target + " = " + valueName valueId + ".Length;")
+        | ExecutionInstructionKind.BytesGet(bytesId, indexId) ->
+            writer.Line(target + " = " + valueName bytesId + ".Get(" + valueName indexId + ");")
+        | ExecutionInstructionKind.BytesSet(bytesId, indexId, valueId) ->
+            writer.Line(target + " = " + valueName bytesId + ".Set(" + valueName indexId + ", " + valueName valueId + ");")
+        | ExecutionInstructionKind.BytesAppend(bytesId, valueId) ->
+            writer.Line(target + " = " + valueName bytesId + ".Append(" + valueName valueId + ");")
+        | ExecutionInstructionKind.BytesConcat(leftId, rightId) ->
+            writer.Line(target + " = " + valueName leftId + ".Concat(" + valueName rightId + ");")
+        | ExecutionInstructionKind.BytesSlice(bytesId, startId, endId) ->
+            writer.Line(target + " = " + valueName bytesId + ".Slice(" + valueName startId + ", " + valueName endId + ");")
+        | ExecutionInstructionKind.BytesFromLatin1 valueId -> writer.Line(target + " = NyBytes.FromLatin1(" + valueName valueId + ");")
+        | ExecutionInstructionKind.BytesToLatin1 valueId -> writer.Line(target + " = " + valueName valueId + ".ToLatin1();")
         | ExecutionInstructionKind.ListEmpty ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".Empty();")
         | ExecutionInstructionKind.SetEmpty ->

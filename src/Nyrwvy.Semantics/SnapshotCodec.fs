@@ -183,6 +183,7 @@ module SnapshotCodec =
                 | PrimitiveType.Int64 -> "int64"
                 | PrimitiveType.Float64 -> "float64"
                 | PrimitiveType.Bits32 -> "bits32"
+                | PrimitiveType.Bytes -> "bytes"
             )
         | TypeRef.Function(arguments, result) ->
             writer.WriteString("kind", "function")
@@ -714,6 +715,33 @@ module SnapshotCodec =
             writer.WriteString("kind", "bits32ShiftLeft")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("amountNodeId", StableId.value amountNodeId)
+        | SemanticNodeKind.BytesEmpty -> writer.WriteString("kind", "bytesEmpty")
+        | SemanticNodeKind.BytesFill(lengthNodeId, valueNodeId) ->
+            writer.WriteString("kind", "bytesFill")
+            writer.WriteString("lengthNodeId", StableId.value lengthNodeId)
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.BytesLength valueNodeId -> writeUnaryNode writer "bytesLength" valueNodeId
+        | SemanticNodeKind.BytesGet(bytesNodeId, indexNodeId) ->
+            writer.WriteString("kind", "bytesGet")
+            writer.WriteString("bytesNodeId", StableId.value bytesNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
+        | SemanticNodeKind.BytesSet(bytesNodeId, indexNodeId, valueNodeId) ->
+            writer.WriteString("kind", "bytesSet")
+            writer.WriteString("bytesNodeId", StableId.value bytesNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.BytesAppend(bytesNodeId, valueNodeId) ->
+            writer.WriteString("kind", "bytesAppend")
+            writer.WriteString("bytesNodeId", StableId.value bytesNodeId)
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | SemanticNodeKind.BytesConcat(leftNodeId, rightNodeId) -> writeBinaryNode writer "bytesConcat" leftNodeId rightNodeId
+        | SemanticNodeKind.BytesSlice(bytesNodeId, startNodeId, endNodeId) ->
+            writer.WriteString("kind", "bytesSlice")
+            writer.WriteString("bytesNodeId", StableId.value bytesNodeId)
+            writer.WriteString("startNodeId", StableId.value startNodeId)
+            writer.WriteString("endNodeId", StableId.value endNodeId)
+        | SemanticNodeKind.BytesFromLatin1 valueNodeId -> writeUnaryNode writer "bytesFromLatin1" valueNodeId
+        | SemanticNodeKind.BytesToLatin1 valueNodeId -> writeUnaryNode writer "bytesToLatin1" valueNodeId
         | SemanticNodeKind.ListEmpty itemType ->
             writer.WriteString("kind", "listEmpty")
             writer.WritePropertyName("itemType")
@@ -1458,6 +1486,7 @@ module SnapshotCodec =
                 | "int64" -> PrimitiveType.Int64
                 | "float64" -> PrimitiveType.Float64
                 | "bits32" -> PrimitiveType.Bits32
+                | "bytes" -> PrimitiveType.Bytes
                 | value -> invalidShape $"Unsupported primitive type '{value}'."
             TypeRef.Primitive primitive
         | "named" ->
@@ -2018,6 +2047,44 @@ module SnapshotCodec =
                     (set [ "id"; "kind"; "valueNodeId"; "amountNodeId" ])
                     element
                 SemanticNodeKind.Bits32ShiftLeft(readId<GraphNodeTag> "valueNodeId" element, readId<GraphNodeTag> "amountNodeId" element)
+            | "bytesEmpty" ->
+                ensureProperties "BytesEmpty node" (set [ "id"; "kind" ]) (set [ "id"; "kind" ]) element
+                SemanticNodeKind.BytesEmpty
+            | "bytesFill" ->
+                ensureProperties "BytesFill node" (set [ "id"; "kind"; "lengthNodeId"; "valueNodeId" ]) (set [ "id"; "kind"; "lengthNodeId"; "valueNodeId" ]) element
+                SemanticNodeKind.BytesFill(readId<GraphNodeTag> "lengthNodeId" element, readId<GraphNodeTag> "valueNodeId" element)
+            | "bytesLength" -> readUnaryNode "BytesLength node" element SemanticNodeKind.BytesLength
+            | "bytesGet" ->
+                ensureProperties "BytesGet node" (set [ "id"; "kind"; "bytesNodeId"; "indexNodeId" ]) (set [ "id"; "kind"; "bytesNodeId"; "indexNodeId" ]) element
+                SemanticNodeKind.BytesGet(readId<GraphNodeTag> "bytesNodeId" element, readId<GraphNodeTag> "indexNodeId" element)
+            | "bytesSet" ->
+                ensureProperties
+                    "BytesSet node"
+                    (set [ "id"; "kind"; "bytesNodeId"; "indexNodeId"; "valueNodeId" ])
+                    (set [ "id"; "kind"; "bytesNodeId"; "indexNodeId"; "valueNodeId" ])
+                    element
+                SemanticNodeKind.BytesSet(
+                    readId<GraphNodeTag> "bytesNodeId" element,
+                    readId<GraphNodeTag> "indexNodeId" element,
+                    readId<GraphNodeTag> "valueNodeId" element
+                )
+            | "bytesAppend" ->
+                ensureProperties "BytesAppend node" (set [ "id"; "kind"; "bytesNodeId"; "valueNodeId" ]) (set [ "id"; "kind"; "bytesNodeId"; "valueNodeId" ]) element
+                SemanticNodeKind.BytesAppend(readId<GraphNodeTag> "bytesNodeId" element, readId<GraphNodeTag> "valueNodeId" element)
+            | "bytesConcat" -> readBinaryNode "BytesConcat node" element (fun left right -> SemanticNodeKind.BytesConcat(left, right))
+            | "bytesSlice" ->
+                ensureProperties
+                    "BytesSlice node"
+                    (set [ "id"; "kind"; "bytesNodeId"; "startNodeId"; "endNodeId" ])
+                    (set [ "id"; "kind"; "bytesNodeId"; "startNodeId"; "endNodeId" ])
+                    element
+                SemanticNodeKind.BytesSlice(
+                    readId<GraphNodeTag> "bytesNodeId" element,
+                    readId<GraphNodeTag> "startNodeId" element,
+                    readId<GraphNodeTag> "endNodeId" element
+                )
+            | "bytesFromLatin1" -> readUnaryNode "BytesFromLatin1 node" element SemanticNodeKind.BytesFromLatin1
+            | "bytesToLatin1" -> readUnaryNode "BytesToLatin1 node" element SemanticNodeKind.BytesToLatin1
             | "listEmpty" ->
                 ensureProperties "ListEmpty node" (set [ "id"; "kind"; "itemType" ]) (set [ "id"; "kind"; "itemType" ]) element
                 SemanticNodeKind.ListEmpty(readTypeRef (requireProperty "itemType" element))

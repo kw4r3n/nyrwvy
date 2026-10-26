@@ -349,6 +349,24 @@ module ExecutionIr =
                         | TypedSemanticNodeKind.StringSlice(valueNodeId, startNodeId, endNodeId) ->
                             lowerTernaryNode node valueNodeId startNodeId endNodeId (fun valueId startId endId ->
                                 ExecutionInstructionKind.StringSlice(valueId, startId, endId))
+                        | TypedSemanticNodeKind.BytesEmpty -> Ok(addInstruction currentBlock node ExecutionInstructionKind.BytesEmpty)
+                        | TypedSemanticNodeKind.BytesFill(lengthNodeId, valueNodeId) ->
+                            lowerBinaryNode node lengthNodeId valueNodeId (fun length value -> ExecutionInstructionKind.BytesFill(length, value))
+                        | TypedSemanticNodeKind.BytesLength valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.BytesLength
+                        | TypedSemanticNodeKind.BytesGet(bytesNodeId, indexNodeId) ->
+                            lowerBinaryNode node bytesNodeId indexNodeId (fun bytes index -> ExecutionInstructionKind.BytesGet(bytes, index))
+                        | TypedSemanticNodeKind.BytesSet(bytesNodeId, indexNodeId, valueNodeId) ->
+                            lowerTernaryNode node bytesNodeId indexNodeId valueNodeId (fun bytes index value ->
+                                ExecutionInstructionKind.BytesSet(bytes, index, value))
+                        | TypedSemanticNodeKind.BytesAppend(bytesNodeId, valueNodeId) ->
+                            lowerBinaryNode node bytesNodeId valueNodeId (fun bytes value -> ExecutionInstructionKind.BytesAppend(bytes, value))
+                        | TypedSemanticNodeKind.BytesConcat(leftNodeId, rightNodeId) ->
+                            lowerBinaryNode node leftNodeId rightNodeId (fun left right -> ExecutionInstructionKind.BytesConcat(left, right))
+                        | TypedSemanticNodeKind.BytesSlice(bytesNodeId, startNodeId, endNodeId) ->
+                            lowerTernaryNode node bytesNodeId startNodeId endNodeId (fun bytes start stop ->
+                                ExecutionInstructionKind.BytesSlice(bytes, start, stop))
+                        | TypedSemanticNodeKind.BytesFromLatin1 valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.BytesFromLatin1
+                        | TypedSemanticNodeKind.BytesToLatin1 valueNodeId -> lowerUnaryNode node valueNodeId ExecutionInstructionKind.BytesToLatin1
                         | TypedSemanticNodeKind.StringContains(valueNodeId, substringNodeId) ->
                             match requireNodeValue environment valueNodeId, requireNodeValue environment substringNodeId with
                             | Ok valueId, Ok substringId ->

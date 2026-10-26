@@ -172,6 +172,12 @@ module AuthoringProtocol =
         | true, bits -> bits
         | false, _ -> fail "A Bits32 value must be an integer from 0 to 4294967295, as a JSON number or an exact decimal string."
 
+    /// Reads a Bytes run value: a JSON string of hexadecimal digit pairs, two per byte ("00ff7f").
+    /// Upper-case digits are accepted; values are always written in lower case.
+    let private bytesValue (value: JsonElement) =
+        let fault () = fail "A Bytes value must be a string of hexadecimal digit pairs, such as \"00ff7f\"."
+        if value.ValueKind <> JsonValueKind.String then fault ()
+        try Convert.FromHexString(value.GetString()) with :? FormatException -> fault ()
     /// Wraps a fake response in its optional `delayMillis` of virtual time; absent or 0 means none.
     let private delayed (element: JsonElement) (response: PureRunFakeResponse) =
         match tryProperty "delayMillis" element with
@@ -240,7 +246,7 @@ module AuthoringProtocol =
         if (tryProperty "kind" item).IsNone && (tryProperty "parameter" item).IsSome then
             fail "Run values are typed objects with a kind. runPure arguments are positional, one typed value per parameter in declaration order (for example [{\"kind\":\"string\",\"value\":\"a\"}]); {parameter, value} pairs are the form of fake capability case arguments."
         let kind = requiredString "kind" item
-        if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "float64" && kind <> "bits32" && kind <> "unit" then
+        if depth >= PureRun.maxValueLayers && kind <> "string" && kind <> "bool" && kind <> "int64" && kind <> "float64" && kind <> "bits32" && kind <> "bytes" && kind <> "unit" then
             fail $"Run values may have at most {PureRun.maxValueLayers} nested composite layers."
         // Tagged child values are charged by their recursive parse, exactly once. Only flat
         // scalar payloads and fake-case metadata have no recursive parse and need precharging.
@@ -309,6 +315,9 @@ module AuthoringProtocol =
         | "bits32" ->
             ensureFields "Bits32 run value" [ "kind"; "value" ] [ "kind"; "value" ] item
             PureRunValue.Bits32(bits32Value (property "value" item))
+        | "bytes" ->
+            ensureFields "Bytes run value" [ "kind"; "hex" ] [ "kind"; "hex" ] item
+            PureRunValue.Bytes(bytesValue (property "hex" item))
         | "hostCapability" ->
             let capabilityKey = key "capabilityId" "capability"
             ensureFields "Host capability" [ "kind"; capabilityKey; "implementation"; "supportsConcurrentCalls" ] [ "kind"; capabilityKey; "implementation" ] item
@@ -546,6 +555,7 @@ module AuthoringProtocol =
                 | false, _ -> fail $"Expected an exact integer or decimal integer string at {location}."
         | TypeRef.Primitive PrimitiveType.Float64 -> PureRunValue.Float64(float64Value item)
         | TypeRef.Primitive PrimitiveType.Bits32 -> PureRunValue.Bits32(bits32Value item)
+        | TypeRef.Primitive PrimitiveType.Bytes -> PureRunValue.Bytes(bytesValue item)
         | TypeRef.Primitive PrimitiveType.Unit ->
             if item.ValueKind <> JsonValueKind.Null then fail $"Expected null for Unit at {location}."
             PureRunValue.Unit
@@ -778,6 +788,7 @@ module AuthoringProtocol =
         | PureRunValue.Int64 value -> encodePureScalar (PureRunScalar.Int64 value)
         | PureRunValue.Float64 bits -> encodeFloat64 bits
         | PureRunValue.Bits32 bits -> objectValue [ "kind", box "bits32"; "value", box (bits.ToString(Globalization.CultureInfo.InvariantCulture)) ]
+        | PureRunValue.Bytes bytes -> objectValue [ "kind", box "bytes"; "hex", box (Convert.ToHexStringLower bytes) ]
 
     let private encodePathStep names step =
         match step with

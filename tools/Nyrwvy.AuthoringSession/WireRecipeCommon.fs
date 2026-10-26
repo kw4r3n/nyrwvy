@@ -173,6 +173,28 @@ module internal WireRecipeCommon =
         | "bits32ShiftLeft" ->
             ensureFields "bits32-shift-left recipe" [ "kind"; "value"; "amount" ] [ "kind"; "value"; "amount" ] element
             ExpressionRecipe.Bits32ShiftLeft(recipe (property "value" element), recipe (property "amount" element)) |> Some
+        | "bytesEmpty" ->
+            ensureFields "bytes-empty recipe" [ "kind" ] [ "kind" ] element
+            ExpressionRecipe.BytesEmpty |> Some
+        | "bytesFill" ->
+            ensureFields "bytes-fill recipe" [ "kind"; "length"; "value" ] [ "kind"; "length"; "value" ] element
+            ExpressionRecipe.BytesFill(recipe (property "length" element), recipe (property "value" element)) |> Some
+        | "bytesLength" -> unary "bytes-length recipe" ExpressionRecipe.BytesLength |> Some
+        | "bytesGet" ->
+            ensureFields "bytes-get recipe" [ "kind"; "bytes"; "index" ] [ "kind"; "bytes"; "index" ] element
+            ExpressionRecipe.BytesGet(recipe (property "bytes" element), recipe (property "index" element)) |> Some
+        | "bytesSet" ->
+            ensureFields "bytes-set recipe" [ "kind"; "bytes"; "index"; "value" ] [ "kind"; "bytes"; "index"; "value" ] element
+            ExpressionRecipe.BytesSet(recipe (property "bytes" element), recipe (property "index" element), recipe (property "value" element)) |> Some
+        | "bytesAppend" ->
+            ensureFields "bytes-append recipe" [ "kind"; "bytes"; "value" ] [ "kind"; "bytes"; "value" ] element
+            ExpressionRecipe.BytesAppend(recipe (property "bytes" element), recipe (property "value" element)) |> Some
+        | "bytesConcat" -> binary "bytes-concat recipe" ExpressionRecipe.BytesConcat |> Some
+        | "bytesSlice" ->
+            ensureFields "bytes-slice recipe" [ "kind"; "bytes"; "start"; "end" ] [ "kind"; "bytes"; "start"; "end" ] element
+            ExpressionRecipe.BytesSlice(recipe (property "bytes" element), recipe (property "start" element), recipe (property "end" element)) |> Some
+        | "bytesFromLatin1" -> unary "bytes-from-latin1 recipe" ExpressionRecipe.BytesFromLatin1 |> Some
+        | "bytesToLatin1" -> unary "bytes-to-latin1 recipe" ExpressionRecipe.BytesToLatin1 |> Some
         | "listLength" -> unary "list-length recipe" ExpressionRecipe.ListLength |> Some
         | "mapValues" -> unary "map-values recipe" ExpressionRecipe.MapValues |> Some
         | "mapKeys" -> unary "map-keys recipe" ExpressionRecipe.MapKeys |> Some

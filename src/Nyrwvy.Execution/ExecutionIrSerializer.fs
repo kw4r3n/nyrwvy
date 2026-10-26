@@ -50,6 +50,8 @@ module ExecutionIrSerializer =
             objectValue [ property "kind" (quote "primitiveFloat64") ]
         | TypeRef.Primitive PrimitiveType.Bits32 ->
             objectValue [ property "kind" (quote "primitiveBits32") ]
+        | TypeRef.Primitive PrimitiveType.Bytes ->
+            objectValue [ property "kind" (quote "primitiveBytes") ]
         | TypeRef.TypeParameter typeParameterId ->
             objectValue
                 [ property "kind" (quote "typeParameter")
@@ -514,6 +516,36 @@ module ExecutionIrSerializer =
             [ property "kind" (quote "bits32ShiftLeft")
               property "valueId" (executionValueIdValue valueId)
               property "amountValueId" (executionValueIdValue amountValueId) ]
+        | ExecutionInstructionKind.BytesEmpty -> [ property "kind" (quote "bytesEmpty") ]
+        | ExecutionInstructionKind.BytesFill(lengthId, valueId) ->
+            [ property "kind" (quote "bytesFill")
+              property "lengthId" (executionValueIdValue lengthId)
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.BytesLength valueId -> writeUnaryInstruction "bytesLength" valueId
+        | ExecutionInstructionKind.BytesGet(bytesId, indexId) ->
+            [ property "kind" (quote "bytesGet")
+              property "bytesId" (executionValueIdValue bytesId)
+              property "indexId" (executionValueIdValue indexId) ]
+        | ExecutionInstructionKind.BytesSet(bytesId, indexId, valueId) ->
+            [ property "kind" (quote "bytesSet")
+              property "bytesId" (executionValueIdValue bytesId)
+              property "indexId" (executionValueIdValue indexId)
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.BytesAppend(bytesId, valueId) ->
+            [ property "kind" (quote "bytesAppend")
+              property "bytesId" (executionValueIdValue bytesId)
+              property "valueId" (executionValueIdValue valueId) ]
+        | ExecutionInstructionKind.BytesConcat(leftId, rightId) ->
+            [ property "kind" (quote "bytesConcat")
+              property "leftId" (executionValueIdValue leftId)
+              property "rightId" (executionValueIdValue rightId) ]
+        | ExecutionInstructionKind.BytesSlice(bytesId, startId, endId) ->
+            [ property "kind" (quote "bytesSlice")
+              property "bytesId" (executionValueIdValue bytesId)
+              property "startId" (executionValueIdValue startId)
+              property "endId" (executionValueIdValue endId) ]
+        | ExecutionInstructionKind.BytesFromLatin1 valueId -> writeUnaryInstruction "bytesFromLatin1" valueId
+        | ExecutionInstructionKind.BytesToLatin1 valueId -> writeUnaryInstruction "bytesToLatin1" valueId
         | ExecutionInstructionKind.ListEmpty ->
             [ property "kind" (quote "listEmpty") ]
         | ExecutionInstructionKind.SetEmpty ->

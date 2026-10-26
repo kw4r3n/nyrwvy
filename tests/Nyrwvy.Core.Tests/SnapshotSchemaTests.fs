@@ -185,7 +185,9 @@ module SnapshotSchemaTests =
               create "doubled" [ "xs", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListFlatMap(slot 0, twice.Id, [])) |> ignore)
           "scan", SnapshotSchemaFeature.ListScan, (fun create _ ->
               let add = create "add" [ "total", int64Type; "item", int64Type ] int64Type [] (ExpressionRecipe.Int64WrappingAdd(slot 0, slot 1))
-              create "running" [ "xs", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListScan(slot 0, ExpressionRecipe.Int64Literal 0L, add.Id, [])) |> ignore) ]
+              create "running" [ "xs", listOf int64Type ] (listOf int64Type) [] (ExpressionRecipe.ListScan(slot 0, ExpressionRecipe.Int64Literal 0L, add.Id, [])) |> ignore)
+          "bytes", SnapshotSchemaFeature.Bytes, (fun create _ ->
+              create "bytes" [ "text", stringType ] int64Type [] (ExpressionRecipe.BytesLength(ExpressionRecipe.BytesFromLatin1(slot 0))) |> ignore) ]
 
     let caseNames: obj array seq = cases |> Seq.map (fun (name, _, _) -> [| box name |])
 

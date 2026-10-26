@@ -105,6 +105,9 @@ ExpressionRecipe =
   | Bits32FromInt64(expr) | Bits32ToInt64(expr) | Bits32Not(expr)
   | Bits32Xor(left, right) | Bits32And(left, right) | Bits32Or(left, right) | Bits32Add(left, right)
   | Bits32RotateRight(value, amount) | Bits32ShiftRight(value, amount) | Bits32ShiftLeft(value, amount)
+  | BytesEmpty | BytesFill(length, value) | BytesLength(expr) | BytesGet(bytes, index)
+  | BytesSet(bytes, index, value) | BytesAppend(bytes, value) | BytesConcat(left, right)
+  | BytesSlice(bytes, start, end) | BytesFromLatin1(expr) | BytesToLatin1(expr)
   | Float64RoundToInt64(expr) | Float64FloorToInt64(expr)
   | Float64Sqrt(expr) | Float64Abs(expr) | Float64Negate(expr)
   | Float64Min(left, right) | Float64Max(left, right)
@@ -535,6 +538,10 @@ An operand of the wrong type reports `PureExpressionOperandTypeMismatch` from th
 ## Bits32
 
 The [`Bits32`](../reference/language-subset.md#bits32) operations use these wire kinds (Nyason tags in parentheses): `bits32FromInt64` (`bits32-from-int64`), `bits32ToInt64` (`bits32-to-int64`) and `bits32Not` (`bits32-not`) take `value`; `bits32Xor`, `bits32And`, `bits32Or` and `bits32Add` (`bits32-xor`, `bits32-and`, `bits32-or`, `bits32-add`) take `left` and `right`; `bits32RotateRight`, `bits32ShiftRight` and `bits32ShiftLeft` (`bits32-rotate-right`, `bits32-shift-right`, `bits32-shift-left`) take a Bits32 `value` and an Int64 `amount`. Snapshot JSON writes the shift operands as `valueNodeId` and `amountNodeId`, and review lists the amount with the `Amount` dependency role. The type reference is `{"kind":"primitive","primitive":"bits32"}`. There is no Bits32 literal: a constant is `bits32FromInt64` of an `int64Literal`. All ten are total. An operand of the wrong type, including a Bits32 amount or an Int64 where a Bits32 is expected, reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `Bits32OperandTypeMismatch`.
+
+## Bytes
+
+The [`Bytes`](../reference/language-subset.md#bytes) operations use these wire kinds (record tags in parentheses): `bytesEmpty` (`bytes-empty`) takes nothing; `bytesFill` (`bytes-fill`) takes Int64 `length` and `value`; `bytesLength`, `bytesFromLatin1` and `bytesToLatin1` (`bytes-length`, `bytes-from-latin1`, `bytes-to-latin1`) take `value`; `bytesGet` (`bytes-get`) takes `bytes` and an Int64 `index`; `bytesSet` (`bytes-set`) takes `bytes`, `index` and an Int64 `value`; `bytesAppend` (`bytes-append`) takes `bytes` and an Int64 `value`; `bytesConcat` (`bytes-concat`) takes `left` and `right`; `bytesSlice` (`bytes-slice`) takes `bytes`, `start` and `end`. Snapshot JSON writes the operands as `bytesNodeId`, `indexNodeId`, `valueNodeId`, `lengthNodeId`, `startNodeId`, `endNodeId`, `leftNodeId` and `rightNodeId`; review lists `bytesSet` as `Source`, `Index`, `Item` and `bytesSlice` as `Source`, `SliceStart`, `SliceEnd`, like the List operations. The type reference is `{"kind":"primitive","primitive":"bytes"}`. There is no Bytes literal: a constant is `bytesFromLatin1` of a `stringLiteral`. All ten are total. An operand of the wrong type reports `PureExpressionOperandTypeMismatch`; a persisted graph reports `BytesOperandTypeMismatch`. A snapshot that uses the type or any of these kinds is written at schema 23.
 
 ## Float64ToString and StringParseFloat64
 

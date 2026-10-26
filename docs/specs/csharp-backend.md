@@ -41,6 +41,7 @@ Backend representation may vary while preserving the upstream semantic contract.
 - `Int64` -> 64-bit signed integer representation with operation behavior fixed by semantic node kind;
 - `Float64` -> `double`, with literal construction from exact authoritative bits;
 - `Bits32` -> `uint`;
+- `Bytes` -> the emitted `NyBytes` class (a `byte[]` and a length, content equality and hash);
 - `Option<T>` / `Result<T,E>` -> explicit generated value representations rather than implicit null/exception semantics;
 - products/unions -> generated deterministic .NET types;
 - `List<T>` -> backend-local representation that preserves semantic ordering and the accepted immutable-value contract;
@@ -141,6 +142,8 @@ BitConverter.UInt64BitsToDouble(0x<16 hex digits>UL)
 This preserves signed zero and exact binary64 encodings and respects the semantic NaN canonicalization performed upstream.
 
 `Bits32FromInt64` emits `unchecked((uint)value)` and `Bits32ToInt64` emits `(long)value`, so the low 32 bits are kept and read back unsigned. `Bits32Xor`, `Bits32And`, `Bits32Or` and `Bits32Not` emit `^`, `&`, `|` and `~` on `uint`, and `Bits32Add` emits `unchecked(left + right)`, which wraps modulo 2^32 in a checked context too. `Bits32RotateRight` emits `System.Numerics.BitOperations.RotateRight(value, (int)(amount & 31L))`: `amount & 31` is the amount floor-modulo 32 for every Int64, negative ones included. The shifts emit `amount <= 0L ? value : amount >= 32L ? 0u : value >> (int)amount` (and `<<`), because C# masks a `uint` shift count to its low five bits, which would make a shift by 32 a no-op; the explicit bounds keep the language subset's total meaning.
+
+`Bytes` is the runtime class `NyBytes`, emitted with every program. Its updates (`Set`, `Append`, `Concat`, `Slice`, `Fill`) return a new `NyBytes` over a freshly copied array, so no value changes after it is made; a stored Int64 is written as `unchecked((byte)value)`, which keeps the low 8 bits. `Get` returns `NyOption<long>`, `None` outside `[0, length)`; `Slice` clamps both bounds with `Math.Clamp`; `FromLatin1` maps a surrogate pair or any UTF-16 unit above U+00FF to `0xFF`, as `NyText.DecodeUtf8Lossy` reads bytes. Equality compares the bytes (`ValueEqual` uses `EqualityComparer<NyBytes>.Default`). An array longer than `Array.MaxLength` throws `OutOfMemoryException`, as String concatenation does. In-place updates are a later step ([design note](../plans/bytes-and-buffers.md), Decision 2).
 
 `Int64ToFloat64` emits `(double)value`.
  .NET converts `long` to `double` with IEEE 754 round to nearest, ties to even, which is the conversion the language subset defines; the backend must not route it through decimal text.

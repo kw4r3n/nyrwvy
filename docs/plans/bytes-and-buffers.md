@@ -1,6 +1,6 @@
 # Bytes and in-place buffer updates (design note)
 
-**Status:** Accepted by the owner on 2026-10-26, with the three questions answered as proposed (see the end). Implementation in progress.
+**Status:** Accepted by the owner on 2026-10-26, with the three questions answered as proposed (see the end). Implementation in progress. Decision 1 (the type, operations, codecs and run values, copying everywhere) is implemented: [decision record](../decisions/bytes-domain.md).
 
 **Date:** 2026-10-26
 

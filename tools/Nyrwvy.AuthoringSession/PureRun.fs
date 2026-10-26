@@ -31,6 +31,9 @@ type PureRunValue =
     | Float64 of Float64Bits
     /// A Bits32 leaf, carried as its unsigned value 0..4294967295. It has no flat container form.
     | Bits32 of uint32
+    /// A Bytes leaf. The runner carries it as its latin-1 String (one code point per byte). It has
+    /// no flat container form.
+    | Bytes of byte[]
     | StringList of string list
     | BoolList of bool list
     | Int64List of int64 list
@@ -207,6 +210,7 @@ module PureRun =
         | PureRunValue.Int64 _ -> TypeRef.Primitive PrimitiveType.Int64
         | PureRunValue.Float64 _ -> TypeRef.Primitive PrimitiveType.Float64
         | PureRunValue.Bits32 _ -> TypeRef.Primitive PrimitiveType.Bits32
+        | PureRunValue.Bytes _ -> TypeRef.Primitive PrimitiveType.Bytes
         | PureRunValue.StringList _ -> listType PrimitiveType.String
         | PureRunValue.BoolList _ -> listType PrimitiveType.Bool
         | PureRunValue.Int64List _ -> listType PrimitiveType.Int64
@@ -262,6 +266,7 @@ module PureRun =
         | PureRunValue.Int64 value -> add (value.ToString(CultureInfo.InvariantCulture))
         | PureRunValue.Float64 bits -> add ((Float64Bits.value bits).ToString("x16", CultureInfo.InvariantCulture))
         | PureRunValue.Bits32 value -> add (value.ToString(CultureInfo.InvariantCulture))
+        | PureRunValue.Bytes value -> add (textToken (String(value |> Array.map char)))
         | PureRunValue.StringList values -> items (List.map PureRunValue.String values)
         | PureRunValue.BoolList values -> items (List.map PureRunValue.Bool values)
         | PureRunValue.Int64List values -> items (List.map PureRunValue.Int64 values)
@@ -502,12 +507,13 @@ module PureRun =
 
     let private supportedScalar itemType = scalarKindOfType itemType |> Option.isSome
 
-    /// Unit, Float64 and Bits32 are leaves without a flat container form, so their containers use the nested form.
+    /// Unit, Float64, Bits32 and Bytes are leaves without a flat container form, so their containers use the nested form.
     let private supportedLeaf itemType =
         supportedScalar itemType
         || itemType = TypeRef.Primitive PrimitiveType.Unit
         || itemType = TypeRef.Primitive PrimitiveType.Float64
         || itemType = TypeRef.Primitive PrimitiveType.Bits32
+        || itemType = TypeRef.Primitive PrimitiveType.Bytes
 
     /// A Product's fields in ID order, at the given type arguments of a generic Product.
     let private productFields (types: SemanticType list) typeId typeArguments =
@@ -796,6 +802,11 @@ module PureRun =
                 match value.TryGetUInt32() with
                 | true, bits -> Ok(PureRunValue.Bits32 bits)
                 | false, _ -> Error(diagnostic "RunInvalidResult" "The result is not a Bits32.")
+            // The runner reports Bytes as the String token of its latin-1 form.
+            | TypeRef.Primitive PrimitiveType.Bytes, JsonValueKind.String ->
+                match tokenText value with
+                | Some text when text |> Seq.forall (fun unit -> unit <= 'ÿ') -> Ok(PureRunValue.Bytes(text |> Seq.map byte |> Seq.toArray))
+                | _ -> Error(diagnostic "RunInvalidResult" "The result is not Bytes.")
             | TypeRef.Primitive PrimitiveType.String, JsonValueKind.String ->
                 match tokenText value with
                 | Some text -> Ok(PureRunValue.String text)
@@ -902,6 +913,7 @@ module PureRun =
             | PureRunValue.Int64 _
             | PureRunValue.Float64 _
             | PureRunValue.Bits32 _ -> remaining >= 0
+            | PureRunValue.Bytes _ -> remaining >= 0
             | _ when depth >= maxValueLayers || remaining < 0 -> false
             | PureRunValue.StringList items -> count items.Length
             | PureRunValue.BoolList items -> count items.Length
@@ -1188,7 +1200,7 @@ module PureRun =
         | Some fn when arguments |> List.exists (validContainers supported >> not) ->
             Error(diagnostic "RunContainerTypeMismatch" "List/Option item, Set item, Map key and value, and Result payload types must be supported and match every payload, and Set items and Map keys must be distinct. Scalar containers accept typed values or their legacy flat form.")
         | Some fn when not (supported 0 fn.ResultType) ->
-            Error(diagnostic "RunResultTypeUnsupported" "Supported results are String, Bool, Int64, Float64, Bits32 and Unit values and List/Option/Result/Product/Union compositions of them with at most eight composite layers along any non-recursive path; function, capability and type-parameter types are not run values.")
+            Error(diagnostic "RunResultTypeUnsupported" "Supported results are String, Bool, Int64, Float64, Bits32, Bytes and Unit values and List/Option/Result/Product/Union compositions of them with at most eight composite layers along any non-recursive path; function, capability and type-parameter types are not run values.")
         | Some fn when expected |> Option.exists (fun value -> valueType value <> fn.ResultType) ->
             Error(diagnostic "RunExpectedTypeMismatch" "The expected result type differs from the declared result type.")
         | Some fn when expected |> Option.exists (validProduct declarations.Types >> not) ->
@@ -1279,6 +1291,7 @@ module PureRun =
                                 match itemType with
                                 | TypeRef.Primitive PrimitiveType.Unit -> "\"unit\""
                                 | TypeRef.Primitive PrimitiveType.String -> "CheckedString(" + access + ")"
+                                | TypeRef.Primitive PrimitiveType.Bytes -> "CheckedString(" + access + ".ToLatin1())"
                                 | TypeRef.Primitive PrimitiveType.Float64 ->
                                     "BitConverter.DoubleToUInt64Bits(" + access + ").ToString(\"x16\", CultureInfo.InvariantCulture)"
                                 | TypeRef.Primitive _ -> "(object)" + access
@@ -1349,6 +1362,7 @@ module PureRun =
                             | TypeRef.Primitive PrimitiveType.Int64 -> "input.Long()"
                             | TypeRef.Primitive PrimitiveType.Float64 -> "input.Double()"
                             | TypeRef.Primitive PrimitiveType.Bits32 -> "input.UInt()"
+                            | TypeRef.Primitive PrimitiveType.Bytes -> "NyBytes.FromLatin1(input.String())"
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
                                 let name = sourceType item
                                 $"NyList<{name}>.Create(input.Items<{name}>(() => {decode item}))"
@@ -1394,6 +1408,7 @@ module PureRun =
                             | TypeRef.Primitive PrimitiveType.Bool -> $"key.Add({access} ? \"1\" : \"0\");"
                             | TypeRef.Primitive PrimitiveType.Int64 -> $"key.Add({access});"
                             | TypeRef.Primitive PrimitiveType.Bits32 -> $"key.Add((long){access});"
+                            | TypeRef.Primitive PrimitiveType.Bytes -> $"key.String({access}?.ToLatin1());"
                             | TypeRef.Primitive PrimitiveType.Float64 -> $"key.Double({access});"
                             | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
                                 let state, name = fresh (), fresh ()

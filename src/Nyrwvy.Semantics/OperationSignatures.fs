@@ -64,6 +64,7 @@ module OperationSignatures =
     let private int64 = SignatureType.Primitive PrimitiveType.Int64
     let private float64 = SignatureType.Primitive PrimitiveType.Float64
     let private bits32 = SignatureType.Primitive PrimitiveType.Bits32
+    let private bytes = SignatureType.Primitive PrimitiveType.Bytes
     let private t = SignatureType.Variable "T"
     let private e = SignatureType.Variable "E"
     let private k = SignatureType.Variable "K"
@@ -210,6 +211,21 @@ module OperationSignatures =
           signature "bits32RotateRight" [ operand "value" bits32; operand "amount" int64 ] bits32 None
           signature "bits32ShiftRight" [ operand "value" bits32; operand "amount" int64 ] bits32 None
           signature "bits32ShiftLeft" [ operand "value" bits32; operand "amount" int64 ] bits32 None
+          // bytes
+          signature "bytesEmpty" [] bytes None
+          signature "bytesFill" [ operand "length" int64; operand "value" int64 ] bytes (Some "negative length gives empty; value mod 256")
+          unary "bytesLength" bytes int64 None
+          signature "bytesGet" [ operand "bytes" bytes; operand "index" int64 ] (SignatureType.Option int64) (Some "None outside [0, length)")
+          signature
+              "bytesSet"
+              [ operand "bytes" bytes; operand "index" int64; operand "value" int64 ]
+              bytes
+              (Some "unchanged when out of range; value mod 256")
+          signature "bytesAppend" [ operand "bytes" bytes; operand "value" int64 ] bytes (Some "value mod 256")
+          binary "bytesConcat" bytes bytes None
+          signature "bytesSlice" [ operand "bytes" bytes; operand "start" int64; operand "end" int64 ] bytes (Some "clamped")
+          unary "bytesFromLatin1" string bytes (Some "one byte per code point, above U+00FF gives 0xFF")
+          unary "bytesToLatin1" bytes string (Some "code points U+00-U+FF")
           // list
           unary "listLength" (SignatureType.List t) int64 None
           signature "listItemAt" [ operand "list" (SignatureType.List t); operand "index" int64 ] (SignatureType.Option t) None
@@ -307,6 +323,7 @@ module OperationSignatures =
         | SignatureType.Primitive PrimitiveType.Int64 -> "Int64"
         | SignatureType.Primitive PrimitiveType.Float64 -> "Float64"
         | SignatureType.Primitive PrimitiveType.Bits32 -> "Bits32"
+        | SignatureType.Primitive PrimitiveType.Bytes -> "Bytes"
         | SignatureType.Variable name -> name
         | SignatureType.List item -> $"List<{render item}>"
         | SignatureType.Option item -> $"Option<{render item}>"

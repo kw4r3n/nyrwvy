@@ -129,6 +129,16 @@ module FoundationTests =
                 | SemanticNodeKind.Bits32RotateRight _
                 | SemanticNodeKind.Bits32ShiftRight _
                 | SemanticNodeKind.Bits32ShiftLeft _
+                | SemanticNodeKind.BytesEmpty
+                | SemanticNodeKind.BytesFill _
+                | SemanticNodeKind.BytesLength _
+                | SemanticNodeKind.BytesGet _
+                | SemanticNodeKind.BytesSet _
+                | SemanticNodeKind.BytesAppend _
+                | SemanticNodeKind.BytesConcat _
+                | SemanticNodeKind.BytesSlice _
+                | SemanticNodeKind.BytesFromLatin1 _
+                | SemanticNodeKind.BytesToLatin1 _
                 | SemanticNodeKind.ListEmpty _
                 | SemanticNodeKind.SetEmpty _
                 | SemanticNodeKind.MapEmpty _

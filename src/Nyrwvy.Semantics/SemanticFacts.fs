@@ -228,6 +228,18 @@ module SemanticFacts =
                     | SemanticNodeKind.Bits32ShiftRight _
                     | SemanticNodeKind.Bits32ShiftLeft _ ->
                         Some(TypeRef.Primitive PrimitiveType.Bits32)
+                    | SemanticNodeKind.BytesEmpty
+                    | SemanticNodeKind.BytesFill _
+                    | SemanticNodeKind.BytesSet _
+                    | SemanticNodeKind.BytesAppend _
+                    | SemanticNodeKind.BytesConcat _
+                    | SemanticNodeKind.BytesSlice _
+                    | SemanticNodeKind.BytesFromLatin1 _ ->
+                        Some(TypeRef.Primitive PrimitiveType.Bytes)
+                    | SemanticNodeKind.BytesLength _ -> Some(TypeRef.Primitive PrimitiveType.Int64)
+                    | SemanticNodeKind.BytesGet _ ->
+                        Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ TypeRef.Primitive PrimitiveType.Int64 ]))
+                    | SemanticNodeKind.BytesToLatin1 _ -> Some(TypeRef.Primitive PrimitiveType.String)
                     | SemanticNodeKind.Int64ToString _ -> Some(TypeRef.Primitive PrimitiveType.String)
                     | SemanticNodeKind.Int64ToHexString _ -> Some(TypeRef.Primitive PrimitiveType.String)
                     | SemanticNodeKind.StringParseInt64 _ ->

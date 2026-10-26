@@ -182,6 +182,16 @@ type ExecutionInstructionKind =
     | Bits32RotateRight of valueId: ExecutionValueId * amountValueId: ExecutionValueId
     | Bits32ShiftRight of valueId: ExecutionValueId * amountValueId: ExecutionValueId
     | Bits32ShiftLeft of valueId: ExecutionValueId * amountValueId: ExecutionValueId
+    | BytesEmpty
+    | BytesFill of lengthId: ExecutionValueId * valueId: ExecutionValueId
+    | BytesLength of valueId: ExecutionValueId
+    | BytesGet of bytesId: ExecutionValueId * indexId: ExecutionValueId
+    | BytesSet of bytesId: ExecutionValueId * indexId: ExecutionValueId * valueId: ExecutionValueId
+    | BytesAppend of bytesId: ExecutionValueId * valueId: ExecutionValueId
+    | BytesConcat of leftId: ExecutionValueId * rightId: ExecutionValueId
+    | BytesSlice of bytesId: ExecutionValueId * startId: ExecutionValueId * endId: ExecutionValueId
+    | BytesFromLatin1 of valueId: ExecutionValueId
+    | BytesToLatin1 of valueId: ExecutionValueId
     | ListEmpty
     | SetEmpty
     | MapEmpty
@@ -465,6 +475,16 @@ module ExecutionInstructionKind =
         | ExecutionInstructionKind.Bits32RotateRight _
         | ExecutionInstructionKind.Bits32ShiftRight _
         | ExecutionInstructionKind.Bits32ShiftLeft _
+        | ExecutionInstructionKind.BytesEmpty
+        | ExecutionInstructionKind.BytesFill _
+        | ExecutionInstructionKind.BytesLength _
+        | ExecutionInstructionKind.BytesGet _
+        | ExecutionInstructionKind.BytesSet _
+        | ExecutionInstructionKind.BytesAppend _
+        | ExecutionInstructionKind.BytesConcat _
+        | ExecutionInstructionKind.BytesSlice _
+        | ExecutionInstructionKind.BytesFromLatin1 _
+        | ExecutionInstructionKind.BytesToLatin1 _
         | ExecutionInstructionKind.ListEmpty
         | ExecutionInstructionKind.SetEmpty
         | ExecutionInstructionKind.MapEmpty

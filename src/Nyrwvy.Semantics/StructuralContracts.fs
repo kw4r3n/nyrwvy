@@ -61,6 +61,9 @@ module ValueDependency =
         | SemanticNodeKind.Bits32FromInt64 sourceNodeId
         | SemanticNodeKind.Bits32ToInt64 sourceNodeId
         | SemanticNodeKind.Bits32Not sourceNodeId
+        | SemanticNodeKind.BytesLength sourceNodeId
+        | SemanticNodeKind.BytesFromLatin1 sourceNodeId
+        | SemanticNodeKind.BytesToLatin1 sourceNodeId
         | SemanticNodeKind.StringParseInt64 sourceNodeId
         | SemanticNodeKind.StringParseInt64Hex sourceNodeId
         | SemanticNodeKind.Float64ToString sourceNodeId
@@ -157,6 +160,8 @@ module ValueDependency =
         | SemanticNodeKind.Int64CheckedSubtract(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64CheckedMultiply(leftNodeId, rightNodeId)
         | SemanticNodeKind.ListRange(leftNodeId, rightNodeId)
+        | SemanticNodeKind.BytesFill(leftNodeId, rightNodeId)
+        | SemanticNodeKind.BytesConcat(leftNodeId, rightNodeId)
         | SemanticNodeKind.StringRepeat(leftNodeId, rightNodeId)
         | SemanticNodeKind.Float64Round(leftNodeId, rightNodeId)
         | SemanticNodeKind.Int64Equal(leftNodeId, rightNodeId)
@@ -266,6 +271,11 @@ module ValueDependency =
         | SemanticNodeKind.ListAppendItem(sourceNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Item itemNodeId ]
+        | SemanticNodeKind.BytesAppend(sourceNodeId, itemNodeId) ->
+            [ create ValueDependencyRole.Source sourceNodeId
+              create ValueDependencyRole.Item itemNodeId ]
+        | SemanticNodeKind.BytesEmpty -> []
+        | SemanticNodeKind.BytesGet(sourceNodeId, indexNodeId)
         | SemanticNodeKind.ListItemAt(sourceNodeId, indexNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Index indexNodeId ]
@@ -309,10 +319,12 @@ module ValueDependency =
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.Key keyNodeId
               create ValueDependencyRole.Value defaultNodeId ]
+        | SemanticNodeKind.BytesSlice(sourceNodeId, startNodeId, endNodeId)
         | SemanticNodeKind.ListSlice(sourceNodeId, startNodeId, endNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId
               create ValueDependencyRole.SliceStart startNodeId
               create ValueDependencyRole.SliceEnd endNodeId ]
+        | SemanticNodeKind.BytesSet(sourceNodeId, indexNodeId, itemNodeId)
         | SemanticNodeKind.ListSetAt(sourceNodeId, indexNodeId, itemNodeId)
         | SemanticNodeKind.ListInsertAt(sourceNodeId, indexNodeId, itemNodeId) ->
             [ create ValueDependencyRole.Source sourceNodeId

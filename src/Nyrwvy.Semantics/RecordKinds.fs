@@ -26,6 +26,16 @@ bool-and=boolAnd: id kind leftNodeId/left:id(node) right/right:graph
 bool-literal=boolLiteral: id kind value/value:bool
 bool-not=boolNot: id kind operandNodeId/operand:id(node)
 bool-or=boolOr: id kind leftNodeId/left:id(node) right/right:graph
+bytes-append=bytesAppend: id kind bytesNodeId/bytes:id(node) valueNodeId/value:id(node)
+bytes-concat=bytesConcat: id kind leftNodeId/left:id(node) rightNodeId/right:id(node)
+bytes-empty=bytesEmpty: id kind
+bytes-fill=bytesFill: id kind lengthNodeId/length:id(node) valueNodeId/value:id(node)
+bytes-from-latin1=bytesFromLatin1: id kind valueNodeId/value:id(node)
+bytes-get=bytesGet: id kind bytesNodeId/bytes:id(node) indexNodeId/index:id(node)
+bytes-length=bytesLength: id kind valueNodeId/value:id(node)
+bytes-set=bytesSet: id kind bytesNodeId/bytes:id(node) indexNodeId/index:id(node) valueNodeId/value:id(node)
+bytes-slice=bytesSlice: id kind bytesNodeId/bytes:id(node) startNodeId/start:id(node) endNodeId/end:id(node)
+bytes-to-latin1=bytesToLatin1: id kind valueNodeId/value:id(node)
 cancellation-requested=cancellationRequested: id kind
 cancellation-shield=cancellationShield: id kind bodyFunctionId/body-function:id(function) context/context:pairs(targetParameterId:parameter,valueNodeId:node)?~
 capability: id displayName/name:str exported/exported:bool? operations/operations:members(operation)

@@ -198,6 +198,7 @@ module internal WireInput =
         | "int64" -> TypeRef.Primitive PrimitiveType.Int64
         | "float64" -> TypeRef.Primitive PrimitiveType.Float64
         | "bits32" -> TypeRef.Primitive PrimitiveType.Bits32
+        | "bytes" -> TypeRef.Primitive PrimitiveType.Bytes
         | value -> fail $"Unsupported primitive type '{value}'."
 
     /// The `builtinGeneric` type form; `argument` parses each type argument in the caller's form.

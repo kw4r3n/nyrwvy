@@ -118,6 +118,16 @@ type ExpressionRecipe =
     | Bits32RotateRight of value: ExpressionRecipe * amount: ExpressionRecipe
     | Bits32ShiftRight of value: ExpressionRecipe * amount: ExpressionRecipe
     | Bits32ShiftLeft of value: ExpressionRecipe * amount: ExpressionRecipe
+    | BytesEmpty
+    | BytesFill of length: ExpressionRecipe * value: ExpressionRecipe
+    | BytesLength of ExpressionRecipe
+    | BytesGet of bytes: ExpressionRecipe * index: ExpressionRecipe
+    | BytesSet of bytes: ExpressionRecipe * index: ExpressionRecipe * value: ExpressionRecipe
+    | BytesAppend of bytes: ExpressionRecipe * value: ExpressionRecipe
+    | BytesConcat of ExpressionRecipe * ExpressionRecipe
+    | BytesSlice of bytes: ExpressionRecipe * start: ExpressionRecipe * ``end``: ExpressionRecipe
+    | BytesFromLatin1 of ExpressionRecipe
+    | BytesToLatin1 of ExpressionRecipe
     | ListEmpty of itemType: TypeRef
     | SetEmpty of itemType: TypeRef
     | MapEmpty of keyType: TypeRef * valueType: TypeRef
@@ -351,6 +361,16 @@ module ExpressionRecipeTypes =
         | ExpressionRecipe.Bits32RotateRight(left, right) -> ExpressionRecipe.Bits32RotateRight(go left, go right)
         | ExpressionRecipe.Bits32ShiftRight(left, right) -> ExpressionRecipe.Bits32ShiftRight(go left, go right)
         | ExpressionRecipe.Bits32ShiftLeft(left, right) -> ExpressionRecipe.Bits32ShiftLeft(go left, go right)
+        | ExpressionRecipe.BytesEmpty -> recipe
+        | ExpressionRecipe.BytesFill(length, value) -> ExpressionRecipe.BytesFill(go length, go value)
+        | ExpressionRecipe.BytesLength value -> ExpressionRecipe.BytesLength(go value)
+        | ExpressionRecipe.BytesGet(bytes, index) -> ExpressionRecipe.BytesGet(go bytes, go index)
+        | ExpressionRecipe.BytesSet(bytes, index, value) -> ExpressionRecipe.BytesSet(go bytes, go index, go value)
+        | ExpressionRecipe.BytesAppend(bytes, value) -> ExpressionRecipe.BytesAppend(go bytes, go value)
+        | ExpressionRecipe.BytesConcat(left, right) -> ExpressionRecipe.BytesConcat(go left, go right)
+        | ExpressionRecipe.BytesSlice(bytes, start, stop) -> ExpressionRecipe.BytesSlice(go bytes, go start, go stop)
+        | ExpressionRecipe.BytesFromLatin1 value -> ExpressionRecipe.BytesFromLatin1(go value)
+        | ExpressionRecipe.BytesToLatin1 value -> ExpressionRecipe.BytesToLatin1(go value)
         | ExpressionRecipe.ListEmpty itemType -> ExpressionRecipe.ListEmpty(mapType itemType)
         | ExpressionRecipe.SetEmpty itemType -> ExpressionRecipe.SetEmpty(mapType itemType)
         | ExpressionRecipe.MapEmpty(keyType, valueType) -> ExpressionRecipe.MapEmpty(mapType keyType, mapType valueType)
