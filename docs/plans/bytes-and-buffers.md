@@ -1,6 +1,6 @@
 # Bytes and in-place buffer updates (design note)
 
-**Status:** Accepted by the owner on 2026-10-26, with the three questions answered as proposed (see the end). Implementation in progress.
+**Status:** Accepted by the owner on 2026-10-26, with the three questions answered as proposed (see the end). Implemented; see the [decision record](../decisions/bytes-domain.md), which also lists where the implementation narrowed this note (unowned constructors; `copiedUpdates` in `readFunction` only). Decision 1 (the type, operations, codecs and run values, copying everywhere) is implemented: [decision record](../decisions/bytes-domain.md).
 
 **Date:** 2026-10-26
 
@@ -22,6 +22,8 @@ A .NET 10 Release benchmark ([evaluation/bytes-buffers](../../evaluation/bytes-b
 | One frame: set all 12,780 cells (213×60) | `List<Int64>` `SetAt`: 4.40 ms, 11.75 MB | 0.011 ms, 0 B | 0.046 ms, 0.10 MB |
 | Build 64 KiB one byte at a time | `List<Int64>` `AppendItem`: 1.33 ms, 5.2 MB; latin-1 `String` concat: 4.33 ms, 7.3 MB | 0.034 ms, 0 B | 0.034 ms, 64 KiB |
 | Read every byte of 64 KiB | `List<Int64>` `ItemAt`: 0.39 ms | 0.030 ms | — |
+
+After implementation, through emitted code (a tail-recursive loop calling `BytesSet` or `BytesAppend`): the frame costs 0.029 ms and 12.9 KB per call, the 64 KiB build 0.181 ms and 131 KB ([verification](../verification/bytes-20261026.md)).
 
 At 60 frames per second the first row is 700 MB/s of garbage and a quarter of the frame budget. One copy per call (the last column) costs a hundredth of that. This meets the roadmap's evidence rule: a consumer exists and its workload is blocked (snap keeps the grid in C# because of it).
 

@@ -155,6 +155,18 @@ module internal WireGraph =
             | SemanticNodeKind.Bits32RotateRight(value, amount) -> tagged "bits32RotateRight" [ "valueNodeId", identity value; "amountNodeId", identity amount ]
             | SemanticNodeKind.Bits32ShiftRight(value, amount) -> tagged "bits32ShiftRight" [ "valueNodeId", identity value; "amountNodeId", identity amount ]
             | SemanticNodeKind.Bits32ShiftLeft(value, amount) -> tagged "bits32ShiftLeft" [ "valueNodeId", identity value; "amountNodeId", identity amount ]
+            | SemanticNodeKind.BytesEmpty -> tagged "bytesEmpty" []
+            | SemanticNodeKind.BytesFill(length, value) -> tagged "bytesFill" [ "lengthNodeId", identity length; "valueNodeId", identity value ]
+            | SemanticNodeKind.BytesLength value -> unary "bytesLength" value
+            | SemanticNodeKind.BytesGet(bytes, index) -> tagged "bytesGet" [ "bytesNodeId", identity bytes; "indexNodeId", identity index ]
+            | SemanticNodeKind.BytesSet(bytes, index, value) ->
+                tagged "bytesSet" [ "bytesNodeId", identity bytes; "indexNodeId", identity index; "valueNodeId", identity value ]
+            | SemanticNodeKind.BytesAppend(bytes, value) -> tagged "bytesAppend" [ "bytesNodeId", identity bytes; "valueNodeId", identity value ]
+            | SemanticNodeKind.BytesConcat(left, right) -> binary "bytesConcat" left right
+            | SemanticNodeKind.BytesSlice(bytes, start, stop) ->
+                tagged "bytesSlice" [ "bytesNodeId", identity bytes; "startNodeId", identity start; "endNodeId", identity stop ]
+            | SemanticNodeKind.BytesFromLatin1 value -> unary "bytesFromLatin1" value
+            | SemanticNodeKind.BytesToLatin1 value -> unary "bytesToLatin1" value
             | SemanticNodeKind.ListEmpty itemType -> tagged "listEmpty" [ "itemType", typeRef itemType ]
             | SemanticNodeKind.SetEmpty itemType -> tagged "setEmpty" [ "itemType", typeRef itemType ]
             | SemanticNodeKind.MapEmpty(keyType, valueType) -> tagged "mapEmpty" [ "keyType", typeRef keyType; "valueType", typeRef valueType ]

@@ -49,6 +49,7 @@ This area holds evidence from completed implementation and evaluation work. A re
 - [Amortised String concatenation](string-amortised-concat-20261001.md): `String` is emitted as `NyStr`, so a `StringConcat` fold is linear (3.12 MB in 1.24 s where 195 KB timed out)
 - [Code-point position offsets for String operations](string-position-offsets-20260930.md)
 - [Bits32](bits32-20261001.md): the fixed-width bit domain, and probe 12's SHA-256 re-authored with it (NIST vectors, about 20 times the Int64 port's throughput, 17.5 MB per run)
+- [Bytes](bytes-20261026.md): the `Bytes` value type and its ten total operations, checked against an independent model through `runPure`, with hex run values and snapshot schema 23
 
 
 ## Live agent probes

@@ -167,6 +167,16 @@ module internal ExecutionIrAnalysis =
         | TypedSemanticNodeKind.Bits32RotateRight _
         | TypedSemanticNodeKind.Bits32ShiftRight _
         | TypedSemanticNodeKind.Bits32ShiftLeft _
+        | TypedSemanticNodeKind.BytesEmpty
+        | TypedSemanticNodeKind.BytesFill _
+        | TypedSemanticNodeKind.BytesLength _
+        | TypedSemanticNodeKind.BytesGet _
+        | TypedSemanticNodeKind.BytesSet _
+        | TypedSemanticNodeKind.BytesAppend _
+        | TypedSemanticNodeKind.BytesConcat _
+        | TypedSemanticNodeKind.BytesSlice _
+        | TypedSemanticNodeKind.BytesFromLatin1 _
+        | TypedSemanticNodeKind.BytesToLatin1 _
         | TypedSemanticNodeKind.ListEmpty
         | TypedSemanticNodeKind.SetEmpty
         | TypedSemanticNodeKind.MapEmpty

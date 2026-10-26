@@ -15,9 +15,10 @@ The current primitive value domains are:
 - `Unit`;
 - `Int64`;
 - `Float64`;
-- `Bits32`.
+- `Bits32`;
+- `Bytes`.
 
-There is no implicit numeric promotion between `Int64` and `Float64`. `Int64ToFloat64` converts explicitly; `Float64RoundToInt64` and `Float64FloorToInt64` convert back as `Option<Int64>`. `Bits32` is not numeric and converts to and from `Int64` only explicitly (see [`Bits32`](#bits32)).
+There is no implicit numeric promotion between `Int64` and `Float64`. `Int64ToFloat64` converts explicitly; `Float64RoundToInt64` and `Float64FloorToInt64` convert back as `Option<Int64>`. `Bits32` is not numeric and converts to and from `Int64` only explicitly (see [`Bits32`](#bits32)). `Bytes` is a sequence of integers 0..255, not a String (see [`Bytes`](#bytes)).
 
 ## Structured values and control
 
@@ -41,7 +42,7 @@ Wildcard/default match arms are not part of the current accepted subset where ex
 
 `BoolNot(operand)` negates a Bool. `BoolAnd(left, right)` is true when both operands are true and `BoolOr(left, right)` when either is. Their `left` operand is an ordinary Bool value of the enclosing graph; their `right` operand is a nested value graph with the scope, typing and effect rules of a `Conditional` branch. It is evaluated at most once and only when `left` does not decide the result: for `BoolAnd` only when `left` is true, for `BoolOr` only when `left` is false. A right operand that aborts, invokes a capability or calls a failing function therefore has that effect only when it is evaluated. All operands and results are Bool; a right operand may instead abort. Each construct is the dedicated form of a checkable conditional expansion (`Conditional(operand, false, true)`, `Conditional(left, right, false)`, `Conditional(left, true, right)`); the graph keeps the dedicated node so review reads the intent directly (see the [decision](../decisions/bool-operators-and-map.md)). Map and Set are also available; their operations and equatable key/item restrictions are described below.
 
-`ValueEqual(left, right)` is structural equality of two values of one *equatable* type; its result is Bool and it never fails. String, Int64, Bool, Unit and Bits32 are equatable, as are `List`, `Option` and `Result` of equatable types and declared Products and Unions whose fields are all equatable, through any nesting and including recursive types. `Set` of equatable items and `Map` with equatable values are equatable too, compared by content regardless of insertion order ([decision](../decisions/map-set-equality.md)). Float64 (NaN; compare with `Float64Equal`), function types, `Task`, `TaskScope`, `OneShot`, capabilities and type parameters are not, nor is any type that reaches one. Two values are equal when they have the same variant and pairwise equal fields; Strings compare by ordinal code units, Options and Results by case and payload, and lists by length and then item by item in order. `ValueEqual` also covers Bool equality. A node whose operands differ in type reports `ValueEqualOperandTypeMismatch`, and one over a type that is not equatable reports `ValueEqualTypeNotEquatable`, naming the path to the offending part by display names (for example `Holder.measures -> List item -> Measure.value`). `StringEqual`, `Int64Equal` and `Float64Equal` remain the per-type forms ([decision](../decisions/value-equality-and-map.md)).
+`ValueEqual(left, right)` is structural equality of two values of one *equatable* type; its result is Bool and it never fails. String, Int64, Bool, Unit, Bits32 and Bytes are equatable, as are `List`, `Option` and `Result` of equatable types and declared Products and Unions whose fields are all equatable, through any nesting and including recursive types. `Set` of equatable items and `Map` with equatable values are equatable too, compared by content regardless of insertion order ([decision](../decisions/map-set-equality.md)). Float64 (NaN; compare with `Float64Equal`), function types, `Task`, `TaskScope`, `OneShot`, capabilities and type parameters are not, nor is any type that reaches one. Two values are equal when they have the same variant and pairwise equal fields; Strings compare by ordinal code units, Options and Results by case and payload, and lists by length and then item by item in order. `ValueEqual` also covers Bool equality. A node whose operands differ in type reports `ValueEqualOperandTypeMismatch`, and one over a type that is not equatable reports `ValueEqualTypeNotEquatable`, naming the path to the offending part by display names (for example `Holder.measures -> List item -> Measure.value`). `StringEqual`, `Int64Equal` and `Float64Equal` remain the per-type forms ([decision](../decisions/value-equality-and-map.md)).
 
 ## Generic Products and Unions
 
@@ -329,6 +330,30 @@ Bits32ShiftLeft(value: Bits32, amount: Int64): Bits32
 
 There are no other widths, no signed interpretation, no reinterpretation of Float64 bits and no generic `Bits<N>`. These operations serve SHA-256 and similar fixed-width algorithms; see the [decision](../decisions/bits32-domain.md) and the [verification record](../verification/bits32-20261001.md).
 
+## `Bytes`
+
+`Bytes` is an immutable, finite sequence of integers 0..255. It is equatable (by length, then byte by byte) and has no identity, ordering or literal: a constant is `BytesFromLatin1` of a String literal. Every operation is total.
+
+```text
+BytesEmpty: Bytes
+BytesFill(length: Int64, value: Int64): Bytes
+BytesLength(value: Bytes): Int64
+BytesGet(bytes: Bytes, index: Int64): Option<Int64>
+BytesSet(bytes: Bytes, index: Int64, value: Int64): Bytes
+BytesAppend(bytes: Bytes, value: Int64): Bytes
+BytesConcat(left: Bytes, right: Bytes): Bytes
+BytesSlice(bytes: Bytes, start: Int64, end: Int64): Bytes
+BytesFromLatin1(value: String): Bytes
+BytesToLatin1(value: Bytes): String
+```
+
+- A stored Int64 (`BytesFill`, `BytesSet`, `BytesAppend`) keeps its low 8 bits, that is `value mod 256` of its two's complement form: `-1` gives 255 and `256` gives 0. `BytesGet` reads a byte back as `0..255`.
+- `BytesFill` with a negative length gives the empty Bytes.
+- `BytesGet` is `None` and `BytesSet` returns its input unchanged outside `[0, length)`, as `ListItemAt` and `ListSetAt`.
+- `BytesSlice` clamps both bounds to `[0, length]`; `end <= start` gives the empty Bytes, as `ListSlice` and `StringSlice`.
+- `BytesFromLatin1` takes one byte per code point; a code point above U+00FF (a surrogate pair counts once, an unpaired surrogate too) becomes `0xFF`, as `StringDecodeUtf8Lossy` reads it. `BytesToLatin1` gives one code point U+0000..U+00FF per byte, the form `StringEncodeUtf8` returns.
+
+Updates return a new value and every other holder keeps the old one; backends may copy or share storage. See the [decision](../decisions/bytes-domain.md) and the [design note](../plans/bytes-and-buffers.md).
 ## Agent editing surfaces
 
 The implemented semantic language and agent editing authority are deliberately distinct. Typed agent operations expose useful semantic construction without making raw snapshot or graph payloads ordinary editing authority.
@@ -394,6 +419,8 @@ Float64Floor / Ceiling / Truncate
 Bits32FromInt64 / ToInt64
 Bits32Xor / And / Or / Not / Add
 Bits32RotateRight / ShiftRight / ShiftLeft
+BytesEmpty / Fill / Length / Get / Set / Append
+BytesConcat / Slice / FromLatin1 / ToLatin1
 ListEmpty
 ListConstruct
 ListLength
@@ -596,7 +623,7 @@ The following are not currently accepted language features merely because a back
 - generic lambdas/closures;
 - effectful callbacks other than `ListEffectFold`'s folder;
 - hidden backend exception/default semantics;
-- exact bit domains beyond [`Bits32`](#bits32) and the two's-complement `Int64` bitwise operations: other widths, byte strings and generic bit vectors.
+- exact bit domains beyond [`Bits32`](#bits32) and the two's-complement `Int64` bitwise operations: other widths and generic bit vectors. Byte strings are the separate [`Bytes`](#bytes) value type, without bit operations.
 
 `Bits32` is the one implemented exact-bit domain, separate from `Int64` and `Float64` numeric semantics (the `Int64` bitwise operations act on the numeric value's two's-complement form); the broader direction remains an [experiment](../experiments/bit-representation.md).
 

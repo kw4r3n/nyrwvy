@@ -13,6 +13,8 @@ type PrimitiveType =
     | Float64
     /// Exactly 32 bits with no numeric meaning; see `Bits32FromInt64` and `Bits32ToInt64`.
     | Bits32
+    /// An immutable sequence of integers 0..255, equatable by length then content; see `BytesEmpty`.
+    | Bytes
 
 /// Authoritative IEEE 754 binary64 literal representation. Construction always
 /// canonicalizes every NaN payload/sign variant to one quiet NaN bit pattern while
@@ -463,6 +465,30 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     | Bits32ShiftRight of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
     /// Logical shift by the Int64 amount: amount <= 0 gives the value unchanged, amount >= 32 gives zero. Never fails.
     | Bits32ShiftLeft of valueNodeId: GraphNodeId * amountNodeId: GraphNodeId
+    /// The empty Bytes. Bytes has no literal: a constant is BytesFromLatin1 of a String literal.
+    | BytesEmpty
+    /// `length` copies of `value`; a negative length gives the empty Bytes. A stored Int64 keeps its low
+    /// 8 bits (value mod 256, two's complement), as every Bytes write does. Never fails.
+    | BytesFill of lengthNodeId: GraphNodeId * valueNodeId: GraphNodeId
+    /// The number of bytes, as Int64. Never fails.
+    | BytesLength of valueNodeId: GraphNodeId
+    /// Option<Int64>: Some(byte, 0..255) at the zero-based index, None outside [0, length), as ListItemAt.
+    | BytesGet of bytesNodeId: GraphNodeId * indexNodeId: GraphNodeId
+    /// The Bytes with the byte at the zero-based index replaced by the low 8 bits of `value`; unchanged
+    /// outside [0, length), as ListSetAt. Never fails.
+    | BytesSet of bytesNodeId: GraphNodeId * indexNodeId: GraphNodeId * valueNodeId: GraphNodeId
+    /// The Bytes with the low 8 bits of `value` added at the end. Never fails.
+    | BytesAppend of bytesNodeId: GraphNodeId * valueNodeId: GraphNodeId
+    /// The left bytes followed by the right bytes. Never fails.
+    | BytesConcat of leftNodeId: GraphNodeId * rightNodeId: GraphNodeId
+    /// The bytes [start, end) with both bounds clamped to [0, length]; end <= start gives the empty
+    /// Bytes, as ListSlice and StringSlice. Never fails.
+    | BytesSlice of bytesNodeId: GraphNodeId * startNodeId: GraphNodeId * endNodeId: GraphNodeId
+    /// One byte per code point of the String; a code point above U+00FF becomes 0xFF, the reading
+    /// StringDecodeUtf8Lossy gives such a string. Never fails.
+    | BytesFromLatin1 of valueNodeId: GraphNodeId
+    /// The String with one code point U+0000..U+00FF per byte, the form StringEncodeUtf8 returns. Never fails.
+    | BytesToLatin1 of valueNodeId: GraphNodeId
     /// The empty List<T>.
     | ListEmpty of itemType: TypeRef
     /// The empty Set<T>. Sets hold each item once, compare items with ValueEqual (so T must be
@@ -967,6 +993,13 @@ module SemanticNodeShape =
         | SemanticNodeKind.Bits32ShiftLeft(leftNodeId, rightNodeId)
         | SemanticNodeKind.ListConcat(leftNodeId, rightNodeId) ->
             [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.BytesFill(leftNodeId, rightNodeId)
+        | SemanticNodeKind.BytesGet(leftNodeId, rightNodeId)
+        | SemanticNodeKind.BytesAppend(leftNodeId, rightNodeId)
+        | SemanticNodeKind.BytesConcat(leftNodeId, rightNodeId) -> [ leftNodeId; rightNodeId ]
+        | SemanticNodeKind.BytesSet(bytesNodeId, indexNodeId, valueNodeId) -> [ bytesNodeId; indexNodeId; valueNodeId ]
+        | SemanticNodeKind.BytesSlice(bytesNodeId, startNodeId, endNodeId) -> [ bytesNodeId; startNodeId; endNodeId ]
+        | SemanticNodeKind.BytesEmpty -> []
         | SemanticNodeKind.Float64IsNaN valueNodeId
         | SemanticNodeKind.Float64IsFinite valueNodeId
         | SemanticNodeKind.Int64ToFloat64 valueNodeId
@@ -976,6 +1009,9 @@ module SemanticNodeShape =
         | SemanticNodeKind.Bits32ToInt64 valueNodeId
         | SemanticNodeKind.Bits32Not valueNodeId
         | SemanticNodeKind.Float64IsInfinite valueNodeId -> [ valueNodeId ]
+        | SemanticNodeKind.BytesLength valueNodeId
+        | SemanticNodeKind.BytesFromLatin1 valueNodeId
+        | SemanticNodeKind.BytesToLatin1 valueNodeId -> [ valueNodeId ]
         | SemanticNodeKind.ListConstruct(_, itemNodeIds) -> itemNodeIds
         | SemanticNodeKind.ListLength listNodeId -> [ listNodeId ]
         | SemanticNodeKind.MapValues sourceMapNodeId -> [ sourceMapNodeId ]
@@ -1259,6 +1295,18 @@ module SemanticNodeShape =
                 SemanticNodeKind.Bits32ShiftRight(mapNodeId valueNodeId, mapNodeId amountNodeId)
             | SemanticNodeKind.Bits32ShiftLeft(valueNodeId, amountNodeId) ->
                 SemanticNodeKind.Bits32ShiftLeft(mapNodeId valueNodeId, mapNodeId amountNodeId)
+            | SemanticNodeKind.BytesEmpty -> node.Kind
+            | SemanticNodeKind.BytesFill(lengthNodeId, valueNodeId) -> SemanticNodeKind.BytesFill(mapNodeId lengthNodeId, mapNodeId valueNodeId)
+            | SemanticNodeKind.BytesLength valueNodeId -> SemanticNodeKind.BytesLength(mapNodeId valueNodeId)
+            | SemanticNodeKind.BytesGet(bytesNodeId, indexNodeId) -> SemanticNodeKind.BytesGet(mapNodeId bytesNodeId, mapNodeId indexNodeId)
+            | SemanticNodeKind.BytesSet(bytesNodeId, indexNodeId, valueNodeId) ->
+                SemanticNodeKind.BytesSet(mapNodeId bytesNodeId, mapNodeId indexNodeId, mapNodeId valueNodeId)
+            | SemanticNodeKind.BytesAppend(bytesNodeId, valueNodeId) -> SemanticNodeKind.BytesAppend(mapNodeId bytesNodeId, mapNodeId valueNodeId)
+            | SemanticNodeKind.BytesConcat(leftNodeId, rightNodeId) -> SemanticNodeKind.BytesConcat(mapNodeId leftNodeId, mapNodeId rightNodeId)
+            | SemanticNodeKind.BytesSlice(bytesNodeId, startNodeId, endNodeId) ->
+                SemanticNodeKind.BytesSlice(mapNodeId bytesNodeId, mapNodeId startNodeId, mapNodeId endNodeId)
+            | SemanticNodeKind.BytesFromLatin1 valueNodeId -> SemanticNodeKind.BytesFromLatin1(mapNodeId valueNodeId)
+            | SemanticNodeKind.BytesToLatin1 valueNodeId -> SemanticNodeKind.BytesToLatin1(mapNodeId valueNodeId)
             | SemanticNodeKind.ListConstruct(itemType, itemNodeIds) ->
                 SemanticNodeKind.ListConstruct(itemType, List.map mapNodeId itemNodeIds)
             | SemanticNodeKind.ListLength listNodeId -> SemanticNodeKind.ListLength(mapNodeId listNodeId)
@@ -1563,6 +1611,16 @@ module SemanticNodeShape =
         | SemanticNodeKind.Bits32RotateRight _
         | SemanticNodeKind.Bits32ShiftRight _
         | SemanticNodeKind.Bits32ShiftLeft _
+        | SemanticNodeKind.BytesEmpty
+        | SemanticNodeKind.BytesFill _
+        | SemanticNodeKind.BytesLength _
+        | SemanticNodeKind.BytesGet _
+        | SemanticNodeKind.BytesSet _
+        | SemanticNodeKind.BytesAppend _
+        | SemanticNodeKind.BytesConcat _
+        | SemanticNodeKind.BytesSlice _
+        | SemanticNodeKind.BytesFromLatin1 _
+        | SemanticNodeKind.BytesToLatin1 _
         | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.SetEmpty _
         | SemanticNodeKind.MapEmpty _
@@ -1833,6 +1891,16 @@ module SemanticNodeShape =
         | SemanticNodeKind.Bits32RotateRight _
         | SemanticNodeKind.Bits32ShiftRight _
         | SemanticNodeKind.Bits32ShiftLeft _
+        | SemanticNodeKind.BytesEmpty
+        | SemanticNodeKind.BytesFill _
+        | SemanticNodeKind.BytesLength _
+        | SemanticNodeKind.BytesGet _
+        | SemanticNodeKind.BytesSet _
+        | SemanticNodeKind.BytesAppend _
+        | SemanticNodeKind.BytesConcat _
+        | SemanticNodeKind.BytesSlice _
+        | SemanticNodeKind.BytesFromLatin1 _
+        | SemanticNodeKind.BytesToLatin1 _
         | SemanticNodeKind.ListLength _
         | SemanticNodeKind.MapValues _
         | SemanticNodeKind.MapKeys _
@@ -2089,6 +2157,16 @@ module SemanticNodeShape =
         | SemanticNodeKind.Bits32RotateRight _
         | SemanticNodeKind.Bits32ShiftRight _
         | SemanticNodeKind.Bits32ShiftLeft _
+        | SemanticNodeKind.BytesEmpty
+        | SemanticNodeKind.BytesFill _
+        | SemanticNodeKind.BytesLength _
+        | SemanticNodeKind.BytesGet _
+        | SemanticNodeKind.BytesSet _
+        | SemanticNodeKind.BytesAppend _
+        | SemanticNodeKind.BytesConcat _
+        | SemanticNodeKind.BytesSlice _
+        | SemanticNodeKind.BytesFromLatin1 _
+        | SemanticNodeKind.BytesToLatin1 _
         | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.SetEmpty _
         | SemanticNodeKind.MapEmpty _
@@ -2288,6 +2366,16 @@ module SemanticNodeShape =
         | SemanticNodeKind.Bits32RotateRight _
         | SemanticNodeKind.Bits32ShiftRight _
         | SemanticNodeKind.Bits32ShiftLeft _
+        | SemanticNodeKind.BytesEmpty
+        | SemanticNodeKind.BytesFill _
+        | SemanticNodeKind.BytesLength _
+        | SemanticNodeKind.BytesGet _
+        | SemanticNodeKind.BytesSet _
+        | SemanticNodeKind.BytesAppend _
+        | SemanticNodeKind.BytesConcat _
+        | SemanticNodeKind.BytesSlice _
+        | SemanticNodeKind.BytesFromLatin1 _
+        | SemanticNodeKind.BytesToLatin1 _
         | SemanticNodeKind.ListEmpty _
         | SemanticNodeKind.SetEmpty _
         | SemanticNodeKind.MapEmpty _
@@ -2605,7 +2693,7 @@ module TaskTypes =
                            fields |> List.exists (fun field -> visit (TypeParameters.instantiate typeEntity arguments field.Type))))
         visit typeRef
 
-/// `ValueEqual` compares two values of one *equatable* type: String, Int64, Bool, Unit, Bits32,
+/// `ValueEqual` compares two values of one *equatable* type: String, Int64, Bool, Unit, Bits32, Bytes,
 /// `List`, `Option` and `Result` of equatable types, and declared Products and Unions whose fields
 /// are all equatable, through any nesting and including recursive types. Float64 (NaN; use
 /// Float64Equal), function types, Task, TaskScope, Map, Set, capabilities, type parameters and
@@ -2655,7 +2743,7 @@ module EquatableTypes =
         let visited = System.Collections.Generic.HashSet<TypeId * TypeRef list>()
         let rec visit (path: string list) (typeRef: TypeRef) =
             match typeRef with
-            | TypeRef.Primitive(PrimitiveType.String | PrimitiveType.Int64 | PrimitiveType.Bool | PrimitiveType.Unit | PrimitiveType.Bits32) -> None
+            | TypeRef.Primitive(PrimitiveType.String | PrimitiveType.Int64 | PrimitiveType.Bool | PrimitiveType.Unit | PrimitiveType.Bits32 | PrimitiveType.Bytes) -> None
             | TypeRef.Primitive PrimitiveType.Float64
             | TypeRef.Function _
             | TypeRef.Capability _

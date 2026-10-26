@@ -274,6 +274,28 @@ module internal ExpressionRecipeMaterialization =
         | ExpressionRecipe.Bits32RotateRight(left, right) -> binary SemanticNodeKind.Bits32RotateRight left right
         | ExpressionRecipe.Bits32ShiftRight(left, right) -> binary SemanticNodeKind.Bits32ShiftRight left right
         | ExpressionRecipe.Bits32ShiftLeft(left, right) -> binary SemanticNodeKind.Bits32ShiftLeft left right
+        | ExpressionRecipe.BytesEmpty ->
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            [ { Id = nodeId; Kind = SemanticNodeKind.BytesEmpty } ], nodeId
+        | ExpressionRecipe.BytesFill(left, right) -> binary SemanticNodeKind.BytesFill left right
+        | ExpressionRecipe.BytesLength value -> unary SemanticNodeKind.BytesLength value
+        | ExpressionRecipe.BytesGet(left, right) -> binary SemanticNodeKind.BytesGet left right
+        | ExpressionRecipe.BytesAppend(left, right) -> binary SemanticNodeKind.BytesAppend left right
+        | ExpressionRecipe.BytesConcat(left, right) -> binary SemanticNodeKind.BytesConcat left right
+        | ExpressionRecipe.BytesFromLatin1 value -> unary SemanticNodeKind.BytesFromLatin1 value
+        | ExpressionRecipe.BytesToLatin1 value -> unary SemanticNodeKind.BytesToLatin1 value
+        | ExpressionRecipe.BytesSet(value, start, stop) ->
+            let valueNodes, valueResult = materializeRecipe value
+            let startNodes, startResult = materializeRecipe start
+            let stopNodes, stopResult = materializeRecipe stop
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            valueNodes @ startNodes @ stopNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.BytesSet(valueResult, startResult, stopResult) } ], nodeId
+        | ExpressionRecipe.BytesSlice(value, start, stop) ->
+            let valueNodes, valueResult = materializeRecipe value
+            let startNodes, startResult = materializeRecipe start
+            let stopNodes, stopResult = materializeRecipe stop
+            let nodeId = StableIdAllocator.newGraphNodeId ()
+            valueNodes @ startNodes @ stopNodes @ [ { Id = nodeId; Kind = SemanticNodeKind.BytesSlice(valueResult, startResult, stopResult) } ], nodeId
         | ExpressionRecipe.ListEmpty itemType ->
             let nodeId = StableIdAllocator.newGraphNodeId ()
             [ { Id = nodeId; Kind = SemanticNodeKind.ListEmpty itemType } ], nodeId

@@ -56,6 +56,7 @@ module CSharpBackend =
         | TypeRef.Primitive PrimitiveType.Int64 -> "long"
         | TypeRef.Primitive PrimitiveType.Float64 -> "double"
         | TypeRef.Primitive PrimitiveType.Bits32 -> "uint"
+        | TypeRef.Primitive PrimitiveType.Bytes -> "NyBytes"
         | TypeRef.Named(typeId, arguments) -> CSharpBackendNames.typeName typeId + typeArgumentList arguments
         | TypeRef.Capability capabilityId -> CSharpBackendNames.capabilityName capabilityId
         | TypeRef.Function(arguments, result) ->
@@ -1010,6 +1011,9 @@ module CSharpBackend =
         for line in CSharpBackendRuntime.listRuntime do
             writer.Line(line)
         writer.Line("")
+        for line in CSharpBackendRuntime.bytesRuntime do
+            writer.Line(line)
+        writer.Line("")
 
     let private fieldParameter (field: ExecutionField) =
         formatType field.Type + " " + CSharpBackendNames.fieldName field.Id
@@ -1635,6 +1639,23 @@ module CSharpBackend =
         | ExecutionInstructionKind.Bits32ShiftLeft(valueId, amountValueId) ->
             let amount = valueName amountValueId
             writer.Line(target + " = " + amount + " <= 0L ? " + valueName valueId + " : " + amount + " >= 32L ? 0u : " + valueName valueId + " << (int)" + amount + ";")
+        // Bytes is NyBytes; every operation is total and returns a new value (see CSharpBackendRuntime.bytesRuntime).
+        | ExecutionInstructionKind.BytesEmpty -> writer.Line(target + " = NyBytes.Empty();")
+        | ExecutionInstructionKind.BytesFill(lengthId, valueId) ->
+            writer.Line(target + " = NyBytes.Fill(" + valueName lengthId + ", " + valueName valueId + ");")
+        | ExecutionInstructionKind.BytesLength valueId -> writer.Line(target + " = " + valueName valueId + ".Length;")
+        | ExecutionInstructionKind.BytesGet(bytesId, indexId) ->
+            writer.Line(target + " = " + valueName bytesId + ".Get(" + valueName indexId + ");")
+        | ExecutionInstructionKind.BytesSet(bytesId, indexId, valueId) ->
+            writer.Line(target + " = " + valueName bytesId + ".Set(" + valueName indexId + ", " + valueName valueId + ");")
+        | ExecutionInstructionKind.BytesAppend(bytesId, valueId) ->
+            writer.Line(target + " = " + valueName bytesId + ".Append(" + valueName valueId + ");")
+        | ExecutionInstructionKind.BytesConcat(leftId, rightId) ->
+            writer.Line(target + " = " + valueName leftId + ".Concat(" + valueName rightId + ");")
+        | ExecutionInstructionKind.BytesSlice(bytesId, startId, endId) ->
+            writer.Line(target + " = " + valueName bytesId + ".Slice(" + valueName startId + ", " + valueName endId + ");")
+        | ExecutionInstructionKind.BytesFromLatin1 valueId -> writer.Line(target + " = NyBytes.FromLatin1(" + valueName valueId + ");")
+        | ExecutionInstructionKind.BytesToLatin1 valueId -> writer.Line(target + " = " + valueName valueId + ".ToLatin1();")
         | ExecutionInstructionKind.ListEmpty ->
             writer.Line(target + " = " + formatType instruction.Result.Type + ".Empty();")
         | ExecutionInstructionKind.SetEmpty ->
@@ -2136,6 +2157,23 @@ module CSharpBackend =
         for parameter in functionEntity.Parameters do
             writer.Line(valueName parameter.Value.Id + " = " + CSharpBackendNames.parameterName parameter.SemanticParameterId + ";")
 
+        // The invocation's owner token for in-place Bytes updates; set before the entry label, so a tail
+        // self-call keeps it and later loop turns keep writing in place.
+        let bytesOwnership = ExecutionIrBytesOwnership.plan functionEntity
+        let bytesOwner = "nyBytesOwner"
+        let updatesBytes =
+            functionEntity.Blocks
+            |> List.exists (fun block ->
+                block.Instructions
+                |> List.exists (fun instruction ->
+                    match instruction.Kind with
+                    | ExecutionInstructionKind.BytesSet _
+                    | ExecutionInstructionKind.BytesAppend _ -> true
+                    | _ -> false))
+        if updatesBytes then writer.Line("object " + bytesOwner + " = new();")
+        let releaseBytes (valueIds: ExecutionValueId list) =
+            for valueId in valueIds do writer.Line(valueName valueId + ".ReleaseOwner();")
+
         // The ref overload is used only by TaskStart with fresh, distinct snapshot slots.
         // Clear those slots after all values reach the loop locals, before any worker code runs.
         if consumeCaptures then
@@ -2150,7 +2188,16 @@ module CSharpBackend =
             writer.Line(CSharpBackendNames.executionBlockLabel block.Id + ":")
             writer.Push()
             for instruction in block.Instructions do
-                emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf instruction
+                let inPlace = bytesOwnership |> Option.exists (fun plan -> Set.contains instruction.Result.Id plan.InPlace)
+                let flag = if inPlace then "true" else "false"
+                bytesOwnership |> Option.bind (fun plan -> Map.tryFind instruction.Result.Id plan.Escapes) |> Option.iter releaseBytes
+                match instruction.Kind with
+                | ExecutionInstructionKind.BytesSet(bytesId, indexId, valueId) ->
+                    writer.Line(valueName instruction.Result.Id + " = " + valueName bytesId + ".Set(" + valueName indexId + ", " + valueName valueId + ", " + bytesOwner + ", " + flag + ");")
+                | ExecutionInstructionKind.BytesAppend(bytesId, valueId) ->
+                    writer.Line(valueName instruction.Result.Id + " = " + valueName bytesId + ".Append(" + valueName valueId + ", " + bytesOwner + ", " + flag + ");")
+                | _ -> emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf instruction
+            bytesOwnership |> Option.bind (fun plan -> Map.tryFind block.Id plan.TailCallReleases) |> Option.iter releaseBytes
             emitTerminator functionEntity (fun valueId -> Map.find valueId valueTypes) writer block block.Terminator
             writer.Line("")
 

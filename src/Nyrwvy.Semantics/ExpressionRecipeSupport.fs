@@ -204,6 +204,9 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.Bits32FromInt64 child
         | ExpressionRecipe.Bits32ToInt64 child
         | ExpressionRecipe.Bits32Not child
+        | ExpressionRecipe.BytesLength child
+        | ExpressionRecipe.BytesFromLatin1 child
+        | ExpressionRecipe.BytesToLatin1 child
         | ExpressionRecipe.ListLength child
         | ExpressionRecipe.MapValues child
         | ExpressionRecipe.MapKeys child
@@ -220,6 +223,9 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.Abort child
         | ExpressionRecipe.ResultErr(_, child) -> Seq.singleton child
         | ExpressionRecipe.StringSlice(value, start, stop) -> seq { value; start; stop }
+        | ExpressionRecipe.BytesSet(value, start, stop)
+        | ExpressionRecipe.BytesSlice(value, start, stop) -> seq { value; start; stop }
+        | ExpressionRecipe.BytesEmpty -> Seq.empty
         | ExpressionRecipe.StringIndexOf(value, substring, from) -> seq { value; substring; from }
         | ExpressionRecipe.StringReplace(value, pattern, replacement) -> seq { value; pattern; replacement }
         | ExpressionRecipe.StringSpan(value, set, bound)
@@ -290,6 +296,10 @@ module internal ExpressionRecipeSupport =
         | ExpressionRecipe.Bits32RotateRight(left, right)
         | ExpressionRecipe.Bits32ShiftRight(left, right)
         | ExpressionRecipe.Bits32ShiftLeft(left, right)
+        | ExpressionRecipe.BytesFill(left, right)
+        | ExpressionRecipe.BytesGet(left, right)
+        | ExpressionRecipe.BytesAppend(left, right)
+        | ExpressionRecipe.BytesConcat(left, right)
         | ExpressionRecipe.ListAppendItem(left, right)
         | ExpressionRecipe.ListItemAt(left, right)
         | ExpressionRecipe.ListRemoveAt(left, right)

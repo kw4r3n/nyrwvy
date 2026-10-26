@@ -30,6 +30,8 @@ module TypedSemanticIrSerializer =
             writer.WriteString("kind", "primitiveFloat64")
         | TypeRef.Primitive PrimitiveType.Bits32 ->
             writer.WriteString("kind", "primitiveBits32")
+        | TypeRef.Primitive PrimitiveType.Bytes ->
+            writer.WriteString("kind", "primitiveBytes")
         | TypeRef.Function(arguments, result) ->
             writer.WriteString("kind", "function")
             writer.WritePropertyName("parameters")
@@ -592,6 +594,36 @@ module TypedSemanticIrSerializer =
             writer.WriteString("kind", "bits32ShiftLeft")
             writer.WriteString("valueNodeId", StableId.value valueNodeId)
             writer.WriteString("amountNodeId", StableId.value amountNodeId)
+        | TypedSemanticNodeKind.BytesEmpty -> writer.WriteString("kind", "bytesEmpty")
+        | TypedSemanticNodeKind.BytesFill(lengthNodeId, valueNodeId) ->
+            writer.WriteString("kind", "bytesFill")
+            writer.WriteString("lengthNodeId", StableId.value lengthNodeId)
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.BytesLength valueNodeId -> writeUnaryNode writer "bytesLength" valueNodeId
+        | TypedSemanticNodeKind.BytesGet(bytesNodeId, indexNodeId) ->
+            writer.WriteString("kind", "bytesGet")
+            writer.WriteString("bytesNodeId", StableId.value bytesNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
+        | TypedSemanticNodeKind.BytesSet(bytesNodeId, indexNodeId, valueNodeId) ->
+            writer.WriteString("kind", "bytesSet")
+            writer.WriteString("bytesNodeId", StableId.value bytesNodeId)
+            writer.WriteString("indexNodeId", StableId.value indexNodeId)
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.BytesAppend(bytesNodeId, valueNodeId) ->
+            writer.WriteString("kind", "bytesAppend")
+            writer.WriteString("bytesNodeId", StableId.value bytesNodeId)
+            writer.WriteString("valueNodeId", StableId.value valueNodeId)
+        | TypedSemanticNodeKind.BytesConcat(leftNodeId, rightNodeId) ->
+            writer.WriteString("kind", "bytesConcat")
+            writer.WriteString("leftNodeId", StableId.value leftNodeId)
+            writer.WriteString("rightNodeId", StableId.value rightNodeId)
+        | TypedSemanticNodeKind.BytesSlice(bytesNodeId, startNodeId, endNodeId) ->
+            writer.WriteString("kind", "bytesSlice")
+            writer.WriteString("bytesNodeId", StableId.value bytesNodeId)
+            writer.WriteString("startNodeId", StableId.value startNodeId)
+            writer.WriteString("endNodeId", StableId.value endNodeId)
+        | TypedSemanticNodeKind.BytesFromLatin1 valueNodeId -> writeUnaryNode writer "bytesFromLatin1" valueNodeId
+        | TypedSemanticNodeKind.BytesToLatin1 valueNodeId -> writeUnaryNode writer "bytesToLatin1" valueNodeId
         | TypedSemanticNodeKind.ListEmpty ->
             writer.WriteString("kind", "listEmpty")
         | TypedSemanticNodeKind.SetEmpty ->

@@ -603,6 +603,16 @@ module internal ExpressionRecipeInference =
             | ExpressionRecipe.Bits32RotateRight _
             | ExpressionRecipe.Bits32ShiftRight _
             | ExpressionRecipe.Bits32ShiftLeft _
+            | ExpressionRecipe.BytesEmpty
+            | ExpressionRecipe.BytesFill _
+            | ExpressionRecipe.BytesLength _
+            | ExpressionRecipe.BytesGet _
+            | ExpressionRecipe.BytesSet _
+            | ExpressionRecipe.BytesAppend _
+            | ExpressionRecipe.BytesConcat _
+            | ExpressionRecipe.BytesSlice _
+            | ExpressionRecipe.BytesFromLatin1 _
+            | ExpressionRecipe.BytesToLatin1 _
             | ExpressionRecipe.ListLength _
             | ExpressionRecipe.ListItemAt _
             | ExpressionRecipe.ListSlice _

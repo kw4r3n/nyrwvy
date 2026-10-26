@@ -390,6 +390,16 @@ module internal SignatureMigrationCore =
             | ExpressionRecipe.Bits32RotateRight(left, right) -> two ExpressionRecipe.Bits32RotateRight left right
             | ExpressionRecipe.Bits32ShiftRight(left, right) -> two ExpressionRecipe.Bits32ShiftRight left right
             | ExpressionRecipe.Bits32ShiftLeft(left, right) -> two ExpressionRecipe.Bits32ShiftLeft left right
+            | ExpressionRecipe.BytesEmpty -> Ok recipe
+            | ExpressionRecipe.BytesFill(left, right) -> two ExpressionRecipe.BytesFill left right
+            | ExpressionRecipe.BytesLength value -> one ExpressionRecipe.BytesLength value
+            | ExpressionRecipe.BytesGet(left, right) -> two ExpressionRecipe.BytesGet left right
+            | ExpressionRecipe.BytesSet(value, start, stop) -> three ExpressionRecipe.BytesSet value start stop
+            | ExpressionRecipe.BytesAppend(left, right) -> two ExpressionRecipe.BytesAppend left right
+            | ExpressionRecipe.BytesConcat(left, right) -> two ExpressionRecipe.BytesConcat left right
+            | ExpressionRecipe.BytesSlice(value, start, stop) -> three ExpressionRecipe.BytesSlice value start stop
+            | ExpressionRecipe.BytesFromLatin1 value -> one ExpressionRecipe.BytesFromLatin1 value
+            | ExpressionRecipe.BytesToLatin1 value -> one ExpressionRecipe.BytesToLatin1 value
             | ExpressionRecipe.Int64Equal(left, right) -> two ExpressionRecipe.Int64Equal left right
             | ExpressionRecipe.Int64LessThan(left, right) -> two ExpressionRecipe.Int64LessThan left right
             | ExpressionRecipe.Int64LessThanOrEqual(left, right) -> two ExpressionRecipe.Int64LessThanOrEqual left right
