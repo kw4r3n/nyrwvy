@@ -109,7 +109,8 @@ module ExecutionIrBytesOwnership =
                         let left, right = find instruction.Result.Id, find source
                         if left <> right then parent[left] <- right
                     | None -> ()
-            // Use sites: (block, position, origin node, used value). The terminator sits after the instructions.
+            // Use sites: (block, position, origin node if any, used value). The terminator sits after the
+            // instructions; a use is never dropped for lacking an origin, which only labels copiedUpdates.
             let uses =
                 functionEntity.Blocks
                 |> List.collect (fun block ->
@@ -118,19 +119,17 @@ module ExecutionIrBytesOwnership =
                         |> List.indexed
                         |> List.filter (fun (_, instruction) -> Option.isNone (moved instruction.Kind))
                         |> List.collect (fun (index, instruction) ->
-                            valueIds (box instruction.Kind) |> List.map (fun id -> block.Id, index, instruction.OriginNodeId, Some instruction, id))
+                            valueIds (box instruction.Kind) |> List.map (fun id -> block.Id, index, Some instruction.OriginNodeId, Some instruction, id))
                     let terminatorUses =
                         match block.Terminator with
                         | ExecutionTerminator.Jump _ -> []
                         | ExecutionTerminator.TailCall(origin, _)
                         | ExecutionTerminator.Abort(origin, _) ->
-                            valueIds (box block.Terminator) |> List.map (fun id -> block.Id, block.Instructions.Length, origin, None, id)
+                            valueIds (box block.Terminator) |> List.map (fun id -> block.Id, block.Instructions.Length, Some origin, None, id)
                         | terminator ->
-                            // Return and branch inputs carry no origin of their own; the block's last instruction stands in.
-                            let origin =
-                                block.Instructions |> List.tryLast |> Option.map (fun instruction -> instruction.OriginNodeId)
-                            valueIds (box terminator)
-                            |> List.choose (fun id -> origin |> Option.map (fun origin -> block.Id, block.Instructions.Length, origin, None, id))
+                            // Return and branch inputs carry no origin of their own; the block's last instruction, if any, stands in.
+                            let origin = block.Instructions |> List.tryLast |> Option.map (fun instruction -> instruction.OriginNodeId)
+                            valueIds (box terminator) |> List.map (fun id -> block.Id, block.Instructions.Length, origin, None, id)
                     instructionUses @ terminatorUses)
             let blocks = functionEntity.Blocks |> List.map (fun block -> block.Id, block) |> Map.ofList
             let reachableFrom =
@@ -189,6 +188,7 @@ module ExecutionIrBytesOwnership =
                 { InPlace = decisions |> List.choose (fun (update, later) -> if Option.isNone later then Some update.Result.Id else None) |> Set.ofList
                   CopiedUpdates =
                     decisions
-                    |> List.choose (fun (update, later) -> later |> Option.map (fun (_, _, origin, _, _) -> update.OriginNodeId, origin))
+                    |> List.choose (fun (update, later) ->
+                        later |> Option.map (fun (_, _, origin, _, _) -> update.OriginNodeId, Option.defaultValue update.OriginNodeId origin))
                   Escapes = escapes
                   TailCallReleases = tailCallReleases }

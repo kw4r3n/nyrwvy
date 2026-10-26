@@ -23,6 +23,8 @@ A .NET 10 Release benchmark ([evaluation/bytes-buffers](../../evaluation/bytes-b
 | Build 64 KiB one byte at a time | `List<Int64>` `AppendItem`: 1.33 ms, 5.2 MB; latin-1 `String` concat: 4.33 ms, 7.3 MB | 0.034 ms, 0 B | 0.034 ms, 64 KiB |
 | Read every byte of 64 KiB | `List<Int64>` `ItemAt`: 0.39 ms | 0.030 ms | — |
 
+After implementation, through emitted code (a tail-recursive loop calling `BytesSet` or `BytesAppend`): the frame costs 0.029 ms and 12.9 KB per call, the 64 KiB build 0.181 ms and 131 KB ([verification](../verification/bytes-20261026.md)).
+
 At 60 frames per second the first row is 700 MB/s of garbage and a quarter of the frame budget. One copy per call (the last column) costs a hundredth of that. This meets the roadmap's evidence rule: a consumer exists and its workload is blocked (snap keeps the grid in C# because of it).
 
 ## Decision 1: one new value type, `Bytes`

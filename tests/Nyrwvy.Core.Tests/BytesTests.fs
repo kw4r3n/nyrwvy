@@ -350,6 +350,15 @@ module BytesTests =
                         ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 1L, ExpressionRecipe.Int64Literal 1L); 1, plus1 (slot 1) ],
                         ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
                             ExpressionRecipe.ListConstruct(bytesType, [ value; slot 0 ]))))
+            // The old value returned through a conditional's merge block, which has no instruction of its
+            // own: on an owned buffer (second turn) the update must still copy.
+            let ownedMergeReturn =
+                create session "ownedMergeReturn" [ "b", bytesType; "i", intType ] bytesType
+                    (ExpressionRecipe.Conditional(
+                        ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 1L),
+                        ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 1L, ExpressionRecipe.Int64Literal 1L); 1, plus1 (slot 1) ],
+                        ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
+                            ExpressionRecipe.Conditional(ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 5L), slot 0, slot 0))))
             // Appending in a loop grows one buffer.
             let appendLoop =
                 create session "appendLoop" [ "b", bytesType; "i", intType ] bytesType
@@ -368,6 +377,7 @@ module BytesTests =
             Assert.Equal(listOfBytes [ [| 5uy |]; [| 1uy |] ], run twins [ bytes [| 0uy |]; bytes [| 0uy |]; PureRunValue.Int64 0L ])
             Assert.Equal(listOfBytes [ [| 7uy; 2uy |]; [| 1uy; 2uy |] ], run oldAndNew [ bytes [| 1uy; 2uy |] ])
             Assert.Equal(listOfBytes [ [| 7uy; 1uy |]; [| 0uy; 1uy |] ], run ownedOldAndNew [ bytes [| 0uy; 0uy |]; PureRunValue.Int64 0L ])
+            Assert.Equal(bytes [| 0uy; 1uy |], run ownedMergeReturn [ bytes [| 0uy; 0uy |]; PureRunValue.Int64 0L ])
             Assert.Equal(bytes (Array.init 300 byte), run appendLoop [ bytes [||]; PureRunValue.Int64 0L ])
             // The plan behind those results.
             let graph = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap
