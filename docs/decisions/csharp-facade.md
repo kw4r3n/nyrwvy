@@ -8,7 +8,7 @@ This decision gives a C# host readable names for a program's exported declaratio
 
 ## Decision
 
-**The facade.** `emitCSharp` takes an optional `facade` path (a `.cs` file, confined like `output`). The facade covers the snapshot's own exported functions, types and capabilities, plus every type and capability their signatures and fields reach, including imported ones. It contains:
+**The facade.** `emitCSharp` takes an optional `facade` path (a `.cs` file, confined like `output`). The facade covers the snapshot's own exported functions, types and capabilities, plus every type and capability their signatures and fields reach, including imported ones. A capability with an operation the `externalImplementations` profile lists is included too, reached or not, since the host must implement it: an imported capability library's capabilities get their base classes even when the program passes them only to imported functions. It contains:
 
 - `global using` aliases: a non-generic type by its display name, each variant of a non-generic Union as `{Union}{Variant}`, and each capability by its display name.
 - In `public static class NyFacade` (namespace `Nyrwvy.Generated`; hosts add `using static Nyrwvy.Generated.NyFacade;`):

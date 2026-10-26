@@ -1,6 +1,6 @@
 # A shared host capability library (design note)
 
-**Status:** Proposed, 2026-10-27. Owner questions with proposed answers at the end.
+**Status:** Accepted by the owner on 2026-10-27 with the three answers as proposed. Implemented in [`libraries/host`](../../libraries/host/README.md); snap's move is still to do.
 
 **Date:** 2026-10-27
 
@@ -32,15 +32,17 @@ A program imports the library with the dependency operations that exist today; t
 
 ## Decision 3: the first operations
 
-All under the existing effect `System`.
+All under the existing effect `System`. The [library README](../../libraries/host/README.md) has the full contract.
 
 | Capability | Operation | Notes |
 | --- | --- | --- |
-| `Fs` | `readText(path): Option<String>`, `readBytes(path): Option<Bytes>`, `writeBytes(path, data): Bool` | `None`/`false` for missing or unreadable, as `readText` today |
+| `Fs` | `readText(path): Result<String, String>`, `readBytes(path): Result<Bytes, String>`, `writeBytes(path, data): Result<Unit, String>` | the error is the OS's message |
 | `Env` | `get(name): Option<String>` | unchanged |
-| `Process` | `spawn(program, args): Bool` | unchanged; does not wait |
-| `Ptys` | `open(argv, cols, rows): Result<Pty, String>`, `close(pty: Pty): Unit` | issuing capability; `close` hangs up and waits for the child |
+| `Process` | `spawn(program, args): Result<Unit, String>`, `run(program, args): Result<ProcessOutput, String>` | `spawn` does not wait; `run` returns the exit code, stdout and stderr |
+| `Ptys` | `open(argv, environment, cols, rows): Result<Pty, String>`, `close(pty: Pty): Option<Int64>` | issuing capability; `environment` replaces inherited variables; `close` hangs up, kills after a grace period, and returns the exit code |
 | `Pty` (handle) | `read(): Option<Bytes>`, `write(data: Bytes): Unit`, `resize(cols, rows): Unit`, `foregroundCommand(): Option<String>` | a [capability handle](../decisions/capability-handles.md); `read` blocks for the next chunk, `None` at end of output |
+
+**Revised at implementation (2026-10-27)**, so that no shape presumes snap's single use: failures are `Result<_, String>` instead of `None`/`false` (`Fs.readText` and `Process.spawn` change signature; snap repairs its one caller when it upgrades), `Process.run` is added beside the fire-and-forget `spawn`, `TERM` moves from the host constructor into `open`'s `environment`, and `close` reports the exit status and no longer waits forever for a child that ignores the hangup. The facade now gives a base class to every capability whose operations the host implements ([C# facade](../decisions/csharp-facade.md)), so a program that does not reach a library capability through its own signatures still compiles with the vendored `NyHost.cs`.
 
 `Pty.foregroundCommand` replaces snap's read of `/proc/<pgrp>/comm`, which snap uses to label panes. A clock is left out: snap's agent states already take elapsed milliseconds as arguments from its event loop's host, and no consumer needs another source of time yet.
 
