@@ -572,6 +572,23 @@ module internal SessionStorage =
     let replaceAtomically path content =
         SnapshotComputationScope.Measure("persistence.replace", fun () -> replaceAtomicallyCore path content)
 
+    /// Gives a standalone workspace its first dependency: the sidecar is created, then the snapshot
+    /// replaced by its resolved form; a failed snapshot write removes the sidecar again, so the
+    /// standalone file still opens as before.
+    let addDependencyPair path previousSource nextSource nextManifest =
+        let sidecar = path + ".dependency.json"
+        match readText path with
+        | Error error -> Error error
+        | Ok source when source <> previousSource || File.Exists sidecar -> Error AuthoringSessionError.ExternalModification
+        | Ok _ ->
+            createAtomically sidecar nextManifest
+            |> Result.bind (fun () ->
+                match replaceAtomically path nextSource with
+                | Ok() -> Ok()
+                | Error error ->
+                    cleanupTemporary sidecar
+                    Error error)
+
     /// One shared persistence boundary for startup upgrades and reviewed repairs.
     /// The previous sidecar is kept as `<snapshot>.dependency.json.previous` while the pair is replaced,
     /// so a crash between the two renames leaves the only copy of the previous selection recoverable
@@ -942,11 +959,12 @@ module internal PinnedDependency =
                                           Added = added; Removed = removed; Changed = changed; Issues = issues } })))
 
     /// N-to-M selection changes validate only final imports, without inventing an old/new
-    /// one-to-one mapping when consolidating or splitting libraries.
-    let planSelectionUpgrade (localPath: string) (localSource: string) (current: PinnedDependencySelection) (request: AuthoringDependencySelectionUpgrade) =
-        let members = match current.Members with [] -> [ current ] | members -> members
+    /// one-to-one mapping when consolidating or splitting libraries. An empty `Replaces` adds
+    /// the sources, also to a workspace that has no dependency yet (`current` is None).
+    let planSelectionUpgrade (localPath: string) (localSource: string) (current: PinnedDependencySelection option) (request: AuthoringDependencySelectionUpgrade) =
+        let members = current |> Option.map (fun current -> match current.Members with [] -> [ current ] | members -> members) |> Option.defaultValue []
         let failure message = Error(AuthoringSessionError.DependencyFailure message)
-        if List.isEmpty request.Sources || List.isEmpty request.Replaces then failure "A selection upgrade needs at least one source and one current SnapshotId to replace."
+        if List.isEmpty request.Sources then failure "A selection change needs at least one source."
         elif request.Sources @ request.Replaces |> List.exists String.IsNullOrWhiteSpace then failure "Selection upgrade sources and targets must be non-blank."
         elif (List.distinct request.Replaces).Length <> request.Replaces.Length then failure "Each current dependency may be replaced only once."
         elif request.Replaces |> List.exists (fun target -> members |> List.exists (fun memberItem -> StableId.value memberItem.Imported.Id = target) |> not) then
@@ -966,14 +984,19 @@ module internal PinnedDependency =
                 else
                     combine upgraded
                     |> Result.bind (fun selection ->
-                        SessionStorage.decodeAs localPath (Some current.Imported) localSource
+                        SessionStorage.decodeAs localPath (current |> Option.map (fun current -> current.Imported)) localSource
                         |> Result.map (fun local ->
                             let issues = compatibilityIssues selection local
-                            let added, removed, changed = declarationChanges current.Imported selection.Imported
+                            let before =
+                                match current with
+                                | Some current -> current.Imported
+                                | None -> { selection.Imported with Types = []; Effects = []; Capabilities = []; Functions = [] }
+                            let added, removed, changed = declarationChanges before selection.Imported
                             let replaced = members |> List.filter (fun item -> List.contains (StableId.value item.Imported.Id) request.Replaces)
                             let describe item = { SnapshotId = StableId.value item.Imported.Id; Fingerprint = item.Fingerprint }
                             let review = JsonSerializer.Serialize(
-                                {| version = 2; path = localPath; localSource = localSource; manifest = current.Manifest
+                                {| version = 2; path = localPath; localSource = localSource
+                                   manifest = current |> Option.map (fun current -> current.Manifest) |> Option.defaultValue ""
                                    replaces = request.Replaces |> List.sort
                                    selected = selected |> List.sortBy (fun item -> item.SourcePath) |> List.map (fun item -> item.Manifest) |})
                             { Selection = selection; Local = local
@@ -1019,8 +1042,11 @@ module internal PinnedDependency =
                 { Kind = kind; Id = id; IsLocal = List.isEmpty providing; Sources = providing })
         { declarations with Provenance = provenance }
 
-    let planChange path source current = function
-        | AuthoringDependencyChangeRequest.Upgrades upgrades -> planUpgrades path source current upgrades
+    let planChange path source (current: PinnedDependencySelection option) = function
+        | AuthoringDependencyChangeRequest.Upgrades upgrades ->
+            match current with
+            | Some current -> planUpgrades path source current upgrades
+            | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade; add one with a selection whose replaces is empty.")
         | AuthoringDependencyChangeRequest.Selection request -> planSelectionUpgrade path source current request
 
 type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, initialPersistedSource: string, lockHandle: FileStream option, selection: PinnedDependencySelection option) =
@@ -1210,22 +1236,16 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
 
     member _.PreviewDependencySelectionUpgrade(request: AuthoringDependencySelectionUpgrade): Result<AuthoringDependencyUpgradesPreview, AuthoringSessionError> =
         ensureUsable () |> Result.bind (fun () -> checkPersistedSource ())
-        |> Result.bind (fun () ->
-            match selection with
-            | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade.")
-            | Some current -> PinnedDependency.planSelectionUpgrade path persistedSource current request |> Result.map (fun plan -> plan.Preview))
+        |> Result.bind (fun () -> PinnedDependency.planSelectionUpgrade path persistedSource selection request |> Result.map (fun plan -> plan.Preview))
 
     member _.DependencyUpgradeDeclarations(request: AuthoringDependencyChangeRequest): Result<AuthoringDeclarations, AuthoringSessionError> =
         ensureUsable () |> Result.bind (fun () -> checkPersistedSource ())
         |> Result.bind (fun () ->
-            match selection with
-            | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade.")
-            | Some current ->
-                PinnedDependency.planChange path persistedSource current request
-                |> Result.map (fun plan ->
-                    let combined = SnapshotCodec.resolveDependency plan.Selection.Imported plan.Local
-                    { Functions = combined.Functions; Types = combined.Types; Capabilities = combined.Capabilities; Effects = combined.Effects; Provenance = [] }
-                    |> PinnedDependency.withProvenance (Some plan.Selection)))
+            PinnedDependency.planChange path persistedSource selection request
+            |> Result.map (fun plan ->
+                let combined = SnapshotCodec.resolveDependency plan.Selection.Imported plan.Local
+                { Functions = combined.Functions; Types = combined.Types; Capabilities = combined.Capabilities; Effects = combined.Effects; Provenance = [] }
+                |> PinnedDependency.withProvenance (Some plan.Selection)))
 
     member _.SimulateDependencyUpgrade(request: AuthoringDependencyChangeRequest, repairs: AgentDependencyLocalRepairs, expectedSnapshotId: SnapshotId): Result<AuthoringProposal, AuthoringSessionError> =
         ensureUsable () |> Result.bind (fun () -> checkPersistedSource ())
@@ -1234,9 +1254,9 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 Error(AuthoringSessionError.DependencyFailure "The dependency repair targets a different base snapshot.")
             else
                 match selection with
-                | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade.")
+                | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to repair against; add one by opening it in upgrade mode with a selection whose replaces is empty.")
                 | Some current ->
-                    PinnedDependency.planChange path persistedSource current request
+                    PinnedDependency.planChange path persistedSource (Some current) request
                     |> Result.bind (fun plan ->
                         AgentDependencyUpgradeWorkflow.simulate workspace current.Imported plan.Selection.Imported repairs
                         |> Result.mapError AuthoringSessionError.StructuralSimulationFailure
@@ -1546,7 +1566,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency selection.")
                 | Some current ->
                     checkPersistedSource ()
-                    |> Result.bind (fun () -> PinnedDependency.planChange path persistedSource current request)
+                    |> Result.bind (fun () -> PinnedDependency.planChange path persistedSource (Some current) request)
                     |> Result.bind (fun plan ->
                         if plan.Preview.ReviewFingerprint <> reviewed then
                             Error(AuthoringSessionError.DependencyFailure "The workspace, pins, targets or selected source changed after dependency repair review. Simulate again.")
@@ -1817,9 +1837,16 @@ module AuthoringSession =
                             && (PinnedDependency.loadFrom previous None
                                 |> Result.bind (fun selected -> workspaceFromSource path (selected |> Option.map (fun item -> item.Imported)) source)
                                 |> Result.isOk)
+                        // Adding a first dependency creates the sidecar before rewriting the snapshot.
+                        let standaloneMatches =
+                            not pin && not previousMatches && File.Exists(path + ".dependency.json")
+                            && (workspaceFromSource path None source |> Result.isOk)
                         if previousMatches then
                             Error(AuthoringSessionError.DependencyFailure
                                 $"The dependency sidecar '{path}.dependency.json' does not match the snapshot, but '{previous}' does: a dependency replacement was interrupted. Restore it over the sidecar to recover the previous selection.")
+                        elif standaloneMatches then
+                            Error(AuthoringSessionError.DependencyFailure
+                                $"The snapshot '{path}' has no dependency, but '{path}.dependency.json' exists: adding a first dependency was interrupted. Delete the sidecar to recover the workspace without it, then add the dependency again.")
                         else Error error
                     | Ok(selected, workspace) ->
                         Ok(new AuthoringSession(path, workspace, source, lockHandle, selected))
@@ -1831,7 +1858,7 @@ module AuthoringSession =
 
     /// Apply a reviewed final selection under the existing workspace lock. Storage faults
     /// restore the previous manifest; crash atomicity across the two files is unchanged.
-    let private upgradeUsing (path: string) (plan: string -> string -> PinnedDependencySelection -> Result<PinnedDependencySelection * Snapshot * ValidationIssue list, AuthoringSessionError>) =
+    let private upgradeUsing (path: string) (plan: string -> string -> PinnedDependencySelection option -> Result<PinnedDependencySelection * Snapshot * ValidationIssue list, AuthoringSessionError>) =
         use _scope = SnapshotComputationScope.Start()
         let path = SessionStorage.fullPath path
         if not (File.Exists path) then Error(AuthoringSessionError.SnapshotFileNotFound path)
@@ -1843,24 +1870,26 @@ module AuthoringSession =
                     SessionStorage.readText path
                     |> Result.bind (fun source ->
                         PinnedDependency.load path None
-                        |> Result.bind (function
-                            | None ->
-                                SessionStorage.requireSidecarForResolvedSource path source
-                                |> Result.bind (fun () -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade."))
-                            | Some current ->
-                                workspaceFromSource path (Some current.Imported) source
-                                |> Result.bind (fun _ -> plan path source current)
-                                |> Result.bind (fun (selection, local, issues) ->
-                                    if not (List.isEmpty issues) then Error(AuthoringSessionError.WorkspaceValidationFailure issues)
-                                    else
-                                        SnapshotCodec.serializeResolved selection.Imported local
-                                        |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
-                                        |> Result.map (SessionStorage.encode path)
-                                        |> Result.bind (fun upgradedSource ->
-                                            workspaceFromSource path (Some selection.Imported) upgradedSource
-                                            |> Result.bind (fun workspace ->
-                                                SessionStorage.replaceDependencyPair path source current.Manifest upgradedSource selection.Manifest
-                                                |> Result.map (fun () -> upgradedSource, workspace, selection))))))
+                        |> Result.bind (fun current ->
+                            // A standalone workspace may gain its first dependency; a resolved one whose sidecar is missing may not.
+                            (match current with
+                             | None -> SessionStorage.requireSidecarForResolvedSource path source
+                             | Some _ -> Ok())
+                            |> Result.bind (fun () -> workspaceFromSource path (current |> Option.map (fun current -> current.Imported)) source)
+                            |> Result.bind (fun _ -> plan path source current)
+                            |> Result.bind (fun (selection, local, issues) ->
+                                if not (List.isEmpty issues) then Error(AuthoringSessionError.WorkspaceValidationFailure issues)
+                                else
+                                    SnapshotCodec.serializeResolved selection.Imported local
+                                    |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                                    |> Result.map (SessionStorage.encode path)
+                                    |> Result.bind (fun upgradedSource ->
+                                        workspaceFromSource path (Some selection.Imported) upgradedSource
+                                        |> Result.bind (fun workspace ->
+                                            match current with
+                                            | Some current -> SessionStorage.replaceDependencyPair path source current.Manifest upgradedSource selection.Manifest
+                                            | None -> SessionStorage.addDependencyPair path source upgradedSource selection.Manifest
+                                            |> Result.map (fun () -> upgradedSource, workspace, selection))))))
                 match result with
                 | Error error ->
                     SessionStorage.releaseLock path lockHandle
@@ -1868,9 +1897,14 @@ module AuthoringSession =
                 | Ok(source, workspace, selected) -> Ok(new AuthoringSession(path, workspace, source, Some lockHandle, Some selected))
 
     /// Original single-member API remains compatible with its fingerprint review.
+    let private requireCurrent = function
+        | Some current -> Ok current
+        | None -> Error(AuthoringSessionError.DependencyFailure "This workspace has no dependency to upgrade; add one with a selection whose replaces is empty.")
+
     let upgradeDependency path sourcePath replaces expectedFingerprint =
         upgradeUsing path (fun path source current ->
-            PinnedDependency.planUpgrade path source current sourcePath replaces
+            requireCurrent current
+            |> Result.bind (fun current -> PinnedDependency.planUpgrade path source current sourcePath replaces)
             |> Result.bind (fun plan ->
                 if plan.Preview.NewFingerprint <> expectedFingerprint then
                     Error(AuthoringSessionError.DependencyFailure "The source differs from the reviewed upgrade version.")
@@ -1879,7 +1913,8 @@ module AuthoringSession =
     /// Replace all named members together after recomputing the context-bound review.
     let upgradeDependencies path upgrades reviewFingerprint =
         upgradeUsing path (fun path source current ->
-            PinnedDependency.planUpgrades path source current upgrades
+            requireCurrent current
+            |> Result.bind (fun current -> PinnedDependency.planUpgrades path source current upgrades)
             |> Result.bind (fun plan ->
                 if plan.Preview.ReviewFingerprint <> reviewFingerprint then
                     Error(AuthoringSessionError.DependencyFailure "The workspace, current pins, targets or new selected content differ from the reviewed batch. Preview the dependency upgrades again.")
