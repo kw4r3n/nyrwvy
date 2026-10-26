@@ -258,6 +258,38 @@ test("transport failure reaps a SIGTERM-ignoring child even before explicit clos
   await assert.rejects(client.close(), /cancelled after sending/)
 })
 
+// Answers each request as `reply` says (nothing when it returns undefined) and reports its op.
+const replyingChild = reply => `
+  require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
+    const request = JSON.parse(line);
+    process.send(request.op);
+    const text = (${reply})(request);
+    if (text !== undefined) process.stdout.write(text);
+  });
+`
+
+test("a reply line longer than the limit fails the request before it is parsed", { timeout: 20000 }, async t => {
+  const { client, closed } = await controlledChild(t, replyingChild(`() => Buffer.alloc(64 * 1024 * 1024 + 1, 120)`))
+  await assert.rejects(client.request({ op: "status" }), /reply line longer than 67108864 bytes.*outcome is unknown/)
+  await closed
+})
+
+test("a reply for another request id fails the transport", { timeout: 5000 }, async t => {
+  const { client, closed } = await controlledChild(t, replyingChild(`() => JSON.stringify({ id: "other", ok: true }) + "\\n"`))
+  await assert.rejects(client.request({ op: "status" }), /Unexpected AuthoringSession response.*outcome is unknown/)
+  await closed
+})
+
+test("a request without an answer fails after the request timeout and stops the child", { timeout: 5000 }, async t => {
+  const { client, received, closed } = await controlledChild(t, replyingChild(`() => undefined`))
+  t.mock.timers.enable({ apis: ["setTimeout"] })
+  const response = assert.rejects(client.request({ op: "commit" }), /did not answer within 600 s.*outcome is unknown/)
+  await received("commit")
+  t.mock.timers.tick(600_000)
+  await response
+  await closed
+})
+
 test("an unreaped child keeps its authoring slot even when the SIGKILL wait expires", { timeout: 5000 }, async t => {
   const context = { sessionID: randomUUID(), worktree: process.cwd() }
   const actualSpawn = childProcess.spawn
