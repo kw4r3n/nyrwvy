@@ -1,16 +1,16 @@
 # Host handles as capability values
 
-- **Status:** Proposed
+- **Status:** Accepted 2026-10-26, after the port of `examples/config-request-batch` passed (kw4r3n/nyrwvy#492)
 - **Date:** 2026-10-26
-- **Issue:** none yet
+- **Issue:** none
 
-This decision proposes how a host hands a program an opaque handle (an open file, a connection, a process stream): an acquiring capability operation returns a **capability value**, and the handle's operations are that capability's operations. No new type kind is added. A port of `examples/config-request-batch` checks the route.
+This decision settles how a host hands a program an opaque handle (an open file, a connection, a process stream): an acquiring capability operation returns a **capability value**, and the handle's operations are that capability's operations. No new type kind is added. A port of `examples/config-request-batch` verified the route.
 
 ## Decision
 
 **A handle is a capability value.** The program declares a capability for the handle, for example `OpenFile` with `read`, `write` and their effects, and an issuing capability, for example `Files` with `open(path): Result<OpenFile, String>` and `close(file: OpenFile): Unit`. The operation's result type is `TypeRef.Capability OpenFile`. The host's `ExternalImplementation` of `Files.open` returns its own object implementing the generated `OpenFile` interface; the program uses it only through `CapabilityInvoke` on that value.
 
-**What it already guarantees.** Capability values carry no observable allocation identity and have no equality operation ([program-defined capability implementations](../specs/program-capability-implementations.md)), so a handle cannot be compared, forged from a String or Int64, printed or used as a Map key. A program reaches the handle's operations only through the exact capability that owns them ([expression authoring](../specs/expression-authoring.md), `CapabilityInvoke`). Effects of the handle's operations are declared by the enclosing function as for any capability.
+**What it guarantees.** Capability values carry no observable allocation identity and have no equality operation ([program-defined capability implementations](../specs/program-capability-implementations.md)), so a handle cannot be compared, forged from a String or Int64, printed or used as a Map key. A program reaches the handle's operations only through the exact capability that owns them ([expression authoring](../specs/expression-authoring.md), `CapabilityInvoke`). Effects of the handle's operations are declared by the enclosing function as for any capability.
 
 **Lifetime.** `UseResource` with `acquire = Files.open(path)`, `R = OpenFile` and release `Files.close` scopes the handle: release runs on the body's Ok and Err exits and before a host exception propagates. The type system does not prevent use after release. An operation invoked on a released handle is a host failure (the implementation throws), as `Host.cs.template` does today with "Handle is not open"; it is not reported as `Option` or `Err`, following the host-failure choice of [standard operations with an owner choice](standard-operation-choices.md).
 
