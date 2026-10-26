@@ -34,7 +34,7 @@ module AuthoringProtocol =
                 if info.Length > 1048576L then fail $"{fileName} exceeds 1 MiB."
                 use stream = File.OpenRead(full)
                 if stream.Length > 1048576L then fail $"{fileName} exceeds 1 MiB."
-                use document = JsonDocument.Parse(stream)
+                use document = JsonDocument.Parse(stream, JsonDocumentOptions(MaxDepth = WireInput.requestMaxJsonDepth))
                 if stream.Position > 1048576L then fail $"{fileName} exceeds 1 MiB."
                 document.RootElement.Clone()
             with

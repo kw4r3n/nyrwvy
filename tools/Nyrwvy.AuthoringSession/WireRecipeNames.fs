@@ -90,7 +90,11 @@ module internal WireRecipeNames =
         let raw = element.GetRawText()
         if not (raw.Contains "Name\"" || raw.Contains "\"name\"") then element
         else
-            let root = JsonNode.Parse raw
+            // The request line was parsed with requestMaxJsonDepth, so the copies here must allow it too.
+            let root = JsonNode.Parse(raw, System.Nullable(), JsonDocumentOptions(MaxDepth = requestMaxJsonDepth))
             visit [] root
-            use document = JsonDocument.Parse(root.ToJsonString())
+            use document =
+                JsonDocument.Parse(
+                    root.ToJsonString(JsonSerializerOptions(MaxDepth = requestMaxJsonDepth)),
+                    JsonDocumentOptions(MaxDepth = requestMaxJsonDepth))
             document.RootElement.Clone()
