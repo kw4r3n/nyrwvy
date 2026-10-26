@@ -1046,6 +1046,15 @@ module AgentExpressionStructuralWorkflow =
         /// migrations do on a temporary copy; the name is intentionally shared.
         let internal simulateReplacement workspace request = simulateWith false workspace request
 
+        /// Checks and materializes one such copy against `index` without proposing a snapshot, so a
+        /// migration materializing many copies against one base validates its result only once.
+        let internal materializeReplacement (index: SnapshotIndex) (request: Request): Result<SemanticFunction, TransactionDiagnostic> =
+            match validateTypeParameters request with
+            | Error error -> Error error
+            | Ok _ ->
+                let request = withFreshTypeParameters request
+                validatePreflight false request index |> Result.map (materializeFunction index request)
+
         let private publishWithPolicy
             (workspace: AgentWorkspace)
             (Proposal proposal)

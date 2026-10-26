@@ -175,3 +175,46 @@ module UnionVariantWithFieldsTests =
             Assert.Equal(Some true, result.Matches)
         finally
             if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``a variant like a generic source variant binds its fields at a concrete match input's type arguments`` () =
+        let t = id<TypeParameterTag> "t"
+        let boxId, aId, bId, vId = id<TypeTag> "u", id<VariantTag> "a", id<VariantTag> "b", id<FieldTag> "v"
+        // U<T> = A | B(v: T)
+        let u: SemanticType =
+            { Exported = true; TypeParameters = [ t, "T" ]; Id = boxId; DisplayName = "U"
+              Kind = SemanticTypeKind.Union
+                [ { Id = aId; DisplayName = "A"; Fields = [] }
+                  { Id = bId; DisplayName = "B"; Fields = [ { Id = vId; DisplayName = "v"; Type = TypeRef.TypeParameter t } ] } ] }
+        let ws = AgentWorkspace.create { Snapshot.empty (id<SnapshotTag> "generic") with Types = [ u ] } |> unwrap "workspace"
+        // g(u: U<Int64>): Int64 = match u with A -> 0 | B(v) -> v
+        let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+              TypeParameters = None
+              DisplayName = "g"
+              Parameters = [ { DisplayName = "u"; Type = TypeRef.Named(boxId, [ intType ]) } ]
+              ResultType = intType
+              RequiredEffects = []
+              Body =
+                ExpressionRecipe.MatchUnion(
+                    ExpressionRecipe.ParameterSlot 0,
+                    [ [ aId ], ExpressionRecipe.Int64Literal 0L
+                      [ bId ], ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Field vId } ]) }
+        let ws =
+            match AgentExpressionStructuralWorkflow.FunctionCreation.commit ws (AgentExpressionStructuralWorkflow.FunctionCreation.simulate ws request |> unwrap "create") with
+            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(next, _) -> next
+            | other -> failwithf "Commit failed: %A" other
+        let request: AgentAddUnionVariantLikeRequest =
+            { ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws; TargetTypeId = boxId; SourceVariantId = bId; NewVariantDisplayName = "C" }
+        let proposal =
+            AgentUnionVariantEvolutionWorkflow.simulateWithFields ws request [ { DisplayName = "w"; Type = TypeRef.TypeParameter t } ]
+            |> unwrap "simulate"
+        let next =
+            match AgentUnionVariantEvolutionWorkflow.commit ws proposal with
+            | AgentUnionVariantEvolutionCommitResult.Committed(next, _) -> next
+            | other -> failwithf "Commit failed: %A" other
+        let snapshot = AgentWorkspace.snapshotForStructuralEditing next
+        Assert.Empty(SnapshotValidator.validate snapshot)
+        let added = (AgentUnionVariantEvolutionProposal.review proposal).AddedVariant
+        let addedArm = arms snapshot |> List.find (fun arm -> arm.VariantIds = [ added.Id ])
+        Assert.Equal<TypeRef list>([ intType; intType ], addedArm.FieldBindings |> List.map (fun item -> item.Binding.Type))

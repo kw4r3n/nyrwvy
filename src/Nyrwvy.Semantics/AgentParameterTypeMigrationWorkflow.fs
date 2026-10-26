@@ -676,6 +676,7 @@ module internal SignatureMigrationCore =
     let materializeTemporaryCaller
         (prefix: string)
         (temporaryTarget: TemporaryTarget)
+        (index: ExpressionRecipeSupport.SnapshotIndex)
         targetFunctionId
         (caller: SemanticFunction)
         replacement
@@ -707,21 +708,13 @@ module internal SignatureMigrationCore =
                     caller.ResultType
                     temporaryRecipe
 
-            match
-                AgentExpressionStructuralWorkflow.FunctionCreation.simulateReplacement
-                    temporaryTarget.Workspace
-                    creationRequest
-            with
+            match AgentExpressionStructuralWorkflow.FunctionCreation.materializeReplacement index creationRequest with
             | Error error ->
                 wrapStructuralError
                     $"{prefix}CallerRewriteInvalid"
                     $"Caller '{StableId.value caller.Id}' rewrite is invalid"
-                    error
-            | Ok proposal ->
-                let created =
-                    proposal
-                    |> AgentExpressionStructuralWorkflow.FunctionCreation.Proposal.review
-                    |> fun review -> review.CreatedFunction
+                    (AgentStructuralWorkflowError.SimulationRejected [ error ])
+            | Ok created ->
                 Ok
                     { Function = created
                       TemporaryToOriginalTypeParameters = temporaryTypeParameters creationRequest created }
@@ -750,7 +743,9 @@ module internal SignatureMigrationCore =
         let remap = remapGraph ownerParameterMap ownerTypeParameters temporaryTarget targetFunctionId
 
         let mapNode (node: SemanticNode) =
-            let node = SemanticNodeShape.mapNested mapBinding remap node
+            let node =
+                SemanticNodeShape.mapNested mapBinding remap node
+                |> SemanticNodeShape.mapPayloadTypeRefs mapType
             let kind =
                 match node.Kind with
                 | SemanticNodeKind.ParameterReference parameterId ->
@@ -768,13 +763,6 @@ module internal SignatureMigrationCore =
                                     mapTargetParameter
                                         argument.TargetParameterId })
                     )
-                | SemanticNodeKind.ListEmpty itemType -> SemanticNodeKind.ListEmpty(mapType itemType)
-                | SemanticNodeKind.SetEmpty itemType -> SemanticNodeKind.SetEmpty(mapType itemType)
-                | SemanticNodeKind.MapEmpty(keyType, valueType) -> SemanticNodeKind.MapEmpty(mapType keyType, mapType valueType)
-                | SemanticNodeKind.ListConstruct(itemType, items) -> SemanticNodeKind.ListConstruct(mapType itemType, items)
-                | SemanticNodeKind.OptionNone itemType -> SemanticNodeKind.OptionNone(mapType itemType)
-                | SemanticNodeKind.ResultOk(errorType, valueNodeId) -> SemanticNodeKind.ResultOk(mapType errorType, valueNodeId)
-                | SemanticNodeKind.ResultErr(okType, errorNodeId) -> SemanticNodeKind.ResultErr(mapType okType, errorNodeId)
                 | other -> other
             { node with Kind = kind }
 
@@ -925,10 +913,12 @@ module internal SignatureMigrationCore =
         match materializeTemporaryTarget prefix workspace prepared parameterTypes resultType targetReplacement with
         | Error error -> Error error
         | Ok temporaryTarget ->
+            // Callers are materialized against one index; the migrated snapshot is validated as a whole.
+            let index = ExpressionRecipeSupport.buildSnapshotIndex (AgentWorkspace.snapshotForStructuralEditing temporaryTarget.Workspace)
             let rec materializeCallers collected = function
                 | [] -> Ok(List.rev collected)
                 | caller :: rest ->
-                    match materializeTemporaryCaller prefix temporaryTarget prepared.Target.Id caller (Map.find caller.Id prepared.RewritesByCaller) with
+                    match materializeTemporaryCaller prefix temporaryTarget index prepared.Target.Id caller (Map.find caller.Id prepared.RewritesByCaller) with
                     | Error error -> Error error
                     | Ok temporaryCaller -> materializeCallers ((caller, temporaryCaller) :: collected) rest
             match materializeCallers [] prepared.Callers with

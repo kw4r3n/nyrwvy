@@ -126,18 +126,24 @@ module AgentCapabilityOperationSignatureMigrationWorkflow =
                                         | _ -> false)))
                                 |> List.map (fun f -> f.Id)
                                 |> Set.ofList
-                            let rec closure ids =
-                                let callers =
-                                    Set.intersect ids changed
-                                    |> Set.toList
-                                    |> List.collect (fun target ->
-                                        match SemanticQuery.getCallers snapshot target with
-                                        | Ok sites -> sites |> List.map (fun site -> site.CallerFunctionId)
-                                        | Error _ -> [])
-                                    |> Set.ofList
-                                let next = Set.union ids callers
-                                if next = ids then ids else closure next
-                            let required = closure seeds
+                            // Every function referencing a callee (SemanticQuery.getCallers' relation), indexed once.
+                            let callersByCallee =
+                                snapshot.Functions
+                                |> List.collect (fun owner ->
+                                    ValueGraph.collectNodes owner.Body
+                                    |> List.collect (fun node ->
+                                        SemanticNodeShape.functionReferences node |> List.map (fun reference -> reference.FunctionId, owner.Id)))
+                                |> List.groupBy fst
+                                |> List.map (fun (callee, pairs) -> callee, pairs |> List.map snd)
+                                |> Map.ofList
+                            let rec closure ids frontier =
+                                let added =
+                                    Set.intersect frontier changed
+                                    |> Seq.collect (fun target -> Map.tryFind target callersByCallee |> Option.defaultValue [])
+                                    |> Set.ofSeq
+                                    |> fun callers -> Set.difference callers ids
+                                if Set.isEmpty added then ids else closure (Set.union ids added) added
+                            let required = closure seeds seeds
                             let affected = snapshot.Functions |> List.filter (fun f -> Set.contains f.Id required)
                             let supplied = request.FunctionRepairs |> List.map (fun r -> r.FunctionId) |> Set.ofList
                             if supplied <> required then
