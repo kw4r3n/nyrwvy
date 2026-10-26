@@ -114,6 +114,7 @@ module AgentUnionVariantEvolutionWorkflow =
         (addedVariantId: VariantId)
         (fieldMap: Map<FieldId, FieldId>)
         (extraFields: SemanticField list)
+        (instantiate: GraphNodeId -> TypeRef -> TypeRef)
         (graph: ValueGraph)
         : ValueGraph * int =
         let rec repairGraph (current: ValueGraph): ValueGraph * int =
@@ -161,7 +162,7 @@ module AgentUnionVariantEvolutionWorkflow =
                                          Binding =
                                            { Id = StableIdAllocator.newPatternBindingId ()
                                              DisplayName = Some field.DisplayName
-                                             Type = field.Type } }))
+                                             Type = instantiate inputNodeId field.Type } }))
                               Body = body }
                         { repaired with Kind = SemanticNodeKind.MatchUnion(inputNodeId, repairedArms @ [ addedArm ]) }
                 | _ -> repaired
@@ -249,15 +250,24 @@ module AgentUnionVariantEvolutionWorkflow =
                                             variants @ [ addedVariant ]
                                         ) }
 
+                            let completionResolver = SemanticFacts.createNodeCompletionResolverFactory baseSnapshot
                             let repaired =
                                 baseSnapshot.Functions
                                 |> List.map (fun functionEntity ->
+                                    let completion = completionResolver functionEntity
+                                    // A generic Union's added arm binds its extra fields at the match input's type arguments.
+                                    let instantiate inputNodeId fieldType =
+                                        match completion inputNodeId with
+                                        | Some(GraphCompletion.Normal(TypeRef.Named(_, arguments))) ->
+                                            TypeParameters.instantiate targetType arguments fieldType
+                                        | _ -> fieldType
                                     let body, repairedMatchCount =
                                         repairMatches
                                             request.SourceVariantId
                                             addedVariant.Id
                                             fieldMap
                                             added
+                                            instantiate
                                             functionEntity.Body
                                     functionEntity, body, repairedMatchCount)
 
