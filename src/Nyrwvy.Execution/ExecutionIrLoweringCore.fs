@@ -190,16 +190,55 @@ module ExecutionIr =
                         { environment with
                             NodeValues = Map.add nodeId valueId environment.NodeValues }
 
-                let readyNodes (): TypedSemanticNode list =
-                    pending
-                    |> Map.toList
-                    |> List.map snd
-                    |> List.filter (fun (node: TypedSemanticNode) ->
+                // Kahn's algorithm: a node is ready once every dependency has a value. Among ready nodes the
+                // lowest StableId goes first, except that a Bytes update waits behind ready non-updates, so
+                // readers of its input are emitted before it and it can write in place
+                // (docs/plans/bytes-and-buffers.md). A dependency neither bound nor in this graph never resolves.
+                let isBytesUpdate (node: TypedSemanticNode) =
+                    match node.Kind with
+                    | TypedSemanticNodeKind.BytesSet _
+                    | TypedSemanticNodeKind.BytesAppend _ -> true
+                    | _ -> false
+                let waiting = Dictionary<GraphNodeId, int>()
+                let dependents = Dictionary<GraphNodeId, ResizeArray<GraphNodeId>>()
+                let ready = SortedSet<struct (bool * string)>(ComparisonIdentity.Structural)
+                let readyKey (node: TypedSemanticNode) = struct (isBytesUpdate node, StableId.value node.OriginNodeId)
+                let byKey = Dictionary<string, TypedSemanticNode>()
+                for node in graph.Nodes do
+                    byKey[StableId.value node.OriginNodeId] <- node
+                    let unresolved =
                         Map.find node.OriginNodeId dependenciesById
-                        |> List.forall (fun dependencyId -> Map.containsKey dependencyId environment.NodeValues))
-                    // The tail node waits until it is the last pending node.
-                    |> List.filter (fun (node: TypedSemanticNode) -> not (isTailNode node) || Map.count pending = 1)
-                    |> List.sortBy (fun node -> StableId.value node.OriginNodeId)
+                        |> List.distinct
+                        |> List.filter (fun dependencyId -> not (Map.containsKey dependencyId environment.NodeValues))
+                    for dependencyId in unresolved do
+                        if Map.containsKey dependencyId pending then
+                            match dependents.TryGetValue dependencyId with
+                            | true, list -> list.Add node.OriginNodeId
+                            | _ -> dependents[dependencyId] <- ResizeArray [ node.OriginNodeId ]
+                    waiting[node.OriginNodeId] <- unresolved.Length
+                    if unresolved.IsEmpty then ready.Add(readyKey node) |> ignore
+                let mutable lastTaken: TypedSemanticNode option = None
+                // The tail node waits until it is the last pending node.
+                let readyNodes (): TypedSemanticNode list =
+                    match lastTaken with
+                    | Some taken when Map.containsKey taken.OriginNodeId environment.NodeValues ->
+                        match dependents.TryGetValue taken.OriginNodeId with
+                        | true, list ->
+                            for dependentId in list do
+                                waiting[dependentId] <- waiting[dependentId] - 1
+                                if waiting[dependentId] = 0 then ready.Add(readyKey (Map.find dependentId pending)) |> ignore
+                        | _ -> ()
+                    | _ -> ()
+                    let next =
+                        ready
+                        |> Seq.map (fun (struct (_, key)) -> byKey[key])
+                        |> Seq.tryFind (fun node -> not (isTailNode node) || Map.count pending = 1)
+                    lastTaken <- next
+                    match next with
+                    | Some node ->
+                        ready.Remove(readyKey node) |> ignore
+                        [ node ]
+                    | None -> []
 
                 let lowerFieldValues
                     (fields: TypedSemanticFieldValue list)

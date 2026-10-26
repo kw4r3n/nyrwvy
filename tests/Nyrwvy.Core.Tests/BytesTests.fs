@@ -366,6 +366,20 @@ module BytesTests =
                         ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 300L),
                         ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesAppend(slot 0, slot 1); 1, plus1 (slot 1) ],
                         slot 0))
+            // A loop that reads its buffer beside the update: lowering must emit the read first, whatever
+            // order the node IDs happen to have, so the update can still write in place. Several copies,
+            // because IDs created within one millisecond are ordered by their random bits.
+            let readerLoops =
+                [ for k in 1..8 ->
+                    create session $"readerLoop{k}" [ "b", bytesType; "i", intType; "n", intType; "acc", intType ] intType
+                        (ExpressionRecipe.Conditional(
+                            ExpressionRecipe.Int64LessThan(slot 1, slot 2),
+                            ExpressionRecipe.SelfCall
+                                [ 0, ExpressionRecipe.BytesSet(slot 0, slot 1, ExpressionRecipe.Int64Literal 1L)
+                                  1, plus1 (slot 1)
+                                  2, slot 2
+                                  3, ExpressionRecipe.Int64WrappingAdd(slot 3, ExpressionRecipe.BytesLength(slot 0)) ],
+                            slot 3)) ]
             session.Close()
             use reopened = AuthoringSession.openExisting path |> unwrap
             let run (fn: SemanticFunction) arguments = (PureRun.run reopened fn.Id arguments None |> unwrap).Actual
@@ -379,12 +393,13 @@ module BytesTests =
             Assert.Equal(listOfBytes [ [| 7uy; 1uy |]; [| 0uy; 1uy |] ], run ownedOldAndNew [ bytes [| 0uy; 0uy |]; PureRunValue.Int64 0L ])
             Assert.Equal(bytes [| 0uy; 1uy |], run ownedMergeReturn [ bytes [| 0uy; 0uy |]; PureRunValue.Int64 0L ])
             Assert.Equal(bytes (Array.init 300 byte), run appendLoop [ bytes [||]; PureRunValue.Int64 0L ])
+            Assert.Equal(PureRunValue.Int64 12L, run readerLoops.Head [ bytes (Array.zeroCreate 4); PureRunValue.Int64 0L; PureRunValue.Int64 3L; PureRunValue.Int64 0L ])
             // The plan behind those results.
             let graph = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap
             let execution = TypedSemanticIr.project graph |> unwrap |> ExecutionIr.lower |> unwrap
             let planOf (fn: SemanticFunction) =
                 execution.Functions |> List.find (fun item -> item.SemanticFunctionId = fn.Id) |> ExecutionIrBytesOwnership.plan |> Option.get
-            for fn in [ fillLoop; appendLoop ] do
+            for fn in [ fillLoop; appendLoop ] @ readerLoops do
                 let plan = planOf fn
                 Assert.Single(plan.InPlace) |> ignore
                 Assert.Empty(plan.CopiedUpdates)
@@ -399,4 +414,6 @@ module BytesTests =
                 | true, items -> items.GetArrayLength()
                 | false, _ -> 0
             Assert.Equal(1, copied oldAndNew)
+            // An update nested in a conditional is reported too.
+            Assert.Equal(1, copied ownedOldAndNew)
             Assert.Equal(0, copied fillLoop))

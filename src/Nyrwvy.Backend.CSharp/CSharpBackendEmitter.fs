@@ -1646,10 +1646,9 @@ module CSharpBackend =
         | ExecutionInstructionKind.BytesLength valueId -> writer.Line(target + " = " + valueName valueId + ".Length;")
         | ExecutionInstructionKind.BytesGet(bytesId, indexId) ->
             writer.Line(target + " = " + valueName bytesId + ".Get(" + valueName indexId + ");")
-        | ExecutionInstructionKind.BytesSet(bytesId, indexId, valueId) ->
-            writer.Line(target + " = " + valueName bytesId + ".Set(" + valueName indexId + ", " + valueName valueId + ");")
-        | ExecutionInstructionKind.BytesAppend(bytesId, valueId) ->
-            writer.Line(target + " = " + valueName bytesId + ".Append(" + valueName valueId + ");")
+        // emitFunction writes updates itself, with the owner token and the in-place decision.
+        | ExecutionInstructionKind.BytesSet _
+        | ExecutionInstructionKind.BytesAppend _ -> failwith "Bytes updates are emitted by emitFunction."
         | ExecutionInstructionKind.BytesConcat(leftId, rightId) ->
             writer.Line(target + " = " + valueName leftId + ".Concat(" + valueName rightId + ");")
         | ExecutionInstructionKind.BytesSlice(bytesId, startId, endId) ->
@@ -2159,6 +2158,8 @@ module CSharpBackend =
 
         // The invocation's owner token for in-place Bytes updates; set before the entry label, so a tail
         // self-call keeps it and later loop turns keep writing in place.
+        // shortcut: a ListFold folder is its own invocation, so an accumulator it updates copies on every
+        // call (quadratic build); share the caller's token with fold-driven calls when a consumer needs it.
         let bytesOwnership = ExecutionIrBytesOwnership.plan functionEntity
         let bytesOwner = "nyBytesOwner"
         let updatesBytes =
