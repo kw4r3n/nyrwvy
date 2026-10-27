@@ -102,6 +102,19 @@ module ZigValidatorSupport =
                 for o in make owner call argument do list.Add o
                 true
             | [] -> false
+        // A function of the 3d edits: type parameters, (ID, type) parameters, result type, nodes and result node.
+        let synthetic id (typeParameters: string list) (parameters: (string * JsonNode) list) (result: JsonNode) (nodes: JsonNode list) (resultNode: string) =
+            let f =
+                obj [ "id", s id; "displayName", s id
+                      "parameters", JsonArray([| for pid, t in parameters -> obj [ "id", s pid; "displayName", s pid; "type", t ] :> JsonNode |])
+                      "resultType", result; "requiredEffects", JsonArray()
+                      "body", obj [ "nodes", JsonArray(Array.ofList nodes); "resultNodeId", s resultNode ] ]
+            if not typeParameters.IsEmpty then withTypeParameters f [ for tp in typeParameters -> typeParameter tp tp ]
+            f :> JsonNode
+        let reference id parameter = obj [ "id", s id; "kind", s "parameterReference"; "parameterId", s parameter ] :> JsonNode
+        let call id target (arguments: (string * string) list) =
+            obj [ "id", s id; "kind", s "directCall"; "targetFunctionId", s target
+                  "arguments", JsonArray([| for p, v in arguments -> obj [ "targetParameterId", s p; "valueNodeId", s v ] :> JsonNode |]) ] :> JsonNode
         [ "parent is self", (fun root -> root["parentSnapshotId"] <- s (string (root["snapshotId"])); true)
           for declarations in [ "types"; "effects"; "capabilities"; "functions"; "obligations" ] do
               $"duplicate {declarations} entry",
@@ -592,6 +605,53 @@ module ZigValidatorSupport =
                       | 1 -> implementations.RemoveAt 0
                       | _ -> implementations[0]["functionId"] <- s "missing-function"
                   not nodes.IsEmpty)
+          // Slice 3d: generic functions added whole, so every original carries the shapes.
+          "a task-bound capability crosses into tasks, directly and through a generic call",
+          (fun root ->
+              root["schemaVersion"] <- JsonValue.Create 24
+              (root["capabilities"] :?> JsonArray).Add(obj [ "id", s "x3d-cap"; "displayName", s "X3dCap"; "operations", JsonArray(); "taskBound", JsonValue.Create true ])
+              let caps = gen "list" [ obj [ "kind", s "capability"; "capabilityId", s "x3d-cap" ] ]
+              let list = root["functions"] :?> JsonArray
+              list.Add(synthetic "x3d-worker" [ "x3d-T" ] [ "x3d-item", tparam "x3d-T" ] (gen "result" [ tparam "x3d-T"; prim "string" ]) [ reference "w1" "x3d-item" ] "w1")
+              list.Add(
+                  synthetic "x3d-crosser" [ "x3d-U" ] [ "x3d-xs", gen "list" [ tparam "x3d-U" ] ] (prim "unit")
+                      [ reference "c1" "x3d-xs"
+                        obj [ "id", s "c2"; "kind", s "parallelAll"; "sourceListNodeId", s "c1"; "workerFunctionId", s "x3d-worker" ]
+                        literalNode "c3" "unit" ] "c3")
+              list.Add(
+                  synthetic "x3d-caller" [] [ "x3d-cs", caps ] (prim "unit")
+                      [ reference "g1" "x3d-cs"
+                        call "g2" "x3d-crosser" [ "x3d-xs", "g1" ]
+                        obj [ "id", s "g3"; "kind", s "parallelAll"; "sourceListNodeId", s "g1"; "workerFunctionId", s "x3d-worker" ]
+                        literalNode "g4" "unit"
+                        obj [ "id", s "g5"; "kind", s "taskStart"; "scopeNodeId", s "g4"; "workerFunctionId", s "x3d-worker"; "itemNodeId", s "g1"
+                              "context", JsonArray(obj [ "targetParameterId", s "x3d-missing"; "valueNodeId", s "g1" ]) ] ] "g4")
+              true)
+          "TaskScope reaches a OneShot payload, directly, as a callback and through a generic call",
+          (fun root ->
+              let scopes = gen "list" [ gen "taskScope" [] ]
+              let list = root["functions"] :?> JsonArray
+              list.Add(synthetic "x3d-payload" [ "x3d-P" ] [ "x3d-x", tparam "x3d-P" ] (gen "oneShot" [ tparam "x3d-P" ]) [ reference "p1" "x3d-x" ] "p1")
+              list.Add(synthetic "x3d-forward" [ "x3d-V" ] [ "x3d-v", tparam "x3d-V" ] (prim "unit") [ reference "r1" "x3d-v"; call "r2" "x3d-payload" [ "x3d-x", "r1" ]; literalNode "r3" "unit" ] "r3")
+              list.Add(
+                  synthetic "x3d-scoped" [] [ "x3d-scopes", scopes ] (prim "unit")
+                      [ reference "q1" "x3d-scopes"
+                        call "q2" "x3d-payload" [ "x3d-x", "q1" ]
+                        obj [ "id", s "q3"; "kind", s "listMap"; "sourceListNodeId", s "q1"; "mapperFunctionId", s "x3d-payload" ]
+                        call "q4" "x3d-forward" [ "x3d-v", "q1" ]
+                        literalNode "q5" "unit" ] "q5")
+              true)
+          "every function must not wait, every operation may wait, and a call reaches a wait",
+          (fun root ->
+              root["schemaVersion"] <- JsonValue.Create 24
+              let tasks () = gen "list" [ gen "task" [ prim "int64" ] ]
+              let list = root["functions"] :?> JsonArray
+              list.Add(synthetic "x3d-wait-leaf" [] [ "x3d-ts", tasks () ] (prim "unit") [ reference "h1" "x3d-ts"; obj [ "id", s "h2"; "kind", s "taskWait"; "mode", s "all"; "tasksNodeId", s "h1" ] ] "h2")
+              list.Add(synthetic "x3d-wait-caller" [] [ "x3d-ts2", tasks () ] (prim "unit") [ reference "k1" "x3d-ts2"; call "k2" "x3d-wait-leaf" [ "x3d-ts", "k1" ] ] "k2")
+              for f in functions root do f["mustNotWait"] <- JsonValue.Create true
+              for operations in arrayItems "operations" root do
+                  for operation in operations do operation["mayWait"] <- JsonValue.Create true
+              true)
           "string literals hold a lone surrogate",
           (fun root ->
               let literals = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> string n["kind"] = "stringLiteral")

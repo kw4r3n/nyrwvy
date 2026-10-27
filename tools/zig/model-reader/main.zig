@@ -2,9 +2,8 @@
 //! produces for the shape-decoded model, with every shape check of `SnapshotCodec`'s reader, the
 //! schema version and construct minimums. Its reference is `SnapshotCodec.toCanonicalJson`.
 //! Semantic validation (`SnapshotValidator`) is ported for the codes in `validation_codes.txt`:
-//! model-only rules, type references and the typed graph rules on a port of the node type
-//! resolver; effect order, waiting, OneShot payloads and task crossing are not. See
-//! docs/decisions/zig-tools.md.
+//! model-only rules, type references, the typed graph rules on a port of the node type resolver,
+//! effect order, waiting, OneShot payloads and task crossing. See docs/decisions/zig-tools.md.
 //!
 //! Usage: `model-reader <in.json> <out.json> [<in> <out> ...]`. One line per pair on standard
 //! output: `ok`, `skip legacy schema <n>` (versions before 21 are not ported yet), or
@@ -3330,7 +3329,7 @@ fn callbackRules(node: Value, local: *const Set) void {
             addIn(if (shield) "CancellationShieldResultMismatch" else "TaskScopeResultMismatch", nodeMessage(name, node, "body must return Result<T, E>."));
         missingEffects(body, cat(&.{ L("Function "), function_label, if (shield) L(" runs cancellation shield body ") else L(" runs task scope body "), functionLabel(body), L(" but does not declare required effect ") }), L("."));
     } else if (std.mem.eql(u8, kind, "taskStart")) {
-        // `TaskBoundValueCrossesTask` (rejectTaskBound) belongs to slice 3d.
+        rejectTaskBoundInputs(name, node, ops[1], "item");
         if (nodeType(ops[0])) |scope| if (!typeEql(scope, builtin("taskScope", &.{})))
             addIn("TaskStartScopeTypeMismatch", nodeMessage(name, node, "requires a TaskScope value as its scope."));
         const item = nodeType(ops[1]);
@@ -3339,6 +3338,7 @@ fn callbackRules(node: Value, local: *const Set) void {
         const item_type = item orelse return;
         workerRules(name, node, worker, context, item_type, " starts ", " as a task but does not declare required effect ");
     } else if (std.mem.eql(u8, kind, "parallelAll")) {
+        rejectTaskBoundInputs(name, node, ops[0], "source");
         const source = shapeOf(ops[0], "list", 1);
         const worker = functions_by_id.get(idKey(str(node, "workerFunctionId")));
         if (source == .args and worker != null) {
@@ -3378,6 +3378,7 @@ fn workerRules(name: Str, node: Value, worker: Value, context: []const Value, it
     const checked = validateCallbackContext(node, worker, context);
     if (bodySubstitution(&checked, item_type)) |fitted| {
         const result = resultOf(worker, &fitted);
+        rejectTaskBound(nodeMessage(name, node, "worker result"), result);
         if (!(result.isGeneric("result") and result.args.len == 2)) addIn("CallbackResultTypeMismatch", nodeMessage(name, node, "worker must return Result<U, E>."));
     } else addIn("CallbackParameterTypeMismatch", nodeMessage(name, node, "worker must take exactly one unbound parameter of the item type."));
     missingEffects(worker, cat(&.{ L("Function "), functionLabel(in_function.function), L(runs), functionLabel(worker), L(missing) }), L("."));
@@ -3573,8 +3574,10 @@ fn directCallRules(node: Value) void {
     } else {
         var matched: List(Pair) = .empty;
         for (pairs.items) |pair| matched.append(a, .{ .declared = parameterType(pair.parameter), .actual = pair.value_type }) catch oom();
-        // `OneShotScopePayloadUnsupported` on a matching substitution belongs to slice 3d.
-        if (matchAll(matched.items) == null) addIn("ArgumentTypeMismatch", cat(&.{ head, L(" binds a value whose type does not match its callee parameter.") }));
+        if (matchAll(matched.items)) |substitution| {
+            if (violates(target_id, &substitution))
+                addIn("OneShotScopePayloadUnsupported", cat(&.{ head, L(" instantiates a OneShot payload with a type containing TaskScope, directly or through another generic call.") }));
+        } else addIn("ArgumentTypeMismatch", cat(&.{ head, L(" binds a value whose type does not match its callee parameter.") }));
     }
     for (arrayOf(target, "parameters")) |parameter| {
         const parameter_id = str(parameter, "id");
@@ -3685,16 +3688,419 @@ fn describeArm(arm: Value) Str {
 }
 
 /// The per-function loop of `validateUncached` (the rules ported so far).
-fn validateFunctionGraphs(functions: []const Value) void {
+// Slice 3d: effect order, waiting, OneShot payloads and task crossing.
+
+const Role = enum { direct_call, pure_callback, effect_callback, worker, body, function_value, implementation };
+const FunctionRef = struct { function_id: Str, role: Role, arguments: []const Value };
+
+/// `SemanticNodeShape.functionReferences`, in payload order.
+fn functionReferences(node: Value) []const FunctionRef {
+    var out: List(FunctionRef) = .empty;
+    const kind = text(str(node, "kind"));
+    const context = arrayOf(node, "context");
+    if (std.mem.eql(u8, kind, "directCall")) {
+        out.append(a, .{ .function_id = str(node, "targetFunctionId"), .role = .direct_call, .arguments = arrayOf(node, "arguments") }) catch oom();
+    } else if (std.mem.eql(u8, kind, "functionReference")) {
+        out.append(a, .{ .function_id = str(node, "targetFunctionId"), .role = .function_value, .arguments = &.{} }) catch oom();
+    } else if (std.mem.eql(u8, kind, "capabilityConstruct")) {
+        for (arrayOf(node, "implementations")) |implementation|
+            out.append(a, .{ .function_id = str(implementation, "functionId"), .role = .implementation, .arguments = &.{} }) catch oom();
+    } else if (std.mem.eql(u8, kind, "exceptionCatch")) {
+        out.append(a, .{ .function_id = str(node, "bodyFunctionId"), .role = .body, .arguments = arrayOf(node, "bodyContext") }) catch oom();
+        out.append(a, .{ .function_id = str(node, "handlerFunctionId"), .role = .body, .arguments = arrayOf(node, "handlerContext") }) catch oom();
+    } else if (kindIs(kind, "cancellationShield taskScope useResource")) {
+        out.append(a, .{ .function_id = str(node, "bodyFunctionId"), .role = .body, .arguments = context }) catch oom();
+    } else if (kindIs(kind, "parallelAll taskStart")) {
+        out.append(a, .{ .function_id = str(node, "workerFunctionId"), .role = .worker, .arguments = context }) catch oom();
+    } else for (node.object) |member| {
+        // The pure callbacks: the one `…FunctionId` property of a higher-order node.
+        const name = member.name;
+        if (name.len > 10 and isName(name[name.len - 10 ..], "FunctionId"))
+            out.append(a, .{ .function_id = member.value.string, .role = if (std.mem.eql(u8, kind, "listEffectFold")) .effect_callback else .pure_callback, .arguments = context }) catch oom();
+    }
+    return out.items;
+}
+
+/// `FunctionReferenceRole.isInvoked`.
+fn isInvoked(role: Role) bool {
+    return role != .function_value and role != .implementation;
+}
+
+/// `SemanticNodeShape.invokedOperations`: CapabilityInvoke's operation and UseResource's release.
+fn invokedOperation(node: Value) ?Str {
+    const kind = str(node, "kind");
+    if (isName(kind, "capabilityInvoke")) return str(node, "operationId");
+    if (isName(kind, "useResource")) return str(node, "releaseOperationId");
+    return null;
+}
+
+/// `GraphOrder.nodeObservable` with `semanticView`: Abort and the intrinsically effectful kinds
+/// except ParallelAll, a call, effect callback, worker or body of an observable function, or an
+/// observable node in a nested graph.
+fn nodeObservable(node: Value, observable: *const Set) bool {
+    const kind = text(str(node, "kind"));
+    if (std.mem.eql(u8, kind, "abort")) return true;
+    if (!std.mem.eql(u8, kind, "parallelAll") and kindIs(kind, effectful_kinds)) return true;
+    for (functionReferences(node)) |reference| switch (reference.role) {
+        .direct_call, .effect_callback, .worker, .body => if (observable.contains(idKey(reference.function_id))) return true,
+        else => {},
+    };
+    for (nestedScopes(node)) |scope| for (arrayOf(scope.graph, "nodes")) |inner| if (nodeObservable(inner, observable)) return true;
+    return false;
+}
+
+const Edges = std.StringArrayHashMapUnmanaged([]const Str);
+
+/// `dependsOn` of `tryUnorderedPair`: `goal` is reachable from `start` (or is it).
+fn dependsOn(edges: *const Edges, start: Str, goal: Str) bool {
+    var visited: Set = .empty;
+    var pending: List(Str) = .empty;
+    pending.append(a, start) catch oom();
+    while (pending.pop()) |id| {
+        if (same(id, goal)) return true;
+        if ((visited.getOrPut(a, idKey(id)) catch oom()).found_existing) continue;
+        if (edges.get(idKey(id))) |deps| pending.appendSlice(a, deps) catch oom();
+    }
+    return false;
+}
+
+/// `GraphOrder.tryUnorderedEffects`: the first unordered observable pair of the graph's own nodes,
+/// else of its nested graphs in order.
+fn unorderedEffects(nodes: []const Value, observable: *const Set) ?[2]Str {
+    var edges: Edges = .empty;
+    var effectful: List(Str) = .empty;
+    for (nodes) |node| {
+        var deps: List(Str) = .empty;
+        dependencies(node, &deps);
+        edges.put(a, idKey(str(node, "id")), deps.items) catch oom();
+        if (nodeObservable(node, observable)) effectful.append(a, str(node, "id")) catch oom();
+    }
+    // `tryUnorderedPair` without its fast path (a topological walk), which only skips this search
+    // when every pair is ordered and so cannot change the pair it names.
+    std.mem.sort(Str, effectful.items, {}, lessStr);
+    for (effectful.items, 0..) |first, i| for (effectful.items[i + 1 ..]) |second| {
+        if (!dependsOn(&edges, first, second) and !dependsOn(&edges, second, first)) return .{ first, second };
+    };
+    for (nodes) |node| for (nestedScopes(node)) |scope| if (unorderedEffects(arrayOf(scope.graph, "nodes"), observable)) |pair| return pair;
+    return null;
+}
+
+/// Functions that declare effects (`tryAbortOrderConflict`'s observable set, over the last function of an ID).
+var declaring_functions: Set = .empty;
+
+/// `GraphOrder.tryAbortOrderConflict` and its message, for a function with an Abort node.
+fn effectOrderRules() void {
+    const function = in_function.function;
+    for (in_function.all_nodes) |node| {
+        if (isName(str(node, "kind"), "abort")) break;
+    } else return;
+    const pair = unorderedEffects(arrayOf(get(function, "body"), "nodes"), &declaring_functions) orelse return;
+    const nodes_by_id = byId(in_function.all_nodes);
+    var described: [2]Str = undefined;
+    for (pair, &described) |id, *d| {
+        const node = nodes_by_id.get(idKey(id)).?;
+        const kind = str(node, "kind");
+        const callee = if (isName(kind, "directCall")) functions_by_id.get(idKey(str(node, "targetFunctionId"))) else null;
+        d.* = if (callee) |f| cat(&.{ quote(id), L(" (DirectCall to '"), str(f, "displayName"), L("')") }) else cat(&.{ quote(id), L(" ("), caseNameOf(kind), L(")") });
+    }
+    addIn("AmbiguousEffectOrder", cat(&.{ L("Function "), functionLabel(function), L(" has unordered observable nodes "), quote(pair[0]), L(" and "), quote(pair[1]), L(", including local abort control flow. "), described[0], L(" and "), described[1], L(" each observe effects or abort, so their order is undefined; sequence them with bind so one runs first.") }));
+}
+
+/// `WaitPath`: the (node, function) steps, then the waiting node and its builtin kind or operation.
+const WaitPath = struct { via: []const [2]Str, node_id: Str, builtin: ?Str, operation: Str = &.{} };
+
+/// `Waiting.derive`: one path per function that may wait.
+fn deriveWaiting(capabilities: []const Value, functions: []const Value) std.StringArrayHashMapUnmanaged(WaitPath) {
+    var waiting_operations: Set = .empty;
+    for (capabilities) |capability| for (arrayOf(capability, "operations")) |operation| {
+        if (tryProperty("mayWait", operation) != null) waiting_operations.put(a, idKey(str(operation, "id")), {}) catch oom();
+    };
+    var found: std.StringArrayHashMapUnmanaged(WaitPath) = .empty;
+    const Call = struct { node_id: Str, callee: Str };
+    const invoked = a.alloc([]const Call, functions.len) catch oom();
+    for (functions, invoked) |function, *calls| {
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        for (nodes.items) |node| {
+            const kind = str(node, "kind");
+            const builtin_wait = isName(kind, "taskWait") or isName(kind, "oneShotWait") or isName(kind, "parallelAll") or isName(kind, "taskScope");
+            const operation = invokedOperation(node);
+            if (builtin_wait or (operation != null and waiting_operations.contains(idKey(operation.?)))) {
+                const path: WaitPath = if (builtin_wait) .{ .via = &.{}, .node_id = str(node, "id"), .builtin = caseNameOf(kind) } else .{ .via = &.{}, .node_id = str(node, "id"), .builtin = null, .operation = operation.? };
+                found.put(a, idKey(str(function, "id")), path) catch oom();
+                break;
+            }
+        }
+        var list: List(Call) = .empty;
+        for (nodes.items) |node| for (functionReferences(node)) |reference| {
+            if (isInvoked(reference.role)) list.append(a, .{ .node_id = str(node, "id"), .callee = reference.function_id }) catch oom();
+        };
+        calls.* = list.items;
+    }
+    // Each round adds the functions that run one found earlier, in this round too.
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (functions, invoked) |function, calls| {
+            const id = idKey(str(function, "id"));
+            if (found.contains(id)) continue;
+            for (calls) |call| {
+                const inner = found.get(idKey(call.callee)) orelse continue;
+                var path = inner;
+                path.via = std.mem.concat(a, [2]Str, &.{ &.{.{ call.node_id, call.callee }}, inner.via }) catch oom();
+                found.put(a, id, path) catch oom();
+                changed = true;
+                break;
+            }
+        }
+    }
+    return found;
+}
+
+/// `Waiting.describe`: `helper (node 'n1') -> TaskWait (node 'n2')`, names by first match.
+fn describeWait(capabilities: []const Value, functions: []const Value, path: WaitPath) Str {
+    var out: List(u16) = .empty;
+    for (path.via) |step| {
+        const name = for (functions) |f| {
+            if (same(str(f, "id"), step[1])) break str(f, "displayName");
+        } else quote(step[1]);
+        out.appendSlice(a, cat(&.{ name, L(" (node '"), step[0], L("') -> ") })) catch oom();
+    }
+    const source = path.builtin orelse for (capabilities) |capability| {
+        const operation = for (arrayOf(capability, "operations")) |o| {
+            if (same(str(o, "id"), path.operation)) break o;
+        } else continue;
+        break cat(&.{ L("waiting operation "), str(capability, "displayName"), L("."), str(operation, "displayName") });
+    } else cat(&.{ L("waiting operation "), quote(path.operation) });
+    out.appendSlice(a, cat(&.{ source, L(" (node '"), path.node_id, L("')") })) catch oom();
+    return out.items;
+}
+
+/// The `MustNotWaitFunctionWaits` loop after the per-function one.
+fn waitingRules(capabilities: []const Value, functions: []const Value) void {
     for (functions) |function| {
+        if (tryProperty("mustNotWait", function) != null) break;
+    } else return;
+    const waiting = deriveWaiting(capabilities, functions);
+    for (functions) |function| {
+        if (tryProperty("mustNotWait", function) == null) continue;
+        const path = waiting.get(idKey(str(function, "id"))) orelse continue;
+        add("MustNotWaitFunctionWaits", cat(&.{ L("Function "), functionLabel(function), L(" must not wait but reaches "), describeWait(capabilities, functions, path), L(".") }));
+    }
+}
+
+/// One function reference whose callee's type parameters follow from its arguments and iteration
+/// values (`OneShotPayloadRequirements.instantiations`).
+const Instantiation = struct { owner: Str, node_id: Str, reference: FunctionRef, substitution: Substitution };
+
+/// The arguments of a node's operand of this builtin generic and arity, else none.
+fn genericArgs(r: *Resolver, node: Value, name: []const u8, comptime generic: []const u8, arity: usize) []const TypeRef {
+    const t = r.nodeType(str(node, name)) orelse return &.{};
+    return if (t.isGeneric(generic) and t.args.len == arity) t.args else &.{};
+}
+
+/// The values a node passes its callee besides the context, by kind (the `iteration` of `instantiations`).
+fn iterationTypes(r: *Resolver, node: Value) []const TypeRef {
+    const kind = text(str(node, "kind"));
+    var out: List(TypeRef) = .empty;
+    if (std.mem.eql(u8, kind, "cancellationShield")) {
+        out.append(a, primitiveType("unit")) catch oom();
+    } else if (std.mem.eql(u8, kind, "taskScope")) {
+        out.append(a, builtin("taskScope", &.{})) catch oom();
+    } else if (std.mem.eql(u8, kind, "taskStart")) {
+        if (r.nodeType(str(node, "itemNodeId"))) |t| out.append(a, t) catch oom();
+    } else if (std.mem.eql(u8, kind, "useResource")) {
+        const args = genericArgs(r, node, "acquireNodeId", "result", 2);
+        if (args.len == 2) out.append(a, args[0]) catch oom();
+    } else if (kindIs(kind, "listFold listScan listEffectFold mapFold setFold")) {
+        if (r.nodeType(str(node, "seedNodeId"))) |t| out.append(a, t) catch oom();
+        out.appendSlice(a, if (std.mem.eql(u8, kind, "mapFold")) genericArgs(r, node, "sourceMapNodeId", "map", 2) else if (std.mem.eql(u8, kind, "setFold")) genericArgs(r, node, "sourceSetNodeId", "set", 1) else genericArgs(r, node, "sourceListNodeId", "list", 1)) catch oom();
+    } else if (kindIs(kind, "setFilter setMap")) {
+        out.appendSlice(a, genericArgs(r, node, "sourceSetNodeId", "set", 1)) catch oom();
+    } else if (kindIs(kind, "listSortBy listMinBy listMaxBy")) {
+        for (0..2) |_| out.appendSlice(a, genericArgs(r, node, "sourceListNodeId", "list", 1)) catch oom();
+    } else if (std.mem.eql(u8, kind, "listZipWith")) {
+        out.appendSlice(a, genericArgs(r, node, "leftListNodeId", "list", 1)) catch oom();
+        out.appendSlice(a, genericArgs(r, node, "rightListNodeId", "list", 1)) catch oom();
+    } else if (kindIs(kind, "listFlatMap listMap mapFromList listFilter listAny listAll listFindIndex parallelAll")) {
+        out.appendSlice(a, genericArgs(r, node, "sourceListNodeId", "list", 1)) catch oom();
+    } else if (kindIs(kind, "mapFilter mapMapValues")) {
+        out.appendSlice(a, genericArgs(r, node, "sourceMapNodeId", "map", 2)) catch oom();
+    } else if (kindIs(kind, "optionMap optionAndThen")) {
+        out.appendSlice(a, genericArgs(r, node, "sourceOptionNodeId", "option", 1)) catch oom();
+    } else if (kindIs(kind, "resultMap resultAndThen resultMapErr")) {
+        const args = genericArgs(r, node, "sourceResultNodeId", "result", 2);
+        if (args.len == 2) out.append(a, if (std.mem.eql(u8, kind, "resultMapErr")) args[1] else args[0]) catch oom();
+    }
+    return out.items;
+}
+
+fn instantiations(functions: []const Value, resolvers: []Resolver) []const Instantiation {
+    var out: List(Instantiation) = .empty;
+    for (functions, resolvers) |function, *r| {
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        for (nodes.items) |node| {
+            const iteration = iterationTypes(r, node);
+            for (functionReferences(node)) |reference| {
+                const callee = functions_by_id.get(idKey(reference.function_id)) orelse continue;
+                var pairs: List(Pair) = .empty;
+                for (reference.arguments) |argument| {
+                    const parameter = parameterOf(callee, str(argument, "targetParameterId"));
+                    const actual = r.nodeType(str(argument, "valueNodeId"));
+                    if (parameter != null and actual != null) pairs.append(a, .{ .declared = parameterType(parameter.?), .actual = actual.? }) catch oom();
+                }
+                const unbound = unboundTypes(callee, reference.arguments);
+                const n = @min(unbound.len, iteration.len);
+                for (unbound[0..n], iteration[0..n]) |declared, actual| pairs.append(a, .{ .declared = declared, .actual = actual }) catch oom();
+                const substitution = matchAll(pairs.items) orelse continue;
+                out.append(a, .{ .owner = str(function, "id"), .node_id = str(node, "id"), .reference = reference, .substitution = substitution }) catch oom();
+            }
+        }
+    }
+    return out.items;
+}
+
+/// Type parameters per function (the last function of an ID wins).
+const Requirements = std.StringArrayHashMapUnmanaged(Set);
+
+/// The monotone fixed point of both requirement analyses: a caller inherits the type parameters
+/// its instantiations put where the callee's required ones were.
+fn propagate(sets: *Requirements, calls: []const Instantiation) void {
+    var changed = true;
+    while (changed) {
+        changed = false;
+        for (calls) |call| {
+            const callee = sets.get(idKey(call.reference.function_id)) orelse continue;
+            const keys = a.dupe([]const u8, callee.keys()) catch oom();
+            const owner = sets.getPtr(idKey(call.owner)).?;
+            for (keys) |key| if (call.substitution.get(key)) |t| {
+                var ids: Set = .empty;
+                occurringIds(t, &ids);
+                for (ids.keys()) |id| if (!(owner.getOrPut(a, id) catch oom()).found_existing) {
+                    changed = true;
+                };
+            };
+        }
+    }
+}
+
+/// `requiredParameters`: the type parameters inside a OneShot payload.
+fn oneShotParameters(t: TypeRef, out: *Set) void {
+    if (t.isGeneric("oneShot")) {
+        for (t.args) |arg| occurringIds(arg, out);
+    } else if (t.kind == .generic or t.kind == .named or t.kind == .function) {
+        for (typeArgs(t)) |arg| oneShotParameters(arg, out);
+    }
+}
+
+/// `OneShotPayloadRequirements.derive`.
+var one_shot_requirements: Requirements = .empty;
+
+/// A required type parameter of `target` is instantiated with a type containing TaskScope (`violates`).
+fn violates(target: Str, substitution: *const Substitution) bool {
+    const required = one_shot_requirements.get(idKey(target)) orelse return false;
+    for (required.keys()) |key| if (substitution.get(key)) |t| if (mentionsScope(t)) return true;
+    return false;
+}
+
+var task_bound_capabilities: Set = .empty;
+
+fn mentionsTaskBound(t: TypeRef) bool {
+    if (t.kind == .capability and task_bound_capabilities.contains(idKey(t.name))) return true;
+    for (typeArgs(t)) |arg| if (mentionsTaskBound(arg)) return true;
+    return false;
+}
+
+/// `TaskTypes.bearingTaskBound`.
+fn bearingTaskBound(t: TypeRef) bool {
+    if (task_bound_capabilities.count() == 0) return false;
+    var visited: Set = .empty;
+    return bearingWith(&mentionsTaskBound, t, &visited);
+}
+
+/// `rejectTaskBound`.
+fn rejectTaskBound(what: Str, t: ?TypeRef) void {
+    if (t) |actual| if (bearingTaskBound(actual))
+        addIn("TaskBoundValueCrossesTask", cat(&.{ what, L(" has a type that can hold a task-bound capability, whose values cannot cross into another task.") }));
+}
+
+/// `rejectTaskBound` on the item or source and each context binding of TaskStart and ParallelAll.
+fn rejectTaskBoundInputs(name: Str, node: Value, input: Str, comptime input_label: []const u8) void {
+    rejectTaskBound(nodeMessage(name, node, input_label), nodeType(input));
+    for (arrayOf(node, "context")) |binding|
+        rejectTaskBound(cat(&.{ nodeMessage(name, node, "context binding '"), str(binding, "targetParameterId"), L("'") }), nodeType(str(binding, "valueNodeId")));
+}
+
+/// The analyses `validate` runs before its per-function loop: task-crossing instantiations
+/// (`TaskCrossingRequirements.invalidInstantiations`) and OneShot payloads in callbacks
+/// (`OneShotPayloadRequirements.invalidCallbackUses`); they also set `one_shot_requirements`.
+fn instantiationRules(functions: []const Value, resolvers: []Resolver) void {
+    const calls = instantiations(functions, resolvers);
+    one_shot_requirements = .empty;
+    var crossing: Requirements = .empty;
+    for (functions, resolvers) |function, *r| {
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        var payload: Set = .empty;
+        oneShotParameters(typeRefOf(get(function, "resultType")), &payload);
+        for (arrayOf(function, "parameters")) |parameter| oneShotParameters(parameterType(parameter), &payload);
+        var crosses: Set = .empty;
+        for (nodes.items) |node| {
+            const kind = str(node, "kind");
+            if (isName(kind, "oneShotCreate")) {
+                oneShotParameters(builtin("oneShot", &.{typeRefOf(get(node, "valueType"))}), &payload);
+            } else {
+                var types: List(TypeRef) = .empty;
+                payloadTypeRefs(node, &types);
+                for (types.items) |t| oneShotParameters(t, &payload);
+            }
+            // The node's own type carries the worker result.
+            if (isName(kind, "taskStart") or isName(kind, "parallelAll")) {
+                var ids: List(Str) = .empty;
+                ids.append(a, str(node, "id")) catch oom();
+                ids.append(a, str(node, if (isName(kind, "taskStart")) "itemNodeId" else "sourceListNodeId")) catch oom();
+                for (arrayOf(node, "context")) |binding| ids.append(a, str(binding, "valueNodeId")) catch oom();
+                for (ids.items) |id| if (r.nodeType(id)) |t| occurringIds(t, &crosses);
+            }
+        }
+        one_shot_requirements.put(a, idKey(str(function, "id")), payload) catch oom();
+        crossing.put(a, idKey(str(function, "id")), crosses) catch oom();
+    }
+    propagate(&one_shot_requirements, calls);
+    propagate(&crossing, calls);
+
+    var reported: Set = .empty;
+    for (calls) |call| {
+        const required = crossing.get(idKey(call.reference.function_id)) orelse continue;
+        for (required.keys()) |key| if (call.substitution.get(key)) |t| if (bearingTaskBound(t)) {
+            if (!(reported.getOrPut(a, idKey(cat(&.{ call.node_id, L("\n"), call.reference.function_id }))) catch oom()).found_existing)
+                add("TaskBoundValueCrossesTask", cat(&.{ L("Node '"), call.node_id, L("' instantiates function '"), call.reference.function_id, L("' with a type that can hold a task-bound capability, and the function passes values of that type into another task, directly or through another generic call.") }));
+            break;
+        };
+    }
+    for (calls) |call| {
+        if (call.reference.role != .direct_call and violates(call.reference.function_id, &call.substitution))
+            add("OneShotScopePayloadUnsupported", cat(&.{ L("Callback node '"), call.node_id, L("' instantiates a OneShot payload with a type containing TaskScope.") }));
+    }
+}
+
+fn validateFunctionGraphs(functions: []const Value) void {
+    const resolvers = a.alloc(Resolver, functions.len) catch oom();
+    for (functions, resolvers) |function, *r| r.* = Resolver.init(function);
+    instantiationRules(functions, resolvers);
+    declaring_functions = .empty;
+    for (functions_by_id.values()) |function| {
+        if (arrayOf(function, "requiredEffects").len > 0) declaring_functions.put(a, idKey(str(function, "id")), {}) catch oom();
+    }
+    for (functions, resolvers) |function, *resolver| {
         const label = describe(str(function, "displayName"), str(function, "id"));
-        var resolver = Resolver.init(function);
         const body = get(function, "body");
         var nodes: List(Value) = .empty;
         collectNodes(body, &nodes);
         var required_effects: Set = .empty;
         for (arrayOf(function, "requiredEffects")) |effect| required_effects.put(a, idKey(effect.string), {}) catch oom();
-        in_function = .{ .function = function, .prefix = inFunction(function), .resolver = &resolver, .parameters_by_id = byId(arrayOf(function, "parameters")), .all_nodes = nodes.items, .required_effects = required_effects };
+        in_function = .{ .function = function, .prefix = inFunction(function), .resolver = resolver, .parameters_by_id = byId(arrayOf(function, "parameters")), .all_nodes = nodes.items, .required_effects = required_effects };
         for (nodes.items) |node| {
             var references: List(Str) = .empty;
             directValueReferences(node, &references);
@@ -3704,6 +4110,7 @@ fn validateFunctionGraphs(functions: []const Value) void {
             }
         }
         validateGraph(&.empty, &.empty, cat(&.{ L("Function "), label, L(" body") }), body);
+        effectOrderRules();
         if (resolver.nodeType(str(body, "resultNodeId"))) |t| if (!typeEql(t, typeRefOf(get(function, "resultType"))))
             addIn("FunctionResultTypeMismatch", cat(&.{ L("Function "), label, L(" result node type does not match its declared result type.") }));
     }
@@ -3925,7 +4332,12 @@ fn validate(root: Value) void {
     product_fields_by_id = byId(product_fields.items);
     open_obligation_pairs = .empty;
     for (open_pairs.items) |pair| open_obligation_pairs.put(a, idKey(pair), {}) catch oom();
+    task_bound_capabilities = .empty;
+    for (capabilities) |capability| {
+        if (tryProperty("taskBound", capability) != null) task_bound_capabilities.put(a, idKey(str(capability, "id")), {}) catch oom();
+    }
     validateFunctionGraphs(functions);
+    waitingRules(capabilities, functions);
 
     std.mem.sort(Issue, issues.items, {}, issueLess);
 }
