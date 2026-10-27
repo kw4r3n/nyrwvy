@@ -10,12 +10,12 @@ open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// Acceptance for the libghostty mapping-table slice (docs/decisions/csharp-mapping-tables-libghostty.md):
-/// `bind-c` with a spec over the real `vt.h` for every function snap's hand-written `Native.cs` imports,
+/// `bind-c` with a spec over the real `vt.h` for every function Rhifill's (formerly snap) hand-written `Native.cs` imported,
 /// the proposals applied through a session, C# emitted with the table and run against the real
 /// `libghostty-vt.so`. The library comes from NYRWVY_LIBGHOSTTY_VT (a directory with include/ and lib/),
-/// else from a `snap/vendor/libghostty-vt` beside an ancestor of the test; skips without it or clang.
+/// else from a `rhifill/vendor/libghostty-vt` (or the older `snap/vendor/libghostty-vt`) beside an ancestor of the test; skips without it or clang.
 module CSharpMappingTableGhosttyTests =
-    /// Every libghostty function snap/app/Native.cs imports.
+    /// Every libghostty function Rhifill's app/Native.cs imported before the mapping table.
     let private nativeCsFunctions =
         [ "ghostty_terminal_new"; "ghostty_terminal_set"; "ghostty_terminal_resize"; "ghostty_terminal_vt_write"; "ghostty_terminal_get"
           "ghostty_terminal_scroll_viewport"; "ghostty_terminal_free"
@@ -199,8 +199,10 @@ static bool Fails<T>(Func<object> action, string? message = null) where T : Exce
             let rec up (directory: DirectoryInfo) =
                 if isNull directory then None
                 else
-                    let candidate = Path.Combine(directory.FullName, "snap", "vendor", "libghostty-vt")
-                    if Directory.Exists candidate then Some candidate else up directory.Parent
+                    [ "rhifill"; "snap" ]
+                    |> List.map (fun app -> Path.Combine(directory.FullName, app, "vendor", "libghostty-vt"))
+                    |> List.tryFind Directory.Exists
+                    |> Option.orElseWith (fun () -> up directory.Parent)
             up (DirectoryInfo(AppContext.BaseDirectory))
         | path -> Some path
 
@@ -215,7 +217,7 @@ static bool Fails<T>(Func<object> action, string? message = null) where T : Exce
         sendOk session $"""{{"id":"commit","op":"commit","proposalId":"{proposal}"}}""" |> ignore
 
     [<Fact; Trait("Suite", "Extended")>]
-    let ``bind-c binds every libghostty function snap imports and drives the real library`` () =
+    let ``bind-c binds every libghostty function Rhifill imports and drives the real library`` () =
         let library = vendor () |> Option.map (fun directory -> directory, Path.Combine(directory, "lib", "libghostty-vt.so"))
         let clang = try (let code, _, _ = run (Path.GetTempPath()) [] "clang" [ "--version" ] in code = 0) with _ -> false
         match library with
