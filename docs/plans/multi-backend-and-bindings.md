@@ -112,6 +112,7 @@ The owner may move the tools themselves off .NET later (to Zig, for fewer depend
 - **Two wire changes are needed:** `RunRuntimeFailure` reports §2's kind and message instead of a .NET exception type, and String run values follow §4.
 - **Features arrive per backend.** The deterministic virtual-clock scheduler is the costly part for tasks. A backend declares what it supports, and a case using something unsupported is reported as unsupported on that backend, never skipped silently.
 - **Escape-hatch host sources** accept the backend's own language, disabled by default as today. Other backends get a facade only when hand-written host code needs one.
+- **First tool in Zig:** the Zig backend's emitter (`tools/zig/emitter`), used by runPure's Zig route and checked against the F# emitter ([decision](../decisions/zig-tools.md)).
 
 ## Backend notes
 

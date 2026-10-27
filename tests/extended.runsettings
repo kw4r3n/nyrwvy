@@ -2,5 +2,9 @@
 <RunSettings>
   <RunConfiguration>
     <TestCaseFilter>Suite=Extended</TestCaseFilter>
+    <!-- runPure's Zig route also runs the F# emitter and fails on any difference (docs/decisions/zig-tools.md). -->
+    <EnvironmentVariables>
+      <NYRWVY_ZIG_EMITTER_CHECK>1</NYRWVY_ZIG_EMITTER_CHECK>
+    </EnvironmentVariables>
   </RunConfiguration>
 </RunSettings>
