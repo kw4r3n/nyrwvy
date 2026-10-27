@@ -10,6 +10,8 @@ type AgentCreateCapabilityDeclarationRequest =
       DisplayName: string
       /// Whether snapshots that depend on this one may use the capability; private when false.
       Exported: bool
+      /// Wire `"taskBound": true`; omitted means false.
+      TaskBound: bool
       Operations: AgentCapabilityOperationIntent list }
 
 type AgentCapabilityDeclarationReview =
@@ -184,7 +186,8 @@ module AgentCapabilityDeclarationWorkflow =
           Parameters = intent.Parameters |> List.map materializeParameter
           ResultType = intent.ResultType
           FailureType = intent.FailureType
-          EffectId = intent.EffectId }
+          EffectId = intent.EffectId
+          MayWait = intent.MayWait }
 
     let private materialize
         (request: AgentCreateCapabilityDeclarationRequest)
@@ -192,6 +195,7 @@ module AgentCapabilityDeclarationWorkflow =
         { Id = StableIdAllocator.newCapabilityId ()
           DisplayName = request.DisplayName
           Exported = request.Exported
+          TaskBound = request.TaskBound
           Operations = request.Operations |> List.map materializeOperation }
 
     let simulate

@@ -42,7 +42,7 @@ module ScopeDepthDiagnosticsTests =
             { Nodes = [ ({ Id = nodeId; Kind = SemanticNodeKind.StringLiteral "" }: SemanticNode) ]
               ResultNodeId = nodeId }
         let target: SemanticFunction =
-            { Exported = true; Id = targetId
+            { MustNotWait = false; Exported = true; Id = targetId
               TypeParameters = []
               DisplayName = "target"
               Parameters =
@@ -52,7 +52,7 @@ module ScopeDepthDiagnosticsTests =
               RequiredEffects = []
               Body = { literalBody "unused" with Nodes = [ { Id = resultNodeId; Kind = SemanticNodeKind.StringLiteral "" } ]; ResultNodeId = resultNodeId } }
         let other: SemanticFunction =
-            { Exported = true; Id = otherId
+            { MustNotWait = false; Exported = true; Id = otherId
               TypeParameters = []
               DisplayName = "other"
               Parameters = [ { Id = foreignParameterId; DisplayName = "foreign"; Type = stringType } ]
@@ -198,7 +198,7 @@ module ScopeDepthDiagnosticsTests =
     let ``a parameter slot out of range lists the requested parameters by name`` () =
         let workspace = AgentWorkspace.create snapshot |> function Ok value -> value | Error issues -> failwithf "%A" issues
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               TypeParameters = None
               DisplayName = "fresh"
               Parameters = [ { DisplayName = "text"; Type = stringType } ]

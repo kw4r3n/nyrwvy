@@ -30,7 +30,7 @@ module TypeDeletionTests =
         let inputId = id<GraphNodeTag> "input"
         let constructId = id<GraphNodeTag> "construct"
         let obsoleteFn: SemanticFunction =
-            { Exported = true; Id = obsoleteFunctionId
+            { MustNotWait = false; Exported = true; Id = obsoleteFunctionId
               TypeParameters = []
               DisplayName = "createObsolete"
               Parameters = [ parameter ]
@@ -44,7 +44,7 @@ module TypeDeletionTests =
                             [ { TargetFieldId = fieldId; ValueNodeId = inputId } ]) } ]
                   ResultNodeId = constructId } }
         let retainedFn: SemanticFunction =
-            { Exported = true; Id = retainedFunctionId
+            { MustNotWait = false; Exported = true; Id = retainedFunctionId
               TypeParameters = []
               DisplayName = "keep"
               Parameters = []

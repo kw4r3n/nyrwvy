@@ -63,7 +63,7 @@ module SnapshotCodecTests =
                   ResultNodeId = resultId }
         { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-deep") with
             Functions =
-                [ { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-deep"
+                [ { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-deep"
                     TypeParameters = []
                     DisplayName = "deep"
                     Parameters = []
@@ -171,7 +171,7 @@ module SnapshotCodecTests =
         let literalId = StableId.createForTesting<GraphNodeTag> "unary-literal"
         let resultId = StableId.createForTesting<GraphNodeTag> "unary-result"
         let fn: SemanticFunction =
-            { Id = StableId.createForTesting<FunctionTag> "unary-function"
+            { MustNotWait = false; Id = StableId.createForTesting<FunctionTag> "unary-function"
               DisplayName = "isEmpty"; Exported = true; TypeParameters = []; Parameters = []
               ResultType = TypeRef.Primitive PrimitiveType.Bool; RequiredEffects = []
               Body =
@@ -237,7 +237,7 @@ module SnapshotCodecTests =
     let private loneSurrogateLiteralSnapshot (text: string) =
         let nodeId = StableId.createForTesting<GraphNodeTag> "node-lone-surrogate"
         let literal: SemanticFunction =
-            { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-lone-surrogate"
+            { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-lone-surrogate"
               TypeParameters = []
               DisplayName = "lone"
               Parameters = []

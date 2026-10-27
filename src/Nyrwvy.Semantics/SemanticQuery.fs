@@ -37,6 +37,8 @@ type FunctionFocusView =
     { SnapshotId: SnapshotId
       Function: SemanticFunction
       BodyEffectRequirements: BodyEffectRequirements
+      /// When the function may wait (`Waiting`): one path to what it waits on, as text.
+      WaitPath: string option
       NodeTypes: QueryNodeType list
       Aborts: QueryFunctionAbort list
       Callers: QueryCallSite list
@@ -564,6 +566,7 @@ module SemanticQuery =
                     { SnapshotId = snapshot.Id
                       Function = functionEntity
                       BodyEffectRequirements = EffectRequirements.derive snapshot functionEntity
+                      WaitPath = Map.tryFind functionEntity.Id (Waiting.derive snapshot) |> Option.map (Waiting.describe snapshot)
                       NodeTypes = nodeTypes
                       Aborts = abortBoundaries functionEntity nodeTypes
                       Callers = callers

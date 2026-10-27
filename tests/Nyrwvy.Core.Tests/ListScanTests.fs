@@ -42,7 +42,7 @@ module ListScanTests =
             let session = AuthoringSession.openExisting path |> unwrap "open"
             let find name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
             let request name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                   TypeParameters = None
                   DisplayName = name
                   Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })

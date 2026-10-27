@@ -20,10 +20,10 @@ module DeclarationCleanupTests =
     let private fixture () =
         let effect: SemanticEffect = { Exported = true; Id = effectId; DisplayName = "Notify" }
         let capability: SemanticCapability =
-            { Exported = true; Id = capabilityId
+            { TaskBound = false; Exported = true; Id = capabilityId
               DisplayName = "Notifier"
               Operations =
-                [ { Id = operationId
+                [ { MayWait = false; Id = operationId
                     DisplayName = "send"
                     Parameters = [ { Id = operationParameterId; DisplayName = "text"; Type = stringType } ]
                     ResultType = unitType
@@ -39,7 +39,7 @@ module DeclarationCleanupTests =
         let textNodeId = id<GraphNodeTag> "text-reference"
         let invocationId = id<GraphNodeTag> "invocation"
         let fn: SemanticFunction =
-            { Exported = true; Id = functionId
+            { MustNotWait = false; Exported = true; Id = functionId
               TypeParameters = []
               DisplayName = "useNotifier"
               Parameters = [ targetParameter; textParameter ]

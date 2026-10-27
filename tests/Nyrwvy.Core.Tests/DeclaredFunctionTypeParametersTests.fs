@@ -27,7 +27,7 @@ module DeclaredFunctionTypeParametersTests =
     /// `second(first: List<T>, second: U): U = second`, with the type parameters in the given order.
     let private second (typeParameters: (TypeParameterId * string) list): SemanticFunction =
         let resultNodeId = id<GraphNodeTag> "second-result"
-        { Id = id<FunctionTag> "second"
+        { MustNotWait = false; Id = id<FunctionTag> "second"
           Exported = true
           DisplayName = "second"
           TypeParameters = typeParameters
@@ -189,7 +189,7 @@ module DeclaredFunctionTypeParametersTests =
         let exportedReordered = second [ uId, "U"; tId, "T" ]
         let helperResult = id<GraphNodeTag> "helper-result"
         let privateHelper: SemanticFunction =
-            { Exported = false
+            { MustNotWait = false; Exported = false
               Id = id<FunctionTag> "helper"
               DisplayName = "helper"
               TypeParameters = []

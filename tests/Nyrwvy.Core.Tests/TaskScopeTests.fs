@@ -55,7 +55,7 @@ module TaskScopeTests =
 
     let private initial =
         let operation operationId name parameterId parameterName resultType: SemanticCapabilityOperation =
-            { Id = operationId
+            { MayWait = false; Id = operationId
               DisplayName = name
               Parameters = [ { Id = parameterId; DisplayName = parameterName; Type = stringType } ]
               ResultType = resultType
@@ -79,9 +79,9 @@ module TaskScopeTests =
                             variant finishId "Finish" [] ] } ]
             Effects = [ { Exported = true; Id = effectId; DisplayName = "Team" } ]
             Capabilities =
-                [ { Exported = true; Id = leaderId; DisplayName = "Leader"; Operations = [ operation nextId "next" reportId "report" (TypeRef.Named(actionId, [])) ] }
-                  { Exported = true; Id = agentId; DisplayName = "Agent"; Operations = [ operation workId "work" workNameId "name" outcomeType ] }
-                  { Exported = true; Id = workspacesId
+                [ { TaskBound = false; Exported = true; Id = leaderId; DisplayName = "Leader"; Operations = [ operation nextId "next" reportId "report" (TypeRef.Named(actionId, [])) ] }
+                  { TaskBound = false; Exported = true; Id = agentId; DisplayName = "Agent"; Operations = [ operation workId "work" workNameId "name" outcomeType ] }
+                  { TaskBound = false; Exported = true; Id = workspacesId
                     DisplayName = "Workspaces"
                     Operations =
                       [ operation createId "create" createNameId "name" outcomeType
@@ -90,7 +90,7 @@ module TaskScopeTests =
     let private current (session: AuthoringSession) = (session.Status() |> unwrap "status").SnapshotId
 
     let private request (session: AuthoringSession) name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { Exported = true; ExpectedBaseSnapshotId = current session
+        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current session
           TypeParameters = None
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })

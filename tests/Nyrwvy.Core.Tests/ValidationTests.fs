@@ -41,7 +41,7 @@ module ValidationTests =
         let snapshot = withResolvedObligation fixture
         let duplicateId = if duplicateKind = "call" then fixture.RunCallNodeId else fixture.RunInputNodeId
         let duplicate: SemanticFunction =
-            { Exported = true
+            { MustNotWait = false; Exported = true
               Id = StableId.createForTesting<FunctionTag> "function-duplicate-owner"
               DisplayName = "duplicate_owner"
               TypeParameters = []
@@ -96,7 +96,7 @@ module ValidationTests =
         let functionId = StableId.createForTesting<FunctionTag> "function-null-string-literal"
         let nodeId = StableId.createForTesting<GraphNodeTag> "node-null-string-literal"
         let functionEntity: SemanticFunction =
-            { Exported = true; Id = functionId
+            { MustNotWait = false; Exported = true; Id = functionId
               TypeParameters = []
               DisplayName = "null_string_literal"
               Parameters = []
@@ -118,7 +118,7 @@ module ValidationTests =
         let functionId = StableId.createForTesting<FunctionTag> "function-lone-surrogate-literal"
         let nodeId = StableId.createForTesting<GraphNodeTag> "node-lone-surrogate-literal"
         let functionEntity: SemanticFunction =
-            { Exported = true; Id = functionId
+            { MustNotWait = false; Exported = true; Id = functionId
               TypeParameters = []
               DisplayName = "lone_surrogate_literal"
               Parameters = []
@@ -182,7 +182,7 @@ module ValidationTests =
 
     let private dependencySnapshot (graph: ValueGraph) =
         let functionEntity: SemanticFunction =
-            { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-dependencies"
+            { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-dependencies"
               TypeParameters = []
               DisplayName = "dependencies"
               Parameters = []
@@ -357,7 +357,7 @@ module ValidationTests =
         let int64Type = TypeRef.Primitive PrimitiveType.Int64
         let stringType = TypeRef.Primitive PrimitiveType.String
         let unary: SemanticFunction =
-            { Exported = true; Id = unaryFunctionId
+            { MustNotWait = false; Exported = true; Id = unaryFunctionId
               TypeParameters = []
               DisplayName = "unary"
               Parameters = [ { Id = unaryParameterId; DisplayName = "value"; Type = int64Type } ]
@@ -367,7 +367,7 @@ module ValidationTests =
                 { Nodes = [ { Id = id "unary-value"; Kind = SemanticNodeKind.ParameterReference unaryParameterId } ]
                   ResultNodeId = id "unary-value" } }
         let probe: SemanticFunction =
-            { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-callback-probe"
+            { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-callback-probe"
               TypeParameters = []
               DisplayName = "probe"
               Parameters =

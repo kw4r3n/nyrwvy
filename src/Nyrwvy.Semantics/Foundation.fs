@@ -170,12 +170,18 @@ type SemanticCapabilityOperation =
       Parameters: SemanticCapabilityParameter list
       ResultType: TypeRef
       FailureType: TypeRef option
-      EffectId: EffectId }
+      EffectId: EffectId
+      /// The operation can wait for an external event for an unbounded time (a semantic property, not
+      /// a backend one). Default false. See docs/decisions/wait-and-task-bound-attributes.md.
+      MayWait: bool }
 
 type SemanticCapability =
     { Id: CapabilityId
       DisplayName: string
       Exported: bool
+      /// Values of the capability belong to the task that created them (UI-thread objects): they never
+      /// cross into another task. Default false.
+      TaskBound: bool
       Operations: SemanticCapabilityOperation list }
 
 type SemanticParameter =
@@ -749,6 +755,8 @@ type SemanticFunction =
       Parameters: SemanticParameter list
       ResultType: TypeRef
       RequiredEffects: EffectId list
+      /// The function must not reach a waiting operation or builtin wait; validation checks it. Default false.
+      MustNotWait: bool
       Body: ValueGraph }
 
 type ObligationResolution =
@@ -2659,10 +2667,16 @@ module TaskTypes =
     let mentionsScope (typeRef: TypeRef) =
         occurs (function BuiltinGenericType.TaskScope -> true | _ -> false) typeRef
 
-    /// Whether a value of the type can hold a task handle or scope: the type mentions one, or reaches
-    /// a declared Product or Union whose fields do, through any nesting. Recursive and unknown named
-    /// types are handled; each named type is inspected once.
-    let bearing (types: SemanticType list) (typeRef: TypeRef) =
+    let rec private mentionsCapability (taskBound: Set<CapabilityId>) (typeRef: TypeRef) =
+        match typeRef with
+        | TypeRef.Capability id -> Set.contains id taskBound
+        | TypeRef.BuiltinGeneric(_, arguments)
+        | TypeRef.Named(_, arguments) -> List.exists (mentionsCapability taskBound) arguments
+        | TypeRef.Function(parameters, result) -> List.exists (mentionsCapability taskBound) (result :: parameters)
+        | TypeRef.Primitive _
+        | TypeRef.TypeParameter _ -> false
+
+    let private bearingWith (mentions: TypeRef -> bool) (types: SemanticType list) (typeRef: TypeRef) =
         let byId = types |> List.map (fun item -> item.Id, item) |> Map.ofList
         let visited = System.Collections.Generic.HashSet<TypeId * TypeRef list>()
         let rec named (typeRef: TypeRef) =
@@ -2687,6 +2701,17 @@ module TaskTypes =
                                | SemanticTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields)
                            fields |> List.exists (fun field -> visit (TypeParameters.instantiate typeEntity arguments field.Type))))
         visit typeRef
+
+    /// Whether a value of the type can hold a task handle or scope: the type mentions one, or reaches
+    /// a declared Product or Union whose fields do, through any nesting. Recursive and unknown named
+    /// types are handled; each named type is inspected once.
+    let bearing (types: SemanticType list) (typeRef: TypeRef) = bearingWith mentions types typeRef
+
+    /// Whether a value of the type can hold a value of a capability marked `TaskBound`, directly or
+    /// through containers and declared Products and Unions, as `bearing` traverses.
+    let bearingTaskBound (snapshot: Snapshot) (typeRef: TypeRef) =
+        let taskBound = snapshot.Capabilities |> List.filter (fun capability -> capability.TaskBound) |> List.map (fun capability -> capability.Id) |> Set.ofList
+        not (Set.isEmpty taskBound) && bearingWith (mentionsCapability taskBound) snapshot.Types typeRef
 
 /// `ValueEqual` compares two values of one *equatable* type: String, Int64, Bool, Unit, Bits32, Bytes,
 /// `List`, `Option` and `Result` of equatable types, and declared Products and Unions whose fields

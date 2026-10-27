@@ -16,14 +16,14 @@ module ImportProvenanceSelectorTests =
         let node = id<GraphNodeTag> name
         let measure = { Exported = true; TypeParameters = []; Id = id<TypeTag> name; DisplayName = "Measure"; Kind = SemanticTypeKind.Product [ { Id = id<FieldTag> name; DisplayName = "value"; Type = intType } ] }
         let effect: SemanticEffect = { Id = id<EffectTag> name; DisplayName = "Io"; Exported = true }
-        let capability = { Exported = true; Id = id<CapabilityTag> name; DisplayName = "Clock"
-                           Operations = [ { Id = id<CapabilityOperationTag> name; DisplayName = "read"; Parameters = []; ResultType = intType; FailureType = None; EffectId = effect.Id } ] }
+        let capability = { TaskBound = false; Exported = true; Id = id<CapabilityTag> name; DisplayName = "Clock"
+                           Operations = [ { MayWait = false; Id = id<CapabilityOperationTag> name; DisplayName = "read"; Parameters = []; ResultType = intType; FailureType = None; EffectId = effect.Id } ] }
         { Snapshot.empty (id<SnapshotTag> version) with
             Types = [ sharedType; measure ]
             Effects = [ effect ]
             Capabilities = [ capability ]
             Functions =
-                [ { Exported = true; Id = id<FunctionTag> name; DisplayName = "render"; Parameters = []; ResultType = intType; RequiredEffects = []
+                [ { MustNotWait = false; Exported = true; Id = id<FunctionTag> name; DisplayName = "render"; Parameters = []; ResultType = intType; RequiredEffects = []
                     TypeParameters = []
                     Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.Int64Literal number } ]; ResultNodeId = node } } ] }
     let private withApp test =
@@ -150,7 +150,7 @@ module ImportProvenanceSelectorTests =
     let ``exact owner selector supports recursive replacement including keepUnlisted`` () =
         withApp (fun session path a _ aPath _ _ ->
             let create = session.SimulateCreateFunction
-                            { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "countdown"
+                            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "countdown"
                               TypeParameters = None
                               Parameters = [ { DisplayName = "remaining"; Type = intType }; { DisplayName = "total"; Type = intType } ]
                               ResultType = intType; RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> unwrap

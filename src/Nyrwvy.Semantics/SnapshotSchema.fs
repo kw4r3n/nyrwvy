@@ -49,6 +49,9 @@ type SnapshotSchemaFeature =
     | ListScan
     /// The Bytes type anywhere, or any Bytes node kind.
     | Bytes
+    /// A capability operation marked `mayWait`, a capability marked `taskBound` or a function marked
+    /// `mustNotWait`.
+    | WaitAttributes
     /// A Product or Union with type parameters, a named type with type arguments, or a construct
     /// node with type arguments.
     | GenericTypes
@@ -116,12 +119,14 @@ module SnapshotSchema =
 
     let private v23 = version 23 "nayamnyam.snapshot.v19"
 
+    let private v24 = version 24 "nayamnyam.snapshot.v20"
+
     /// Every version the codecs read, oldest first.
-    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19; v20; v21; v22; v23 ]
+    let supported = [ baseline; v10; v11; v12; v13; v14; v15; v16; v17; v18; v19; v20; v21; v22; v23; v24 ]
 
     /// The newest version: the one ordinary writers and migration write every snapshot at, whatever
     /// constructs it uses (docs/specs/schema-evolution-policy.md, deprecation policy).
-    let current = v23
+    let current = v24
 
     /// The first version the record form (`.nyrec`) was written at; its reader accepts this one onward.
     let firstRecord = v21
@@ -132,7 +137,8 @@ module SnapshotSchema =
 
     /// The minimum schema version of each construct, with the name diagnostics use for it.
     let minimumVersions: (SnapshotSchemaFeature * SnapshotSchemaVersion * string) list =
-        [ SnapshotSchemaFeature.Bytes, v23, "Bytes"
+        [ SnapshotSchemaFeature.WaitAttributes, v24, "A waiting operation, task-bound capability or must-not-wait function"
+          SnapshotSchemaFeature.Bytes, v23, "Bytes"
           SnapshotSchemaFeature.ListScan, v22, "ListScan"
           SnapshotSchemaFeature.DeclaredFunctionTypeParameters, v21, "Declared function type parameters"
           SnapshotSchemaFeature.DeclarationVisibility, v21, "A private declaration"
@@ -462,6 +468,9 @@ module SnapshotSchema =
             || (snapshot.Functions |> List.exists (fun item -> not item.Exported))
         [ yield! declarationTypes |> List.collect typeFeatures
           if hasPrivateDeclaration then yield SnapshotSchemaFeature.DeclarationVisibility
+          if (snapshot.Capabilities |> List.exists (fun capability -> capability.TaskBound || capability.Operations |> List.exists (fun op -> op.MayWait)))
+             || (snapshot.Functions |> List.exists (fun fn -> fn.MustNotWait)) then
+              yield SnapshotSchemaFeature.WaitAttributes
           if snapshot.Types |> List.exists (fun semanticType -> not (List.isEmpty semanticType.TypeParameters)) then
               yield SnapshotSchemaFeature.GenericTypes
           if snapshot.Functions |> List.exists (fun fn -> not (TypeParameters.isDerived fn)) then

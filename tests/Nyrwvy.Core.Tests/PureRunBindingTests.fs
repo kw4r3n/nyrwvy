@@ -51,13 +51,13 @@ module PureRunBindingTests =
 
     let private createCapability (session: AuthoringSession) name operations =
         let request: AgentCreateCapabilityDeclarationRequest =
-            { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name; Operations = operations }
+            { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name; Operations = operations }
         session.SimulateCreateCapability request |> unwrap "create capability" |> publish session
         session.Declarations().Capabilities |> List.find (fun item -> item.DisplayName = name)
 
     let private createFunction (session: AuthoringSession) name parameters resultType effects body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = current session
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current session
               TypeParameters = None
               DisplayName = name
               Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
@@ -80,7 +80,7 @@ module PureRunBindingTests =
             let effect = session.Declarations().Effects |> List.exactlyOne
             let lookupResult = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.Named(responseType.Id, []); stringType ])
             let operation name parameters resultType: AgentCapabilityOperationIntent =
-                { DisplayName = name
+                { MayWait = false; DisplayName = name
                   Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
                   ResultType = resultType
                   FailureType = None
@@ -447,7 +447,7 @@ public sealed class Loud : {capability}
             let nestedType = listOf (optionOf resultType)
             let parameters = [ "left", nestedType; "right", nestedType; "unit", unitType ]
             let cap = createCapability s "NestedLookup"
-                        [ { DisplayName = "lookup"; Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
+                        [ { MayWait = false; DisplayName = "lookup"; Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
                             ResultType = stringType; FailureType = None; EffectId = fixture.Lookup.EffectId } ]
             let op = cap.Operations.Head
             createFunction s "nestedLookup" (parameters @ [ "provider", TypeRef.Capability cap.Id ]) stringType [ fixture.Lookup.EffectId ]
@@ -520,7 +520,7 @@ public sealed class Loud : {capability}
             let effect = fixture.Session.Declarations().Effects |> List.exactlyOne
             let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ stringType; stringType ])
             let operation name: AgentCapabilityOperationIntent =
-                { DisplayName = name
+                { MayWait = false; DisplayName = name
                   Parameters = [ { DisplayName = "key"; Type = stringType } ]
                   ResultType = resultType; FailureType = None; EffectId = effect.Id }
             let capability = createCapability fixture.Session "ShapeSource" [ operation "first"; operation "read" ]
@@ -573,7 +573,7 @@ public sealed class Loud : {capability}
             let strings = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])
             let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ stringType; stringType ])
             let operation: AgentCapabilityOperationIntent =
-                { DisplayName = "echo"; Parameters = [ { DisplayName = "items"; Type = strings } ]
+                { MayWait = false; DisplayName = "echo"; Parameters = [ { DisplayName = "items"; Type = strings } ]
                   ResultType = resultType; FailureType = None; EffectId = effect.Id }
             let capability = createCapability fixture.Session "TypedEcho" [ operation ]
             let echo = capability.Operations |> List.exactlyOne

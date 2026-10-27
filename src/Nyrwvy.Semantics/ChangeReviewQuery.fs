@@ -86,8 +86,14 @@ module ChangeReviewQuery =
             |> List.choose (fun item ->
                 simulation.ProposedSnapshot.Functions |> List.tryFind (fun fn -> StableId.value fn.Id = item.Id) |> Option.map (fun fn -> fn.Id))
 
+        let attributeOwners =
+            simulation.Diff.AttributeChanges
+            |> List.filter (fun item -> item.Attribute = "mustNotWait")
+            |> List.choose (fun item ->
+                simulation.ProposedSnapshot.Functions |> List.tryFind (fun fn -> StableId.value fn.Id = item.Id) |> Option.map (fun fn -> fn.Id))
+
         let present = simulation.ProposedSnapshot.Functions |> List.map (fun fn -> fn.Id) |> Set.ofList
-        renamed @ parameterOwners @ effectOwners @ changedCallOwners @ changedProductOwners @ changedImplementationOwners @ changedMatchOwners @ visibilityOwners
+        renamed @ parameterOwners @ effectOwners @ changedCallOwners @ changedProductOwners @ changedImplementationOwners @ changedMatchOwners @ visibilityOwners @ attributeOwners
         |> List.distinct
         |> List.filter (fun id -> Set.contains id present)
         |> List.sortBy StableId.value

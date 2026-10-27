@@ -45,7 +45,7 @@ module CapabilityTests =
               Type = stringType }
 
         let operation: SemanticCapabilityOperation =
-            { Id = operationId
+            { MayWait = false; Id = operationId
               DisplayName = "write_line"
               Parameters = [ operationParameter ]
               ResultType = unitType
@@ -53,7 +53,7 @@ module CapabilityTests =
               EffectId = effectId }
 
         let capability: SemanticCapability =
-            { Exported = true; Id = capabilityId
+            { TaskBound = false; Exported = true; Id = capabilityId
               DisplayName = "Console"
               Operations = [ operation ] }
 
@@ -84,7 +84,7 @@ module CapabilityTests =
               Kind = SemanticNodeKind.CapabilityInvoke(consoleNodeId, operationId, [ argument ]) }
 
         let functionEntity: SemanticFunction =
-            { Exported = true; Id = functionId
+            { MustNotWait = false; Exported = true; Id = functionId
               TypeParameters = []
               DisplayName = "report"
               Parameters = [ messageParameter; consoleParameter ]
@@ -135,7 +135,7 @@ module CapabilityTests =
         let fixture = createConsoleFixture ()
         let otherCapabilityId = StableId.createForTesting<CapabilityTag> "capability-other"
         let otherCapability: SemanticCapability =
-            { Exported = true; Id = otherCapabilityId
+            { TaskBound = false; Exported = true; Id = otherCapabilityId
               DisplayName = "OtherCapability"
               Operations = [] }
 
@@ -232,7 +232,7 @@ module CapabilityTests =
                 ) }
 
         let caller: SemanticFunction =
-            { Exported = true; Id = callerId
+            { MustNotWait = false; Exported = true; Id = callerId
               TypeParameters = []
               DisplayName = "caller"
               Parameters = [ callerMessageParameter; callerConsoleParameter ]
@@ -275,7 +275,7 @@ module CapabilityTests =
               Kind = SemanticNodeKind.StringIsEmpty valueNodeId }
 
         let functionEntity: SemanticFunction =
-            { Exported = true; Id = functionId
+            { MustNotWait = false; Exported = true; Id = functionId
               TypeParameters = []
               DisplayName = "contains"
               Parameters =

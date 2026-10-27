@@ -26,7 +26,7 @@ module BytesTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
+        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
@@ -119,7 +119,7 @@ module BytesTests =
         let validate (nodes: SemanticNodeKind list) resultType =
             let body = nodes |> List.mapi (fun index kind -> ({ Id = nodeId (string index); Kind = kind }: SemanticNode))
             let fn: SemanticFunction =
-                { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-bytes-entry"; DisplayName = "entry"; Parameters = []
+                { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-bytes-entry"; DisplayName = "entry"; Parameters = []
                   TypeParameters = []
                   ResultType = resultType; RequiredEffects = []
                   Body = { Nodes = body; ResultNodeId = (List.last body).Id } }
@@ -182,7 +182,7 @@ module BytesTests =
             let encoded = File.ReadAllText path
             for kind in kinds do Assert.Contains($"\"kind\":\"{kind}\"", encoded)
             Assert.Contains("\"bytesNodeId\"", encoded)
-            Assert.Contains("\"schemaVersion\":23", encoded)
+            Assert.Contains("\"schemaVersion\":24", encoded)
             let graph = SnapshotCodec.deserialize encoded |> unwrap
             Assert.Empty(SnapshotValidator.validate graph)
             Assert.Equal(encoded, SnapshotCodec.serialize graph |> unwrap)
@@ -193,7 +193,7 @@ module BytesTests =
             Assert.Equal(record, RecordCodec.serialize restored |> unwrap)
             Assert.Equal(SemanticFingerprint.compute graph, SemanticFingerprint.compute restored)
             // An older declared schema cannot hold Bytes.
-            match SnapshotCodec.deserialize (encoded.Replace("\"schemaVersion\":23", "\"schemaVersion\":22")) with
+            match SnapshotCodec.deserialize (encoded.Replace("\"schemaVersion\":24", "\"schemaVersion\":22")) with
             | Ok _ -> failwith "A schema 22 snapshot with Bytes decoded."
             | Error error -> Assert.Contains("Bytes", sprintf "%A" error)
             let typed = TypedSemanticIr.project restored |> unwrap

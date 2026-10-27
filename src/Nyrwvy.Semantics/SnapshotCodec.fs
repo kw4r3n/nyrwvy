@@ -274,6 +274,11 @@ module SnapshotCodec =
     let private writeVisibility (writer: Utf8JsonWriter) (explicitVisibility: bool) (exported: bool) =
         if explicitVisibility && exported then writer.WriteBoolean("exported", true)
 
+    /// The wait and task-binding markers (`WaitAttributes`, schema 24): written only when true, so a
+    /// snapshot without them keeps its bytes; `false` is rejected on reading so that there is one spelling.
+    let private writeMarker (writer: Utf8JsonWriter) (name: string) (value: bool) =
+        if value then writer.WriteBoolean(name, true)
+
     let private writeType (writer: Utf8JsonWriter) (explicitVisibility: bool) (item: SemanticType) =
         writer.WriteStartObject()
         writer.WriteString("id", StableId.value item.Id)
@@ -331,6 +336,7 @@ module SnapshotCodec =
             writeTypeRef writer failureType
         | None -> ()
         writer.WriteString("effectId", StableId.value operation.EffectId)
+        writeMarker writer "mayWait" operation.MayWait
         writer.WriteEndObject()
 
     let private writeCapability (writer: Utf8JsonWriter) (explicitVisibility: bool) (capability: SemanticCapability) =
@@ -338,6 +344,7 @@ module SnapshotCodec =
         writer.WriteString("id", StableId.value capability.Id)
         writer.WriteString("displayName", capability.DisplayName)
         writeVisibility writer explicitVisibility capability.Exported
+        writeMarker writer "taskBound" capability.TaskBound
         writer.WritePropertyName("operations")
         writer.WriteStartArray()
         capability.Operations
@@ -1280,6 +1287,7 @@ module SnapshotCodec =
         writer.WriteString("id", StableId.value functionEntity.Id)
         writer.WriteString("displayName", functionEntity.DisplayName)
         writeVisibility writer explicitVisibility functionEntity.Exported
+        writeMarker writer "mustNotWait" functionEntity.MustNotWait
         // Declared order; absent when empty, and absent before schema 21, where the parameter
         // types imply the list.
         if legacyWriteNames.Value.IsNone then writeTypeParameters writer functionEntity.TypeParameters
@@ -1578,6 +1586,16 @@ module SnapshotCodec =
                     invalidShape "Property 'exported' must be true or omitted (a private declaration omits it)."
                 true
 
+    /// A wait or task-binding marker: `true` or omitted (false). Read at every version so that
+    /// `firstUnsupported` names the schema version it needs.
+    let private readMarker (name: string) (element: JsonElement): bool =
+        match tryProperty name element with
+        | None -> false
+        | Some value ->
+            if value.ValueKind <> JsonValueKind.True then
+                invalidShape $"Property '{name}' must be true or omitted."
+            true
+
     let private readType (explicitVisibility: bool) (element: JsonElement): SemanticType =
         let kind = readString "kind" element
         let optional = visibilityProperties explicitVisibility
@@ -1614,7 +1632,7 @@ module SnapshotCodec =
         ensureProperties
             "Capability operation"
             (set [ "id"; "displayName"; "parameters"; "resultType"; "effectId" ])
-            (set [ "id"; "displayName"; "parameters"; "resultType"; "failureType"; "effectId" ])
+            (set [ "id"; "displayName"; "parameters"; "resultType"; "failureType"; "effectId"; "mayWait" ])
             element
         let failureType = tryProperty "failureType" element |> Option.map readTypeRef
         { Id = readId<CapabilityOperationTag> "id" element
@@ -1622,13 +1640,15 @@ module SnapshotCodec =
           Parameters = readArray "parameters" readCapabilityParameter element
           ResultType = readTypeRef (requireProperty "resultType" element)
           FailureType = failureType
-          EffectId = readId<EffectTag> "effectId" element }
+          EffectId = readId<EffectTag> "effectId" element
+          MayWait = readMarker "mayWait" element }
 
     let private readCapability (explicitVisibility: bool) (element: JsonElement): SemanticCapability =
-        ensureProperties "Capability" (set [ "id"; "displayName"; "operations" ]) (Set.union (visibilityProperties explicitVisibility) (set [ "id"; "displayName"; "operations" ])) element
+        ensureProperties "Capability" (set [ "id"; "displayName"; "operations" ]) (Set.union (visibilityProperties explicitVisibility) (set [ "id"; "displayName"; "operations"; "taskBound" ])) element
         { Id = readId<CapabilityTag> "id" element
           DisplayName = readString "displayName" element
           Exported = readVisibility explicitVisibility element
+          TaskBound = readMarker "taskBound" element
           Operations = readArray "operations" readCapabilityOperation element }
 
     let private readParameter (element: JsonElement): SemanticParameter =
@@ -2630,7 +2650,7 @@ module SnapshotCodec =
 
     let private readFunction (explicitVisibility: bool) (element: JsonElement): SemanticFunction =
         let required = set [ "id"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
-        ensureProperties "Function" required (Set.union (visibilityProperties explicitVisibility) (Set.add "typeParameters" required)) element
+        ensureProperties "Function" required (Set.union (visibilityProperties explicitVisibility) (set [ "typeParameters"; "mustNotWait" ] |> Set.union required)) element
         let parameters = readArray "parameters" readParameter element
         let typeParameters =
             match legacyReadNames.Value with
@@ -2651,6 +2671,7 @@ module SnapshotCodec =
         { Id = readId<FunctionTag> "id" element
           DisplayName = readString "displayName" element
           Exported = readVisibility explicitVisibility element
+          MustNotWait = readMarker "mustNotWait" element
           TypeParameters = typeParameters
           Parameters = parameters
           ResultType = readTypeRef (requireProperty "resultType" element)

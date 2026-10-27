@@ -37,7 +37,7 @@ module ListEffectFoldTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
 
     let private creation (session: AuthoringSession) name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { Exported = true; ExpectedBaseSnapshotId = current session
+        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current session
           TypeParameters = None
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
@@ -56,10 +56,10 @@ module ListEffectFoldTests =
             let effect = session.Declarations().Effects |> List.exactlyOne
             let capability name operation parameter resultType =
                 let request: AgentCreateCapabilityDeclarationRequest =
-                    { Exported = true; ExpectedBaseSnapshotId = current session
+                    { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = current session
                       DisplayName = name
                       Operations =
-                        [ { DisplayName = operation
+                        [ { MayWait = false; DisplayName = operation
                             Parameters = [ { DisplayName = parameter; Type = stringType } ]
                             ResultType = resultType
                             FailureType = None

@@ -13,7 +13,7 @@ module CSharpBackendTests =
     let private withLiteralProbe (fixture: MilestoneZeroFixture) =
         let nodeId = StableId.createForTesting<GraphNodeTag> "node-backend-literal-probe"
         let functionEntity: SemanticFunction =
-            { Exported = true; Id = literalProbeFunctionId
+            { MustNotWait = false; Exported = true; Id = literalProbeFunctionId
               TypeParameters = []
               DisplayName = "literal_probe"
               Parameters = []

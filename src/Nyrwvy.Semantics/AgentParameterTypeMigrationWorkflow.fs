@@ -578,6 +578,7 @@ module internal SignatureMigrationCore =
           DisplayName = functionEntity.DisplayName
           // A temporary copy of the migrated function; its visibility is kept by the migration.
           Exported = functionEntity.Exported
+          MustNotWait = functionEntity.MustNotWait
           // Derived from the migrated parameter types; matching maps the fresh identities back.
           TypeParameters = None
           Parameters = parameters

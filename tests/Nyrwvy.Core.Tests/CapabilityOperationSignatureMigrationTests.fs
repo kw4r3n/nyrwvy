@@ -21,14 +21,14 @@ module CapabilityOperationSignatureMigrationTests =
             session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = "Read" } |> unwrap |> commit
             let effect = session.Declarations().Effects.Head.Id
             session.SimulateCreateCapability
-                { Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = "Values"
-                  Operations = [ { DisplayName = "read"; Parameters = [ { DisplayName = "input"; Type = intType } ]; ResultType = intType; FailureType = None; EffectId = effect } ] }
+                { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = "Values"
+                  Operations = [ { MayWait = false; DisplayName = "read"; Parameters = [ { DisplayName = "input"; Type = intType } ]; ResultType = intType; FailureType = None; EffectId = effect } ] }
             |> unwrap |> commit
             let cap = session.Declarations().Capabilities.Head
             let op = cap.Operations.Head
             let create name parameters result effects body =
                 session.SimulateCreateFunction
-                    { Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = name; Parameters = parameters
+                    { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = name; Parameters = parameters
                       TypeParameters = None
                       ResultType = result; RequiredEffects = effects; Body = body }
                 |> unwrap |> commit
@@ -193,7 +193,7 @@ module CapabilityOperationSignatureMigrationTests =
     let ``unrelated signature edits cannot seed an operation repair set`` () =
         fixture (fun session path cap op ->
             let unrelated = session.SimulateCreateFunction
-                                { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap).SnapshotId
+                                { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap).SnapshotId
                                   TypeParameters = None
                                   DisplayName = "unrelated"; Parameters = []; ResultType = intType
                                   RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 0L } |> unwrap
@@ -216,7 +216,7 @@ module CapabilityOperationSignatureMigrationTests =
             File.WriteAllText(target, SnapshotCodec.serialize { graph with Functions = [] } |> unwrap)
             use session = AuthoringSession.openExisting target |> unwrap
             let proposal = session.SimulateCreateFunction
-                              { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap).SnapshotId
+                              { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap).SnapshotId
                                 TypeParameters = None
                                 DisplayName = "genericInvoke"
                                 Parameters = [ { DisplayName = "values"; Type = TypeRef.Capability cap.Id }

@@ -32,7 +32,7 @@ module RecordCodecTests =
         let snapshot =
             { Snapshot.empty (StableIdAllocator.newSnapshotId ()) with
                 Functions =
-                    [ { Exported = true; Id = StableIdAllocator.newFunctionId (); TypeParameters = []
+                    [ { MustNotWait = false; Exported = true; Id = StableIdAllocator.newFunctionId (); TypeParameters = []
                         DisplayName = "deep"; Parameters = []; RequiredEffects = []
                         ResultType = listOf itemType
                         Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.ListEmpty itemType } ]; ResultNodeId = node } } ] }

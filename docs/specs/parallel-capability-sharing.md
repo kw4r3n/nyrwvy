@@ -4,7 +4,9 @@
 
 This contract defines shared capability values in `ParallelAll`. It supplements
 [expression authoring](expression-authoring.md); it does not depend on C# task,
-lock, or memory-model details.
+lock, or memory-model details. A capability marked `taskBound` is stricter: its
+values never reach a worker or a started task at all
+([wait and task-bound attributes](../decisions/wait-and-task-bound-attributes.md)).
 
 ## Values, ordering, and visibility
 

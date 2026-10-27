@@ -4,6 +4,8 @@ Operating-system access for Nyrwvy programs without host code of their own: a wo
 
 All operations use the effect `System`. A failure the program can act on is a `Result` whose error is the OS's message.
 
+Operations that can wait for an external event for an unbounded time are marked `mayWait` ([wait and task-bound attributes](../../docs/decisions/wait-and-task-bound-attributes.md)): `Fs.readText`, `Fs.readBytes`, `Fs.writeBytes`, `Process.run`, `Pty.read` and `Ptys.close` (it waits for the child, up to the 2 s grace period and then until the killed child is reaped). A function declared `mustNotWait` cannot reach them. `Process.spawn`, `Env.get`, `Ptys.open`, `Pty.write`, `Pty.resize` and `Pty.foregroundCommand` are not marked, and no capability is task-bound.
+
 | Capability | Operation | Result |
 | --- | --- | --- |
 | `Fs` | `readText(path)` | `Result<String, String>`; decoded as UTF-8 (a UTF-8 byte order mark is dropped, invalid bytes read as U+FFFD) |

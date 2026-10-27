@@ -94,6 +94,10 @@ type ViewerFunctionSignature =
 type ViewerFocusModel =
     { SnapshotId: SnapshotId
       Function: ViewerFunctionSignature
+      /// Whether the function declares that it must not wait.
+      MustNotWait: bool
+      /// One path to what the function waits on, when it may wait.
+      WaitPath: string option
       BodyEffectRequirements: BodyEffectRequirements
       Aborts: QueryFunctionAbort list
       Graph: ViewerGraph
@@ -283,6 +287,8 @@ module ViewerProjection =
               Parameters = source.Function.Parameters
               ResultType = source.Function.ResultType
               RequiredEffects = source.Function.RequiredEffects }
+          MustNotWait = source.Function.MustNotWait
+          WaitPath = source.WaitPath
           Graph = projectGraph nodeTypes source.Function.Body
           BodyEffectRequirements = source.BodyEffectRequirements
           Aborts = source.Aborts

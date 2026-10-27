@@ -10,7 +10,7 @@ module EntrySelectionFastTests =
     let private id<'Tag> value = StableId.createForTesting<'Tag> value
     let private unitType = TypeRef.Primitive PrimitiveType.Unit
     let private fn name nodes: SemanticFunction =
-        { Exported = true; Id = id name; DisplayName = name; Parameters = []; ResultType = unitType; RequiredEffects = []
+        { MustNotWait = false; Exported = true; Id = id name; DisplayName = name; Parameters = []; ResultType = unitType; RequiredEffects = []
           TypeParameters = []
           Body = { Nodes = nodes; ResultNodeId = nodes.Head.Id } }
     let private node name kind: SemanticNode = { Id = id name; Kind = kind }

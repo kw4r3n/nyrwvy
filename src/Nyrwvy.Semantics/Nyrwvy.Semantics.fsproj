@@ -16,6 +16,7 @@
     <Compile Include="OneShotPayloadRequirements.fs" />
     <Compile Include="GraphOrder.fs" />
     <Compile Include="EffectRequirements.fs" />
+    <Compile Include="Waiting.fs" />
     <Compile Include="SemanticQuery.fs" />
     <Compile Include="DeclarationVisibility.fs" />
     <Compile Include="LooseJsonString.fs" />

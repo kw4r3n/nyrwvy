@@ -32,7 +32,7 @@ module ProductFieldEvolutionTests =
         let directParameter: SemanticParameter =
             { Id = stable<ParameterTag> "direct-parameter"; DisplayName = "input"; Type = stringType }
         let direct: SemanticFunction =
-            { Exported = true; Id = directId
+            { MustNotWait = false; Exported = true; Id = directId
               TypeParameters = []
               DisplayName = "direct"
               Parameters = [ directParameter ]
@@ -64,7 +64,7 @@ module ProductFieldEvolutionTests =
         let conditionId = stable<GraphNodeTag> "condition"
         let resultId = stable<GraphNodeTag> "result"
         let nested: SemanticFunction =
-            { Exported = true; Id = nestedId
+            { MustNotWait = false; Exported = true; Id = nestedId
               TypeParameters = []
               DisplayName = "nested"
               Parameters = [ nestedParameter ]
@@ -198,7 +198,7 @@ module ProductFieldEvolutionTests =
         let sourceId = stable<GraphNodeTag> "access-source"
         let accessId = stable<GraphNodeTag> "access"
         let accessor: SemanticFunction =
-            { Exported = true; Id = stable<FunctionTag> "accessor"
+            { MustNotWait = false; Exported = true; Id = stable<FunctionTag> "accessor"
               TypeParameters = []
               DisplayName = "accessor"
               Parameters = [ productInput ]

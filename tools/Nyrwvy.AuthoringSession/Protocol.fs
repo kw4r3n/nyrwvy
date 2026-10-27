@@ -906,7 +906,7 @@ module AuthoringProtocol =
     let private capabilityOperationIntent (item: JsonElement): AgentCapabilityOperationIntent =
         ensureFields
             "capability operation"
-            [ "displayName"; "parameters"; "resultType"; "failureType"; "effectId" ]
+            [ "displayName"; "parameters"; "resultType"; "failureType"; "effectId"; "mayWait" ]
             [ "displayName"; "parameters"; "resultType"; "effectId" ]
             item
         let failureType = retiredFailureType item
@@ -914,7 +914,8 @@ module AuthoringProtocol =
           Parameters = array "parameters" item |> List.map capabilityParameterIntent
           ResultType = typeRef (property "resultType" item)
           FailureType = failureType
-          EffectId = id<EffectTag> "effectId" item }
+          EffectId = id<EffectTag> "effectId" item
+          MayWait = optionalBool "mayWait" false item }
 
     let private parameterTypeCallerRewrite (item: JsonElement): AgentParameterTypeCallerRewrite =
         ensureFields
@@ -991,6 +992,7 @@ module AuthoringProtocol =
         { ExpectedBaseSnapshotId = expected
           DisplayName = displayName
           Exported = optionalBool "exported" false item
+          MustNotWait = optionalBool "mustNotWait" false item
           TypeParameters = WireInput.functionTypeParameters item
           Parameters = parameters
           ResultType = WireSymbolic.typeRef declarations (property "resultType" item)
@@ -1004,7 +1006,7 @@ module AuthoringProtocol =
             [ "id"; "op"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ],
             [ "id"; "op"; "operations" ]
         | "simulateCreateFunctionByName" ->
-            [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile"; "structuredReview"; "detail"; "expectedSnapshotId" ],
+            [ "id"; "op"; "displayName"; "exported"; "mustNotWait"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile"; "structuredReview"; "detail"; "expectedSnapshotId" ],
             [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects" ]
         | "simulateCreateFunctionsByName" ->
             [ "id"; "op"; "functions"; "functionsFile"; "structuredReview"; "detail"; "expectedSnapshotId" ],
@@ -1050,7 +1052,7 @@ module AuthoringProtocol =
                         try
                             ensureFields
                                 "function in functions"
-                                [ "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile" ]
+                                [ "displayName"; "exported"; "mustNotWait"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "bodyFile" ]
                                 [ "displayName"; "parameters"; "resultType"; "requiredEffects" ]
                                 item
                             Ok(functionCreationByName session { declarations with Functions = declarations.Functions @ created } expected item)
@@ -1613,7 +1615,7 @@ module AuthoringProtocol =
             | "simulateCreateFunction" ->
                 ensureFields
                     "simulateCreateFunction request"
-                    [ "id"; "op"; "displayName"; "exported"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "exported"; "mustNotWait"; "typeParameters"; "parameters"; "resultType"; "requiredEffects"; "body"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "parameters"; "resultType"; "requiredEffects"; "body" ]
                     root
                 let parameters =
@@ -1638,6 +1640,7 @@ module AuthoringProtocol =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = requiredString "displayName" root
                       Exported = optionalBool "exported" false root
+                      MustNotWait = optionalBool "mustNotWait" false root
                       TypeParameters = WireInput.functionTypeParameters root
                       Parameters = parameters
                       ResultType = typeRef (property "resultType" root)
@@ -1843,19 +1846,20 @@ module AuthoringProtocol =
             | "simulateCreateCapability" ->
                 ensureFields
                     "simulateCreateCapability request"
-                    [ "id"; "op"; "displayName"; "exported"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "exported"; "taskBound"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "operations" ]
                     root
                 let request: AgentCreateCapabilityDeclarationRequest =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = requiredString "displayName" root
                       Exported = optionalBool "exported" false root
+                      TaskBound = optionalBool "taskBound" false root
                       Operations = array "operations" root |> List.map capabilityOperationIntent }
                 proposalResponse (session.SimulateCreateCapability request)
             | "simulateCreateCapabilityByName" ->
                 ensureFields
                     "simulateCreateCapabilityByName request"
-                    [ "id"; "op"; "displayName"; "exported"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
+                    [ "id"; "op"; "displayName"; "exported"; "taskBound"; "operations"; "structuredReview"; "detail"; "expectedSnapshotId" ]
                     [ "id"; "op"; "displayName"; "operations" ]
                     root
                 let declarations = session.Declarations()
@@ -1866,6 +1870,7 @@ module AuthoringProtocol =
                     { ExpectedBaseSnapshotId = expectedSnapshotId ()
                       DisplayName = displayName
                       Exported = optionalBool "exported" false root
+                      TaskBound = optionalBool "taskBound" false root
                       Operations = array "operations" root |> List.map (WireSymbolic.capabilityOperationIntent declarations) }
                 proposalResponse (session.SimulateCreateCapability request)
             | "simulateReplaceBody" ->

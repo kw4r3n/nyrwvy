@@ -18,7 +18,7 @@ module ProductUpdateTests =
     let private current (session: AuthoringSession) = (session.Status() |> unwrap).SnapshotId
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
+        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
@@ -140,7 +140,7 @@ module ProductUpdateTests =
                 { Id = nodeId "update"
                   Kind = SemanticNodeKind.ProductUpdate(stateId, sourceNode.Id, List.map2 (fun (fieldId, _) (value: SemanticNode) -> { TargetFieldId = fieldId; ValueNodeId = value.Id }) bindings values) }
             let fn: SemanticFunction =
-                { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-update-entry"; DisplayName = "entry"
+                { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-update-entry"; DisplayName = "entry"
                   TypeParameters = []
                   Parameters = [ { Id = parameterId; DisplayName = "st"; Type = TypeRef.Named(stateId, []) } ]
                   ResultType = TypeRef.Named(stateId, []); RequiredEffects = []

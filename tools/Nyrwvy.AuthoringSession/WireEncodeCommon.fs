@@ -86,6 +86,7 @@ module internal WireEncodeCommon =
         [ "id", box (StableId.value value.Id)
           "displayName", box value.DisplayName
           "exported", box value.Exported ]
+        @ (if value.MustNotWait then [ "mustNotWait", box true ] else [])
         @ typeParameters value.TypeParameters
         @ [ "parameters", value.Parameters |> List.map (parameter names) |> arrayValue
             "resultType", typeRefIn names value.ResultType
@@ -163,18 +164,20 @@ module internal WireEncodeCommon =
                       "displayName", box parameter.DisplayName
                       "type", typeRef parameter.Type ])
         objectValue
-            [ "id", box (StableId.value operation.Id)
-              "displayName", box operation.DisplayName
-              "parameters", arrayValue parameters
-              "resultType", typeRef operation.ResultType
-              "failureType", optional operation.FailureType typeRef
-              "effectId", box (StableId.value operation.EffectId) ]
+            ([ "id", box (StableId.value operation.Id)
+               "displayName", box operation.DisplayName
+               "parameters", arrayValue parameters
+               "resultType", typeRef operation.ResultType
+               "failureType", optional operation.FailureType typeRef
+               "effectId", box (StableId.value operation.EffectId) ]
+             @ (if operation.MayWait then [ "mayWait", box true ] else []))
 
     let capabilityEntity (value: SemanticCapability) =
         objectValue
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName
               "exported", box value.Exported
+              if value.TaskBound then "taskBound", box true
               "operations", (Snapshot.canonicalCapabilityMembers value).Operations |> List.map capabilityOperation |> arrayValue ]
 
     let declarations (value: AuthoringDeclarations) =
@@ -379,6 +382,11 @@ module internal WireEncodeCommon =
         [ yield "snapshotId", box (StableId.value value.SnapshotId)
           yield "function", encodeFunction value.Function
           yield "bodyEffectRequirements", bodyEffectRequirements value.BodyEffectRequirements
+          match value.WaitPath with
+          | Some path ->
+              yield "mayWait", box true
+              yield "waitPath", box path
+          | None -> ()
           yield "aborts", aborts value.Aborts
           if includeNodeTypes then
               yield "nodeTypes",

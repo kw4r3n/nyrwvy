@@ -48,7 +48,7 @@ module AuthoringSessionTests =
         resultType
         body
         : AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId
+        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId
           TypeParameters = None
           DisplayName = displayName
           Parameters = parameters

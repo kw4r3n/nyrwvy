@@ -56,7 +56,7 @@ module AgentParameterTypeMigrationTests =
         let classifyResult = nodeId "classify-result"
 
         let classify: SemanticFunction =
-            { Exported = true; Id = functionId "classify"
+            { MustNotWait = false; Exported = true; Id = functionId "classify"
               TypeParameters = []
               DisplayName = "classify"
               Parameters = [ classifyInput ]
@@ -85,7 +85,7 @@ module AgentParameterTypeMigrationTests =
         let processCall = nodeId "process-call"
 
         let processFunction: SemanticFunction =
-            { Exported = true; Id = functionId "process"
+            { MustNotWait = false; Exported = true; Id = functionId "process"
               TypeParameters = []
               DisplayName = "process"
               Parameters = [ processInput ]
@@ -106,7 +106,7 @@ module AgentParameterTypeMigrationTests =
 
         let unrelatedResult = nodeId "unrelated-result"
         let unrelated: SemanticFunction =
-            { Exported = true; Id = functionId "unrelated"
+            { MustNotWait = false; Exported = true; Id = functionId "unrelated"
               TypeParameters = []
               DisplayName = "unrelated"
               Parameters = []

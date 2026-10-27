@@ -60,7 +60,7 @@ module PureRunInnerNestingTests =
             @ levels
         let create ws name parameters resultType body =
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+                { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
                   TypeParameters = None
                   DisplayName = name
                   Parameters = parameters |> List.map (fun itemType -> { DisplayName = "input"; Type = itemType })

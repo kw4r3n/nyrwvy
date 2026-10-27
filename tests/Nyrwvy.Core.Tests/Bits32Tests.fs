@@ -27,7 +27,7 @@ module Bits32Tests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
+        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = []; Body = body }
@@ -124,7 +124,7 @@ module Bits32Tests =
         let validate (nodes: SemanticNodeKind list) resultType =
             let body = nodes |> List.mapi (fun index kind -> ({ Id = nodeId (string index); Kind = kind }: SemanticNode))
             let fn: SemanticFunction =
-                { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-bits-entry"; DisplayName = "entry"; Parameters = []
+                { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-bits-entry"; DisplayName = "entry"; Parameters = []
                   TypeParameters = []
                   ResultType = resultType; RequiredEffects = []
                   Body = { Nodes = body; ResultNodeId = (List.last body).Id } }

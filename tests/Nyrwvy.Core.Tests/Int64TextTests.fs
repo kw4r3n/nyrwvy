@@ -23,7 +23,7 @@ module Int64TextTests =
         let snapshot = Snapshot.empty (id<SnapshotTag> "base")
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameterType resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               TypeParameters = None
               DisplayName = "convert"
               Parameters = [ { DisplayName = "input"; Type = parameterType } ]
@@ -81,7 +81,7 @@ module Int64TextTests =
             let listRecipe name source = ExpressionRecipe.ListMap(source, functionId name, [])
             let createMap name parameterType resultType mapper =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = None
                       DisplayName = name
                       Parameters = [ { DisplayName = "items"; Type = parameterType } ]

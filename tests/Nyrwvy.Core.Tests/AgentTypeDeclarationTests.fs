@@ -52,7 +52,7 @@ module AgentTypeDeclarationTests =
 
     let private untouchedFunction () =
         let resultId = nodeId "untouched-result"
-        { Exported = true; Id = functionId "untouched"
+        { MustNotWait = false; Exported = true; Id = functionId "untouched"
           TypeParameters = []
           DisplayName = "untouched"
           Parameters = []
@@ -126,7 +126,7 @@ module AgentTypeDeclarationTests =
         | Error error -> failwithf "Unrelated function disappeared: %A" error
 
         let makeProductRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws2
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws2
               TypeParameters = None
               DisplayName = "make_record"
               Parameters = []
@@ -146,7 +146,7 @@ module AgentTypeDeclarationTests =
         let ws3, makeProductId = createFunction ws2 makeProductRequest
 
         let accessProductRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws3
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws3
               TypeParameters = None
               DisplayName = "record_name"
               Parameters =
@@ -162,7 +162,7 @@ module AgentTypeDeclarationTests =
         let ws4, accessProductId = createFunction ws3 accessProductRequest
 
         let makeUnionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws4
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws4
               TypeParameters = None
               DisplayName = "make_number"
               Parameters = []
@@ -176,7 +176,7 @@ module AgentTypeDeclarationTests =
         let ws5, makeUnionId = createFunction ws4 makeUnionRequest
 
         let matchUnionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws5
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws5
               TypeParameters = None
               DisplayName = "choice_value"
               Parameters =

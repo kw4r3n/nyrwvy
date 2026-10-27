@@ -27,7 +27,7 @@ module FunctionAbortTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
+        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = effects; Body = body }
@@ -53,10 +53,10 @@ module FunctionAbortTests =
         session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO" } |> unwrap |> publish session
         let effect = session.Declarations().Effects |> List.exactlyOne
         let operation name t: AgentCapabilityOperationIntent =
-            { DisplayName = name; Parameters = [ { DisplayName = "value"; Type = textType } ]
+            { MayWait = false; DisplayName = name; Parameters = [ { DisplayName = "value"; Type = textType } ]
               ResultType = t; FailureType = None; EffectId = effect.Id }
         session.SimulateCreateCapability
-            { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO"
+            { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO"
               Operations = [ operation "mark" textType; operation "open" (result textType); operation "release" (result unitType) ] }
         |> unwrap |> publish session
         let cap = session.Declarations().Capabilities |> List.exactlyOne
@@ -292,8 +292,8 @@ module FunctionAbortTests =
             // An abort in a program-defined release helper becomes its own typed Err. It
             // cannot consume the body's Err or bypass the enclosing scope's release.
             session.SimulateCreateCapability
-                { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "PureRelease"
-                  Operations = [ { DisplayName = "release"; Parameters = [ { DisplayName = "handle"; Type = textType } ]; ResultType = result unitType; FailureType = None; EffectId = effect.Id } ] }
+                { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "PureRelease"
+                  Operations = [ { MayWait = false; DisplayName = "release"; Parameters = [ { DisplayName = "handle"; Type = textType } ]; ResultType = result unitType; FailureType = None; EffectId = effect.Id } ] }
             |> unwrap |> publish session
             let pureCap = session.Declarations().Capabilities |> List.find (fun item -> item.DisplayName = "PureRelease")
             let helper =

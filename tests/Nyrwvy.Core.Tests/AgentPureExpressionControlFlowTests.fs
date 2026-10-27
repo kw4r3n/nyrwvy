@@ -58,7 +58,7 @@ module AgentPureExpressionControlFlowTests =
         let targetId = functionId "target"
         let resultNodeId = nodeId "old-result"
         let target: SemanticFunction =
-            { Exported = true; Id = targetId
+            { MustNotWait = false; Exported = true; Id = targetId
               TypeParameters = []
               DisplayName = "target"
               Parameters = [ optionParameter; unionParameter ]

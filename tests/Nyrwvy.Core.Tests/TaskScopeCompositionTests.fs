@@ -28,10 +28,10 @@ module TaskScopeCompositionTests =
         { Snapshot.empty (id<SnapshotTag> "initial") with
             Effects = [ { Exported = true; Id = effectId; DisplayName = "Work" } ]
             Capabilities =
-                [ { Exported = true; Id = agentId
+                [ { TaskBound = false; Exported = true; Id = agentId
                     DisplayName = "Agent"
                     Operations =
-                      [ { Id = workId
+                      [ { MayWait = false; Id = workId
                           DisplayName = "work"
                           Parameters = [ { Id = workNameId; DisplayName = "name"; Type = stringType } ]
                           ResultType = outcomeType
@@ -54,7 +54,7 @@ module TaskScopeCompositionTests =
             let find name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
             let create name parameters resultType effects body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = None
                       DisplayName = name
                       Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })
@@ -149,7 +149,7 @@ module TaskScopeCompositionTests =
         let parameterId = id<ParameterTag> "task"
         let node name kind: SemanticNode = { Id = id<GraphNodeTag> name; Kind = kind }
         let fn: SemanticFunction =
-            { Exported = true; Id = id<FunctionTag> "abort-with-cancel"
+            { MustNotWait = false; Exported = true; Id = id<FunctionTag> "abort-with-cancel"
               TypeParameters = []
               DisplayName = "abortWithCancel"
               Parameters = [ { Id = parameterId; DisplayName = "task"; Type = taskType } ]

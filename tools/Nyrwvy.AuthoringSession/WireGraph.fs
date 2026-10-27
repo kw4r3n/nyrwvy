@@ -350,6 +350,7 @@ module internal WireGraph =
             ([ "id", identity value.Id
                "displayName", box value.DisplayName
                "exported", box value.Exported ]
+             @ (if value.MustNotWait then [ "mustNotWait", box true ] else [])
              @ (if List.isEmpty value.TypeParameters then []
                 else
                     [ "typeParameters",

@@ -72,6 +72,12 @@ module internal WireEncode =
               |> List.map (fun item ->
                   objectValue [ "kind", box item.Kind; "id", box item.Id; "displayName", box item.DisplayName; "exported", box item.Exported ])
               |> arrayValue ])
+        @ (if List.isEmpty value.AttributeChanges then [] else
+            [ "attributeChanges",
+              value.AttributeChanges
+              |> List.map (fun item ->
+                  objectValue [ "attribute", box item.Attribute; "id", box item.Id; "displayName", box item.DisplayName; "value", box item.Value ])
+              |> arrayValue ])
         @ (if List.isEmpty value.ParametersRemoved then [] else
             [ "parametersRemoved",
               value.ParametersRemoved

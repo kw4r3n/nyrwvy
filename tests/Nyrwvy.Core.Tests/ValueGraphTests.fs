@@ -51,7 +51,7 @@ module ValueGraphTests =
               Kind = SemanticNodeKind.FieldAccess(constructNodeId, fieldId) }
 
         let functionEntity: SemanticFunction =
-            { Exported = true; Id = functionId
+            { MustNotWait = false; Exported = true; Id = functionId
               TypeParameters = []
               DisplayName = "round_trip_name"
               Parameters = [ parameter ]
@@ -134,7 +134,7 @@ module ValueGraphTests =
               Kind = SemanticNodeKind.MatchUnion(parameterNodeId, arms) }
 
         let functionEntity: SemanticFunction =
-            { Exported = true; Id = functionId
+            { MustNotWait = false; Exported = true; Id = functionId
               TypeParameters = []
               DisplayName = "render_error"
               Parameters = [ parameter ]
@@ -263,7 +263,7 @@ module ValueGraphTests =
               Kind = SemanticNodeKind.PatternReference bindingId }
 
         let functionEntity: SemanticFunction =
-            { Exported = true; Id = functionId
+            { MustNotWait = false; Exported = true; Id = functionId
               TypeParameters = []
               DisplayName = "option_scope"
               Parameters =

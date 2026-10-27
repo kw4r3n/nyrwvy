@@ -515,13 +515,15 @@ module ViewerHtml =
         let typeRefText = typeRefTextIn Map.empty
         writer.Line(
             "<details><summary>" + html capability.DisplayName + " — "
-            + code (StableIdText.capabilityId capability.Id) + " — " + visibility capability.Exported + "</summary><ul>")
+            + code (StableIdText.capabilityId capability.Id) + " — " + visibility capability.Exported
+            + (if capability.TaskBound then " — task-bound" else "") + "</summary><ul>")
         for operation in capability.Operations |> List.sortBy (fun item -> StableId.value item.Id) do
             writer.Line(
                 "<li>" + html operation.DisplayName + " — "
                 + code (StableIdText.capabilityOperationId operation.Id)
                 + "; result " + code (typeRefText operation.ResultType)
-                + "; effect " + code (StableIdText.effectId operation.EffectId) + "</li>")
+                + "; effect " + code (StableIdText.effectId operation.EffectId)
+                + (if operation.MayWait then "; may wait" else "") + "</li>")
         writer.Line("</ul></details>")
 
     let private emitEffects (writer: HtmlWriter) (effects: SemanticEffect list) =
@@ -598,6 +600,9 @@ module ViewerHtml =
         writer.Line("<p>Snapshot: " + code (StableIdText.snapshotId model.SnapshotId) + "</p>")
         writer.Line("<p>Function: " + code (StableIdText.functionId model.Function.FunctionId) + "</p>")
         writer.Line("<p>Visibility: " + visibility model.Function.Exported + "</p>")
+        // Shown only when present, so other pages keep their exact earlier form.
+        if model.MustNotWait then writer.Line("<p>Must not wait</p>")
+        model.WaitPath |> Option.iter (fun path -> writer.Line("<p>May wait: " + html path + "</p>"))
         writer.Line("<p>Result type: " + code (typeRefText model.Function.ResultType) + "</p>")
         writer.Line("</header>")
         writer.Line("<section><h2>Signature</h2>")
@@ -678,6 +683,11 @@ module ViewerHtml =
                 writer.Line(
                     "<li>" + html item.Kind + " " + code item.Id + " " + html item.DisplayName
                     + ": now " + visibility item.Exported + "</li>")
+            writer.Line("</ul>")
+        if not (List.isEmpty diff.AttributeChanges) then
+            writer.Line("<h3>Wait and task-binding changes</h3><ul>")
+            for item in diff.AttributeChanges do
+                writer.Line("<li>" + html item.Attribute + " " + code item.Id + " " + html item.DisplayName + ": now " + (if item.Value then "true" else "false") + "</li>")
             writer.Line("</ul>")
         if not (List.isEmpty diff.ParametersRemoved) then
             writer.Line("<h3>Parameters removed</h3><ul>")

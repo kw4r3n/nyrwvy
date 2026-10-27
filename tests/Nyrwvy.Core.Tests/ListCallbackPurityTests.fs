@@ -23,7 +23,7 @@ module ListCallbackPurityTests =
             { Id = StableId.createForTesting<ParameterTag> ("parameter-purity-" + owner + "-" + string index); DisplayName = "p" + string index; Type = t }
         let callback name parameterTypes (body: SemanticFunction -> SemanticNode list * GraphNodeId) =
             let shell: SemanticFunction =
-                { Exported = true; Id = id name; DisplayName = name
+                { MustNotWait = false; Exported = true; Id = id name; DisplayName = name
                   TypeParameters = []
                   Parameters = parameterTypes |> List.mapi (fun index t -> parameter name index t)
                   ResultType = boolType; RequiredEffects = []
@@ -54,7 +54,7 @@ module ListCallbackPurityTests =
             let seed = nodeId "seed"
             let result = nodeId "result"
             let entry: SemanticFunction =
-                { Exported = true; Id = id "entry"; DisplayName = "entry"; Parameters = []; ResultType = resultType; RequiredEffects = []
+                { MustNotWait = false; Exported = true; Id = id "entry"; DisplayName = "entry"; Parameters = []; ResultType = resultType; RequiredEffects = []
                   TypeParameters = []
                   Body =
                     { Nodes =
@@ -86,7 +86,7 @@ module ListCallbackPurityTests =
             use session = AuthoringSession.createNew (Path.Combine(root, "workspace.json")) |> unwrap
             let slot = ExpressionRecipe.ParameterSlot
             let request name parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap).SnapshotId; DisplayName = name
+                { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap).SnapshotId; DisplayName = name
                   TypeParameters = None
                   Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
                   ResultType = resultType; RequiredEffects = []; Body = body }

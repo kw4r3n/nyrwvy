@@ -57,7 +57,7 @@ module AgentTargetedExpressionReplacementTests =
         let secondConstId = nodeId "second-const"
         let secondConsumerId = nodeId "second-consumer"
         let target: SemanticFunction =
-            { Exported = true; Id = functionId
+            { MustNotWait = false; Exported = true; Id = functionId
               TypeParameters = []
               DisplayName = "shared"
               Parameters = []
@@ -176,7 +176,7 @@ module AgentTargetedExpressionReplacementTests =
                     Kind = SemanticNodeKind.StringIsEmpty oldReferenceId } ]
               ResultNodeId = targetId }
         let target: SemanticFunction =
-            { Exported = true; Id = functionId
+            { MustNotWait = false; Exported = true; Id = functionId
               TypeParameters = []
               DisplayName = "nested"
               Parameters = []
@@ -262,7 +262,7 @@ module AgentTargetedExpressionReplacementTests =
         let calleeParameterId = parameterId "obligation-callee-value"
         let calleeResultId = nodeId "obligation-callee-result"
         let callee: SemanticFunction =
-            { Exported = true; Id = calleeId
+            { MustNotWait = false; Exported = true; Id = calleeId
               TypeParameters = []
               DisplayName = "callee"
               Parameters =
@@ -294,7 +294,7 @@ module AgentTargetedExpressionReplacementTests =
             @ [ { Id = callId
                   Kind = SemanticNodeKind.DirectCall(calleeId, arguments) } ]
         let target: SemanticFunction =
-            { Exported = true; Id = targetId
+            { MustNotWait = false; Exported = true; Id = targetId
               TypeParameters = []
               DisplayName = "target"
               Parameters = []
@@ -376,7 +376,7 @@ module AgentTargetedExpressionReplacementTests =
         let unusedId = nodeId "abort-unused"
         let okId = nodeId "abort-ok"
         let target: SemanticFunction =
-            { Exported = true; Id = functionId
+            { MustNotWait = false; Exported = true; Id = functionId
               TypeParameters = []
               DisplayName = "abortPosition"
               Parameters = []

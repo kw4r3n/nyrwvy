@@ -70,10 +70,10 @@ module TailSelfCallTests =
             session.SimulateCreateEffect effectRequest |> unwrap "effect" |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
             let logRequest: AgentCreateCapabilityDeclarationRequest =
-                { Exported = true; ExpectedBaseSnapshotId = current session
+                { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = current session
                   DisplayName = "Log"
                   Operations =
-                    [ { DisplayName = "write"
+                    [ { MayWait = false; DisplayName = "write"
                         Parameters = [ { DisplayName = "message"; Type = stringType } ]
                         ResultType = unitType
                         FailureType = None
@@ -84,7 +84,7 @@ module TailSelfCallTests =
             let find name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
             let createWith effects name parameters result body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { Exported = true; ExpectedBaseSnapshotId = current session
+                    { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current session
                       TypeParameters = None
                       DisplayName = name
                       Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })

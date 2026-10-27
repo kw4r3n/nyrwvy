@@ -10,7 +10,7 @@ module SemanticFactsTests =
     let private nodeId index = StableId.createForTesting<GraphNodeTag> $"node-facts-{index}"
 
     let private functionWith resultType nodes: SemanticFunction =
-        { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-facts"
+        { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-facts"
           TypeParameters = []
           DisplayName = "facts"
           Parameters = []
@@ -136,10 +136,10 @@ module SemanticFactsTests =
                         DisplayName = "Union"
                         Kind = SemanticTypeKind.Union [ { Id = variantId; DisplayName = "Case"; Fields = [] } ] } ]
                 Capabilities =
-                    [ { Exported = true; Id = StableId.createForTesting<CapabilityTag> "capability-facts"
+                    [ { TaskBound = false; Exported = true; Id = StableId.createForTesting<CapabilityTag> "capability-facts"
                         DisplayName = "Capability"
                         Operations =
-                            [ { Id = operationId
+                            [ { MayWait = false; Id = operationId
                                 DisplayName = "operation"
                                 Parameters = []
                                 ResultType = resultType

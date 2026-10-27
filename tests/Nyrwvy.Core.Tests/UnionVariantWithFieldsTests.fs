@@ -30,7 +30,7 @@ module UnionVariantWithFieldsTests =
                   { Id = emptyId; DisplayName = "Empty"; Fields = [] } ] }
         let ws = AgentWorkspace.create { Snapshot.empty (id<SnapshotTag> "base") with Types = [ shape ] } |> unwrap "workspace"
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
               TypeParameters = None
               DisplayName = displayName
               Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
@@ -189,7 +189,7 @@ module UnionVariantWithFieldsTests =
         let ws = AgentWorkspace.create { Snapshot.empty (id<SnapshotTag> "generic") with Types = [ u ] } |> unwrap "workspace"
         // g(u: U<Int64>): Int64 = match u with A -> 0 | B(v) -> v
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
               TypeParameters = None
               DisplayName = "g"
               Parameters = [ { DisplayName = "u"; Type = TypeRef.Named(boxId, [ intType ]) } ]

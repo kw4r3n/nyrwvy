@@ -41,10 +41,10 @@ module SnapshotSchemaTests =
                             { Id = squareId; DisplayName = "Square"; Fields = [] } ] } ]
             Effects = [ { Exported = true; Id = readEffectId; DisplayName = "Read" } ]
             Capabilities =
-                [ { Exported = true; Id = valuesId
+                [ { TaskBound = false; Exported = true; Id = valuesId
                     DisplayName = "Values"
                     Operations =
-                      [ { Id = readOperationId
+                      [ { MayWait = false; Id = readOperationId
                           DisplayName = "read"
                           Parameters = []
                           ResultType = int64Type
@@ -65,7 +65,7 @@ module SnapshotSchemaTests =
             use session = AuthoringSession.openExisting path |> unwrap "open"
             let createDeclared (typeParameters: string list option) name parameters resultType effects body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { Exported = true
+                    { MustNotWait = false; Exported = true
                       ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = typeParameters |> Option.map (List.map (fun (name: string) -> StableId.createForTesting<TypeParameterTag> name, name))
                       DisplayName = name
@@ -207,7 +207,9 @@ module SnapshotSchemaTests =
             Set.ofList
                 [ string SnapshotSchemaFeature.GenericTypes
                   string SnapshotSchemaFeature.DeclarationVisibility
-                  string SnapshotSchemaFeature.DeclaredFunctionTypeParameters ]
+                  string SnapshotSchemaFeature.DeclaredFunctionTypeParameters
+                  // `create` never sets a marker; WaitAttributesTests checks it.
+                  string SnapshotSchemaFeature.WaitAttributes ]
         Assert.Equal<Set<string>>(features - testedElsewhere, cases |> List.map (fun (_, feature, _) -> string feature) |> Set.ofList)
         for _, minimum, _ in SnapshotSchema.minimumVersions do
             Assert.Contains(minimum, SnapshotSchema.supported)

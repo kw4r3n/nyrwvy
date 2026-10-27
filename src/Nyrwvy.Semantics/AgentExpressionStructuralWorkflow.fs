@@ -692,6 +692,8 @@ module AgentExpressionStructuralWorkflow =
               DisplayName: string
               /// Whether snapshots that depend on this one may use the function; private when false.
               Exported: bool
+              /// Wire `"mustNotWait": true`; omitted means false.
+              MustNotWait: bool
               /// The function's type parameters in declared order, with request-local identities
               /// (wire: `"typeParameters": ["T"]`, each `{ "kind": "typeParameter", "name": "T" }` in a
               /// type naming one). `None` derives the list from the parameter types in
@@ -960,6 +962,7 @@ module AgentExpressionStructuralWorkflow =
                 { Id = functionId
                   DisplayName = request.DisplayName
                   Exported = request.Exported
+                  MustNotWait = request.MustNotWait
                   TypeParameters = preflight.TypeParameters
                   Parameters = parameters
                   ResultType = request.ResultType
