@@ -158,7 +158,8 @@ type PureRunBackend =
 
 /// The backends a workspace targets, in preference order, from the hand-edited sidecar
 /// `<snapshot>.backends.json` (`{"targets": ["csharp", "zig"]}`). It is not semantic, so it never
-/// enters the snapshot or its fingerprint. A workspace without the sidecar targets C# only.
+/// enters the snapshot or its fingerprint. There is no default: creating a workspace writes
+/// `["csharp"]`, and a workspace without the sidecar must name the backend on each run.
 [<RequireQualifiedAccess>]
 module PureRunBackends =
     let parse (name: string) =
@@ -169,7 +170,8 @@ module PureRunBackends =
 
     let declared (snapshotPath: string) : Result<PureRunBackend list, string> =
         let path = snapshotPath + ".backends.json"
-        if not (File.Exists path) then Ok [ PureRunBackend.CSharp ]
+        if not (File.Exists path) then
+            Error $"The workspace declares no target backend. Create {path} with {{\"targets\": [\"csharp\"]}} (or list \"zig\"), or name the backend on the request."
         else
             try
                 use document = JsonDocument.Parse(File.ReadAllText path)

@@ -75,7 +75,8 @@ node examples/run-fixtures/client.mjs --backends csharp,zig /path/to/workspace.j
 ```
 
 Without `--backends`, the workspace's declared targets (`<snapshot>.backends.json`) are used; with
-one target or none the client runs as above. A fixture must not carry `backend` itself. Backends
+one target the client runs as above, and a workspace without the sidecar fails each run until it
+declares one (or `--backends` names the backends). A fixture must not carry `backend` itself. Backends
 must agree on `actual` and `calls`, or on a failure's `code`, `message`, `failureKind`,
 `exceptionType` and `calls`; `frames` are backend-specific and not compared. Each fixture reports
 `PASSED`/`FAILED` on the agreeing backends, `DISAGREE`, or `UNSUPPORTED` when no backend supports

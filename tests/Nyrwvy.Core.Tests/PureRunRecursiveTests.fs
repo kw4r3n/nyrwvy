@@ -61,6 +61,8 @@ module PureRunRecursiveTests =
         let path = Path.Combine(root, "workspace.json")
         try
             File.WriteAllText(path, AgentWorkspace.serializeCurrentSnapshot ws |> unwrap)
+            // A snapshot written directly declares its backend as `create` would.
+            File.WriteAllText(path + ".backends.json", """{"targets": ["csharp"]}""")
             use session = AuthoringSession.openExisting path |> unwrap
             let functionId name = (session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)).Id
             run session path functionId

@@ -2045,7 +2045,7 @@ module AuthoringProtocol =
                     | None ->
                         match PureRunBackends.declared session.Path with
                         | Ok(first :: _) -> first
-                        | Ok [] -> PureRunBackend.CSharp
+                        | Ok [] -> fail "The workspace declares no target backend."
                         | Error message -> fail message
                 match PureRun.runWithHostOn backend session functionId arguments expected hostSources with
                 | Ok result ->

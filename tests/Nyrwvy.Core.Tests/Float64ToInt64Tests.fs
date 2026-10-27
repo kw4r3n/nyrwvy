@@ -83,6 +83,8 @@ module Float64ToInt64Tests =
         let path = Path.Combine(root, "workspace.json")
         try
             File.WriteAllText(path, SnapshotCodec.serialize (Snapshot.empty (id<SnapshotTag> "session")) |> unwrap "serialize")
+            // A snapshot written directly declares its backend as `create` would.
+            File.WriteAllText(path + ".backends.json", """{"targets": ["csharp"]}""")
             let session = AuthoringSession.openExisting path |> unwrap "open"
             let call (line: string) =
                 use response = AuthoringProtocol.executeLine session line |> JsonDocument.Parse

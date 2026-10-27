@@ -77,6 +77,8 @@ test('generic task observers preserve TaskWait semantics, replay and unedited C#
     // Replay from a moved directory retains IDs, source and symbols, and never edits the snapshot.
     const replay = join(root, 'replayed.json')
     await copyFile(snapshot, replay)
+    // The workspace's backend declaration moves with it.
+    await copyFile(snapshot + '.backends.json', replay + '.backends.json')
     await openAuthoring('open', replay, context)
     assert.deepEqual(await emit(), artifact)
     await virtual()

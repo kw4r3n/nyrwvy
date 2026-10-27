@@ -7,8 +7,9 @@ open Nyrwvy.Core
 open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
-/// A workspace declares its target backends in `<snapshot>.backends.json`; runPure without
-/// `backend` runs on the first, an explicit `backend` wins, and no sidecar means C# only. The entry
+/// A workspace declares its target backends in `<snapshot>.backends.json` (a new workspace gets
+/// `["csharp"]`); runPure without `backend` runs on the first, an explicit `backend` wins, and an
+/// undeclared workspace needs an explicit backend. The entry
 /// uses Bits32, which the Zig backend does not support, so choosing Zig shows without a Zig build.
 module BackendTargetsTests =
     let private unwrap = function Ok x -> x | Error e -> failwithf "%A" e
@@ -41,7 +42,11 @@ module BackendTargetsTests =
     let ``runPure resolves its backend from the workspace's declared targets`` () =
         withWorkspace (fun session path ->
             let declare (text: string) = File.WriteAllText(path + ".backends.json", text)
+            Assert.Equal("""{"targets": ["csharp"]}""", File.ReadAllText(path + ".backends.json").Trim())
             Assert.Equal("ok", code (run session None))
+            File.Delete(path + ".backends.json")
+            Assert.Equal("ProtocolError", code (run session None))
+            Assert.Equal("ok", code (run session (Some "csharp")))
             declare """{"targets":["zig","csharp"]}"""
             Assert.Equal("RunBackendUnsupported", code (run session None))
             Assert.Equal("ok", code (run session (Some "csharp")))
