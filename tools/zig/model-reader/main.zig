@@ -3782,7 +3782,7 @@ fn dependsOn(edges: *const Edges, start: Str, goal: Str) bool {
 
 /// `GraphOrder.tryUnorderedEffects`: the first unordered observable pair of the graph's own nodes,
 /// else of its nested graphs in order.
-fn unorderedEffects(nodes: []const Value, observable: *const Set) ?[2]Str {
+fn unorderedEffects(nodes: []const Value, observable: *const Set, by_id: bool) ?[2]Str {
     var edges: Edges = .empty;
     var effectful: List(Str) = .empty;
     for (nodes) |node| {
@@ -3799,7 +3799,13 @@ fn unorderedEffects(nodes: []const Value, observable: *const Set) ?[2]Str {
     for (effectful.items, 0..) |first, i| for (effectful.items[i + 1 ..]) |second| {
         if (!dependsOn(&edges, first, second) and !dependsOn(&edges, second, first)) return .{ first, second };
     };
-    for (nodes) |node| for (nestedScopes(node)) |scope| if (unorderedEffects(arrayOf(scope.graph, "nodes"), observable)) |pair| return pair;
+    // The typed view lists a graph's nodes by ID, the semantic one in document order.
+    const ordered = if (by_id) blk: {
+        const sorted = a.dupe(Value, nodes) catch oom();
+        std.mem.sort(Value, sorted, {}, lessById);
+        break :blk sorted;
+    } else nodes;
+    for (ordered) |node| for (nestedScopes(node)) |scope| if (unorderedEffects(arrayOf(scope.graph, "nodes"), observable, by_id)) |pair| return pair;
     return null;
 }
 
@@ -3812,7 +3818,7 @@ fn effectOrderRules() void {
     for (in_function.all_nodes) |node| {
         if (isName(str(node, "kind"), "abort")) break;
     } else return;
-    const pair = unorderedEffects(arrayOf(get(function, "body"), "nodes"), &declaring_functions) orelse return;
+    const pair = unorderedEffects(arrayOf(get(function, "body"), "nodes"), &declaring_functions, false) orelse return;
     const nodes_by_id = byId(in_function.all_nodes);
     var described: [2]Str = undefined;
     for (pair, &described) |id, *d| {
@@ -4597,8 +4603,11 @@ fn selectEntry(root: Value, entry: Str) Value {
     return .{ .object = members };
 }
 
-/// `TypedSemanticIr.project` (readiness first) on the selection, as the serializer's JSON.
-fn typedIr(root: Value) LoweringFailure![]const u8 {
+const Ready = struct { function: Value, resolver: *Resolver };
+
+/// `SnapshotReadiness.evaluate`, then each function (by ID) with its resolver; `MissingNodeType`
+/// for the first function with a node the resolver cannot type.
+fn readyFunctions(root: Value) LoweringFailure![]Ready {
     validate(root);
     if (issues.items.len > 0) {
         lowering_failure = fmt("InvalidSnapshot: {d} issues", .{issues.items.len});
@@ -4615,30 +4624,54 @@ fn typedIr(root: Value) LoweringFailure![]const u8 {
     }
     const functions = a.dupe(Value, arrayOf(root, "functions")) catch oom();
     std.mem.sort(Value, functions, {}, lessById);
-    const texts = a.alloc([]const u8, functions.len) catch oom();
-    for (functions, texts) |function, *t| {
-        var resolver = Resolver.init(function);
-        if (missingNodeType(&resolver, get(function, "body"))) |node_id| {
+    const out = a.alloc(Ready, functions.len) catch oom();
+    for (functions, out) |function, *ready| {
+        const resolver = a.create(Resolver) catch oom();
+        resolver.* = Resolver.init(function);
+        if (missingNodeType(resolver, get(function, "body"))) |node_id| {
             lowering_failure = fmt("MissingNodeType: {s} {s}", .{ text(str(function, "id")), text(node_id) });
             return error.MissingNodeType;
         }
+        ready.* = .{ .function = function, .resolver = resolver };
+    }
+    return out;
+}
+
+/// `TypedSemanticIr.project` (readiness first) on the selection, as the serializer's JSON.
+fn typedIr(root: Value) LoweringFailure![]const u8 {
+    const functions = try readyFunctions(root);
+    const texts = a.alloc([]const u8, functions.len) catch oom();
+    for (functions, texts) |ready, *t| {
+        const function = ready.function;
         var o: Obj = .{};
         o.put("id", quoted(str(function, "id")));
         typedTypeParameters(&o, function);
         o.put("parameters", typedSlots(arrayOf(function, "parameters"), false));
         o.put("resultType", typedTypeOf(get(function, "resultType")));
-        const effects = a.dupe(Value, arrayOf(function, "requiredEffects")) catch oom();
-        o.put("requiredEffects", sortedIds(effects));
-        o.put("body", typedGraph(&resolver, get(function, "body")));
+        o.put("requiredEffects", sortedIds(arrayOf(function, "requiredEffects")));
+        o.put("body", typedGraph(ready.resolver, get(function, "body")));
         t.* = o.done();
     }
+    return program(root, sortedDeclarations(arrayOf(root, "types"), typedDeclaredType), texts);
+}
+
+/// `ExecutionIr.lower` of the projection, as the serializer's JSON.
+fn executionIr(root: Value) (LoweringFailure || LowerFailure)![]const u8 {
+    const functions = try readyFunctions(root);
+    const texts = a.alloc([]const u8, functions.len) catch oom();
+    const observable = observableFunctions(functions);
+    for (functions, texts) |ready, *t| t.* = try executionFunction(ready.function, ready.resolver, &observable);
+    return program(root, sortedDeclarations(arrayOf(root, "types"), executionDeclaredType), texts);
+}
+
+fn program(root: Value, types: []const u8, functions: []const []const u8) []const u8 {
     var o: Obj = .{};
     o.put("schemaVersion", "14");
     o.put("sourceSnapshotId", quoted(str(root, "snapshotId")));
-    o.put("types", sortedDeclarations(arrayOf(root, "types"), typedDeclaredType));
+    o.put("types", types);
     o.put("effects", sortedIds(arrayOf(root, "effects")));
     o.put("capabilities", sortedDeclarations(arrayOf(root, "capabilities"), typedCapability));
-    o.put("functions", array(texts));
+    o.put("functions", array(functions));
     return o.done();
 }
 
@@ -4701,6 +4734,622 @@ fn typedOperation(operation: Value) []const u8 {
     return o.done();
 }
 
+// ---------------------------------------------------------------- lowering, stage 2: Execution IR
+
+// `ExecutionIr.lower` of the typed program and `ExecutionIrSerializer.serialize`. Instructions are
+// written as they are made; a simple node's properties are its typed ones in order, a node
+// reference becomes the value bound to it, and `instruction_kinds.txt` names them. Effect order is
+// checked by the runtime rule (`validateEffectOrder`: every function, observable callees), which is
+// stricter than the validator's historical one (`tryAbortOrderConflict`); the typed view's
+// descriptor equals the semantic one (`EffectClassificationConsistencyTests`).
+
+/// `GraphOrder.observableFunctions` over the program's functions: a function is observable when it
+/// declares effects or holds an intrinsically observable node other than Abort, at any depth, or
+/// when it calls, folds with, starts or runs as a body an observable function.
+fn observableFunctions(functions: []const Ready) Set {
+    var observable: Set = .empty;
+    var callers: std.StringHashMapUnmanaged(List(Str)) = .empty;
+    var pending: List(Str) = .empty;
+    for (functions) |ready| {
+        const id = str(ready.function, "id");
+        var seed = arrayOf(ready.function, "requiredEffects").len > 0;
+        var nodes: List(Value) = .empty;
+        collectNodes(get(ready.function, "body"), &nodes);
+        for (nodes.items) |node| {
+            const kind = text(str(node, "kind"));
+            if (!std.mem.eql(u8, kind, "parallelAll") and kindIs(kind, effectful_kinds)) seed = true;
+            for (functionReferences(node)) |reference| switch (reference.role) {
+                .direct_call, .effect_callback, .worker, .body => {
+                    const entry = callers.getOrPut(a, idKey(reference.function_id)) catch oom();
+                    if (!entry.found_existing) entry.value_ptr.* = .empty;
+                    entry.value_ptr.append(a, id) catch oom();
+                },
+                else => {},
+            };
+        }
+        if (seed and !(observable.getOrPut(a, idKey(id)) catch oom()).found_existing) pending.append(a, id) catch oom();
+    }
+    while (pending.pop()) |id| if (callers.get(idKey(id))) |list| for (list.items) |caller| {
+        if (!(observable.getOrPut(a, idKey(caller)) catch oom()).found_existing) pending.append(a, caller) catch oom();
+    };
+    return observable;
+}
+
+const instruction_kinds_text = @embedFile("instruction_kinds.txt");
+var instruction_names: std.StringHashMapUnmanaged([]const []const u8) = .empty;
+
+fn loadInstructionNames() void {
+    var lines = std.mem.tokenizeAny(u8, instruction_kinds_text, "\r\n");
+    while (lines.next()) |line| {
+        const bar = std.mem.indexOfScalar(u8, line, '|').?;
+        var names: List([]const u8) = .empty;
+        var it = std.mem.tokenizeScalar(u8, line[bar + 1 ..], ' ');
+        while (it.next()) |name| names.append(a, name) catch oom();
+        instruction_names.put(a, line[0..bar], names.items) catch oom();
+    }
+}
+
+/// `Uri.EscapeDataString` of an ID's UTF-8.
+fn escapeData(id: Str) []const u8 {
+    var out: List(u8) = .empty;
+    for (text(id)) |byte| switch (byte) {
+        'A'...'Z', 'a'...'z', '0'...'9', '-', '.', '_', '~' => out.append(a, byte) catch oom(),
+        else => out.print(a, "%{X:0>2}", .{byte}) catch oom(),
+    };
+    return out.items;
+}
+
+/// `ExecutionIrIds`: `<prefix>/<escaped id>`.
+fn executionId(prefix: []const u8, id: Str) []const u8 {
+    return fmt("{s}/{s}", .{ prefix, escapeData(id) });
+}
+
+fn executionValue(id: []const u8, type_text: []const u8, origin: []const u8) []const u8 {
+    var o: Obj = .{};
+    o.put("id", quotedAscii(id));
+    o.put("type", type_text);
+    o.put("origin", origin);
+    return o.done();
+}
+
+const Block = struct {
+    id: []const u8,
+    parameters: []const []const u8,
+    instructions: List([]const u8) = .empty,
+    terminator: ?[]const u8 = null,
+};
+
+const Env = struct {
+    nodes: std.StringHashMapUnmanaged([]const u8) = .empty,
+    patterns: std.StringHashMapUnmanaged([]const u8) = .empty,
+
+    fn clone(self: Env) Env {
+        return .{ .nodes = self.nodes.clone(a) catch oom(), .patterns = self.patterns.clone(a) catch oom() };
+    }
+};
+
+const Endpoint = struct { block: *Block, value: []const u8 };
+const Merge = struct { value: []const u8, value_id: []const u8, block: *Block };
+
+const LowerFailure = error{Lowering};
+
+const Lowering = struct {
+    function: Value,
+    resolver: *Resolver,
+    parameters_by_id: ValueMap,
+    blocks: std.StringArrayHashMapUnmanaged(*Block) = .empty,
+
+    fn fail(self: *Lowering, case: []const u8, detail: []const u8) LowerFailure {
+        lowering_failure = fmt("{s}: {s} {s}", .{ case, text(str(self.function, "id")), detail });
+        return error.Lowering;
+    }
+
+    fn addBlock(self: *Lowering, id: []const u8, parameters: []const []const u8) *Block {
+        const block = a.create(Block) catch oom();
+        block.* = .{ .id = id, .parameters = parameters };
+        self.blocks.put(a, id, block) catch oom();
+        return block;
+    }
+
+    fn nodeType(self: *Lowering, node: Value) []const u8 {
+        return typedType(normalType(self.resolver.completion(str(node, "id"))).?);
+    }
+
+    fn nodeValueId(node: Value) []const u8 {
+        return executionId("node", str(node, "id"));
+    }
+
+    fn makeNodeValue(self: *Lowering, node: Value) []const u8 {
+        var origin: Obj = .{};
+        origin.put("kind", "\"semanticNode\"");
+        origin.put("nodeId", quoted(str(node, "id")));
+        return executionValue(nodeValueId(node), self.nodeType(node), origin.done());
+    }
+
+    fn addInstruction(self: *Lowering, block: *Block, node: Value, kind: []const u8, properties: []const u8) []const u8 {
+        var o: Obj = .{};
+        o.put("result", self.makeNodeValue(node));
+        o.put("originNodeId", quoted(str(node, "id")));
+        o.put("kind", quotedAscii(kind));
+        if (properties.len > 2) {
+            o.buf.append(a, ',') catch oom();
+            o.buf.appendSlice(a, properties[1 .. properties.len - 1]) catch oom();
+        }
+        block.instructions.append(a, o.done()) catch oom();
+        return nodeValueId(node);
+    }
+
+    fn addPatternExtraction(self: *Lowering, block: *Block, match_node: Value, binding: Value, kind: []const u8, properties: []const u8) []const u8 {
+        _ = self;
+        var origin: Obj = .{};
+        origin.put("kind", "\"patternBinding\"");
+        origin.put("matchNodeId", quoted(str(match_node, "id")));
+        origin.put("bindingId", quoted(str(binding, "id")));
+        const id = executionId("pattern", str(binding, "id"));
+        var o: Obj = .{};
+        o.put("result", executionValue(id, typedTypeOf(get(binding, "type")), origin.done()));
+        o.put("originNodeId", quoted(str(match_node, "id")));
+        o.put("kind", quotedAscii(kind));
+        o.buf.append(a, ',') catch oom();
+        o.buf.appendSlice(a, properties[1 .. properties.len - 1]) catch oom();
+        block.instructions.append(a, o.done()) catch oom();
+        return id;
+    }
+
+    fn requireNode(self: *Lowering, env: *const Env, id: Str) LowerFailure![]const u8 {
+        return env.nodes.get(idKey(id)) orelse self.fail("MissingNodeValue", text(id));
+    }
+
+    /// Arguments, capability arguments and field values with their values, sorted by target.
+    fn targets(self: *Lowering, env: *const Env, elements: []const Value, target: []const u8) LowerFailure![]const u8 {
+        const out = a.alloc(Keyed, elements.len) catch oom();
+        for (elements, out) |element, *o| {
+            var obj: Obj = .{};
+            obj.put(target, quoted(str(element, target)));
+            obj.put("valueId", quotedAscii(try self.requireNode(env, str(element, "valueNodeId"))));
+            o.* = .{ .key = str(element, target), .text = obj.done() };
+        }
+        return sortedArray(out);
+    }
+
+    /// A simple node's instruction properties (`{...}`), from its typed properties.
+    fn simpleProperties(self: *Lowering, env: *const Env, node: Value, kind_name: []const u8) LowerFailure![]const u8 {
+        const kind = kinds.get(kind_name).?;
+        const names = instruction_names.get(kind_name).?;
+        var o: Obj = .{};
+        var position: usize = 0;
+        for (kind.writes) |index| {
+            const read = kind.reads[index];
+            if (typedName(kind_name, read) == null) continue;
+            const name = names[position];
+            position += 1;
+            const value = tryProperty(read.name, node) orelse continue;
+            const reference = inNames(asciiUnits(read.name), kind.references);
+            o.put(name, switch (read.shape) {
+                .id, .optid => if (reference) quotedAscii(try self.requireNode(env, value.string)) else quoted(value.string),
+                .ids => blk: {
+                    const texts = a.alloc([]const u8, value.array.len) catch oom();
+                    for (value.array, texts) |item, *t| t.* = quotedAscii(try self.requireNode(env, item.string));
+                    break :blk array(texts);
+                },
+                .ctx, .args => try self.targets(env, value.array, "targetParameterId"),
+                .capargs => try self.targets(env, value.array, "targetCapabilityParameterId"),
+                .fields => try self.targets(env, value.array, "targetFieldId"),
+                else => typedShape(self.resolver, read, node).?,
+            });
+        }
+        std.debug.assert(position == names.len);
+        return o.done();
+    }
+
+    fn lowerSimple(self: *Lowering, env: *Env, block: *Block, node: Value) LowerFailure!void {
+        const kind_name = text(str(node, "kind"));
+        const value_id = if (std.mem.eql(u8, kind_name, "parameterReference")) blk: {
+            const parameter = str(node, "parameterId");
+            if (self.parameters_by_id.get(idKey(parameter)) == null) return self.fail("MissingFunctionParameter", text(parameter));
+            var o: Obj = .{};
+            o.put("sourceValueId", quotedAscii(executionId("parameter", parameter)));
+            break :blk self.addInstruction(block, node, "readParameter", o.done());
+        } else if (std.mem.eql(u8, kind_name, "patternReference")) blk: {
+            const binding = str(node, "patternBindingId");
+            const source = env.patterns.get(idKey(binding)) orelse return self.fail("MissingPatternValue", text(binding));
+            var o: Obj = .{};
+            o.put("sourceValueId", quotedAscii(source));
+            break :blk self.addInstruction(block, node, "readPatternBinding", o.done());
+        } else self.addInstruction(block, node, kind_name, try self.simpleProperties(env, node, kind_name));
+        env.nodes.put(a, idKey(str(node, "id")), value_id) catch oom();
+    }
+
+    /// `ExecutionIrAnalysis.dependencies`: direct references and nested free references, distinct and sorted.
+    fn dependenciesOf(node: Value) []const Str {
+        var all: List(Str) = .empty;
+        dependencies(node, &all);
+        var seen: Set = .empty;
+        var out: List(Str) = .empty;
+        for (all.items) |id| if (!seen.contains(idKey(id))) {
+            seen.put(a, idKey(id), {}) catch oom();
+            out.append(a, id) catch oom();
+        };
+        std.mem.sort(Str, out.items, {}, lessStr);
+        return out.items;
+    }
+
+    /// `isExactSelfCall`: a self call whose arguments have the parameters' exact types.
+    fn isExactSelfCall(self: *Lowering, node: Value) bool {
+        if (!same(str(node, "targetFunctionId"), str(self.function, "id"))) return false;
+        for (arrayOf(node, "arguments")) |argument| {
+            const parameter = self.parameters_by_id.get(idKey(str(argument, "targetParameterId"))) orelse return false;
+            const actual = normalType(self.resolver.completion(str(argument, "valueNodeId"))) orelse return false;
+            if (!typeEql(actual, typeRefOf(get(parameter, "type")))) return false;
+        }
+        return true;
+    }
+
+    /// `tailSelfCallNode`: the graph's result node, when it leads to a self call in tail position and
+    /// no other node of the graph uses it.
+    fn tailSelfCallNode(self: *Lowering, graph: Value) ?Value {
+        const result_id = str(graph, "resultNodeId");
+        const nodes = arrayOf(graph, "nodes");
+        const result = for (nodes) |node| {
+            if (same(str(node, "id"), result_id)) break node;
+        } else return null;
+        if (!self.leadsToTailSelfCall(result)) return null;
+        for (nodes) |other| {
+            if (same(str(other, "id"), result_id)) continue;
+            for (dependenciesOf(other)) |dependency| if (same(dependency, result_id)) return null;
+        }
+        return result;
+    }
+
+    fn leadsToTailSelfCall(self: *Lowering, node: Value) bool {
+        const kind = text(str(node, "kind"));
+        if (std.mem.eql(u8, kind, "directCall")) return self.isExactSelfCall(node);
+        if (!kindIs(kind, "bind conditional boolAnd boolOr matchUnion matchOption matchResult")) return false;
+        for (nestedScopes(node)) |scope| if (self.tailSelfCallNode(scope.graph) != null) return true;
+        return false;
+    }
+
+    fn jump(block: *Block, target: *Block, target_value: []const u8, value: []const u8) void {
+        var argument: Obj = .{};
+        argument.put("targetValueId", quotedAscii(target_value));
+        argument.put("valueId", quotedAscii(value));
+        var o: Obj = .{};
+        o.put("kind", "\"jump\"");
+        o.put("blockId", quotedAscii(target.id));
+        o.put("arguments", array(&.{argument.done()}));
+        block.terminator = o.done();
+    }
+
+    fn mergeFor(self: *Lowering, node: Value) ?Merge {
+        if (self.resolver.completion(str(node, "id")).? == .aborts) return null;
+        const value = self.makeNodeValue(node);
+        const block = self.addBlock(fmt("{s}/merge", .{executionId("node", str(node, "id"))}), a.dupe([]const u8, &.{value}) catch oom());
+        return .{ .value = value, .value_id = nodeValueId(node), .block = block };
+    }
+
+    /// `finishArms`: the arm endpoints jump to the merge, and the graph continues there; with no
+    /// endpoint the merge block is dropped and the graph stops. Returns the block to continue in.
+    fn finishArms(self: *Lowering, env: *Env, node: Value, merge: ?Merge, endpoints: []const ?Endpoint) ?*Block {
+        const reached = for (endpoints) |endpoint| {
+            if (endpoint != null) break true;
+        } else false;
+        if (merge) |m| if (!reached) {
+            _ = self.blocks.orderedRemove(m.block.id);
+            return null;
+        };
+        for (endpoints) |endpoint| if (endpoint) |e| jump(e.block, merge.?.block, merge.?.value_id, e.value);
+        const m = merge orelse return null;
+        env.nodes.put(a, idKey(str(node, "id")), m.value_id) catch oom();
+        return m.block;
+    }
+
+    fn branch(block: *Block, kind: []const u8, input_name: []const u8, input: []const u8, names: [2][]const u8, blocks: [2]*Block) void {
+        var o: Obj = .{};
+        o.put("kind", quotedAscii(kind));
+        o.put(input_name, quotedAscii(input));
+        o.put(names[0], quotedAscii(blocks[0].id));
+        o.put(names[1], quotedAscii(blocks[1].id));
+        block.terminator = o.done();
+    }
+
+    fn roleBlock(self: *Lowering, node: Value, role: []const u8) *Block {
+        return self.addBlock(fmt("{s}/{s}", .{ executionId("node", str(node, "id")), role }), &.{});
+    }
+
+    fn withBinding(env: *const Env, binding: Value, value_id: []const u8) Env {
+        var out = env.clone();
+        out.patterns.put(a, idKey(str(binding, "id")), value_id) catch oom();
+        return out;
+    }
+
+    /// Lowers one structured node; returns the block to continue in, or null when the graph stops.
+    fn lowerStructured(self: *Lowering, env: *Env, block: *Block, node: Value, is_tail: bool) LowerFailure!?*Block {
+        const kind = text(str(node, "kind"));
+        if (std.mem.eql(u8, kind, "bind")) {
+            const input = try self.requireNode(env, str(node, "inputNodeId"));
+            const arm = get(node, "boundBody");
+            const binding = get(arm, "valueBinding");
+            var origin: Obj = .{};
+            origin.put("kind", "\"patternBinding\"");
+            origin.put("matchNodeId", quoted(str(node, "id")));
+            origin.put("bindingId", quoted(str(binding, "id")));
+            const bound_id = executionId("pattern", str(binding, "id"));
+            const bound = executionValue(bound_id, typedTypeOf(get(binding, "type")), origin.done());
+            const body = self.addBlock(fmt("{s}/body", .{executionId("node", str(node, "id"))}), a.dupe([]const u8, &.{bound}) catch oom());
+            jump(block, body, bound_id, input);
+            const end = try self.lowerGraph(body, withBinding(env, binding, bound_id), is_tail, get(arm, "body"));
+            return self.finishArms(env, node, self.mergeFor(node), &.{end});
+        }
+        if (std.mem.eql(u8, kind, "conditional")) {
+            const condition = try self.requireNode(env, str(node, "conditionNodeId"));
+            const true_block = self.roleBlock(node, "when-true");
+            const false_block = self.roleBlock(node, "when-false");
+            const merge = self.mergeFor(node);
+            branch(block, "branch", "conditionValueId", condition, .{ "whenTrue", "whenFalse" }, .{ true_block, false_block });
+            const true_end = try self.lowerGraph(true_block, env.clone(), is_tail, get(node, "whenTrue"));
+            const false_end = try self.lowerGraph(false_block, env.clone(), is_tail, get(node, "whenFalse"));
+            return self.finishArms(env, node, merge, &.{ true_end, false_end });
+        }
+        if (std.mem.eql(u8, kind, "boolAnd") or std.mem.eql(u8, kind, "boolOr")) {
+            const left = try self.requireNode(env, str(node, "leftNodeId"));
+            const right_block = self.roleBlock(node, "right");
+            const decided_block = self.roleBlock(node, "decided");
+            const merge = self.mergeFor(node);
+            const blocks: [2]*Block = if (std.mem.eql(u8, kind, "boolAnd")) .{ right_block, decided_block } else .{ decided_block, right_block };
+            branch(block, "branch", "conditionValueId", left, .{ "whenTrue", "whenFalse" }, blocks);
+            const right_end = try self.lowerGraph(right_block, env.clone(), is_tail, get(node, "right"));
+            return self.finishArms(env, node, merge, &.{ right_end, Endpoint{ .block = decided_block, .value = left } });
+        }
+        if (std.mem.eql(u8, kind, "matchUnion")) {
+            const input = try self.requireNode(env, str(node, "inputNodeId"));
+            const merge = self.mergeFor(node);
+            const Arm = struct { arm: Value, variants: []Str, block: *Block = undefined };
+            const items = arrayOf(node, "arms");
+            const arms = a.alloc(Arm, items.len) catch oom();
+            for (items, arms) |item, *arm| {
+                arm.* = .{ .arm = item, .variants = a.dupe(Str, armVariantIds(item)) catch oom() };
+                std.mem.sort(Str, arm.variants, {}, lessStr);
+            }
+            std.mem.sort(Arm, arms, {}, struct {
+                fn less(_: void, left: Arm, right: Arm) bool {
+                    return lessUnits(left.variants[0], right.variants[0]);
+                }
+            }.less);
+            var targets_list: List([]const u8) = .empty;
+            for (arms) |*arm| {
+                arm.block = self.roleBlock(node, fmt("variant/{s}", .{escapeData(arm.variants[0])}));
+                for (arm.variants) |variant| {
+                    var t: Obj = .{};
+                    t.put("variantId", quoted(variant));
+                    t.put("blockId", quotedAscii(arm.block.id));
+                    targets_list.append(a, t.done()) catch oom();
+                }
+            }
+            // The serializer sorts the targets by variant; arms in order list them in that order already
+            // only when their variant sets do not interleave.
+            const sorted = a.alloc(Keyed, targets_list.items.len) catch oom();
+            var at: usize = 0;
+            for (arms) |arm| for (arm.variants) |variant| {
+                sorted[at] = .{ .key = variant, .text = targets_list.items[at] };
+                at += 1;
+            };
+            var o: Obj = .{};
+            o.put("kind", "\"matchUnion\"");
+            o.put("inputValueId", quotedAscii(input));
+            o.put("targets", sortedArray(sorted));
+            block.terminator = o.done();
+            const endpoints = a.alloc(?Endpoint, arms.len) catch oom();
+            for (arms, endpoints) |arm, *endpoint| {
+                var arm_env = env.clone();
+                const fields = a.dupe(Value, arrayOf(arm.arm, "fieldBindings")) catch oom();
+                std.mem.sort(Value, fields, {}, struct {
+                    fn less(_: void, left: Value, right: Value) bool {
+                        return lessUnits(str(left, "sourceFieldId"), str(right, "sourceFieldId"));
+                    }
+                }.less);
+                for (fields) |field| {
+                    std.debug.assert(arm.variants.len == 1);
+                    var p: Obj = .{};
+                    p.put("inputValueId", quotedAscii(input));
+                    p.put("variantId", quoted(arm.variants[0]));
+                    p.put("fieldId", quoted(str(field, "sourceFieldId")));
+                    const binding = get(field, "binding");
+                    const extracted = self.addPatternExtraction(arm.block, node, binding, "extractUnionField", p.done());
+                    arm_env.patterns.put(a, idKey(str(binding, "id")), extracted) catch oom();
+                }
+                endpoint.* = try self.lowerGraph(arm.block, arm_env, is_tail, get(arm.arm, "body"));
+            }
+            return self.finishArms(env, node, merge, endpoints);
+        }
+        if (std.mem.eql(u8, kind, "matchOption")) {
+            const input = try self.requireNode(env, str(node, "inputNodeId"));
+            const some_block = self.roleBlock(node, "some");
+            const none_block = self.roleBlock(node, "none");
+            const merge = self.mergeFor(node);
+            branch(block, "matchOption", "inputValueId", input, .{ "someBlock", "noneBlock" }, .{ some_block, none_block });
+            const some = get(node, "someArm");
+            const binding = get(some, "valueBinding");
+            const extracted = self.addPatternExtraction(some_block, node, binding, "extractOptionSome", inputProperty(input));
+            const some_end = try self.lowerGraph(some_block, withBinding(env, binding, extracted), is_tail, get(some, "body"));
+            const none_end = try self.lowerGraph(none_block, env.clone(), is_tail, get(node, "noneBody"));
+            return self.finishArms(env, node, merge, &.{ some_end, none_end });
+        }
+        std.debug.assert(std.mem.eql(u8, kind, "matchResult"));
+        const input = try self.requireNode(env, str(node, "inputNodeId"));
+        const ok_block = self.roleBlock(node, "ok");
+        const err_block = self.roleBlock(node, "err");
+        const merge = self.mergeFor(node);
+        branch(block, "matchResult", "inputValueId", input, .{ "okBlock", "errBlock" }, .{ ok_block, err_block });
+        const ok_arm = get(node, "okArm");
+        const err_arm = get(node, "errArm");
+        const ok_binding = get(ok_arm, "valueBinding");
+        const err_binding = get(err_arm, "errorBinding");
+        const ok_value = self.addPatternExtraction(ok_block, node, ok_binding, "extractResultOk", inputProperty(input));
+        const err_value = self.addPatternExtraction(err_block, node, err_binding, "extractResultErr", inputProperty(input));
+        const ok_end = try self.lowerGraph(ok_block, withBinding(env, ok_binding, ok_value), is_tail, get(ok_arm, "body"));
+        const err_end = try self.lowerGraph(err_block, withBinding(env, err_binding, err_value), is_tail, get(err_arm, "body"));
+        return self.finishArms(env, node, merge, &.{ ok_end, err_end });
+    }
+
+    fn inputProperty(input: []const u8) []const u8 {
+        var o: Obj = .{};
+        o.put("inputValueId", quotedAscii(input));
+        return o.done();
+    }
+
+    /// `lowerGraph`: Kahn's algorithm over the graph's nodes; among ready nodes the lowest ID goes
+    /// first, a Bytes update after every ready non-update, and the tail node last.
+    fn lowerGraph(self: *Lowering, start: *Block, initial: Env, is_tail: bool, graph: Value) LowerFailure!?Endpoint {
+        var env = initial.clone();
+        var block = start;
+        const nodes = arrayOf(graph, "nodes");
+        var pending = byId(nodes);
+        const tail_id: ?Str = if (is_tail) if (self.tailSelfCallNode(graph)) |n| str(n, "id") else null else null;
+        var waiting: std.StringHashMapUnmanaged(usize) = .empty;
+        var dependents: std.StringHashMapUnmanaged(List(Str)) = .empty;
+        const Candidate = struct { update: bool, id: Str };
+        var ready: List(Candidate) = .empty;
+        for (nodes) |node| {
+            var unresolved: usize = 0;
+            for (dependenciesOf(node)) |dependency| {
+                if (env.nodes.contains(idKey(dependency))) continue;
+                unresolved += 1;
+                if (pending.contains(idKey(dependency))) {
+                    const entry = dependents.getOrPut(a, idKey(dependency)) catch oom();
+                    if (!entry.found_existing) entry.value_ptr.* = .empty;
+                    entry.value_ptr.append(a, str(node, "id")) catch oom();
+                }
+            }
+            waiting.put(a, idKey(str(node, "id")), unresolved) catch oom();
+            if (unresolved == 0) ready.append(a, .{ .update = isBytesUpdate(node), .id = str(node, "id") }) catch oom();
+        }
+        var last_taken: ?Str = null;
+        while (pending.count() > 0) {
+            if (last_taken) |taken| if (env.nodes.contains(idKey(taken))) {
+                if (dependents.get(idKey(taken))) |list| for (list.items) |dependent| {
+                    const count = waiting.getPtr(idKey(dependent)).?;
+                    count.* -= 1;
+                    if (count.* == 0) ready.append(a, .{ .update = isBytesUpdate(pending.get(idKey(dependent)).?), .id = dependent }) catch oom();
+                };
+            };
+            // The first ready node in (update, ID) order that is not the tail node, unless it is the last.
+            var best: ?usize = null;
+            for (ready.items, 0..) |item, i| {
+                if (tail_id != null and same(item.id, tail_id.?) and pending.count() != 1) continue;
+                if (best == null or readyLess(item, ready.items[best.?])) best = i;
+            }
+            const chosen = best orelse {
+                const ids = a.dupe([]const u8, pending.keys()) catch oom();
+                std.mem.sort([]const u8, ids, {}, lessKey);
+                var names: List(u8) = .empty;
+                for (ids, 0..) |id, i| names.print(a, "{s}{s}", .{ if (i == 0) "" else ", ", text(keyId(id)) }) catch oom();
+                return self.fail("UnresolvedDependencies", names.items);
+            };
+            const id = ready.swapRemove(chosen).id;
+            last_taken = id;
+            const node = pending.get(idKey(id)).?;
+            _ = pending.swapRemove(idKey(id));
+            const kind = text(str(node, "kind"));
+            const node_tail = tail_id != null and same(id, tail_id.?);
+            if (std.mem.eql(u8, kind, "abort")) {
+                const error_value = try self.requireNode(&env, str(node, "errorNodeId"));
+                var o: Obj = .{};
+                o.put("kind", "\"abort\"");
+                o.put("originNodeId", quoted(id));
+                o.put("errorValueId", quotedAscii(error_value));
+                block.terminator = o.done();
+                return null;
+            } else if (kindIs(kind, "conditional boolAnd boolOr matchUnion bind matchOption matchResult")) {
+                block = try self.lowerStructured(&env, block, node, node_tail) orelse return null;
+            } else if (node_tail and std.mem.eql(u8, kind, "directCall")) {
+                var o: Obj = .{};
+                o.put("kind", "\"tailCall\"");
+                o.put("originNodeId", quoted(id));
+                o.put("arguments", try self.targets(&env, arrayOf(node, "arguments"), "targetParameterId"));
+                block.terminator = o.done();
+                return null;
+            } else try self.lowerSimple(&env, block, node);
+        }
+        return .{ .block = block, .value = try self.requireNode(&env, str(graph, "resultNodeId")) };
+    }
+
+    fn readyLess(left: anytype, right: anytype) bool {
+        if (left.update != right.update) return !left.update;
+        return lessUnits(left.id, right.id);
+    }
+};
+
+fn isBytesUpdate(node: Value) bool {
+    return kindIs(text(str(node, "kind")), "bytesSet bytesAppend");
+}
+
+fn executionFunction(function: Value, resolver: *Resolver, observable: *const Set) LowerFailure![]const u8 {
+    var lowering: Lowering = .{ .function = function, .resolver = resolver, .parameters_by_id = byId(arrayOf(function, "parameters")) };
+    if (unorderedEffects(arrayOf(get(function, "body"), "nodes"), observable, true)) |pair| return lowering.fail("AmbiguousEffectOrder", fmt("{s} {s}", .{ text(pair[0]), text(pair[1]) }));
+    const entry = lowering.addBlock(fmt("{s}/entry", .{executionId("function", str(function, "id"))}), &.{});
+    if (try lowering.lowerGraph(entry, .{}, true, get(function, "body"))) |end| {
+        var o: Obj = .{};
+        o.put("kind", "\"return\"");
+        o.put("valueId", quotedAscii(end.value));
+        end.block.terminator = o.done();
+    }
+    const ids = a.dupe([]const u8, lowering.blocks.keys()) catch oom();
+    std.mem.sort([]const u8, ids, {}, lessAscii);
+    const blocks = a.alloc([]const u8, ids.len) catch oom();
+    for (ids, blocks) |id, *out| {
+        const block = lowering.blocks.get(id).?;
+        var o: Obj = .{};
+        o.put("id", quotedAscii(block.id));
+        o.put("parameters", array(block.parameters));
+        o.put("instructions", array(block.instructions.items));
+        o.put("terminator", block.terminator orelse return lowering.fail("UnterminatedBlock", block.id));
+        out.* = o.done();
+    }
+    const parameters = arrayOf(function, "parameters");
+    const parameter_texts = a.alloc([]const u8, parameters.len) catch oom();
+    for (parameters, parameter_texts) |parameter, *out| {
+        var origin: Obj = .{};
+        origin.put("kind", "\"functionParameter\"");
+        origin.put("parameterId", quoted(str(parameter, "id")));
+        var o: Obj = .{};
+        o.put("semanticParameterId", quoted(str(parameter, "id")));
+        o.put("value", executionValue(executionId("parameter", str(parameter, "id")), typedTypeOf(get(parameter, "type")), origin.done()));
+        out.* = o.done();
+    }
+    var o: Obj = .{};
+    o.put("semanticFunctionId", quoted(str(function, "id")));
+    typedTypeParameters(&o, function);
+    o.put("parameters", array(parameter_texts));
+    o.put("resultType", typedTypeOf(get(function, "resultType")));
+    o.put("requiredEffects", sortedIds(arrayOf(function, "requiredEffects")));
+    o.put("entryBlockId", quotedAscii(entry.id));
+    o.put("blocks", array(blocks));
+    return o.done();
+}
+
+/// `ExecutionIrDeclarations.projectType` as written: the type parameters after the members.
+fn executionDeclaredType(declaration: Value) []const u8 {
+    var o: Obj = .{};
+    o.put("id", quoted(str(declaration, "id")));
+    if (isName(str(declaration, "kind"), "product")) {
+        o.put("kind", "\"product\"");
+        o.put("fields", typedSlots(arrayOf(declaration, "fields"), true));
+    } else {
+        o.put("kind", "\"union\"");
+        const variants = arrayOf(declaration, "variants");
+        const out = a.alloc(Keyed, variants.len) catch oom();
+        for (variants, out) |variant, *v| {
+            var obj: Obj = .{};
+            obj.put("id", quoted(str(variant, "id")));
+            obj.put("fields", typedSlots(arrayOf(variant, "fields"), true));
+            v.* = .{ .key = str(variant, "id"), .text = obj.done() };
+        }
+        o.put("variants", sortedArray(out));
+    }
+    typedTypeParameters(&o, declaration);
+    return o.done();
+}
+
 /// One line per issue, then `end`; a message is escaped as the reader's errors are (`oneLine`).
 fn printIssues(out: *std.Io.Writer) !void {
     for (issues.items) |issue| try out.print("issue {s}: {s}\n", .{ issue.code, oneLine(text(issue.message)) });
@@ -4711,12 +5360,14 @@ pub fn main(init: std.process.Init) !void {
     a = init.arena.allocator();
     const args = try init.minimal.args.toSlice(a);
     const validating = args.len >= 2 and std.mem.eql(u8, args[1], "--validate");
-    const typing = args.len >= 2 and std.mem.eql(u8, args[1], "--typed-ir");
+    const lowering = args.len >= 2 and std.mem.eql(u8, args[1], "--execution-ir");
+    const typing = lowering or args.len >= 2 and std.mem.eql(u8, args[1], "--typed-ir");
     if (if (validating) args.len < 3 else if (typing) args.len < 5 or (args.len - 2) % 3 != 0 else args.len < 3 or args.len % 2 == 0) {
-        std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...] | model-reader --validate <in.json> [<in.json> ...] | model-reader --typed-ir <in.json> <out.json> <entry|-> [...]\n", .{});
+        std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...] | model-reader --validate <in.json> [<in.json> ...] | model-reader --typed-ir|--execution-ir <in.json> <out.json> <entry|-> [...]\n", .{});
         std.process.exit(64);
     }
     loadTables();
+    loadInstructionNames();
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stdout().writer(init.io, &buffer);
     const out = &writer.interface;
@@ -4727,7 +5378,7 @@ pub fn main(init: std.process.Init) !void {
             if (typing) {
                 const entry = args[index + 2];
                 const root = if (std.mem.eql(u8, entry, "-")) parsed_root else selectEntry(parsed_root, try std.unicode.utf8ToUtf16LeAlloc(a, entry));
-                if (typedIr(root)) |typed| {
+                if (if (lowering) executionIr(root) else typedIr(root)) |typed| {
                     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[index + 1], .data = typed });
                     try out.print("ok\n", .{});
                 } else |_| try out.print("error {s}\n", .{lowering_failure});

@@ -1,0 +1,205 @@
+bits32Add|leftValueId rightValueId
+bits32And|leftValueId rightValueId
+bits32FromInt64|valueId
+bits32Not|valueId
+bits32Or|leftValueId rightValueId
+bits32RotateRight|valueId amountValueId
+bits32ShiftLeft|valueId amountValueId
+bits32ShiftRight|valueId amountValueId
+bits32ToInt64|valueId
+bits32Xor|leftValueId rightValueId
+boolLiteral|value
+boolNot|valueId
+bytesAppend|bytesId valueId
+bytesConcat|leftId rightId
+bytesEmpty|
+bytesFill|lengthId valueId
+bytesFromLatin1|valueId
+bytesGet|bytesId indexId
+bytesLength|valueId
+bytesSet|bytesId indexId valueId
+bytesSlice|bytesId startId endId
+bytesToLatin1|valueId
+cancellationRequested|
+cancellationShield|bodyFunctionId context
+capabilityConstruct|capabilityId implementations
+capabilityInvoke|capabilityValueId operationId arguments
+directCall|functionId arguments
+exceptionCatch|bodyFunctionId handlerFunctionId bodyContext handlerContext
+exceptionIsCancellation|valueId
+exceptionMessage|valueId
+exceptionRethrow|valueId resultType
+fieldAccess|sourceValueId fieldId
+float64Abs|valueId
+float64Add|leftValueId rightValueId
+float64Ceiling|valueId
+float64Divide|leftValueId rightValueId
+float64Equal|leftValueId rightValueId
+float64FloorModulo|leftValueId rightValueId
+float64FloorToInt64|valueId
+float64Floor|valueId
+float64IsFinite|valueId
+float64IsInfinite|valueId
+float64IsNaN|valueId
+float64LessThan|leftValueId rightValueId
+float64Literal|bits
+float64Max|leftValueId rightValueId
+float64Min|leftValueId rightValueId
+float64Multiply|leftValueId rightValueId
+float64Negate|valueId
+float64RoundToInt64|valueId
+float64Round|valueId digitsValueId
+float64Sqrt|valueId
+float64Subtract|leftValueId rightValueId
+float64ToString|valueId
+float64Truncate|valueId
+functionInvoke|functionValueId arguments
+functionReference|functionId
+int64BitAnd|leftValueId rightValueId
+int64BitNot|valueId
+int64BitOr|leftValueId rightValueId
+int64BitXor|leftValueId rightValueId
+int64CheckedAdd|leftValueId rightValueId
+int64CheckedMultiply|leftValueId rightValueId
+int64CheckedSubtract|leftValueId rightValueId
+int64Equal|leftValueId rightValueId
+int64FloorDivide|leftValueId rightValueId
+int64FloorModulo|leftValueId rightValueId
+int64GreaterThanOrEqual|leftValueId rightValueId
+int64GreaterThan|leftValueId rightValueId
+int64LessThanOrEqual|leftValueId rightValueId
+int64LessThan|leftValueId rightValueId
+int64Literal|value
+int64Max|leftValueId rightValueId
+int64Min|leftValueId rightValueId
+int64ShiftLeft|valueId countValueId
+int64ShiftRight|valueId countValueId
+int64ToFloat64|valueId
+int64ToHexString|valueId
+int64ToString|valueId
+int64WrappingAbs|valueId
+int64WrappingAdd|leftValueId rightValueId
+int64WrappingMultiply|leftValueId rightValueId
+int64WrappingSubtract|leftValueId rightValueId
+listAll|sourceListValueId predicateFunctionId context
+listAny|sourceListValueId predicateFunctionId context
+listAppendItem|listValueId itemValueId
+listConcat|leftListValueId rightListValueId
+listConstruct|itemValueIds
+listContains|listValueId itemValueId
+listDropLast|listValueId
+listEffectFold|sourceListValueId seedValueId folderFunctionId context
+listEmpty|
+listFilter|sourceListValueId predicateFunctionId context
+listFindIndex|sourceListValueId predicateFunctionId context
+listFlatMap|sourceListValueId mapperFunctionId context
+listFold|sourceListValueId seedValueId folderFunctionId context
+listIndexOf|listValueId itemValueId
+listInsertAt|listValueId indexValueId itemValueId
+listItemAt|listValueId indexValueId
+listLastIndexOf|listValueId itemValueId
+listLast|listValueId
+listLength|listValueId
+listMap|sourceListValueId mapperFunctionId context
+listMaxBy|sourceListValueId lessThanFunctionId context
+listMinBy|sourceListValueId lessThanFunctionId context
+listRange|startValueId endValueId
+listRemoveAt|listValueId indexValueId
+listReverse|listValueId
+listScan|sourceListValueId seedValueId folderFunctionId context
+listSetAt|listValueId indexValueId itemValueId
+listSlice|listValueId startId endId
+listSortBy|sourceListValueId lessThanFunctionId context
+listZipWith|leftListValueId rightListValueId combinerFunctionId context
+mapContainsKey|mapValueId keyValueId
+mapEmpty|
+mapFilter|sourceMapValueId keepFunctionId context
+mapFold|sourceMapValueId seedValueId folderFunctionId context
+mapFromList|sourceListValueId keyOfFunctionId context
+mapGetOrDefault|mapValueId keyValueId defaultValueId
+mapGet|mapValueId keyValueId
+mapInsert|mapValueId keyValueId valueValueId
+mapKeys|mapValueId
+mapMapValues|sourceMapValueId mapperFunctionId context
+mapRemove|mapValueId keyValueId
+mapSize|mapValueId
+mapUnion|leftMapValueId rightMapValueId
+mapValues|mapValueId
+oneShotComplete|cellValueId valueValueId
+oneShotCreate|scopeValueId valueType
+oneShotWait|cellValueId limitValueId
+optionAndThen|sourceOptionValueId binderFunctionId context
+optionGetOrDefault|optionValueId defaultValueId
+optionIsSome|valueId
+optionMap|sourceOptionValueId mapperFunctionId context
+optionNone|
+optionOkOr|optionValueId errorValueId
+optionSome|valueId
+parallelAll|sourceListValueId workerFunctionId context
+productConstruct|fields
+productUpdate|sourceValueId fields
+resultAndThen|sourceResultValueId binderFunctionId context
+resultErrValue|valueId
+resultErr|errorValueId
+resultGetOrDefault|resultValueId defaultValueId
+resultIsOk|valueId
+resultMapErr|sourceResultValueId mapperFunctionId context
+resultMap|sourceResultValueId mapperFunctionId context
+resultOkValue|valueId
+resultOk|valueId
+setContains|setValueId itemValueId
+setDifference|leftSetValueId rightSetValueId
+setEmpty|
+setFilter|sourceSetValueId predicateFunctionId context
+setFold|sourceSetValueId seedValueId folderFunctionId context
+setFromList|listValueId
+setInsert|setValueId itemValueId
+setIntersection|leftSetValueId rightSetValueId
+setIsSubset|leftSetValueId rightSetValueId
+setMap|sourceSetValueId mapperFunctionId context
+setRemove|setValueId itemValueId
+setSize|setValueId
+setToList|setValueId
+setUnion|leftSetValueId rightSetValueId
+stringCodePoints|valueId
+stringConcat|leftValueId rightValueId
+stringContains|valueId substringId
+stringDecodeUtf8Lossy|valueId
+stringEncodeUtf8|valueId
+stringEndsWith|valueId suffixId
+stringEqual|leftValueId rightValueId
+stringFromCodePoint|valueId
+stringIndexOf|valueId substringId fromId
+stringIsEmpty|valueId
+stringJoin|listValueId separatorId
+stringLastIndexOfBefore|valueId substringId endId
+stringLastIndexOf|valueId substringId
+stringLength|valueId
+stringLessThan|leftValueId rightValueId
+stringLiteral|value
+stringParseFloat64|valueId
+stringParseInt64Hex|valueId
+stringParseInt64|valueId
+stringRepeat|textValueId countValueId
+stringReplace|valueId patternId replacementId
+stringSlice|valueId startId endId
+stringSpanBack|valueId setId endId
+stringSpan|valueId setId fromId
+stringSplitLines|valueId breaksId
+stringSplit|valueId separatorId
+stringStartsWith|valueId prefixId
+stringToCodePoint|valueId
+stringToLower|valueId
+stringToUpper|valueId
+stringTrimEnd|valueId
+stringTrimStart|valueId
+stringTrim|valueId
+stringUtf8ByteCount|valueId
+taskCancel|taskValueId
+taskScope|bodyFunctionId context
+taskStart|scopeValueId workerFunctionId itemValueId context
+taskWait|tasksValueId mode limitValueId
+unionConstruct|variantId fields
+unitLiteral|
+useResource|acquireValueId releaseCapabilityValueId releaseOperationId bodyFunctionId context
+valueEqual|leftValueId rightValueId
