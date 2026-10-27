@@ -321,3 +321,64 @@ module ZigBackendTests =
                 agree session "largest" [ xs ]
             for x in [ "3"; "-9223372036854775808" ] do agree session "quadruple" [ x ]
         finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs exception boundaries and resources and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let commitResult (response: JsonElement) =
+                Assert.True(response.GetProperty("ok").GetBoolean(), response.ToString())
+                let proposalId = response.GetProperty("result").GetProperty("proposalId").GetString()
+                Assert.True((execute session ($"""{{"id":"m","op":"commit","proposalId":"{proposalId}"}}""")).GetProperty("ok").GetBoolean())
+            commitResult (execute session """{"id":"e","op":"simulateCreateEffect","exported":true,"displayName":"io"}""")
+            let unitType = """{"kind":"primitive","primitive":"unit"}"""
+            let resultOf ok = $"""{{"kind":"builtinGeneric","generic":"result","arguments":[{ok},{stringType}]}}"""
+            commitResult (execute session ($"""{{"id":"c","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Files","operations":[{{"displayName":"open","parameters":[],"resultType":{resultOf int64Type},"effect":"io"}},{{"displayName":"read","parameters":[{{"displayName":"handle","type":{int64Type}}}],"resultType":{resultOf stringType},"effect":"io"}},{{"displayName":"close","parameters":[{{"displayName":"handle","type":{int64Type}}}],"resultType":{resultOf unitType},"effect":"io"}}]}}"""))
+            let filesType = """{"kind":"capability","name":"Files"}"""
+            let exceptionType = """{"kind":"builtinGeneric","generic":"exception","arguments":[]}"""
+            let effectful name (parameters: (string * string) list) result body =
+                let parameters = parameters |> List.map (fun (name, kind) -> $"""{{"displayName":"{name}","type":{kind}}}""") |> String.concat ","
+                commitResult (execute session ($"""{{"id":"f","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{parameters}],"resultType":{result},"requiredEffects":["io"],"body":{body}}}"""))
+            let invoke operation (arguments: string) = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "files"},"capability":"Files","operation":"{operation}","arguments":[{arguments}]}}"""
+            effectful "readBody" [ "files", filesType; "handle", int64Type ] (resultOf stringType) (invoke "read" ($"""{{"parameter":"handle","value":{p "handle"}}}"""))
+            effectful "withFile" [ "files", filesType ] (resultOf stringType)
+                ($"""{{"kind":"useResource","acquire":{invoke "open" ""},"releaseCapability":{p "files"},"capability":"Files","releaseOperation":"close","body":"readBody","context":[{{"parameter":"files","value":{p "files"}}}]}}""")
+            effectful "attempt" [ "files", filesType; "start", unitType ] (resultOf stringType) ($"""{{"kind":"directCall","function":"withFile","arguments":[{{"parameter":"files","value":{p "files"}}}]}}""")
+            create session "recover" [ "failure", exceptionType ] (resultOf stringType) ($"""{{"kind":"resultErr","okType":{stringType},"error":{{"kind":"stringConcat","left":{{"kind":"stringLiteral","value":"caught: "}},"right":{{"kind":"exceptionMessage","value":{p "failure"}}}}}}}""")
+            effectful "rethrowCancellation" [ "failure", exceptionType ] (resultOf stringType)
+                ($"""{{"kind":"conditional","condition":{{"kind":"exceptionIsCancellation","value":{p "failure"}}},"whenTrue":{{"kind":"exceptionRethrow","value":{p "failure"},"resultType":{resultOf stringType}}},"whenFalse":{{"kind":"resultErr","okType":{stringType},"error":{{"kind":"exceptionMessage","value":{p "failure"}}}}}}}""")
+            effectful "rethrowAll" [ "failure", exceptionType ] (resultOf stringType) ($"""{{"kind":"exceptionRethrow","value":{p "failure"},"resultType":{resultOf stringType}}}""")
+            for handler in [ "recover"; "rethrowCancellation"; "rethrowAll" ] do
+                effectful ("guarded_" + handler) [ "files", filesType ] (resultOf stringType)
+                    ($"""{{"kind":"exceptionCatch","body":"attempt","bodyContext":[{{"parameter":"files","value":{p "files"}}}],"handler":"{handler}","handlerContext":[]}}""")
+            let typed kind (value: string) = if kind = "unit" then """{"kind":"unit"}""" else $"""{{"kind":"{kind}","value":{value}}}"""
+            let primitive kind = $"""{{"kind":"primitive","primitive":"{kind}"}}"""
+            let ok kind (value: string) = $"""{{"kind":"return","value":{{"kind":"result","okType":{primitive kind},"errorType":{stringType},"isOk":true,"value":{typed kind value}}}}}"""
+            let err kind = $"""{{"kind":"return","value":{{"kind":"result","okType":{primitive kind},"errorType":{stringType},"isOk":false,"value":{{"kind":"string","value":"no"}}}}}}"""
+            let throw = """{"kind":"throw","message":"disk ✗"}"""
+            let files openResponse readResponses closeResponses =
+                $"""{{"kind":"fakeCapability","capability":"Files","operations":[{{"operation":"open","responses":[{openResponse}]}},{{"operation":"read","responses":[{readResponses}]}},{{"operation":"close","responses":[{closeResponses}]}}]}}"""
+            let scripts =
+                [ files (ok "int64" "\"7\"") (ok "string" "\"text\"") (ok "unit" "\"unit\"")
+                  files (err "int64") "" ""
+                  files (ok "int64" "\"7\"") throw (ok "unit" "\"unit\"")
+                  files (ok "int64" "\"7\"") throw throw
+                  files (ok "int64" "\"7\"") (ok "string" "\"text\"") (err "unit")
+                  files (ok "int64" "\"7\"") (err "string") (err "unit")
+                  files throw "" "" ]
+            let compare name (arguments: string list) =
+                let csharp = run session "csharp" name arguments
+                let zig = run session "zig" name arguments
+                Assert.True(csharp.GetProperty("ok").GetBoolean() = zig.GetProperty("ok").GetBoolean(), csharp.ToString() + "\n" + zig.ToString())
+                if csharp.GetProperty("ok").GetBoolean() then
+                    Assert.Equal(csharp.GetProperty("result").GetProperty("actual").ToString(), zig.GetProperty("result").GetProperty("actual").ToString())
+                    Assert.Equal(csharp.GetProperty("result").GetProperty("calls").ToString(), zig.GetProperty("result").GetProperty("calls").ToString())
+                else
+                    if not (csharp.GetProperty("error").TryGetProperty("failureKind") |> fst) then failwith (csharp.ToString() + "\n" + zig.ToString())
+                    for property in [ "code"; "message"; "failureKind"; "exceptionType"; "calls" ] do
+                        Assert.Equal(csharp.GetProperty("error").GetProperty(property).ToString(), zig.GetProperty("error").GetProperty(property).ToString())
+            for script in scripts do
+                for name in [ "withFile"; "guarded_recover"; "guarded_rethrowCancellation"; "guarded_rethrowAll" ] do compare name [ script ]
+        finally Directory.Delete(dir, true)

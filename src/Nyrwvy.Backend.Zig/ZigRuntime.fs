@@ -7,6 +7,25 @@ module ZigRuntime =
 
 const NyUnit = struct {};
 
+/// A host failure: a per-task abort with a kind (`cancelled` or a fault) and a message. A function
+/// that may fail returns `NyError!T` and leaves the failure in `ny_failure`; allocation failure and
+/// stack overflow are fatal panics instead.
+const NyFailure = struct { type_name: []const u8, message: []const u8, exhausted: bool = false, cancelled: bool = false };
+const NyError = error{NyFailure};
+var ny_failure: NyFailure = undefined;
+
+fn nyRethrow(comptime T: type, failure: NyFailure) NyError!T {
+    ny_failure = failure;
+    return error.NyFailure;
+}
+
+fn NyPayload(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        .error_union => |info| info.payload,
+        else => T,
+    };
+}
+
 fn NyResult(comptime Ok: type, comptime Err: type) type {
     return union(enum) { ok: Ok, err: Err };
 }
@@ -649,19 +668,33 @@ fn nyTokens(w: *std.Io.Writer, first: *bool, value: anytype) !void {
     }
 }
 
-fn nyFail(exception_type: []const u8, message: []const u8, exhausted: bool) noreturn {
-    nyFailWrite(exception_type, message, exhausted) catch {};
+fn nyFail(exception_type: []const u8, message: []const u8, exhausted: bool) NyError {
+    ny_failure = .{ .type_name = exception_type, .message = message, .exhausted = exhausted };
+    return error.NyFailure;
+}
+
+/// Ends the run with the envelope of a failure no ExceptionCatch handled.
+fn nyUncaught() noreturn {
+    nyUncaughtWrite() catch {};
     std.process.exit(0);
 }
 
-fn nyFailWrite(exception_type: []const u8, message: []const u8, exhausted: bool) !void {
-    try ny_out.print("[\"exception\",\"{s}\",", .{exception_type});
-    try nyEncodeText(ny_out, message);
-    try ny_out.print(",[],[{s}],{},\"fault\"]\n", .{ ny_calls.written(), exhausted });
+fn nyUncaughtWrite() !void {
+    try ny_out.print("[\"exception\",\"{s}\",", .{ny_failure.type_name});
+    try nyEncodeText(ny_out, ny_failure.message);
+    try ny_out.print(",[],[{s}],{},\"{s}\"]\n", .{ ny_calls.written(), ny_failure.exhausted, if (ny_failure.cancelled) "cancelled" else "fault" });
     try ny_out.flush();
 }
 
-fn nyRespond(comptime R: type, script: *NyScript(R), arguments: anytype) R {
+/// An entry's result, or the end of the run when the entry failed.
+fn nyValue(value: anytype) NyPayload(@TypeOf(value)) {
+    return switch (@typeInfo(@TypeOf(value))) {
+        .error_union => value catch nyUncaught(),
+        else => value,
+    };
+}
+
+fn nyRespond(comptime R: type, script: *NyScript(R), arguments: anytype) NyError!R {
     var selected: usize = 0;
     if (script.keyed) {
         var key: std.Io.Writer.Allocating = .init(nyAllocator());
@@ -669,13 +702,13 @@ fn nyRespond(comptime R: type, script: *NyScript(R), arguments: anytype) R {
         inline for (@typeInfo(@TypeOf(arguments)).@"struct".field_names) |name| nyTokens(&key.writer, &first, @field(arguments, name)) catch @panic("out of memory");
         selected = for (script.keys, 0..) |candidate, index| {
             if (std.mem.eql(u8, candidate, key.written())) break index;
-        } else nyFail("FakeArgumentsUnmatchedException", "No fake case matches the complete call arguments.", false);
+        } else return nyFail("FakeArgumentsUnmatchedException", "No fake case matches the complete call arguments.", false);
     }
     const position = script.next[selected];
-    if (position >= script.queues[selected].len) nyFail("FakeResponsesExhaustedException", "The fake operation has no scripted response left for this call.", true);
+    if (position >= script.queues[selected].len) return nyFail("FakeResponsesExhaustedException", "The fake operation has no scripted response left for this call.", true);
     script.next[selected] += 1;
     const response = script.queues[selected][position];
-    if (response.kind == 1) nyFail("FakeCapabilityException", response.message, false);
+    if (response.kind == 1) return nyFail("FakeCapabilityException", response.message, false);
     return response.value;
 }
 

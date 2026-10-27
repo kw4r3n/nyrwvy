@@ -75,6 +75,7 @@ module ZigBackend =
         | TypeRef.Primitive PrimitiveType.Float64 -> Some "f64"
         | TypeRef.Primitive PrimitiveType.Bytes -> Some "NyBytes"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) -> inner item |> Option.map (fun item -> "?" + item)
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, []) -> Some "NyFailure"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) -> inner item |> Option.map (fun item -> "NySet(" + item + ")")
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ key; value ]) ->
             match inner key, inner value with
@@ -129,7 +130,10 @@ module ZigBackend =
           /// parameter and the given result type.
           Call: FunctionId -> (ParameterId * TypeRef) list -> TypeRef -> string
           Parameters: FunctionId -> (ParameterId * TypeRef) list
-          OperationParameters: CapabilityOperationId -> CapabilityParameterId list }
+          OperationParameters: CapabilityOperationId -> CapabilityParameterId list
+          OperationResult: CapabilityOperationId -> TypeRef
+          /// Whether a function may end with a host failure, so its calls need `try`.
+          MayFail: FunctionId -> bool }
 
     let private itemType (typeRef: TypeRef) =
         match typeRef with
@@ -168,6 +172,7 @@ module ZigBackend =
             let name = context.Call functionId (arguments |> List.map (fun (id, _, typeRef) -> id, typeRef)) result
             name + "(" + String.Join(", ", arguments |> List.map (fun (_, expression, _) -> expression)) + ")"
         let block (body: string) = assign ("blk: { " + body + " }")
+        let attempt (functionId: FunctionId) (call: string) = if context.MayFail functionId then "try " + call else call
         /// A comparison callback as a Zig function value: bound values travel in `c`, the two
         /// compared items are `l` and `r`.
         let comparator (functionId: FunctionId) (bindings: ExecutionCallArgument list) (item: TypeRef) (first: string) (second: string) =
@@ -374,7 +379,32 @@ module ZigBackend =
         | ExecutionInstructionKind.CapabilityInvoke(capability, operationId, arguments) ->
             let byParameter = arguments |> List.map (fun argument -> argument.TargetCapabilityParameterId, argument.ValueId) |> Map.ofList
             let rendered = context.OperationParameters operationId |> List.map (fun id -> v (Map.find id byParameter))
-            assign (v capability + "." + operationName operationId + "(" + String.Join(", ", rendered) + ")")
+            assign ("try " + v capability + "." + operationName operationId + "(" + String.Join(", ", rendered) + ")")
+        | ExecutionInstructionKind.ExceptionCatch(body, bodyBindings, handler, handlerBindings) ->
+            let result = instruction.Result.Type
+            let bodyCall = callback body bodyBindings [ "NyUnit{}", TypeRef.Primitive PrimitiveType.Unit ] result
+            if not (context.MayFail body) then assign bodyCall
+            else
+                let handlerCall = callback handler handlerBindings [ "failure", TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, []) ] result
+                assign (bodyCall + " catch blk: { const failure = ny_failure; break :blk " + attempt handler handlerCall + "; }")
+        | ExecutionInstructionKind.ExceptionRethrow(value, resultType) -> assign ("try nyRethrow(" + zig resultType + ", " + v value + ")")
+        | ExecutionInstructionKind.ExceptionMessage value -> assign (v value + ".message")
+        | ExecutionInstructionKind.ExceptionIsCancellation value -> assign (v value + ".cancelled")
+        | ExecutionInstructionKind.UseResource(acquire, releaser, releaseOperation, body, bindings) ->
+            // Release runs once acquisition succeeded: on Ok and Err exits, and before a failure of the
+            // body propagates (a release failure then is ignored). A body Err wins over a release Err.
+            let resource = match context.ValueType acquire with TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ ok; _ ]) -> ok | other -> other
+            let bodyCall = callback body bindings [ "resource", resource ] instruction.Result.Type
+            let release = v releaser + "." + operationName releaseOperation + "(resource)"
+            let guarded =
+                if context.MayFail body then bodyCall + " catch { const saved = ny_failure; _ = " + release + " catch {}; ny_failure = saved; return error.NyFailure; }"
+                else bodyCall
+            let finish =
+                match context.OperationResult releaseOperation with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, _) ->
+                    "const released = try " + release + "; if (outcome == .ok and released == .err) break :blk .{ .err = released.err }; break :blk outcome;"
+                | _ -> "_ = try " + release + "; break :blk outcome;"
+            block ("const acquired = " + v acquire + "; if (acquired == .err) break :blk .{ .err = acquired.err }; const resource = acquired.ok; const outcome = " + guarded + "; " + finish)
         | ExecutionInstructionKind.ListSortBy(source, lessThan, bindings) ->
             let context, less = comparator lessThan bindings (itemType (context.ValueType source)) "l" "r"
             assign ("nySortBy(" + elementOf source + ", " + v source + ", " + context + ", " + less + ")")
@@ -397,7 +427,7 @@ module ZigBackend =
             let byParameter = arguments |> List.map (fun argument -> argument.TargetParameterId, argument.ValueId) |> Map.ofList
             let parameters = context.Parameters functionId |> List.map fst
             let name = context.Call functionId (parameters |> List.map (fun id -> id, context.ValueType (Map.find id byParameter))) instruction.Result.Type
-            assign (name + "(" + String.Join(", ", parameters |> List.map (fun id -> v (Map.find id byParameter))) + ")")
+            assign (attempt functionId (name + "(" + String.Join(", ", parameters |> List.map (fun id -> v (Map.find id byParameter))) + ")"))
         | _ -> None
 
     let private caseName (value: obj) =
@@ -429,7 +459,8 @@ module ZigBackend =
         let parameters =
             fn.Parameters
             |> List.map (fun parameter -> parameterName parameter.SemanticParameterId + ": " + zig parameter.Value.Type)
-        line ("fn " + name + "(" + String.Join(", ", parameters) + ") " + zig fn.ResultType + " {")
+        let failure = if context.MayFail fn.SemanticFunctionId then "NyError!" else ""
+        line ("fn " + name + "(" + String.Join(", ", parameters) + ") " + failure + zig fn.ResultType + " {")
         let values =
             valuesOf fn
             |> List.distinctBy (fun value -> value.Id)
@@ -534,6 +565,38 @@ module ZigBackend =
             program.Capabilities
             |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id, operation.Parameters |> List.map (fun parameter -> parameter.Id)))
             |> Map.ofList
+        // A function may fail when it invokes a capability, rethrows, uses a resource, or calls (or
+        // handles failures with) a function that may fail; pure callbacks never fail.
+        let mayFail =
+            let direct (fn: ExecutionFunction) =
+                fn.Blocks |> List.exists (fun block ->
+                    block.Instructions |> List.exists (fun instruction ->
+                        match instruction.Kind with
+                        | ExecutionInstructionKind.CapabilityInvoke _
+                        | ExecutionInstructionKind.ExceptionRethrow _
+                        | ExecutionInstructionKind.UseResource _ -> true
+                        | _ -> false))
+            let callees (fn: ExecutionFunction) =
+                fn.Blocks |> List.collect (fun block ->
+                    block.Instructions |> List.collect (fun instruction ->
+                        match instruction.Kind with
+                        | ExecutionInstructionKind.DirectCall(callee, _) -> [ callee ]
+                        | ExecutionInstructionKind.ExceptionCatch(_, _, handler, _) -> [ handler ]
+                        | _ -> []))
+            let mutable failing = program.Functions |> List.filter direct |> List.map (fun fn -> fn.SemanticFunctionId) |> Set.ofList
+            let mutable changed = true
+            while changed do
+                let next =
+                    program.Functions
+                    |> List.filter (fun fn -> callees fn |> List.exists (fun callee -> Set.contains callee failing))
+                    |> List.fold (fun state fn -> Set.add fn.SemanticFunctionId state) failing
+                changed <- next.Count <> failing.Count
+                failing <- next
+            failing
+        let operationResults =
+            program.Capabilities
+            |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id, operation.ResultType))
+            |> Map.ofList
         let zigOf typeRef =
             match zigType types capabilities record typeRef with
             | Some text -> Some text
@@ -568,7 +631,9 @@ module ZigBackend =
                   ValueType = fun id -> Map.find id valueTypes
                   Call = call
                   Parameters = parametersOf
-                  OperationParameters = fun id -> Map.find id operationParameters }
+                  OperationParameters = fun id -> Map.find id operationParameters
+                  OperationResult = fun id -> Map.find id operationResults
+                  MayFail = fun id -> Set.contains id mayFail }
             for value in valuesOf fn do zigOf value.Type |> ignore
             zigOf fn.ResultType |> ignore
             let unsupported =
@@ -615,7 +680,7 @@ module ZigBackend =
                     let recorded = operation.Parameters |> List.map (fun parameter -> identifier "a_" (StableId.value parameter.Id))
                     let keyed = operation.Parameters |> List.sortBy (fun parameter -> StableId.value parameter.Id) |> List.map (fun parameter -> identifier "a_" (StableId.value parameter.Id))
                     let scripts = identifier "ny_scripts_" (StableId.value operation.Id)
-                    line ("    pub fn " + operationName operation.Id + "(self: @This()" + String.concat "" (parameters |> List.map (fun item -> ", " + item)) + ") " + result + " {")
+                    line ("    pub fn " + operationName operation.Id + "(self: @This()" + String.concat "" (parameters |> List.map (fun item -> ", " + item)) + ") NyError!" + result + " {")
                     line ("        nyRecordCall(self.site + " + string index + ", .{ " + String.Join(", ", recorded) + " });")
                     line ("        return nyRespond(" + result + ", &" + scripts + "[self.fake], .{ " + String.Join(", ", keyed) + " });")
                     line "    }"

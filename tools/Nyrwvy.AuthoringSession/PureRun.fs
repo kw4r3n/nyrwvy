@@ -1248,7 +1248,7 @@ module PureRun =
                         | other -> $"        const a{index} = nyDecode({zigType other}, &tokens);\n")
                 $"    if (std.mem.eql(u8, entry, \"{name}\")) {{\n"
                 + String.concat "" decoded
-                + "        try nyEncode(&value.writer, " + name + "(" + String.Join(", ", entry.Parameters |> List.mapi (fun index _ -> $"a{index}")) + "));\n"
+                + "        try nyEncode(&value.writer, nyValue(" + name + "(" + String.Join(", ", entry.Parameters |> List.mapi (fun index _ -> $"a{index}")) + ")));\n"
                 + "    }\n"
             let runner =
                 source
