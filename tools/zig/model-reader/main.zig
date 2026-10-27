@@ -2482,6 +2482,8 @@ const Scope3c = struct {
     prefix: Str,
     resolver: *Resolver,
     parameters_by_id: ValueMap,
+    all_nodes: []const Value,
+    required_effects: Set,
 };
 var in_function: Scope3c = undefined;
 
@@ -2970,6 +2972,473 @@ fn matchUnionRules(node: Value, input: Str) void {
     if (!compatibleArms(bodies.items)) addIn("MatchArmTypeMismatch", cat(&.{ L("Union match node '"), id, L("' arms do not produce one common type.") }));
 }
 
+/// `TypeParameters.matchType` without changing `substitution`.
+fn matchOne(substitution: *const Substitution, declared: TypeRef, actual: TypeRef) ?Substitution {
+    return matchFrom(substitution, &.{.{ .declared = declared, .actual = actual }});
+}
+
+fn resultOf(callback: Value, substitution: *const Substitution) TypeRef {
+    return substitute(substitution, typeRefOf(get(callback, "resultType")));
+}
+
+const CallbackContext = struct { unbound: []const Value, substitution: Substitution };
+
+/// `validateCallbackContext`: the context's own rules; the parameters it leaves unbound and the
+/// substitution its values determine (empty when they conflict).
+fn validateCallbackContext(node: Value, callback: Value, context: []const Value) CallbackContext {
+    const id = str(node, "id");
+    const targets = a.alloc(Str, context.len) catch oom();
+    for (context, targets) |binding, *t| t.* = str(binding, "targetParameterId");
+    for (countBy(targets).values()) |entry| {
+        if (entry.count > 1) addIn("DuplicateArgumentTarget", cat(&.{ L("Higher-order node '"), id, L("' binds callback parameter '"), entry.id, L("' more than once.") }));
+    }
+    for (targets) |target| {
+        if (parameterOf(callback, target) == null)
+            addIn("UnknownCallbackContextParameter", cat(&.{ L("Higher-order node '"), id, L("' binds '"), target, L("', which is not a parameter of callback '"), str(callback, "id"), L("'.") }));
+    }
+    var pairs: List(Pair) = .empty;
+    for (context) |binding| {
+        const parameter = parameterOf(callback, str(binding, "targetParameterId"));
+        const actual = nodeType(str(binding, "valueNodeId"));
+        if (parameter != null and actual != null) pairs.append(a, .{ .declared = typeRefOf(get(parameter.?, "type")), .actual = actual.? }) catch oom();
+    }
+    const substitution = matchAll(pairs.items) orelse blk: {
+        addIn("CallbackContextTypeMismatch", cat(&.{ L("Higher-order node '"), id, L("' binds a callback parameter to a value of another type.") }));
+        break :blk Substitution.empty;
+    };
+    var unbound: List(Value) = .empty;
+    for (arrayOf(callback, "parameters")) |parameter| {
+        if (!bindsParameter(context, str(parameter, "id"))) unbound.append(a, parameter) catch oom();
+    }
+    return .{ .unbound = unbound.items, .substitution = substitution };
+}
+
+fn parameterType(parameter: Value) TypeRef {
+    return typeRefOf(get(parameter, "type"));
+}
+
+/// The kinds `SemanticNodeShape.isIntrinsicallyEffectful` names.
+const effectful_kinds = "parallelAll cancellationRequested useResource exceptionCatch exceptionRethrow cancellationShield taskScope taskStart taskWait oneShotCreate oneShotComplete oneShotWait taskCancel capabilityInvoke";
+
+/// `PureFunctions.isPure`: the function and every function its nodes name, transitively, are
+/// known, require no effect and hold no intrinsically effectful node.
+fn isPure(function_id: Str) bool {
+    var seen: Set = .empty;
+    var pending: List(Str) = .empty;
+    pending.append(a, function_id) catch oom();
+    while (pending.pop()) |id| {
+        if ((seen.getOrPut(a, idKey(id)) catch oom()).found_existing) continue;
+        const function = functions_by_id.get(idKey(id)) orelse return false;
+        if (arrayOf(function, "requiredEffects").len > 0) return false;
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        for (nodes.items) |node| {
+            if (kindIs(text(str(node, "kind")), effectful_kinds)) return false;
+            for (node.object) |member| {
+                const name = member.name;
+                if (name.len > 10 and isName(name[name.len - 10 ..], "FunctionId")) pending.append(a, member.value.string) catch oom();
+            }
+            for (arrayOf(node, "implementations")) |implementation| pending.append(a, str(implementation, "functionId")) catch oom();
+        }
+    }
+    return true;
+}
+
+/// `callbackEffectsHint`.
+fn effectsHint(comptime collection: []const u8, callback: Value) Str {
+    var out: List(u16) = .empty;
+    const effects = arrayOf(callback, "requiredEffects");
+    if (effects.len > 0) {
+        out.appendSlice(a, L(" The callback requires effect ")) catch oom();
+        for (effects, 0..) |effect, i| {
+            if (i > 0) out.appendSlice(a, L(", ")) catch oom();
+            out.appendSlice(a, effectLabel(effect.string)) catch oom();
+        }
+        out.appendSlice(a, L(".")) catch oom();
+    }
+    out.appendSlice(a, if (comptime std.mem.eql(u8, collection, "List"))
+        L(" To run effects once per item, in order, use ListEffectFold instead (its folder takes the accumulator and the item).")
+    else
+        L(" Do the effectful work outside the callback and pass only pure values into it.")) catch oom();
+    return out.items;
+}
+
+/// `MissingEffectRequirement` for each effect the callback requires and the function does not declare.
+fn missingEffects(callback: Value, before: Str, after: Str) void {
+    for (arrayOf(callback, "requiredEffects")) |effect| {
+        if (!in_function.required_effects.contains(idKey(effect.string)))
+            addIn("MissingEffectRequirement", cat(&.{ before, effectLabel(effect.string), after }));
+    }
+}
+
+fn functionLabel(function: Value) Str {
+    return describe(str(function, "displayName"), str(function, "id"));
+}
+
+/// `validateCallbackOver`: a pure callback taking each List or Set item.
+fn validateCallbackOver(comptime collection: []const u8, node: Value, source: Str, callback_id: Str, context: []const Value, predicate: bool) void {
+    const id = str(node, "id");
+    const head = cat(&.{ L("Higher-order " ++ collection ++ " node '"), id, L("'") });
+    const item: ?TypeRef = if (nodeType(source)) |t| blk: {
+        if (t.kind == .generic and t.args.len == 1 and isName(t.name, if (comptime std.mem.eql(u8, collection, "List")) "list" else "set")) break :blk t.args[0];
+        addIn("HigherOrderSourceTypeMismatch", cat(&.{ head, L(" requires " ++ collection ++ "<T> input.") }));
+        break :blk null;
+    } else null;
+    const callback = functions_by_id.get(idKey(callback_id)) orelse
+        return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references unknown callback function '"), callback_id, L("'.") }));
+    var checked = validateCallbackContext(node, callback, context);
+    if (checked.unbound.len != 1) {
+        addIn("CallbackArityMismatch", cat(&.{ head, L(" requires callback '"), str(callback, "id"), L("' to have exactly one parameter not bound by context.") }));
+    } else if (item) |item_type| {
+        if (matchOne(&checked.substitution, parameterType(checked.unbound[0]), item_type)) |extended| {
+            checked.substitution = extended;
+        } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, L(" callback parameter type does not match the source "), asciiUnits(comptime lowerAscii(collection)), L(" item type.") }));
+    }
+    if (!isPure(str(callback, "id")))
+        addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls."), effectsHint(collection, callback) }));
+    if (predicate and !resultOf(callback, &checked.substitution).isPrimitive("bool"))
+        addIn("PredicateResultTypeMismatch", cat(&.{ head, L(" predicate callback must return Bool.") }));
+}
+
+fn lowerAscii(comptime s: []const u8) []const u8 {
+    comptime var out: [s.len]u8 = undefined;
+    inline for (s, 0..) |c, i| out[i] = comptime std.ascii.toLower(c);
+    const final = out;
+    return &final;
+}
+
+/// `validateLessThanCallback`.
+fn validateLessThanCallback(name: Str, node: Value, source: Str, callback_id: Str, context: []const Value) void {
+    const head = cat(&.{ name, L(" node '"), str(node, "id"), L("'") });
+    const item: ?TypeRef = switch (shapeOf(source, "list", 1)) {
+        .args => |args| args[0],
+        .other => blk: {
+            addIn("HigherOrderSourceTypeMismatch", cat(&.{ head, L(" requires List<T> input.") }));
+            break :blk null;
+        },
+        .unknown => null,
+    };
+    const callback = functions_by_id.get(idKey(callback_id)) orelse
+        return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references unknown callback function '"), callback_id, L("'.") }));
+    var checked = validateCallbackContext(node, callback, context);
+    if (checked.unbound.len != 2) {
+        addIn("CallbackArityMismatch", cat(&.{ head, L(" requires callback '"), str(callback, "id"), L("' to have exactly two parameters not bound by context (left, right).") }));
+    } else if (item) |item_type| {
+        if (matchFrom(&checked.substitution, &.{ .{ .declared = parameterType(checked.unbound[0]), .actual = item_type }, .{ .declared = parameterType(checked.unbound[1]), .actual = item_type } })) |extended| {
+            checked.substitution = extended;
+        } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, L(" callback parameter types must both match the source list item type.") }));
+    }
+    if (!isPure(str(callback, "id")))
+        addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls.") }));
+    if (!resultOf(callback, &checked.substitution).isPrimitive("bool"))
+        addIn("PredicateResultTypeMismatch", cat(&.{ head, L(" less-than callback must return Bool.") }));
+}
+
+/// `validateMapEntryCallback`: MapFilter and MapMapValues.
+fn validateMapEntryCallback(name: Str, require_bool: bool, node: Value, source: Str, callback_id: Str, context: []const Value) void {
+    const head = cat(&.{ name, L(" node '"), str(node, "id"), L("'") });
+    switch (shapeOf(source, "map", 2)) {
+        .args => |args| {
+            const keep = functions_by_id.get(idKey(callback_id)) orelse return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references an unknown callback.") }));
+            var checked = validateCallbackContext(node, keep, context);
+            if (checked.unbound.len == 2) {
+                if (matchFrom(&checked.substitution, &.{ .{ .declared = parameterType(checked.unbound[0]), .actual = args[0] }, .{ .declared = parameterType(checked.unbound[1]), .actual = args[1] } })) |extended| {
+                    checked.substitution = extended;
+                } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, L(" callback input types must match the key and value types.") }));
+            } else addIn("CallbackArityMismatch", cat(&.{ head, L(" callback must have exactly two parameters not bound by context (key, value).") }));
+            if (require_bool and !resultOf(keep, &checked.substitution).isPrimitive("bool"))
+                addIn("PredicateResultTypeMismatch", cat(&.{ head, L(" callback must return Bool.") }));
+            if (!isPure(str(keep, "id")))
+                addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" callback must be pure, including its transitive calls and ambient task or cancellation behavior.") }));
+        },
+        .other => addIn("MapInputTypeMismatch", cat(&.{ head, L(" requires a Map<K, V> input.") })),
+        .unknown => {},
+    }
+}
+
+const CasePayload = enum { option_item, result_ok, result_error };
+const BinderResult = enum { none, option, result_with_source_error };
+
+fn casePayload(t: TypeRef, payload: CasePayload) ?TypeRef {
+    return switch (payload) {
+        .option_item => if (t.isGeneric("option") and t.args.len == 1) t.args[0] else null,
+        .result_ok => if (t.isGeneric("result") and t.args.len == 2) t.args[0] else null,
+        .result_error => if (t.isGeneric("result") and t.args.len == 2) t.args[1] else null,
+    };
+}
+
+/// `validateCaseCallback`: OptionMap, OptionAndThen, ResultMap, ResultMapErr and ResultAndThen.
+fn validateCaseCallback(name: Str, comptime source_shape: []const u8, node: Value, source: Str, callback_id: Str, context: []const Value, payload: CasePayload, binder: BinderResult) void {
+    const head = cat(&.{ name, L(" node '"), str(node, "id"), L("'") });
+    const source_type = nodeType(source) orelse return;
+    const payload_type = casePayload(source_type, payload) orelse return addIn("HigherOrderSourceTypeMismatch", cat(&.{ head, L(" requires " ++ source_shape ++ " input.") }));
+    const callback = functions_by_id.get(idKey(callback_id)) orelse
+        return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references unknown callback function '"), callback_id, L("'.") }));
+    var checked = validateCallbackContext(node, callback, context);
+    if (checked.unbound.len == 1) {
+        if (matchOne(&checked.substitution, parameterType(checked.unbound[0]), payload_type)) |extended| {
+            checked.substitution = extended;
+        } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, L(" callback parameter type does not match the " ++ source_shape ++ " payload type.") }));
+    } else addIn("CallbackArityMismatch", cat(&.{ head, L(" requires callback '"), str(callback, "id"), L("' to have exactly one parameter not bound by context.") }));
+    const result = resultOf(callback, &checked.substitution);
+    switch (binder) {
+        .none => {},
+        .option => if (casePayload(result, .option_item) == null) addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" callback must return Option<R>.") })),
+        .result_with_source_error => {
+            const source_error = casePayload(source_type, .result_error);
+            const result_error = casePayload(result, .result_error);
+            if (source_error == null or result_error == null or !typeEql(source_error.?, result_error.?))
+                addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" callback must return Result<R, E> with the source's error type E.") }));
+        },
+    }
+    if (!isPure(str(callback, "id")))
+        addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls.") }));
+}
+
+/// ListFold, ListScan, SetFold, MapFold and ListEffectFold.
+fn validateFold(name: Str, kind: []const u8, node: Value, ops: []const Str, context: []const Value) void {
+    const head = cat(&.{ name, L(" node '"), str(node, "id"), L("'") });
+    const is_map = std.mem.eql(u8, kind, "mapFold");
+    const is_set = std.mem.eql(u8, kind, "setFold");
+    const effect = std.mem.eql(u8, kind, "listEffectFold");
+    const source_shape = if (is_map) shapeOf(ops[0], "map", 2) else if (is_set) shapeOf(ops[0], "set", 1) else shapeOf(ops[0], "list", 1);
+    const seed_type = nodeType(ops[1]);
+    if (source_shape == .unknown or seed_type == null) return;
+    const args = switch (source_shape) {
+        .args => |args| args,
+        else => return if (is_map)
+            addIn("MapInputTypeMismatch", cat(&.{ head, L(" requires a Map<K, V> input.") }))
+        else if (is_set)
+            addIn("SetInputTypeMismatch", cat(&.{ head, L(" requires a Set<T> input.") }))
+        else
+            addIn("HigherOrderSourceTypeMismatch", cat(&.{ head, L(" requires List<T> input.") })),
+    };
+    const seed = seed_type.?;
+    const folder = functions_by_id.get(idKey(str(node, "folderFunctionId"))) orelse
+        return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references an unknown folder.") }));
+    var checked = validateCallbackContext(node, folder, context);
+    const arity: usize = if (is_map) 3 else 2;
+    if (checked.unbound.len != arity) {
+        addIn("CallbackArityMismatch", if (is_map)
+            cat(&.{ head, L(" folder must have exactly three parameters not bound by context (accumulator, key, value).") })
+        else
+            cat(&.{ head, L(" folder must have exactly two parameters not bound by context (accumulator, item).") }));
+    } else {
+        var pairs: List(Pair) = .empty;
+        pairs.append(a, .{ .declared = parameterType(checked.unbound[0]), .actual = seed }) catch oom();
+        for (checked.unbound[1..], args) |parameter, t| pairs.append(a, .{ .declared = parameterType(parameter), .actual = t }) catch oom();
+        if (matchFrom(&checked.substitution, pairs.items)) |extended| {
+            checked.substitution = extended;
+        } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, if (is_map) L(" folder input types must match the seed, key and value types.") else if (is_set) L(" folder input types must match seed and set item types.") else L(" folder input types must match seed and list item types.") }));
+    }
+    const result = resultOf(folder, &checked.substitution);
+    if (effect) {
+        const accepted = typeEql(result, seed) or (result.isGeneric("result") and result.args.len == 2 and typeEql(result.args[0], seed));
+        if (!accepted) addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" folder must return the seed type S or Result<S, E>.") }));
+        missingEffects(folder, cat(&.{ L("Function "), functionLabel(in_function.function), L(" folds with "), functionLabel(folder), L(" but does not declare required effect ") }), L("."));
+        return;
+    }
+    if (!typeEql(result, seed)) addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" folder must return the seed type.") }));
+    if (!isPure(str(folder, "id")))
+        addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" folder must be pure, including its transitive calls and ambient task or cancellation behavior.") }));
+}
+
+/// A body callback with one unbound parameter of a fixed type (CancellationShield, TaskScope,
+/// UseResource): the substitution that makes it fit, or none.
+fn bodySubstitution(checked: *const CallbackContext, input: TypeRef) ?Substitution {
+    if (checked.unbound.len != 1) return null;
+    return matchOne(&checked.substitution, parameterType(checked.unbound[0]), input);
+}
+
+/// The higher-order, effect and task nodes (Validation.fs `ListFold` … `ListAll`).
+fn callbackRules(node: Value, local: *const Set) void {
+    const kind = text(str(node, "kind"));
+    const name = caseNameOf(str(node, "kind"));
+    const id = str(node, "id");
+    const ops = operandsOf(node);
+    const context = arrayOf(node, "context");
+    const function_label = functionLabel(in_function.function);
+    if (kindIs(kind, "listFold listScan mapFold setFold listEffectFold")) {
+        validateFold(name, kind, node, ops, context);
+    } else if (kindIs(kind, "mapFilter mapMapValues")) {
+        validateMapEntryCallback(name, std.mem.eql(u8, kind, "mapFilter"), node, ops[0], str(node, if (std.mem.eql(u8, kind, "mapFilter")) "keepFunctionId" else "mapperFunctionId"), context);
+    } else if (kindIs(kind, "setFilter setMap")) {
+        const filter = std.mem.eql(u8, kind, "setFilter");
+        validateCallbackOver("Set", node, ops[0], str(node, if (filter) "predicateFunctionId" else "mapperFunctionId"), context, filter);
+        if (!filter) if (nodeType(id)) |t| if (t.isGeneric("set") and t.args.len == 1 and !isEquatable(t.args[0]))
+            addIn("SetItemTypeNotEquatable", cat(&.{ L("SetMap node '"), id, L("' makes a Set of a type that is not equatable: "), explainEquatable(t.args[0]) }));
+    } else if (std.mem.eql(u8, kind, "optionMap")) {
+        validateCaseCallback(name, "Option<T>", node, ops[0], str(node, "mapperFunctionId"), context, .option_item, .none);
+    } else if (std.mem.eql(u8, kind, "optionAndThen")) {
+        validateCaseCallback(name, "Option<T>", node, ops[0], str(node, "binderFunctionId"), context, .option_item, .option);
+    } else if (std.mem.eql(u8, kind, "resultMap")) {
+        validateCaseCallback(name, "Result<T, E>", node, ops[0], str(node, "mapperFunctionId"), context, .result_ok, .none);
+    } else if (std.mem.eql(u8, kind, "resultMapErr")) {
+        validateCaseCallback(name, "Result<T, E>", node, ops[0], str(node, "mapperFunctionId"), context, .result_error, .none);
+    } else if (std.mem.eql(u8, kind, "resultAndThen")) {
+        validateCaseCallback(name, "Result<T, E>", node, ops[0], str(node, "binderFunctionId"), context, .result_ok, .result_with_source_error);
+    } else if (std.mem.eql(u8, kind, "listZipWith")) {
+        const left = shapeOf(ops[0], "list", 1);
+        const right = shapeOf(ops[1], "list", 1);
+        if (left == .unknown or right == .unknown) return;
+        if (left == .other or right == .other) return addIn("HigherOrderSourceTypeMismatch", nodeMessage(name, node, "requires List<T> inputs."));
+        const combiner = functions_by_id.get(idKey(str(node, "combinerFunctionId"))) orelse
+            return addIn("UnknownCallbackFunction", nodeMessage(name, node, "references an unknown combiner."));
+        const checked = validateCallbackContext(node, combiner, context);
+        if (checked.unbound.len != 2) {
+            addIn("CallbackArityMismatch", nodeMessage(name, node, "combiner must have exactly two parameters not bound by context (left item, right item)."));
+        } else if (matchFrom(&checked.substitution, &.{ .{ .declared = parameterType(checked.unbound[0]), .actual = left.args[0] }, .{ .declared = parameterType(checked.unbound[1]), .actual = right.args[0] } }) == null)
+            addIn("CallbackParameterTypeMismatch", nodeMessage(name, node, "combiner input types must match the left and right list item types."));
+        if (!isPure(str(combiner, "id")))
+            addIn("CallbackEffectsNotAllowed", nodeMessage(name, node, "combiner must be pure, including its transitive calls and ambient task or cancellation behavior."));
+    } else if (kindIs(kind, "listMap listFlatMap mapFromList listFilter listAny listFindIndex listAll")) {
+        const callback_id = str(node, if (std.mem.eql(u8, kind, "mapFromList")) "keyOfFunctionId" else if (kindIs(kind, "listMap listFlatMap")) "mapperFunctionId" else "predicateFunctionId");
+        validateCallbackOver("List", node, ops[0], callback_id, context, kindIs(kind, "listFilter listAny listFindIndex listAll"));
+        if (std.mem.eql(u8, kind, "listFlatMap")) {
+            if (shapeOf(ops[0], "list", 1) == .args and functions_by_id.contains(idKey(callback_id)) and nodeType(id) == null)
+                addIn("CallbackResultTypeMismatch", nodeMessage(name, node, "mapper must return List<R>."));
+        } else if (std.mem.eql(u8, kind, "mapFromList")) {
+            if (nodeType(id)) |t| if (t.isGeneric("map") and t.args.len == 2 and !isEquatable(t.args[0]))
+                addIn("MapKeyTypeNotEquatable", cat(&.{ L("MapFromList node '"), id, L("' makes keys of a type that is not equatable: "), explainEquatable(t.args[0]) }));
+        }
+    } else if (kindIs(kind, "listSortBy listMinBy listMaxBy")) {
+        validateLessThanCallback(name, node, ops[0], str(node, "lessThanFunctionId"), context);
+    } else if (std.mem.eql(u8, kind, "useResource")) {
+        useResourceRules(node, local);
+    } else if (std.mem.eql(u8, kind, "exceptionCatch")) {
+        const body = catchCallback(node, "body", str(node, "bodyFunctionId"), arrayOf(node, "bodyContext"), primitiveType("unit"), L("Primitive Unit"));
+        const handler = catchCallback(node, "handler", str(node, "handlerFunctionId"), arrayOf(node, "handlerContext"), builtin("exception", &.{}), L("BuiltinGeneric (Exception, [])"));
+        if (body != null and handler != null) {
+            const same_result = body.?.isGeneric("result") and body.?.args.len == 2 and typeEql(body.?, handler.?);
+            if (!same_result) addIn("ExceptionCatchResultMismatch", L("ExceptionCatch callbacks must return the same Result<T, E>."));
+        }
+    } else if (kindIs(kind, "exceptionIsCancellation exceptionMessage exceptionRethrow")) {
+        const value_type = nodeType(ops[0]);
+        if (value_type == null or !typeEql(value_type.?, builtin("exception", &.{})))
+            addIn("ExceptionValueTypeMismatch", cat(&.{ name, L(" requires an Exception value.") }));
+    } else if (kindIs(kind, "cancellationShield taskScope")) {
+        const shield = std.mem.eql(u8, kind, "cancellationShield");
+        const body = functions_by_id.get(idKey(str(node, "bodyFunctionId"))) orelse
+            return addIn("UnknownCallTarget", nodeMessage(name, node, "references an unknown body function."));
+        const checked = validateCallbackContext(node, body, context);
+        const fitted = bodySubstitution(&checked, if (shield) primitiveType("unit") else builtin("taskScope", &.{}));
+        if (fitted == null) addIn(if (shield) "CancellationShieldBodyMismatch" else "TaskScopeBodyMismatch", if (shield) nodeMessage(name, node, "body must have exactly one unbound parameter of type Unit.") else nodeMessage(name, node, "body must have exactly one unbound parameter of type TaskScope."));
+        const result = resultOf(body, if (fitted) |*f| f else &checked.substitution);
+        if (!(result.isGeneric("result") and result.args.len == 2))
+            addIn(if (shield) "CancellationShieldResultMismatch" else "TaskScopeResultMismatch", nodeMessage(name, node, "body must return Result<T, E>."));
+        missingEffects(body, cat(&.{ L("Function "), function_label, if (shield) L(" runs cancellation shield body ") else L(" runs task scope body "), functionLabel(body), L(" but does not declare required effect ") }), L("."));
+    } else if (std.mem.eql(u8, kind, "taskStart")) {
+        // `TaskBoundValueCrossesTask` (rejectTaskBound) belongs to slice 3d.
+        if (nodeType(ops[0])) |scope| if (!typeEql(scope, builtin("taskScope", &.{})))
+            addIn("TaskStartScopeTypeMismatch", nodeMessage(name, node, "requires a TaskScope value as its scope."));
+        const item = nodeType(ops[1]);
+        const worker = functions_by_id.get(idKey(str(node, "workerFunctionId"))) orelse
+            return addIn("UnknownCallbackFunction", nodeMessage(name, node, "references an unknown worker."));
+        const item_type = item orelse return;
+        workerRules(name, node, worker, context, item_type, " starts ", " as a task but does not declare required effect ");
+    } else if (std.mem.eql(u8, kind, "parallelAll")) {
+        const source = shapeOf(ops[0], "list", 1);
+        const worker = functions_by_id.get(idKey(str(node, "workerFunctionId")));
+        if (source == .args and worker != null) {
+            workerRules(name, node, worker.?, context, source.args[0], " runs ", " in parallel but does not declare required effect ");
+        } else if (source == .other and worker != null) {
+            addIn("HigherOrderSourceTypeMismatch", nodeMessage(name, node, "requires List<T> input."));
+        } else if (worker == null) addIn("UnknownCallbackFunction", nodeMessage(name, node, "references an unknown worker."));
+    } else if (std.mem.eql(u8, kind, "taskWait")) {
+        if (nodeType(str(node, "tasksNodeId"))) |t| if (!(t.isGeneric("list") and t.args.len == 1 and t.args[0].isGeneric("task") and t.args[0].args.len == 1))
+            addIn("TaskWaitInputTypeMismatch", nodeMessage(name, node, "requires List<Task<T>> input."));
+        if (limitType(node)) |t| if (!isOptionInt64(t)) addIn("TaskWaitLimitTypeMismatch", nodeMessage(name, node, "requires an Option<Int64> limit."));
+    } else if (std.mem.eql(u8, kind, "oneShotCreate")) {
+        if (nodeType(ops[0])) |t| if (!typeEql(t, builtin("taskScope", &.{}))) addIn("OneShotScopeTypeMismatch", L("OneShotCreate requires a TaskScope."));
+    } else if (std.mem.eql(u8, kind, "oneShotComplete")) {
+        const cell = nodeType(ops[0]) orelse return;
+        if (!(cell.isGeneric("oneShot") and cell.args.len == 1)) return addIn("OneShotCellTypeMismatch", L("OneShotComplete requires OneShot<T>."));
+        if (nodeType(ops[1])) |actual| if (!typeEql(cell.args[0], actual)) addIn("OneShotValueTypeMismatch", L("OneShotComplete payload must match the cell's exact type."));
+    } else if (std.mem.eql(u8, kind, "oneShotWait")) {
+        if (nodeType(ops[0])) |cell| if (!(cell.isGeneric("oneShot") and cell.args.len == 1)) addIn("OneShotCellTypeMismatch", L("OneShotWait requires OneShot<T>."));
+        if (limitType(node)) |t| if (!isOptionInt64(t)) addIn("OneShotLimitTypeMismatch", L("OneShotWait requires Option<Int64> limit."));
+    } else if (std.mem.eql(u8, kind, "taskCancel")) {
+        if (nodeType(ops[0])) |t| if (!(t.isGeneric("task") and t.args.len == 1)) addIn("TaskCancelInputTypeMismatch", nodeMessage(name, node, "requires a Task<T> input."));
+    }
+}
+
+fn limitType(node: Value) ?TypeRef {
+    const limit = tryProperty("limitNodeId", node) orelse return null;
+    return nodeType(limit.string);
+}
+
+fn isOptionInt64(t: TypeRef) bool {
+    return t.isGeneric("option") and t.args.len == 1 and t.args[0].isPrimitive("int64");
+}
+
+/// The worker of TaskStart and ParallelAll, given the item it receives.
+fn workerRules(name: Str, node: Value, worker: Value, context: []const Value, item_type: TypeRef, comptime runs: []const u8, comptime missing: []const u8) void {
+    const checked = validateCallbackContext(node, worker, context);
+    if (bodySubstitution(&checked, item_type)) |fitted| {
+        const result = resultOf(worker, &fitted);
+        if (!(result.isGeneric("result") and result.args.len == 2)) addIn("CallbackResultTypeMismatch", nodeMessage(name, node, "worker must return Result<U, E>."));
+    } else addIn("CallbackParameterTypeMismatch", nodeMessage(name, node, "worker must take exactly one unbound parameter of the item type."));
+    missingEffects(worker, cat(&.{ L("Function "), functionLabel(in_function.function), L(runs), functionLabel(worker), L(missing) }), L("."));
+}
+
+/// One callback of ExceptionCatch: its result type, or none when the function is unknown.
+fn catchCallback(node: Value, comptime role: []const u8, function_id: Str, context: []const Value, input: TypeRef, input_text: Str) ?TypeRef {
+    const callback = functions_by_id.get(idKey(function_id)) orelse {
+        addIn("UnknownCallTarget", L("ExceptionCatch " ++ role ++ " references an unknown function."));
+        return null;
+    };
+    const checked = validateCallbackContext(node, callback, context);
+    const fitted = bodySubstitution(&checked, input);
+    if (fitted == null) addIn("ExceptionCatchCallbackMismatch", cat(&.{ L("ExceptionCatch " ++ role ++ " must have one unbound parameter of type "), input_text, L(".") }));
+    missingEffects(callback, L("ExceptionCatch " ++ role ++ " requires effect "), L("."));
+    return resultOf(callback, if (fitted) |*f| f else &checked.substitution);
+}
+
+/// `capabilityOperationsById`: each operation with its capability (the last of a duplicated ID wins).
+var operation_owners: std.StringArrayHashMapUnmanaged(Str) = .empty;
+
+fn useResourceRules(node: Value, local: *const Set) void {
+    const id = str(node, "id");
+    const acquire = str(node, "acquireNodeId");
+    const head = cat(&.{ L("UseResource node '"), id, L("'") });
+    if (in_function.resolver.nodes_by_id.contains(idKey(acquire))) {
+        if (!local.contains(idKey(acquire)))
+            addIn("UseResourceAcquireOutOfGraph", cat(&.{ head, L(" acquires resource node '"), acquire, L("' from an enclosing graph; the acquisition must be owned by the same graph as the node that releases it.") }));
+        for (in_function.all_nodes) |other| {
+            if (same(str(other, "id"), id)) continue;
+            for (operandsOf(other)) |reference| if (same(reference, acquire)) {
+                addIn("UseResourceAcquireShared", cat(&.{ head, L(" must be the only consumer of resource node '"), acquire, L("', which node '"), str(other, "id"), L("' also uses.") }));
+                break;
+            };
+        }
+    }
+    const acquired = nodeType(acquire) orelse return;
+    if (!(acquired.isGeneric("result") and acquired.args.len == 2)) return addIn("UseResourceAcquireTypeMismatch", cat(&.{ head, L(" acquisition must produce Result<R, E>.") }));
+    const body = functions_by_id.get(idKey(str(node, "bodyFunctionId"))) orelse return addIn("UnknownCallTarget", cat(&.{ head, L(" references an unknown body function.") }));
+    const release_id = idKey(str(node, "releaseOperationId"));
+    const operation = operations_by_id.get(release_id) orelse return addIn("UnknownCapabilityOperation", cat(&.{ head, L(" references an unknown release operation.") }));
+    const resource_type = acquired.args[0];
+    const error_type = acquired.args[1];
+    const checked = validateCallbackContext(node, body, arrayOf(node, "context"));
+    const fitted = bodySubstitution(&checked, resource_type);
+    if (fitted == null) addIn("UseResourceBodyMismatch", cat(&.{ head, L(" body must have exactly one unbound parameter of the resource type.") }));
+    const result = resultOf(body, if (fitted) |*f| f else &checked.substitution);
+    if (!(result.isGeneric("result") and result.args.len == 2 and typeEql(result.args[1], error_type)))
+        addIn("UseResourceResultMismatch", cat(&.{ head, L(" body must return Result<T, E> with the acquisition error type.") }));
+    const receiver = nodeType(str(node, "releaseCapabilityNodeId"));
+    if (receiver == null or receiver.?.kind != .capability or !same(receiver.?.name, operation_owners.get(release_id).?))
+        addIn("UseResourceReleaseReceiverMismatch", cat(&.{ head, L(" release capability does not own the release operation.") }));
+    const parameters = arrayOf(operation, "parameters");
+    const release_result = typeRefOf(get(operation, "resultType"));
+    const signature = parameters.len == 1 and typeEql(parameterType(parameters[0]), resource_type) and
+        (release_result.isPrimitive("unit") or typeEql(release_result, builtin("result", &.{ primitiveType("unit"), error_type })));
+    if (!signature) addIn("UseResourceReleaseSignatureMismatch", cat(&.{ head, L(" release must take the resource and return Unit or Result<Unit, E>.") }));
+    const before = cat(&.{ L("Function "), functionLabel(in_function.function), L(" uses a resource requiring effect ") });
+    missingEffects(body, before, L(" that it does not declare."));
+    const effect_id = str(operation, "effectId");
+    if (!in_function.required_effects.contains(idKey(effect_id))) addIn("MissingEffectRequirement", cat(&.{ before, effectLabel(effect_id), L(" that it does not declare.") }));
+}
+
 /// `validateGraph`: the graph's own rules, each node's rules, then its nested graphs.
 fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, context: Str, graph: Value) void {
     const nodes = arrayOf(graph, "nodes");
@@ -2992,6 +3461,7 @@ fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, contex
         scalarRules(node);
         collectionRules(node);
         structureRules(node, result_id);
+        callbackRules(node, &local);
         const kind = str(node, "kind");
         if (isName(kind, "parameterReference")) {
             const parameter_id = str(node, "parameterId");
@@ -3069,10 +3539,12 @@ fn validateFunctionGraphs(functions: []const Value) void {
     for (functions) |function| {
         const label = describe(str(function, "displayName"), str(function, "id"));
         var resolver = Resolver.init(function);
-        in_function = .{ .function = function, .prefix = inFunction(function), .resolver = &resolver, .parameters_by_id = byId(arrayOf(function, "parameters")) };
         const body = get(function, "body");
         var nodes: List(Value) = .empty;
         collectNodes(body, &nodes);
+        var required_effects: Set = .empty;
+        for (arrayOf(function, "requiredEffects")) |effect| required_effects.put(a, idKey(effect.string), {}) catch oom();
+        in_function = .{ .function = function, .prefix = inFunction(function), .resolver = &resolver, .parameters_by_id = byId(arrayOf(function, "parameters")), .all_nodes = nodes.items, .required_effects = required_effects };
         for (nodes.items) |node| {
             var references: List(Str) = .empty;
             directValueReferences(node, &references);
@@ -3291,6 +3763,9 @@ fn validate(root: Value) void {
 
     all_capabilities = capabilities;
     operations_by_id = byId(operations.items);
+    operation_owners = .empty;
+    for (capabilities) |capability| for (arrayOf(capability, "operations")) |operation|
+        operation_owners.put(a, idKey(str(operation, "id")), str(capability, "id")) catch oom();
     var product_fields: List(Value) = .empty;
     product_field_owners = .empty;
     for (types) |type_entity| if (isName(str(type_entity, "kind"), "product")) for (arrayOf(type_entity, "fields")) |field| {

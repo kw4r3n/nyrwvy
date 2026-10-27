@@ -506,6 +506,63 @@ module ZigValidatorSupport =
               let bindings = objectsIn root |> List.collect (fun o -> [ for name in [ "valueBinding"; "errorBinding"; "binding" ] do match o[name] with :? JsonObject as b -> yield b | _ -> () ])
               for b in bindings do b["type"] <- prim "bytes"
               not bindings.IsEmpty)
+          // Callbacks: signatures, purity and context bindings.
+          "every function gains an Int64 parameter",
+          (fun root ->
+              for f in functions root do (f["parameters"] :?> JsonArray).Add(obj [ "id", s ("extra-" + string (f["id"])); "displayName", s "extra"; "type", prim "int64" ])
+              not (functions root).IsEmpty)
+          "every function loses its first parameter",
+          (fun root ->
+              let mutable changed = false
+              for f in functions root do
+                  let parameters = f["parameters"] :?> JsonArray
+                  if parameters.Count > 0 then (parameters.RemoveAt 0; changed <- true)
+              changed)
+          "function parameter types become Bytes",
+          (fun root ->
+              let mutable changed = false
+              for f in functions root do
+                  for p in f["parameters"] :?> JsonArray do (p["type"] <- prim "bytes"; changed <- true)
+              changed)
+          "function results become Bytes",
+          (fun root ->
+              for f in functions root do f["resultType"] <- prim "bytes"
+              not (functions root).IsEmpty)
+          "every function requires the first effect",
+          (fun root ->
+              match root["effects"] with
+              | :? JsonArray as effects when effects.Count > 0 ->
+                  for f in functions root do (f["requiredEffects"] :?> JsonArray).Add(s (string (effects[0]["id"])))
+                  true
+              | _ -> false)
+          for mode in 0 .. 2 do
+              $"context bindings are duplicated, retargeted or given a String value ({mode})",
+              (fun root ->
+                  let mutable changed = false
+                  for f in functions root do
+                      for node in ZigModelReaderSupport.graphNodes f do
+                          for name in [ "context"; "bodyContext"; "handlerContext" ] do
+                              match node[name] with
+                              | :? JsonArray as bindings when bindings.Count > 0 ->
+                                  changed <- true
+                                  match mode with
+                                  | 0 -> bindings.Add(bindings[0].DeepClone())
+                                  | 1 -> bindings[0]["targetParameterId"] <- s "missing-parameter"
+                                  | _ ->
+                                      ((f["body"] :?> JsonObject)["nodes"] :?> JsonArray).Add(literalNode ("ctx-" + string (node["id"])) "string")
+                                      bindings[0]["valueNodeId"] <- s ("ctx-" + string (node["id"]))
+                              | _ -> ()
+                  changed)
+          "waits get a String limit",
+          (fun root ->
+              let mutable changed = false
+              for f in functions root do
+                  for node in ZigModelReaderSupport.graphNodes f do
+                      if string (node["kind"]) = "oneShotWait" || string (node["kind"]) = "taskWait" then
+                          ((f["body"] :?> JsonObject)["nodes"] :?> JsonArray).Add(literalNode ("limit-" + string (node["id"])) "string")
+                          node["limitNodeId"] <- s ("limit-" + string (node["id"]))
+                          changed <- true
+              changed)
           "string literals hold a lone surrogate",
           (fun root ->
               let literals = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> string n["kind"] = "stringLiteral")
