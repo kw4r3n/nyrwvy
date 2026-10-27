@@ -11,6 +11,7 @@
     <Compile Include="MilestoneFourProviderEndToEndTests.fs" />
     <Compile Include="ExternalCapabilityBindingTests.fs" />
     <Compile Include="CSharpMappingTableTests.fs" />
+    <Compile Include="CSharpMappingTableGhosttyTests.fs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />

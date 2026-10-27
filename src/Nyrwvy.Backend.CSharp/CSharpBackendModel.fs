@@ -20,6 +20,12 @@ type CSharpNativeValue =
     /// An opaque pointer held by a handle capability value; `release` marks the handle closed.
     | Handle of release: bool
     | Void
+    /// A 64-bit C value carried bit for bit in an Int64 (an opaque reference such as a row or cell id).
+    | Bits64
+    /// C `float` (32) or `double` (64) as a Float64; a Float64 argument is rounded to `float`.
+    | Float of bits: int
+    /// An untyped pointer; only a constant null.
+    | Pointer
 
 [<RequireQualifiedAccess>]
 type CSharpNativeFailure =
@@ -32,6 +38,24 @@ type CSharpNativeArgument =
     /// The handle the invoked handle capability value holds.
     | Self of release: bool
     | Parameter of CapabilityParameterId * CSharpNativeValue
+    /// A Bytes or String the library keeps after the call (e.g. `ghostty_key_event_set_utf8`): copied
+    /// into unmanaged memory owned by the receiving handle, replacing (and freeing) what the previous
+    /// call of this operation retained, and freed when the handle is released. Handle operations only.
+    | Retained of CapabilityParameterId * CSharpNativeValue
+    /// The parameter's converted value, passed by address (`const T *` / `T *`).
+    | Reference of CapabilityParameterId * CSharpNativeValue
+    /// A fixed integer, enum value or null pointer that the operation does not take.
+    | Constant of value: int64 * CSharpNativeValue
+    /// A pointer to a local the C function writes; that local is the operation's value.
+    | Out of CSharpNativeValue
+    /// `char *buf, size_t size, size_t *written`: the written bytes are the operation's value. When the
+    /// C result equals `retry`, the call runs once more with a buffer of the size written back.
+    | OutBytes of capacity: int * retry: int64 option
+    /// A C struct built from Parameter, Constant and SizeOf fields in declaration order (natural
+    /// alignment), padded to `size` bytes when given; passed by value or by address.
+    | Struct of fields: CSharpNativeArgument list * size: int option * byPointer: bool
+    /// A struct field holding the struct's own size (`size_t size` in versioned structs).
+    | SizeOf of CSharpNativeValue
 
 type CSharpNativeCall =
     { Library: string

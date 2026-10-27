@@ -2138,7 +2138,16 @@ module AuthoringProtocol =
                                 profile.CapabilityBindings
                                 |> List.filter (fun binding -> binding.Kind = CSharpCapabilityBindingKind.ExternalImplementation)
                                 |> List.map (fun binding -> binding.OperationId)
-                            CSharpFacade.emit (session.Declarations()) hostOperationIds |> Result.map Some
+                            let tableCapabilityIds =
+                                let tableOperations =
+                                    profile.CapabilityBindings |> List.choose (fun binding ->
+                                        match binding.Kind with
+                                        | CSharpCapabilityBindingKind.Native native when not native.Handle -> Some binding.OperationId
+                                        | _ -> None)
+                                session.Declarations().Capabilities
+                                |> List.filter (fun c -> c.Operations |> List.exists (fun op -> List.contains op.Id tableOperations))
+                                |> List.map (fun c -> c.Id)
+                            CSharpFacade.emit (session.Declarations()) hostOperationIds tableCapabilityIds |> Result.map Some
                     match facadeSource with
                     | Error problems ->
                         let first = List.head problems
