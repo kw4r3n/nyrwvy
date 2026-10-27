@@ -413,6 +413,130 @@ module internal SessionStorageFaults =
     /// When it returns true for a full path, the next replacement of that path fails.
     let mutable failReplacement: string -> bool = fun _ -> false
 
+/// The session's Zig snapshot reader (docs/decisions/zig-tools.md, "The read path in Zig"):
+/// `snapshot-reader` for record text, then `model-reader --validate`, whose verdict replaces the
+/// F# reader's for an unresolved source.
+module internal ZigSnapshotReader =
+    [<RequireQualifiedAccess>]
+    type Verdict =
+        | Accepted
+        | Rejected of SnapshotCodecError
+        /// A legacy schema (9 to 20), or a source the tools cannot take as UTF-8 (a lone
+        /// surrogate): only the F# reader reads it.
+        | FSharpOnly
+
+    /// Whether the Zig reader decides: not for a source resolved against a dependency, and not when
+    /// `NYRWVY_SNAPSHOT_READER` (`setting`) is `fsharp`.
+    let routes (setting: string) (dependency: Snapshot option) = setting <> "fsharp" && dependency.IsNone
+
+    // The tools write a line break inside a message as `\n` (and `\r`).
+    let private unescape (text: string) = text.Replace("\\n", "\n").Replace("\\r", "\r")
+
+    let private recordPosition = RegularExpressions.Regex(@"^(\d+):(\d+): (.*)$", RegularExpressions.RegexOptions.Singleline)
+
+    /// `<line>:<column>: <message>`, worded as `SessionStorage.recordFailure` words a record error.
+    let private recordError (text: string) =
+        let found = recordPosition.Match text
+        if not found.Success then None
+        else Some(SnapshotCodecError.InvalidShape $"line {found.Groups[1].Value}, column {found.Groups[2].Value}: {found.Groups[3].Value}")
+
+    /// `error <Case>: <message>`, the `SnapshotCodecError` case, or a record error.
+    let private error (line: string) =
+        let body = line.Substring 6
+        let colon = body.IndexOf ": "
+        let message = if colon < 0 then "" else unescape (body.Substring(colon + 2))
+        let number () = match Int32.TryParse message with | true, value -> Some value | _ -> None
+        match (if colon < 0 then "" else body.Substring(0, colon)) with
+        | "InvalidJson" -> Some(SnapshotCodecError.InvalidJson message)
+        | "InvalidShape" -> Some(SnapshotCodecError.InvalidShape message)
+        | "UnsupportedSchemaVersion" -> number () |> Option.map SnapshotCodecError.UnsupportedSchemaVersion
+        | "MaximumDepthExceeded" -> number () |> Option.map SnapshotCodecError.MaximumDepthExceeded
+        | _ -> recordError body
+
+    /// The verdict of the snapshot reader's line (`None` for a JSON source) and the model reader's
+    /// lines (none after a record error), as `RecordCodec.deserialize` or `SnapshotCodec.deserialize`
+    /// decides: a record error first, then a model error or issues, then the deferred placement error.
+    let verdict (record: string option) (model: string list) : Result<Verdict, string> =
+        let unexpected () = Error("unexpected output: " + String.Join(" | ", Option.toList record @ model))
+        let deferred =
+            match record with
+            | None | Some "ok" -> Some None
+            | Some line when line.StartsWith("deferred ", StringComparison.Ordinal) -> recordError (line.Substring 9) |> Option.map Some
+            | Some _ -> None
+        match record, deferred, model with
+        | Some line, _, [] when line.StartsWith("error ", StringComparison.Ordinal) ->
+            match error line with
+            | Some failure -> Ok(Verdict.Rejected failure)
+            | None -> unexpected ()
+        | _, None, _ -> unexpected ()
+        | _, Some _, [ line ] when line.StartsWith("skip legacy schema ", StringComparison.Ordinal) -> Ok Verdict.FSharpOnly
+        | _, Some _, [ line ] when line.StartsWith("error ", StringComparison.Ordinal) ->
+            match error line with
+            | Some failure -> Ok(Verdict.Rejected failure)
+            | None -> unexpected ()
+        | _, Some later, lines when not lines.IsEmpty && List.last lines = "end" ->
+            let issues =
+                lines |> List.take (lines.Length - 1) |> List.map (fun line ->
+                    let colon = line.IndexOf ": "
+                    if not (line.StartsWith("issue ", StringComparison.Ordinal)) || colon < 0 then None
+                    else Some({ Code = line.Substring(6, colon - 6); Message = unescape (line.Substring(colon + 2)) }: ValidationIssue))
+            if issues |> List.exists Option.isNone then unexpected ()
+            elif not issues.IsEmpty then Ok(Verdict.Rejected(SnapshotCodecError.InvalidSnapshot(List.choose id issues)))
+            else
+                match later with
+                | Some failure -> Ok(Verdict.Rejected failure)
+                | None -> Ok Verdict.Accepted
+        | _ -> unexpected ()
+
+    let private run (tool: string) (args: string list) =
+        ZigTools.tool tool
+        |> Result.bind (fun path -> ZigTools.launch path $"Zig {tool}" ZigTools.cache args 60000)
+        |> Result.mapError (fun (code, message) -> $"{code}: {message}")
+        |> Result.bind (fun (code, output, errors) ->
+            if code = 0 then Ok(output.Split('\n', StringSplitOptions.RemoveEmptyEntries) |> List.ofArray)
+            else Error $"the Zig {tool} stopped with exit code {code}: {(if errors.Length > 4096 then errors.Substring(0, 4096) else errors)}")
+
+    /// The Zig verdict on `source` and, when accepted, the JSON to build the model from; an error is
+    /// a tool that could not be built or run. The source goes through owner-only temporary files in
+    /// the tool cache, deleted afterwards.
+    let read (record: bool) (source: string) : Result<Verdict * string, string> =
+        let stem = Path.Combine(ZigTools.cache, "read-" + Guid.NewGuid().ToString("N"))
+        let input = stem + (if record then ".nyrec" else ".json")
+        let json = stem + ".out.json"
+        try
+            try
+                ZigTools.createPrivateDirectory ZigTools.cache
+                File.WriteAllText(input, source, UTF8Encoding(false, true))
+                (if record then run "snapshot-reader" [ input; json ] |> Result.map (fun lines -> Some(String.Join(" | ", lines))) else Ok None)
+                |> Result.bind (fun line ->
+                    match line with
+                    | Some text when text.StartsWith("error ", StringComparison.Ordinal) -> Ok(line, [])
+                    | _ -> run "model-reader" [ "--validate"; (if record then json else input) ] |> Result.map (fun lines -> line, lines))
+                |> Result.bind (fun (line, lines) -> verdict line lines)
+                |> Result.map (fun verdict -> verdict, (if verdict = Verdict.Accepted && record then File.ReadAllText json else source))
+            finally
+                File.Delete input
+                File.Delete json
+        with
+        | :? EncoderFallbackException -> Ok(Verdict.FSharpOnly, source)
+        | :? IOException as error -> Error("RunIoFailure: " + error.Message)
+        | :? UnauthorizedAccessException as error -> Error("RunIoFailure: " + error.Message)
+
+    /// Check mode: the Zig and F# outcomes must agree (the same writer JSON, or the same error, with
+    /// .NET's own JSON messages compared by case and prefix), else `ReaderMismatch`.
+    let compare (zig: Result<Snapshot, AuthoringSessionError>) (fsharp: Result<Snapshot, AuthoringSessionError>) =
+        let key = function
+            | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidJson _)) -> "InvalidJson"
+            | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidShape message))
+                when message.StartsWith("Invalid JSON string encoding:", StringComparison.Ordinal) -> "InvalidShape: Invalid JSON string encoding:"
+            | Error error -> sprintf "%A" error
+            | Ok snapshot -> sprintf "%A" (SnapshotCodec.serialize snapshot)
+        let left, right = key zig, key fsharp
+        if left = right then zig
+        else
+            let shorten (text: string) = if text.Length > 2000 then text.Substring(0, 2000) + "…" else text
+            Error(AuthoringSessionError.IoFailure $"ReaderMismatch: Zig {shorten left}, F# {shorten right}")
+
 module internal SessionStorage =
     let fullPath (path: string): string = Path.GetFullPath(path)
     let lockPath (path: string): string = path + ".lock"
@@ -463,13 +587,41 @@ module internal SessionStorage =
         | Some model -> AuthoringSessionError.SnapshotCodecFailure model
         | None -> AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidShape $"line {error.Line}, column {error.Column}: {error.Message}")
 
-    /// Decodes `source` in the record form or strict JSON, resolved against `dependency` when given.
-    let decodeWith (record: bool) (dependency: Snapshot option) (source: string): Result<Snapshot, AuthoringSessionError> =
+    let private decodeFSharp (record: bool) (dependency: Snapshot option) (source: string): Result<Snapshot, AuthoringSessionError> =
         match record, dependency with
         | true, None -> RecordCodec.deserialize source |> Result.mapError recordFailure
         | true, Some imported -> RecordCodec.deserializeResolved imported source |> Result.mapError recordFailure
         | false, None -> SnapshotCodec.deserialize source |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
         | false, Some imported -> SnapshotCodec.deserializeResolved imported source |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+
+    // Set once the Zig reader could not be built or run: the process then reads with F#.
+    let mutable private zigUnavailable = 0
+
+    /// Decodes `source` in the record form or strict JSON, resolved against `dependency` when given.
+    /// The Zig reader decides an unresolved source (see `ZigSnapshotReader`); the F# reader reads a
+    /// resolved one, a legacy schema, and every source when `NYRWVY_SNAPSHOT_READER=fsharp` or the Zig
+    /// tools cannot be built or run (noted once on stderr). With `NYRWVY_ZIG_READER_CHECK` set, both
+    /// run, any difference is a `ReaderMismatch` and there is no fallback.
+    let decodeWith (record: bool) (dependency: Snapshot option) (source: string): Result<Snapshot, AuthoringSessionError> =
+        let check = not (String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_READER_CHECK"))
+        if not (ZigSnapshotReader.routes (Environment.GetEnvironmentVariable "NYRWVY_SNAPSHOT_READER") dependency)
+           || (not check && zigUnavailable <> 0) then
+            decodeFSharp record dependency source
+        else
+            match ZigSnapshotReader.read record source with
+            | Error problem when check -> Error(AuthoringSessionError.IoFailure $"ReaderMismatch: the Zig reader failed: {problem}")
+            | Error problem ->
+                if Threading.Interlocked.Exchange(&zigUnavailable, 1) = 0 then
+                    eprintfn "nyrwvy: the Zig snapshot reader is unavailable (%s); reading snapshots with the F# reader." problem
+                decodeFSharp record dependency source
+            | Ok(ZigSnapshotReader.Verdict.FSharpOnly, _) -> decodeFSharp record dependency source
+            | Ok(verdict, json) ->
+                let zig =
+                    match verdict with
+                    | ZigSnapshotReader.Verdict.Rejected error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
+                    // F# builds the model Zig accepted; its error, if any, is a parity bug and keeps an unvalidated model out.
+                    | _ -> SnapshotCodec.readUnvalidated json |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                if check then ZigSnapshotReader.compare zig (decodeFSharp record dependency source) else zig
 
     /// Decodes `source` in the form `path` persists.
     let decodeAs (path: string) = decodeWith (isRecordPath path)

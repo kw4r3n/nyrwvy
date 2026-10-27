@@ -491,7 +491,11 @@ module AuthoringSessionTests =
         let run mode =
             use child = startTool mode path
             child.StandardInput.Close()
-            let stderr = child.StandardError.ReadToEnd()
+            // A machine without Zig adds the read path's one-time fallback note (docs/decisions/zig-tools.md).
+            let stderr =
+                child.StandardError.ReadToEnd().Split('\n')
+                |> Array.filter (fun line -> not (line.StartsWith "nyrwvy: the Zig snapshot reader is unavailable"))
+                |> String.concat "\n"
             child.WaitForExit()
             child.ExitCode, stderr.TrimEnd()
         try
