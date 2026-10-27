@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 import { fileURLToPath } from "node:url"
-import { loadFixtures, runFixtures } from "../../examples/run-fixtures/client.mjs"
+import { loadFixtures, runFixtures, runParity, readTargets } from "../../examples/run-fixtures/client.mjs"
 
 const request = { op: "runPureByName", arguments: { function: "identity", arguments: [{ kind: "string", value: "é e\u0301" }], expected: { kind: "string", value: "é e\u0301" } } }
 async function workspace(t) {
@@ -97,4 +97,49 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   assert.equal(typeof id, "string")
   assert.deepEqual(args, request.arguments)
   assert.equal(await readFile(snapshot, "utf8"), "unchanged snapshot fixture")
+})
+test("parity sends each fixture to every backend and separates agreement, disagreement and unsupported backends", async t => {
+  const root = await workspace(t), transcript = join(root, "transcript.jsonl")
+  const reply = value => ({ structuredContent: value })
+  const ok = (actual, calls = []) => reply({ ok: true, result: { matches: true, actual, calls } })
+  const unsupported = reply({ ok: false, error: { code: "RunBackendUnsupported", message: "no" } })
+  const failure = message => reply({ ok: false, error: { code: "RunRuntimeFailure", message, failureKind: "fault", exceptionType: "FakeCapabilityException", calls: [] } })
+  // Per fixture: the C# reply, then the Zig reply.
+  const replies = {
+    agree: [ok("a"), ok("a")],
+    differ: [ok("a"), ok("b")],
+    differCalls: [ok("a", [1]), ok("a", [])],
+    zigUnsupported: [ok("a"), unsupported],
+    nowhere: [unsupported, unsupported],
+    sameFailure: [failure("x"), failure("x")],
+    otherFailure: [failure("x"), failure("y")],
+  }
+  const sent = []
+  const fixtures = Object.keys(replies).map(label => ({ label, request }))
+  const summaries = []
+  const counts = await runParity({ async callTool(call) {
+    sent.push(call.arguments.arguments.backend)
+    const label = fixtures[Math.floor((sent.length - 1) / 2)].label
+    return replies[label].shift()
+  } }, fixtures, ["csharp", "zig"], transcript, line => summaries.push(line))
+  assert.deepEqual(sent, Array.from({ length: 7 }, () => ["csharp", "zig"]).flat())
+  assert.deepEqual(counts, { passed: 2, failed: 4, unknown: 0, unsupported: 1 })
+  assert.deepEqual(summaries, [
+    "agree: PASSED on csharp, zig",
+    "differ: DISAGREE between csharp, zig",
+    "differCalls: DISAGREE between csharp, zig",
+    "zigUnsupported: PASSED on csharp (unsupported on zig)",
+    "nowhere: UNSUPPORTED (unsupported on csharp, zig)",
+    "sameFailure: FAILED on csharp, zig",
+    "otherFailure: DISAGREE between csharp, zig",
+  ])
+  assert.equal((await readFile(transcript, "utf8")).trim().split("\n").length, 14)
+})
+test("declared targets come from the backends sidecar, and its absence means none", async t => {
+  const root = await workspace(t), snapshot = join(root, "graph.json")
+  assert.equal(await readTargets(snapshot), null)
+  await writeFile(snapshot + ".backends.json", JSON.stringify({ targets: ["csharp", "zig"] }))
+  assert.deepEqual(await readTargets(snapshot), ["csharp", "zig"])
+  await writeFile(snapshot + ".backends.json", JSON.stringify({ targets: [] }))
+  await assert.rejects(readTargets(snapshot), /non-empty/)
 })

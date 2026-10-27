@@ -32,8 +32,8 @@ module ViewerFile =
             let snapshot = Path.GetFullPath snapshotPath
             if not (isInside directory resolved) then
                 Error $"output must stay inside the snapshot's directory {directory}; {path} resolves to {resolved}."
-            elif List.contains resolved [ snapshot; snapshot + ".lock"; snapshot + ".dependency.json" ] then
-                Error $"output must not replace the snapshot, its lock or its dependency sidecar; {path} resolves to {resolved}."
+            elif List.contains resolved [ snapshot; snapshot + ".lock"; snapshot + ".dependency.json"; snapshot + ".backends.json" ] then
+                Error $"output must not replace the snapshot, its lock or its dependency or backends sidecar; {path} resolves to {resolved}."
             else Ok(directory, resolved)
 
     /// The first existing component below `directory` on the way to `path` (the file included) that is

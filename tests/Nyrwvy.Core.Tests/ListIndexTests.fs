@@ -34,6 +34,8 @@ module ListIndexTests =
         let path = Path.Combine(root, "workspace.json")
         try
             File.WriteAllText(path, SnapshotCodec.serialize (Snapshot.empty (id<SnapshotTag> name)) |> unwrap "serialize")
+            // A snapshot written directly declares its backend as `create` would.
+            File.WriteAllText(path + ".backends.json", """{"targets": ["csharp"]}""")
             let session = AuthoringSession.openExisting path |> unwrap "open"
             let call (line: string) = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
             let commit (line: string) =

@@ -2013,7 +2013,13 @@ module AuthoringSession =
                                         if selected.IsSome && not (File.Exists path) then SessionStorage.cleanupTemporary (path + ".dependency.json")
                                         SessionStorage.releaseLock path lockHandle
                                         Error error
-                                    | Ok() -> Ok(new AuthoringSession(path, workspace, source, Some lockHandle, selected))
+                                    | Ok() ->
+                                        // A new workspace declares its target backend; runPure has no default.
+                                        // A declaration placed beforehand is kept, and a failed write only
+                                        // leaves the workspace undeclared, which runPure reports.
+                                        if not (File.Exists(path + ".backends.json")) then
+                                            SessionStorage.createAtomically (path + ".backends.json") "{\"targets\": [\"csharp\"]}\n" |> ignore
+                                        Ok(new AuthoringSession(path, workspace, source, Some lockHandle, selected))
 
     let createNewWithDependency (path: string) (dependencyPath: string option) =
         createNewWithDependencies path (Option.toList dependencyPath)

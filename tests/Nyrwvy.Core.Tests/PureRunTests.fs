@@ -104,6 +104,8 @@ module PureRunTests =
         let path = Path.Combine(root, "workspace.json")
         let json, concat, equal, plus, tooDeepFunction = fixture ()
         File.WriteAllText(path, json)
+        // A snapshot written directly declares its backend as `create` would.
+        File.WriteAllText(path + ".backends.json", """{"targets": ["csharp"]}""")
         root, path, concat, equal, plus, tooDeepFunction
 
     [<Fact>]

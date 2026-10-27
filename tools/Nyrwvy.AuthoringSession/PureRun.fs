@@ -156,6 +156,34 @@ type PureRunBackend =
     | CSharp
     | Zig
 
+/// The backends a workspace targets, in preference order, from the hand-edited sidecar
+/// `<snapshot>.backends.json` (`{"targets": ["csharp", "zig"]}`). It is not semantic, so it never
+/// enters the snapshot or its fingerprint. There is no default: creating a workspace writes
+/// `["csharp"]`, and a workspace without the sidecar must name the backend on each run.
+[<RequireQualifiedAccess>]
+module PureRunBackends =
+    let parse (name: string) =
+        match name with
+        | "csharp" -> Ok PureRunBackend.CSharp
+        | "zig" -> Ok PureRunBackend.Zig
+        | other -> Error $"Unknown backend '{other}'; expected \"csharp\" or \"zig\"."
+
+    let declared (snapshotPath: string) : Result<PureRunBackend list, string> =
+        let path = snapshotPath + ".backends.json"
+        if not (File.Exists path) then
+            Error $"The workspace declares no target backend. Create {path} with {{\"targets\": [\"csharp\"]}} (or list \"zig\"), or name the backend on the request."
+        else
+            try
+                use document = JsonDocument.Parse(File.ReadAllText path)
+                match document.RootElement.TryGetProperty "targets" with
+                | true, targets when targets.ValueKind = JsonValueKind.Array && targets.GetArrayLength() > 0 ->
+                    let names = targets.EnumerateArray() |> Seq.map (fun item -> if item.ValueKind = JsonValueKind.String then item.GetString() else "") |> Seq.toList
+                    if List.length (List.distinct names) <> names.Length then Error $"{path} lists a backend twice."
+                    else
+                        names |> List.fold (fun state name -> state |> Result.bind (fun parsed -> parse name |> Result.map (fun backend -> parsed @ [ backend ]))) (Ok [])
+                | _ -> Error $"{path} must be an object with a non-empty \"targets\" array."
+            with :? JsonException as error -> Error $"{path} is not valid JSON: {error.Message}"
+
 [<RequireQualifiedAccess>]
 type PureRunError =
     | Unsupported of string * string
@@ -1179,15 +1207,37 @@ module PureRun =
             "        return local < queues[selected].Length ? queues[selected][local] : FakeResponse<T>.Exhausted;\n"
             "    }\n}\n" ]
 
-    /// The Zig compiler: `NYRWVY_ZIG` when set, otherwise `zig` on the PATH as seen from the session's
-    /// working directory (this repository pins the version in mise.toml).
+    /// The Zig compiler: `NYRWVY_ZIG` when set, otherwise `zig` on the PATH, started from the Nyrwvy
+    /// installation (see `zigDirectory`).
     let private zigExecutable () =
         match Environment.GetEnvironmentVariable "NYRWVY_ZIG" with
         | null | "" -> "zig"
         | path -> path
 
     /// Built runners keyed by a hash of their source, so repeated runs of one snapshot skip the build.
-    let private zigCache = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-runners")
+    /// The hash is predictable, so the cache is per user (`XDG_CACHE_HOME`, else `~/.cache`) and
+    /// created owner-only: a shared temporary directory would let another local user plant a runner.
+    /// Where `zig` starts: the nearest directory above the session's own binaries that pins tool
+    /// versions (`mise.toml`), so a version manager shim resolves the Zig this repository pins even
+    /// when the workspace lies elsewhere; else the working directory.
+    let private zigDirectory =
+        lazy (
+            let rec up (directory: DirectoryInfo) =
+                if isNull directory then Environment.CurrentDirectory
+                elif File.Exists(Path.Combine(directory.FullName, "mise.toml")) then directory.FullName
+                else up directory.Parent
+            up (DirectoryInfo AppContext.BaseDirectory))
+
+    let private zigCache =
+        let root =
+            match Environment.GetEnvironmentVariable "XDG_CACHE_HOME" with
+            | null | "" -> Path.Combine(Environment.GetFolderPath Environment.SpecialFolder.UserProfile, ".cache")
+            | path -> path
+        Path.Combine(root, "nyrwvy", "zig-runners")
+
+    let private createPrivateDirectory (path: string) =
+        if OperatingSystem.IsWindows() then Directory.CreateDirectory path |> ignore
+        else Directory.CreateDirectory(path, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute) |> ignore
 
     /// Runs the entry on the Zig backend: emits the program and a runner that reads argument tokens
     /// from its command line and prints the same envelope the C# runner does.
@@ -1304,11 +1354,11 @@ module PureRun =
                 let built =
                     if File.Exists executable then Ok()
                     else
-                        Directory.CreateDirectory directory |> ignore
+                        createPrivateDirectory zigCache
+                        createPrivateDirectory directory
                         File.WriteAllText(Path.Combine(directory, "runner.zig"), runner)
-                        // Started from the session's working directory, so a version manager shim (mise)
-                        // resolves the project's pinned Zig; every path is absolute.
-                        launchProcess (zigExecutable ()) "Zig build" Environment.CurrentDirectory
+                        // Every path is absolute, so the start directory only picks the pinned Zig.
+                        launchProcess (zigExecutable ()) "Zig build" zigDirectory.Value
                             [ "build-exe"; Path.Combine(directory, "runner.zig"); "-O"; "ReleaseSafe"
                               "--cache-dir"; Path.Combine(zigCache, "cache"); "-femit-bin=" + executable ] 300000
                         |> Result.bind (fun (code, output, errors) ->

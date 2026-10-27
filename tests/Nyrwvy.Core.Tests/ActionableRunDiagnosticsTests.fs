@@ -29,6 +29,8 @@ module ActionableRunDiagnosticsTests =
                        TypeParameters = []
                        Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.ParameterReference parameter } ]; ResultNodeId = node } }
             File.WriteAllText(path, SnapshotCodec.serialize { Snapshot.empty (id<SnapshotTag> "base") with Types = [ expr ]; Functions = [ fn ] } |> unwrap)
+            // A snapshot written directly declares its backend as `create` would.
+            File.WriteAllText(path + ".backends.json", """{"targets": ["csharp"]}""")
             use session = AuthoringSession.openExisting path |> unwrap
             test session fn path
         finally Directory.Delete(root, true)
@@ -178,6 +180,8 @@ module ActionableRunDiagnosticsTests =
             Assert.Empty(SnapshotValidator.validate legacy)
             session.Close()
             File.WriteAllText(path, SnapshotCodec.serialize legacy |> unwrap)
+            // A snapshot written directly declares its backend as `create` would.
+            File.WriteAllText(path + ".backends.json", """{"targets": ["csharp"]}""")
             use session = AuthoringSession.openExisting path |> unwrap
             let fn = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "unordered")
             let before = File.ReadAllBytes path
