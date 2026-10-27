@@ -1,8 +1,10 @@
 //! The Nyrwvy snapshot reader, second stage: snapshot JSON to the canonical JSON the F# writer
 //! produces for the shape-decoded model, with every shape check of `SnapshotCodec`'s reader, the
 //! schema version and construct minimums. Its reference is `SnapshotCodec.toCanonicalJson`.
-//! The model-only rules of semantic validation (`SnapshotValidator`, the codes in
-//! `validation_codes.txt`) are ported; the rest is not. See docs/decisions/zig-tools.md.
+//! Semantic validation (`SnapshotValidator`) is ported for the codes in `validation_codes.txt`:
+//! model-only rules, type references and the typed graph rules on a port of the node type
+//! resolver; effect order, waiting, OneShot payloads and task crossing are not. See
+//! docs/decisions/zig-tools.md.
 //!
 //! Usage: `model-reader <in.json> <out.json> [<in> <out> ...]`. One line per pair on standard
 //! output: `ok`, `skip legacy schema <n>` (versions before 21 are not ported yet), or
