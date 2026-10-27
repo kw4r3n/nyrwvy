@@ -14,6 +14,11 @@
 //! the shape read fails, otherwise one `issue <Code>: <message>` line per ported issue, in the F#
 //! validator's (Code, Message) order, then `end`.
 //!
+//! `model-reader --typed-ir <in.json> <out.json> <entry|-> [...]`: per triple the same `error`/`skip`
+//! line when the shape read fails, otherwise the typed semantic IR of the model (or of the
+//! functions the entry reaches) written to `<out.json>` and `ok`, or `error InvalidSnapshot: <n>
+//! issues`, `error IncompleteSnapshot: <ids>` or `error MissingNodeType: <function> <node>`.
+//!
 //! `model_kinds.txt` beside this file is the node reader table, one kind per line:
 //! `kind|context|name:shape ...|written names` (properties in reading order; the last field only
 //! when the writer's order differs). `schema_minimums.txt` holds the version rows above the first
@@ -4355,6 +4360,347 @@ fn validate(root: Value) void {
     std.mem.sort(Issue, issues.items, {}, issueLess);
 }
 
+// ---------------------------------------------------------------- lowering, stage 1: typed semantic IR
+
+// `TypedSemanticIr.project` and `TypedSemanticIrSerializer.serialize` over the parsed document,
+// with each node's completion from `Resolver`. The node properties are the model writer's (in
+// `model_kinds.txt`'s written order) without the declared types the node type replaces, except the
+// few `typedName` renames. See docs/decisions/zig-tools.md.
+
+const LoweringFailure = error{ Invalid, Incomplete, MissingNodeType };
+var lowering_failure: []const u8 = "";
+
+fn typedType(t: TypeRef) []const u8 {
+    var o: Obj = .{};
+    switch (t.kind) {
+        .primitive => o.put("kind", fmt("\"primitive{s}\"", .{text(caseName(t))})),
+        .named => {
+            o.put("kind", "\"named\"");
+            o.put("typeId", quoted(t.name));
+            if (t.args.len > 0) o.put("arguments", typedTypes(t.args));
+        },
+        .type_parameter => {
+            o.put("kind", "\"typeParameter\"");
+            o.put("typeParameterId", quoted(t.name));
+        },
+        .capability => {
+            o.put("kind", "\"capability\"");
+            o.put("capabilityId", quoted(t.name));
+        },
+        .function => {
+            o.put("kind", "\"function\"");
+            o.put("parameters", typedTypes(t.args));
+            o.put("resultType", typedType(t.result.?.*));
+        },
+        .generic => {
+            o.put("kind", quoted(t.name));
+            const slots: []const []const u8 = if (t.isGeneric("option") or t.isGeneric("list") or t.isGeneric("set")) &.{"itemType"} else if (t.isGeneric("result")) &.{ "okType", "errorType" } else if (t.isGeneric("map")) &.{ "keyType", "valueType" } else if (t.isGeneric("oneShot")) &.{"valueType"} else if (t.isGeneric("task")) &.{"resultType"} else &.{};
+            for (slots, t.args) |slot, arg| o.put(slot, typedType(arg));
+        },
+    }
+    return o.done();
+}
+
+fn typedTypes(types: []const TypeRef) []const u8 {
+    const texts = a.alloc([]const u8, types.len) catch oom();
+    for (types, texts) |t, *out| out.* = typedType(t);
+    return array(texts);
+}
+
+fn typedTypeOf(element: Value) []const u8 {
+    return typedType(typeRefOf(element));
+}
+
+/// `{ id, type }`, the shape of fields, parameters and pattern bindings.
+fn typedSlot(element: Value) Keyed {
+    var o: Obj = .{};
+    o.put("id", quoted(str(element, "id")));
+    o.put("type", typedTypeOf(get(element, "type")));
+    return .{ .key = str(element, "id"), .text = o.done() };
+}
+
+fn typedSlots(elements: []const Value, sorted: bool) []const u8 {
+    const out = a.alloc(Keyed, elements.len) catch oom();
+    for (elements, out) |element, *o| o.* = typedSlot(element);
+    return if (sorted) sortedArray(out) else plainArray(out);
+}
+
+fn typedTypeParameters(o: *Obj, element: Value) void {
+    const parameters = arrayOf(element, "typeParameters");
+    if (parameters.len == 0) return;
+    const texts = a.alloc([]const u8, parameters.len) catch oom();
+    for (parameters, texts) |parameter, *t| {
+        var p: Obj = .{};
+        p.put("typeParameterId", quoted(str(parameter, "typeParameterId")));
+        p.put("displayName", quoted(str(parameter, "displayName")));
+        t.* = p.done();
+    }
+    o.put("typeParameters", array(texts));
+}
+
+/// Arguments, capability arguments and field values, sorted by target.
+fn typedTargets(elements: []const Value, target: []const u8) []const u8 {
+    const out = a.alloc(Keyed, elements.len) catch oom();
+    for (elements, out) |element, *o| {
+        var obj: Obj = .{};
+        obj.put(target, quoted(str(element, target)));
+        obj.put("valueNodeId", quoted(str(element, "valueNodeId")));
+        o.* = .{ .key = str(element, target), .text = obj.done() };
+    }
+    return sortedArray(out);
+}
+
+/// The renames of the typed writer, and the declared types it keeps.
+fn typedName(kind: []const u8, read: Read) ?[]const u8 {
+    if (std.mem.eql(u8, read.name, "patternBindingId")) return "bindingId";
+    if (std.mem.eql(u8, read.name, "targetFunctionId")) return "functionId";
+    if (std.mem.eql(u8, read.name, "typeId")) return null;
+    if (read.shape == .targs) return null;
+    if (read.shape == .type and !(std.mem.eql(u8, kind, "exceptionRethrow") or std.mem.eql(u8, kind, "oneShotCreate"))) return null;
+    return read.name;
+}
+
+fn typedArm(resolver: *Resolver, arm: Value, binding: []const u8) []const u8 {
+    var o: Obj = .{};
+    o.put("binding", typedSlot(get(arm, binding)).text);
+    o.put("body", typedGraph(resolver, get(arm, "body")));
+    return o.done();
+}
+
+fn typedShape(resolver: *Resolver, read: Read, node: Value) ?[]const u8 {
+    const value = tryProperty(read.name, node) orelse return null;
+    return switch (read.shape) {
+        .id, .optid, .lit, .mode => quoted(value.string),
+        .ids => blk: {
+            const texts = a.alloc([]const u8, value.array.len) catch oom();
+            for (value.array, texts) |item, *t| t.* = quoted(item.string);
+            break :blk array(texts);
+        },
+        .type => typedTypeOf(value),
+        .targs => unreachable,
+        .graph => typedGraph(resolver, value),
+        .varm => typedArm(resolver, value, "valueBinding"),
+        .errarm => typedArm(resolver, value, "errorBinding"),
+        .ctx, .args => typedTargets(value.array, "targetParameterId"),
+        .capargs => typedTargets(value.array, "targetCapabilityParameterId"),
+        .fields => typedTargets(value.array, "targetFieldId"),
+        .bool => if (value == .json_true) "true" else "false",
+        .int => fmt("{d}", .{readInt64(read.name, node) catch unreachable}),
+        .bits => readFloat64Bits(read.name, node) catch unreachable,
+        .impls => blk: {
+            const out = a.alloc(Keyed, value.array.len) catch oom();
+            for (value.array, out) |item, *o| {
+                var obj: Obj = .{};
+                obj.put("operationId", quoted(str(item, "operationId")));
+                obj.put("functionId", quoted(str(item, "functionId")));
+                o.* = .{ .key = str(item, "operationId"), .text = obj.done() };
+            }
+            break :blk sortedArray(out);
+        },
+        .arms => blk: {
+            const out = a.alloc(Keyed, value.array.len) catch oom();
+            for (value.array, out) |arm, *o| {
+                const variants = a.dupe(Str, armVariantIds(arm)) catch oom();
+                std.mem.sort(Str, variants, {}, lessStr);
+                var obj: Obj = .{};
+                if (variants.len == 1) obj.put("variantId", quoted(variants[0])) else {
+                    const texts = a.alloc([]const u8, variants.len) catch oom();
+                    for (variants, texts) |variant, *t| t.* = quoted(variant);
+                    obj.put("variantIds", array(texts));
+                }
+                const fields = arrayOf(arm, "fieldBindings");
+                const bindings = a.alloc(Keyed, fields.len) catch oom();
+                for (fields, bindings) |field, *b| {
+                    var f: Obj = .{};
+                    f.put("sourceFieldId", quoted(str(field, "sourceFieldId")));
+                    f.put("binding", typedSlot(get(field, "binding")).text);
+                    b.* = .{ .key = str(field, "sourceFieldId"), .text = f.done() };
+                }
+                obj.put("fieldBindings", sortedArray(bindings));
+                obj.put("body", typedGraph(resolver, get(arm, "body")));
+                o.* = .{ .key = if (variants.len > 0) variants[0] else &.{}, .text = obj.done() };
+            }
+            break :blk sortedArray(out);
+        },
+    };
+}
+
+fn typedNode(resolver: *Resolver, node: Value) []const u8 {
+    const kind_name = text(str(node, "kind"));
+    const kind = kinds.get(kind_name).?;
+    var o: Obj = .{};
+    o.put("originNodeId", quoted(str(node, "id")));
+    switch (resolver.completion(str(node, "id")).?) {
+        .normal => |t| o.put("type", typedType(t)),
+        .aborts => o.put("completion", "\"abort\""),
+    }
+    o.put("kind", quoted(str(node, "kind")));
+    for (kind.writes) |index| {
+        const read = kind.reads[index];
+        if (typedName(kind_name, read)) |name| o.putOptional(name, typedShape(resolver, read, node));
+    }
+    return o.done();
+}
+
+fn typedGraph(resolver: *Resolver, graph: Value) []const u8 {
+    const nodes = arrayOf(graph, "nodes");
+    const out = a.alloc(Keyed, nodes.len) catch oom();
+    for (nodes, out) |node, *o| o.* = .{ .key = str(node, "id"), .text = typedNode(resolver, node) };
+    var obj: Obj = .{};
+    obj.put("nodes", sortedArray(out));
+    obj.put("resultNodeId", quoted(str(graph, "resultNodeId")));
+    return obj.done();
+}
+
+/// The first node without a completion, in `projectGraph`'s order (by ID, each node before its nested graphs).
+fn missingNodeType(resolver: *Resolver, graph: Value) ?Str {
+    const nodes = a.dupe(Value, arrayOf(graph, "nodes")) catch oom();
+    std.mem.sort(Value, nodes, {}, lessById);
+    for (nodes) |node| {
+        if (resolver.completion(str(node, "id")) == null) return str(node, "id");
+        for (nestedScopes(node)) |scope| if (missingNodeType(resolver, scope.graph)) |id| return id;
+    }
+    return null;
+}
+
+/// `ExecutionCallGraph.forSnapshotEntry`: the functions the entry reaches through any function
+/// reference (nested graphs included) and the obligations on their call nodes, in document order.
+fn selectEntry(root: Value, entry: Str) Value {
+    const functions = arrayOf(root, "functions");
+    const by_id = byId(functions);
+    var seen: Set = .empty;
+    var pending: List(Str) = .empty;
+    pending.append(a, entry) catch oom();
+    while (pending.pop()) |id| {
+        if (seen.contains(idKey(id))) continue;
+        seen.put(a, idKey(id), {}) catch oom();
+        const function = by_id.get(idKey(id)) orelse continue;
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        for (nodes.items) |node| for (functionReferences(node)) |reference| pending.append(a, reference.function_id) catch oom();
+    }
+    var selected: List(Value) = .empty;
+    var node_ids: Set = .empty;
+    for (functions) |function| if (seen.contains(idKey(str(function, "id")))) {
+        selected.append(a, function) catch oom();
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        for (nodes.items) |node| node_ids.put(a, idKey(str(node, "id")), {}) catch oom();
+    };
+    var obligations: List(Value) = .empty;
+    for (arrayOf(root, "obligations")) |obligation| if (node_ids.contains(idKey(str(obligation, "callNodeId")))) obligations.append(a, obligation) catch oom();
+    const members = a.dupe(Member, root.object) catch oom();
+    for (members) |*member| {
+        if (isName(member.name, "functions")) member.value = .{ .array = selected.items };
+        if (isName(member.name, "obligations")) member.value = .{ .array = obligations.items };
+    }
+    return .{ .object = members };
+}
+
+/// `TypedSemanticIr.project` (readiness first) on the selection, as the serializer's JSON.
+fn typedIr(root: Value) LoweringFailure![]const u8 {
+    validate(root);
+    if (issues.items.len > 0) {
+        lowering_failure = fmt("InvalidSnapshot: {d} issues", .{issues.items.len});
+        return error.Invalid;
+    }
+    var open: List(Str) = .empty;
+    for (arrayOf(root, "obligations")) |obligation| if (isName(str(obligation, "status"), "open")) open.append(a, str(obligation, "id")) catch oom();
+    if (open.items.len > 0) {
+        std.mem.sort(Str, open.items, {}, lessStr);
+        var names: List(u8) = .empty;
+        for (open.items, 0..) |id, i| names.print(a, "{s}{s}", .{ if (i == 0) "" else ", ", text(id) }) catch oom();
+        lowering_failure = fmt("IncompleteSnapshot: {s}", .{names.items});
+        return error.Incomplete;
+    }
+    const functions = a.dupe(Value, arrayOf(root, "functions")) catch oom();
+    std.mem.sort(Value, functions, {}, lessById);
+    const texts = a.alloc([]const u8, functions.len) catch oom();
+    for (functions, texts) |function, *t| {
+        var resolver = Resolver.init(function);
+        if (missingNodeType(&resolver, get(function, "body"))) |node_id| {
+            lowering_failure = fmt("MissingNodeType: {s} {s}", .{ text(str(function, "id")), text(node_id) });
+            return error.MissingNodeType;
+        }
+        var o: Obj = .{};
+        o.put("id", quoted(str(function, "id")));
+        typedTypeParameters(&o, function);
+        o.put("parameters", typedSlots(arrayOf(function, "parameters"), false));
+        o.put("resultType", typedTypeOf(get(function, "resultType")));
+        const effects = a.dupe(Value, arrayOf(function, "requiredEffects")) catch oom();
+        o.put("requiredEffects", sortedIds(effects));
+        o.put("body", typedGraph(&resolver, get(function, "body")));
+        t.* = o.done();
+    }
+    var o: Obj = .{};
+    o.put("schemaVersion", "14");
+    o.put("sourceSnapshotId", quoted(str(root, "snapshotId")));
+    o.put("types", sortedDeclarations(arrayOf(root, "types"), typedDeclaredType));
+    o.put("effects", sortedIds(arrayOf(root, "effects")));
+    o.put("capabilities", sortedDeclarations(arrayOf(root, "capabilities"), typedCapability));
+    o.put("functions", array(texts));
+    return o.done();
+}
+
+fn lessById(_: void, left: Value, right: Value) bool {
+    return lessUnits(str(left, "id"), str(right, "id"));
+}
+
+/// IDs (strings, or declarations by their `id`), sorted.
+fn sortedIds(values: []const Value) []const u8 {
+    const out = a.alloc(Keyed, values.len) catch oom();
+    for (values, out) |value, *o| {
+        const id = if (value == .string) value.string else str(value, "id");
+        o.* = .{ .key = id, .text = quoted(id) };
+    }
+    return sortedArray(out);
+}
+
+fn sortedDeclarations(values: []const Value, comptime writer: fn (Value) []const u8) []const u8 {
+    const out = a.alloc(Keyed, values.len) catch oom();
+    for (values, out) |value, *o| o.* = .{ .key = str(value, "id"), .text = writer(value) };
+    return sortedArray(out);
+}
+
+fn typedDeclaredType(declaration: Value) []const u8 {
+    var o: Obj = .{};
+    o.put("id", quoted(str(declaration, "id")));
+    typedTypeParameters(&o, declaration);
+    if (isName(str(declaration, "kind"), "product")) {
+        o.put("kind", "\"product\"");
+        o.put("fields", typedSlots(arrayOf(declaration, "fields"), true));
+    } else {
+        o.put("kind", "\"union\"");
+        const variants = arrayOf(declaration, "variants");
+        const out = a.alloc(Keyed, variants.len) catch oom();
+        for (variants, out) |variant, *v| {
+            var obj: Obj = .{};
+            obj.put("id", quoted(str(variant, "id")));
+            obj.put("fields", typedSlots(arrayOf(variant, "fields"), true));
+            v.* = .{ .key = str(variant, "id"), .text = obj.done() };
+        }
+        o.put("variants", sortedArray(out));
+    }
+    return o.done();
+}
+
+fn typedCapability(capability: Value) []const u8 {
+    var o: Obj = .{};
+    o.put("id", quoted(str(capability, "id")));
+    o.put("operations", sortedDeclarations(arrayOf(capability, "operations"), typedOperation));
+    return o.done();
+}
+
+fn typedOperation(operation: Value) []const u8 {
+    var o: Obj = .{};
+    o.put("id", quoted(str(operation, "id")));
+    o.put("parameters", typedSlots(arrayOf(operation, "parameters"), false));
+    o.put("resultType", typedTypeOf(get(operation, "resultType")));
+    if (tryProperty("failureType", operation)) |failure| o.put("failureType", typedTypeOf(failure));
+    o.put("effectId", quoted(str(operation, "effectId")));
+    return o.done();
+}
+
 /// One line per issue, then `end`; a message is escaped as the reader's errors are (`oneLine`).
 fn printIssues(out: *std.Io.Writer) !void {
     for (issues.items) |issue| try out.print("issue {s}: {s}\n", .{ issue.code, oneLine(text(issue.message)) });
@@ -4365,19 +4711,27 @@ pub fn main(init: std.process.Init) !void {
     a = init.arena.allocator();
     const args = try init.minimal.args.toSlice(a);
     const validating = args.len >= 2 and std.mem.eql(u8, args[1], "--validate");
-    if (if (validating) args.len < 3 else args.len < 3 or args.len % 2 == 0) {
-        std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...] | model-reader --validate <in.json> [<in.json> ...]\n", .{});
+    const typing = args.len >= 2 and std.mem.eql(u8, args[1], "--typed-ir");
+    if (if (validating) args.len < 3 else if (typing) args.len < 5 or (args.len - 2) % 3 != 0 else args.len < 3 or args.len % 2 == 0) {
+        std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...] | model-reader --validate <in.json> [<in.json> ...] | model-reader --typed-ir <in.json> <out.json> <entry|-> [...]\n", .{});
         std.process.exit(64);
     }
     loadTables();
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stdout().writer(init.io, &buffer);
     const out = &writer.interface;
-    var index: usize = if (validating) 2 else 1;
-    while (index < args.len) : (index += if (validating) 1 else 2) {
+    var index: usize = if (validating or typing) 2 else 1;
+    while (index < args.len) : (index += if (validating) 1 else if (typing) 3 else 2) {
         const input = try std.Io.Dir.cwd().readFileAlloc(init.io, args[index], a, .unlimited);
         if (canonicalJson(input)) |json| {
-            if (validating) {
+            if (typing) {
+                const entry = args[index + 2];
+                const root = if (std.mem.eql(u8, entry, "-")) parsed_root else selectEntry(parsed_root, try std.unicode.utf8ToUtf16LeAlloc(a, entry));
+                if (typedIr(root)) |typed| {
+                    try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[index + 1], .data = typed });
+                    try out.print("ok\n", .{});
+                } else |_| try out.print("error {s}\n", .{lowering_failure});
+            } else if (validating) {
                 validate(parsed_root);
                 try printIssues(out);
             } else {
