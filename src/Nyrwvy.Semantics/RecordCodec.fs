@@ -950,6 +950,12 @@ module RecordCodec =
             | Some error -> Error error
             | None -> Ok(Text.Encoding.UTF8.GetString json.Span))
 
+    /// Record text -> the writer's JSON with the deferred `position=` placement error, which
+    /// `deserialize` reports only when the model check passes: the reference of the Zig snapshot
+    /// reader's protocol. The depth error keeps its `Model` (`MaximumDepthExceeded`).
+    let internal toJsonDeferred (text: string) : Result<string * RecordCodecError option, RecordCodecError> =
+        decodeWith None text (fun json deferred _ -> Ok(Text.Encoding.UTF8.GetString json.Span, deferred))
+
     // ---------------------------------------------------------------------------------------------
     // Encode: the writer's JSON -> record text
     // ---------------------------------------------------------------------------------------------

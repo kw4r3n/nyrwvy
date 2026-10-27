@@ -227,7 +227,7 @@ type ZigModelReaderComparison(output: ITestOutputHelper) =
                   yield json.Insert(at, [| ","; "}"; "x"; "\"" |][random.Next 4]) ]
             |> List.distinct
         let texts = originals @ mutated @ perKind allKinds @ targeted
-        let reader = PureRun.zigTool "model-reader" |> ZigModelReaderSupport.unwrap
+        let reader = ZigTools.tool "model-reader" |> ZigModelReaderSupport.unwrap
         let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-model-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory dir |> ignore
         try

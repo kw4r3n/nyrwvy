@@ -755,7 +755,7 @@ type ZigValidatorComparison(output: ITestOutputHelper) =
         // The slice-2 shape mutations as a sanity subset: shape failures pass through unchanged.
         let shape = originals |> List.mapi (fun index json -> let random = Random index in [ for _ in 1 .. 2 -> ZigModelReaderSupport.mutate kindNames.Value random json ]) |> List.concat
         let texts = originals @ targeted @ combined @ shape |> List.distinct
-        let reader = PureRun.zigTool "model-reader" |> ZigModelReaderSupport.unwrap
+        let reader = ZigTools.tool "model-reader" |> ZigModelReaderSupport.unwrap
         let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-validator-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory dir |> ignore
         try
