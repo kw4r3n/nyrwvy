@@ -1200,9 +1200,11 @@ module PureRun =
         let declarations = context.Declarations
         let unsupported (problems: string list) =
             Error(diagnostic "RunBackendUnsupported" ("The Zig backend does not yet support: " + String.Join(", ", problems |> List.truncate 8) + "."))
+        let whole = context.ProjectAll |> Option.bind (fun project -> project () |> Result.toOption)
         match context.Project fn.Id |> Result.mapError PureRunError.SessionFailure with
         | Error error -> Error error
-        | Ok program ->
+        | Ok reach ->
+        let program = whole |> Option.defaultValue reach
         // One runner serves every runnable entry of the snapshot, so a session builds once per
         // snapshot; a program the backend cannot emit whole falls back to this entry's reach.
         let runnable (program: ExecutionProgram) (candidate: ExecutionFunction) =
@@ -1213,7 +1215,7 @@ module PureRun =
             match ZigBackend.emit program with
             | Ok source -> Ok(program, source, program.Functions |> List.filter (runnable program))
             | Error _ ->
-                let reach = ExecutionCallGraph.forEntry program fn.Id
+                let reach = ExecutionCallGraph.forEntry reach fn.Id
                 ZigBackend.emit reach |> Result.map (fun source -> reach, source, reach.Functions |> List.filter (fun item -> item.SemanticFunctionId = fn.Id))
         match emitted with
         | Error problems -> unsupported problems

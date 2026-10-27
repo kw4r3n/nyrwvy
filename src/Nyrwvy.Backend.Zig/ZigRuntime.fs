@@ -177,11 +177,122 @@ fn nyListLastIndexOf(comptime T: type, list: []const T, item: T) ?i64 {
     return null;
 }
 
+// Float64 follows IEEE 754 binary64; Min and Max are IEEE 754-2019 minimum and maximum.
+fn nyFloat64Min(left: f64, right: f64) f64 {
+    if (std.math.isNan(left) or std.math.isNan(right)) return std.math.nan(f64);
+    if (left == right) return if (std.math.signbit(left)) left else right;
+    return if (left < right) left else right;
+}
+
+fn nyFloat64Max(left: f64, right: f64) f64 {
+    if (std.math.isNan(left) or std.math.isNan(right)) return std.math.nan(f64);
+    if (left == right) return if (std.math.signbit(left)) right else left;
+    return if (left > right) left else right;
+}
+
+/// Python's float %: the truncated remainder moved by one divisor when it is nonzero and signed
+/// unlike the divisor, and a zero remainder signed like the divisor.
+fn nyFloat64FloorModulo(dividend: f64, divisor: f64) f64 {
+    var remainder = @rem(dividend, divisor);
+    if (remainder != 0) {
+        if ((divisor < 0) != (remainder < 0)) remainder += divisor;
+    } else remainder = std.math.copysign(@as(f64, 0), divisor);
+    return remainder;
+}
+
+fn nyFloat64ToInt64(integral: f64) ?i64 {
+    return if (integral >= -9223372036854775808.0 and integral < 9223372036854775808.0) @intFromFloat(integral) else null;
+}
+
+// Sets and Maps are insertion-ordered immutable values. shortcut: lookups are linear and updates
+// copy; a hashed persistent structure replaces this when a consumer needs the documented O(log n).
+fn NySet(comptime T: type) type {
+    return struct {
+        items: []const T,
+        pub const ny_set = true;
+    };
+}
+
+fn NyMap(comptime K: type, comptime V: type) type {
+    return struct {
+        keys: []const K,
+        values: []const V,
+        pub const ny_map = true;
+    };
+}
+
+fn nyFind(comptime T: type, items: []const T, item: T) ?usize {
+    for (items, 0..) |candidate, position| if (nyEqual(candidate, item)) return position;
+    return null;
+}
+
+fn nySetInsert(comptime T: type, set: NySet(T), item: T) NySet(T) {
+    if (nyFind(T, set.items, item) != null) return set;
+    return .{ .items = nyListAppend(T, set.items, item) };
+}
+
+fn nySetRemove(comptime T: type, set: NySet(T), item: T) NySet(T) {
+    const at = nyFind(T, set.items, item) orelse return set;
+    return .{ .items = nyListRemoveAt(T, set.items, @intCast(at)) };
+}
+
+fn nySetFromList(comptime T: type, items: []const T) NySet(T) {
+    var set = NySet(T){ .items = &.{} };
+    for (items) |item| set = nySetInsert(T, set, item);
+    return set;
+}
+
+fn nySetUnion(comptime T: type, left: NySet(T), right: NySet(T)) NySet(T) {
+    var set = left;
+    for (right.items) |item| set = nySetInsert(T, set, item);
+    return set;
+}
+
+fn nySetKeep(comptime T: type, left: NySet(T), right: NySet(T), present: bool) NySet(T) {
+    const out = nyAlloc(T, left.items.len);
+    var count: usize = 0;
+    for (left.items) |item| {
+        if ((nyFind(T, right.items, item) != null) == present) {
+            out[count] = item;
+            count += 1;
+        }
+    }
+    return .{ .items = out[0..count] };
+}
+
+fn nySetIsSubset(comptime T: type, left: NySet(T), right: NySet(T)) bool {
+    if (left.items.len > right.items.len) return false;
+    for (left.items) |item| if (nyFind(T, right.items, item) == null) return false;
+    return true;
+}
+
+fn nyMapInsert(comptime K: type, comptime V: type, map: NyMap(K, V), key: K, value: V) NyMap(K, V) {
+    if (nyFind(K, map.keys, key)) |at| return .{ .keys = map.keys, .values = nyListSetAt(V, map.values, @intCast(at), value) };
+    return .{ .keys = nyListAppend(K, map.keys, key), .values = nyListAppend(V, map.values, value) };
+}
+
+fn nyMapRemove(comptime K: type, comptime V: type, map: NyMap(K, V), key: K) NyMap(K, V) {
+    const at: i64 = @intCast(nyFind(K, map.keys, key) orelse return map);
+    return .{ .keys = nyListRemoveAt(K, map.keys, at), .values = nyListRemoveAt(V, map.values, at) };
+}
+
+fn nyMapGet(comptime K: type, comptime V: type, map: NyMap(K, V), key: K) ?V {
+    return if (nyFind(K, map.keys, key)) |at| map.values[at] else null;
+}
+
+fn nyMapUnion(comptime K: type, comptime V: type, left: NyMap(K, V), right: NyMap(K, V)) NyMap(K, V) {
+    var map = left;
+    for (right.keys, right.values) |key, value| map = nyMapInsert(K, V, map, key, value);
+    return map;
+}
+
 /// Structural equality over every supported value type.
 fn nyEqual(left: anytype, right: @TypeOf(left)) bool {
     const T = @TypeOf(left);
     switch (@typeInfo(T)) {
         .int, .bool => return left == right,
+        // As .NET's Double.Equals: NaN equals NaN, and 0.0 equals -0.0.
+        .float => return left == right or (std.math.isNan(left) and std.math.isNan(right)),
         .optional => {
             if (left) |l| {
                 if (right) |r| return nyEqual(l, r);
@@ -200,6 +311,20 @@ fn nyEqual(left: anytype, right: @TypeOf(left)) bool {
             return nyEqual(left.*, right.*);
         },
         .@"struct" => |info| {
+            // Sets and Maps compare by content regardless of insertion order.
+            if (comptime @hasDecl(T, "ny_set")) {
+                if (left.items.len != right.items.len) return false;
+                for (left.items) |item| if (nyFind(@TypeOf(item), right.items, item) == null) return false;
+                return true;
+            }
+            if (comptime @hasDecl(T, "ny_map")) {
+                if (left.keys.len != right.keys.len) return false;
+                for (left.keys, left.values) |key, value| {
+                    const at = nyFind(@TypeOf(key), right.keys, key) orelse return false;
+                    if (!nyEqual(value, right.values[at])) return false;
+                }
+                return true;
+            }
             inline for (info.field_names) |name| {
                 if (!nyEqual(@field(left, name), @field(right, name))) return false;
             }
@@ -252,6 +377,8 @@ fn nyEncodeText(out: *std.Io.Writer, text: []const u8) !void {
 fn nyDecode(comptime T: type, tokens: *NyTokens) T {
     switch (@typeInfo(T)) {
         .int => return std.fmt.parseInt(i64, tokens.next(), 10) catch @panic("bad Int64 token"),
+        // A Float64 token is its 16 hexadecimal bit digits.
+        .float => return @bitCast(std.fmt.parseInt(u64, tokens.next(), 16) catch @panic("bad Float64 token")),
         .bool => return std.mem.eql(u8, tokens.next(), "1"),
         .optional => |info| {
             if (std.mem.eql(u8, tokens.next(), "1")) return nyDecode(info.child, tokens);
@@ -271,6 +398,21 @@ fn nyDecode(comptime T: type, tokens: *NyTokens) T {
             if (T == NyUnit) {
                 _ = tokens.next();
                 return NyUnit{};
+            }
+            if (comptime @hasDecl(T, "ny_set")) {
+                const Item = @typeInfo(@FieldType(T, "items")).pointer.child;
+                return nySetFromList(Item, nyDecode([]const Item, tokens));
+            }
+            if (comptime @hasDecl(T, "ny_map")) {
+                const K = @typeInfo(@FieldType(T, "keys")).pointer.child;
+                const V = @typeInfo(@FieldType(T, "values")).pointer.child;
+                const count = std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad Map token");
+                var map = T{ .keys = &.{}, .values = &.{} };
+                for (0..count) |_| {
+                    const key = nyDecode(K, tokens);
+                    map = nyMapInsert(K, V, map, key, nyDecode(V, tokens));
+                }
+                return map;
             }
             var value: T = undefined;
             inline for (info.field_names, info.field_types) |name, FieldType| @field(value, name) = nyDecode(FieldType, tokens);
@@ -295,6 +437,7 @@ fn nyEncode(out: *std.Io.Writer, value: anytype) !void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .int => try out.print("{d}", .{value}),
+        .float => try out.print("\"{x:0>16}\"", .{@as(u64, @bitCast(value))}),
         .bool => try out.writeAll(if (value) "true" else "false"),
         .optional => {
             if (value) |item| {
@@ -317,6 +460,19 @@ fn nyEncode(out: *std.Io.Writer, value: anytype) !void {
         },
         .@"struct" => |info| {
             if (T == NyUnit) return out.writeAll("\"unit\"");
+            if (comptime @hasDecl(T, "ny_set")) return nyEncode(out, value.items);
+            if (comptime @hasDecl(T, "ny_map")) {
+                try out.writeAll("[");
+                for (value.keys, value.values, 0..) |key, item, position| {
+                    if (position > 0) try out.writeAll(",");
+                    try out.writeAll("[");
+                    try nyEncode(out, key);
+                    try out.writeAll(",");
+                    try nyEncode(out, item);
+                    try out.writeAll("]");
+                }
+                return out.writeAll("]");
+            }
             try out.writeAll("[");
             inline for (info.field_names, 0..) |name, position| {
                 if (position > 0) try out.writeAll(",");

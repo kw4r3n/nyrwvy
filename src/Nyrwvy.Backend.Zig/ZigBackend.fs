@@ -69,7 +69,13 @@ module ZigBackend =
         | TypeRef.Primitive PrimitiveType.Bool -> Some "bool"
         | TypeRef.Primitive PrimitiveType.Unit -> Some "NyUnit"
         | TypeRef.Primitive PrimitiveType.String -> Some "[]const u8"
+        | TypeRef.Primitive PrimitiveType.Float64 -> Some "f64"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) -> inner item |> Option.map (fun item -> "?" + item)
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) -> inner item |> Option.map (fun item -> "NySet(" + item + ")")
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ key; value ]) ->
+            match inner key, inner value with
+            | Some key, Some value -> Some("NyMap(" + key + ", " + value + ")")
+            | _ -> None
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) -> inner item |> Option.map (fun item -> "[]const " + item)
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ ok; error ]) ->
             match inner ok, inner error with
@@ -109,7 +115,7 @@ module ZigBackend =
 
     let private itemType (typeRef: TypeRef) =
         match typeRef with
-        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) -> item
+        | TypeRef.BuiltinGeneric((BuiltinGenericType.List | BuiltinGenericType.Set), [ item ]) -> item
         | other -> invalidOp $"Expected a List type, got {other}."
 
     /// One Zig statement per instruction, or None when the instruction is outside the supported slice.
@@ -144,6 +150,14 @@ module ZigBackend =
             let name = context.Call functionId (arguments |> List.map (fun (id, _, typeRef) -> id, typeRef)) result
             name + "(" + String.Join(", ", arguments |> List.map (fun (_, expression, _) -> expression)) + ")"
         let block (body: string) = assign ("blk: { " + body + " }")
+        let mapTypes (mapValue: ExecutionValueId) =
+            match context.ValueType mapValue with
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ key; value ]) -> key, value
+            | other -> invalidOp $"Expected a Map type, got {other}."
+        let mapCall name (mapValue: ExecutionValueId) (rest: string list) =
+            let key, value = mapTypes mapValue
+            assign (name + "(" + String.Join(", ", zig key :: zig value :: v mapValue :: rest) + ")")
+        let bool = TypeRef.Primitive PrimitiveType.Bool
         match instruction.Kind with
         | ExecutionInstructionKind.ReadParameter source
         | ExecutionInstructionKind.ReadPatternBinding source -> assign (v source)
@@ -244,6 +258,81 @@ module ZigBackend =
         | ExecutionInstructionKind.ListFlatMap(source, mapper, bindings) ->
             let call = callback mapper bindings [ "item", itemType (context.ValueType source) ] instruction.Result.Type
             block ("var out: std.ArrayList(" + resultElement () + ") = .empty; for (" + v source + ") |item| out.appendSlice(nyAllocator(), " + call + ") catch @panic(\"out of memory\"); break :blk out.items;")
+        | ExecutionInstructionKind.Float64Literal bits -> assign ("@as(f64, @bitCast(@as(u64, 0x" + (Float64Bits.value bits).ToString("x16") + ")))")
+        | ExecutionInstructionKind.Float64Add(left, right) -> binary left "+" right
+        | ExecutionInstructionKind.Float64Subtract(left, right) -> binary left "-" right
+        | ExecutionInstructionKind.Float64Multiply(left, right) -> binary left "*" right
+        | ExecutionInstructionKind.Float64Divide(left, right) -> binary left "/" right
+        | ExecutionInstructionKind.Float64Min(left, right) -> assign ("nyFloat64Min(" + v left + ", " + v right + ")")
+        | ExecutionInstructionKind.Float64Max(left, right) -> assign ("nyFloat64Max(" + v left + ", " + v right + ")")
+        | ExecutionInstructionKind.Float64FloorModulo(left, right) -> assign ("nyFloat64FloorModulo(" + v left + ", " + v right + ")")
+        | ExecutionInstructionKind.Float64Equal(left, right) -> binary left "==" right
+        | ExecutionInstructionKind.Float64LessThan(left, right) -> binary left "<" right
+        | ExecutionInstructionKind.Float64IsNaN source -> assign ("std.math.isNan(" + v source + ")")
+        | ExecutionInstructionKind.Float64IsFinite source -> assign ("std.math.isFinite(" + v source + ")")
+        | ExecutionInstructionKind.Float64IsInfinite source -> assign ("std.math.isInf(" + v source + ")")
+        | ExecutionInstructionKind.Float64Sqrt source -> assign ("@sqrt(" + v source + ")")
+        | ExecutionInstructionKind.Float64Abs source -> assign ("@abs(" + v source + ")")
+        | ExecutionInstructionKind.Float64Negate source -> assign ("-" + v source)
+        | ExecutionInstructionKind.Float64Floor source -> assign ("@floor(" + v source + ")")
+        | ExecutionInstructionKind.Float64Ceiling source -> assign ("@ceil(" + v source + ")")
+        | ExecutionInstructionKind.Float64Truncate source -> assign ("@trunc(" + v source + ")")
+        // Zig's @round rounds halfway cases away from zero, as Float64RoundToInt64 requires.
+        | ExecutionInstructionKind.Float64RoundToInt64 source -> assign ("nyFloat64ToInt64(@round(" + v source + "))")
+        | ExecutionInstructionKind.Float64FloorToInt64 source -> assign ("nyFloat64ToInt64(@floor(" + v source + "))")
+        | ExecutionInstructionKind.Int64ToFloat64 source -> assign ("@as(f64, @floatFromInt(" + v source + "))")
+        | ExecutionInstructionKind.SetEmpty -> assign ".{ .items = &.{} }"
+        | ExecutionInstructionKind.MapEmpty -> assign ".{ .keys = &.{}, .values = &.{} }"
+        | ExecutionInstructionKind.SetFromList list -> listCall "nySetFromList" list []
+        | ExecutionInstructionKind.SetToList set -> assign (v set + ".items")
+        | ExecutionInstructionKind.SetSize set -> assign ("@as(i64, @intCast(" + v set + ".items.len))")
+        | ExecutionInstructionKind.SetInsert(set, item) -> listCall "nySetInsert" set [ v item ]
+        | ExecutionInstructionKind.SetRemove(set, item) -> listCall "nySetRemove" set [ v item ]
+        | ExecutionInstructionKind.SetContains(set, item) -> assign ("nyFind(" + elementOf set + ", " + v set + ".items, " + v item + ") != null")
+        | ExecutionInstructionKind.SetUnion(left, right) -> listCall "nySetUnion" left [ v right ]
+        | ExecutionInstructionKind.SetIntersection(left, right) -> listCall "nySetKeep" left [ v right; "true" ]
+        | ExecutionInstructionKind.SetDifference(left, right) -> listCall "nySetKeep" left [ v right; "false" ]
+        | ExecutionInstructionKind.SetIsSubset(left, right) -> listCall "nySetIsSubset" left [ v right ]
+        | ExecutionInstructionKind.SetFold(source, seed, folder, bindings) ->
+            let state = context.ValueType seed
+            let call = callback folder bindings [ "state", state; "item", itemType (context.ValueType source) ] state
+            block ("var state = " + v seed + "; for (" + v source + ".items) |item| state = " + call + "; break :blk state;")
+        | ExecutionInstructionKind.SetFilter(source, predicate, bindings) ->
+            let call = callback predicate bindings [ "item", itemType (context.ValueType source) ] bool
+            block ("const out = nyAlloc(" + elementOf source + ", " + v source + ".items.len); var count: usize = 0; for (" + v source + ".items) |item| { if (" + call + ") { out[count] = item; count += 1; } } break :blk .{ .items = out[0..count] };")
+        | ExecutionInstructionKind.SetMap(source, mapper, bindings) ->
+            let call = callback mapper bindings [ "item", itemType (context.ValueType source) ] (itemType instruction.Result.Type)
+            block ("var out: " + zig instruction.Result.Type + " = .{ .items = &.{} }; for (" + v source + ".items) |item| out = nySetInsert(" + resultElement () + ", out, " + call + "); break :blk out;")
+        | ExecutionInstructionKind.MapSize map -> assign ("@as(i64, @intCast(" + v map + ".keys.len))")
+        | ExecutionInstructionKind.MapKeys map -> assign (v map + ".keys")
+        | ExecutionInstructionKind.MapValues map -> assign (v map + ".values")
+        | ExecutionInstructionKind.MapInsert(map, key, value) -> mapCall "nyMapInsert" map [ v key; v value ]
+        | ExecutionInstructionKind.MapRemove(map, key) -> mapCall "nyMapRemove" map [ v key ]
+        | ExecutionInstructionKind.MapGet(map, key) -> mapCall "nyMapGet" map [ v key ]
+        | ExecutionInstructionKind.MapGetOrDefault(map, key, fallback) ->
+            let keyType, valueType = mapTypes map
+            assign ("nyMapGet(" + zig keyType + ", " + zig valueType + ", " + v map + ", " + v key + ") orelse " + v fallback)
+        | ExecutionInstructionKind.MapContainsKey(map, key) -> assign ("nyFind(" + zig (fst (mapTypes map)) + ", " + v map + ".keys, " + v key + ") != null")
+        | ExecutionInstructionKind.MapUnion(left, right) -> mapCall "nyMapUnion" left [ v right ]
+        | ExecutionInstructionKind.MapFold(source, seed, folder, bindings) ->
+            let keyType, valueType = mapTypes source
+            let state = context.ValueType seed
+            let call = callback folder bindings [ "state", state; "key", keyType; "value", valueType ] state
+            block ("var state = " + v seed + "; for (" + v source + ".keys, " + v source + ".values) |key, value| state = " + call + "; break :blk state;")
+        | ExecutionInstructionKind.MapFilter(source, keep, bindings) ->
+            let keyType, valueType = mapTypes source
+            let call = callback keep bindings [ "key", keyType; "value", valueType ] bool
+            block ("var out: " + zig instruction.Result.Type + " = .{ .keys = &.{}, .values = &.{} }; for (" + v source + ".keys, " + v source + ".values) |key, value| { if (" + call + ") out = nyMapInsert(" + zig keyType + ", " + zig valueType + ", out, key, value); } break :blk out;")
+        | ExecutionInstructionKind.MapMapValues(source, mapper, bindings) ->
+            let keyType, valueType = mapTypes source
+            let resultValue = match instruction.Result.Type with TypeRef.BuiltinGeneric(_, [ _; value ]) -> value | other -> other
+            let call = callback mapper bindings [ "key", keyType; "value", valueType ] resultValue
+            block ("const out = nyAlloc(" + zig resultValue + ", " + v source + ".keys.len); for (" + v source + ".keys, " + v source + ".values, 0..) |key, value, at| out[at] = " + call + "; break :blk .{ .keys = " + v source + ".keys, .values = out };")
+        | ExecutionInstructionKind.MapFromList(source, keyOf, bindings) ->
+            let keyType = match instruction.Result.Type with TypeRef.BuiltinGeneric(_, [ key; _ ]) -> key | other -> other
+            let element = itemType (context.ValueType source)
+            let call = callback keyOf bindings [ "item", element ] keyType
+            block ("var out: " + zig instruction.Result.Type + " = .{ .keys = &.{}, .values = &.{} }; for (" + v source + ") |item| out = nyMapInsert(" + zig keyType + ", " + zig element + ", out, " + call + ", item); break :blk out;")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let byParameter = arguments |> List.map (fun argument -> argument.TargetParameterId, argument.ValueId) |> Map.ofList
             let parameters = context.Parameters functionId |> List.map fst
