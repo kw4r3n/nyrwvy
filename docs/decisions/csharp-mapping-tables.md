@@ -54,7 +54,7 @@ A table is mechanical data, so it can be generated, checked against the graph an
 ## Consequences
 
 - `CSharpMappingTableTests` (extended suite) compiles a C library with `cc`, runs `bind-c`, applies the requests through a session, emits a program with the table and an override, builds it with warnings as errors and runs it against the library: int, bool, owned string, non-ASCII and U+0000 strings, bytes, a negative-return `Err`, a handle through `UseResource` with its release observed by the library, a null handle as `Err`, use after release, an unavailable operation, regeneration keeping the override, and table mismatches as diagnostics. It skips with a message when `cc` or `clang` is missing.
-- A host still constructs the library capability's adapter by its generated name (from the manifest); the facade has no alias for it yet.
+- A host still constructs the library capability's adapter by its generated name (from the manifest); the facade has no alias for it yet (3b adds `New<Name>()`).
 
 ## Out of scope (3a)
 
@@ -63,3 +63,5 @@ Callbacks, structs by value and out-parameters, enums, floats, `Option` for null
 ## Revisit conditions
 
 Revisit when snap's libghostty binding (3b) needs one of the out-of-scope conversions, when tables should be discovered beside dependencies, or when a second backend gets tables.
+
+**Follow-up:** 3b added out-parameters, constants (enums, null allocators), structs by value and by address, Bytes results through caller buffers, floats, `bits64` references, `bind-c --spec` and `New<Name>()` facade constructors, within version 1 ([libghostty follow-up](csharp-mapping-tables-libghostty.md)). Callbacks, `Option` for null and out-structs remain out of scope.
