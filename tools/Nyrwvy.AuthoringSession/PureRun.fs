@@ -1200,31 +1200,47 @@ module PureRun =
         let declarations = context.Declarations
         let unsupported (problems: string list) =
             Error(diagnostic "RunBackendUnsupported" ("The Zig backend does not yet support: " + String.Join(", ", problems |> List.truncate 8) + "."))
+        let whole = context.ProjectAll |> Option.bind (fun project -> project () |> Result.toOption)
         match context.Project fn.Id |> Result.mapError PureRunError.SessionFailure with
         | Error error -> Error error
-        | Ok program ->
+        | Ok reach ->
+        let program = whole |> Option.defaultValue reach
         // One runner serves every runnable entry of the snapshot, so a session builds once per
         // snapshot; a program the backend cannot emit whole falls back to this entry's reach.
         let runnable (program: ExecutionProgram) (candidate: ExecutionFunction) =
             List.isEmpty candidate.TypeParameters
             && candidate.ResultType :: (candidate.Parameters |> List.map (fun parameter -> parameter.Value.Type))
                |> List.forall (ZigBackend.typeOf program >> Option.isSome)
+        let withFakes (program: ExecutionProgram) =
+            ZigBackend.emit program
+            |> Result.bind (fun source -> ZigBackend.fakeCapabilities program |> Result.map (fun fakes -> source + fakes))
         let emitted =
-            match ZigBackend.emit program with
+            match withFakes program with
             | Ok source -> Ok(program, source, program.Functions |> List.filter (runnable program))
             | Error _ ->
-                let reach = ExecutionCallGraph.forEntry program fn.Id
-                ZigBackend.emit reach |> Result.map (fun source -> reach, source, reach.Functions |> List.filter (fun item -> item.SemanticFunctionId = fn.Id))
+                let reach = ExecutionCallGraph.forEntry reach fn.Id
+                withFakes reach |> Result.map (fun source -> reach, source, reach.Functions |> List.filter (fun item -> item.SemanticFunctionId = fn.Id))
         match emitted with
         | Error problems -> unsupported problems
         | Ok(program, source, entries) ->
             let zigType typeRef = (ZigBackend.typeOf program typeRef).Value
             let dispatch (entry: ExecutionFunction) =
                 let name = ZigBackend.functionName entry.SemanticFunctionId
-                let decoded = entry.Parameters |> List.mapi (fun index parameter -> $"        const a{index} = nyDecode({zigType parameter.Value.Type}, &tokens);\n")
+                // A capability parameter is a scripted fake; its call sites follow the earlier fakes'.
+                let mutable fake = 0
+                let mutable site = 0
+                let decoded =
+                    entry.Parameters |> List.mapi (fun index parameter ->
+                        match parameter.Value.Type with
+                        | TypeRef.Capability capabilityId ->
+                            let text, operations = ZigBackend.fakeArgument program capabilityId $"a{index}" fake site
+                            fake <- fake + 1
+                            site <- site + operations
+                            text
+                        | other -> $"        const a{index} = nyDecode({zigType other}, &tokens);\n")
                 $"    if (std.mem.eql(u8, entry, \"{name}\")) {{\n"
                 + String.concat "" decoded
-                + "        try nyEncode(out, " + name + "(" + String.Join(", ", entry.Parameters |> List.mapi (fun index _ -> $"a{index}")) + "));\n"
+                + "        try nyEncode(&value.writer, " + name + "(" + String.Join(", ", entry.Parameters |> List.mapi (fun index _ -> $"a{index}")) + "));\n"
                 + "    }\n"
             let runner =
                 source
@@ -1237,16 +1253,30 @@ module PureRun =
                 + "    var buffer: [4096]u8 = undefined;\n"
                 + "    var writer = std.Io.File.stdout().writer(init.io, &buffer);\n"
                 + "    const out = &writer.interface;\n"
-                + "    try out.writeAll(\"[\\\"value\\\",\");\n"
+                + "    ny_out = out;\n"
+                + "    ny_calls = .init(nyAllocator());\n"
+                + "    var value: std.Io.Writer.Allocating = .init(nyAllocator());\n"
                 + String.concat "" (entries |> List.sortBy (fun entry -> StableId.value entry.SemanticFunctionId) |> List.map dispatch)
-                + "    try out.writeAll(\",[]]\\n\");\n"
+                + "    try out.print(\"[\\\"value\\\",{s},[{s}]]\\n\", .{ value.written(), ny_calls.written() });\n"
                 + "    try out.flush();\n"
                 + "}\n"
             let hash = Convert.ToHexString(Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes runner)).Substring(0, 32)
             let directory = Path.Combine(zigCache, hash)
             let executable = Path.Combine(directory, "runner")
             let tokens = ResizeArray<string>()
-            arguments |> List.iter (inputTokens declarations.Types tokens)
+            arguments |> List.iter (function
+                | PureRunValue.FakeCapability(capabilityId, script) ->
+                    let capability = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
+                    fakeInput declarations.Types (capability.Operations |> List.map (fun operation -> operation.Id) |> List.sortBy StableId.value) script tokens
+                | value -> inputTokens declarations.Types tokens value)
+            let sites =
+                List.zip fn.Parameters arguments |> List.collect (fun (parameter, value) ->
+                    match value with
+                    | PureRunValue.FakeCapability(capabilityId, _) ->
+                        let capability = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
+                        capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id)
+                        |> List.map (fun operation -> { ParameterId = parameter.Id; Operation = operation })
+                    | _ -> [])
             try
                 let built =
                     if File.Exists executable then Ok()
@@ -1276,8 +1306,19 @@ module PureRun =
                                   BindingExhausted = false
                                   Calls = [] })
                     else
-                        parseEnvelope declarations.Types fn.ResultType [] output
+                        parseEnvelope declarations.Types fn.ResultType sites output
                         |> Result.bind (function
+                            | Envelope.Exception(kind, exceptionType, message, _, calls, exhausted) ->
+                                Error(PureRunError.RuntimeFailure
+                                        { SnapshotId = program.SourceSnapshotId
+                                          FunctionId = fn.Id
+                                          Kind = kind
+                                          ExceptionType = exceptionType
+                                          Message = message
+                                          Frames = []
+                                          BindingExhausted = exhausted
+                                          Calls = calls })
+                            | Envelope.Limit message -> Error(diagnostic "RunProcessFailure" message)
                             | Envelope.Value(actual, calls) ->
                                 Ok { SnapshotId = program.SourceSnapshotId
                                      FunctionId = fn.Id
@@ -1285,8 +1326,7 @@ module PureRun =
                                      Expected = expected
                                      Matches = expected |> Option.map ((=) actual)
                                      Mismatch = expected |> Option.bind (fun expected -> mismatch expected actual)
-                                     Calls = calls }
-                            | _ -> Error(processFailure output errors)))
+                                     Calls = calls }))
             with
             | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
             | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message)

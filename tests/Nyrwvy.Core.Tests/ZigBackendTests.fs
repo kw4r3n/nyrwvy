@@ -78,8 +78,8 @@ module ZigBackendTests =
                 Assert.Equal(csharp.GetProperty("result").GetProperty("actual").ToString(), zig.GetProperty("result").GetProperty("actual").ToString())
             Assert.Equal("500000500000", (run session "zig" "sumTo" [ int64 1000000L ]).GetProperty("result").GetProperty("actual").GetProperty("value").ToString())
             // Created last: a snapshot the backend cannot emit whole builds one runner per entry.
-            create session "toFloat" [ "n", int64Type ] """{"kind":"primitive","primitive":"float64"}""" ($"""{{"kind":"int64ToFloat64","value":{p "n"}}}""")
-            let unsupported = run session "zig" "toFloat" [ int64 3L ]
+            create session "shout" [ "text", stringType ] stringType ($"""{{"kind":"stringToUpper","value":{p "text"}}}""")
+            let unsupported = run session "zig" "shout" [ "\"a\"" ]
             Assert.False(unsupported.GetProperty("ok").GetBoolean())
             Assert.Equal("RunBackendUnsupported", unsupported.GetProperty("error").GetProperty("code").GetString())
         finally Directory.Delete(dir, true)
@@ -168,4 +168,130 @@ module ZigBackendTests =
             let huge = run session "zig" "upTo" [ "9223372036854775807" ]
             Assert.False(huge.GetProperty("ok").GetBoolean())
             Assert.Equal("fatal", huge.GetProperty("error").GetProperty("failureKind").GetString())
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs Float64, Maps and Sets and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let float = """{"kind":"primitive","primitive":"float64"}"""
+            let generic name (arguments: string list) = $"""{{"kind":"builtinGeneric","generic":"{name}","arguments":[{String.Join(",", arguments)}]}}"""
+            let xy = [ "a", float; "b", float ]
+            for kind in [ "float64Add"; "float64Subtract"; "float64Multiply"; "float64Divide"; "float64Min"; "float64Max"; "float64FloorModulo" ] do
+                create session kind xy float (binary kind)
+            for kind in [ "float64Equal"; "float64LessThan" ] do create session kind xy boolType (binary kind)
+            for kind in [ "float64Sqrt"; "float64Abs"; "float64Negate"; "float64Floor"; "float64Ceiling"; "float64Truncate" ] do
+                create session kind [ "a", float ] float ($"""{{"kind":"{kind}","value":{p "a"}}}""")
+            for kind in [ "float64IsNaN"; "float64IsFinite"; "float64IsInfinite" ] do
+                create session kind [ "a", float ] boolType ($"""{{"kind":"{kind}","value":{p "a"}}}""")
+            for kind in [ "float64RoundToInt64"; "float64FloorToInt64" ] do
+                create session kind [ "a", float ] (generic "option" [ int64Type ]) ($"""{{"kind":"{kind}","value":{p "a"}}}""")
+            create session "toFloat" [ "n", int64Type ] float ($"""{{"kind":"int64ToFloat64","value":{p "n"}}}""")
+            let counts = generic "map" [ stringType; int64Type ]
+            create session "bump" [ "acc", counts; "word", stringType ] counts
+                ($"""{{"kind":"mapInsert","map":{p "acc"},"key":{p "word"},"value":{{"kind":"int64WrappingAdd","left":{{"kind":"mapGetOrDefault","map":{p "acc"},"key":{p "word"},"default":{{"kind":"int64Literal","value":0}}}},"right":{{"kind":"int64Literal","value":1}}}}}}""")
+            create session "count" [ "words", generic "list" [ stringType ] ] counts
+                ($"""{{"kind":"listFold","source":{p "words"},"seed":{{"kind":"mapEmpty","keyType":{stringType},"valueType":{int64Type}}},"function":"bump"}}""")
+            create session "merge" [ "a", counts; "b", counts ] counts (binary "mapUnion")
+            create session "dropKey" [ "m", counts; "k", stringType ] counts ($"""{{"kind":"mapRemove","map":{p "m"},"key":{p "k"}}}""")
+            create session "keysOf" [ "m", counts ] (generic "list" [ stringType ]) ($"""{{"kind":"mapKeys","value":{p "m"}}}""")
+            create session "sameMap" [ "a", counts; "b", counts ] boolType (binary "valueEqual")
+            let ints = generic "set" [ int64Type ]
+            create session "unique" [ "xs", generic "list" [ int64Type ] ] ints ($"""{{"kind":"setFromList","value":{p "xs"}}}""")
+            for kind in [ "setUnion"; "setIntersection"; "setDifference" ] do create session kind [ "a", ints; "b", ints ] ints (binary kind)
+            create session "subset" [ "a", ints; "b", ints ] boolType (binary "setIsSubset")
+            create session "sameSet" [ "a", ints; "b", ints ] boolType (binary "valueEqual")
+            let floats = [ "0.5"; "-2.5"; "3"; "\"-0\""; "1e308"; "\"NaN\""; "\"Infinity\""; "-7.25" ]
+            for a in floats do
+                for kind in [ "float64Sqrt"; "float64Abs"; "float64Negate"; "float64Floor"; "float64Ceiling"; "float64Truncate"; "float64IsNaN"; "float64IsFinite"; "float64IsInfinite"; "float64RoundToInt64"; "float64FloorToInt64" ] do
+                    agree session kind [ a ]
+                // Pairs over a smaller set keep the run short; every value still meets every operation.
+                for b in [ "-2.5"; "\"-0\""; "\"NaN\""; "\"Infinity\""; "3" ] do
+                    for kind in [ "float64Add"; "float64Subtract"; "float64Multiply"; "float64Divide"; "float64Min"; "float64Max"; "float64FloorModulo"; "float64Equal"; "float64LessThan" ] do
+                        agree session kind [ a; b ]
+            for n in [ "-9007199254740993"; "0"; "9223372036854775807" ] do agree session "toFloat" [ n ]
+            agree session "count" [ """["a","b","a","c","b","a"]""" ]
+            let m1 = """[["a",1],["b",2]]"""
+            let m2 = """[["b",20],["c",3]]"""
+            for a, b in [ m1, m2; m2, m1; m1, "[]" ] do
+                agree session "merge" [ a; b ]
+                agree session "sameMap" [ a; b ]
+            agree session "sameMap" [ m1; """[["b",2],["a",1]]""" ]
+            agree session "dropKey" [ m1; "\"a\"" ]
+            agree session "keysOf" [ m2 ]
+            agree session "unique" [ "[3,1,3,2,1]" ]
+            for a, b in [ "[1,2,3]", "[3,4]"; "[]", "[1]"; "[2,1]", "[1,2,3]" ] do
+                for kind in [ "setUnion"; "setIntersection"; "setDifference"; "subset"; "sameSet" ] do agree session kind [ a; b ]
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs Bytes and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let bytesType = """{"kind":"primitive","primitive":"bytes"}"""
+            let from name = $"""{{"kind":"bytesFromLatin1","value":{p name}}}"""
+            create session "fill" [ "n", int64Type; "v", int64Type ] bytesType ($"""{{"kind":"bytesFill","length":{p "n"},"value":{p "v"}}}""")
+            create session "edit" [ "s", stringType; "i", int64Type; "v", int64Type ] stringType
+                ($"""{{"kind":"bytesToLatin1","value":{{"kind":"bytesAppend","bytes":{{"kind":"bytesSet","bytes":{from "s"},"index":{p "i"},"value":{p "v"}}},"value":{p "v"}}}}}""")
+            create session "at" [ "s", stringType; "i", int64Type ] (sprintf """{"kind":"builtinGeneric","generic":"option","arguments":[%s]}""" int64Type) ($"""{{"kind":"bytesGet","bytes":{from "s"},"index":{p "i"}}}""")
+            create session "cut" [ "s", stringType; "i", int64Type; "j", int64Type ] bytesType ($"""{{"kind":"bytesSlice","bytes":{from "s"},"start":{p "i"},"end":{p "j"}}}""")
+            create session "join" [ "s", stringType; "t", stringType ] bytesType ($"""{{"kind":"bytesConcat","left":{from "s"},"right":{from "t"}}}""")
+            create session "size" [ "s", stringType ] int64Type ($"""{{"kind":"bytesLength","value":{from "s"}}}""")
+            create session "sameBytes" [ "s", stringType; "t", stringType ] boolType ($"""{{"kind":"valueEqual","left":{from "s"},"right":{from "t"}}}""")
+            for n, v in [ "-1", "5"; "0", "1"; "3", "-1"; "4", "256" ] do agree session "fill" [ n; v ]
+            let texts = [ "\"\""; "\"abc\""; "\"\\u00ff\\u0000x\""; "\"\\u20ac\"" ]
+            for s in texts do
+                agree session "size" [ s ]
+                for i in [ "-1"; "0"; "2"; "9" ] do
+                    agree session "edit" [ s; i; "300" ]
+                    agree session "at" [ s; i ]
+                    agree session "cut" [ s; i; "2" ]
+                for t in texts do
+                    agree session "join" [ s; t ]
+                    agree session "sameBytes" [ s; t ]
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs scripted fake capabilities and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let effect = execute session """{"id":"e","op":"simulateCreateEffect","exported":true,"displayName":"io"}"""
+            let effectProposal = effect.GetProperty("result").GetProperty("proposalId").GetString()
+            Assert.True((execute session ($"""{{"id":"m","op":"commit","proposalId":"{effectProposal}"}}""")).GetProperty("ok").GetBoolean())
+            let optionText = $"""{{"kind":"builtinGeneric","generic":"option","arguments":[{stringType}]}}"""
+            let capability = execute session ($"""{{"id":"c","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Store","operations":[{{"displayName":"get","parameters":[{{"displayName":"key","type":{stringType}}},{{"displayName":"slot","type":{int64Type}}}],"resultType":{optionText},"effect":"io"}},{{"displayName":"count","parameters":[],"resultType":{int64Type},"effect":"io"}}]}}""")
+            Assert.True(capability.GetProperty("ok").GetBoolean(), capability.ToString())
+            let capabilityProposal = capability.GetProperty("result").GetProperty("proposalId").GetString()
+            Assert.True((execute session ($"""{{"id":"m","op":"commit","proposalId":"{capabilityProposal}"}}""")).GetProperty("ok").GetBoolean())
+            let storeType = """{"kind":"capability","name":"Store"}"""
+            let invokeGet key = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "store"},"capability":"Store","operation":"get","arguments":[{{"parameter":"key","value":{key}}},{{"parameter":"slot","value":{{"kind":"int64Literal","value":1}}}}]}}"""
+            let count = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "store"},"capability":"Store","operation":"count","arguments":[]}}"""
+            let proposal = execute session ($"""{{"id":"f","op":"simulateCreateFunctionByName","exported":true,"displayName":"look","parameters":[{{"displayName":"store","type":{storeType}}},{{"displayName":"name","type":{stringType}}}],"resultType":{stringType},"requiredEffects":["io"],"body":{{"kind":"bind","value":{count},"body":{{"kind":"stringConcat","left":{{"kind":"int64ToString","value":{{"kind":"patternReference","scopeDepth":0,"slot":"value"}}}},"right":{{"kind":"matchOption","input":{invokeGet (p "name")},"someBody":{{"kind":"patternReference","scopeDepth":0,"slot":"value"}},"noneBody":{{"kind":"stringLiteral","value":"-"}}}}}}}}}}""")
+            Assert.True(proposal.GetProperty("ok").GetBoolean(), proposal.ToString())
+            Assert.True((execute session ($"""{{"id":"m","op":"commit","proposalId":"{proposal.GetProperty("result").GetProperty("proposalId").GetString()}"}}""")).GetProperty("ok").GetBoolean())
+            let ordered responses = $"""{{"kind":"fakeCapability","capability":"Store","operations":[{{"operation":"count","responses":[{{"kind":"return","value":{{"kind":"int64","value":"3"}}}}]}},{{"operation":"get","responses":[{responses}]}}]}}"""
+            let some text = $"""{{"kind":"return","value":{{"kind":"option","itemKind":"string","hasValue":true,"value":"{text}"}}}}"""
+            let keyed = $"""{{"kind":"fakeCapability","capability":"Store","operations":[{{"operation":"count","responses":[{{"kind":"return","value":{{"kind":"int64","value":"0"}}}}]}},{{"operation":"get","cases":[{{"arguments":[{{"parameter":"key","value":{{"kind":"string","value":"ä 😀"}}}},{{"parameter":"slot","value":{{"kind":"int64","value":"1"}}}}],"responses":[{some "found"}]}}]}}]}}"""
+            let compare (arguments: string list) =
+                let csharp = run session "csharp" "look" arguments
+                let zig = run session "zig" "look" arguments
+                Assert.True(csharp.GetProperty("ok").GetBoolean() = zig.GetProperty("ok").GetBoolean(), csharp.ToString() + "\n" + zig.ToString())
+                if not (csharp.GetProperty("ok").GetBoolean()) && not (csharp.GetProperty("error").TryGetProperty("failureKind") |> fst) then failwith (csharp.ToString() + "\n" + zig.ToString())
+                if csharp.GetProperty("ok").GetBoolean() then
+                    Assert.Equal(csharp.GetProperty("result").GetProperty("actual").ToString(), zig.GetProperty("result").GetProperty("actual").ToString())
+                    Assert.Equal(csharp.GetProperty("result").GetProperty("calls").ToString(), zig.GetProperty("result").GetProperty("calls").ToString())
+                else
+                    for property in [ "code"; "message"; "failureKind"; "exceptionType"; "calls" ] do
+                        Assert.Equal(csharp.GetProperty("error").GetProperty(property).ToString(), zig.GetProperty("error").GetProperty(property).ToString())
+            compare [ ordered (some "x"); "\"k\"" ]
+            compare [ ordered """{"kind":"throw","message":"down ✗"}"""; "\"k\"" ]
+            compare [ ordered ""; "\"k\"" ]
+            compare [ keyed; "\"ä 😀\"" ]
+            compare [ keyed; "\"other\"" ]
         finally Directory.Delete(dir, true)

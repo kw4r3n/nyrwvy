@@ -90,6 +90,9 @@ type internal AuthoringExecutionContext =
       Fingerprint: string
       Declarations: AuthoringDeclarations
       Project: FunctionId -> Result<ExecutionProgram, AuthoringSessionError>
+      /// The execution program of the whole committed snapshot, for a backend that builds once per
+      /// snapshot; None for a proposal's candidate snapshot.
+      ProjectAll: (unit -> Result<ExecutionProgram, AuthoringSessionError>) option
       /// The session's long-lived runner process for compiled programs.
       Worker: PureRunWorker }
 
@@ -1069,6 +1072,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     let worker = new PureRunWorker()
     // Entry projections by workspace object; an entry's program dies with the workspace state it was projected from.
     let entryProjections = System.Runtime.CompilerServices.ConditionalWeakTable<AgentWorkspace, Dictionary<FunctionId, Result<ExecutionProgram, AuthoringSessionError>>>()
+    let wholeProjections = System.Runtime.CompilerServices.ConditionalWeakTable<AgentWorkspace, Lazy<Result<ExecutionProgram, AuthoringSessionError>>>()
 
     let ensureUsable () =
         if closed then Error AuthoringSessionError.SessionClosed
@@ -1716,6 +1720,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     /// workspace state and the entry, so it is kept with the workspace object, which every commit
     /// replaces: repeated runs of one entry (every runPure case of an authoring step) select,
     /// validate and lower it once.
+    /// The whole committed snapshot's execution program, kept with the workspace like entry projections.
+    member internal this.ProjectAllExecution(): Result<ExecutionProgram, AuthoringSessionError> =
+        wholeProjections.GetValue(workspace, fun _ -> lazy (this.ProjectExecution())).Value
+
     member internal _.ProjectEntryExecution(entry): Result<ExecutionProgram, AuthoringSessionError> =
         let projections = entryProjections.GetValue(workspace, fun _ -> Dictionary<FunctionId, Result<ExecutionProgram, AuthoringSessionError>>())
         lock projections (fun () ->
@@ -1751,6 +1759,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     |> TypedSemanticIr.project
                     |> Result.mapError AuthoringSessionError.SemanticProjectionFailure
                     |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure)
+                  ProjectAll = None
                   Worker = worker })
         this.VerifyPersistedSource()
         |> Result.bind (fun () ->
@@ -1762,6 +1771,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                       Fingerprint = SnapshotFingerprint.value status.SnapshotFingerprint
                       Declarations = this.Declarations()
                       Project = this.ProjectEntryExecution
+                      ProjectAll = Some this.ProjectAllExecution
                       Worker = worker })
             | Some id ->
                 this.PendingProposalView id

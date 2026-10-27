@@ -62,14 +62,24 @@ module ZigBackend =
 
     /// The Zig type of a supported value type, recording each declared type instance it names.
     /// Products and Unions are boxed (`*const`), which keeps recursive types finite.
-    let rec private zigType (types: Map<TypeId, ExecutionType>) (record: TypeId * TypeRef list -> unit) (typeRef: TypeRef) : string option =
-        let inner = zigType types record
+    let private capabilityName (capabilityId: CapabilityId) = identifier "C_" (StableId.value capabilityId)
+    let private operationName (operationId: CapabilityOperationId) = identifier "op_" (StableId.value operationId)
+
+    let rec private zigType (types: Map<TypeId, ExecutionType>) (capabilities: Set<CapabilityId>) (record: TypeId * TypeRef list -> unit) (typeRef: TypeRef) : string option =
+        let inner = zigType types capabilities record
         match typeRef with
         | TypeRef.Primitive PrimitiveType.Int64 -> Some "i64"
         | TypeRef.Primitive PrimitiveType.Bool -> Some "bool"
         | TypeRef.Primitive PrimitiveType.Unit -> Some "NyUnit"
         | TypeRef.Primitive PrimitiveType.String -> Some "[]const u8"
+        | TypeRef.Primitive PrimitiveType.Float64 -> Some "f64"
+        | TypeRef.Primitive PrimitiveType.Bytes -> Some "NyBytes"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) -> inner item |> Option.map (fun item -> "?" + item)
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) -> inner item |> Option.map (fun item -> "NySet(" + item + ")")
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ key; value ]) ->
+            match inner key, inner value with
+            | Some key, Some value -> Some("NyMap(" + key + ", " + value + ")")
+            | _ -> None
         | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) -> inner item |> Option.map (fun item -> "[]const " + item)
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ ok; error ]) ->
             match inner ok, inner error with
@@ -79,11 +89,18 @@ module ZigBackend =
                                                 && (Map.find typeId types).TypeParameters.Length = arguments.Length ->
             record (typeId, arguments)
             Some("*const " + typeName typeId arguments)
+        // A capability value's type is declared by whoever binds the capability (a runPure runner's
+        // fakes for now), with one method per operation.
+        | TypeRef.Capability capabilityId when Set.contains capabilityId capabilities -> Some(capabilityName capabilityId)
         | _ -> None
 
     /// The Zig type of a supported value type of a program.
     let typeOf (program: ExecutionProgram) (typeRef: TypeRef) =
-        zigType (program.Types |> List.map (fun item -> item.Id, item) |> Map.ofList) ignore typeRef
+        zigType
+            (program.Types |> List.map (fun item -> item.Id, item) |> Map.ofList)
+            (program.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList)
+            ignore
+            typeRef
 
     let private stringLiteral (text: string) =
         let builder = StringBuilder("\"")
@@ -105,11 +122,12 @@ module ZigBackend =
           /// The instance name for a call of the function with the given argument type per
           /// parameter and the given result type.
           Call: FunctionId -> (ParameterId * TypeRef) list -> TypeRef -> string
-          Parameters: FunctionId -> (ParameterId * TypeRef) list }
+          Parameters: FunctionId -> (ParameterId * TypeRef) list
+          OperationParameters: CapabilityOperationId -> CapabilityParameterId list }
 
     let private itemType (typeRef: TypeRef) =
         match typeRef with
-        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) -> item
+        | TypeRef.BuiltinGeneric((BuiltinGenericType.List | BuiltinGenericType.Set), [ item ]) -> item
         | other -> invalidOp $"Expected a List type, got {other}."
 
     /// One Zig statement per instruction, or None when the instruction is outside the supported slice.
@@ -144,6 +162,14 @@ module ZigBackend =
             let name = context.Call functionId (arguments |> List.map (fun (id, _, typeRef) -> id, typeRef)) result
             name + "(" + String.Join(", ", arguments |> List.map (fun (_, expression, _) -> expression)) + ")"
         let block (body: string) = assign ("blk: { " + body + " }")
+        let mapTypes (mapValue: ExecutionValueId) =
+            match context.ValueType mapValue with
+            | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ key; value ]) -> key, value
+            | other -> invalidOp $"Expected a Map type, got {other}."
+        let mapCall name (mapValue: ExecutionValueId) (rest: string list) =
+            let key, value = mapTypes mapValue
+            assign (name + "(" + String.Join(", ", zig key :: zig value :: v mapValue :: rest) + ")")
+        let bool = TypeRef.Primitive PrimitiveType.Bool
         match instruction.Kind with
         | ExecutionInstructionKind.ReadParameter source
         | ExecutionInstructionKind.ReadPatternBinding source -> assign (v source)
@@ -244,6 +270,95 @@ module ZigBackend =
         | ExecutionInstructionKind.ListFlatMap(source, mapper, bindings) ->
             let call = callback mapper bindings [ "item", itemType (context.ValueType source) ] instruction.Result.Type
             block ("var out: std.ArrayList(" + resultElement () + ") = .empty; for (" + v source + ") |item| out.appendSlice(nyAllocator(), " + call + ") catch @panic(\"out of memory\"); break :blk out.items;")
+        | ExecutionInstructionKind.Float64Literal bits -> assign ("@as(f64, @bitCast(@as(u64, 0x" + (Float64Bits.value bits).ToString("x16") + ")))")
+        | ExecutionInstructionKind.Float64Add(left, right) -> binary left "+" right
+        | ExecutionInstructionKind.Float64Subtract(left, right) -> binary left "-" right
+        | ExecutionInstructionKind.Float64Multiply(left, right) -> binary left "*" right
+        | ExecutionInstructionKind.Float64Divide(left, right) -> binary left "/" right
+        | ExecutionInstructionKind.Float64Min(left, right) -> assign ("nyFloat64Min(" + v left + ", " + v right + ")")
+        | ExecutionInstructionKind.Float64Max(left, right) -> assign ("nyFloat64Max(" + v left + ", " + v right + ")")
+        | ExecutionInstructionKind.Float64FloorModulo(left, right) -> assign ("nyFloat64FloorModulo(" + v left + ", " + v right + ")")
+        | ExecutionInstructionKind.Float64Equal(left, right) -> binary left "==" right
+        | ExecutionInstructionKind.Float64LessThan(left, right) -> binary left "<" right
+        | ExecutionInstructionKind.Float64IsNaN source -> assign ("std.math.isNan(" + v source + ")")
+        | ExecutionInstructionKind.Float64IsFinite source -> assign ("std.math.isFinite(" + v source + ")")
+        | ExecutionInstructionKind.Float64IsInfinite source -> assign ("std.math.isInf(" + v source + ")")
+        | ExecutionInstructionKind.Float64Sqrt source -> assign ("@sqrt(" + v source + ")")
+        | ExecutionInstructionKind.Float64Abs source -> assign ("@abs(" + v source + ")")
+        | ExecutionInstructionKind.Float64Negate source -> assign ("-" + v source)
+        | ExecutionInstructionKind.Float64Floor source -> assign ("@floor(" + v source + ")")
+        | ExecutionInstructionKind.Float64Ceiling source -> assign ("@ceil(" + v source + ")")
+        | ExecutionInstructionKind.Float64Truncate source -> assign ("@trunc(" + v source + ")")
+        // Zig's @round rounds halfway cases away from zero, as Float64RoundToInt64 requires.
+        | ExecutionInstructionKind.Float64RoundToInt64 source -> assign ("nyFloat64ToInt64(@round(" + v source + "))")
+        | ExecutionInstructionKind.Float64FloorToInt64 source -> assign ("nyFloat64ToInt64(@floor(" + v source + "))")
+        | ExecutionInstructionKind.Int64ToFloat64 source -> assign ("@as(f64, @floatFromInt(" + v source + "))")
+        | ExecutionInstructionKind.SetEmpty -> assign ".{ .items = &.{} }"
+        | ExecutionInstructionKind.MapEmpty -> assign ".{ .keys = &.{}, .values = &.{} }"
+        | ExecutionInstructionKind.SetFromList list -> listCall "nySetFromList" list []
+        | ExecutionInstructionKind.SetToList set -> assign (v set + ".items")
+        | ExecutionInstructionKind.SetSize set -> assign ("@as(i64, @intCast(" + v set + ".items.len))")
+        | ExecutionInstructionKind.SetInsert(set, item) -> listCall "nySetInsert" set [ v item ]
+        | ExecutionInstructionKind.SetRemove(set, item) -> listCall "nySetRemove" set [ v item ]
+        | ExecutionInstructionKind.SetContains(set, item) -> assign ("nyFind(" + elementOf set + ", " + v set + ".items, " + v item + ") != null")
+        | ExecutionInstructionKind.SetUnion(left, right) -> listCall "nySetUnion" left [ v right ]
+        | ExecutionInstructionKind.SetIntersection(left, right) -> listCall "nySetKeep" left [ v right; "true" ]
+        | ExecutionInstructionKind.SetDifference(left, right) -> listCall "nySetKeep" left [ v right; "false" ]
+        | ExecutionInstructionKind.SetIsSubset(left, right) -> listCall "nySetIsSubset" left [ v right ]
+        | ExecutionInstructionKind.SetFold(source, seed, folder, bindings) ->
+            let state = context.ValueType seed
+            let call = callback folder bindings [ "state", state; "item", itemType (context.ValueType source) ] state
+            block ("var state = " + v seed + "; for (" + v source + ".items) |item| state = " + call + "; break :blk state;")
+        | ExecutionInstructionKind.SetFilter(source, predicate, bindings) ->
+            let call = callback predicate bindings [ "item", itemType (context.ValueType source) ] bool
+            block ("const out = nyAlloc(" + elementOf source + ", " + v source + ".items.len); var count: usize = 0; for (" + v source + ".items) |item| { if (" + call + ") { out[count] = item; count += 1; } } break :blk .{ .items = out[0..count] };")
+        | ExecutionInstructionKind.SetMap(source, mapper, bindings) ->
+            let call = callback mapper bindings [ "item", itemType (context.ValueType source) ] (itemType instruction.Result.Type)
+            block ("var out: " + zig instruction.Result.Type + " = .{ .items = &.{} }; for (" + v source + ".items) |item| out = nySetInsert(" + resultElement () + ", out, " + call + "); break :blk out;")
+        | ExecutionInstructionKind.MapSize map -> assign ("@as(i64, @intCast(" + v map + ".keys.len))")
+        | ExecutionInstructionKind.MapKeys map -> assign (v map + ".keys")
+        | ExecutionInstructionKind.MapValues map -> assign (v map + ".values")
+        | ExecutionInstructionKind.MapInsert(map, key, value) -> mapCall "nyMapInsert" map [ v key; v value ]
+        | ExecutionInstructionKind.MapRemove(map, key) -> mapCall "nyMapRemove" map [ v key ]
+        | ExecutionInstructionKind.MapGet(map, key) -> mapCall "nyMapGet" map [ v key ]
+        | ExecutionInstructionKind.MapGetOrDefault(map, key, fallback) ->
+            let keyType, valueType = mapTypes map
+            assign ("nyMapGet(" + zig keyType + ", " + zig valueType + ", " + v map + ", " + v key + ") orelse " + v fallback)
+        | ExecutionInstructionKind.MapContainsKey(map, key) -> assign ("nyFind(" + zig (fst (mapTypes map)) + ", " + v map + ".keys, " + v key + ") != null")
+        | ExecutionInstructionKind.MapUnion(left, right) -> mapCall "nyMapUnion" left [ v right ]
+        | ExecutionInstructionKind.MapFold(source, seed, folder, bindings) ->
+            let keyType, valueType = mapTypes source
+            let state = context.ValueType seed
+            let call = callback folder bindings [ "state", state; "key", keyType; "value", valueType ] state
+            block ("var state = " + v seed + "; for (" + v source + ".keys, " + v source + ".values) |key, value| state = " + call + "; break :blk state;")
+        | ExecutionInstructionKind.MapFilter(source, keep, bindings) ->
+            let keyType, valueType = mapTypes source
+            let call = callback keep bindings [ "key", keyType; "value", valueType ] bool
+            block ("var out: " + zig instruction.Result.Type + " = .{ .keys = &.{}, .values = &.{} }; for (" + v source + ".keys, " + v source + ".values) |key, value| { if (" + call + ") out = nyMapInsert(" + zig keyType + ", " + zig valueType + ", out, key, value); } break :blk out;")
+        | ExecutionInstructionKind.MapMapValues(source, mapper, bindings) ->
+            let keyType, valueType = mapTypes source
+            let resultValue = match instruction.Result.Type with TypeRef.BuiltinGeneric(_, [ _; value ]) -> value | other -> other
+            let call = callback mapper bindings [ "key", keyType; "value", valueType ] resultValue
+            block ("const out = nyAlloc(" + zig resultValue + ", " + v source + ".keys.len); for (" + v source + ".keys, " + v source + ".values, 0..) |key, value, at| out[at] = " + call + "; break :blk .{ .keys = " + v source + ".keys, .values = out };")
+        | ExecutionInstructionKind.MapFromList(source, keyOf, bindings) ->
+            let keyType = match instruction.Result.Type with TypeRef.BuiltinGeneric(_, [ key; _ ]) -> key | other -> other
+            let element = itemType (context.ValueType source)
+            let call = callback keyOf bindings [ "item", element ] keyType
+            block ("var out: " + zig instruction.Result.Type + " = .{ .keys = &.{}, .values = &.{} }; for (" + v source + ") |item| out = nyMapInsert(" + zig keyType + ", " + zig element + ", out, " + call + ", item); break :blk out;")
+        | ExecutionInstructionKind.BytesEmpty -> assign ".{ .data = &.{} }"
+        | ExecutionInstructionKind.BytesFill(length, value) -> assign ("nyBytesFill(" + v length + ", " + v value + ")")
+        | ExecutionInstructionKind.BytesLength bytes -> assign ("@as(i64, @intCast(" + v bytes + ".data.len))")
+        | ExecutionInstructionKind.BytesGet(bytes, index) -> assign ("if (nyListItemAt(u8, " + v bytes + ".data, " + v index + ")) |byte| @as(i64, byte) else null")
+        | ExecutionInstructionKind.BytesSet(bytes, index, value) -> assign ("nyBytesSet(" + v bytes + ", " + v index + ", " + v value + ")")
+        | ExecutionInstructionKind.BytesAppend(bytes, value) -> assign (".{ .data = nyListAppend(u8, " + v bytes + ".data, @truncate(@as(u64, @bitCast(" + v value + ")))) }")
+        | ExecutionInstructionKind.BytesConcat(left, right) -> assign (".{ .data = nyListConcat(u8, " + v left + ".data, " + v right + ".data) }")
+        | ExecutionInstructionKind.BytesSlice(bytes, start, finish) -> assign (".{ .data = nyListSlice(u8, " + v bytes + ".data, " + v start + ", " + v finish + ") }")
+        | ExecutionInstructionKind.BytesFromLatin1 text -> assign ("nyBytesFromLatin1(" + v text + ")")
+        | ExecutionInstructionKind.BytesToLatin1 bytes -> assign ("nyBytesToLatin1(" + v bytes + ")")
+        | ExecutionInstructionKind.CapabilityInvoke(capability, operationId, arguments) ->
+            let byParameter = arguments |> List.map (fun argument -> argument.TargetCapabilityParameterId, argument.ValueId) |> Map.ofList
+            let rendered = context.OperationParameters operationId |> List.map (fun id -> v (Map.find id byParameter))
+            assign (v capability + "." + operationName operationId + "(" + String.Join(", ", rendered) + ")")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let byParameter = arguments |> List.map (fun argument -> argument.TargetParameterId, argument.ValueId) |> Map.ofList
             let parameters = context.Parameters functionId |> List.map fst
@@ -380,8 +495,13 @@ module ZigBackend =
         let typeInstances = HashSet<TypeId * TypeRef list>()
         let typeOrder = ResizeArray<TypeId * TypeRef list>()
         let record instance = if typeInstances.Add instance then typeOrder.Add instance
+        let capabilities = program.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList
+        let operationParameters =
+            program.Capabilities
+            |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id, operation.Parameters |> List.map (fun parameter -> parameter.Id)))
+            |> Map.ofList
         let zigOf typeRef =
-            match zigType types record typeRef with
+            match zigType types capabilities record typeRef with
             | Some text -> Some text
             | None ->
                 problems.Add $"type {typeRef}"
@@ -413,7 +533,8 @@ module ZigBackend =
                 { ZigType = zigOf
                   ValueType = fun id -> Map.find id valueTypes
                   Call = call
-                  Parameters = parametersOf }
+                  Parameters = parametersOf
+                  OperationParameters = fun id -> Map.find id operationParameters }
             for value in valuesOf fn do zigOf value.Type |> ignore
             zigOf fn.ResultType |> ignore
             let unsupported =
@@ -432,3 +553,54 @@ module ZigBackend =
             emitType declarations (fun typeRef -> zigOf typeRef |> Option.defaultValue "void") (Map.find typeId types) arguments
         if problems.Count > 0 then Error(problems |> Seq.distinct |> List.ofSeq)
         else Ok(builder.Append(declarations).Append(bodies).ToString())
+
+    /// Scripted fake capabilities for a runPure runner: one struct per capability whose methods record
+    /// each call under its site, select the scripted response (by the call's argument key for a keyed
+    /// script) and return it, or end the run as the C# runner's fake exceptions do. `fake` indexes the
+    /// per-operation script arrays; `site` is the capability's first call site.
+    let fakeCapabilities (program: ExecutionProgram) : Result<string, string list> =
+        let zig typeRef = typeOf program typeRef
+        let problems =
+            program.Capabilities
+            |> List.collect (fun capability -> capability.Operations)
+            |> List.collect (fun operation -> operation.ResultType :: (operation.Parameters |> List.map (fun parameter -> parameter.Type)))
+            |> List.filter (fun typeRef -> match typeRef with TypeRef.Capability _ -> true | other -> Option.isNone (zig other))
+            |> List.distinct
+            |> List.map (fun typeRef -> $"capability operation type {typeRef}")
+        if not (List.isEmpty problems) then Error problems
+        else
+            let builder = StringBuilder()
+            let line (text: string) = builder.Append(text).Append('\n') |> ignore
+            for capability in program.Capabilities do
+                line ("const " + capabilityName capability.Id + " = struct {")
+                line "    fake: usize,"
+                line "    site: usize,"
+                for index, operation in capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id) |> List.indexed do
+                    let result = (zig operation.ResultType).Value
+                    let parameters = operation.Parameters |> List.map (fun parameter -> identifier "a_" (StableId.value parameter.Id) + ": " + (zig parameter.Type).Value)
+                    let recorded = operation.Parameters |> List.map (fun parameter -> identifier "a_" (StableId.value parameter.Id))
+                    let keyed = operation.Parameters |> List.sortBy (fun parameter -> StableId.value parameter.Id) |> List.map (fun parameter -> identifier "a_" (StableId.value parameter.Id))
+                    let scripts = identifier "ny_scripts_" (StableId.value operation.Id)
+                    line ("    pub fn " + operationName operation.Id + "(self: @This()" + String.concat "" (parameters |> List.map (fun item -> ", " + item)) + ") " + result + " {")
+                    line ("        nyRecordCall(self.site + " + string index + ", .{ " + String.Join(", ", recorded) + " });")
+                    line ("        return nyRespond(" + result + ", &" + scripts + "[self.fake], .{ " + String.Join(", ", keyed) + " });")
+                    line "    }"
+                line "};"
+                for operation in capability.Operations do
+                    line ("var " + identifier "ny_scripts_" (StableId.value operation.Id) + ": [16]NyScript(" + (zig operation.ResultType).Value + ") = undefined;")
+                line ""
+            Ok(builder.ToString())
+
+    /// The Zig statements a runner's entry dispatch uses to make the fake for one capability
+    /// parameter, reading its scripts from the argument tokens in canonical operation order.
+    let fakeArgument (program: ExecutionProgram) (capabilityId: CapabilityId) (name: string) (fake: int) (site: int) =
+        let capability = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
+        let reads =
+            capability.Operations
+            |> List.sortBy (fun operation -> StableId.value operation.Id)
+            |> List.map (fun operation ->
+                let scripts = identifier "ny_scripts_" (StableId.value operation.Id)
+                let result = (typeOf program operation.ResultType).Value
+                $"        {scripts}[{fake}] = nyReadScript({result}, &tokens);\n")
+        let typeName = capabilityName capabilityId
+        $"        const {name} = {typeName}{{ .fake = {fake}, .site = {site} }};\n" + String.concat "" reads, capability.Operations.Length
