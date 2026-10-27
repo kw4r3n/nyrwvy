@@ -2619,6 +2619,156 @@ fn scalarRules(node: Value) void {
     }
 }
 
+/// A node's type seen as one builtin generic of a fixed arity.
+const TypeShape = union(enum) { unknown, other, args: []const TypeRef };
+
+fn shapeOf(id: Str, comptime name: []const u8, arity: usize) TypeShape {
+    const t = nodeType(id) orelse return .unknown;
+    return if (t.isGeneric(name) and t.args.len == arity) .{ .args = t.args } else .other;
+}
+
+fn operandsOf(node: Value) []const Str {
+    var references: List(Str) = .empty;
+    directValueReferences(node, &references);
+    return references.items;
+}
+
+fn nodeMessage(name: Str, node: Value, comptime tail: []const u8) Str {
+    return cat(&.{ name, L(" node '"), str(node, "id"), L("' " ++ tail) });
+}
+
+/// `requireMapInput`: the key and value types of a Map input.
+fn requireMapInput(node: Value, id: Str) ?[]const TypeRef {
+    return switch (shapeOf(id, "map", 2)) {
+        .args => |args| args,
+        .other => blk: {
+            addIn("MapInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires a Map<K, V> input.") }));
+            break :blk null;
+        },
+        .unknown => null,
+    };
+}
+
+/// `requireSetInput`: the item type of a Set input.
+fn requireSetInput(node: Value, id: Str) ?TypeRef {
+    return switch (shapeOf(id, "set", 1)) {
+        .args => |args| args[0],
+        .other => blk: {
+            addIn("SetInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires a Set<T> input.") }));
+            break :blk null;
+        },
+        .unknown => null,
+    };
+}
+
+fn requireMapKey(node: Value, key_type: TypeRef, id: Str) void {
+    requireNodeType("MapKeyTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires a key of the map's key type.") }), key_type, id);
+}
+
+fn kindIs(kind: []const u8, comptime names: []const u8) bool {
+    var it = std.mem.tokenizeScalar(u8, names, ' ');
+    while (it.next()) |name| if (std.mem.eql(u8, name, kind)) return true;
+    return false;
+}
+
+/// Lists, Sets, Maps, Option and Result without callbacks (Validation.fs `ListConstruct` … `ListConcat`).
+fn collectionRules(node: Value) void {
+    const kind = text(str(node, "kind"));
+    const name = caseNameOf(str(node, "kind"));
+    const ops = operandsOf(node);
+    const int64 = primitiveType("int64");
+    if (std.mem.eql(u8, kind, "listConstruct")) {
+        const item_type = typeRefOf(get(node, "itemType"));
+        for (ops) |item| requireNodeType("ListConstructItemTypeMismatch", nodeMessage(name, node, "contains an item whose type does not match its declared item type."), item_type, item);
+    } else if (kindIs(kind, "listLength listReverse listLast listDropLast")) {
+        if (shapeOf(ops[0], "list", 1) == .other) addIn(fmt("{s}InputTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires List<T> input."));
+    } else if (kindIs(kind, "mapSize mapKeys mapValues")) {
+        _ = requireMapInput(node, ops[0]);
+    } else if (kindIs(kind, "mapGet mapContainsKey mapRemove")) {
+        if (requireMapInput(node, ops[0])) |args| requireMapKey(node, args[0], ops[1]);
+    } else if (kindIs(kind, "setSize setToList")) {
+        _ = requireSetInput(node, ops[0]);
+    } else if (kindIs(kind, "listIndexOf listLastIndexOf listContains")) {
+        switch (shapeOf(ops[0], "list", 1)) {
+            .args => |args| {
+                if (!isEquatable(args[0]))
+                    addIn(fmt("{s}ItemTypeNotEquatable", .{text(name)}), cat(&.{ nodeMessage(name, node, "compares items of a type that is not equatable: "), explainEquatable(args[0]) }));
+                requireNodeType(fmt("{s}ItemTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires an item of the list's item type."), args[0], ops[1]);
+            },
+            .other => addIn(fmt("{s}ListTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires List<T> as its list input.")),
+            .unknown => {},
+        }
+    } else if (kindIs(kind, "setContains setInsert setRemove")) {
+        if (requireSetInput(node, ops[0])) |item| requireNodeType("SetItemTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires an item of the set's item type.") }), item, ops[1]);
+    } else if (kindIs(kind, "setUnion setIntersection setDifference setIsSubset")) {
+        if (requireSetInput(node, ops[0])) |item| requireNodeType("SetInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires two sets of the same item type.") }), builtin("set", &.{item}), ops[1]);
+    } else if (std.mem.eql(u8, kind, "setFromList")) {
+        switch (shapeOf(ops[0], "list", 1)) {
+            .args => |args| if (!isEquatable(args[0]))
+                addIn("SetItemTypeNotEquatable", cat(&.{ nodeMessage(name, node, "makes a Set of a type that is not equatable: "), explainEquatable(args[0]) })),
+            .other => addIn("HigherOrderSourceTypeMismatch", nodeMessage(name, node, "requires List<T> input.")),
+            .unknown => {},
+        }
+    } else if (std.mem.eql(u8, kind, "mapInsert") or std.mem.eql(u8, kind, "mapGetOrDefault")) {
+        if (requireMapInput(node, ops[0])) |args| {
+            requireMapKey(node, args[0], ops[1]);
+            requireNodeType("MapValueTypeMismatch", if (std.mem.eql(u8, kind, "mapInsert")) nodeMessage(name, node, "requires a value of the map's value type.") else nodeMessage(name, node, "requires a default of the map's value type."), args[1], ops[2]);
+        }
+    } else if (std.mem.eql(u8, kind, "mapUnion")) {
+        if (requireMapInput(node, ops[0])) |args| requireNodeType("MapInputTypeMismatch", nodeMessage(name, node, "requires two maps of the same key and value types."), builtin("map", args), ops[1]);
+    } else if (std.mem.eql(u8, kind, "optionGetOrDefault")) {
+        switch (shapeOf(ops[0], "option", 1)) {
+            .args => |args| requireNodeType("OptionDefaultTypeMismatch", nodeMessage(name, node, "requires a default of the option's item type."), args[0], ops[1]),
+            .other => addIn("OptionInputTypeMismatch", nodeMessage(name, node, "requires an Option<T> input.")),
+            .unknown => {},
+        }
+    } else if (std.mem.eql(u8, kind, "resultGetOrDefault")) {
+        switch (shapeOf(ops[0], "result", 2)) {
+            .args => |args| requireNodeType("ResultDefaultTypeMismatch", nodeMessage(name, node, "requires a default of the result's ok type."), args[0], ops[1]),
+            .other => addIn("ResultInputTypeMismatch", nodeMessage(name, node, "requires a Result<T, E> input.")),
+            .unknown => {},
+        }
+    } else if (kindIs(kind, "optionOkOr optionIsSome")) {
+        if (shapeOf(ops[0], "option", 1) == .other) addIn("OptionInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires an Option<T> input.") }));
+    } else if (kindIs(kind, "resultOkValue resultErrValue resultIsOk")) {
+        if (shapeOf(ops[0], "result", 2) == .other) addIn("ResultInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires a Result<T, E> input.") }));
+    } else if (std.mem.eql(u8, kind, "listItemAt")) {
+        if (shapeOf(ops[0], "list", 1) == .other) addIn("ListItemAtListTypeMismatch", nodeMessage(name, node, "requires List<T> as its list input."));
+        requireNodeType("ListItemAtIndexTypeMismatch", nodeMessage(name, node, "requires an Int64 index."), int64, ops[1]);
+    } else if (kindIs(kind, "listSetAt listInsertAt")) {
+        switch (shapeOf(ops[0], "list", 1)) {
+            .args => |args| requireNodeType(fmt("{s}ItemTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires an item of the list's item type."), args[0], ops[2]),
+            .other => addIn(fmt("{s}ListTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires List<T> as its list input.")),
+            .unknown => {},
+        }
+        requireNodeType(fmt("{s}IndexTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires an Int64 index."), int64, ops[1]);
+    } else if (std.mem.eql(u8, kind, "listRemoveAt")) {
+        if (shapeOf(ops[0], "list", 1) == .other) addIn("ListRemoveAtListTypeMismatch", nodeMessage(name, node, "requires List<T> as its list input."));
+        requireNodeType("ListRemoveAtIndexTypeMismatch", nodeMessage(name, node, "requires an Int64 index."), int64, ops[1]);
+    } else if (std.mem.eql(u8, kind, "listSlice")) {
+        if (shapeOf(ops[0], "list", 1) == .other) addIn("ListSliceListTypeMismatch", nodeMessage(name, node, "requires List<T> as its list input."));
+        requireNodeType("ListSliceBoundTypeMismatch", nodeMessage(name, node, "requires an Int64 start."), int64, ops[1]);
+        requireNodeType("ListSliceBoundTypeMismatch", nodeMessage(name, node, "requires an Int64 end."), int64, ops[2]);
+    } else if (std.mem.eql(u8, kind, "listAppendItem")) {
+        switch (shapeOf(ops[0], "list", 1)) {
+            .args => |args| if (nodeType(ops[1])) |actual| if (!typeEql(actual, args[0]))
+                addIn("ListAppendItemTypeMismatch", nodeMessage(name, node, "item does not match the list item type.")),
+            .other => addIn("ListAppendListTypeMismatch", nodeMessage(name, node, "requires List<T> as its list input.")),
+            .unknown => {},
+        }
+    } else if (std.mem.eql(u8, kind, "listConcat")) {
+        const left = shapeOf(ops[0], "list", 1);
+        const right = shapeOf(ops[1], "list", 1);
+        if (left == .unknown or right == .unknown) return;
+        if (left == .args and right == .args) {
+            if (!typeEql(left.args[0], right.args[0])) addIn("ListConcatItemTypeMismatch", nodeMessage(name, node, "requires both lists to have the same item type."));
+            return;
+        }
+        if (left == .other) addIn("ListConcatLeftTypeMismatch", nodeMessage(name, node, "requires List<T> as its left input."));
+        if (right == .other) addIn("ListConcatRightTypeMismatch", nodeMessage(name, node, "requires List<T> as its right input."));
+    }
+}
+
 /// `validateGraph`: the graph's own rules, each node's rules, then its nested graphs.
 fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, context: Str, graph: Value) void {
     const nodes = arrayOf(graph, "nodes");
@@ -2639,6 +2789,7 @@ fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, contex
                 addIn("ValueNodeOutOfScope", cat(&.{ L("Graph node '"), id, L("' references value node '"), reference, L("' outside its lexical value-graph scope.") }));
         }
         scalarRules(node);
+        collectionRules(node);
         const kind = str(node, "kind");
         if (isName(kind, "parameterReference")) {
             const parameter_id = str(node, "parameterId");

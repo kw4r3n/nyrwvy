@@ -372,6 +372,27 @@ module ZigValidatorSupport =
                           keys |> List.iteri (fun i key -> node[key] <- s ("pos-" + literals[(i + rotation) % literals.Length]); changed <- true)
                       for literal in literals do nodes.Add(literalNode ("pos-" + literal) literal)
                   changed)
+          for rotation in [ 0; 1; 4; 5; 6; 7 ] do
+              $"operands are typed containers by position, rotated {rotation}",
+              (fun root ->
+                  let prim name = obj [ "kind", s "primitive"; "primitive", s name ] :> JsonNode
+                  let values =
+                      [ obj [ "id", s "c-list-int64"; "kind", s "listEmpty"; "itemType", prim "int64" ]
+                        obj [ "id", s "c-list-float"; "kind", s "listEmpty"; "itemType", prim "float64" ]
+                        literalNode "c-string" "string" :?> JsonObject
+                        literalNode "c-int64" "int64" :?> JsonObject
+                        obj [ "id", s "c-set-string"; "kind", s "setEmpty"; "itemType", prim "string" ]
+                        obj [ "id", s "c-map"; "kind", s "mapEmpty"; "keyType", prim "string"; "valueType", prim "int64" ]
+                        obj [ "id", s "c-option"; "kind", s "optionNone"; "itemType", prim "int64" ]
+                        obj [ "id", s "c-result"; "kind", s "resultErr"; "okType", prim "int64"; "errorNodeId", s "c-string" ] ]
+                  let mutable changed = false
+                  for f in functions root do
+                      let nodes = (f["body"] :?> JsonObject)["nodes"] :?> JsonArray
+                      for node in ZigModelReaderSupport.graphNodes f do
+                          let keys = [ for p in node do if p.Key.EndsWith "NodeId" then yield p.Key ]
+                          keys |> List.iteri (fun i key -> node[key] <- s (string (values[(i + rotation) % values.Length]["id"])); changed <- true)
+                      for value in values do nodes.Add(value.DeepClone())
+                  changed)
           "left operands are String and right operands Int64 literals",
           (fun root ->
               let mutable changed = false
