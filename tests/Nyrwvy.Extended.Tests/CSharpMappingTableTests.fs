@@ -243,6 +243,9 @@ static bool Fails<T>(Func<object> action, string? message = null) where T : Exce
             refused (generated.Replace("\"failure\": \"negative\"", "\"failure\": \"null\"")) "IncompatibleNativeBinding"
             refused (generated.Replace("\"version\": 1", "\"version\": 2")) "only version 1"
 
+            // Forwarders test for the sealed adapter, so they inline without runtime profile data
+            // (csharp-mapping-tables-libghostty.md, "Call cost").
+            Assert.Contains(" is " + adapter + " ", File.ReadAllText(Path.Combine(root, "Generated.cs")))
             File.WriteAllText(Path.Combine(root, "Program.cs"), program adapter)
             File.WriteAllText(Path.Combine(root, "Demo.csproj"),
                 "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>")
