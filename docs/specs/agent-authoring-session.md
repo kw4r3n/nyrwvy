@@ -57,7 +57,7 @@ A session starts in exactly one of four explicit modes:
 
 Opening a missing file is an error. Creating over an existing file is an error. There is no implicit fallback between modes.
 
-Besides the four session modes, `migrate --snapshot <local> [--dependency <exact copy of a legacy pin's source>] [--to <new path>]` is a maintenance command that starts no session: it rewrites the workspace to the current snapshot schema, or with `--to` writes it to a new path in the form that path's extension selects, and exits ([snapshot migration](#snapshot-migration)).
+Besides the four session modes, `migrate --snapshot <local> [--dependency <exact copy of a legacy pin's source>] [--to <new path>]` is a maintenance command that starts no session: it rewrites the workspace to the current snapshot schema, or with `--to` writes it to a new path in the form that path's extension selects, and exits ([snapshot migration](#snapshot-migration)). `bind-c --header <file.h> ...` likewise starts no session: it reads a C header with clang and writes capability requests and a [C# mapping table](../decisions/csharp-mapping-tables.md) for the listed functions.
 
 A live session owns one workspace path. Proposal handles are process-local and may be discarded when the process ends. A new process reopens the last published snapshot and must simulate/review any later change again.
 
