@@ -40,7 +40,7 @@ Add a **task scope**: a structured region that owns individually started tasks. 
 
 `Task<T>` is a new builtin generic in the same family as `List`, `Option` and `Result`, so review shows a handle's result type. It has no operations other than the three above. `TaskScope` is a builtin opaque type.
 
-A cancelled task is not a special state. The worker sees `CancellationRequested = true` (and external implementations see the same ambient token, as today), stops at its next check, and returns its own `Result`, typically an `Err` it chose, such as `Stopped`. `TaskWait` reports that result like any other. This keeps `Task<T>` a single-outcome type and puts the "stopped" meaning in the program's own error type rather than in a runtime state.
+A cancelled task is not a special state. The worker sees `CancellationRequested = true` (and external implementations see the same token, through each backend's binding: the ambient `NyRuntime.Cancellation` in C#), stops at its next check, and returns its own `Result`, typically an `Err` it chose, such as `Stopped`. `TaskWait` reports that result like any other. This keeps `Task<T>` a single-outcome type and puts the "stopped" meaning in the program's own error type rather than in a runtime state.
 
 ### Cancellation propagation
 

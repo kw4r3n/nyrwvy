@@ -296,4 +296,5 @@ module StandardOperationChoiceTests =
                 Assert.False(root.GetProperty("ok").GetBoolean(), root.ToString())
                 let error = root.GetProperty("error")
                 Assert.Equal("RunRuntimeFailure", error.GetProperty("code").GetString())
+                Assert.Equal("fatal", error.GetProperty("failureKind").GetString())
                 Assert.Contains("OutOfMemoryException", root.ToString()))

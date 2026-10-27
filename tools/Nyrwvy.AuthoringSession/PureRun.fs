@@ -131,6 +131,10 @@ type PureRunFrame =
 type PureRunRuntimeFailure =
     { SnapshotId: SnapshotId
       FunctionId: FunctionId
+      /// The backend-neutral kind: "fault", "cancelled", or "fatal" (allocation failure or stack
+      /// overflow, which no ExceptionCatch handles).
+      Kind: string
+      /// The C# backend's .NET exception type, kept as a diagnostic.
       ExceptionType: string
       Message: string
       /// Innermost frame first; frames without a semantic declaration are omitted.
@@ -829,7 +833,7 @@ module PureRun =
     type private Envelope =
         | Value of PureRunValue * PureRunCall list
         | Limit of string
-        | Exception of exceptionType: string * message: string * frames: string list * calls: PureRunCall list * exhausted: bool
+        | Exception of kind: string * exceptionType: string * message: string * frames: string list * calls: PureRunCall list * exhausted: bool
 
     let private parseEnvelope types resultType (sites: CallSite list) (output: string) =
         let invalid () = Error(diagnostic "RunInvalidResult" "The process did not return one JSON result.")
@@ -869,11 +873,12 @@ module PureRun =
                     parseElement types resultType root[1]
                     |> Result.bind (fun value -> parseCalls root[2] |> Result.map (fun calls -> Envelope.Value(value, calls)))
                 | Some "limit", 2 when (text root[1]).IsSome -> Ok(Envelope.Limit(root[1].GetString()))
-                | Some "exception", 6 when (text root[1]).IsSome && (tokenText root[2]).IsSome && root[3].ValueKind = JsonValueKind.Array
-                                           && (root[5].ValueKind = JsonValueKind.True || root[5].ValueKind = JsonValueKind.False) ->
+                | Some "exception", 7 when (text root[1]).IsSome && (tokenText root[2]).IsSome && root[3].ValueKind = JsonValueKind.Array
+                                           && (root[5].ValueKind = JsonValueKind.True || root[5].ValueKind = JsonValueKind.False)
+                                           && (text root[6]).IsSome ->
                     let frames = root[3].EnumerateArray() |> Seq.choose text |> Seq.toList
                     parseCalls root[4]
-                    |> Result.map (fun calls -> Envelope.Exception(root[1].GetString(), (tokenText root[2]).Value, frames, calls, root[5].GetBoolean()))
+                    |> Result.map (fun calls -> Envelope.Exception(root[6].GetString(), root[1].GetString(), (tokenText root[2]).Value, frames, calls, root[5].GetBoolean()))
                 | _ -> invalid ()
         with :? JsonException -> invalid ()
 
@@ -1543,7 +1548,7 @@ module PureRun =
                         let namedEncoders = namedEncoders.ToString()
                         let checksText = (encoded + callArms + namedEncoders).Contains("CheckedString(")
                         // The child prints one envelope: ["value", v], ["limit", message] for runner-owned
-                        // conversion limits, or ["exception", type, message, frames] for a program failure.
+                        // conversion limits, or ["exception", type, message, frames, calls, exhausted, kind] for a program failure.
                         // String values and the exception message are text tokens ("s" and the Base64 of the
                         // UTF-16 code units), so lone surrogates reach the session unchanged.
                         let program =
@@ -1566,7 +1571,7 @@ module PureRun =
                             + "catch (RunnerException error) { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"limit\", error.Message })); }\n"
                             + "catch (Exception error)\n{\n"
                             + "    var frames = (new System.Diagnostics.StackTrace(error, false).GetFrames() ?? Array.Empty<System.Diagnostics.StackFrame>()).Select(frame => frame.GetMethod()?.Name ?? \"\").ToArray();\n"
-                            + "    try { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"exception\", error.GetType().FullName ?? \"\", RunnerText.ToToken(error.Message), frames, EncodeCalls(), error is FakeResponsesExhaustedException }, options)); }\n"
+                            + "    try { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"exception\", error.GetType().FullName ?? \"\", RunnerText.ToToken(error.Message), frames, EncodeCalls(), error is FakeResponsesExhaustedException, error is OutOfMemoryException or InsufficientExecutionStackException ? \"fatal\" : error is OperationCanceledException ? \"cancelled\" : \"fault\" }, options)); }\n"
                             + "    catch (RunnerException limit) { Console.WriteLine(JsonSerializer.Serialize(new object[] { \"limit\", limit.Message })); }\n"
                             + "}\n"
                             // Calls are encoded after the result, with their own value budget.
@@ -1603,10 +1608,11 @@ module PureRun =
                             + "any other self or mutual DirectCall recursion runs on the runner's thread stack, which holds only several "
                             + "thousand frames of a typical function. Make the self call the last step of each continuing branch, "
                             + "or iterate a List with ListFold (for text, over StringCodePoints)."
-                        let runtimeFailure exceptionType message frameNames exhausted calls =
+                        let runtimeFailure kind exceptionType message frameNames exhausted calls =
                             PureRunError.RuntimeFailure
                                 { SnapshotId = snapshotId
                                   FunctionId = fn.Id
+                                  Kind = kind
                                   ExceptionType = exceptionType
                                   Message = message
                                   Frames = frames frameNames
@@ -1638,12 +1644,12 @@ module PureRun =
                                 |> Result.bind (function
                                     | Envelope.Value(actual, calls) -> Ok(actual, calls)
                                     | Envelope.Limit message -> Error(diagnostic "RunProcessFailure" message)
-                                    | Envelope.Exception(exceptionType, message, frameNames, calls, exhausted) ->
-                                        Error(runtimeFailure exceptionType message frameNames exhausted calls))
+                                    | Envelope.Exception(kind, exceptionType, message, frameNames, calls, exhausted) ->
+                                        Error(runtimeFailure kind exceptionType message frameNames exhausted calls))
                             elif errors.Contains("Stack overflow", StringComparison.Ordinal) then
                                 // A stack overflow cannot be caught; the runtime prints the stack to stderr.
                                 let names = stackOverflowFrames.Matches(errors) |> Seq.map (fun item -> item.Value) |> Seq.toList
-                                Error(runtimeFailure "System.StackOverflowException" stackOverflowMessage names false [])
+                                Error(runtimeFailure "fatal" "System.StackOverflowException" stackOverflowMessage names false [])
                             else Error(processFailure output errors))
                         |> Result.map (fun (actual, calls) ->
                             { SnapshotId = snapshotId

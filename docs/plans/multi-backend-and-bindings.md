@@ -138,7 +138,10 @@ Found by the 2026-10-27 study; only some lines were checked by hand.
 
 ## Order
 
-1. Restate the contract: §2, §4 and the specification text above, with C# still the only backend.
+Owner choice (2026-10-27): steps 2 and 3 follow the Zig backend; the order is 1, 4, 5, then 2 and 3.
+
+
+1. Restate the contract: §2, §4 and the specification text above, with C# still the only backend. §2 is done ([decision](../decisions/host-failure-kinds.md); the explicit token argument moves to the binding ABI).
 2. The waiting and task-binding properties (§3, §7) in the graph and validator.
 3. Mapping tables and the generator on the C# backend. Acceptance: snap's `Native.cs` and its other hand-written binding code are generated.
 4. `runPure` with a backend parameter, the parity command, and the saved cases as the conformance suite.
