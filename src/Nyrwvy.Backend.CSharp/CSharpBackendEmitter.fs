@@ -1207,6 +1207,9 @@ module CSharpBackend =
         | CSharpNativeValue.Float _ -> "double"
         | CSharpNativeValue.Pointer -> "System.IntPtr"
 
+    let private aggressiveInlining =
+        "[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]"
+
     let private csharpString (text: string) = System.Text.Json.JsonSerializer.Serialize text
 
     let private dllImport (library: string) (symbol: string) =
@@ -1224,6 +1227,11 @@ module CSharpBackend =
         writer.Line("public static float Float32(double value) { var single = (float)value; return float.IsInfinity(single) && !double.IsInfinity(value) ? throw new System.OverflowException(\"A Float64 passed to native code is outside float's range.\") : single; }")
         writer.Line("public static System.IntPtr NotNull(System.IntPtr pointer, string symbol) => pointer != System.IntPtr.Zero ? pointer : throw new System.InvalidOperationException(symbol + \" returned null\");")
         writer.Line("public static NyStr ReadUtf8(System.IntPtr pointer, string symbol) => System.Runtime.InteropServices.Marshal.PtrToStringUTF8(NotNull(pointer, symbol))!;")
+        // An out value is a plain local of the adapter method (stack memory, never moved by the GC), passed by
+        // address: a by-ref `out` makes P/Invoke build a marshalling stub (about 5.5 ns a call), a pointer does not.
+        writer.Line("public static System.IntPtr Address<T>(ref T local) where T : unmanaged => System.Runtime.CompilerServices.Unsafe.ByteOffset(ref System.Runtime.CompilerServices.Unsafe.NullRef<T>(), ref local);")
+        // Kept out of line so an inlined adapter method carries no string building on its hot path.
+        writer.Line("[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)] public static string Failed<T>(string symbol, T code) => symbol + \" failed with \" + code;")
         writer.Pop()
         writer.Line("}")
         writer.Line("")
@@ -1265,7 +1273,7 @@ module CSharpBackend =
                     | CSharpNativeArgument.Reference(_, value) -> "ref " + nativeType value + name
                     | CSharpNativeArgument.Retained(_, CSharpNativeValue.Bytes) -> "System.IntPtr" + name + ", nuint n" + string index
                     | CSharpNativeArgument.Retained _ -> "System.IntPtr" + name
-                    | CSharpNativeArgument.Out value -> "out " + nativeType value + name
+                    | CSharpNativeArgument.Out _ -> "System.IntPtr" + name
                     | CSharpNativeArgument.OutBytes _ -> "System.IntPtr" + name + ", nuint n" + string index + ", out nuint w" + string index
                     | CSharpNativeArgument.Struct(_, _, byPointer) -> (if byPointer then "ref " else "") + structName index + name
                     | CSharpNativeArgument.SizeOf _ -> invalidOp "sizeof was validated to a struct field.")
@@ -1277,6 +1285,14 @@ module CSharpBackend =
                 writer.Line(dllImport call.Library free)
                 writer.Line("private static extern void " + freeName + "(System.IntPtr pointer);")
             | _ -> ()
+            let needsCleanup =
+                call.Arguments |> List.exists (function
+                    | CSharpNativeArgument.Parameter(_, (CSharpNativeValue.Utf8 _ | CSharpNativeValue.Bytes))
+                    | CSharpNativeArgument.OutBytes _ | CSharpNativeArgument.Retained _ -> true
+                    | _ -> false)
+            // Without cleanup the method is a handle check, the C call and a status check: inlined into the
+            // caller (and the caller's guarded call, see CapabilityInvoke) it costs what a hand-written call does.
+            if not needsCleanup then writer.Line(aggressiveInlining)
             writer.Line(signature)
             writer.Line("{")
             writer.Push()
@@ -1293,11 +1309,6 @@ module CSharpBackend =
                 | CSharpNativeArgument.OutBytes _ -> writer.Line("var g" + string index + " = default(" + interop + "GCHandle);")
                 | CSharpNativeArgument.Retained _ -> writer.Line("var k" + string index + " = System.IntPtr.Zero;")
                 | _ -> ()
-            let needsCleanup =
-                call.Arguments |> List.exists (function
-                    | CSharpNativeArgument.Parameter(_, (CSharpNativeValue.Utf8 _ | CSharpNativeValue.Bytes))
-                    | CSharpNativeArgument.OutBytes _ | CSharpNativeArgument.Retained _ -> true
-                    | _ -> false)
             if needsCleanup then
                 writer.Line("try")
                 writer.Line("{")
@@ -1335,11 +1346,16 @@ module CSharpBackend =
             let arguments =
                 indexed |> List.map (fun (index, argument) ->
                     match argument with
-                    | CSharpNativeArgument.Self release -> handleArgument index capabilityName "this" release
+                    | CSharpNativeArgument.Self false ->
+                        // `this` is the adapter already; read the handle once so a racing release cannot slip in between.
+                        writer.Line("var a" + string index + " = _handle;")
+                        writer.Line("if (a" + string index + " == System.IntPtr.Zero) throw new System.InvalidOperationException(\"Handle is not open\");")
+                        "a" + string index
+                    | CSharpNativeArgument.Self true -> handleArgument index capabilityName "this" true
                     | CSharpNativeArgument.Constant(value, native) -> constant value native
                     | CSharpNativeArgument.Out value ->
-                        writer.Line(nativeType value + " a" + string index + ";")
-                        "out a" + string index
+                        writer.Line(nativeType value + " a" + string index + " = default;")
+                        "NyNative.Address(ref a" + string index + ")"
                     | CSharpNativeArgument.OutBytes(capacity, _) ->
                         writer.Line("var b" + string index + " = new byte[" + string capacity + "];")
                         writer.Line("g" + string index + " = " + interop + "GCHandle.Alloc(b" + string index + ", " + interop + "GCHandleType.Pinned);")
@@ -1423,8 +1439,8 @@ module CSharpBackend =
                 let condition, message =
                     match failure with
                     | CSharpNativeFailure.NullPointer -> "r == System.IntPtr.Zero", symbol + " + \" returned null\""
-                    | CSharpNativeFailure.Negative -> "r < 0", symbol + " + \" failed with \" + r"
-                    | CSharpNativeFailure.Nonzero -> "r != 0", symbol + " + \" failed with \" + r"
+                    | CSharpNativeFailure.Negative -> "r < 0", "NyNative.Failed(" + symbol + ", r)"
+                    | CSharpNativeFailure.Nonzero -> "r != 0", "NyNative.Failed(" + symbol + ", r)"
                 if isResult then writer.Line("if (" + condition + ") return " + formatType operation.ResultType + ".Err(" + message + ");")
                 else writer.Line("if (" + condition + ") throw new System.InvalidOperationException(" + message + ");")
             for index, argument in indexed do
@@ -1503,6 +1519,7 @@ module CSharpBackend =
                     // A handle value owns its pointer until the operation that releases it runs.
                     writer.Line("private System.IntPtr _handle;")
                     writer.Line("internal " + adapterName + "(System.IntPtr handle) { _handle = handle; }")
+                    writer.Line(aggressiveInlining)
                     writer.Line("internal static System.IntPtr Open(" + capabilityName + " value) => value is " + adapterName
                                 + " native && native._handle != System.IntPtr.Zero ? native._handle : throw new System.InvalidOperationException(\"Handle is not open\");")
                     // Exchange, so two racing releases cannot both pass the pointer to the C release function.
@@ -1643,6 +1660,7 @@ module CSharpBackend =
         (parametersOf: FunctionId -> (ParameterId * TypeRef) list)
         (valueTypeOf: ExecutionValueId -> TypeRef)
         (operationResultOf: CapabilityOperationId -> TypeRef)
+        (adapterOf: CapabilityId -> string option)
         (instruction: ExecutionInstruction) =
         let target = valueName instruction.Result.Id
         let callback = renderCallback parametersOf target
@@ -2326,7 +2344,15 @@ module CSharpBackend =
             writer.Line(target + " = " + callbackName functionId + "(" + renderNamedCallArguments arguments + ");")
         | ExecutionInstructionKind.CapabilityInvoke(capabilityValueId, operationId, arguments) ->
             let methodName = CSharpBackendNames.capabilityOperationName operationId
-            writer.Line(target + " = " + valueName capabilityValueId + "." + methodName + "(" + renderCapabilityArguments arguments + ");")
+            let receiver = valueName capabilityValueId
+            let call value = value + "." + methodName + "(" + renderCapabilityArguments arguments + ")"
+            match valueTypeOf capabilityValueId with
+            | TypeRef.Capability id when (adapterOf id).IsSome ->
+                // The generated adapter is sealed: test for it, so the call is direct and inlines without runtime
+                // profile data (a caller with stackalloc is compiled once, fully optimized, and never profiled).
+                let adapter = "a_" + target
+                writer.Line(target + " = " + receiver + " is " + Option.get (adapterOf id) + " " + adapter + " ? " + call adapter + " : " + call receiver + ";")
+            | _ -> writer.Line(target + " = " + call receiver + ";")
         | ExecutionInstructionKind.ProductConstruct fields ->
             match instruction.Result.Type with
             | TypeRef.Named _ as productType ->
@@ -2424,6 +2450,7 @@ module CSharpBackend =
         (writer: SourceWriter)
         (parametersOf: FunctionId -> (ParameterId * TypeRef) list)
         (operationResultOf: CapabilityOperationId -> TypeRef)
+        (adapterOf: CapabilityId -> string option)
         (consumeCaptures: bool)
         (functionEntity: ExecutionFunction) =
         let parameters =
@@ -2441,6 +2468,19 @@ module CSharpBackend =
             |> List.map (fst >> CSharpBackendNames.typeParameterName)
         let generic = if List.isEmpty typeParameters then "" else "<" + String.concat ", " typeParameters + ">"
         let visibility = if consumeCaptures then "private" else "public"
+        // A forwarder to a generated adapter (one block, a few instructions) inlines into its caller, so the
+        // adapter test in CapabilityInvoke and the adapter method itself inline there too.
+        let forwardsToAdapter =
+            match functionEntity.Blocks with
+            | [ block ] when List.length block.Instructions <= 4 ->
+                block.Instructions |> List.exists (fun instruction ->
+                    match instruction.Kind with
+                    | ExecutionInstructionKind.CapabilityInvoke(capabilityValueId, _, _) ->
+                        block.Parameters @ (block.Instructions |> List.map (fun item -> item.Result)) @ (functionEntity.Parameters |> List.map (fun item -> item.Value))
+                        |> List.exists (fun value -> value.Id = capabilityValueId && (match value.Type with TypeRef.Capability id -> (adapterOf id).IsSome | _ -> false))
+                    | _ -> false)
+            | _ -> false
+        if forwardsToAdapter then writer.Line(aggressiveInlining)
         writer.Line(visibility + " static " + formatType functionEntity.ResultType + " " + CSharpBackendNames.functionName functionEntity.SemanticFunctionId + generic + "(" + parameters + ")")
         writer.Line("{")
         writer.Push()
@@ -2543,7 +2583,7 @@ module CSharpBackend =
                     writer.Line(valueName instruction.Result.Id + " = " + valueName bytesId + ".Set(" + valueName indexId + ", " + valueName valueId + ", " + bytesOwner + ", " + flag + ");")
                 | ExecutionInstructionKind.BytesAppend(bytesId, valueId) ->
                     writer.Line(valueName instruction.Result.Id + " = " + valueName bytesId + ".Append(" + valueName valueId + ", " + bytesOwner + ", " + flag + ");")
-                | _ -> emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf instruction
+                | _ -> emitInstruction writer parametersOf (fun valueId -> Map.find valueId valueTypes) operationResultOf adapterOf instruction
             bytesOwnership |> Option.bind (fun plan -> Map.tryFind block.Id plan.TailCallReleases) |> Option.iter releaseBytes
             emitTerminator functionEntity (fun valueId -> Map.find valueId valueTypes) writer block block.Terminator
             writer.Line("")
@@ -2552,7 +2592,7 @@ module CSharpBackend =
         writer.Line("}")
         writer.Line("")
 
-    let private emitFunctions (writer: SourceWriter) (program: ExecutionProgram) =
+    let private emitFunctions (writer: SourceWriter) (context: CSharpBackendValidation.Context) (program: ExecutionProgram) =
         writer.Line("public static class " + CSharpBackendNames.functionContainerName)
         writer.Line("{")
         writer.Push()
@@ -2572,10 +2612,16 @@ module CSharpBackend =
                 | ExecutionInstructionKind.TaskStart(_, workerFunctionId, _, _) -> Some workerFunctionId
                 | _ -> None)
             |> Set.ofList
+        let adapters =
+            program.Capabilities
+            |> List.filter (hasCapabilityAdapter context)
+            |> List.map (fun capability -> capability.Id, CSharpBackendNames.capabilityAdapterName capability.Id)
+            |> Map.ofList
+        let adapterOf id = Map.tryFind id adapters
         for functionEntity in program.Functions |> List.sortBy (fun item -> StableId.value item.SemanticFunctionId) do
-            emitFunction writer (fun functionId -> Map.find functionId parameters) (fun operationId -> Map.find operationId operationResults) false functionEntity
+            emitFunction writer (fun functionId -> Map.find functionId parameters) (fun operationId -> Map.find operationId operationResults) adapterOf false functionEntity
             if Set.contains functionEntity.SemanticFunctionId taskWorkers then
-                emitFunction writer (fun functionId -> Map.find functionId parameters) (fun operationId -> Map.find operationId operationResults) true functionEntity
+                emitFunction writer (fun functionId -> Map.find functionId parameters) (fun operationId -> Map.find operationId operationResults) adapterOf true functionEntity
         writer.Pop()
         writer.Line("}")
 
@@ -2665,7 +2711,7 @@ module CSharpBackend =
             emitCapabilities writer program
             emitAdapters writer context program
             emitProgramImplementations writer context program
-            emitFunctions writer program
+            emitFunctions writer context program
             writer.Line("#pragma warning restore CS0219")
             Ok
                 { Source = writer.ToString()

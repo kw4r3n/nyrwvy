@@ -299,6 +299,10 @@ static bool Fails<T>(Func<object> action, string? message = null) where T : Exce
                     use reply = AuthoringProtocol.executeLine session (emit "broken.csharp.json") |> JsonDocument.Parse
                     Assert.Contains(expected, reply.RootElement.GetProperty("error").GetProperty("message").GetString())
                 sendOk session (emit "ghostty.csharp.json") |> ignore
+                // Out values cross by address: a by-ref `out` makes P/Invoke build a marshalling stub per call.
+                let source = File.ReadAllText(Path.Combine(root, "Generated.cs"))
+                Assert.Contains("NyNative.Address(ref ", source)
+                Assert.DoesNotMatch(@"extern [^\n]*\bout (?!nuint w)", source)
                 File.WriteAllText(Path.Combine(root, "Program.cs"), program)
                 File.WriteAllText(Path.Combine(root, "Smoke.csproj"),
                     "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><LangVersion>preview</LangVersion><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>")

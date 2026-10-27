@@ -56,6 +56,30 @@ bind-c --header vt.h --clang-arg -I<include> --library ghostty-vt --capability G
 
 The spec (in the test) covers the getters, setters and structs of 11 functions (including `set_utf8`, whose text is retained); the other 35 map from the header alone. All 46 are bound; the test checks that the table's symbols are exactly those functions. It applies the requests, creates a forwarding function per operation, emits with the table, builds with warnings as errors and runs against the real `libghostty-vt.so`: a terminal, text plus an SGR sequence, render-state update, row and cell iteration with codepoints read back, a key event and an SGR mouse event encoded, paste safety, a bracketed paste that overflows the 16-byte buffer and retries, resize, a foreground colour set through a struct by address, scroll by delta and to the bottom, and every handle freed (a released handle is then a host failure). The library directory comes from `NYRWVY_LIBGHOSTTY_VT` or a `snap/vendor/libghostty-vt` beside an ancestor of the test; the test skips with a message without it or clang.
 
+## Call cost
+
+snap's `Term.Read` makes five generated getter calls per cell (next, raw, wide, graphemes length, has-styling). The first generated shape cost ~110 µs more per 100×30 frame than snap's hand-written `LibraryImport`s with `void*` out pointers. Measured (Release, .NET 10, x64, Stopwatch, warmed, min of 10×3000 frames, alternating builds pinned to 4 cores on a loaded machine, so ±10 µs between rounds):
+
+| `Term.Read` 100×30, µs/frame | sparse screen | full styled screen |
+| --- | --- | --- |
+| hand-written (snap 69f0ac2) | 149–170 | 366–414 |
+| first generated shape | 258–274 | 503–523 |
+| out by address only | 256–261 | 500–523 |
+| inlining and adapter test, `out` kept | 243–261 | 492–500 |
+| both (the emitted shape) | 165–190 | 406–426 |
+
+One getter, called in a loop: hand-written 3.3 ns; `DllImport` with `out ulong` 8.9 ns; the same with an `IntPtr` to a local 3.3–3.6 ns. A by-ref `out` (or `ref`) parameter is not blittable, so the runtime routes the call through a marshalling stub instead of inlining the transition. The facade, Nyr function and interface layers cost almost nothing in that loop only because dynamic PGO devirtualizes the interface call there; `Term.Read` uses `stackalloc`, so it is compiled once fully optimized and never profiled, the interface call stays a real call returning a `NyResult` through a buffer, and neither change helps without the other.
+
+**The emitted shape:**
+
+- An out value is a local initialised to `default` and passed as `System.IntPtr` from `NyNative.Address(ref local)` (`Unsafe.ByteOffset` from a null reference). This is a pointer to a stack local without the `unsafe` keyword, so consumers need neither `AllowUnsafeBlocks` nor a source generator; it is sound because the reference is always a plain local of the straight-line adapter method (never async, an iterator or captured), stack memory does not move, and taking its address makes the JIT keep it in memory across the call. Out bytes and `by: pointer` arguments keep `ref`/`out`: they are on calls that copy buffers or run once.
+- An adapter method without cleanup (no strings, Bytes, buffers or retained copies) is `AggressiveInlining`, reads `_handle` once instead of calling `Open(this)` (whose type test the adapter already passed), and builds its failure text in `NyNative.Failed`, which is `NoInlining`. `Open` is `AggressiveInlining` for handle arguments.
+- `CapabilityInvoke` on a capability with a generated adapter tests for the sealed adapter class (`value is NyA_… a ? a.Op() : value.Op()`), and a Nyr function of one block with at most four instructions that makes such a call is `AggressiveInlining`, so the forwarder, the test and the adapter method all inline into the host's loop. Hand-written implementations of the capability still take the interface call.
+
+The remaining ~15–20 µs (sparse) is the per-call handle check, the adapter test and the `NyResult` result; part of the full-screen difference is generated-runtime string work (`NyStr` well-formedness checks) that snap's `main` binary did not do yet, not the adapter. Closing the rest would need the facade typed to the adapter or the handle checked once per loop.
+
+**Rejected:** `DisableRuntimeMarshalling` (assembly-wide for the consumer, and it refuses by-ref parameters outright, so it needs pointers anyway); an opt-in `unsafe` profile with `T*` out parameters (3.3 ns against 3.6 ns, not worth a second shape); a per-thread pinned scratch buffer read back with `Marshal`/an array (4.3–6.4 ns, plus a re-entrancy story for callbacks); `[SuppressGCTransition]` (2.2 ns, but the emitter cannot prove a C function is short and never calls back, and libghostty calls write-pty, bell and title callbacks from inside `vt_write`; a wrong attribute stalls GC suspension or corrupts the callback transition).
+
 ## Not covered
 
 - **Callbacks** (`ghostty_terminal_set` with userdata, write-pty, bell, title and desktop-notification callbacks): plan §5. snap keeps these in host code.
@@ -74,3 +98,4 @@ A **separate library graph**, like `libraries/host`: `snap/libraries/ghostty/` w
 ## Revisit conditions
 
 Revisit when snap needs an out-struct or a callback, when regeneration should update a committed graph in place, or when a library uses enums wider than `int`.
+If a binding later needs the remaining out-parameter cost (about 0.3 ns a call) or `NyNative.Address` stops holding on a new runtime, add an opt-in `unsafe` profile that emits `T*` out parameters and requires `AllowUnsafeBlocks` only in projects that choose it.
