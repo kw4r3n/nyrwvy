@@ -38,6 +38,10 @@ type CSharpNativeArgument =
     /// The handle the invoked handle capability value holds.
     | Self of release: bool
     | Parameter of CapabilityParameterId * CSharpNativeValue
+    /// A Bytes or String the library keeps after the call (e.g. `ghostty_key_event_set_utf8`): copied
+    /// into unmanaged memory owned by the receiving handle, replacing (and freeing) what the previous
+    /// call of this operation retained, and freed when the handle is released. Handle operations only.
+    | Retained of CapabilityParameterId * CSharpNativeValue
     /// The parameter's converted value, passed by address (`const T *` / `T *`).
     | Reference of CapabilityParameterId * CSharpNativeValue
     /// A fixed integer, enum value or null pointer that the operation does not take.

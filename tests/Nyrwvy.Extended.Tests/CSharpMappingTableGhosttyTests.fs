@@ -31,7 +31,8 @@ module CSharpMappingTableGhosttyTests =
           "ghostty_mouse_event_set_mods"; "ghostty_mouse_event_set_position"; "ghostty_mouse_event_free" ]
 
     /// What the header cannot say: getters and setters per data kind (`void *` values), structs by value,
-    /// bit-pattern references, and handles passed by address to be populated.
+    /// bit-pattern references, handles passed by address to be populated, and text the library keeps
+    /// pointing to after the call (`set_utf8`: the event does not copy it).
     let private spec = """{ "capabilities": {
   "Ghostty": { "operations": {
     "cellCodepoint": { "symbol": "ghostty_cell_get", "arguments": [{ "from": "cell", "c": "bits64" }, { "value": "GHOSTTY_CELL_DATA_CODEPOINT" }, { "out": "uint32" }] },
@@ -65,6 +66,8 @@ module CSharpMappingTableGhosttyTests =
         { "from": "paddingBottom", "c": "uint32" }, { "from": "paddingRight", "c": "uint32" }, { "from": "paddingLeft", "c": "uint32" }], "by": "pointer" }] },
     "setAnyButtonPressed": { "symbol": "ghostty_mouse_encoder_setopt", "arguments": [{ "self": true }, { "value": "GHOSTTY_MOUSE_ENCODER_OPT_ANY_BUTTON_PRESSED" },
       { "from": "pressed", "c": "bool", "by": "pointer" }] } } },
+  "KeyEvent": { "operations": {
+    "setUtf8": { "symbol": "ghostty_key_event_set_utf8", "arguments": [{ "self": true }, { "from": "utf8", "c": "bytes", "retain": true }] } } },
   "MouseEvent": { "operations": {
     "setPosition": { "symbol": "ghostty_mouse_event_set_position", "arguments": [{ "self": true },
       { "struct": [{ "from": "x", "c": "float32" }, { "from": "y", "c": "float32" }] }] } } } } }
@@ -120,7 +123,10 @@ keyEventSetKey(key, 0);
 keyEventSetMods(key, 0);
 keyEventSetUnshiftedCodepoint(key, 'a');
 keyEventSetUtf8(key, Bytes("a"));
-Check("key event encodes", Text(Ok(keyEncoderEncode(keys, key), "key encode")) == "a");
+keyEventSetUtf8(key, Bytes("b"));
+// The event keeps the pointer: the retained copy must survive a collection between set and encode.
+for (var round = 0; round < 3; round++) { _ = new byte[1 << 20]; GC.Collect(); GC.WaitForPendingFinalizers(); }
+Check("key event encodes the retained text", Text(Ok(keyEncoderEncode(keys, key), "key encode")) == "b");
 Check("Int64 outside the enum's int range is a host failure", Fails<OverflowException>(() => keyEventSetKey(key, 1L << 40)));
 
 terminalVtWrite(term, Bytes("\u001b[?1000h\u001b[?1006h"));
@@ -275,9 +281,19 @@ static bool Fails<T>(Func<object> action, string? message = null) where T : Exce
                 let emit table = $"""{{"id":"emit","op":"emitCSharp","profile":{{"kind":"externalImplementations","operationIds":[],"tables":["{table}"]}},"output":"Generated.cs","facade":"Facade.cs"}}"""
                 // The new argument forms are checked against the graph before emission.
                 let generated = File.ReadAllText(Path.Combine(root, "ghostty.csharp.json"))
+                let edit (path: string list) (change: JsonNode -> unit) =
+                    let copy = JsonNode.Parse generated
+                    change (path |> List.fold (fun (item: JsonNode) key -> match Int32.TryParse key with | true, index -> item[index] | _ -> item[key]) copy)
+                    copy.ToJsonString()
+                let operation capability name = [ "capabilities"; capability; "operations"; name ]
                 for broken, expected in
                     [ generated.Replace("\"out\": \"bits64\"", "\"out\": \"float32\""), "does not convert"
-                      generated.Replace("\"value\": 4,", "\"value\": 4294967296,"), "does not fit" ] do
+                      generated.Replace("\"value\": 4,", "\"value\": 4294967296,"), "does not fit"
+                      edit (operation "Ghostty" "cellCodepoint") (fun entry -> entry.AsObject().Remove "failure" |> ignore), "failure detection"
+                      edit (operation "Ghostty" "pasteEncode") (fun entry -> entry.AsObject().Remove "failure" |> ignore), "failure"
+                      edit (operation "Terminal" "scrollDelta" @ [ "arguments"; "1" ]) (fun item -> item["size"] <- JsonValue.Create 8), "natural size 16"
+                      edit (operation "Ghostty" "pasteIsSafe" @ [ "arguments"; "0" ]) (fun item -> item["retain"] <- JsonValue.Create true), "retains"
+                      edit (operation "KeyEncoder" "encode" @ [ "arguments"; "1" ]) (fun item -> item["release"] <- JsonValue.Create true), "cannot release" ] do
                     Assert.NotEqual<string>(generated, broken)
                     File.WriteAllText(Path.Combine(root, "broken.csharp.json"), broken)
                     use reply = AuthoringProtocol.executeLine session (emit "broken.csharp.json") |> JsonDocument.Parse

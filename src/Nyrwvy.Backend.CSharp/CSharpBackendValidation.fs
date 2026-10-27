@@ -146,6 +146,12 @@ module internal CSharpBackendValidation =
                 | CSharpNativeArgument.Parameter(_, value) when inStruct && not (scalar value) -> Some $"a struct field cannot hold {value}"
                 | CSharpNativeArgument.Parameter(parameterId, value) -> parameterFits (parameterId, value)
                 | CSharpNativeArgument.Reference _ when inStruct -> Some "a struct field cannot be a reference"
+                | CSharpNativeArgument.Retained _ when inStruct -> Some "a struct field cannot be retained"
+                | CSharpNativeArgument.Retained(parameterId, value) ->
+                    if not binding.Handle then Some "only a handle capability's operation retains an argument (the handle owns the copy)"
+                    else match value with
+                         | CSharpNativeValue.Bytes | CSharpNativeValue.Utf8 None -> parameterFits (parameterId, value)
+                         | _ -> Some $"{value} cannot be retained (Bytes or String only)"
                 | CSharpNativeArgument.Reference(parameterId, value) ->
                     if scalar value || value = CSharpNativeValue.Handle false then parameterFits (parameterId, value)
                     else Some $"{value} cannot be passed by address"
@@ -158,15 +164,31 @@ module internal CSharpBackendValidation =
                 | CSharpNativeArgument.Struct _ when inStruct -> Some "structs do not nest"
                 | CSharpNativeArgument.Struct(fields, size, _) ->
                     if List.isEmpty fields then Some "a struct has at least one field"
-                    elif size |> Option.exists (fun bytes -> bytes < 1) then Some "a struct size is positive"
-                    else fields |> List.tryPick (argumentProblem true)
+                    else
+                    match fields |> List.tryPick (argumentProblem true) with
+                    | Some problem -> Some problem
+                    | None ->
+                        // C's natural layout: each field at its own alignment, the whole at the largest one.
+                        let width = function
+                            | CSharpNativeArgument.Parameter(_, value) | CSharpNativeArgument.Constant(_, value) | CSharpNativeArgument.SizeOf value ->
+                                match value with
+                                | CSharpNativeValue.Integer(bits, _) | CSharpNativeValue.Float bits -> bits / 8
+                                | CSharpNativeValue.Bool -> 1
+                                | CSharpNativeValue.IntBool -> 4
+                                | _ -> 8
+                            | _ -> 8
+                        let align offset bytes = (offset + bytes - 1) / bytes * bytes
+                        let widths = fields |> List.map width
+                        let natural = align (widths |> List.fold (fun offset bytes -> align offset bytes + bytes) 0) (List.max widths)
+                        if size |> Option.exists (fun bytes -> bytes < natural) then Some $"a struct size is at least its natural size {natural}"
+                        else None
                 | CSharpNativeArgument.SizeOf value ->
                     if not inStruct then Some "sizeof is only a struct field"
                     else match value with CSharpNativeValue.Integer _ when validBits value -> None | _ -> Some "sizeof is an integer field"
             let flattened = call.Arguments |> List.collect (function CSharpNativeArgument.Struct(fields, _, _) -> fields | other -> [ other ])
             let parameterIds =
                 flattened |> List.choose (function
-                    | CSharpNativeArgument.Parameter(id, _) | CSharpNativeArgument.Reference(id, _) -> Some id
+                    | CSharpNativeArgument.Parameter(id, _) | CSharpNativeArgument.Reference(id, _) | CSharpNativeArgument.Retained(id, _) -> Some id
                     | _ -> None)
             let outValue =
                 call.Arguments |> List.choose (function
@@ -195,7 +217,8 @@ module internal CSharpBackendValidation =
             // With an out-parameter the C result is only a status: void, or an integer that is ignored or detects failure.
             let resultFits =
                 match outValue, call.Returns, okType with
-                | [ value ], (CSharpNativeValue.Void | CSharpNativeValue.Integer _ | CSharpNativeValue.Bool), _ -> valueFits value
+                | [ value ], CSharpNativeValue.Void, _ -> valueFits value
+                | [ value ], CSharpNativeValue.Integer _, _ -> valueFits value && Option.isSome call.Failure
                 | [ _ ], _, _ -> false
                 | _, CSharpNativeValue.Integer _, TypeRef.Primitive PrimitiveType.Unit -> Option.isSome call.Failure
                 | _, CSharpNativeValue.Bytes, _ | _, CSharpNativeValue.Pointer, _ -> false
@@ -207,14 +230,17 @@ module internal CSharpBackendValidation =
                 | Some CSharpNativeFailure.Negative, CSharpNativeValue.Integer(_, true) -> true
                 | Some CSharpNativeFailure.Nonzero, CSharpNativeValue.Integer _ -> okType = TypeRef.Primitive PrimitiveType.Unit || not outValue.IsEmpty
                 | Some _, _ -> false
+            let retries = call.Arguments |> List.exists (function CSharpNativeArgument.OutBytes(_, Some _) -> true | _ -> false)
             let retryWithoutStatus =
-                call.Arguments |> List.exists (function CSharpNativeArgument.OutBytes(_, Some _) -> true | _ -> false)
-                && (match call.Returns with CSharpNativeValue.Integer(_, true) -> false | _ -> true)
+                retries && ((match call.Returns with CSharpNativeValue.Integer(_, true) -> false | _ -> true) || Option.isNone call.Failure)
             match call.Arguments |> List.tryPick (argumentProblem false) with
             | Some problem -> Some problem
             | None ->
                 if outValue.Length > 1 then Some "an operation has at most one out-parameter"
-                elif retryWithoutStatus then Some "retry compares a signed integer result"
+                elif retryWithoutStatus then Some "retry compares a signed integer result that failure also checks"
+                elif retries && releases > 0 then Some "an operation that retries cannot release a handle (the retry would pass it again)"
+                elif releases > 0 && call.Arguments |> List.exists (function CSharpNativeArgument.Retained _ -> true | _ -> false) then
+                    Some "an operation that releases a handle cannot retain an argument"
                 elif List.sort parameterIds <> List.sort (operation.Parameters |> List.map (fun parameter -> parameter.Id)) then
                     Some "every parameter must be passed exactly once"
                 elif binding.Handle && selfCount <> 1 then Some "a handle operation passes self exactly once"
@@ -222,6 +248,8 @@ module internal CSharpBackendValidation =
                 elif (match operation.ResultType with TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; error ]) -> error <> TypeRef.Primitive PrimitiveType.String | _ -> false) then
                     Some "a Result's error type must be String"
                 elif isResult && Option.isNone call.Failure then Some "a Result<_, String> operation needs failure detection"
+                elif not outValue.IsEmpty && call.Returns <> CSharpNativeValue.Void && Option.isNone call.Failure then
+                    Some "beside an out-parameter the C result is a status: name its failure detection (a bool status is not supported)"
                 elif not resultFits then Some $"result {call.Returns} does not convert to the operation's result type"
                 elif not failureFits then Some $"failure {call.Failure} does not apply to result {call.Returns}"
                 else None

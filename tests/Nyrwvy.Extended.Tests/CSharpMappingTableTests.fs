@@ -32,6 +32,9 @@ struct point nyd_origin(void);
 int nyd_format(const char *format, ...);
 size_t nyd_sum_short(const unsigned char *data, int length);
 int nyd_plain(char c);
+typedef struct nyd_opaque *nyd_ref;
+int nyd_ref_read(const nyd_ref *ref);
+enum nyd_big { NYD_BIG = 0xFFFFFFFFFFFFFFFFULL };
 """
 
     let private source = """#include "nyrdemo.h"
@@ -169,6 +172,18 @@ static bool Fails<T>(Func<object> action, string? message = null) where T : Exce
                                        "--requests"; "x.jsonl"; "--table"; "x.json"; "--clang-arg"; "--target=x86_64-pc-windows-msvc" ]
             Assert.Equal(2, code)
             Assert.Contains("LP64", stderr)
+            // A const pointer to a handle is an input, not an out handle; an enumerator above Int64 is reported.
+            File.WriteAllText(Path.Combine(root, "edge.spec.json"),
+                """{"capabilities":{"Demo":{"operations":{"big":{"symbol":"nyd_add","arguments":[{"from":"a","c":"int32"},{"value":"NYD_BIG"}]}}}}}""")
+            use edges =
+                JsonDocument.Parse(
+                    succeed root [] "dotnet"
+                        [ tool; "bind-c"; "--header"; "nyrdemo.h"; "--library"; "x"; "--capability"; "Demo"; "--effect"; "X"; "--prefix"; "nyd_"
+                          "--functions"; "nyd_ref_read"; "--spec"; "edge.spec.json"; "--requests"; "x.jsonl"; "--table"; "x.json" ])
+            let reasons = edges.RootElement.GetProperty("unmapped").EnumerateArray() |> Seq.map (fun item -> item.GetProperty("reason").GetString()) |> Seq.toList
+            Assert.Equal(2, reasons.Length)
+            Assert.Contains(reasons, fun reason -> reason.Contains "only reads")
+            Assert.Contains(reasons, fun reason -> reason.Contains "does not fit Int64")
             // nyd_platform_only is declared but not built here: the hand-edited override marks it unavailable.
             File.WriteAllText(Path.Combine(root, "demo.csharp.override.json"),
                 """{"format":"nyrwvy.csharp-mapping","version":1,"capabilities":{"Demo":{"operations":{"platformOnly":{"unavailable":true}}}}}""")

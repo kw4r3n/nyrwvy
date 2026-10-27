@@ -1220,6 +1220,8 @@ module CSharpBackend =
         writer.Push()
         writer.Line("public static System.IntPtr Utf8(string text) => text.Contains('\\0') ? throw new System.ArgumentException(\"A String passed to native code contains U+0000.\") : System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(text);")
         writer.Line("public static void Free(System.IntPtr pointer) => System.Runtime.InteropServices.Marshal.FreeCoTaskMem(pointer);")
+        writer.Line("public static System.IntPtr Copy(byte[] bytes) { var pointer = System.Runtime.InteropServices.Marshal.AllocCoTaskMem(System.Math.Max(1, bytes.Length)); System.Runtime.InteropServices.Marshal.Copy(bytes, 0, pointer, bytes.Length); return pointer; }")
+        writer.Line("public static float Float32(double value) { var single = (float)value; return float.IsInfinity(single) && !double.IsInfinity(value) ? throw new System.OverflowException(\"A Float64 passed to native code is outside float's range.\") : single; }")
         writer.Line("public static System.IntPtr NotNull(System.IntPtr pointer, string symbol) => pointer != System.IntPtr.Zero ? pointer : throw new System.InvalidOperationException(symbol + \" returned null\");")
         writer.Line("public static NyStr ReadUtf8(System.IntPtr pointer, string symbol) => System.Runtime.InteropServices.Marshal.PtrToStringUTF8(NotNull(pointer, symbol))!;")
         writer.Pop()
@@ -1261,6 +1263,8 @@ module CSharpBackend =
                     | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Bytes) -> "System.IntPtr" + name + ", nuint n" + string index
                     | CSharpNativeArgument.Parameter(_, value) | CSharpNativeArgument.Constant(_, value) -> nativeType value + name
                     | CSharpNativeArgument.Reference(_, value) -> "ref " + nativeType value + name
+                    | CSharpNativeArgument.Retained(_, CSharpNativeValue.Bytes) -> "System.IntPtr" + name + ", nuint n" + string index
+                    | CSharpNativeArgument.Retained _ -> "System.IntPtr" + name
                     | CSharpNativeArgument.Out value -> "out " + nativeType value + name
                     | CSharpNativeArgument.OutBytes _ -> "System.IntPtr" + name + ", nuint n" + string index + ", out nuint w" + string index
                     | CSharpNativeArgument.Struct(_, _, byPointer) -> (if byPointer then "ref " else "") + structName index + name
@@ -1287,11 +1291,12 @@ module CSharpBackend =
                 | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Utf8 _) -> writer.Line("var s" + string index + " = System.IntPtr.Zero;")
                 | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Bytes)
                 | CSharpNativeArgument.OutBytes _ -> writer.Line("var g" + string index + " = default(" + interop + "GCHandle);")
+                | CSharpNativeArgument.Retained _ -> writer.Line("var k" + string index + " = System.IntPtr.Zero;")
                 | _ -> ()
             let needsCleanup =
                 call.Arguments |> List.exists (function
                     | CSharpNativeArgument.Parameter(_, (CSharpNativeValue.Utf8 _ | CSharpNativeValue.Bytes))
-                    | CSharpNativeArgument.OutBytes _ -> true
+                    | CSharpNativeArgument.OutBytes _ | CSharpNativeArgument.Retained _ -> true
                     | _ -> false)
             if needsCleanup then
                 writer.Line("try")
@@ -1313,7 +1318,7 @@ module CSharpBackend =
                 match value with
                 | CSharpNativeValue.Integer _ -> "checked((" + nativeType value + ")" + name + ")"
                 | CSharpNativeValue.Bits64 -> "unchecked((ulong)" + name + ")"
-                | CSharpNativeValue.Float 32 -> "(float)" + name
+                | CSharpNativeValue.Float 32 -> "NyNative.Float32(" + name + ")"
                 | CSharpNativeValue.Float _ -> name
                 | CSharpNativeValue.Bool -> "(byte)(" + name + " ? 1 : 0)"
                 | CSharpNativeValue.IntBool -> "(" + name + " ? 1 : 0)"
@@ -1325,7 +1330,7 @@ module CSharpBackend =
             let field structType = function
                 | CSharpNativeArgument.Parameter(id, value) -> convert value (CSharpBackendNames.capabilityParameterName id)
                 | CSharpNativeArgument.Constant(value, native) -> constant value native
-                | CSharpNativeArgument.SizeOf value -> "unchecked((" + nativeType value + ")" + interop + "Marshal.SizeOf<" + structType + ">())"
+                | CSharpNativeArgument.SizeOf value -> "checked((" + nativeType value + ")" + interop + "Marshal.SizeOf<" + structType + ">())"
                 | _ -> invalidOp "A struct field was validated to a scalar."
             let arguments =
                 indexed |> List.map (fun (index, argument) ->
@@ -1346,6 +1351,17 @@ module CSharpBackend =
                             |> String.concat ", "
                         (if byPointer then "ref " else "") + local index ("new " + structName index + " { " + assignments + " }")
                     | CSharpNativeArgument.SizeOf _ -> invalidOp "sizeof was validated to a struct field."
+                    | CSharpNativeArgument.Retained(id, value) ->
+                        let name = CSharpBackendNames.capabilityParameterName id
+                        let i = string index
+                        match value with
+                        | CSharpNativeValue.Bytes ->
+                            writer.Line("var d" + i + " = " + name + ".Span.ToArray();")
+                            writer.Line("k" + i + " = NyNative.Copy(d" + i + ");")
+                            "k" + i + ", (nuint)d" + i + ".Length"
+                        | _ ->
+                            writer.Line("k" + i + " = NyNative.Utf8(" + name + ");")
+                            "k" + i
                     | CSharpNativeArgument.Reference(id, value) ->
                         let name = CSharpBackendNames.capabilityParameterName id
                         match value with
@@ -1372,6 +1388,11 @@ module CSharpBackend =
                 | other -> other, false
             if call.Returns = CSharpNativeValue.Void then writer.Line(invocation + ";")
             else writer.Line("var r = " + invocation + ";")
+            let fail message =
+                if isResult then "return " + formatType operation.ResultType + ".Err(" + message + ");"
+                else "throw new System.InvalidOperationException(" + message + ");"
+            let symbolText = csharpString call.Symbol
+            let maxBuffer = 16 * 1024 * 1024
             // Too small a buffer: the C function wrote the size it needs; run once more with that size.
             for index, argument in indexed do
                 match argument with
@@ -1380,12 +1401,20 @@ module CSharpBackend =
                     writer.Line("if (r == " + string retry + "L)")
                     writer.Line("{")
                     writer.Push()
+                    writer.Line("if (w" + i + " > (nuint)" + string maxBuffer + ") " + fail (symbolText + " + \" asked for a buffer of \" + w" + i + " + \" bytes, above the limit\""))
                     writer.Line("g" + i + ".Free();")
                     writer.Line("b" + i + " = new byte[checked((int)w" + i + ")];")
                     writer.Line("g" + i + " = " + interop + "GCHandle.Alloc(b" + i + ", " + interop + "GCHandleType.Pinned);")
                     writer.Line("r = " + invocation + ";")
                     writer.Pop()
                     writer.Line("}")
+                | _ -> ()
+            // The library now points into the new copy; the one it held before is no longer referenced.
+            for index, argument in indexed do
+                match argument with
+                | CSharpNativeArgument.Retained _ ->
+                    let field = "_kept_" + methodName + "_" + string index
+                    writer.Line("{ var previous = " + field + "; " + field + " = k" + string index + "; k" + string index + " = System.IntPtr.Zero; if (previous != System.IntPtr.Zero) NyNative.Free(previous); }")
                 | _ -> ()
             let symbol = csharpString call.Symbol
             match call.Failure with
@@ -1398,6 +1427,12 @@ module CSharpBackend =
                     | CSharpNativeFailure.Nonzero -> "r != 0", symbol + " + \" failed with \" + r"
                 if isResult then writer.Line("if (" + condition + ") return " + formatType operation.ResultType + ".Err(" + message + ");")
                 else writer.Line("if (" + condition + ") throw new System.InvalidOperationException(" + message + ");")
+            for index, argument in indexed do
+                match argument with
+                | CSharpNativeArgument.OutBytes _ ->
+                    let i = string index
+                    writer.Line("if (w" + i + " > (nuint)b" + i + ".Length) " + fail (symbol + " + \" reported \" + w" + i + " + \" bytes written into a buffer of \" + b" + i + ".Length"))
+                | _ -> ()
             let scalarValue native expression =
                 match native with
                 | CSharpNativeValue.Integer _ -> "checked((long)" + expression + ")"
@@ -1439,6 +1474,7 @@ module CSharpBackend =
                     | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Utf8 _) -> writer.Line("NyNative.Free(s" + string index + ");")
                     | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Bytes)
                     | CSharpNativeArgument.OutBytes _ -> writer.Line("if (g" + string index + ".IsAllocated) g" + string index + ".Free();")
+                    | CSharpNativeArgument.Retained _ -> writer.Line("if (k" + string index + " != System.IntPtr.Zero) NyNative.Free(k" + string index + ");")
                     | _ -> ()
                 writer.Pop()
                 writer.Line("}")
@@ -1470,8 +1506,22 @@ module CSharpBackend =
                     writer.Line("internal static System.IntPtr Open(" + capabilityName + " value) => value is " + adapterName
                                 + " native && native._handle != System.IntPtr.Zero ? native._handle : throw new System.InvalidOperationException(\"Handle is not open\");")
                     // Exchange, so two racing releases cannot both pass the pointer to the C release function.
+                    // Copies the library retains (a `retain` argument) live as long as the handle; release frees them.
+                    let kept =
+                        capability.Operations |> List.collect (fun operation ->
+                            match Map.find operation.Id context.BindingsByOperation with
+                            | CSharpCapabilityBindingKind.Native { Call = Some call } ->
+                                call.Arguments |> List.indexed |> List.choose (fun (index, argument) ->
+                                    match argument with
+                                    | CSharpNativeArgument.Retained _ -> Some("_kept_" + CSharpBackendNames.capabilityOperationName operation.Id + "_" + string index)
+                                    | _ -> None)
+                            | _ -> [])
+                    for field in kept do writer.Line("private System.IntPtr " + field + ";")
+                    let freeKept =
+                        kept |> List.map (fun field -> "NyNative.Free(System.Threading.Interlocked.Exchange(ref owner." + field + ", System.IntPtr.Zero)); ") |> String.concat ""
                     writer.Line("internal static System.IntPtr Release(" + capabilityName + " value) { var handle = value is " + adapterName
-                                + " native ? System.Threading.Interlocked.Exchange(ref native._handle, System.IntPtr.Zero) : System.IntPtr.Zero; return handle != System.IntPtr.Zero ? handle : throw new System.InvalidOperationException(\"Handle is not open\"); }")
+                                + " native ? System.Threading.Interlocked.Exchange(ref native._handle, System.IntPtr.Zero) : System.IntPtr.Zero; if (handle == System.IntPtr.Zero) throw new System.InvalidOperationException(\"Handle is not open\"); "
+                                + (if kept.IsEmpty then "" else "var owner = (" + adapterName + ")value; " + freeKept) + "return handle; }")
                 for operation in capability.Operations |> List.sortBy (fun item -> StableId.value item.Id) do
                   match Map.find operation.Id context.BindingsByOperation with
                   | CSharpCapabilityBindingKind.Native binding -> emitNativeOperation writer adapterName operation binding

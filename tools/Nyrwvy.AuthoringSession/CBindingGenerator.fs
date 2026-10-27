@@ -78,7 +78,8 @@ module CBindingGenerator =
           CompleteRecords: Set<string>
           /// Name → (function type, parameters, variadic).
           Functions: Map<string, string * (string * string) list * bool>
-          Enumerators: Map<string, int64> }
+          /// None: the value does not fit Int64.
+          Enumerators: Map<string, int64 option> }
 
     let private declarations (root: JsonElement) =
         let nodes = root.GetProperty("inner").EnumerateArray() |> Seq.toList
@@ -93,9 +94,15 @@ module CBindingGenerator =
                 children node |> List.filter (fun item -> kind item = "EnumConstantDecl")
                 |> List.mapFold (fun next item ->
                     let value =
-                        children item |> List.tryPick (fun child -> match text child "value" with null -> None | value -> Some(Int64.Parse value))
-                        |> Option.defaultValue next
-                    (text item "name", value), value + 1L) 0L
+                        // The ConstantExpr may sit under an implicit cast (an enumerator wider than int).
+                        let rec constant (node: JsonElement) =
+                            match kind node, text node "value" with
+                            | "ConstantExpr", value when not (isNull value) -> Some value
+                            | _ -> children node |> List.tryPick constant
+                        match children item |> List.tryPick constant with
+                        | Some literal -> (match Int64.TryParse literal with | true, number -> Some number | _ -> None)
+                        | None -> next
+                    (text item "name", value), (match value with Some number when number < Int64.MaxValue -> Some(number + 1L) | _ -> None)) (Some 0L)
                 |> fst)
         { Typedefs =
             nodes |> List.filter (fun node -> kind node = "TypedefDecl" && named node)
@@ -143,7 +150,8 @@ module CBindingGenerator =
         if text.EndsWith("*", StringComparison.Ordinal) then
             let pointee, isConst = stripConst (text.Substring(0, text.Length - 1).Trim())
             match handleTypedef pointee with
-            | Some name -> CType.HandleOut name
+            | Some name when not isConst -> CType.HandleOut name
+            | Some _ -> CType.Unmapped $"'{text}' points to a handle the function only reads (describe it in --spec)"
             | None ->
             let target = resolve pointee 0
             if target.Contains '*' || target.Contains '(' then CType.Unmapped $"'{text}' is a pointer to a pointer or function"
@@ -230,7 +238,8 @@ module CBindingGenerator =
             | _ when name = "null" -> Ok(None, None)
             | _ ->
                 match Map.tryFind name declarations.Enumerators with
-                | Some number -> Ok(Some number, Some name)
+                | Some(Some number) -> Ok(Some number, Some name)
+                | Some None -> Error $"enumerator '{name}' does not fit Int64"
                 | None -> Error $"'{name}' is not an enumerator of the header"
         | _ -> Error "a constant is null, an integer or an enumerator name"
 

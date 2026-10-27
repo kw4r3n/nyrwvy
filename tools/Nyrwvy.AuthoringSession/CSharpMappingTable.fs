@@ -125,9 +125,12 @@ module internal CSharpMappingTable =
             let value = if isNull then 0L else int64Of context "value" item
             CSharpNativeArgument.Constant(value, nativeValue context item false)
         else
-            ensureFields context [ "from"; "c"; "release"; "by" ] [ "from"; "c" ] item
-            if isField && (has "release" || has "by") then fail $"{context}: a struct field takes only from and c."
-            if byPointer context item then CSharpNativeArgument.Reference(parameterId (), nativeValue context item false)
+            ensureFields context [ "from"; "c"; "release"; "by"; "retain" ] [ "from"; "c" ] item
+            if isField && (has "release" || has "by" || has "retain") then fail $"{context}: a struct field takes only from and c."
+            if optionalBool "retain" false item then
+                if has "by" || has "release" then fail $"{context}: a retained argument takes no by or release."
+                CSharpNativeArgument.Retained(parameterId (), nativeValue context item false)
+            elif byPointer context item then CSharpNativeArgument.Reference(parameterId (), nativeValue context item false)
             else CSharpNativeArgument.Parameter(parameterId (), nativeValue context item false)
 
     let private entry (context: string) (library: string option) (operation: SemanticCapabilityOperation) (element: JsonElement) =
