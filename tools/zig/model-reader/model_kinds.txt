@@ -1,0 +1,215 @@
+abort|Abort node|errorNodeId:id
+bind|Bind node|inputNodeId:id boundBody:varm
+bits32Add|Bits32Add node|leftNodeId:id rightNodeId:id
+bits32And|Bits32And node|leftNodeId:id rightNodeId:id
+bits32FromInt64|Bits32FromInt64 node|valueNodeId:id
+bits32Not|Bits32Not node|valueNodeId:id
+bits32Or|Bits32Or node|leftNodeId:id rightNodeId:id
+bits32RotateRight|Bits32RotateRight node|valueNodeId:id amountNodeId:id
+bits32ShiftLeft|Bits32ShiftLeft node|valueNodeId:id amountNodeId:id
+bits32ShiftRight|Bits32ShiftRight node|valueNodeId:id amountNodeId:id
+bits32ToInt64|Bits32ToInt64 node|valueNodeId:id
+bits32Xor|Bits32Xor node|leftNodeId:id rightNodeId:id
+boolAnd|BoolAnd node|leftNodeId:id right:graph
+boolLiteral|Bool literal node|value:bool
+boolNot|BoolNot node|operandNodeId:id
+boolOr|BoolOr node|leftNodeId:id right:graph
+bytesAppend|BytesAppend node|bytesNodeId:id valueNodeId:id
+bytesConcat|BytesConcat node|leftNodeId:id rightNodeId:id
+bytesEmpty|BytesEmpty node|
+bytesFill|BytesFill node|lengthNodeId:id valueNodeId:id
+bytesFromLatin1|BytesFromLatin1 node|valueNodeId:id
+bytesGet|BytesGet node|bytesNodeId:id indexNodeId:id
+bytesLength|BytesLength node|valueNodeId:id
+bytesSet|BytesSet node|bytesNodeId:id indexNodeId:id valueNodeId:id
+bytesSlice|BytesSlice node|bytesNodeId:id startNodeId:id endNodeId:id
+bytesToLatin1|BytesToLatin1 node|valueNodeId:id
+cancellationRequested|CancellationRequested node|
+cancellationShield|CancellationShield node|bodyFunctionId:id context:ctx
+capabilityConstruct|Capability construction|capabilityId:id implementations:impls
+capabilityInvoke|Capability invoke node|capabilityValueNodeId:id operationId:id arguments:capargs
+conditional|Conditional node|conditionNodeId:id whenTrue:graph whenFalse:graph
+directCall|Direct call node|targetFunctionId:id arguments:args
+exceptionCatch|ExceptionCatch node|bodyFunctionId:id bodyContext:ctx handlerFunctionId:id handlerContext:ctx|bodyFunctionId handlerFunctionId bodyContext handlerContext
+exceptionIsCancellation|ExceptionIsCancellation node|valueNodeId:id
+exceptionMessage|ExceptionMessage node|valueNodeId:id
+exceptionRethrow|ExceptionRethrow node|valueNodeId:id resultType:type
+fieldAccess|Field access node|sourceNodeId:id fieldId:id
+float64Abs|Float64Abs node|valueNodeId:id
+float64Add|Float64Add node|leftNodeId:id rightNodeId:id
+float64Ceiling|Float64Ceiling node|valueNodeId:id
+float64Divide|Float64Divide node|leftNodeId:id rightNodeId:id
+float64Equal|Float64Equal node|leftNodeId:id rightNodeId:id
+float64FloorModulo|Float64FloorModulo node|leftNodeId:id rightNodeId:id
+float64FloorToInt64|Float64FloorToInt64 node|valueNodeId:id
+float64Floor|Float64Floor node|valueNodeId:id
+float64IsFinite|Float64IsFinite node|valueNodeId:id
+float64IsInfinite|Float64IsInfinite node|valueNodeId:id
+float64IsNaN|Float64IsNaN node|valueNodeId:id
+float64LessThan|Float64LessThan node|leftNodeId:id rightNodeId:id
+float64Literal|Float64 literal node|bits:bits
+float64Max|Float64Max node|leftNodeId:id rightNodeId:id
+float64Min|Float64Min node|leftNodeId:id rightNodeId:id
+float64Multiply|Float64Multiply node|leftNodeId:id rightNodeId:id
+float64Negate|Float64Negate node|valueNodeId:id
+float64RoundToInt64|Float64RoundToInt64 node|valueNodeId:id
+float64Round|Float64Round node|valueNodeId:id digitsNodeId:id
+float64Sqrt|Float64Sqrt node|valueNodeId:id
+float64Subtract|Float64Subtract node|leftNodeId:id rightNodeId:id
+float64ToString|Float64ToString node|valueNodeId:id
+float64Truncate|Float64Truncate node|valueNodeId:id
+functionInvoke|Function invocation|functionValueNodeId:id arguments:ids
+functionReference|Function reference|targetFunctionId:id
+int64BitAnd|Int64BitAnd node|leftNodeId:id rightNodeId:id
+int64BitNot|Int64BitNot node|valueNodeId:id
+int64BitOr|Int64BitOr node|leftNodeId:id rightNodeId:id
+int64BitXor|Int64BitXor node|leftNodeId:id rightNodeId:id
+int64CheckedAdd|Int64CheckedAdd node|leftNodeId:id rightNodeId:id
+int64CheckedMultiply|Int64CheckedMultiply node|leftNodeId:id rightNodeId:id
+int64CheckedSubtract|Int64CheckedSubtract node|leftNodeId:id rightNodeId:id
+int64Equal|Int64Equal node|leftNodeId:id rightNodeId:id
+int64FloorDivide|Int64FloorDivide node|leftNodeId:id rightNodeId:id
+int64FloorModulo|Int64FloorModulo node|leftNodeId:id rightNodeId:id
+int64GreaterThanOrEqual|Int64GreaterThanOrEqual node|leftNodeId:id rightNodeId:id
+int64GreaterThan|Int64GreaterThan node|leftNodeId:id rightNodeId:id
+int64LessThanOrEqual|Int64LessThanOrEqual node|leftNodeId:id rightNodeId:id
+int64LessThan|Int64LessThan node|leftNodeId:id rightNodeId:id
+int64Literal|Int64 literal node|value:int
+int64Max|Int64Max node|leftNodeId:id rightNodeId:id
+int64Min|Int64Min node|leftNodeId:id rightNodeId:id
+int64ShiftLeft|Int64ShiftLeft node|valueNodeId:id countNodeId:id
+int64ShiftRight|Int64ShiftRight node|valueNodeId:id countNodeId:id
+int64ToFloat64|Int64ToFloat64 node|valueNodeId:id
+int64ToHexString|Int64ToHexString node|valueNodeId:id
+int64ToString|Int64ToString node|valueNodeId:id
+int64WrappingAbs|Int64WrappingAbs node|valueNodeId:id
+int64WrappingAdd|Int64WrappingAdd node|leftNodeId:id rightNodeId:id
+int64WrappingMultiply|Int64WrappingMultiply node|leftNodeId:id rightNodeId:id
+int64WrappingSubtract|Int64WrappingSubtract node|leftNodeId:id rightNodeId:id
+listAll|ListAll node|sourceListNodeId:id predicateFunctionId:id context:ctx
+listAny|ListAny node|sourceListNodeId:id predicateFunctionId:id context:ctx
+listAppendItem|ListAppendItem node|listNodeId:id itemNodeId:id
+listConcat|ListConcat node|leftListNodeId:id rightListNodeId:id
+listConstruct|ListConstruct node|itemType:type itemNodeIds:ids
+listContains|ListContains node|listNodeId:id itemNodeId:id
+listDropLast|ListDropLast node|listNodeId:id
+listEffectFold|ListEffectFold node|sourceListNodeId:id seedNodeId:id folderFunctionId:id context:ctx
+listEmpty|ListEmpty node|itemType:type
+listFilter|ListFilter node|sourceListNodeId:id predicateFunctionId:id context:ctx
+listFindIndex|ListFindIndex node|sourceListNodeId:id predicateFunctionId:id context:ctx
+listFlatMap|ListFlatMap node|sourceListNodeId:id mapperFunctionId:id context:ctx
+listFold|ListFold node|sourceListNodeId:id seedNodeId:id folderFunctionId:id context:ctx
+listIndexOf|ListIndexOf node|listNodeId:id itemNodeId:id
+listInsertAt|ListInsertAt node|listNodeId:id indexNodeId:id itemNodeId:id
+listItemAt|ListItemAt node|listNodeId:id indexNodeId:id
+listLastIndexOf|ListLastIndexOf node|listNodeId:id itemNodeId:id
+listLast|ListLast node|listNodeId:id
+listLength|ListLength node|listNodeId:id
+listMap|ListMap node|sourceListNodeId:id mapperFunctionId:id context:ctx
+listMaxBy|ListMaxBy node|sourceListNodeId:id lessThanFunctionId:id context:ctx
+listMinBy|ListMinBy node|sourceListNodeId:id lessThanFunctionId:id context:ctx
+listRange|ListRange node|startNodeId:id endNodeId:id
+listRemoveAt|ListRemoveAt node|listNodeId:id indexNodeId:id
+listReverse|ListReverse node|listNodeId:id
+listScan|ListScan node|sourceListNodeId:id seedNodeId:id folderFunctionId:id context:ctx
+listSetAt|ListSetAt node|listNodeId:id indexNodeId:id itemNodeId:id
+listSlice|ListSlice node|listNodeId:id startNodeId:id endNodeId:id
+listSortBy|ListSortBy node|sourceListNodeId:id lessThanFunctionId:id context:ctx
+listZipWith|ListZipWith node|leftListNodeId:id rightListNodeId:id combinerFunctionId:id context:ctx
+mapContainsKey|MapContainsKey node|mapNodeId:id keyNodeId:id
+mapEmpty|MapEmpty node|keyType:type valueType:type
+mapFilter|MapFilter node|sourceMapNodeId:id keepFunctionId:id context:ctx
+mapFold|MapFold node|sourceMapNodeId:id seedNodeId:id folderFunctionId:id context:ctx
+mapFromList|MapFromList node|sourceListNodeId:id keyOfFunctionId:id context:ctx
+mapGetOrDefault|MapGetOrDefault node|mapNodeId:id keyNodeId:id defaultNodeId:id
+mapGet|MapGet node|mapNodeId:id keyNodeId:id
+mapInsert|MapInsert node|mapNodeId:id keyNodeId:id valueNodeId:id
+mapKeys|MapKeys node|mapNodeId:id
+mapMapValues|MapMapValues node|sourceMapNodeId:id mapperFunctionId:id context:ctx
+mapRemove|MapRemove node|mapNodeId:id keyNodeId:id
+mapSize|MapSize node|mapNodeId:id
+mapUnion|MapUnion node|leftMapNodeId:id rightMapNodeId:id
+mapValues|MapValues node|mapNodeId:id
+matchOption|Option match node|someArm:varm inputNodeId:id noneBody:graph|inputNodeId someArm noneBody
+matchResult|Result match node|errArm:errarm okArm:varm inputNodeId:id|inputNodeId okArm errArm
+matchUnion|Union match node|inputNodeId:id arms:arms
+oneShotComplete|OneShotComplete node|cellNodeId:id valueNodeId:id
+oneShotCreate|OneShotCreate node|scopeNodeId:id valueType:type
+oneShotWait|OneShotWait node|cellNodeId:id limitNodeId:optid
+optionAndThen|OptionAndThen node|sourceOptionNodeId:id binderFunctionId:id context:ctx
+optionGetOrDefault|OptionGetOrDefault node|optionNodeId:id defaultNodeId:id
+optionIsSome|OptionIsSome node|valueNodeId:id
+optionMap|OptionMap node|sourceOptionNodeId:id mapperFunctionId:id context:ctx
+optionNone|Option.None node|itemType:type
+optionOkOr|OptionOkOr node|optionNodeId:id errorNodeId:id
+optionSome|Option.Some node|valueNodeId:id
+parallelAll|ParallelAll node|sourceListNodeId:id workerFunctionId:id context:ctx
+parameterReference|Parameter reference node|parameterId:id
+patternReference|Pattern reference node|patternBindingId:id
+productConstruct|Product construct node|typeId:id typeArguments:targs fields:fields
+productUpdate|Product update node|typeId:id sourceNodeId:id fields:fields
+resultAndThen|ResultAndThen node|sourceResultNodeId:id binderFunctionId:id context:ctx
+resultErrValue|ResultErrValue node|valueNodeId:id
+resultErr|Result.Err node|okType:type errorNodeId:id
+resultGetOrDefault|ResultGetOrDefault node|resultNodeId:id defaultNodeId:id
+resultIsOk|ResultIsOk node|valueNodeId:id
+resultMapErr|ResultMapErr node|sourceResultNodeId:id mapperFunctionId:id context:ctx
+resultMap|ResultMap node|sourceResultNodeId:id mapperFunctionId:id context:ctx
+resultOkValue|ResultOkValue node|valueNodeId:id
+resultOk|Result.Ok node|errorType:type valueNodeId:id
+setContains|SetContains node|setNodeId:id itemNodeId:id
+setDifference|SetDifference node|leftSetNodeId:id rightSetNodeId:id
+setEmpty|SetEmpty node|itemType:type
+setFilter|SetFilter node|sourceSetNodeId:id predicateFunctionId:id context:ctx
+setFold|SetFold node|sourceSetNodeId:id seedNodeId:id folderFunctionId:id context:ctx
+setFromList|SetFromList node|listNodeId:id
+setInsert|SetInsert node|setNodeId:id itemNodeId:id
+setIntersection|SetIntersection node|leftSetNodeId:id rightSetNodeId:id
+setIsSubset|SetIsSubset node|leftSetNodeId:id rightSetNodeId:id
+setMap|SetMap node|sourceSetNodeId:id mapperFunctionId:id context:ctx
+setRemove|SetRemove node|setNodeId:id itemNodeId:id
+setSize|SetSize node|setNodeId:id
+setToList|SetToList node|setNodeId:id
+setUnion|SetUnion node|leftSetNodeId:id rightSetNodeId:id
+stringCodePoints|StringCodePoints node|valueNodeId:id
+stringConcat|StringConcat node|leftNodeId:id rightNodeId:id
+stringContains|StringContains node|valueNodeId:id substringNodeId:id
+stringDecodeUtf8Lossy|StringDecodeUtf8Lossy node|valueNodeId:id
+stringEncodeUtf8|StringEncodeUtf8 node|valueNodeId:id
+stringEndsWith|StringEndsWith node|valueNodeId:id suffixNodeId:id
+stringEqual|StringEqual node|leftNodeId:id rightNodeId:id
+stringFromCodePoint|StringFromCodePoint node|valueNodeId:id
+stringIndexOf|StringIndexOf node|valueNodeId:id substringNodeId:id fromNodeId:id
+stringIsEmpty|StringIsEmpty node|valueNodeId:id
+stringJoin|StringJoin node|listNodeId:id separatorNodeId:id
+stringLastIndexOfBefore|StringLastIndexOfBefore node|valueNodeId:id substringNodeId:id endNodeId:id
+stringLastIndexOf|StringLastIndexOf node|valueNodeId:id substringNodeId:id
+stringLength|StringLength node|valueNodeId:id
+stringLessThan|StringLessThan node|leftNodeId:id rightNodeId:id
+stringLiteral|String literal node|value:lit
+stringParseFloat64|StringParseFloat64 node|valueNodeId:id
+stringParseInt64Hex|StringParseInt64Hex node|valueNodeId:id
+stringParseInt64|StringParseInt64 node|valueNodeId:id
+stringRepeat|StringRepeat node|textNodeId:id countNodeId:id
+stringReplace|StringReplace node|valueNodeId:id patternNodeId:id replacementNodeId:id
+stringSlice|StringSlice node|valueNodeId:id startNodeId:id endNodeId:id
+stringSpanBack|StringSpanBack node|valueNodeId:id setNodeId:id endNodeId:id
+stringSpan|StringSpan node|valueNodeId:id setNodeId:id fromNodeId:id
+stringSplitLines|StringSplitLines node|valueNodeId:id breaksNodeId:id
+stringSplit|StringSplit node|valueNodeId:id separatorNodeId:id
+stringStartsWith|StringStartsWith node|valueNodeId:id prefixNodeId:id
+stringToCodePoint|StringToCodePoint node|valueNodeId:id
+stringToLower|StringToLower node|valueNodeId:id
+stringToUpper|StringToUpper node|valueNodeId:id
+stringTrimEnd|StringTrimEnd node|valueNodeId:id
+stringTrimStart|StringTrimStart node|valueNodeId:id
+stringTrim|StringTrim node|valueNodeId:id
+stringUtf8ByteCount|StringUtf8ByteCount node|valueNodeId:id
+taskCancel|TaskCancel node|taskNodeId:id
+taskScope|TaskScope node|bodyFunctionId:id context:ctx
+taskStart|TaskStart node|scopeNodeId:id workerFunctionId:id context:ctx itemNodeId:id|scopeNodeId workerFunctionId itemNodeId context
+taskWait|TaskWait node|mode:mode tasksNodeId:id limitNodeId:optid|tasksNodeId mode limitNodeId
+unionConstruct|Union construct node|variantId:id typeArguments:targs fields:fields
+unitLiteral|Unit literal node|
+useResource|UseResource node|acquireNodeId:id releaseCapabilityNodeId:id releaseOperationId:id bodyFunctionId:id context:ctx
+valueEqual|ValueEqual node|leftNodeId:id rightNodeId:id

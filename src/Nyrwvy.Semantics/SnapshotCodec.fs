@@ -2711,7 +2711,14 @@ module SnapshotCodec =
                       ValueNodeId = readId<GraphNodeTag> "resolutionValueNodeId" element } }
         | value -> invalidShape $"Unsupported obligation status '{value}'."
 
-    let private deserializeDocument (dependency: Snapshot option) (parse: unit -> JsonDocument): Result<Snapshot, SnapshotCodecError> =
+    /// Everything the reader checks before semantic validation (shape, schema version, construct
+    /// minimums); `andThen` receives the snapshot and its dependency-resolved form inside the same
+    /// exception handling.
+    let private readDocument
+        (dependency: Snapshot option)
+        (parse: unit -> JsonDocument)
+        (andThen: Snapshot -> Snapshot -> Result<'T, SnapshotCodecError>)
+        : Result<'T, SnapshotCodecError> =
             try
                 use document = parse ()
                 let root = document.RootElement
@@ -2761,14 +2768,18 @@ module SnapshotCodec =
                         match dependency with
                         | None -> snapshot
                         | Some imported -> resolveDependency imported snapshot
-                    match SnapshotValidator.validate resolved with
-                    | [] -> Ok snapshot
-                    | issues -> Error(SnapshotCodecError.InvalidSnapshot issues)
+                    andThen snapshot resolved
             with
             | :? JsonException as error -> Error(SnapshotCodecError.InvalidJson error.Message)
             | :? InvalidDataException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
             | :? ArgumentException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
             | :? KeyNotFoundException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
+
+    let private deserializeDocument (dependency: Snapshot option) (parse: unit -> JsonDocument): Result<Snapshot, SnapshotCodecError> =
+        readDocument dependency parse (fun snapshot resolved ->
+            match SnapshotValidator.validate resolved with
+            | [] -> Ok snapshot
+            | issues -> Error(SnapshotCodecError.InvalidSnapshot issues))
 
     let private deserializeUsing (dependency: Snapshot option) (json: string): Result<Snapshot, SnapshotCodecError> =
         if isNull json then Error(SnapshotCodecError.InvalidJson "Snapshot JSON must not be null.")
@@ -2780,6 +2791,17 @@ module SnapshotCodec =
 
     let deserialize (json: string): Result<Snapshot, SnapshotCodecError> =
         deserializeUsing None json
+
+    /// The JSON the writer produces for the shape-decoded model, without semantic validation: the
+    /// reference of the Zig model reader (tools/zig/model-reader). The writer normally runs on
+    /// validated models; it may throw on one that is only shape-valid.
+    let toCanonicalJson (json: string): Result<string, SnapshotCodecError> =
+        if isNull json then Error(SnapshotCodecError.InvalidJson "Snapshot JSON must not be null.")
+        else
+            readDocument None (fun () -> JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth))) (fun snapshot _ -> Ok snapshot)
+            |> Result.bind (fun snapshot ->
+                if nestsBeyondMaxDepth snapshot then Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
+                else writeSnapshotAt (Some SnapshotSchema.current) None snapshot)
 
     /// Strict parsing and validation with an explicitly resolved dependency graph.
     let deserializeResolved (dependency: Snapshot) (json: string): Result<Snapshot, SnapshotCodecError> =
