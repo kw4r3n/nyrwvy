@@ -427,7 +427,9 @@ module RecordCodec =
             for p in f.Parameters do add "parameter" (StableId.value p.Id)
         set
 
-    let private decodeWith (dependency: Snapshot option) (text: string) : Result<Snapshot, RecordCodecError> =
+    /// Records -> the writer's JSON bytes, then `finish` with those bytes, the deferred placement
+    /// error and the records.
+    let private decodeWith (dependency: Snapshot option) (text: string) (finish: ReadOnlyMemory<byte> -> RecordCodecError option -> List<Record> -> Result<'T, RecordCodecError>) : Result<'T, RecordCodecError> =
         let records = List<Record>()
         let buffer = buffers.Value
         buffer.ResetWrittenCount()
@@ -903,7 +905,17 @@ module RecordCodec =
             w.Flush()
             for r in records do
                 if not r.Consumed then fail r.Line r.Column (if isNull r.Owner then "orphan record" else $"owner {r.Owner} not found")
-            match SnapshotCodec.deserializeUtf8 dependency buffer.WrittenMemory with
+            finish buffer.WrittenMemory deferred records
+        with
+        | RecordFailure e -> Error e
+        | :? InvalidOperationException when w.CurrentDepth >= SnapshotCodec.maxJsonDepth ->
+            Error { Line = 1; Column = 1
+                    Message = $"Maximum JSON depth of {SnapshotCodec.maxJsonDepth} exceeded."
+                    Model = Some(SnapshotCodecError.MaximumDepthExceeded SnapshotCodec.maxJsonDepth) }
+
+    /// Hands the JSON to `SnapshotCodec`'s reader.
+    let private readModel (dependency: Snapshot option) (json: ReadOnlyMemory<byte>) (deferred: RecordCodecError option) (records: List<Record>) =
+            match SnapshotCodec.deserializeUtf8 dependency json with
             | Ok _ when deferred.IsSome -> Error deferred.Value
             | Ok snapshot -> Ok snapshot
             | Error error ->
@@ -919,20 +931,24 @@ module RecordCodec =
                         best <- at
                         where <- r
                 Error { Line = (if isNull where then 1 else where.Line); Column = (if isNull where then 1 else where.Column); Message = message; Model = Some error }
-        with
-        | RecordFailure e -> Error e
-        | :? InvalidOperationException when w.CurrentDepth >= SnapshotCodec.maxJsonDepth ->
-            Error { Line = 1; Column = 1
-                    Message = $"Maximum JSON depth of {SnapshotCodec.maxJsonDepth} exceeded."
-                    Model = Some(SnapshotCodecError.MaximumDepthExceeded SnapshotCodec.maxJsonDepth) }
 
     /// Record text -> the snapshot, validated by `SnapshotCodec`'s reader. Only canonical bytes decode,
     /// except that an earlier `schema=` re-encodes at the current version.
-    let deserialize (text: string) : Result<Snapshot, RecordCodecError> = decodeWith None text
+    let deserialize (text: string) : Result<Snapshot, RecordCodecError> = decodeWith None text (readModel None)
 
     /// A local snapshot whose header carries the `dependency=` marker, validated against the dependency
     /// as `SnapshotCodec.deserializeResolved` does.
-    let deserializeResolved (dependency: Snapshot) (text: string) : Result<Snapshot, RecordCodecError> = decodeWith (Some dependency) text
+    let deserializeResolved (dependency: Snapshot) (text: string) : Result<Snapshot, RecordCodecError> =
+        decodeWith (Some dependency) text (readModel (Some dependency))
+
+    /// Record text -> the writer's JSON, before `SnapshotCodec`'s reader validates the model: the
+    /// stage the Zig snapshot reader (tools/zig/snapshot-reader) ports, so its reference. A record
+    /// naming a dependency's subjects fails here, since no dependency is given.
+    let toJson (text: string) : Result<string, RecordCodecError> =
+        decodeWith None text (fun json deferred _ ->
+            match deferred with
+            | Some error -> Error error
+            | None -> Ok(Text.Encoding.UTF8.GetString json.Span))
 
     // ---------------------------------------------------------------------------------------------
     // Encode: the writer's JSON -> record text

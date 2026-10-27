@@ -34,10 +34,18 @@ The emitter's input and output are both text with a byte-exact reference, so the
 - The check covers only the instruction kinds the extended suite reaches; on 2026-10-27 that is all 192 the emitter knows (one test exists only to reach the kinds no other Zig test used). A new kind needs a checked program too.
 - Strings compare by UTF-8 bytes in Zig and by UTF-16 code units in F#; the two orders differ only beyond the Basic Multilingual Plane, which stable IDs never use.
 
-## Next stage
+## Second tool: the snapshot reader
 
-The suggested second stage, snapshot reading and validation in Zig with matching results on every repository snapshot, is not started. It is about ten times the emitter's logic (about 7,800 lines of F# in the codec, schema, migration and validator, plus the semantic model, against about 800), and the repository holds only three snapshots, which would check it far less completely than the Zig tests check the emitter. Start it with its own scope and a larger corpus (for example the saved run cases' snapshots and generated ones).
+Snapshot reading and validation is about ten times the emitter's logic (about 7,800 lines of F# in the record codec, the JSON codec, schema, migration and validator, against about 800), so it moves in three slices, each checked against its F# stage:
+
+1. **Record text to the writer's JSON** (done, `tools/zig/snapshot-reader`): every record-form check of `RecordCodec` (grammar, canonical order and spelling, block structure, dangling references, the depth limit), stopping where `RecordCodec` hands the JSON to `SnapshotCodec`'s reader. Its reference is `RecordCodec.toJson`, which returns that JSON, or the record error, including the `position=` placement error that `deserialize` reports only after the model check. Usage: `snapshot-reader <in.nyrec> <out.json> [<in> <out> ...]`, one `ok` or `error <line>:<column>: <message>` line per pair; columns count UTF-16 code units as the F# reader does. The per-kind key table moved to `tools/zig/snapshot-reader/record_kinds.txt`, embedded on both sides.
+2. **The JSON model reader** (`SnapshotCodec.deserialize`: shapes, schema versions and construct minimums, migration of older documents): not started.
+3. **Semantic validation** (`Validation.fs`): not started.
+
+The first slice is checked by an extended test, not inside runPure: the reader is a library stage with no process of its own to compare. The test feeds both readers the repository's `.nyrec` snapshots, the record-format fixtures, one snapshot per node kind (`RecordCodecAllKindsTests`), about 600 deterministic mutations of them (lines dropped, repeated, swapped, cut, blanked, a wrong character), and targeted cases for string spelling, the depth limit, the header's dependency marker and schema range; it compares the JSON byte for byte, or the full error line, and requires both outcomes to occur. On 2026-10-27 that is about 1,000 texts: about 240 accepted, the rest rejected with about 60 distinct messages.
+
+Limits of the first slice: a local snapshot that names its dependency's subjects is rejected (the dependency is not read yet), and input that is not valid UTF-8 is rejected outright, where the F# reader sees U+FFFD.
 
 ## Revisit conditions
 
-Retire the F# emitter (and the check) once the Zig emitter has run unchanged through several backend slices; the next Zig tool is the snapshot reader and validator (see Next stage).
+Retire the F# emitter (and the check) once the Zig emitter has run unchanged through several backend slices; slices 2 and 3 of the snapshot reader follow (see above).

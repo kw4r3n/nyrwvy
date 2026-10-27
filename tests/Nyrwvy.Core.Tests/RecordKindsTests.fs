@@ -289,8 +289,8 @@ module RecordKindsTests =
             let path = Path.Combine(AppContext.BaseDirectory, "RecordKinds.regenerated.txt")
             File.WriteAllText(path, derived)
             Assert.Fail(
-                $"src/Nyrwvy.Semantics/RecordKinds.fs no longer matches the writer (first difference at table line {firstDifferingLine RecordCodec.kindTable derived}). "
-                + $"Paste the regenerated text below (also written to {path}) into RecordKinds.text:\n\n{derived}")
+                $"tools/zig/snapshot-reader/record_kinds.txt no longer matches the writer (first difference at table line {firstDifferingLine RecordCodec.kindTable derived}). "
+                + $"Paste the regenerated text below (also written to {path}) into tools/zig/snapshot-reader/record_kinds.txt:\n\n{derived}")
 
     /// The model does not validate and its synthesized references dangle, so the production decoder
     /// (which checks references before building the model) cannot read it back; the validated

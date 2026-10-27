@@ -24,6 +24,7 @@
     <Compile Include="SnapshotSchema.fs" />
     <Compile Include="SnapshotCodec.fs" />
     <Compile Include="RecordKinds.fs" />
+    <EmbeddedResource Include="../../tools/zig/snapshot-reader/record_kinds.txt" LogicalName="record_kinds.txt" />
     <Compile Include="RecordCodec.fs" />
     <Compile Include="Fingerprint.fs" />
     <Compile Include="SnapshotMigration.fs" />
