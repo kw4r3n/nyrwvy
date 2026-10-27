@@ -3801,13 +3801,35 @@ fn unorderedEffects(nodes: []const Value, observable: *const Set, by_id: bool) ?
     for (effectful.items, 0..) |first, i| for (effectful.items[i + 1 ..]) |second| {
         if (!dependsOn(&edges, first, second) and !dependsOn(&edges, second, first)) return .{ first, second };
     };
-    // The typed view lists a graph's nodes by ID, the semantic one in document order.
+    // The typed view lists a graph's nodes by ID and union arms by their first variant, the semantic
+    // one both in document order.
     const ordered = if (by_id) blk: {
         const sorted = a.dupe(Value, nodes) catch oom();
         std.mem.sort(Value, sorted, {}, lessById);
         break :blk sorted;
     } else nodes;
-    for (ordered) |node| for (nestedScopes(node)) |scope| if (unorderedEffects(arrayOf(scope.graph, "nodes"), observable, by_id)) |pair| return pair;
+    for (ordered) |node| {
+        const scopes = a.dupe(Scope, nestedScopes(node)) catch oom();
+        if (by_id and isName(str(node, "kind"), "matchUnion")) {
+            const Keyed2 = struct { key: Str, scope: Scope };
+            const arms = arrayOf(node, "arms");
+            const keyed = a.alloc(Keyed2, arms.len) catch oom();
+            for (arms, scopes, keyed) |arm, scope, *k| {
+                var first: Str = &.{};
+                for (armVariantIds(arm)) |variant| if (first.len == 0 or lessUnits(variant, first)) {
+                    first = variant;
+                };
+                k.* = .{ .key = first, .scope = scope };
+            }
+            std.mem.sort(Keyed2, keyed, {}, struct {
+                fn less(_: void, left: Keyed2, right: Keyed2) bool {
+                    return lessUnits(left.key, right.key);
+                }
+            }.less);
+            for (keyed, scopes) |k, *scope| scope.* = k.scope;
+        }
+        for (scopes) |scope| if (unorderedEffects(arrayOf(scope.graph, "nodes"), observable, by_id)) |pair| return pair;
+    }
     return null;
 }
 
