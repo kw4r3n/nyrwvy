@@ -1,12 +1,17 @@
 //! The Nyrwvy snapshot reader, second stage: snapshot JSON to the canonical JSON the F# writer
 //! produces for the shape-decoded model, with every shape check of `SnapshotCodec`'s reader, the
 //! schema version and construct minimums. Its reference is `SnapshotCodec.toCanonicalJson`.
-//! Semantic validation (`SnapshotValidator`) is not ported. See docs/decisions/zig-tools.md.
+//! The model-only rules of semantic validation (`SnapshotValidator`, the codes in
+//! `validation_codes.txt`) are ported; the rest is not. See docs/decisions/zig-tools.md.
 //!
 //! Usage: `model-reader <in.json> <out.json> [<in> <out> ...]`. One line per pair on standard
 //! output: `ok`, `skip legacy schema <n>` (versions before 21 are not ported yet), or
 //! `error <Case>: <message>` naming the `SnapshotCodecError` case. Exit 0 unless the arguments or
 //! files cannot be used.
+//!
+//! `model-reader --validate <in.json> [<in.json> ...]`: per input the same `error`/`skip` line when
+//! the shape read fails, otherwise one `issue <Code>: <message>` line per ported issue, in the F#
+//! validator's (Code, Message) order, then `end`.
 //!
 //! `model_kinds.txt` beside this file is the node reader table, one kind per line:
 //! `kind|context|name:shape ...|written names` (properties in reading order; the last field only
@@ -1059,6 +1064,7 @@ fn readDeclarations(name: []const u8, root: Value, comptime reader: fn (Value) F
 fn canonicalJson(source: []const u8) Failure![]const u8 {
     @memset(used, false);
     const root = try parseDocument(source);
+    parsed_root = root;
     const top = [_][]const u8{ "schemaVersion", "snapshotId", "types", "effects", "capabilities", "functions", "obligations" };
     try ensureProperties("Snapshot", &top, &(top ++ [_][]const u8{"parentSnapshotId"}), root);
     declared_version = try readInt32("schemaVersion", root);
@@ -1086,23 +1092,500 @@ fn canonicalJson(source: []const u8) Failure![]const u8 {
     return o.done();
 }
 
+// ---------------------------------------------------------------- semantic validation (slice 3a)
+
+// The rules of `SnapshotValidator.validateUncached` that read only the decoded model, listed in
+// `validation_codes.txt`. They walk the parsed document after a successful shape read, so every
+// object has passed `ensureProperties` and lists keep the document order the F# model keeps (the
+// `Map.ofList` lookups below are last-wins in that order). See docs/decisions/zig-tools.md.
+
+const codes_text = @embedFile("validation_codes.txt");
+/// An ASCII literal as UTF-16 units.
+fn L(comptime ascii: []const u8) Str {
+    const S = struct {
+        const units = blk: {
+            @setEvalBranchQuota(10 * ascii.len + 100);
+            var u: [ascii.len]u16 = undefined;
+            for (ascii, &u) |c, *d| d.* = c;
+            break :blk u;
+        };
+    };
+    return &S.units;
+}
+const Issue = struct { code: []const u8, message: Str };
+var issues: List(Issue) = .empty;
+var parsed_root: Value = .json_null;
+
+fn add(code: []const u8, message_units: Str) void {
+    var lines = std.mem.tokenizeAny(u8, codes_text, "\r\n");
+    while (lines.next()) |line| {
+        if (std.mem.eql(u8, line, code)) return issues.append(a, .{ .code = code, .message = message_units }) catch oom();
+    }
+    @panic("a ported code is missing from validation_codes.txt");
+}
+
+/// The F# validator's final `sortBy (Code, Message)`: ordinal, that is per UTF-16 unit.
+fn issueLess(_: void, left: Issue, right: Issue) bool {
+    return switch (std.mem.order(u8, left.code, right.code)) {
+        .lt => true,
+        .gt => false,
+        .eq => lessUnits(left.message, right.message),
+    };
+}
+
+fn get(element: Value, name: []const u8) Value {
+    return tryProperty(name, element).?;
+}
+
+fn str(element: Value, name: []const u8) Str {
+    return get(element, name).string;
+}
+
+/// An array property, or none when the property is optional and omitted.
+fn arrayOf(element: Value, name: []const u8) []const Value {
+    return if (tryProperty(name, element)) |value| value.array else &.{};
+}
+
+fn cat(parts: []const Str) Str {
+    var out: List(u16) = .empty;
+    for (parts) |part| out.appendSlice(a, part) catch oom();
+    return out.items;
+}
+
+fn same(left: Str, right: Str) bool {
+    return std.mem.eql(u16, left, right);
+}
+
+/// `String.IsNullOrWhiteSpace`.
+fn isBlank(units: Str) bool {
+    for (units) |unit| if (!isWhiteSpace(unit)) return false;
+    return true;
+}
+
+/// `StableId.describe`.
+fn describe(display: Str, id: Str) Str {
+    return cat(&.{ L("'"), display, L("' ("), id, L(")") });
+}
+
+fn quote(id: Str) Str {
+    return cat(&.{ L("'"), id, L("'") });
+}
+
+fn idKey(id: Str) []const u8 {
+    return std.mem.sliceAsBytes(id);
+}
+
+const Set = std.StringArrayHashMapUnmanaged(void);
+const Count = struct { id: Str, count: usize = 0 };
+const Counts = std.StringArrayHashMapUnmanaged(Count);
+
+fn countBy(ids: []const Str) Counts {
+    var counts: Counts = .empty;
+    for (ids) |id| {
+        const entry = counts.getOrPut(a, idKey(id)) catch oom();
+        if (!entry.found_existing) entry.value_ptr.* = .{ .id = id };
+        entry.value_ptr.count += 1;
+    }
+    return counts;
+}
+
+/// `duplicateBy`: once per ID that occurs more than once.
+fn duplicates(code: []const u8, comptime what: []const u8, values: []const Value) void {
+    const ids = a.alloc(Str, values.len) catch oom();
+    for (values, ids) |value, *id| id.* = str(value, "id");
+    for (countBy(ids).values()) |entry| {
+        if (entry.count > 1) add(code, cat(&.{ L(what ++ " '"), entry.id, L("' occurs more than once.") }));
+    }
+}
+
+fn blankNames(code: []const u8, comptime what: []const u8, values: []const Value) void {
+    for (values) |value| {
+        if (isBlank(str(value, "displayName"))) add(code, cat(&.{ L(what ++ " '"), str(value, "id"), L("' has a blank display name.") }));
+    }
+}
+
+/// `SemanticNodeShape.nestedScopes`: the pattern bindings and graph of each nested scope.
+const Scope = struct { bindings: []const Value, graph: Value };
+
+fn one(value: Value) []const Value {
+    return a.dupe(Value, &.{value}) catch oom();
+}
+
+fn nestedScopes(node: Value) []const Scope {
+    var out: List(Scope) = .empty;
+    const kind = str(node, "kind");
+    if (isName(kind, "conditional")) {
+        out.append(a, .{ .bindings = &.{}, .graph = get(node, "whenTrue") }) catch oom();
+        out.append(a, .{ .bindings = &.{}, .graph = get(node, "whenFalse") }) catch oom();
+    } else if (isName(kind, "boolAnd") or isName(kind, "boolOr")) {
+        out.append(a, .{ .bindings = &.{}, .graph = get(node, "right") }) catch oom();
+    } else if (isName(kind, "matchUnion")) {
+        for (arrayOf(node, "arms")) |arm| {
+            const fields = arrayOf(arm, "fieldBindings");
+            const bindings = a.alloc(Value, fields.len) catch oom();
+            for (fields, bindings) |field, *binding| binding.* = get(field, "binding");
+            out.append(a, .{ .bindings = bindings, .graph = get(arm, "body") }) catch oom();
+        }
+    } else if (isName(kind, "bind")) {
+        const body = get(node, "boundBody");
+        out.append(a, .{ .bindings = one(get(body, "valueBinding")), .graph = get(body, "body") }) catch oom();
+    } else if (isName(kind, "matchOption")) {
+        const some = get(node, "someArm");
+        out.append(a, .{ .bindings = one(get(some, "valueBinding")), .graph = get(some, "body") }) catch oom();
+        out.append(a, .{ .bindings = &.{}, .graph = get(node, "noneBody") }) catch oom();
+    } else if (isName(kind, "matchResult")) {
+        const ok_arm = get(node, "okArm");
+        const err_arm = get(node, "errArm");
+        out.append(a, .{ .bindings = one(get(ok_arm, "valueBinding")), .graph = get(ok_arm, "body") }) catch oom();
+        out.append(a, .{ .bindings = one(get(err_arm, "errorBinding")), .graph = get(err_arm, "body") }) catch oom();
+    }
+    return out.items;
+}
+
+/// `ValueGraph.collectNodes`: each node, then the nodes of its nested graphs.
+fn collectNodes(graph: Value, out: *List(Value)) void {
+    for (arrayOf(graph, "nodes")) |node| {
+        out.append(a, node) catch oom();
+        for (nestedScopes(node)) |scope| collectNodes(scope.graph, out);
+    }
+}
+
+/// `SemanticFacts.collectPatternBindings`.
+fn collectBindings(graph: Value, out: *List(Value)) void {
+    for (arrayOf(graph, "nodes")) |node| {
+        for (nestedScopes(node)) |scope| {
+            out.appendSlice(a, scope.bindings) catch oom();
+            collectBindings(scope.graph, out);
+        }
+    }
+}
+
+/// The type references directly below a type reference.
+fn typeChildren(type_ref: Value) []const Value {
+    const kind = str(type_ref, "kind");
+    if (isName(kind, "function")) {
+        var out: List(Value) = .empty;
+        out.appendSlice(a, arrayOf(type_ref, "parameters")) catch oom();
+        out.append(a, get(type_ref, "resultType")) catch oom();
+        return out.items;
+    }
+    if (isName(kind, "named") or isName(kind, "builtinGeneric")) return arrayOf(type_ref, "arguments");
+    return &.{};
+}
+
+/// `TypeParameters.occurring`, as a set.
+fn occurring(type_ref: Value, out: *Set) void {
+    if (isName(str(type_ref, "kind"), "typeParameter")) out.put(a, idKey(str(type_ref, "typeParameterId")), {}) catch oom();
+    for (typeChildren(type_ref)) |child| occurring(child, out);
+}
+
+/// The declared types a type reference names (`directlyReferenced`).
+fn named(type_ref: Value, out: *Set) void {
+    if (isName(str(type_ref, "kind"), "named")) out.put(a, idKey(str(type_ref, "typeId")), {}) catch oom();
+    for (typeChildren(type_ref)) |child| named(child, out);
+}
+
+fn idSet(values: []const Value) Set {
+    var set: Set = .empty;
+    for (values) |value| set.put(a, idKey(str(value, "id")), {}) catch oom();
+    return set;
+}
+
+/// `Map.ofList` by ID: the last declaration of an ID wins.
+fn byId(values: []const Value) std.StringArrayHashMapUnmanaged(Value) {
+    var map: std.StringArrayHashMapUnmanaged(Value) = .empty;
+    for (values) |value| map.put(a, idKey(str(value, "id")), value) catch oom();
+    return map;
+}
+
+var effect_names: std.StringArrayHashMapUnmanaged(Value) = .empty;
+
+fn effectLabel(effect_id: Str) Str {
+    return if (effect_names.get(idKey(effect_id))) |effect| describe(str(effect, "displayName"), effect_id) else quote(effect_id);
+}
+
+const Direct = std.StringArrayHashMapUnmanaged(Set);
+
+/// `reaches[start]` contains `goal`: `goal` is reachable in one or more steps from the declared type `start`.
+fn reaches(direct: *const Direct, start: Str, goal: Str) bool {
+    if (direct.get(idKey(start)) == null) return false;
+    var visited: Set = .empty;
+    var stack: List([]const u8) = .empty;
+    stack.append(a, idKey(start)) catch oom();
+    while (stack.pop()) |at| {
+        const next = direct.get(at) orelse continue;
+        for (next.keys()) |id| {
+            if ((visited.getOrPut(a, id) catch oom()).found_existing) continue;
+            if (std.mem.eql(u8, id, idKey(goal))) return true;
+            stack.append(a, id) catch oom();
+        }
+    }
+    return false;
+}
+
+fn checkRecursion(direct: *const Direct, owner: Str, field: Value, type_ref: Value) void {
+    if (isName(str(type_ref, "kind"), "named")) {
+        const arguments = arrayOf(type_ref, "arguments");
+        var plain = true;
+        for (arguments) |argument| plain = plain and isName(str(argument, "kind"), "typeParameter");
+        if (arguments.len > 0 and !plain and reaches(direct, str(type_ref, "typeId"), owner))
+            add("IrregularRecursiveType", cat(&.{ L("Field "), describe(str(field, "displayName"), str(field, "id")), L(" refers back to its recursive type group with type arguments other than plain type parameters.") }));
+    }
+    for (typeChildren(type_ref)) |child| checkRecursion(direct, owner, field, child);
+}
+
+fn fieldsOf(type_entity: Value) []const Value {
+    if (isName(str(type_entity, "kind"), "product")) return arrayOf(type_entity, "fields");
+    var out: List(Value) = .empty;
+    for (arrayOf(type_entity, "variants")) |variant| out.appendSlice(a, arrayOf(variant, "fields")) catch oom();
+    return out.items;
+}
+
+/// The type parameters a type or function declares: blank names, duplicate names and IDs.
+fn typeParameterDeclarations(comptime what: []const u8, label: Str, declarations: []const Value) void {
+    for (declarations) |declaration| {
+        if (isBlank(str(declaration, "displayName"))) add("TypeParameterDisplayNameBlank", cat(&.{ L(what ++ " "), label, L(" declares a type parameter with a blank display name.") }));
+    }
+    const names = a.alloc(Str, declarations.len) catch oom();
+    const ids = a.alloc(Str, declarations.len) catch oom();
+    for (declarations, names, ids) |declaration, *name, *id| {
+        name.* = str(declaration, "displayName");
+        id.* = str(declaration, "typeParameterId");
+    }
+    for (countBy(names).values()) |entry| {
+        if (entry.count > 1) add("DuplicateTypeParameterName", cat(&.{ L(what ++ " "), label, L(" declares type parameter '"), entry.id, L("' more than once.") }));
+    }
+    if (countBy(ids).count() != ids.len) add("DuplicateTypeParameterId", cat(&.{ L(what ++ " "), label, L(" declares one type parameter more than once.") }));
+}
+
+const NodeOwner = struct { owner: Str, node: Value };
+const TypeParameterOwners = struct { id: Str, first: Str, shared: bool };
+
+fn validate(root: Value) void {
+    issues.clearRetainingCapacity();
+    const types = arrayOf(root, "types");
+    const effects = arrayOf(root, "effects");
+    const capabilities = arrayOf(root, "capabilities");
+    const functions = arrayOf(root, "functions");
+    const obligations = arrayOf(root, "obligations");
+
+    if (tryProperty("parentSnapshotId", root)) |parent| {
+        if (same(parent.string, str(root, "snapshotId"))) add("SnapshotParentSelfReference", L("A snapshot cannot name itself as its parent."));
+    }
+
+    var fields: List(Value) = .empty;
+    var variants: List(Value) = .empty;
+    for (types) |type_entity| {
+        if (isName(str(type_entity, "kind"), "product")) {
+            fields.appendSlice(a, arrayOf(type_entity, "fields")) catch oom();
+        } else for (arrayOf(type_entity, "variants")) |variant| {
+            variants.append(a, variant) catch oom();
+            fields.appendSlice(a, arrayOf(variant, "fields")) catch oom();
+        }
+    }
+    var operations: List(Value) = .empty;
+    for (capabilities) |capability| operations.appendSlice(a, arrayOf(capability, "operations")) catch oom();
+    var capability_parameters: List(Value) = .empty;
+    for (operations.items) |operation| capability_parameters.appendSlice(a, arrayOf(operation, "parameters")) catch oom();
+    var parameters: List(Value) = .empty;
+    var nodes: List(Value) = .empty;
+    var node_owners: std.StringArrayHashMapUnmanaged(NodeOwner) = .empty;
+    var bindings: List(Value) = .empty;
+    for (functions) |function| {
+        parameters.appendSlice(a, arrayOf(function, "parameters")) catch oom();
+        const first = nodes.items.len;
+        collectNodes(get(function, "body"), &nodes);
+        // `nodeOwners`: the last owner of a duplicated node ID wins.
+        for (nodes.items[first..]) |node| node_owners.put(a, idKey(str(node, "id")), .{ .owner = str(function, "id"), .node = node }) catch oom();
+        collectBindings(get(function, "body"), &bindings);
+    }
+
+    duplicates("DuplicateTypeId", "Type ID", types);
+    duplicates("DuplicateEffectId", "Effect ID", effects);
+    duplicates("DuplicateCapabilityId", "Capability ID", capabilities);
+    duplicates("DuplicateFunctionId", "Function ID", functions);
+    duplicates("DuplicateFieldId", "Field ID", fields.items);
+    duplicates("DuplicateVariantId", "Variant ID", variants.items);
+    duplicates("DuplicateCapabilityOperationId", "Capability operation ID", operations.items);
+    duplicates("DuplicateCapabilityParameterId", "Capability parameter ID", capability_parameters.items);
+    duplicates("DuplicateParameterId", "Parameter ID", parameters.items);
+    duplicates("DuplicateGraphNodeId", "Graph node ID", nodes.items);
+    duplicates("DuplicatePatternBindingId", "Pattern binding ID", bindings.items);
+    duplicates("DuplicateObligationId", "Obligation ID", obligations);
+
+    var open_pairs: List(Str) = .empty;
+    var open_calls: std.StringArrayHashMapUnmanaged([2]Str) = .empty;
+    for (obligations) |obligation| {
+        if (!isName(str(obligation, "status"), "open")) continue;
+        // A stable ID holds no line break, so one separates the pair.
+        const pair = cat(&.{ str(obligation, "callNodeId"), L("\n"), str(obligation, "parameterId") });
+        open_pairs.append(a, pair) catch oom();
+        open_calls.put(a, idKey(pair), .{ str(obligation, "callNodeId"), str(obligation, "parameterId") }) catch oom();
+    }
+    for (countBy(open_pairs.items).values()) |entry| {
+        if (entry.count > 1) {
+            const pair = open_calls.get(idKey(entry.id)).?;
+            add("DuplicateOpenMissingArgumentObligation", cat(&.{ L("Call '"), pair[0], L("' has more than one open obligation for parameter '"), pair[1], L("'.") }));
+        }
+    }
+
+    blankNames("BlankTypeDisplayName", "Type", types);
+    blankNames("BlankEffectDisplayName", "Effect", effects);
+    blankNames("BlankCapabilityDisplayName", "Capability", capabilities);
+    blankNames("BlankCapabilityOperationDisplayName", "Capability operation", operations.items);
+    blankNames("BlankCapabilityParameterDisplayName", "Capability parameter", capability_parameters.items);
+    blankNames("BlankFieldDisplayName", "Field", fields.items);
+    blankNames("BlankVariantDisplayName", "Variant", variants.items);
+    blankNames("BlankFunctionDisplayName", "Function", functions);
+    blankNames("BlankParameterDisplayName", "Parameter", parameters.items);
+    for (bindings.items) |binding| {
+        const display = tryProperty("displayName", binding) orelse continue;
+        if (isBlank(display.string)) add("BlankPatternBindingDisplayName", cat(&.{ L("Pattern binding '"), str(binding, "id"), L("' has a blank display name.") }));
+    }
+
+    const effect_ids = idSet(effects);
+    effect_names = byId(effects);
+    const functions_by_id = byId(functions);
+
+    for (operations.items) |operation| {
+        const effect_id = str(operation, "effectId");
+        if (!effect_ids.contains(idKey(effect_id)))
+            add("UnknownCapabilityEffect", cat(&.{ L("Capability operation "), describe(str(operation, "displayName"), str(operation, "id")), L(" references unknown effect "), effectLabel(effect_id), L(".") }));
+    }
+
+    var direct: Direct = .empty;
+    for (types) |type_entity| {
+        var set: Set = .empty;
+        for (fieldsOf(type_entity)) |field| named(get(field, "type"), &set);
+        direct.put(a, idKey(str(type_entity, "id")), set) catch oom();
+    }
+    for (types) |type_entity| {
+        typeParameterDeclarations("Type", describe(str(type_entity, "displayName"), str(type_entity, "id")), arrayOf(type_entity, "typeParameters"));
+        for (fieldsOf(type_entity)) |field| checkRecursion(&direct, str(type_entity, "id"), field, get(field, "type"));
+    }
+    for (operations.items) |operation| {
+        var set: Set = .empty;
+        occurring(get(operation, "resultType"), &set);
+        for (arrayOf(operation, "parameters")) |parameter| occurring(get(parameter, "type"), &set);
+        if (tryProperty("failureType", operation)) |failure| occurring(failure, &set);
+        if (set.count() > 0) add("TypeParameterOutsideFunction", cat(&.{ L("Capability operation "), describe(str(operation, "displayName"), str(operation, "id")), L(" uses a function type parameter.") }));
+    }
+
+    var owners: std.StringArrayHashMapUnmanaged(TypeParameterOwners) = .empty;
+    for ([_][]const Value{ functions, types }, [_]Str{ L("function:"), L("type:") }) |declared, prefix| {
+        for (declared) |declaration_owner| {
+            const owner = cat(&.{ prefix, str(declaration_owner, "id") });
+            for (arrayOf(declaration_owner, "typeParameters")) |declaration| {
+                const id = str(declaration, "typeParameterId");
+                const entry = owners.getOrPut(a, idKey(id)) catch oom();
+                if (!entry.found_existing) entry.value_ptr.* = .{ .id = id, .first = owner, .shared = false };
+                if (!same(entry.value_ptr.first, owner)) entry.value_ptr.shared = true;
+            }
+        }
+    }
+    for (owners.values()) |entry| {
+        if (entry.shared) add("TypeParameterSharedAcrossFunctions", cat(&.{ L("Type parameter '"), entry.id, L("' is declared by more than one function or type.") }));
+    }
+
+    for (functions) |function| {
+        const label = describe(str(function, "displayName"), str(function, "id"));
+        const declarations = arrayOf(function, "typeParameters");
+        typeParameterDeclarations("Function", label, declarations);
+        var introduced: Set = .empty;
+        for (arrayOf(function, "parameters")) |parameter| occurring(get(parameter, "type"), &introduced);
+        for (declarations) |declaration| {
+            if (!introduced.contains(idKey(str(declaration, "typeParameterId"))))
+                add("TypeParameterNotInferable", cat(&.{ L("Function "), label, L(" declares type parameter '"), str(declaration, "displayName"), L("' that none of its parameter types mentions, so a call could not determine it.") }));
+        }
+    }
+
+    for (functions) |function| {
+        const label = describe(str(function, "displayName"), str(function, "id"));
+        const required = arrayOf(function, "requiredEffects");
+        const ids = a.alloc(Str, required.len) catch oom();
+        for (required, ids) |effect, *id| id.* = effect.string;
+        for (countBy(ids).values()) |entry| {
+            if (entry.count > 1) add("DuplicateFunctionEffectRequirement", cat(&.{ L("Function "), label, L(" lists effect "), effectLabel(entry.id), L(" more than once.") }));
+        }
+        for (ids) |id| {
+            if (!effect_ids.contains(idKey(id))) add("UnknownFunctionEffectRequirement", cat(&.{ L("Function "), label, L(" requires unknown effect "), effectLabel(id), L(".") }));
+        }
+    }
+
+    for (obligations) |obligation| {
+        const id = str(obligation, "id");
+        const call_id = str(obligation, "callNodeId");
+        const parameter_id = str(obligation, "parameterId");
+        const call = node_owners.get(idKey(call_id)) orelse {
+            add("InvalidObligationTarget", cat(&.{ L("Obligation '"), id, L("' targets unknown graph node '"), call_id, L("'.") }));
+            continue;
+        };
+        if (!isName(str(call.node, "kind"), "directCall")) {
+            add("InvalidObligationTarget", cat(&.{ L("Obligation '"), id, L("' does not target a direct-call node.") }));
+            continue;
+        }
+        var owned = false;
+        if (functions_by_id.get(idKey(str(call.node, "targetFunctionId")))) |target| {
+            for (arrayOf(target, "parameters")) |parameter| owned = owned or same(str(parameter, "id"), parameter_id);
+        }
+        if (!owned) add("InvalidObligationParameter", cat(&.{ L("Obligation '"), id, L("' targets a parameter not owned by the call's callee.") }));
+        var matching: List(Value) = .empty;
+        for (arrayOf(call.node, "arguments")) |argument| {
+            if (same(str(argument, "targetParameterId"), parameter_id)) matching.append(a, argument) catch oom();
+        }
+        if (isName(str(obligation, "status"), "open")) {
+            if (matching.items.len > 0) add("SatisfiedOpenObligation", cat(&.{ L("Open obligation '"), id, L("' already has a matching argument binding.") }));
+        } else {
+            const value_id = str(obligation, "resolutionValueNodeId");
+            var exact = false;
+            for (matching.items) |argument| exact = exact or same(str(argument, "valueNodeId"), value_id);
+            if (!exact) add("InvalidObligationResolution", cat(&.{ L("Resolved obligation '"), id, L("' does not match the call's argument binding.") }));
+            const value_owner = node_owners.get(idKey(value_id));
+            if (value_owner == null or !same(value_owner.?.owner, call.owner))
+                add("InvalidObligationResolutionValue", cat(&.{ L("Resolved obligation '"), id, L("' references a value node outside the call's owning function.") }));
+        }
+    }
+
+    std.mem.sort(Issue, issues.items, {}, issueLess);
+}
+
+/// One line per issue, then `end`; a line break in a message is written `\n` (and `\r`), as in the reader's errors.
+fn printIssues(out: *std.Io.Writer) !void {
+    for (issues.items) |issue| {
+        try out.print("issue {s}: ", .{issue.code});
+        for (text(issue.message)) |byte| switch (byte) {
+            '\n' => try out.writeAll("\\n"),
+            '\r' => try out.writeAll("\\r"),
+            else => try out.writeByte(byte),
+        };
+        try out.writeByte('\n');
+    }
+    try out.writeAll("end\n");
+}
+
 pub fn main(init: std.process.Init) !void {
     a = init.arena.allocator();
     const args = try init.minimal.args.toSlice(a);
-    if (args.len < 3 or args.len % 2 == 0) {
-        std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...]\n", .{});
+    const validating = args.len >= 2 and std.mem.eql(u8, args[1], "--validate");
+    if (if (validating) args.len < 3 else args.len < 3 or args.len % 2 == 0) {
+        std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...] | model-reader --validate <in.json> [<in.json> ...]\n", .{});
         std.process.exit(64);
     }
     loadTables();
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stdout().writer(init.io, &buffer);
     const out = &writer.interface;
-    var index: usize = 1;
-    while (index < args.len) : (index += 2) {
+    var index: usize = if (validating) 2 else 1;
+    while (index < args.len) : (index += if (validating) 1 else 2) {
         const input = try std.Io.Dir.cwd().readFileAlloc(init.io, args[index], a, .unlimited);
         if (canonicalJson(input)) |json| {
-            try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[index + 1], .data = json });
-            try out.print("ok\n", .{});
+            if (validating) {
+                validate(parsed_root);
+                try printIssues(out);
+            } else {
+                try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[index + 1], .data = json });
+                try out.print("ok\n", .{});
+            }
         } else |e| switch (e) {
             error.Json => try out.print("error InvalidJson: {s}\n", .{message}),
             error.Shape => try out.print("error InvalidShape: {s}\n", .{message}),
