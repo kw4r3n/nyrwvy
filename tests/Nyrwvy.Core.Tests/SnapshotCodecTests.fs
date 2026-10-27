@@ -247,15 +247,14 @@ module SnapshotCodecTests =
         { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-lone-surrogate") with Functions = [ literal ] }
 
     [<Fact>]
-    let ``snapshot codec round-trips a lone surrogate in a String literal exactly`` () =
+    let ``snapshot codec rejects a String literal with a lone surrogate`` () =
+        // A String holds no unpaired surrogate, so the codec refuses to write one rather than
+        // replacing it with U+FFFD.
         let snapshot = loneSurrogateLiteralSnapshot (utf16 "{D800}")
-        Assert.Empty(SnapshotValidator.validate snapshot)
-        let encoded = SnapshotCodec.serialize snapshot |> unwrap
-        Assert.Contains("\"value\":\"\\uD800\"", encoded)
-        let decoded = SnapshotCodec.deserialize encoded |> unwrap
-        Assert.Equal(snapshot, decoded)
-        Assert.Equal(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute decoded)
-        Assert.NotEqual(SemanticFingerprint.compute snapshot, SemanticFingerprint.compute (loneSurrogateLiteralSnapshot "\uFFFD"))
+        match SnapshotCodec.serialize snapshot with
+        | Error(SnapshotCodecError.InvalidSnapshot issues) ->
+            Assert.Equal<string list>([ "StringLiteralUnpairedSurrogate" ], issues |> List.map _.Code)
+        | result -> failwithf "Expected InvalidSnapshot, got %A" result
 
     [<Fact>]
     let ``snapshot codec preserves valid surrogate pairs`` () =

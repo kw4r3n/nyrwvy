@@ -106,8 +106,8 @@ module SnapshotCodec =
         | null -> invalidShape $"Property '{name}' must not be null."
         | text -> text
 
-    /// A String literal may hold a lone surrogate, which the writer escapes explicitly and
-    /// `GetString` rejects, so such an escape is decoded from the token's raw text.
+    /// A lone surrogate escape, which `GetString` rejects, is decoded from the token's raw text so
+    /// that validation reports `StringLiteralUnpairedSurrogate` instead of a JSON error.
     let private readLiteralString (name: string) (element: JsonElement) =
         let value = requireProperty name element
         if value.ValueKind <> JsonValueKind.String then

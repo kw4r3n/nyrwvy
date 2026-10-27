@@ -140,8 +140,7 @@ module StringSpanTests =
             // Python parity, generated with python3 from
             //   span:     start = clamp(from, 0, len); start + len(v[start:]) - len(v[start:].lstrip(set))
             //   spanBack: e = clamp(end, 0, len); len(v[:e].rstrip(set))
-            // Python counts a non-BMP character as one code point, as StringLength does. Lone
-            // surrogates are built with utf16, since F# literals turn them into U+FFFD.
+            // Python counts a non-BMP character as one code point, as StringLength does.
             let cases =
                 [ ("", " ", 0L, 0L), (0L, 0L)
                   ("", "", 3L, 3L), (0L, 0L)
@@ -160,9 +159,6 @@ module StringSpanTests =
                   ("123abc456", "0123456789", 3L, 6L), (3L, 6L)
                   ("😀😀x😀", "😀", 0L, 4L), (2L, 3L)
                   ("x😀😀", "😀", 0L, 3L), (0L, 1L)
-                  ("😀a", utf16 "{D83D}", 0L, 2L), (0L, 2L)
-                  (utf16 "a{D800}{D800}b", utf16 "{D800}", 1L, 3L), (3L, 1L)
-                  (utf16 "{D800}a{D800}", utf16 "a{D800}", 0L, 3L), (3L, 0L)
                   ("abcabc", "cba", 0L, 6L), (6L, 0L)
                   ("abc", "abc", 1L, 2L), (3L, 0L) ]
             create "spanTable" (listOf intType)

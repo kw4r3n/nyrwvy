@@ -1,6 +1,7 @@
 # String code points and the recursion depth bound
 
 - **Status:** Accepted
+- **Amended:** 2026-10-27 by [String as a sequence of Unicode scalar values](string-scalar-values.md): Strings no longer hold unpaired surrogates, so the rules for them below no longer apply.
 - **Date:** 2026-09-29
 - **Roadmap:** [post-M2 queue from the 2026-09-29 probe 4](../plans/post-m2-roadmap.md#queue-from-the-2026-09-29-probe-4), order 17
 

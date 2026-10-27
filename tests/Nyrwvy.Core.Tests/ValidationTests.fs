@@ -113,6 +113,28 @@ module ValidationTests =
         SnapshotValidator.validate invalid |> requireIssue "NullStringLiteral"
 
     [<Fact>]
+    let ``string literal with an unpaired surrogate is rejected`` () =
+        let fixture = TestGraph.create ()
+        let functionId = StableId.createForTesting<FunctionTag> "function-lone-surrogate-literal"
+        let nodeId = StableId.createForTesting<GraphNodeTag> "node-lone-surrogate-literal"
+        let functionEntity: SemanticFunction =
+            { Exported = true; Id = functionId
+              TypeParameters = []
+              DisplayName = "lone_surrogate_literal"
+              Parameters = []
+              ResultType = TypeRef.Primitive PrimitiveType.String
+              RequiredEffects = []
+              Body =
+                { Nodes = [ { Id = nodeId; Kind = SemanticNodeKind.StringLiteral(utf16 "a{D800}b") } ]
+                  ResultNodeId = nodeId } }
+
+        let invalid =
+            { fixture.Snapshot with
+                Functions = functionEntity :: fixture.Snapshot.Functions }
+
+        SnapshotValidator.validate invalid |> requireIssue "StringLiteralUnpairedSurrogate"
+
+    [<Fact>]
     let ``missing call argument requires an explicit open obligation`` () =
         let fixture = TestGraph.create ()
         let policyParameterId = StableId.createForTesting<ParameterTag> "parameter-validate-policy"

@@ -94,7 +94,7 @@ module internal WireJson =
         if finish > start then
             literal.Append(JsonEncodedText.Encode(text.AsSpan(start, finish - start), encoder).ToString()) |> ignore
 
-    /// A run-value String with a lone surrogate. The serializer would replace the surrogate with
+    /// Text with a lone surrogate, which no String holds but host-reported text might. The serializer would replace the surrogate with
     /// U+FFFD, so it is written as a JSON string literal with a `\uD800`-style escape instead; the
     /// rest of the string is escaped as the serializer escapes it.
     [<JsonConverter(typeof<LooseTextConverter>)>]

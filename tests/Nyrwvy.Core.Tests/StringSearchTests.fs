@@ -147,8 +147,7 @@ module StringSearchTests =
                 session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
             let found = PureRunValue.Int64Option
             // Python parity: str.find(sub, start) for 0 <= start <= len, str.rfind, startswith,
-            // endswith and split(sep), with -1 read as None. Lone surrogates are built with utf16,
-            // since F# literals turn them into U+FFFD.
+            // endswith and split(sep), with -1 read as None.
             let indexCases =
                 [ ("hello world", "o", 0L), Some 4L
                   ("hello world", "o", 5L), Some 7L
@@ -165,10 +164,6 @@ module StringSearchTests =
                   ("abc", "abcd", 0L), None
                   ("ABC", "b", 0L), None
                   ("é", "́", 0L), Some 1L
-                  // Lone surrogates: a match never starts or ends inside a surrogate pair.
-                  (utf16 "😀{DE00}", utf16 "{DE00}", 0L), Some 1L
-                  ("😀", utf16 "{D83D}", 0L), None
-                  (utf16 "a{D800}b", "b", 0L), Some 2L
                   // Clamped `from`, where Python differs (negative counts from the end; past the end is -1).
                   ("hello", "h", -2L), Some 0L
                   ("hello", "", 9L), Some 5L ]
@@ -181,9 +176,7 @@ module StringSearchTests =
                   ("a😀b😀c", "😀"), Some 3L
                   ("aaaa", "aa"), Some 2L
                   ("abc", "x"), None
-                  ("😀😀", "😀😀"), Some 0L
-                  (utf16 "{DE00}😀", utf16 "{DE00}"), Some 0L
-                  ("😀", utf16 "{DE00}"), None ]
+                  ("😀😀", "😀😀"), Some 0L ]
             create "lastTable" (listOf (optionOf intType))
                 (ExpressionRecipe.ListConstruct(optionOf intType, lastCases |> List.map (fun ((value, sub), _) -> ExpressionRecipe.StringLastIndexOf(text value, text sub))))
             let affixCases =
@@ -194,8 +187,6 @@ module StringSearchTests =
                   ExpressionRecipe.StringStartsWith(text "😀x", text "😀"), true
                   ExpressionRecipe.StringStartsWith(text "hello", text "Hello"), false
                   ExpressionRecipe.StringStartsWith(text "he", text "hello"), false
-                  ExpressionRecipe.StringStartsWith(text "😀", text (utf16 "{D83D}")), false
-                  ExpressionRecipe.StringStartsWith(text (utf16 "{D800}x"), text (utf16 "{D800}")), true
                   ExpressionRecipe.StringEndsWith(text "hello", text "lo"), true
                   ExpressionRecipe.StringEndsWith(text "hello", text ""), true
                   ExpressionRecipe.StringEndsWith(text "", text ""), true
@@ -203,14 +194,10 @@ module StringSearchTests =
                   ExpressionRecipe.StringEndsWith(text "x😀", text "😀"), true
                   ExpressionRecipe.StringEndsWith(text "hello", text "LO"), false
                   ExpressionRecipe.StringEndsWith(text "lo", text "hello"), false
-                  ExpressionRecipe.StringEndsWith(text "😀", text (utf16 "{DE00}")), false
                   // StringContains follows the same boundary rule as StringIndexOf.
                   ExpressionRecipe.StringContains(text "a😀b", text "😀"), true
                   ExpressionRecipe.StringContains(text "abc", text ""), true
-                  ExpressionRecipe.StringContains(text "", text ""), true
-                  ExpressionRecipe.StringContains(text "😀", text (utf16 "{DE00}")), false
-                  ExpressionRecipe.StringContains(text "😀", text (utf16 "{D83D}")), false
-                  ExpressionRecipe.StringContains(text (utf16 "😀{DE00}"), text (utf16 "{DE00}")), true ]
+                  ExpressionRecipe.StringContains(text "", text ""), true ]
             create "affixTable" (listOf boolType) (ExpressionRecipe.ListConstruct(boolType, affixCases |> List.map fst))
             let splitCases =
                 [ ("a,b,,c", ","), [ "a"; "b"; ""; "c" ]
@@ -221,8 +208,6 @@ module StringSearchTests =
                   ("aaa", "aa"), [ ""; "a" ]
                   ("😀x😀", "x"), [ "😀"; "😀" ]
                   ("a😀b😀c", "😀"), [ "a"; "b"; "c" ]
-                  ("a😀b", utf16 "{DE00}"), [ "a😀b" ]
-                  (utf16 "x{D800}y", utf16 "{D800}"), [ "x"; "y" ]
                   // An empty separator, where Python raises ValueError, is the whole text.
                   ("abc", ""), [ "abc" ] ]
             create "splitTable" (listOf (listOf stringType))

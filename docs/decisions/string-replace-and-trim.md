@@ -1,6 +1,7 @@
 # String replace and trim
 
 - **Status:** Accepted
+- **Amended:** 2026-10-27 by [String as a sequence of Unicode scalar values](string-scalar-values.md): Strings no longer hold unpaired surrogates, so the rules for them below no longer apply.
 - **Date:** 2026-10-16
 - **Roadmap:** [post-M2 owner choice of 2026-10-16](../plans/post-m2-roadmap.md#owner-choice-of-2026-10-16-ordinary-builtins), order 59
 

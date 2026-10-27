@@ -258,25 +258,23 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// other text, including '+', whitespace, '.5', '5.', 'inf', 'nan' or an empty String, is None.
     /// Never fails.
     | StringParseFloat64 of valueNodeId: GraphNodeId
-    /// Each code point of the String as a one-code-point String, in order, as a List<String>. A
-    /// surrogate pair is one element; an unpaired surrogate code unit is its own one-unit element,
-    /// as StringLength counts it, so the list length always equals StringLength and it never fails.
+    /// Each code point of the String as a one-code-point String, in order, as a List<String>. The
+    /// list length always equals StringLength and it never fails.
     | StringCodePoints of valueNodeId: GraphNodeId
     /// Each code point replaced by its Unicode simple (one-to-one) lowercase mapping, culture
-    /// invariant; code points without one, including unpaired surrogates, are kept. Never fails.
+    /// invariant; code points without one are kept. Never fails.
     | StringToLower of valueNodeId: GraphNodeId
     /// Each code point replaced by its Unicode simple (one-to-one) uppercase mapping, culture
-    /// invariant, the mirror of StringToLower (which undoes it); code points without one, including
-    /// unpaired surrogates, are kept, so the code-point length never changes. Never fails.
+    /// invariant, the mirror of StringToLower (which undoes it); code points without one are kept,
+    /// so the code-point length never changes. Never fails.
     | StringToUpper of valueNodeId: GraphNodeId
     /// The text of a String holding one byte per code point (U+0000..U+00FF), decoded as UTF-8 with
     /// one U+FFFD per maximal ill-formed subpart, as Python bytes.decode("utf-8", "replace"). A code
     /// point above U+00FF reads as the invalid byte 0xFF. Never fails.
     | StringDecodeUtf8Lossy of valueNodeId: GraphNodeId
     /// The UTF-8 encoding of the String as a String holding one byte per code point (U+0000..U+00FF),
-    /// the inverse of StringDecodeUtf8Lossy on well-formed text, as Python text.encode("utf-8"). An
-    /// unpaired surrogate encodes as U+FFFD (EF BF BD), the 3 bytes StringUtf8ByteCount counts for it,
-    /// so the result's length is always StringUtf8ByteCount. Never fails.
+    /// the inverse of StringDecodeUtf8Lossy on well-formed text, as Python text.encode("utf-8").
+    /// The result's length is always StringUtf8ByteCount. Never fails.
     | StringEncodeUtf8 of valueNodeId: GraphNodeId
     /// The nearest integer as Option<Int64>, rounding half away from zero (Python's round rounds ties to
     /// even). None for NaN, an infinity, or a result outside Int64. Never fails.
@@ -300,15 +298,12 @@ and [<RequireQualifiedAccess>] SemanticNodeKind =
     /// Python math.trunc(value) as a Float64 (rounded toward zero): -1.5 gives -1.0, -0.5 gives -0.0; NaN,
     /// the infinities and the zeros are returned unchanged. Never fails.
     | Float64Truncate of valueNodeId: GraphNodeId
-    /// Number of bytes in the UTF-8 encoding of the String, as an Int64; an unpaired surrogate
-    /// counts as 3 bytes (its U+FFFD replacement, as WTF-8 also does). Never fails.
+    /// Number of bytes in the UTF-8 encoding of the String, as an Int64. Never fails.
     | StringUtf8ByteCount of valueNodeId: GraphNodeId
-    /// Some one-code-point String for an Int64 code in [0, 0x10FFFF], None otherwise, like Python
-    /// chr. A code in the surrogate range 0xD800..0xDFFF gives one unpaired surrogate code unit, so
-    /// concatenating a high and a low surrogate forms the pair. Never fails.
+    /// Some one-code-point String for an Int64 code that is a Unicode scalar value, None for a
+    /// surrogate code 0xD800..0xDFFF or a code outside [0, 0x10FFFF]; like Python chr otherwise. Never fails.
     | StringFromCodePoint of valueNodeId: GraphNodeId
-    /// Some code point of a String that is exactly one code point as StringLength counts it (a
-    /// surrogate pair gives its scalar value, an unpaired surrogate its code unit), None for the
+    /// Some code point of a String that is exactly one code point as StringLength counts it, None for the
     /// empty String or a longer one, like Python ord. Never fails.
     | StringToCodePoint of valueNodeId: GraphNodeId
     /// Number of code points in the String, as an Int64. A surrogate pair counts once; an unpaired

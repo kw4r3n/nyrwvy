@@ -146,8 +146,7 @@ module StringReplaceTrimTests =
                       Body = body }
                 let proposal = session.SimulateCreateFunction request |> unwrap ("create " + name)
                 session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
-            // Python parity for str.replace(old, new) except an empty pattern. Lone surrogates are
-            // built with utf16, since F# literals turn them into U+FFFD.
+            // Python parity for str.replace(old, new) except an empty pattern.
             let replaceCases =
                 [ ("aaa", "aa", "b"), "ba"
                   ("aaaa", "aa", "b"), "bb"
@@ -160,11 +159,6 @@ module StringReplaceTrimTests =
                   ("日本語日本", "日本", "に"), "に語に"
                   ("a😀b😀c", "😀", "-"), "a-b-c"
                   ("a😀b", "b", "😀"), "a😀😀"
-                  // A pattern that is half of a surrogate pair never matches inside the pair.
-                  ("😀", utf16 "{DE00}", "x"), "😀"
-                  ("😀", utf16 "{D83D}", "x"), "😀"
-                  (utf16 "😀{DE00}", utf16 "{DE00}", "x"), "😀x"
-                  (utf16 "a{D800}b", utf16 "{D800}", "-"), "a-b"
                   // An empty pattern returns the value unchanged; Python inserts the replacement
                   // between every code point ("xaxbxcx", and "x" for "").
                   ("abc", "", "x"), "abc"
@@ -192,8 +186,6 @@ module StringReplaceTrimTests =
             trimTable "trimTable" ExpressionRecipe.StringTrim
             trimTable "trimStartTable" ExpressionRecipe.StringTrimStart
             trimTable "trimEndTable" ExpressionRecipe.StringTrimEnd
-            // An unpaired surrogate is not white space and stays: one code point remains.
-            create "loneSurrogate" intType (ExpressionRecipe.StringLength(ExpressionRecipe.StringTrim(text (utf16 " {D800} "))))
             let check name (expected: PureRunValue) =
                 let result = PureRun.run session (functionId name) [] (Some expected) |> unwrap name
                 Assert.True((result.Matches = Some true), sprintf "%s: %A" name result.Actual)
@@ -201,7 +193,6 @@ module StringReplaceTrimTests =
             check "trimTable" (PureRunValue.StringList(trimCases |> List.map (fun (_, (both, _, _)) -> both)))
             check "trimStartTable" (PureRunValue.StringList(trimCases |> List.map (fun (_, (_, start, _)) -> start)))
             check "trimEndTable" (PureRunValue.StringList(trimCases |> List.map (fun (_, (_, _, finish)) -> finish)))
-            check "loneSurrogate" (PureRunValue.Int64 1L)
             session.Close()
         finally
             if Directory.Exists root then Directory.Delete(root, true)
