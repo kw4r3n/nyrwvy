@@ -526,16 +526,18 @@ module internal ZigSnapshotReader =
     /// .NET's own JSON messages compared by case and prefix), else `ReaderMismatch`.
     let compare (zig: Result<Snapshot, AuthoringSessionError>) (fsharp: Result<Snapshot, AuthoringSessionError>) =
         let key = function
-            | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidJson _)) -> "InvalidJson"
+            | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidJson _)) -> Error(SnapshotCodecError.InvalidJson "")
             | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidShape message))
-                when message.StartsWith("Invalid JSON string encoding:", StringComparison.Ordinal) -> "InvalidShape: Invalid JSON string encoding:"
-            | Error error -> sprintf "%A" error
-            | Ok snapshot -> sprintf "%A" (SnapshotCodec.serialize snapshot)
-        let left, right = key zig, key fsharp
-        if left = right then zig
+                when message.StartsWith("Invalid JSON string encoding:", StringComparison.Ordinal) -> Error(SnapshotCodecError.InvalidShape "Invalid JSON string encoding:")
+            | Error(AuthoringSessionError.SnapshotCodecFailure error) -> Error error
+            | Error error -> Error(SnapshotCodecError.InvalidShape(sprintf "%A" error))
+            | Ok snapshot -> SnapshotCodec.serialize snapshot |> Result.mapError (fun error -> SnapshotCodecError.InvalidShape(sprintf "writer: %A" error))
+        if key zig = key fsharp then zig
         else
-            let shorten (text: string) = if text.Length > 2000 then text.Substring(0, 2000) + "…" else text
-            Error(AuthoringSessionError.IoFailure $"ReaderMismatch: Zig {shorten left}, F# {shorten right}")
+            let describe = function
+                | Ok _ -> "accepts"
+                | Error error -> (let text = sprintf "%A" error in if text.Length > 2000 then text.Substring(0, 2000) + "…" else text)
+            Error(AuthoringSessionError.IoFailure $"ReaderMismatch: Zig {describe zig}, F# {describe fsharp}")
 
 module internal SessionStorage =
     let fullPath (path: string): string = Path.GetFullPath(path)
