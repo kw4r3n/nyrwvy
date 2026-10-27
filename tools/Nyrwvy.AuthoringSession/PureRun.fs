@@ -1207,13 +1207,12 @@ module PureRun =
         match ZigBackend.emit program with
         | Error problems -> unsupported problems
         | Ok source ->
-            let types = program.Types |> List.map (fun item -> item.Id, item) |> Map.ofList
-            let zigType typeRef = (ZigBackend.typeOf types typeRef).Value
+            let zigType typeRef = (ZigBackend.typeOf program typeRef).Value
             let decoded = fn.Parameters |> List.mapi (fun index parameter -> $"    const a{index} = nyDecode({zigType parameter.Type}, &tokens);\n")
             let call = ZigBackend.functionName fn.Id + "(" + String.Join(", ", fn.Parameters |> List.mapi (fun index _ -> $"a{index}")) + ")"
             let runner =
                 source
-                + ZigBackend.runnerSupport
+                + ZigRuntime.runnerSupport
                 + "\npub fn main(init: std.process.Init) !void {\n"
                 + "    const args = try init.minimal.args.toSlice(init.arena.allocator());\n"
                 + "    var tokens = NyTokens{ .items = args };\n"
@@ -1249,7 +1248,18 @@ module PureRun =
                 built
                 |> Result.bind (fun () -> launchProcess executable "pure function" directory (List.ofSeq tokens) 5000)
                 |> Result.bind (fun (code, output, errors) ->
-                    if code <> 0 then Error(processFailure output errors)
+                    // A Zig panic (allocation failure) or a crash (stack overflow) ends the run: fatal.
+                    if code <> 0 then
+                        let panic = errors.Split('\n') |> Array.tryFind (fun line -> line.StartsWith("panic: ", StringComparison.Ordinal))
+                        Error(PureRunError.RuntimeFailure
+                                { SnapshotId = program.SourceSnapshotId
+                                  FunctionId = fn.Id
+                                  Kind = "fatal"
+                                  ExceptionType = (if panic.IsSome then "ZigPanic" else "ZigCrash")
+                                  Message = panic |> Option.map (fun line -> line.Substring 7) |> Option.defaultValue $"The Zig program stopped with exit code {code} (for example a stack overflow)."
+                                  Frames = []
+                                  BindingExhausted = false
+                                  Calls = [] })
                     else
                         parseEnvelope declarations.Types fn.ResultType [] output
                         |> Result.bind (function

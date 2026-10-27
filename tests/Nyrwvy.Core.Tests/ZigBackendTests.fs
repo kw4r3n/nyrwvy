@@ -63,8 +63,7 @@ module ZigBackendTests =
                 $"""{{"kind":"conditional","condition":{{"kind":"int64LessThan","left":{p "n"},"right":{{"kind":"int64Literal","value":1}}}},"whenTrue":{p "acc"},"whenFalse":{{"kind":"directCall","function":"sum","arguments":[{{"parameter":"n","value":{{"kind":"int64WrappingSubtract","left":{p "n"},"right":{{"kind":"int64Literal","value":1}}}}}},{{"parameter":"acc","value":{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{p "n"}}}}}]}}}}"""
             create session "sum" [ "n", int64Type; "acc", int64Type ] int64Type sumBody
             create session "sumTo" [ "n", int64Type ] int64Type ($"""{{"kind":"directCall","function":"sum","arguments":[{{"parameter":"n","value":{p "n"}}},{{"parameter":"acc","value":{{"kind":"int64Literal","value":0}}}}]}}""")
-            let listType = $"""{{"kind":"builtinGeneric","generic":"list","arguments":[{int64Type}]}}"""
-            create session "range" [ "n", int64Type ] listType ($"""{{"kind":"listRange","start":{{"kind":"int64Literal","value":0}},"end":{p "n"}}}""")
+            create session "toFloat" [ "n", int64Type ] """{"kind":"primitive","primitive":"float64"}""" ($"""{{"kind":"int64ToFloat64","value":{p "n"}}}""")
             let edges = [ Int64.MinValue; -7L; -1L; 0L; 1L; 3L; 64L; Int64.MaxValue ]
             let cases =
                 [ for kind in operations @ [ "int64ShiftLeft"; "int64ShiftRight"; "less" ] do
@@ -79,7 +78,7 @@ module ZigBackendTests =
                 Assert.True(zig.GetProperty("ok").GetBoolean(), zig.ToString())
                 Assert.Equal(csharp.GetProperty("result").GetProperty("actual").ToString(), zig.GetProperty("result").GetProperty("actual").ToString())
             Assert.Equal("500000500000", (run session "zig" "sumTo" [ int64 1000000L ]).GetProperty("result").GetProperty("actual").GetProperty("value").ToString())
-            let unsupported = run session "zig" "range" [ int64 3L ]
+            let unsupported = run session "zig" "toFloat" [ int64 3L ]
             Assert.False(unsupported.GetProperty("ok").GetBoolean())
             Assert.Equal("RunBackendUnsupported", unsupported.GetProperty("error").GetProperty("code").GetString())
         finally Directory.Delete(dir, true)
@@ -134,4 +133,38 @@ module ZigBackendTests =
                 agree session "positive" [ n ]
                 agree session "checked" [ n ]
             for o in [ "null"; "7" ] do agree session "orZero" [ o ]
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs Lists, list callbacks and generic functions and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let listOf item = $"""{{"kind":"builtinGeneric","generic":"list","arguments":[{item}]}}"""
+            let ints = listOf int64Type
+            let e = """{"kind":"typeParameter","name":"E"}"""
+            let lit (n: int) = $"""{{"kind":"int64Literal","value":{n}}}"""
+            create session "firstOr" [ "items", listOf e; "fallback", e ] e
+                ($"""{{"kind":"matchOption","input":{{"kind":"listItemAt","list":{p "items"},"index":{lit 0}}},"someBody":{{"kind":"patternReference","scopeDepth":0,"slot":"value"}},"noneBody":{p "fallback"}}}""")
+            create session "firstNum" [ "xs", ints ] int64Type ($"""{{"kind":"directCall","function":"firstOr","arguments":[{{"parameter":"items","value":{p "xs"}}},{{"parameter":"fallback","value":{lit -1}}}]}}""")
+            create session "firstName" [ "names", listOf stringType ] stringType ($"""{{"kind":"directCall","function":"firstOr","arguments":[{{"parameter":"items","value":{p "names"}}},{{"parameter":"fallback","value":{{"kind":"stringLiteral","value":"none"}}}}]}}""")
+            create session "add" [ "acc", int64Type; "item", int64Type ] int64Type ($"""{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{p "item"}}}""")
+            create session "sum" [ "xs", ints ] int64Type ($"""{{"kind":"listFold","source":{p "xs"},"seed":{lit 0},"function":"add"}}""")
+            create session "scale" [ "factor", int64Type; "x", int64Type ] int64Type ($"""{{"kind":"int64WrappingMultiply","left":{p "x"},"right":{p "factor"}}}""")
+            create session "scaled" [ "xs", ints; "k", int64Type ] ints ($"""{{"kind":"listMap","source":{p "xs"},"function":"scale","context":[{{"parameter":"factor","value":{p "k"}}}]}}""")
+            create session "isEven" [ "x", int64Type ] boolType ($"""{{"kind":"valueEqual","left":{{"kind":"int64FloorModulo","left":{p "x"},"right":{lit 2}}},"right":{lit 0}}}""")
+            create session "evens" [ "xs", ints ] ints ($"""{{"kind":"listFilter","source":{p "xs"},"function":"isEven"}}""")
+            create session "edit" [ "xs", ints ] ints
+                ($"""{{"kind":"listReverse","value":{{"kind":"listAppendItem","list":{{"kind":"listInsertAt","list":{{"kind":"listRemoveAt","list":{{"kind":"listSetAt","list":{{"kind":"listSlice","list":{p "xs"},"start":{lit 1},"end":{lit 5}}},"index":{lit 1},"item":{lit 99}}},"index":{lit 0}}},"index":{lit 1},"item":{lit 7}}},"item":{lit 42}}}}}""")
+            create session "upTo" [ "n", int64Type ] ints ($"""{{"kind":"listRange","start":{lit 0},"end":{p "n"}}}""")
+            for xs in [ "[]"; "[5]"; "[1,2,3,4,5,6,-7]" ] do
+                for name in [ "firstNum"; "sum"; "evens"; "edit" ] do agree session name [ xs ]
+                agree session "scaled" [ xs; "3" ]
+            for names in [ "[]"; "[\"ä\",\"b\"]" ] do agree session "firstName" [ names ]
+            for n in [ "0"; "5" ] do agree session "upTo" [ n ]
+            // An allocation the runtime cannot make is fatal on both backends.
+            let huge = run session "zig" "upTo" [ "9223372036854775807" ]
+            Assert.False(huge.GetProperty("ok").GetBoolean())
+            Assert.Equal("fatal", huge.GetProperty("error").GetProperty("failureKind").GetString())
         finally Directory.Delete(dir, true)
