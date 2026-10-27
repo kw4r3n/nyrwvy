@@ -60,6 +60,19 @@ module ZigValidatorSupport =
     let private tparam id = obj [ "kind", s "typeParameter"; "typeParameterId", s id ] :> JsonNode
     let private field id (typeRef: JsonNode) = obj [ "id", s id; "displayName", s id; "type", typeRef ] :> JsonNode
 
+    /// A literal node of a primitive type.
+    let private literalNode id literal =
+        match literal with
+        | "string" -> obj [ "id", s id; "kind", s "stringLiteral"; "value", s "text" ]
+        | "int64" -> obj [ "id", s id; "kind", s "int64Literal"; "value", JsonValue.Create 7L ]
+        | "bool" -> obj [ "id", s id; "kind", s "boolLiteral"; "value", JsonValue.Create true ]
+        | "float64" -> obj [ "id", s id; "kind", s "float64Literal"; "bits", s "3ff0000000000000" ]
+        | _ -> obj [ "id", s id; "kind", s "unitLiteral" ]
+        :> JsonNode
+
+    /// Replaced by a `\ud800` escape in the written text, which JsonNode cannot write itself.
+    let loneSurrogateMarker = "lone-surrogate-marker"
+
     /// The type references of one kind, anywhere in the document.
     let private typeRefs kind (root: JsonObject) =
         objectsIn root |> List.filter (fun o -> o.ContainsKey "kind" && string o["kind"] = kind && not (o.ContainsKey "id"))
@@ -331,9 +344,73 @@ module ZigValidatorSupport =
               let mutable changed = false
               for node in ZigModelReaderSupport.graphNodes root do
                   for key in [ for p in node -> p.Key ] do
-                      if key.EndsWith "FunctionId" || key.EndsWith "OperationId" || key = "fieldId" || key = "variantId" || key = "parameterId" then
+                      if key.EndsWith "FunctionId" || key.EndsWith "OperationId" || key = "fieldId" || key = "variantId" || key = "parameterId" || key = "patternBindingId" then
                           (node[key] <- s (string node["id"]); changed <- true)
-              changed) ]
+              changed)
+          // Slice 3c: literals of each type as every operand, graph results and scopes.
+          for literal in [ "string"; "int64"; "bool"; "float64"; "unit" ] do
+              $"every operand is a {literal} literal",
+              (fun root ->
+                  let mutable changed = false
+                  for f in functions root do
+                      let body = f["body"] :?> JsonObject
+                      let id = $"lit-{literal}"
+                      for node in ZigModelReaderSupport.graphNodes f do
+                          for key in [ for p in node -> p.Key ] do
+                              if key.EndsWith "NodeId" then (node[key] <- s id; changed <- true)
+                      (body["nodes"] :?> JsonArray).Add(literalNode id literal)
+                  changed)
+          "the first nested graph ends in a String literal and every body in a Unit literal",
+          (fun root ->
+              let graphs = objectsIn root |> List.filter (fun o -> o.ContainsKey "nodes" && o.ContainsKey "resultNodeId")
+              let bodies = functions root |> List.map (fun f -> f["body"] :?> JsonObject)
+              let endIn (graph: JsonObject) id literal =
+                  (graph["nodes"] :?> JsonArray).Add(literalNode id literal)
+                  graph["resultNodeId"] <- s id
+              match graphs |> List.tryFind (fun g -> not (bodies |> List.exists (fun b -> Object.ReferenceEquals(b, g)))) with
+              | Some nested -> endIn nested "nested-string" "string"
+              | None -> ()
+              bodies |> List.iteri (fun i body -> endIn body $"body-unit-{i}" "unit")
+              not bodies.IsEmpty)
+          "a node uses an abort node and a body result points into a nested graph",
+          (fun root ->
+              match functions root with
+              | f :: _ ->
+                  let body = f["body"] :?> JsonObject
+                  let nodes = body["nodes"] :?> JsonArray
+                  if nodes.Count = 0 then false
+                  else
+                      let first = nodes[0] :?> JsonObject
+                      nodes.Add(obj [ "id", s "abort-node"; "kind", s "abort"; "errorNodeId", s (string first["id"]) ])
+                      match ZigModelReaderSupport.graphNodes f |> List.filter (fun n -> n |> Seq.exists (fun p -> p.Key.EndsWith "NodeId")) |> List.tryLast with
+                      | Some user -> user[(user |> Seq.find (fun p -> p.Key.EndsWith "NodeId")).Key] <- s "abort-node"
+                      | None -> ()
+                      let nested = ZigModelReaderSupport.graphNodes f |> List.filter (fun n -> not (nodes |> Seq.exists (fun t -> Object.ReferenceEquals(t, n))))
+                      match nested with
+                      | inner :: _ ->
+                          body["resultNodeId"] <- s (string inner["id"])
+                          first |> Seq.tryFind (fun p -> p.Key.EndsWith "NodeId") |> Option.iter (fun p -> first[p.Key] <- s (string inner["id"]))
+                      | [] -> body["resultNodeId"] <- s "missing-node"
+                      true
+              | [] -> false)
+          "in each function the last node with a node reference uses an abort node",
+          (fun root ->
+              let mutable changed = false
+              for f in functions root do
+                  let nodes = (f["body"] :?> JsonObject)["nodes"] :?> JsonArray
+                  match ZigModelReaderSupport.graphNodes f |> List.filter (fun n -> n |> Seq.exists (fun p -> p.Key.EndsWith "NodeId")) |> List.tryLast with
+                  | Some user when nodes.Count > 0 ->
+                      let abortId = "abort-" + string (f["id"])
+                      nodes.Insert(0, obj [ "id", s abortId; "kind", s "abort"; "errorNodeId", s (string (nodes[0]["id"])) ])
+                      user[(user |> Seq.find (fun p -> p.Key.EndsWith "NodeId")).Key] <- s abortId
+                      changed <- true
+                  | _ -> ()
+              changed)
+          "string literals hold a lone surrogate",
+          (fun root ->
+              let literals = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> string n["kind"] = "stringLiteral")
+              for n in literals do n["value"] <- s loneSurrogateMarker
+              not literals.IsEmpty) ]
 
 module ZigValidatorTests =
     [<Fact>]
@@ -341,6 +418,56 @@ module ZigValidatorTests =
         let source = File.ReadAllText(Path.Combine(ZigModelReaderSupport.root (), "src", "Nyrwvy.Semantics", "Validation.fs"))
         for code in ZigValidatorSupport.codes () do
             Assert.True(source.Contains $"\"{code}\"", $"{code} is not a code of Validation.fs")
+
+    /// `node_references.txt` lists, per node kind, the properties `directValueReferences` reads, in
+    /// its operand order (a list property stands for its items, a binding list for their values).
+    [<Fact>]
+    let ``node_references.txt follows directValueReferences`` () =
+        let table =
+            File.ReadAllLines(ZigModelReaderSupport.toolFile "node_references.txt")
+            |> Array.filter (fun line -> line <> "")
+            |> Array.map (fun line -> let parts = line.Split('|') in parts[0], parts[1].Split(' ', StringSplitOptions.RemoveEmptyEntries) |> List.ofArray)
+            |> Map.ofArray
+        let mutable checkedKinds = Set.empty
+        let mutable mismatches = []
+        // Every reference gets its own ID and every list two items, so the order is observable.
+        for json in ZigModelReaderSupport.allKindsJson () do
+            let document = JsonNode.Parse json
+            for o in ZigModelReaderSupport.graphNodes document do
+                let kind = string o["kind"]
+                for name in table[kind] do
+                    if not (name.EndsWith "NodeId") && isNull o[name] then o[name] <- JsonArray()
+                    match o[name] with
+                    | :? JsonArray as items ->
+                        let strings = kind = "listConstruct" || kind = "functionInvoke"
+                        let target = if name = "fields" then "targetFieldId" elif kind = "capabilityInvoke" then "targetCapabilityParameterId" else "targetParameterId"
+                        items.Clear()
+                        for i in 1 .. 2 do
+                            if strings then items.Add(JsonValue.Create $"ref-{name}-{i}")
+                            else
+                                let binding = JsonObject()
+                                binding[target] <- JsonValue.Create $"target-{name}-{i}"
+                                binding["valueNodeId"] <- JsonValue.Create $"ref-{name}-{i}"
+                                items.Add binding
+                    | _ -> o[name] <- JsonValue.Create $"ref-{name}"
+            let snapshot = SnapshotCodec.readUnvalidated (document.ToJsonString()) |> Result.mapError string |> ZigModelReaderSupport.unwrap
+            let jsonNodes = ZigModelReaderSupport.graphNodes document |> List.map (fun n -> string n["id"], n) |> Map.ofList
+            for f in snapshot.Functions do
+                for node in ValueGraph.collectNodes f.Body do
+                    let o = jsonNodes[StableId.value node.Id]
+                    let kind = string o["kind"]
+                    let fromTable =
+                        table[kind]
+                        |> List.collect (fun name ->
+                            match o[name] with
+                            | null -> []
+                            | :? JsonArray as items -> [ for item in items -> match item with :? JsonObject as b -> string b["valueNodeId"] | v -> string v ]
+                            | v -> [ string v ])
+                    let actual = SemanticNodeShape.directValueReferences node |> List.map StableId.value
+                    if fromTable <> actual then mismatches <- $"{kind}: {String.Join(' ', fromTable)} <> {String.Join(' ', actual)}" :: mismatches
+                    checkedKinds <- checkedKinds.Add kind
+        Assert.True(mismatches.IsEmpty, String.Join("\n", List.distinct mismatches))
+        Assert.Equal<string list>(table.Keys |> List.ofSeq, checkedKinds |> List.ofSeq)
 
 /// The extended comparison (a class, so that it can report its counts).
 type ZigValidatorComparison(output: ITestOutputHelper) =
@@ -361,7 +488,7 @@ type ZigValidatorComparison(output: ITestOutputHelper) =
         let apply (edits: (JsonObject -> bool) list) (json: string) =
             let document = JsonNode.Parse json :?> JsonObject
             let changed = edits |> List.fold (fun changed edit -> edit document || changed) false
-            if changed then Some(document.ToJsonString()) else None
+            if changed then Some(document.ToJsonString().Replace(ZigValidatorSupport.loneSurrogateMarker, "\\ud800")) else None
         let targeted = [ for json in originals do for _, edit in ZigValidatorSupport.semanticEdits do yield! Option.toList (apply [ edit ] json) ]
         // Two or three random edits together, so rules meet each other's damage.
         let combined =

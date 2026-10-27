@@ -1,0 +1,215 @@
+abort|errorNodeId
+bind|inputNodeId
+bits32Add|leftNodeId rightNodeId
+bits32And|leftNodeId rightNodeId
+bits32FromInt64|valueNodeId
+bits32Not|valueNodeId
+bits32Or|leftNodeId rightNodeId
+bits32RotateRight|valueNodeId amountNodeId
+bits32ShiftLeft|valueNodeId amountNodeId
+bits32ShiftRight|valueNodeId amountNodeId
+bits32ToInt64|valueNodeId
+bits32Xor|leftNodeId rightNodeId
+boolAnd|leftNodeId
+boolLiteral|
+boolNot|operandNodeId
+boolOr|leftNodeId
+bytesAppend|bytesNodeId valueNodeId
+bytesConcat|leftNodeId rightNodeId
+bytesEmpty|
+bytesFill|lengthNodeId valueNodeId
+bytesFromLatin1|valueNodeId
+bytesGet|bytesNodeId indexNodeId
+bytesLength|valueNodeId
+bytesSet|bytesNodeId indexNodeId valueNodeId
+bytesSlice|bytesNodeId startNodeId endNodeId
+bytesToLatin1|valueNodeId
+cancellationRequested|
+cancellationShield|context
+capabilityConstruct|
+capabilityInvoke|capabilityValueNodeId arguments
+conditional|conditionNodeId
+directCall|arguments
+exceptionCatch|bodyContext handlerContext
+exceptionIsCancellation|valueNodeId
+exceptionMessage|valueNodeId
+exceptionRethrow|valueNodeId
+fieldAccess|sourceNodeId
+float64Abs|valueNodeId
+float64Add|leftNodeId rightNodeId
+float64Ceiling|valueNodeId
+float64Divide|leftNodeId rightNodeId
+float64Equal|leftNodeId rightNodeId
+float64FloorModulo|leftNodeId rightNodeId
+float64FloorToInt64|valueNodeId
+float64Floor|valueNodeId
+float64IsFinite|valueNodeId
+float64IsInfinite|valueNodeId
+float64IsNaN|valueNodeId
+float64LessThan|leftNodeId rightNodeId
+float64Literal|
+float64Max|leftNodeId rightNodeId
+float64Min|leftNodeId rightNodeId
+float64Multiply|leftNodeId rightNodeId
+float64Negate|valueNodeId
+float64RoundToInt64|valueNodeId
+float64Round|valueNodeId digitsNodeId
+float64Sqrt|valueNodeId
+float64Subtract|leftNodeId rightNodeId
+float64ToString|valueNodeId
+float64Truncate|valueNodeId
+functionInvoke|functionValueNodeId arguments
+functionReference|
+int64BitAnd|leftNodeId rightNodeId
+int64BitNot|valueNodeId
+int64BitOr|leftNodeId rightNodeId
+int64BitXor|leftNodeId rightNodeId
+int64CheckedAdd|leftNodeId rightNodeId
+int64CheckedMultiply|leftNodeId rightNodeId
+int64CheckedSubtract|leftNodeId rightNodeId
+int64Equal|leftNodeId rightNodeId
+int64FloorDivide|leftNodeId rightNodeId
+int64FloorModulo|leftNodeId rightNodeId
+int64GreaterThanOrEqual|leftNodeId rightNodeId
+int64GreaterThan|leftNodeId rightNodeId
+int64LessThanOrEqual|leftNodeId rightNodeId
+int64LessThan|leftNodeId rightNodeId
+int64Literal|
+int64Max|leftNodeId rightNodeId
+int64Min|leftNodeId rightNodeId
+int64ShiftLeft|valueNodeId countNodeId
+int64ShiftRight|valueNodeId countNodeId
+int64ToFloat64|valueNodeId
+int64ToHexString|valueNodeId
+int64ToString|valueNodeId
+int64WrappingAbs|valueNodeId
+int64WrappingAdd|leftNodeId rightNodeId
+int64WrappingMultiply|leftNodeId rightNodeId
+int64WrappingSubtract|leftNodeId rightNodeId
+listAll|sourceListNodeId context
+listAny|sourceListNodeId context
+listAppendItem|listNodeId itemNodeId
+listConcat|leftListNodeId rightListNodeId
+listConstruct|itemNodeIds
+listContains|listNodeId itemNodeId
+listDropLast|listNodeId
+listEffectFold|sourceListNodeId seedNodeId context
+listEmpty|
+listFilter|sourceListNodeId context
+listFindIndex|sourceListNodeId context
+listFlatMap|sourceListNodeId context
+listFold|sourceListNodeId seedNodeId context
+listIndexOf|listNodeId itemNodeId
+listInsertAt|listNodeId indexNodeId itemNodeId
+listItemAt|listNodeId indexNodeId
+listLastIndexOf|listNodeId itemNodeId
+listLast|listNodeId
+listLength|listNodeId
+listMap|sourceListNodeId context
+listMaxBy|sourceListNodeId context
+listMinBy|sourceListNodeId context
+listRange|startNodeId endNodeId
+listRemoveAt|listNodeId indexNodeId
+listReverse|listNodeId
+listScan|sourceListNodeId seedNodeId context
+listSetAt|listNodeId indexNodeId itemNodeId
+listSlice|listNodeId startNodeId endNodeId
+listSortBy|sourceListNodeId context
+listZipWith|leftListNodeId rightListNodeId context
+mapContainsKey|mapNodeId keyNodeId
+mapEmpty|
+mapFilter|sourceMapNodeId context
+mapFold|sourceMapNodeId seedNodeId context
+mapFromList|sourceListNodeId context
+mapGetOrDefault|mapNodeId keyNodeId defaultNodeId
+mapGet|mapNodeId keyNodeId
+mapInsert|mapNodeId keyNodeId valueNodeId
+mapKeys|mapNodeId
+mapMapValues|sourceMapNodeId context
+mapRemove|mapNodeId keyNodeId
+mapSize|mapNodeId
+mapUnion|leftMapNodeId rightMapNodeId
+mapValues|mapNodeId
+matchOption|inputNodeId
+matchResult|inputNodeId
+matchUnion|inputNodeId
+oneShotComplete|cellNodeId valueNodeId
+oneShotCreate|scopeNodeId
+oneShotWait|cellNodeId limitNodeId
+optionAndThen|sourceOptionNodeId context
+optionGetOrDefault|optionNodeId defaultNodeId
+optionIsSome|valueNodeId
+optionMap|sourceOptionNodeId context
+optionNone|
+optionOkOr|optionNodeId errorNodeId
+optionSome|valueNodeId
+parallelAll|sourceListNodeId context
+parameterReference|
+patternReference|
+productConstruct|fields
+productUpdate|sourceNodeId fields
+resultAndThen|sourceResultNodeId context
+resultErrValue|valueNodeId
+resultErr|errorNodeId
+resultGetOrDefault|resultNodeId defaultNodeId
+resultIsOk|valueNodeId
+resultMapErr|sourceResultNodeId context
+resultMap|sourceResultNodeId context
+resultOkValue|valueNodeId
+resultOk|valueNodeId
+setContains|setNodeId itemNodeId
+setDifference|leftSetNodeId rightSetNodeId
+setEmpty|
+setFilter|sourceSetNodeId context
+setFold|sourceSetNodeId seedNodeId context
+setFromList|listNodeId
+setInsert|setNodeId itemNodeId
+setIntersection|leftSetNodeId rightSetNodeId
+setIsSubset|leftSetNodeId rightSetNodeId
+setMap|sourceSetNodeId context
+setRemove|setNodeId itemNodeId
+setSize|setNodeId
+setToList|setNodeId
+setUnion|leftSetNodeId rightSetNodeId
+stringCodePoints|valueNodeId
+stringConcat|leftNodeId rightNodeId
+stringContains|valueNodeId substringNodeId
+stringDecodeUtf8Lossy|valueNodeId
+stringEncodeUtf8|valueNodeId
+stringEndsWith|valueNodeId suffixNodeId
+stringEqual|leftNodeId rightNodeId
+stringFromCodePoint|valueNodeId
+stringIndexOf|valueNodeId substringNodeId fromNodeId
+stringIsEmpty|valueNodeId
+stringJoin|listNodeId separatorNodeId
+stringLastIndexOfBefore|valueNodeId substringNodeId endNodeId
+stringLastIndexOf|valueNodeId substringNodeId
+stringLength|valueNodeId
+stringLessThan|leftNodeId rightNodeId
+stringLiteral|
+stringParseFloat64|valueNodeId
+stringParseInt64Hex|valueNodeId
+stringParseInt64|valueNodeId
+stringRepeat|textNodeId countNodeId
+stringReplace|valueNodeId patternNodeId replacementNodeId
+stringSlice|valueNodeId startNodeId endNodeId
+stringSpanBack|valueNodeId setNodeId endNodeId
+stringSpan|valueNodeId setNodeId fromNodeId
+stringSplitLines|valueNodeId breaksNodeId
+stringSplit|valueNodeId separatorNodeId
+stringStartsWith|valueNodeId prefixNodeId
+stringToCodePoint|valueNodeId
+stringToLower|valueNodeId
+stringToUpper|valueNodeId
+stringTrimEnd|valueNodeId
+stringTrimStart|valueNodeId
+stringTrim|valueNodeId
+stringUtf8ByteCount|valueNodeId
+taskCancel|taskNodeId
+taskScope|context
+taskStart|scopeNodeId itemNodeId context
+taskWait|tasksNodeId limitNodeId
+unionConstruct|fields
+unitLiteral|
+useResource|acquireNodeId releaseCapabilityNodeId context
+valueEqual|leftNodeId rightNodeId

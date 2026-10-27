@@ -21,6 +21,7 @@ const std = @import("std");
 
 const kind_table_text = @embedFile("model_kinds.txt");
 const minimums_text = @embedFile("schema_minimums.txt");
+const references_text = @embedFile("node_references.txt");
 const max_json_depth = 1000;
 
 var a: std.mem.Allocator = undefined;
@@ -663,6 +664,8 @@ const Kind = struct {
     required: []const []const u8,
     allowed: []const []const u8,
     row: ?usize = null,
+    /// The properties `directValueReferences` reads, in operand order (node_references.txt).
+    references: []const []const u8 = &.{},
 };
 var kinds: std.StringHashMapUnmanaged(Kind) = .empty;
 
@@ -722,6 +725,17 @@ fn loadTables() void {
         }
         kinds.put(a, name, .{ .context = context, .reads = reads.items, .writes = writes.items, .required = required.items, .allowed = allowed.items, .row = row }) catch oom();
     }
+
+    lines = std.mem.tokenizeScalar(u8, references_text, '\n');
+    while (lines.next()) |line| {
+        var parts = std.mem.splitScalar(u8, line, '|');
+        const kind = kinds.getPtr(parts.next().?) orelse @panic("node_references.txt: unknown kind");
+        var names: List([]const u8) = .empty;
+        var items = std.mem.tokenizeScalar(u8, parts.next().?, ' ');
+        while (items.next()) |item| names.append(a, item) catch oom();
+        kind.references = names.items;
+    }
+    checkTypingTable();
 }
 
 fn readArgumentLike(context: []const u8, target: []const u8, element: Value) Failure!Keyed {
@@ -1116,12 +1130,14 @@ const Issue = struct { code: []const u8, message: Str };
 var issues: List(Issue) = .empty;
 var parsed_root: Value = .json_null;
 
+/// Reports an issue of a listed code. A code stays unlisted until every site that emits it is
+/// ported; the sites already ported run but report nothing (and a misspelt code shows up as an
+/// issue the comparison misses).
 fn add(code: []const u8, message_units: Str) void {
     var lines = std.mem.tokenizeAny(u8, codes_text, "\r\n");
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, code)) return issues.append(a, .{ .code = code, .message = message_units }) catch oom();
     }
-    @panic("a ported code is missing from validation_codes.txt");
 }
 
 /// The F# validator's final `sortBy (Code, Message)`: ordinal, that is per UTF-16 unit.
@@ -1759,20 +1775,22 @@ fn payloadTypeRefs(node: Value, out: *List(TypeRef)) void {
     }
 }
 
-/// `SemanticNodeShape.directValueReferences`: every `…NodeId` property, the node lists
-/// (`itemNodeIds`, a function invoke's `arguments`) and the values of context, argument and field
-/// bindings. Every other ID property of model_kinds.txt names a declaration, not a node.
+fn kindOf(node: Value) *const Kind {
+    return kinds.getPtr(text(str(node, "kind"))).?;
+}
+
+/// `SemanticNodeShape.directValueReferences`, in operand order: the properties node_references.txt
+/// lists for the kind; a node list stands for its items, a binding list for their values.
 fn directValueReferences(node: Value, out: *List(Str)) void {
-    for (node.object) |member| {
-        const name = member.name;
-        if (name.len > 6 and isName(name[name.len - 6 ..], "NodeId") and member.value == .string) {
-            out.append(a, member.value.string) catch oom();
-        } else if (inNames(name, &.{ "itemNodeIds", "arguments", "context", "bodyContext", "handlerContext", "fields" }) and member.value == .array) {
-            for (member.value.array) |item| switch (item) {
+    for (kindOf(node).references) |name| {
+        const value = tryProperty(name, node) orelse continue;
+        switch (value) {
+            .string => |s| out.append(a, s) catch oom(),
+            .array => |items| for (items) |item| switch (item) {
                 .string => |s| out.append(a, s) catch oom(),
-                .object => out.append(a, str(item, "valueNodeId")) catch oom(),
-                else => {},
-            };
+                else => out.append(a, str(item, "valueNodeId")) catch oom(),
+            },
+            else => unreachable,
         }
     }
 }
@@ -1902,6 +1920,715 @@ fn idSetOf(declarations: []const Value) Set {
     return set;
 }
 
+// ---------------------------------------------------------------- node typing (slice 3c)
+
+// `SemanticFacts.createCompletionResolver`: the completion (normal type or abrupt) of each node of
+// one function. The F# resolver resolves every node eagerly when it is created, in a post-order
+// search over `nodesById` (ordinal ID order), and memoises every result, including the `None` of a
+// node met again on the current path; a later query only reads the memo. So the order in which the
+// validator asks does not matter, but the order of the search does, and it is ported exactly:
+// `directValueReferences` in operand order (node_references.txt), then the nested graphs' nodes.
+
+const Completion = union(enum) { normal: TypeRef, aborts };
+
+fn normalType(completion: ?Completion) ?TypeRef {
+    return if (completion) |c| switch (c) {
+        .normal => |t| t,
+        .aborts => null,
+    } else null;
+}
+
+/// `GraphCompletion.merge`: unknown or inconsistent arms stay unknown; abrupt arms are ignored.
+fn mergeCompletions(arms: []const ?Completion) ?Completion {
+    if (arms.len == 0) return null;
+    for (arms) |arm| if (arm == null) return null;
+    var first: ?TypeRef = null;
+    for (arms) |arm| switch (arm.?) {
+        .normal => |t| if (first) |f| {
+            if (!typeEql(f, t)) return null;
+        } else {
+            first = t;
+        },
+        .aborts => {},
+    };
+    return if (first) |f| .{ .normal = f } else .aborts;
+}
+
+const ValueMap = std.StringArrayHashMapUnmanaged(Value);
+var functions_by_id: ValueMap = .empty;
+var operations_by_id: ValueMap = .empty;
+var product_fields_by_id: ValueMap = .empty;
+/// `ProductFieldOwners`: the Product that declares each Product field (the last wins).
+var product_field_owners: ValueMap = .empty;
+
+/// `TypeParameters.matchType`, extending `substitution` in place; false on a conflict (the caller
+/// then discards the substitution).
+fn matchType(substitution: *Substitution, declared: TypeRef, actual: TypeRef) bool {
+    if (declared.kind == .type_parameter) {
+        if (substitution.get(idKey(declared.name))) |bound| return typeEql(bound, actual);
+        substitution.put(a, idKey(declared.name), actual) catch oom();
+        return true;
+    }
+    const structural = declared.kind == actual.kind and declared.args.len == actual.args.len and switch (declared.kind) {
+        .function => true,
+        .generic, .named => same(declared.name, actual.name),
+        else => false,
+    };
+    if (structural) {
+        const declared_args = typeArgs(declared);
+        for (declared_args, typeArgs(actual)) |d, x| if (!matchType(substitution, d, x)) return false;
+        return true;
+    }
+    return typeEql(declared, actual);
+}
+
+const Pair = struct { declared: TypeRef, actual: TypeRef };
+
+/// `TypeParameters.matchFrom`.
+fn matchFrom(initial: *const Substitution, pairs: []const Pair) ?Substitution {
+    var substitution = initial.clone(a) catch oom();
+    for (pairs) |pair| if (!matchType(&substitution, pair.declared, pair.actual)) return null;
+    return substitution;
+}
+
+fn matchAll(pairs: []const Pair) ?Substitution {
+    return matchFrom(&.empty, pairs);
+}
+
+/// The first parameter of a function with this ID (`List.tryFind`).
+fn parameterOf(function: Value, parameter_id: Str) ?Value {
+    for (arrayOf(function, "parameters")) |parameter| if (same(str(parameter, "id"), parameter_id)) return parameter;
+    return null;
+}
+
+fn bindsParameter(context: []const Value, parameter_id: Str) bool {
+    for (context) |binding| if (same(str(binding, "targetParameterId"), parameter_id)) return true;
+    return false;
+}
+
+/// The parameter types a callback's context leaves unbound, in order.
+fn unboundTypes(callback: Value, context: []const Value) []const TypeRef {
+    var out: List(TypeRef) = .empty;
+    for (arrayOf(callback, "parameters")) |parameter| {
+        if (!bindsParameter(context, str(parameter, "id"))) out.append(a, typeRefOf(get(parameter, "type"))) catch oom();
+    }
+    return out.items;
+}
+
+const Resolver = struct {
+    nodes_by_id: ValueMap = .empty,
+    parameters_by_id: ValueMap = .empty,
+    bindings_by_id: ValueMap = .empty,
+    resolved: std.StringHashMapUnmanaged(?Completion) = .empty,
+    /// The F# `visiting` set: the nodes on the current resolution path.
+    visiting: Set = .empty,
+
+    fn init(function: Value) Resolver {
+        var self: Resolver = .{};
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        self.nodes_by_id = byId(nodes.items);
+        self.parameters_by_id = byId(arrayOf(function, "parameters"));
+        var bindings: List(Value) = .empty;
+        collectBindings(get(function, "body"), &bindings);
+        self.bindings_by_id = byId(bindings.items);
+        self.resolveAll();
+        return self;
+    }
+
+    /// The post-order search of the F# constructor.
+    fn resolveAll(self: *Resolver) void {
+        const ids = a.dupe([]const u8, self.nodes_by_id.keys()) catch oom();
+        std.mem.sort([]const u8, ids, {}, lessKey);
+        var finished: Set = .empty;
+        var on_path: Set = .empty;
+        const Frame = struct { id: []const u8, reads: []const Str, next: usize = 0 };
+        var frames: List(Frame) = .empty;
+        for (ids) |root| {
+            if (finished.contains(root)) continue;
+            self.enter(root, &on_path, &frames);
+            while (frames.items.len > 0) {
+                const top = &frames.items[frames.items.len - 1];
+                if (top.next == top.reads.len) {
+                    const id = top.id;
+                    _ = frames.pop();
+                    _ = on_path.swapRemove(id);
+                    finished.put(a, id, {}) catch oom();
+                    _ = self.completion(keyId(id));
+                    continue;
+                }
+                const next = top.reads[top.next];
+                top.next += 1;
+                if (on_path.contains(idKey(next))) {
+                    self.resolved.put(a, idKey(next), null) catch oom();
+                } else if (!finished.contains(idKey(next))) self.enter(idKey(next), &on_path, &frames);
+            }
+        }
+    }
+
+    fn enter(self: *Resolver, id: []const u8, on_path: *Set, frames: anytype) void {
+        const node = self.nodes_by_id.get(id) orelse return;
+        on_path.put(a, id, {}) catch oom();
+        var reads: List(Str) = .empty;
+        directValueReferences(node, &reads);
+        for (nestedScopes(node)) |scope| for (arrayOf(scope.graph, "nodes")) |nested| reads.append(a, str(nested, "id")) catch oom();
+        frames.append(a, .{ .id = id, .reads = reads.items }) catch oom();
+    }
+
+    fn nodeType(self: *Resolver, id: Str) ?TypeRef {
+        return normalType(self.completion(id));
+    }
+
+    /// `SemanticFacts.graphCompletion`: abrupt when any stored node is, else the result node's.
+    fn graph(self: *Resolver, graph_value: Value) ?Completion {
+        for (arrayOf(graph_value, "nodes")) |node| {
+            if (self.completion(str(node, "id"))) |c| if (c == .aborts) return .aborts;
+        }
+        return self.completion(str(graph_value, "resultNodeId"));
+    }
+
+    /// `tryCompletion`.
+    fn completion(self: *Resolver, id: Str) ?Completion {
+        if (self.resolved.get(idKey(id))) |cached| return cached;
+        const result: ?Completion = if (self.visiting.contains(idKey(id))) null else blk: {
+            self.visiting.put(a, idKey(id), {}) catch oom();
+            defer _ = self.visiting.swapRemove(idKey(id));
+            break :blk self.structured(id);
+        };
+        self.resolved.put(a, idKey(id), result) catch oom();
+        return result;
+    }
+
+    fn structured(self: *Resolver, id: Str) ?Completion {
+        const node = self.nodes_by_id.get(idKey(id)) orelse return null;
+        const kind = str(node, "kind");
+        if (isName(kind, "abort")) return .aborts;
+        if (isName(kind, "conditional")) {
+            const when_true = self.graph(get(node, "whenTrue"));
+            return mergeCompletions(&.{ when_true, self.graph(get(node, "whenFalse")) });
+        }
+        if (isName(kind, "matchUnion")) {
+            var arms: List(?Completion) = .empty;
+            for (arrayOf(node, "arms")) |arm| arms.append(a, self.graph(get(arm, "body"))) catch oom();
+            return mergeCompletions(arms.items);
+        }
+        if (isName(kind, "bind")) return self.graph(get(get(node, "boundBody"), "body"));
+        if (isName(kind, "matchOption")) {
+            const some = self.graph(get(get(node, "someArm"), "body"));
+            return mergeCompletions(&.{ some, self.graph(get(node, "noneBody")) });
+        }
+        if (isName(kind, "matchResult")) {
+            const ok = self.graph(get(get(node, "okArm"), "body"));
+            return mergeCompletions(&.{ ok, self.graph(get(get(node, "errArm"), "body")) });
+        }
+        return if (self.infer(node)) |t| .{ .normal = t } else null;
+    }
+
+    /// `callbackResult`: the callback's result type at the type arguments its context and
+    /// iteration values determine.
+    fn callbackResult(self: *Resolver, function: Value, context: []const Value, iteration: []const TypeRef) TypeRef {
+        var pairs: List(Pair) = .empty;
+        for (context) |binding| {
+            const parameter = parameterOf(function, str(binding, "targetParameterId"));
+            const actual = self.nodeType(str(binding, "valueNodeId"));
+            if (parameter != null and actual != null) pairs.append(a, .{ .declared = typeRefOf(get(parameter.?, "type")), .actual = actual.? }) catch oom();
+        }
+        const unbound = unboundTypes(function, context);
+        const n = @min(unbound.len, iteration.len);
+        for (unbound[0..n], iteration[0..n]) |declared, actual| pairs.append(a, .{ .declared = declared, .actual = actual }) catch oom();
+        const result_type = typeRefOf(get(function, "resultType"));
+        const substitution = matchAll(pairs.items) orelse return result_type;
+        return substitute(&substitution, result_type);
+    }
+
+    fn operand(self: *Resolver, node: Value, name: []const u8) ?TypeRef {
+        return self.nodeType(str(node, name));
+    }
+
+    fn functionAt(node: Value, name: []const u8) ?Value {
+        return functions_by_id.get(idKey(str(node, name)));
+    }
+
+    /// `inferNodeType` for a node of the function (not a structured one).
+    fn infer(self: *Resolver, node: Value) ?TypeRef {
+        const kind = text(str(node, "kind"));
+        if (constantType(kind)) |t| return t;
+        const k = std.meta.stringToEnum(Typed, kind) orelse return null;
+        const context = arrayOf(node, "context");
+        switch (k) {
+            .parameterReference => return if (self.parameters_by_id.get(idKey(str(node, "parameterId")))) |p| typeRefOf(get(p, "type")) else null,
+            .patternReference => return if (self.bindings_by_id.get(idKey(str(node, "patternBindingId")))) |b| typeRefOf(get(b, "type")) else null,
+            .mapEmpty => return builtin("map", &.{ typeRefOf(get(node, "keyType")), typeRefOf(get(node, "valueType")) }),
+            .mapInsert, .mapRemove, .mapGetOrDefault, .mapGet, .mapKeys, .mapValues => {
+                const t = self.operand(node, "mapNodeId") orelse return null;
+                if (!t.isGeneric("map") or t.args.len != 2) return null;
+                return switch (k) {
+                    .mapGetOrDefault => t.args[1],
+                    .mapGet => builtin("option", &.{t.args[1]}),
+                    .mapKeys => builtin("list", &.{t.args[0]}),
+                    .mapValues => builtin("list", &.{t.args[1]}),
+                    else => t,
+                };
+            },
+            .mapUnion => {
+                const t = self.operand(node, "leftMapNodeId") orelse return null;
+                return if (t.isGeneric("map") and t.args.len == 2) t else null;
+            },
+            .mapFilter => {
+                const t = self.operand(node, "sourceMapNodeId") orelse return null;
+                return if (t.isGeneric("map") and t.args.len == 2) t else null;
+            },
+            .mapMapValues => {
+                const t = self.operand(node, "sourceMapNodeId");
+                const mapper = functionAt(node, "mapperFunctionId");
+                if (t == null or mapper == null or !t.?.isGeneric("map") or t.?.args.len != 2) return null;
+                return builtin("map", &.{ t.?.args[0], self.callbackResult(mapper.?, context, t.?.args) });
+            },
+            .optionGetOrDefault => {
+                const t = self.operand(node, "optionNodeId") orelse return null;
+                return if (t.isGeneric("option") and t.args.len == 1) t.args[0] else null;
+            },
+            .resultGetOrDefault => {
+                const t = self.operand(node, "resultNodeId") orelse return null;
+                return if (t.isGeneric("result") and t.args.len == 2) t.args[0] else null;
+            },
+            .optionOkOr => {
+                const option = self.operand(node, "optionNodeId");
+                const error_type = self.operand(node, "errorNodeId");
+                if (option == null or error_type == null or !option.?.isGeneric("option") or option.?.args.len != 1) return null;
+                return builtin("result", &.{ option.?.args[0], error_type.? });
+            },
+            .resultOkValue, .resultErrValue => {
+                const t = self.operand(node, "valueNodeId") orelse return null;
+                if (!t.isGeneric("result") or t.args.len != 2) return null;
+                return builtin("option", &.{t.args[if (k == .resultOkValue) 0 else 1]});
+            },
+            .optionMap, .optionAndThen => {
+                const t = self.operand(node, "sourceOptionNodeId");
+                const f = functionAt(node, if (k == .optionMap) "mapperFunctionId" else "binderFunctionId");
+                if (t == null or f == null or !t.?.isGeneric("option") or t.?.args.len != 1) return null;
+                const result = self.callbackResult(f.?, context, t.?.args);
+                return if (k == .optionMap) builtin("option", &.{result}) else result;
+            },
+            .resultMap, .resultMapErr, .resultAndThen => {
+                const t = self.operand(node, "sourceResultNodeId");
+                const f = functionAt(node, if (k == .resultAndThen) "binderFunctionId" else "mapperFunctionId");
+                if (t == null or f == null or !t.?.isGeneric("result") or t.?.args.len != 2) return null;
+                const ok_type = t.?.args[0];
+                const error_type = t.?.args[1];
+                return switch (k) {
+                    .resultMap => builtin("result", &.{ self.callbackResult(f.?, context, &.{ok_type}), error_type }),
+                    .resultMapErr => builtin("result", &.{ ok_type, self.callbackResult(f.?, context, &.{error_type}) }),
+                    else => self.callbackResult(f.?, context, &.{ok_type}),
+                };
+            },
+            .listMinBy, .listMaxBy => {
+                const t = self.operand(node, "sourceListNodeId") orelse return null;
+                return if (t.isGeneric("list") and t.args.len == 1) builtin("option", t.args) else null;
+            },
+            .setFilter, .setMap, .setToList, .setInsert, .setRemove, .setUnion, .setIntersection, .setDifference => {
+                const t = self.nodeType(str(node, switch (k) {
+                    .setFilter, .setMap => "sourceSetNodeId",
+                    .setInsert, .setRemove, .setToList => "setNodeId",
+                    else => "leftSetNodeId",
+                })) orelse return null;
+                if (k == .setMap) {
+                    const mapper = functionAt(node, "mapperFunctionId");
+                    if (mapper == null or !t.isGeneric("set") or t.args.len != 1) return null;
+                    return builtin("set", &.{self.callbackResult(mapper.?, context, t.args)});
+                }
+                if (!t.isGeneric("set") or t.args.len != 1) return null;
+                return if (k == .setToList) builtin("list", t.args) else t;
+            },
+            .setEmpty => return builtin("set", &.{typeRefOf(get(node, "itemType"))}),
+            .setFromList => {
+                const t = self.operand(node, "listNodeId") orelse return null;
+                return if (t.isGeneric("list") and t.args.len == 1) builtin("set", t.args) else null;
+            },
+            .listEmpty, .listConstruct => return builtin("list", &.{typeRefOf(get(node, "itemType"))}),
+            .listItemAt, .listLast => {
+                const t = self.operand(node, "listNodeId") orelse return null;
+                return if (t.isGeneric("list") and t.args.len == 1) builtin("option", t.args) else null;
+            },
+            .listAppendItem, .listSlice, .listSetAt, .listInsertAt, .listRemoveAt, .listReverse, .listDropLast, .listFilter, .listSortBy => {
+                const t = self.nodeType(str(node, if (k == .listFilter or k == .listSortBy) "sourceListNodeId" else "listNodeId")) orelse return null;
+                return if (t.isGeneric("list") and t.args.len == 1) builtin("list", t.args) else null;
+            },
+            .listConcat => {
+                const left = self.operand(node, "leftListNodeId");
+                const right = self.operand(node, "rightListNodeId");
+                if (left == null or right == null or !left.?.isGeneric("list") or left.?.args.len != 1 or !right.?.isGeneric("list") or right.?.args.len != 1) return null;
+                return if (typeEql(left.?.args[0], right.?.args[0])) builtin("list", left.?.args) else null;
+            },
+            .listFold, .mapFold, .setFold => return self.operand(node, "seedNodeId"),
+            .listScan => return if (self.operand(node, "seedNodeId")) |seed| builtin("list", &.{seed}) else null,
+            .listEffectFold => {
+                const seed = self.operand(node, "seedNodeId");
+                const folder = functionAt(node, "folderFunctionId");
+                if (seed == null or folder == null) return seed;
+                const source = self.operand(node, "sourceListNodeId");
+                var iteration: [2]TypeRef = .{ seed.?, undefined };
+                var n: usize = 1;
+                if (source != null and source.?.isGeneric("list") and source.?.args.len == 1) {
+                    iteration[1] = source.?.args[0];
+                    n = 2;
+                }
+                const result = self.callbackResult(folder.?, context, iteration[0..n]);
+                return if (result.isGeneric("result") and result.args.len == 2 and typeEql(result.args[0], seed.?)) result else seed;
+            },
+            .useResource => {
+                const body = functionAt(node, "bodyFunctionId") orelse return null;
+                const acquired = self.operand(node, "acquireNodeId");
+                const resource: []const TypeRef = if (acquired != null and acquired.?.isGeneric("result") and acquired.?.args.len == 2) acquired.?.args[0..1] else &.{};
+                return self.callbackResult(body, context, resource);
+            },
+            .exceptionCatch => {
+                const body = functionAt(node, "bodyFunctionId") orelse return null;
+                return self.callbackResult(body, arrayOf(node, "bodyContext"), &.{.{ .kind = .primitive, .name = L("unit") }});
+            },
+            .cancellationShield => {
+                const body = functionAt(node, "bodyFunctionId") orelse return null;
+                return self.callbackResult(body, context, &.{.{ .kind = .primitive, .name = L("unit") }});
+            },
+            .taskScope => {
+                const body = functionAt(node, "bodyFunctionId") orelse return null;
+                return self.callbackResult(body, context, &.{builtin("taskScope", &.{})});
+            },
+            .exceptionRethrow => return typeRefOf(get(node, "resultType")),
+            .taskStart => {
+                const item = self.operand(node, "itemNodeId");
+                const worker = functionAt(node, "workerFunctionId");
+                if (item == null or worker == null) return null;
+                return builtin("task", &.{self.callbackResult(worker.?, context, &.{item.?})});
+            },
+            .taskWait => {
+                const t = self.operand(node, "tasksNodeId") orelse return null;
+                if (!t.isGeneric("list") or t.args.len != 1 or !t.args[0].isGeneric("task") or t.args[0].args.len != 1) return null;
+                return builtin("list", &.{builtin("option", t.args[0].args)});
+            },
+            .oneShotCreate => return builtin("oneShot", &.{typeRefOf(get(node, "valueType"))}),
+            .oneShotWait => {
+                const t = self.operand(node, "cellNodeId") orelse return null;
+                return if (t.isGeneric("oneShot") and t.args.len == 1) builtin("option", t.args) else null;
+            },
+            .parallelAll => {
+                const t = self.operand(node, "sourceListNodeId");
+                const worker = functionAt(node, "workerFunctionId");
+                if (t == null or worker == null or !t.?.isGeneric("list") or t.?.args.len != 1) return null;
+                const result = self.callbackResult(worker.?, context, t.?.args);
+                if (!result.isGeneric("result") or result.args.len != 2) return null;
+                return builtin("result", &.{ builtin("list", result.args[0..1]), result.args[1] });
+            },
+            .listMap, .listFlatMap, .mapFromList => {
+                const t = self.operand(node, "sourceListNodeId");
+                const f = functionAt(node, if (k == .mapFromList) "keyOfFunctionId" else "mapperFunctionId");
+                if (t == null or f == null or !t.?.isGeneric("list") or t.?.args.len != 1) return null;
+                const result = self.callbackResult(f.?, context, t.?.args);
+                return switch (k) {
+                    .listMap => builtin("list", &.{result}),
+                    .listFlatMap => if (result.isGeneric("list") and result.args.len == 1) result else null,
+                    else => builtin("map", &.{ result, t.?.args[0] }),
+                };
+            },
+            .listZipWith => {
+                const left = self.operand(node, "leftListNodeId");
+                const right = self.operand(node, "rightListNodeId");
+                const combiner = functionAt(node, "combinerFunctionId");
+                if (left == null or right == null or combiner == null or !left.?.isGeneric("list") or left.?.args.len != 1 or !right.?.isGeneric("list") or right.?.args.len != 1) return null;
+                return builtin("list", &.{self.callbackResult(combiner.?, context, &.{ left.?.args[0], right.?.args[0] })});
+            },
+            .capabilityConstruct => return .{ .kind = .capability, .name = str(node, "capabilityId") },
+            .functionReference => {
+                const target = functionAt(node, "targetFunctionId") orelse return null;
+                return functionType(target);
+            },
+            .functionInvoke => {
+                const t = self.operand(node, "functionValueNodeId") orelse return null;
+                return if (t.kind == .function) t.result.?.* else null;
+            },
+            .directCall => {
+                const target = functionAt(node, "targetFunctionId") orelse return null;
+                return self.callbackResult(target, arrayOf(node, "arguments"), &.{});
+            },
+            .capabilityInvoke => return if (operations_by_id.get(idKey(str(node, "operationId")))) |operation| typeRefOf(get(operation, "resultType")) else null,
+            .productConstruct => return .{ .kind = .named, .name = str(node, "typeId"), .args = typeArgumentsOf(node) },
+            .productUpdate => {
+                const type_id = str(node, "typeId");
+                if (self.operand(node, "sourceNodeId")) |source| if (source.kind == .named and same(source.name, type_id)) return source;
+                return .{ .kind = .named, .name = type_id };
+            },
+            .fieldAccess => {
+                const field_id = idKey(str(node, "fieldId"));
+                const field = product_fields_by_id.get(field_id) orelse return null;
+                const owner = product_field_owners.get(field_id) orelse return null;
+                const field_type = typeRefOf(get(field, "type"));
+                if (arrayOf(owner, "typeParameters").len == 0) return field_type;
+                const source = self.operand(node, "sourceNodeId") orelse return null;
+                if (source.kind != .named or !same(source.name, str(owner, "id"))) return null;
+                return instantiate(owner, source.args, field_type);
+            },
+            .unionConstruct => return if (variant_owners.get(idKey(str(node, "variantId")))) |owner| .{ .kind = .named, .name = owner, .args = typeArgumentsOf(node) } else null,
+            .optionNone => return builtin("option", &.{typeRefOf(get(node, "itemType"))}),
+            .optionSome => return if (self.operand(node, "valueNodeId")) |t| builtin("option", &.{t}) else null,
+            .resultOk => return if (self.operand(node, "valueNodeId")) |t| builtin("result", &.{ t, typeRefOf(get(node, "errorType")) }) else null,
+            .resultErr => return if (self.operand(node, "errorNodeId")) |t| builtin("result", &.{ typeRefOf(get(node, "okType")), t }) else null,
+        }
+    }
+};
+
+/// `TypeRef.Function` of a function's declared signature.
+fn functionType(function: Value) TypeRef {
+    var parameters: List(TypeRef) = .empty;
+    for (arrayOf(function, "parameters")) |parameter| parameters.append(a, typeRefOf(get(parameter, "type"))) catch oom();
+    return .{ .kind = .function, .args = parameters.items, .result = boxed(typeRefOf(get(function, "resultType"))) };
+}
+
+fn lessKey(_: void, left: []const u8, right: []const u8) bool {
+    return lessUnits(keyId(left), keyId(right));
+}
+
+/// The kinds `inferNodeType` types from operands or payload. Every other kind is constant, or
+/// has no type of its own (`abort` and the structured kinds, which `tryCompletion` handles).
+const Typed = enum {
+    parameterReference, patternReference, mapEmpty, mapInsert, mapRemove, mapUnion, mapGetOrDefault, mapMapValues,
+    optionGetOrDefault, resultGetOrDefault, optionOkOr, resultOkValue, resultErrValue, optionMap, optionAndThen,
+    resultMap, resultMapErr, resultAndThen, listMinBy, listMaxBy, mapGet, mapFilter, setFilter, setMap, mapKeys,
+    mapValues, setEmpty, setInsert, setRemove, setUnion, setIntersection, setDifference, setToList, setFromList,
+    listEmpty, listConstruct, listItemAt, listLast, listAppendItem, listSlice, listSetAt, listInsertAt, listRemoveAt,
+    listReverse, listDropLast, listFilter, listSortBy, listConcat, listFold, listScan, mapFold, setFold,
+    listEffectFold, useResource, exceptionCatch, exceptionRethrow, cancellationShield, taskScope, taskStart,
+    taskWait, oneShotCreate, oneShotWait, parallelAll, listMap, listZipWith, listFlatMap, mapFromList,
+    capabilityConstruct, functionReference, functionInvoke, directCall, capabilityInvoke, productConstruct,
+    productUpdate, fieldAccess, unionConstruct, optionNone, optionSome, resultOk, resultErr,
+};
+const untyped_kinds = [_][]const u8{ "abort", "conditional", "matchUnion", "bind", "matchOption", "matchResult" };
+
+/// The kinds with one fixed type, by that type.
+const constant_kinds = [_]struct { []const u8, []const []const u8 }{
+    .{ "string", &.{ "stringLiteral", "stringConcat", "stringToLower", "stringToUpper", "stringReplace", "stringTrim", "stringTrimStart", "stringTrimEnd", "stringDecodeUtf8Lossy", "stringEncodeUtf8", "stringJoin", "stringRepeat", "stringSlice", "bytesToLatin1", "int64ToString", "int64ToHexString", "float64ToString", "exceptionMessage" } },
+    .{ "listInt64", &.{"listRange"} },
+    .{ "bool", &.{ "boolLiteral", "boolNot", "boolAnd", "boolOr", "stringIsEmpty", "stringContains", "stringStartsWith", "stringEndsWith", "stringEqual", "stringLessThan", "valueEqual", "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual", "float64Equal", "float64LessThan", "float64IsNaN", "float64IsFinite", "float64IsInfinite", "listAny", "listAll", "mapContainsKey", "setContains", "listContains", "setIsSubset", "optionIsSome", "resultIsOk", "cancellationRequested", "exceptionIsCancellation", "oneShotComplete" } },
+    .{ "unit", &.{ "unitLiteral", "taskCancel" } },
+    .{ "int64", &.{ "int64Literal", "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply", "int64FloorDivide", "int64FloorModulo", "int64Min", "int64Max", "int64BitAnd", "int64BitOr", "int64BitXor", "int64ShiftLeft", "int64ShiftRight", "int64WrappingAbs", "int64BitNot", "stringLength", "stringUtf8ByteCount", "stringSpan", "stringSpanBack", "listLength", "mapSize", "setSize", "bits32ToInt64", "bytesLength" } },
+    .{ "float64", &.{ "float64Literal", "float64Round", "float64Add", "float64Min", "float64Max", "float64Subtract", "float64Multiply", "float64Divide", "float64FloorModulo", "int64ToFloat64", "float64Sqrt", "float64Abs", "float64Negate", "float64Floor", "float64Ceiling", "float64Truncate" } },
+    .{ "bits32", &.{ "bits32FromInt64", "bits32Xor", "bits32And", "bits32Or", "bits32Not", "bits32Add", "bits32RotateRight", "bits32ShiftRight", "bits32ShiftLeft" } },
+    .{ "bytes", &.{ "bytesEmpty", "bytesFill", "bytesSet", "bytesAppend", "bytesConcat", "bytesSlice", "bytesFromLatin1" } },
+    .{ "optionInt64", &.{ "bytesGet", "stringParseInt64", "stringParseInt64Hex", "stringIndexOf", "stringLastIndexOf", "stringLastIndexOfBefore", "stringToCodePoint", "int64CheckedAdd", "int64CheckedSubtract", "int64CheckedMultiply", "float64RoundToInt64", "float64FloorToInt64", "listFindIndex", "listIndexOf", "listLastIndexOf" } },
+    .{ "optionFloat64", &.{"stringParseFloat64"} },
+    .{ "optionString", &.{"stringFromCodePoint"} },
+    .{ "listString", &.{ "stringCodePoints", "stringSplitLines", "stringSplit" } },
+};
+
+fn primitiveType(comptime name: []const u8) TypeRef {
+    return .{ .kind = .primitive, .name = L(name) };
+}
+
+fn constantType(kind: []const u8) ?TypeRef {
+    for (constant_kinds) |group| {
+        for (group[1]) |listed| if (std.mem.eql(u8, listed, kind)) {
+            const t = group[0];
+            if (std.mem.eql(u8, t, "listInt64")) return builtin("list", &.{primitiveType("int64")});
+            if (std.mem.eql(u8, t, "listString")) return builtin("list", &.{primitiveType("string")});
+            if (std.mem.eql(u8, t, "optionInt64")) return builtin("option", &.{primitiveType("int64")});
+            if (std.mem.eql(u8, t, "optionFloat64")) return builtin("option", &.{primitiveType("float64")});
+            if (std.mem.eql(u8, t, "optionString")) return builtin("option", &.{primitiveType("string")});
+            return .{ .kind = .primitive, .name = asciiUnits(t) };
+        };
+    }
+    return null;
+}
+
+/// Each model kind is typed exactly once: constant, typed from operands, or untyped.
+fn checkTypingTable() void {
+    var it = kinds.iterator();
+    while (it.next()) |entry| {
+        const kind = entry.key_ptr.*;
+        var count: usize = @intFromBool(std.meta.stringToEnum(Typed, kind) != null);
+        for (untyped_kinds) |listed| count += @intFromBool(std.mem.eql(u8, listed, kind));
+        for (constant_kinds) |group| for (group[1]) |listed| {
+            count += @intFromBool(std.mem.eql(u8, listed, kind));
+        };
+        if (count != 1) std.debug.panic("node kind '{s}' is typed {d} times", .{ kind, count });
+    }
+    inline for (@typeInfo(Typed).@"enum".field_names) |name| if (!kinds.contains(name)) @panic("unknown typed kind " ++ name);
+}
+
+// ---------------------------------------------------------------- typed graph rules (slice 3c)
+
+/// `DiagnosticText.typeRef`: display names in wire notation; an unknown declaration keeps its ID.
+/// (F# throws on `Exception` with type arguments; the comparison skips such inputs.)
+fn typeText(t: TypeRef) Str {
+    return switch (t.kind) {
+        .primitive => caseName(t),
+        .named => blk: {
+            const name = if (firstType(t.name)) |type_entity| str(type_entity, "displayName") else cat(&.{ L("type '"), t.name, L("'") });
+            break :blk if (t.args.len == 0) name else cat(&.{ name, L("<"), joinTypes(t.args, &typeText), L(">") });
+        },
+        .capability => blk: {
+            for (all_capabilities) |capability| if (same(str(capability, "id"), t.name)) break :blk str(capability, "displayName");
+            break :blk cat(&.{ L("capability '"), t.name, L("'") });
+        },
+        .function => cat(&.{ L("("), joinTypes(t.args, &typeText), L(") -> "), typeText(t.result.?.*) }),
+        .type_parameter => typeParameterName(t.name),
+        .generic => if (t.args.len == 0 and (t.isGeneric("exception") or t.isGeneric("taskScope"))) caseName(t) else cat(&.{ caseName(t), L("<"), joinTypes(t.args, &typeText), L(">") }),
+    };
+}
+
+var all_capabilities: []const Value = &.{};
+
+/// The function the per-function loop is in, its resolver and its parameters.
+const Scope3c = struct {
+    function: Value,
+    prefix: Str,
+    resolver: *Resolver,
+    parameters_by_id: ValueMap,
+};
+var in_function: Scope3c = undefined;
+
+/// The per-function loop's `add`: "In function …: " before the message.
+fn addIn(code: []const u8, message_units: Str) void {
+    add(code, cat(&.{ in_function.prefix, message_units }));
+}
+
+fn nodeType(id: Str) ?TypeRef {
+    return in_function.resolver.nodeType(id);
+}
+
+fn nodeTypeAt(node: Value, name: []const u8) ?TypeRef {
+    return nodeType(str(node, name));
+}
+
+/// `requireNodeType`: reports when the node has a known type other than `expected`.
+fn requireNodeType(code: []const u8, message_units: Str, expected: TypeRef, id: Str) void {
+    if (nodeType(id)) |actual| if (!typeEql(actual, expected)) addIn(code, message_units);
+}
+
+/// `compatibleArms`: the merged completion of these graphs is known.
+fn compatibleArms(graphs: []const Value) bool {
+    var arms: List(?Completion) = .empty;
+    for (graphs) |g| arms.append(a, in_function.resolver.graph(g)) catch oom();
+    return mergeCompletions(arms.items) != null;
+}
+
+fn nodeLabel(comptime what: []const u8, node: Value, comptime rest: []const u8) Str {
+    return cat(&.{ L(what ++ " node '"), str(node, "id"), L("' " ++ rest) });
+}
+
+/// `validateGraph`: the graph's own rules, each node's rules, then its nested graphs.
+fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, context: Str, graph: Value) void {
+    const nodes = arrayOf(graph, "nodes");
+    const local = idSet(nodes);
+    var visible = outer_visible.clone(a) catch oom();
+    for (local.keys()) |key| visible.put(a, key, {}) catch oom();
+
+    const result_id = str(graph, "resultNodeId");
+    if (!local.contains(idKey(result_id)))
+        addIn("UnknownGraphResultNode", cat(&.{ context, L(" result node '"), result_id, L("' is not owned directly by that graph.") }));
+
+    for (nodes) |node| {
+        const id = str(node, "id");
+        var references: List(Str) = .empty;
+        directValueReferences(node, &references);
+        for (references.items) |reference| {
+            if (!visible.contains(idKey(reference)))
+                addIn("ValueNodeOutOfScope", cat(&.{ L("Graph node '"), id, L("' references value node '"), reference, L("' outside its lexical value-graph scope.") }));
+        }
+        const kind = str(node, "kind");
+        if (isName(kind, "parameterReference")) {
+            const parameter_id = str(node, "parameterId");
+            if (!in_function.parameters_by_id.contains(idKey(parameter_id)))
+                addIn("UnknownParameterReference", cat(&.{ L("Graph node '"), id, L("' references parameter '"), parameter_id, L("' outside its owning function.") }));
+        } else if (isName(kind, "patternReference")) {
+            const binding_id = str(node, "patternBindingId");
+            if (!visible_patterns.contains(idKey(binding_id)))
+                addIn("UnknownPatternReference", cat(&.{ L("Graph node '"), id, L("' references pattern binding '"), binding_id, L("' outside its lexical binding scope.") }));
+        } else if (isName(kind, "stringLiteral")) {
+            // `NullStringLiteral` cannot occur: the reader requires a string.
+            if (hasLoneSurrogate(str(node, "value")))
+                addIn("StringLiteralUnpairedSurrogate", nodeLabel("String literal", node, "contains an unpaired surrogate; a String is a sequence of Unicode scalar values."));
+        } else if (isName(kind, "boolNot")) {
+            requireNodeType("BoolOperandTypeMismatch", nodeLabel("BoolNot", node, "requires a Bool operand."), primitiveType("bool"), str(node, "operandNodeId"));
+        } else if (isName(kind, "boolAnd") or isName(kind, "boolOr")) {
+            const role: Str = if (isName(kind, "boolAnd")) L("BoolAnd") else L("BoolOr");
+            requireNodeType("BoolOperandTypeMismatch", cat(&.{ role, L(" node '"), id, L("' requires a Bool left operand.") }), primitiveType("bool"), str(node, "leftNodeId"));
+            const right = get(node, "right");
+            // The right graph is a Conditional branch in all but name: abrupt is allowed, normal must be Bool.
+            if (normalType(in_function.resolver.graph(right))) |t| if (!t.isPrimitive("bool"))
+                addIn("BoolOperandTypeMismatch", cat(&.{ role, L(" node '"), id, L("' requires a Bool right operand.") }));
+            validateGraph(&visible, visible_patterns, cat(&.{ role, L(" right operand of '"), id, L("'") }), right);
+        } else if (isName(kind, "conditional")) {
+            if (nodeTypeAt(node, "conditionNodeId")) |t| if (!t.isPrimitive("bool"))
+                addIn("ConditionalConditionTypeMismatch", nodeLabel("Conditional", node, "requires a Bool condition."));
+            const when_true = get(node, "whenTrue");
+            const when_false = get(node, "whenFalse");
+            if (!compatibleArms(&.{ when_true, when_false }))
+                addIn("ConditionalBranchTypeMismatch", nodeLabel("Conditional", node, "branches do not produce one common type."));
+            validateGraph(&visible, visible_patterns, cat(&.{ L("Conditional true branch of '"), id, L("'") }), when_true);
+            validateGraph(&visible, visible_patterns, cat(&.{ L("Conditional false branch of '"), id, L("'") }), when_false);
+        } else if (isName(kind, "matchUnion")) {
+            for (arrayOf(node, "arms")) |arm| {
+                var patterns = visible_patterns.clone(a) catch oom();
+                for (arrayOf(arm, "fieldBindings")) |field| patterns.put(a, idKey(str(get(field, "binding"), "id")), {}) catch oom();
+                validateGraph(&visible, &patterns, cat(&.{ L("Union match arm '"), describeArm(arm), L("'") }), get(arm, "body"));
+            }
+        } else if (isName(kind, "bind")) {
+            const body = get(node, "boundBody");
+            validateGraph(&visible, &withPattern(visible_patterns, get(body, "valueBinding")), cat(&.{ L("Bind body of '"), id, L("'") }), get(body, "body"));
+        } else if (isName(kind, "matchOption")) {
+            const some = get(node, "someArm");
+            validateGraph(&visible, &withPattern(visible_patterns, get(some, "valueBinding")), cat(&.{ L("Option.Some arm of '"), id, L("'") }), get(some, "body"));
+            validateGraph(&visible, visible_patterns, cat(&.{ L("Option.None arm of '"), id, L("'") }), get(node, "noneBody"));
+        } else if (isName(kind, "matchResult")) {
+            const ok_arm = get(node, "okArm");
+            const err_arm = get(node, "errArm");
+            validateGraph(&visible, &withPattern(visible_patterns, get(ok_arm, "valueBinding")), cat(&.{ L("Result.Ok arm of '"), id, L("'") }), get(ok_arm, "body"));
+            validateGraph(&visible, &withPattern(visible_patterns, get(err_arm, "errorBinding")), cat(&.{ L("Result.Err arm of '"), id, L("'") }), get(err_arm, "body"));
+        }
+    }
+}
+
+fn withPattern(patterns: *const Set, binding: Value) Set {
+    var out = patterns.clone(a) catch oom();
+    out.put(a, idKey(str(binding, "id")), {}) catch oom();
+    return out;
+}
+
+/// `UnionMatchArm.canonicalVariantIds` joined with `|`: the arm's variant IDs, sorted ordinally.
+fn describeArm(arm: Value) Str {
+    const ids = a.alloc(Str, arrayOf(arm, "variantIds").len) catch oom();
+    for (arrayOf(arm, "variantIds"), ids) |v, *d| d.* = v.string;
+    std.mem.sort(Str, ids, {}, lessStr);
+    var out: List(u16) = .empty;
+    for (ids, 0..) |v, i| {
+        if (i > 0) out.append(a, '|') catch oom();
+        out.appendSlice(a, v) catch oom();
+    }
+    return out.items;
+}
+
+/// The per-function loop of `validateUncached` (the rules ported so far).
+fn validateFunctionGraphs(functions: []const Value) void {
+    for (functions) |function| {
+        const label = describe(str(function, "displayName"), str(function, "id"));
+        var resolver = Resolver.init(function);
+        in_function = .{ .function = function, .prefix = inFunction(function), .resolver = &resolver, .parameters_by_id = byId(arrayOf(function, "parameters")) };
+        const body = get(function, "body");
+        var nodes: List(Value) = .empty;
+        collectNodes(body, &nodes);
+        for (nodes.items) |node| {
+            var references: List(Str) = .empty;
+            directValueReferences(node, &references);
+            for (references.items) |reference| {
+                if (resolver.completion(reference)) |c| if (c == .aborts)
+                    addIn("AbortValueUse", cat(&.{ L("Node '"), str(node, "id"), L("' uses abrupt node '"), reference, L("' as a value in function "), label, L(".") }));
+            }
+        }
+        validateGraph(&.empty, &.empty, cat(&.{ L("Function "), label, L(" body") }), body);
+        if (resolver.nodeType(str(body, "resultNodeId"))) |t| if (!typeEql(t, typeRefOf(get(function, "resultType"))))
+            addIn("FunctionResultTypeMismatch", cat(&.{ L("Function "), label, L(" result node type does not match its declared result type.") }));
+    }
+}
+
 const NodeOwner = struct { owner: Str, node: Value };
 const TypeParameterOwners = struct { id: Str, first: Str, shared: bool };
 
@@ -1989,7 +2716,7 @@ fn validate(root: Value) void {
 
     const effect_ids = idSet(effects);
     effect_names = byId(effects);
-    const functions_by_id = byId(functions);
+    functions_by_id = byId(functions);
 
     for (operations.items) |operation| {
         const effect_id = str(operation, "effectId");
@@ -2100,6 +2827,17 @@ fn validate(root: Value) void {
     for (types) |type_entity| for (arrayOf(type_entity, "variants")) |variant|
         variant_owners.put(a, idKey(str(variant, "id")), str(type_entity, "id")) catch oom();
     validateTypeReferences(types, operations.items, functions);
+
+    all_capabilities = capabilities;
+    operations_by_id = byId(operations.items);
+    var product_fields: List(Value) = .empty;
+    product_field_owners = .empty;
+    for (types) |type_entity| if (isName(str(type_entity, "kind"), "product")) for (arrayOf(type_entity, "fields")) |field| {
+        product_fields.append(a, field) catch oom();
+        product_field_owners.put(a, idKey(str(field, "id")), type_entity) catch oom();
+    };
+    product_fields_by_id = byId(product_fields.items);
+    validateFunctionGraphs(functions);
 
     std.mem.sort(Issue, issues.items, {}, issueLess);
 }
