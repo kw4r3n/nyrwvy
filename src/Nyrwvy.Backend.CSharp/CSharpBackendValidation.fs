@@ -75,6 +75,101 @@ module internal CSharpBackendValidation =
             parameter.Type = TypeRef.Primitive PrimitiveType.String
         | _ -> false
 
+    /// Kinds compare by case: two table entries on one capability are not "mixed".
+    let private bindingCase (kind: CSharpCapabilityBindingKind) =
+        match kind with
+        | CSharpCapabilityBindingKind.SystemConsoleWriteLine -> 0
+        | CSharpCapabilityBindingKind.ExternalImplementation -> 1
+        | CSharpCapabilityBindingKind.Native _ -> 2
+
+    /// A capability whose operations are all native handle bindings.
+    let private isNativeHandle (capabilitiesById: Map<CapabilityId, ExecutionCapability>) (bindings: Map<CapabilityOperationId, CSharpCapabilityBindingKind>) capabilityId =
+        match Map.tryFind capabilityId capabilitiesById with
+        | Some capability when not (List.isEmpty capability.Operations) ->
+            capability.Operations |> List.forall (fun operation ->
+                match Map.tryFind operation.Id bindings with
+                | Some(CSharpCapabilityBindingKind.Native binding) -> binding.Handle
+                | _ -> false)
+        | _ -> false
+
+    /// Why a table entry does not fit its operation's signature, or None.
+    let private nativeProblem
+        (capabilitiesById: Map<CapabilityId, ExecutionCapability>)
+        (bindings: Map<CapabilityOperationId, CSharpCapabilityBindingKind>)
+        (capabilityId: CapabilityId)
+        (operation: ExecutionCapabilityOperation)
+        (binding: CSharpNativeBinding) =
+        let handleType typeRef =
+            match typeRef with
+            | TypeRef.Capability id -> isNativeHandle capabilitiesById bindings id
+            | _ -> false
+        let capability = Map.find capabilityId capabilitiesById
+        let sameHandleFlag =
+            capability.Operations |> List.forall (fun other ->
+                match Map.tryFind other.Id bindings with
+                | Some(CSharpCapabilityBindingKind.Native item) -> item.Handle = binding.Handle
+                | _ -> true)
+        if not sameHandleFlag then Some "every operation of a handle capability must be a handle operation"
+        else
+        match binding.Call with
+        | None -> None
+        | Some call ->
+            let argumentProblem (argument: CSharpNativeArgument) =
+                match argument with
+                | CSharpNativeArgument.Self _ -> if binding.Handle then None else Some "self is only an argument of a handle capability's operations"
+                | CSharpNativeArgument.Parameter(parameterId, value) ->
+                    match operation.Parameters |> List.tryFind (fun parameter -> parameter.Id = parameterId) with
+                    | None -> Some "an argument names no parameter of the operation"
+                    | Some parameter ->
+                        let fits =
+                            match value, parameter.Type with
+                            | CSharpNativeValue.Integer(bits, _), TypeRef.Primitive PrimitiveType.Int64 -> List.contains bits [ 8; 16; 32; 64 ]
+                            | (CSharpNativeValue.Bool | CSharpNativeValue.IntBool), TypeRef.Primitive PrimitiveType.Bool -> true
+                            | CSharpNativeValue.Utf8 None, TypeRef.Primitive PrimitiveType.String -> true
+                            | CSharpNativeValue.Bytes, TypeRef.Primitive PrimitiveType.Bytes -> true
+                            | CSharpNativeValue.Handle _, typeRef -> handleType typeRef
+                            | _ -> false
+                        if fits then None else Some $"argument {StableId.value parameterId}: {value} does not convert its parameter type"
+            let parameterIds = call.Arguments |> List.choose (function CSharpNativeArgument.Parameter(id, _) -> Some id | CSharpNativeArgument.Self _ -> None)
+            let selfCount = call.Arguments |> List.filter (function CSharpNativeArgument.Self _ -> true | _ -> false) |> List.length
+            let releases =
+                call.Arguments |> List.filter (function
+                    | CSharpNativeArgument.Self true | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Handle true) -> true
+                    | _ -> false) |> List.length
+            let okType, isResult =
+                match operation.ResultType with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ ok; TypeRef.Primitive PrimitiveType.String ]) -> ok, true
+                | other -> other, false
+            let resultFits =
+                match call.Returns, okType with
+                | CSharpNativeValue.Void, TypeRef.Primitive PrimitiveType.Unit -> true
+                | CSharpNativeValue.Integer(bits, _), TypeRef.Primitive PrimitiveType.Int64 -> List.contains bits [ 8; 16; 32; 64 ]
+                | CSharpNativeValue.Integer _, TypeRef.Primitive PrimitiveType.Unit -> Option.isSome call.Failure
+                | (CSharpNativeValue.Bool | CSharpNativeValue.IntBool), TypeRef.Primitive PrimitiveType.Bool -> true
+                | CSharpNativeValue.Utf8 _, TypeRef.Primitive PrimitiveType.String -> true
+                | CSharpNativeValue.Handle false, typeRef -> handleType typeRef
+                | _ -> false
+            let failureFits =
+                match call.Failure, call.Returns with
+                | None, _ -> true
+                | Some CSharpNativeFailure.NullPointer, (CSharpNativeValue.Utf8 _ | CSharpNativeValue.Handle _) -> true
+                | Some CSharpNativeFailure.Negative, CSharpNativeValue.Integer(_, true) -> true
+                | Some CSharpNativeFailure.Nonzero, CSharpNativeValue.Integer _ -> okType = TypeRef.Primitive PrimitiveType.Unit
+                | Some _, _ -> false
+            match call.Arguments |> List.tryPick argumentProblem with
+            | Some problem -> Some problem
+            | None ->
+                if List.sort parameterIds <> List.sort (operation.Parameters |> List.map (fun parameter -> parameter.Id)) then
+                    Some "every parameter must be passed exactly once"
+                elif binding.Handle && selfCount <> 1 then Some "a handle operation passes self exactly once"
+                elif releases > 1 then Some "an operation releases at most one handle"
+                elif (match operation.ResultType with TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; error ]) -> error <> TypeRef.Primitive PrimitiveType.String | _ -> false) then
+                    Some "a Result's error type must be String"
+                elif isResult && Option.isNone call.Failure then Some "a Result<_, String> operation needs failure detection"
+                elif not resultFits then Some $"result {call.Returns} does not convert to the operation's result type"
+                elif not failureFits then Some $"failure {call.Failure} does not apply to result {call.Returns}"
+                else None
+
     let prepare
         (program: ExecutionProgram)
         (profile: CSharpBackendProfile)
@@ -154,7 +249,7 @@ module internal CSharpBackendValidation =
                                     |> List.tryFind (fun capability ->
                                         capability.Operations
                                         |> List.choose (fun operation -> Map.tryFind operation.Id bindingsByOperation)
-                                        |> List.distinct
+                                        |> List.distinctBy bindingCase
                                         |> List.length > 1)
                                 match mixedCapability with
                                 | Some capability -> Error(CSharpBackendError.MixedCapabilityBindingKinds capability.Id)
@@ -169,7 +264,11 @@ module internal CSharpBackendValidation =
                                                     None
                                                 else
                                                     Some(CSharpBackendError.IncompatibleSystemConsoleWriteLineBinding binding.OperationId)
-                                            | CSharpCapabilityBindingKind.ExternalImplementation -> None)
+                                            | CSharpCapabilityBindingKind.ExternalImplementation -> None
+                                            | CSharpCapabilityBindingKind.Native native ->
+                                                let capabilityId, _ = Map.find binding.OperationId operationsById
+                                                nativeProblem capabilitiesById bindingsByOperation capabilityId operation native
+                                                |> Option.map (fun reason -> CSharpBackendError.IncompatibleNativeBinding(binding.OperationId, reason)))
                                     with
                                     | Some error -> Error error
                                     | None ->

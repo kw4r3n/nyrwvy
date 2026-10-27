@@ -1184,12 +1184,169 @@ module CSharpBackend =
         not (List.isEmpty capability.Operations)
         && capability.Operations
            |> List.forall (fun operation ->
-               Map.tryFind operation.Id context.BindingsByOperation = Some CSharpCapabilityBindingKind.SystemConsoleWriteLine)
+               match Map.tryFind operation.Id context.BindingsByOperation with
+               | Some CSharpCapabilityBindingKind.SystemConsoleWriteLine
+               | Some(CSharpCapabilityBindingKind.Native _) -> true
+               | Some CSharpCapabilityBindingKind.ExternalImplementation
+               | None -> false)
+
+    let private nativeType (value: CSharpNativeValue) =
+        match value with
+        | CSharpNativeValue.Integer(8, signed) -> if signed then "sbyte" else "byte"
+        | CSharpNativeValue.Integer(16, signed) -> if signed then "short" else "ushort"
+        | CSharpNativeValue.Integer(32, signed) -> if signed then "int" else "uint"
+        | CSharpNativeValue.Integer(_, signed) -> if signed then "long" else "ulong"
+        | CSharpNativeValue.Bool -> "byte"
+        | CSharpNativeValue.IntBool -> "int"
+        | CSharpNativeValue.Utf8 _
+        | CSharpNativeValue.Handle _ -> "System.IntPtr"
+        | CSharpNativeValue.Bytes -> "System.IntPtr pointer, nuint length"
+        | CSharpNativeValue.Void -> "void"
+
+    let private csharpString (text: string) = System.Text.Json.JsonSerializer.Serialize text
+
+    let private dllImport (library: string) (symbol: string) =
+        "[System.Runtime.InteropServices.DllImport(" + csharpString library + ", EntryPoint = " + csharpString symbol
+        + ", ExactSpelling = true, CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]"
+
+    /// Marshalling helpers shared by every table-bound adapter; only blittable types cross P/Invoke.
+    let private emitNativeSupport (writer: SourceWriter) =
+        writer.Line("internal static class NyNative")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("public static System.IntPtr Utf8(string text) => text.Contains('\\0') ? throw new System.ArgumentException(\"A String passed to native code contains U+0000.\") : System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(text);")
+        writer.Line("public static void Free(System.IntPtr pointer) => System.Runtime.InteropServices.Marshal.FreeCoTaskMem(pointer);")
+        writer.Line("public static System.IntPtr NotNull(System.IntPtr pointer, string symbol) => pointer != System.IntPtr.Zero ? pointer : throw new System.InvalidOperationException(symbol + \" returned null\");")
+        writer.Line("public static NyStr ReadUtf8(System.IntPtr pointer, string symbol) => System.Runtime.InteropServices.Marshal.PtrToStringUTF8(NotNull(pointer, symbol))!;")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("")
+
+    let private emitNativeOperation
+        (writer: SourceWriter)
+        (capabilityName: string)
+        (operation: ExecutionCapabilityOperation)
+        (binding: CSharpNativeBinding) =
+        let methodName = CSharpBackendNames.capabilityOperationName operation.Id
+        let signature = "public " + formatType operation.ResultType + " " + methodName + "(" + operationParameterList operation + ")"
+        match binding.Call with
+        | None ->
+            writer.Line(signature + " => throw new System.NotSupportedException(\"This operation is unavailable on the C# backend.\");")
+        | Some call ->
+            let externName = "N_" + methodName
+            let freeName = "F_" + methodName
+            let indexed = List.indexed call.Arguments
+            let externParameters =
+                indexed |> List.map (fun (index, argument) ->
+                    match argument with
+                    | CSharpNativeArgument.Self _ -> "System.IntPtr a" + string index
+                    | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Bytes) -> "System.IntPtr a" + string index + ", nuint n" + string index
+                    | CSharpNativeArgument.Parameter(_, value) -> nativeType value + " a" + string index)
+                |> String.concat ", "
+            writer.Line(dllImport call.Library call.Symbol)
+            writer.Line("private static extern " + nativeType call.Returns + " " + externName + "(" + externParameters + ");")
+            match call.Returns with
+            | CSharpNativeValue.Utf8(Some free) ->
+                writer.Line(dllImport call.Library free)
+                writer.Line("private static extern void " + freeName + "(System.IntPtr pointer);")
+            | _ -> ()
+            writer.Line(signature)
+            writer.Line("{")
+            writer.Push()
+            let handleClass typeRef =
+                match typeRef with
+                | TypeRef.Capability id -> CSharpBackendNames.capabilityAdapterName id
+                | _ -> invalidOp "A native handle argument has a capability type."
+            let parameterType id = (operation.Parameters |> List.find (fun parameter -> parameter.Id = id)).Type
+            let handleOf owner value release = owner + (if release then ".Release(" else ".Open(") + value + ")"
+            // Allocations are made inside try so a failure between them still frees the earlier ones.
+            for index, argument in indexed do
+                match argument with
+                | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Utf8 _) -> writer.Line("var s" + string index + " = System.IntPtr.Zero;")
+                | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Bytes) -> writer.Line("var g" + string index + " = default(System.Runtime.InteropServices.GCHandle);")
+                | _ -> ()
+            let needsCleanup =
+                call.Arguments |> List.exists (function
+                    | CSharpNativeArgument.Parameter(_, (CSharpNativeValue.Utf8 _ | CSharpNativeValue.Bytes)) -> true
+                    | _ -> false)
+            if needsCleanup then
+                writer.Line("try")
+                writer.Line("{")
+                writer.Push()
+            let arguments =
+                indexed |> List.map (fun (index, argument) ->
+                    match argument with
+                    | CSharpNativeArgument.Self release -> handleOf capabilityName "this" release
+                    | CSharpNativeArgument.Parameter(id, value) ->
+                        let name = CSharpBackendNames.capabilityParameterName id
+                        match value with
+                        | CSharpNativeValue.Integer _ -> "checked((" + nativeType value + ")" + name + ")"
+                        | CSharpNativeValue.Bool -> "(byte)(" + name + " ? 1 : 0)"
+                        | CSharpNativeValue.IntBool -> "(" + name + " ? 1 : 0)"
+                        | CSharpNativeValue.Utf8 _ ->
+                            writer.Line("s" + string index + " = NyNative.Utf8(" + name + ");")
+                            "s" + string index
+                        | CSharpNativeValue.Bytes ->
+                            writer.Line("g" + string index + " = System.Runtime.InteropServices.GCHandle.Alloc(" + name + ".Span.ToArray(), System.Runtime.InteropServices.GCHandleType.Pinned);")
+                            "g" + string index + ".AddrOfPinnedObject(), (nuint)" + name + ".Span.Length"
+                        | CSharpNativeValue.Handle release -> handleOf (handleClass (parameterType id)) name release
+                        | CSharpNativeValue.Void -> invalidOp "A void argument was validated away.")
+                |> String.concat ", "
+            let invocation = externName + "(" + arguments + ")"
+            let okType, isResult =
+                match operation.ResultType with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ ok; _ ]) -> ok, true
+                | other -> other, false
+            if call.Returns = CSharpNativeValue.Void then writer.Line(invocation + ";")
+            else writer.Line("var r = " + invocation + ";")
+            let symbol = csharpString call.Symbol
+            match call.Failure with
+            | None -> ()
+            | Some failure ->
+                let condition, message =
+                    match failure with
+                    | CSharpNativeFailure.NullPointer -> "r == System.IntPtr.Zero", symbol + " + \" returned null\""
+                    | CSharpNativeFailure.Negative -> "r < 0", symbol + " + \" failed with \" + r"
+                    | CSharpNativeFailure.Nonzero -> "r != 0", symbol + " + \" failed with \" + r"
+                if isResult then writer.Line("if (" + condition + ") return " + formatType operation.ResultType + ".Err(" + message + ");")
+                else writer.Line("if (" + condition + ") throw new System.InvalidOperationException(" + message + ");")
+            let value =
+                match call.Returns, okType with
+                | _, TypeRef.Primitive PrimitiveType.Unit -> "NyUnit.Value"
+                | CSharpNativeValue.Integer _, _ -> "checked((long)r)"
+                | (CSharpNativeValue.Bool | CSharpNativeValue.IntBool), _ -> "r != 0"
+                | CSharpNativeValue.Utf8 free, _ ->
+                    match free with
+                    | Some _ ->
+                        writer.Line("var text = NyNative.ReadUtf8(r, " + symbol + ");")
+                        writer.Line(freeName + "(r);")
+                        "text"
+                    | None -> "NyNative.ReadUtf8(r, " + symbol + ")"
+                | CSharpNativeValue.Handle _, typeRef -> "new " + handleClass typeRef + "(NyNative.NotNull(r, " + symbol + "))"
+                | _ -> invalidOp "A native result was validated away."
+            writer.Line("return " + (if isResult then formatType operation.ResultType + ".Ok(" + value + ")" else value) + ";")
+            if needsCleanup then
+                writer.Pop()
+                writer.Line("}")
+                writer.Line("finally")
+                writer.Line("{")
+                writer.Push()
+                for index, argument in indexed do
+                    match argument with
+                    | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Utf8 _) -> writer.Line("NyNative.Free(s" + string index + ");")
+                    | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Bytes) -> writer.Line("if (g" + string index + ".IsAllocated) g" + string index + ".Free();")
+                    | _ -> ()
+                writer.Pop()
+                writer.Line("}")
+            writer.Pop()
+            writer.Line("}")
 
     let private emitAdapters
         (writer: SourceWriter)
         (context: CSharpBackendValidation.Context)
         (program: ExecutionProgram) =
+        let isNative = function CSharpCapabilityBindingKind.Native _ -> true | _ -> false
+        if context.BindingsByOperation |> Map.exists (fun _ kind -> isNative kind) then emitNativeSupport writer
         for capability in program.Capabilities |> List.sortBy (fun item -> StableId.value item.Id) do
             if hasCapabilityAdapter context capability then
                 let capabilityName = CSharpBackendNames.capabilityName capability.Id
@@ -1197,13 +1354,29 @@ module CSharpBackend =
                 writer.Line("public sealed class " + adapterName + " : " + capabilityName)
                 writer.Line("{")
                 writer.Push()
+                let isHandle =
+                    capability.Operations |> List.exists (fun operation ->
+                        match Map.find operation.Id context.BindingsByOperation with
+                        | CSharpCapabilityBindingKind.Native binding -> binding.Handle
+                        | _ -> false)
+                if isHandle then
+                    // A handle value owns its pointer until the operation that releases it runs.
+                    writer.Line("private System.IntPtr _handle;")
+                    writer.Line("internal " + adapterName + "(System.IntPtr handle) { _handle = handle; }")
+                    writer.Line("internal static System.IntPtr Open(" + capabilityName + " value) => value is " + adapterName
+                                + " native && native._handle != System.IntPtr.Zero ? native._handle : throw new System.InvalidOperationException(\"Handle is not open\");")
+                    writer.Line("internal static System.IntPtr Release(" + capabilityName + " value) { var handle = Open(value); ((" + adapterName + ")value)._handle = System.IntPtr.Zero; return handle; }")
                 for operation in capability.Operations |> List.sortBy (fun item -> StableId.value item.Id) do
+                  match Map.find operation.Id context.BindingsByOperation with
+                  | CSharpCapabilityBindingKind.Native binding -> emitNativeOperation writer adapterName operation binding
+                  | _ ->
                     let parameters = operationParameterList operation
                     let methodName = CSharpBackendNames.capabilityOperationName operation.Id
                     writer.Line("public " + formatType operation.ResultType + " " + methodName + "(" + parameters + ")")
                     writer.Line("{")
                     writer.Push()
                     match Map.find operation.Id context.BindingsByOperation with
+                    | CSharpCapabilityBindingKind.Native _ -> invalidOp "Native operations are emitted above."
                     | CSharpCapabilityBindingKind.SystemConsoleWriteLine ->
                         let parameter = List.exactlyOne operation.Parameters
                         let parameterName = CSharpBackendNames.capabilityParameterName parameter.Id
