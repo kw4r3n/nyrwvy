@@ -1200,10 +1200,6 @@ module PureRun =
         let declarations = context.Declarations
         let unsupported (problems: string list) =
             Error(diagnostic "RunBackendUnsupported" ("The Zig backend does not yet support: " + String.Join(", ", problems |> List.truncate 8) + "."))
-        let signature = fn.ResultType :: (fn.Parameters |> List.map (fun parameter -> parameter.Type))
-        match signature |> List.filter (ZigBackend.zigType >> Option.isNone) with
-        | (_ :: _) as types -> unsupported (types |> List.distinct |> List.map (fun typeRef -> $"type {typeRef}"))
-        | [] ->
         match context.Project fn.Id |> Result.mapError PureRunError.SessionFailure with
         | Error error -> Error error
         | Ok program ->
@@ -1211,28 +1207,25 @@ module PureRun =
         match ZigBackend.emit program with
         | Error problems -> unsupported problems
         | Ok source ->
-            let parse (index: int) (parameter: SemanticParameter) =
-                match parameter.Type with
-                | TypeRef.Primitive PrimitiveType.Int64 -> $"try std.fmt.parseInt(i64, args[{index + 1}], 10)"
-                | TypeRef.Primitive PrimitiveType.Bool -> $"std.mem.eql(u8, args[{index + 1}], \"1\")"
-                | _ -> "NyUnit{}"
-            let print =
-                match fn.ResultType with
-                | TypeRef.Primitive PrimitiveType.Int64 -> "try out.print(\"[\\\"value\\\",{d},[]]\\n\", .{result});"
-                | TypeRef.Primitive PrimitiveType.Bool -> "try out.print(\"[\\\"value\\\",{},[]]\\n\", .{result});"
-                | _ -> "_ = result;\n    try out.writeAll(\"[\\\"value\\\",\\\"unit\\\",[]]\\n\");"
-            let call = ZigBackend.functionName fn.Id + "(" + String.Join(", ", fn.Parameters |> List.mapi parse) + ")"
+            let types = program.Types |> List.map (fun item -> item.Id, item) |> Map.ofList
+            let zigType typeRef = (ZigBackend.typeOf types typeRef).Value
+            let decoded = fn.Parameters |> List.mapi (fun index parameter -> $"    const a{index} = nyDecode({zigType parameter.Type}, &tokens);\n")
+            let call = ZigBackend.functionName fn.Id + "(" + String.Join(", ", fn.Parameters |> List.mapi (fun index _ -> $"a{index}")) + ")"
             let runner =
                 source
-                + "const std = @import(\"std\");\n\n"
-                + "pub fn main(init: std.process.Init) !void {\n"
+                + ZigBackend.runnerSupport
+                + "\npub fn main(init: std.process.Init) !void {\n"
                 + "    const args = try init.minimal.args.toSlice(init.arena.allocator());\n"
-                + "    _ = &args;\n"
+                + "    var tokens = NyTokens{ .items = args };\n"
+                + "    _ = &tokens;\n"
+                + String.concat "" decoded
                 + "    const result = " + call + ";\n"
-                + "    var buffer: [256]u8 = undefined;\n"
+                + "    var buffer: [4096]u8 = undefined;\n"
                 + "    var writer = std.Io.File.stdout().writer(init.io, &buffer);\n"
                 + "    const out = &writer.interface;\n"
-                + "    " + print + "\n"
+                + "    try out.writeAll(\"[\\\"value\\\",\");\n"
+                + "    try nyEncode(out, result);\n"
+                + "    try out.writeAll(\",[]]\\n\");\n"
                 + "    try out.flush();\n"
                 + "}\n"
             let hash = Convert.ToHexString(Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes runner)).Substring(0, 32)
