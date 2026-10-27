@@ -250,6 +250,7 @@ module ChangeVerificationTests =
             let error = item.GetProperty("candidate").GetProperty("error")
             Assert.Equal("RunBindingExhausted", error.GetProperty("code").GetString())
             Assert.Equal("FakeResponsesExhaustedException", error.GetProperty("exceptionType").GetString())
+            Assert.Equal("fault", error.GetProperty("failureKind").GetString())
             Assert.Equal(2, error.GetProperty("calls").GetArrayLength())
             Assert.Contains(error.GetProperty("frames").EnumerateArray(), fun frame -> frame.GetProperty("kind").GetString() = "function" && frame.GetProperty("functionId").GetString() = StableId.value fn.Id)
             Assert.False(item.GetProperty("candidate").TryGetProperty("unknown") |> fst)
@@ -273,7 +274,7 @@ module ChangeVerificationTests =
     let private runtimeFailure exceptionType mapped =
         PureRunError.RuntimeFailure
             { SnapshotId = StableId.createForTesting<SnapshotTag> "classifier-snapshot"
-              FunctionId = sample.FunctionId; ExceptionType = exceptionType; Message = "fixture"
+              FunctionId = sample.FunctionId; Kind = "fault"; ExceptionType = exceptionType; Message = "fixture"
               Frames = if mapped then [ PureRunFrame.Function sample.FunctionId ] else []
               BindingExhausted = exceptionType = "FakeResponsesExhaustedException"; Calls = [] }
 

@@ -839,6 +839,7 @@ module AuthoringProtocol =
                    "functionId", box (StableId.value runtime.FunctionId) ]
                  @ named names "function" runtime.FunctionId
                  @ [ "sourceSnapshotId", box (StableId.value runtime.SnapshotId)
+                     "failureKind", box runtime.Kind
                      "exceptionType", box runtime.ExceptionType
                      "frames", runtime.Frames |> List.map (encodeFrame names) |> arrayValue
                      "calls", runtime.Calls |> List.map (encodeCall names) |> arrayValue ])

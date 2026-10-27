@@ -216,5 +216,6 @@ Programs without an abort terminator retain Execution IR serialization schema 6.
 `ExceptionIsCancellation` emits `edi.SourceException is System.OperationCanceledException`
 with a Bool result. It includes subclasses without inspecting message text,
 ambient or exception token state, type names, reflection or InnerException.
-`ExceptionCatch` still captures every System.Exception using ExceptionDispatchInfo;
+`ExceptionCatch` captures every System.Exception except `OutOfMemoryException` and
+`InsufficientExecutionStackException` (fatal in every backend) using ExceptionDispatchInfo;
 selective recovery is ordinary graph composition with Conditional and ExceptionRethrow.

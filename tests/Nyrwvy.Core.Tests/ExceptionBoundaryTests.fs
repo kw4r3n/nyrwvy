@@ -40,6 +40,19 @@ module ExceptionBoundaryTests =
         finally Directory.Delete(dir, true)
     let private snapshot path = File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap
 
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``allocation failure is fatal and no exception boundary catches it`` () =
+        fixture (fun session _ ->
+            let huge = """{"kind":"stringRepeat","text":{"kind":"stringLiteral","value":"ab"},"count":{"kind":"int64Literal","value":9223372036854775807}}"""
+            create session "huge" ($"""[{{"displayName":"item","type":{unitType}}}]""") resultType ($"""{{"kind":"resultOk","value":{huge},"errorType":{stringType}}}""")
+            create session "caughtHuge" "[]" resultType """{"kind":"exceptionCatch","body":"huge","handler":"handler"}"""
+            let run = execute session "runPureByName" """{"function":"caughtHuge","arguments":[]}"""
+            Assert.False(run.GetProperty("ok").GetBoolean(), run.ToString())
+            let error = run.GetProperty("error")
+            Assert.Equal("RunRuntimeFailure", error.GetProperty("code").GetString())
+            Assert.Equal("fatal", error.GetProperty("failureKind").GetString()))
+
+
     [<Fact>]
     let ``explicit exception boundary roundtrips JSON both IRs and reopens`` () =
         fixture (fun session path ->

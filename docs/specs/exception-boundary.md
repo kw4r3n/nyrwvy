@@ -1,28 +1,40 @@
 # Explicit host exception boundary
 
+A **host failure** is a per-task abort that carries a kind, `Cancelled` or
+`Fault`, and a message ([decision](../decisions/host-failure-kinds.md)). It
+propagates through calls, running `UseResource` releases and restoring
+`CancellationShield` tokens, until an `ExceptionCatch` handles it. Allocation
+failure and stack overflow are **fatal** instead: they end the run, no
+`ExceptionCatch` handles them, and releases are not guaranteed to run. Each
+backend realizes host failures its own way; the C# backend uses .NET exceptions,
+with `Cancelled` as `System.OperationCanceledException` (subclasses included).
+
 `ExceptionCatch` runs a callback with one unbound Unit parameter. On a host
-`System.Exception`, it invokes a handler with one unbound opaque `Exception`
+failure, it invokes a handler with one unbound opaque `Exception`
 parameter. Both callbacks return the same `Result<T, E>` after contextual type
 substitution; their effects must be declared by the caller. Separate body and
 handler contexts evaluate before the protected invocation. Failures in those
 contexts bypass this boundary. A handler exception propagates to an enclosing
 boundary, rather than invoking the same handler again.
 
-The zero-argument builtin `Exception` holds captured dispatch information.
+The zero-argument builtin `Exception` holds the captured failure.
 `ExceptionMessage` reads its message. `ExceptionIsCancellation(value)` is a pure
-`Exception -> Bool` classifier. In C# it tests the original captured dispatch
-information’s `SourceException is System.OperationCanceledException`, including
+`Exception -> Bool` classifier: true exactly when the kind is `Cancelled`. In C#
+it tests the captured dispatch information's
+`SourceException is System.OperationCanceledException`, including
 `TaskCanceledException` and other subclasses. Messages, ambient/exception token
 state or identity, and nested `InnerException` do not participate. An ordinary
 wrapper around an OCE remains ordinary. The predicate does not request, clear or
 mask cancellation. `ExceptionRethrow(value, resultType)`
-rethrows the original exception object and retains its dispatch stack;
+rethrows the original failure with the same kind and message; a backend keeps
+its diagnostic stack where it can (C# rethrows the original exception object
+with its dispatch stack);
 `resultType` ascribes its typed expression position, with no runtime return value.
 The type is opaque, non-equatable and run-local. It cannot cross capability or
 run-value boundaries, including through named types and containers. There is no
 constructor, general exception type-name/reflection API, automatic translation or exception persistence.
 
-Catch is explicit and includes `OperationCanceledException`. Catching an OCE
+Catch is explicit and includes `Cancelled` failures. Catching one
 does not clear/request cancellation or prescribe an Err. A handler may rethrow
 it unchanged or deliberately choose a result. To recover ordinary faults while
 propagating cancellation, use a Conditional on `ExceptionIsCancellation` whose

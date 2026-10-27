@@ -1820,7 +1820,8 @@ module CSharpBackend =
         | ExecutionInstructionKind.ExceptionCatch(body, bodyContext, handler, handlerContext) ->
             let error = target + "_exception"
             writer.Line("try { " + target + " = " + renderInvocation parametersOf body bodyContext [ "NyUnit.Value" ] + "; }")
-            writer.Line("catch (Exception " + error + ") { " + target + " = " + renderInvocation parametersOf handler handlerContext [ "System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(" + error + ")" ] + "; }")
+            // Allocation failure is fatal in every backend, so no handler sees it.
+            writer.Line("catch (Exception " + error + ") when (" + error + " is not (OutOfMemoryException or InsufficientExecutionStackException)) { " + target + " = " + renderInvocation parametersOf handler handlerContext [ "System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(" + error + ")" ] + "; }")
         | ExecutionInstructionKind.ExceptionIsCancellation value ->
             writer.Line(target + " = " + valueName value + ".SourceException is System.OperationCanceledException;")
         | ExecutionInstructionKind.ExceptionMessage value ->

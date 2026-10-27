@@ -8,10 +8,10 @@ requires `Bind` and pure list callbacks cannot hide it.
 
 The context evaluates under the caller's ambient token **before** masking.
 The body runs synchronously in the current task with a non-cancelled ambient
-token. Its `CancellationRequested` observations, external effects reading
-`NyRuntime.Cancellation`, and new nested task scopes therefore do not observe
+token. Its `CancellationRequested` observations, external implementations reading the
+task's token (in C#, `NyRuntime.Cancellation`), and new nested task scopes therefore do not observe
 parent cancellation during that lexical body. Nested shields are allowed.
-On `Ok`, `Err`, typed abort or host exception, the original ambient token is
+On `Ok`, `Err`, typed abort or host failure, the original ambient token is
 restored. The exact body value or exception is preserved. An already-cancelled
 caller can enter a shield; its cancellation remains requested after exit.
 
