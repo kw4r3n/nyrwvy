@@ -51,7 +51,7 @@ Today a String may hold unpaired surrogates, and concatenation pairs a high and 
 - Positions still count code points; each backend keeps an index for its storage, as `NyStr` does for UTF-16.
 - `StringFromCodePoint` returns `None` for 0xD800..0xDFFF. A JSON decoder combines `😀` itself.
 - Strings entering from a host with unpaired surrogates are sanitized to U+FFFD at the boundary, as `StringEncodeUtf8` already does.
-- Run values, snapshot literals and the codecs drop unpaired surrogates. About 20 files mention surrogates (for example `PureRunLoneSurrogateTests.fs`, `Utf16Literal.fs`, `SnapshotCodec.fs`, `LooseJsonString.fs`). Whether stored snapshots contain any is unchecked.
+- Run values, snapshot literals and the codecs reject unpaired surrogates. No stored snapshot or saved case needed migration. Implemented; see the [decision](../decisions/string-scalar-values.md).
 - Case mapping pins a Unicode version instead of following ".NET runtime Unicode data".
 
 ## 5. Callbacks and events
@@ -134,14 +134,12 @@ Found by the 2026-10-27 study; only some lines were checked by hand.
 - JS Int64 representation (measure first).
 - Which Unicode version to pin.
 - Whether mapping tables become tool-only.
-- Whether stored snapshots or saved cases contain unpaired surrogates that need migration.
 
 ## Order
 
 Owner choice (2026-10-27): steps 2 and 3 follow the Zig backend; the order is 1, 4, 5, then 2 and 3.
 
-
-1. Restate the contract: §2, §4 and the specification text above, with C# still the only backend. §2 is done ([decision](../decisions/host-failure-kinds.md); the explicit token argument moves to the binding ABI).
+1. Restate the contract: §2, §4 and the specification text above, with C# still the only backend. Done: §4 ([decision](../decisions/string-scalar-values.md)) and §2 ([decision](../decisions/host-failure-kinds.md); the explicit token argument moves to the binding ABI).
 2. The waiting and task-binding properties (§3, §7) in the graph and validator.
 3. Mapping tables and the generator on the C# backend. Acceptance: snap's `Native.cs` and its other hand-written binding code are generated.
 4. `runPure` with a backend parameter, the parity command, and the saved cases as the conformance suite.

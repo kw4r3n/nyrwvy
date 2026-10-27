@@ -8,7 +8,7 @@ open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// StringFromCodePoint and StringToCodePoint: Python chr and ord as Options, pure and never failing,
-/// with surrogate codes as unpaired surrogate code units.
+/// with surrogate codes (U+D800..U+DFFF) giving None, since a String holds only scalar values.
 module StringCodePointConversionTests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("string-code-point-" + name)
     let private stringType = TypeRef.Primitive PrimitiveType.String
@@ -129,8 +129,8 @@ module StringCodePointConversionTests =
                       Body = body }
                 let proposal = session.SimulateCreateFunction request |> unwrap ("create " + name)
                 session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
-            // Python parity: chr(code) as an Option, None where Python raises ValueError. Results that
-            // would be a lone surrogate cannot cross the runner boundary; they are checked below.
+            // Python parity: chr(code) as an Option, None where Python raises ValueError, and None for
+            // a surrogate code, where Python returns a lone surrogate.
             let fromCases =
                 [ 0L, Some "\u0000"
                   65L, Some "A"
@@ -138,6 +138,10 @@ module StringCodePointConversionTests =
                   0xE9L, Some "é"
                   0x20ACL, Some "€"
                   0xD7FFL, Some "\uD7FF"
+                  0xD800L, None
+                  0xDBFFL, None
+                  0xDC00L, None
+                  0xDFFFL, None
                   0xE000L, Some "\uE000"
                   0xFFFDL, Some "\uFFFD"
                   0x10000L, Some "\U00010000"
@@ -150,10 +154,7 @@ module StringCodePointConversionTests =
                   Int64.MaxValue, None ]
             create "fromTable" [] (listOf (optionOf stringType))
                 (ExpressionRecipe.ListConstruct(optionOf stringType, fromCases |> List.map (fst >> int >> ExpressionRecipe.StringFromCodePoint)))
-            // Python parity: ord(text) as an Option, None where Python raises TypeError. A lone
-            // surrogate cannot be persisted in a String literal (the snapshot's JSON writer replaces it
-            // with U+FFFD), so, as when decoding JSON escapes, it comes from StringFromCodePoint.
-            let lone code = fromOrEmpty (int code)
+            // Python parity: ord(text) as an Option, None where Python raises TypeError.
             let toCases =
                 [ text "A", Some 65L
                   text "\u0000", Some 0L
@@ -162,42 +163,18 @@ module StringCodePointConversionTests =
                   text "\uFFFF", Some 0xFFFFL
                   text "😀", Some 0x1F600L
                   text "\U0010FFFF", Some 0x10FFFFL
-                  lone 0xD800L, Some 0xD800L
-                  lone 0xDBFFL, Some 0xDBFFL
-                  lone 0xDC00L, Some 0xDC00L
-                  lone 0xDFFFL, Some 0xDFFFL
                   text "", None
                   text "ab", None
                   text "e\u0301", None // two code points, not normalized
-                  text "😀a", None
-                  ExpressionRecipe.StringConcat(lone 0xDC00L, lone 0xD800L), None // a low then a high surrogate
-                  ExpressionRecipe.StringConcat(text "a", lone 0xD800L), None
-                  ExpressionRecipe.StringConcat(lone 0xD83DL, text "a"), None ]
+                  text "😀a", None ]
             create "toTable" [] (listOf (optionOf intType))
                 (ExpressionRecipe.ListConstruct(optionOf intType, toCases |> List.map (fst >> ExpressionRecipe.StringToCodePoint)))
-            // Round trip StringToCodePoint(StringFromCodePoint(n)) = Some n at every UTF-8 and UTF-16
-            // boundary, surrogates included, and None outside the range.
+            // Round trip StringToCodePoint(StringFromCodePoint(n)) = Some n for every scalar value at
+            // the UTF-8 and UTF-16 boundaries; surrogate codes give None (fromTable).
             let roundTripCodes =
-                [ 0L; 0x7FL; 0x80L; 0x7FFL; 0x800L; 0xD7FFL; 0xD800L; 0xDB7FL; 0xDB80L; 0xDBFFL; 0xDC00L; 0xDFFFL; 0xE000L; 0xFFFFL; 0x10000L; 0x10FFFFL ]
+                [ 0L; 0x7FL; 0x80L; 0x7FFL; 0x800L; 0xD7FFL; 0xE000L; 0xFFFFL; 0x10000L; 0x10FFFFL ]
             create "roundTripTable" [] (listOf (optionOf intType))
                 (ExpressionRecipe.ListConstruct(optionOf intType, roundTripCodes |> List.map (int >> fromOrEmpty >> ExpressionRecipe.StringToCodePoint)))
-            // Surrogate codes give one unpaired code unit each; a high then a low one concatenate to the
-            // pair, as json.loads decodes "😀", while a low then a high one stay two code points.
-            let pair high low = ExpressionRecipe.StringConcat(fromOrEmpty (int high), fromOrEmpty (int low))
-            let surrogateCases =
-                [ ExpressionRecipe.StringLength(fromOrEmpty (int 0xD800L)), 1L
-                  ExpressionRecipe.StringLength(fromOrEmpty (int 0xDFFFL)), 1L
-                  ExpressionRecipe.StringUtf8ByteCount(fromOrEmpty (int 0xDC00L)), 3L
-                  ExpressionRecipe.StringLength(pair 0xD83DL 0xDE00L), 1L
-                  ExpressionRecipe.StringLength(pair 0xDE00L 0xD83DL), 2L
-                  ExpressionRecipe.StringLength(pair 0xDBFFL 0xDFFFL), 1L
-                  ExpressionRecipe.ListLength(ExpressionRecipe.StringCodePoints(pair 0xD83DL 0xDE00L)), 1L
-                  ExpressionRecipe.MatchOption(ExpressionRecipe.StringToCodePoint(pair 0xD83DL 0xDE00L), someValue, int -1L), 0x1F600L
-                  ExpressionRecipe.MatchOption(ExpressionRecipe.StringToCodePoint(pair 0xDBFFL 0xDFFFL), someValue, int -1L), 0x10FFFFL ]
-            create "surrogateTable" [] (listOf intType)
-                (ExpressionRecipe.ListConstruct(intType, surrogateCases |> List.map fst))
-            create "pairIsEmoji" [] boolType (ExpressionRecipe.StringEqual(pair 0xD83DL 0xDE00L, text "😀"))
-            create "pair" [] stringType (pair 0xD83DL 0xDE00L)
             // Every item c of StringCodePoints(t) comes back from StringFromCodePoint(StringToCodePoint(c)).
             let orEmptyString input = ExpressionRecipe.MatchOption(input, someValue, text "")
             create "roundTripItem" [ { DisplayName = "c"; Type = stringType } ] stringType
@@ -205,13 +182,11 @@ module StringCodePointConversionTests =
                     ExpressionRecipe.StringToCodePoint(ExpressionRecipe.ParameterSlot 0),
                     orEmptyString (ExpressionRecipe.StringFromCodePoint someValue),
                     text "?"))
-            // "a😀", a lone high surrogate, "b", a lone low surrogate, "é\U0010FFFF", a lone high surrogate.
-            let mixed () =
-                [ text "a😀"; lone 0xD800L; text "b"; lone 0xDC00L; text "é\U0010FFFF"; lone 0xDBFFL ]
-                |> List.reduce (fun left right -> ExpressionRecipe.StringConcat(left, right))
+            // Five code points, two of them astral (😀 and U+10FFFF), joined by a concatenation.
+            let mixed () = ExpressionRecipe.StringConcat(text "a😀b", text "é\U0010FFFF")
             create "codePointsRoundTrip" [] boolType
                 (ExpressionRecipe.BoolAnd(
-                    ExpressionRecipe.Int64Equal(ExpressionRecipe.StringLength(mixed ()), int 8L),
+                    ExpressionRecipe.Int64Equal(ExpressionRecipe.StringLength(mixed ()), int 5L),
                     ExpressionRecipe.StringEqual(
                         ExpressionRecipe.StringJoin(ExpressionRecipe.ListMap(ExpressionRecipe.StringCodePoints(mixed ()), functionId "roundTripItem", []), text ""),
                         mixed ())))
@@ -222,9 +197,6 @@ module StringCodePointConversionTests =
             check "fromTable" (expectList (optionOf stringType) (fromCases |> List.map (snd >> PureRunValue.StringOption)))
             check "toTable" (expectList (optionOf intType) (toCases |> List.map (snd >> PureRunValue.Int64Option)))
             check "roundTripTable" (expectList (optionOf intType) (roundTripCodes |> List.map (Some >> PureRunValue.Int64Option)))
-            check "surrogateTable" (PureRunValue.Int64List(surrogateCases |> List.map snd))
-            check "pairIsEmoji" (PureRunValue.Bool true)
-            check "pair" (PureRunValue.String "😀")
             check "codePointsRoundTrip" (PureRunValue.Bool true)
             Assert.Equal(PureRunValue.String "😀", run "roundTripItem" [ PureRunValue.String "😀" ])
             Assert.Equal(PureRunValue.String "?", run "roundTripItem" [ PureRunValue.String "ab" ])

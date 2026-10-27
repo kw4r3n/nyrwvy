@@ -110,8 +110,6 @@ module StringSliceTests =
             let listOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
             create' "measureAll" [ listOf stringType ] (listOf intType) (ExpressionRecipe.ListMap(ExpressionRecipe.ParameterSlot 0, functionId "measure", []))
             create' "cutAll" [ listOf (TypeRef.Named(caseTypeId, [])) ] (listOf stringType) (ExpressionRecipe.ListMap(ExpressionRecipe.ParameterSlot 0, functionId "cut", []))
-            // Lone surrogates in a String literal (built with utf16) survive the snapshot round trip.
-            create' "measureLone" [] intType (ExpressionRecipe.StringLength(ExpressionRecipe.StringLiteral (utf16 "a{D800}b{DC00}")))
             session.Close()
             let snapshot = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap "reopen"
             Assert.Empty(SnapshotValidator.validate snapshot)
@@ -127,8 +125,6 @@ module StringSliceTests =
             let texts = [ ""; "hello"; "a😀b"; "日本語"; "é"; "😀😀" ]
             let measured = PureRun.run reopened (functionId "measureAll") [ PureRunValue.StringList texts ] None |> unwrap "measure"
             Assert.Equal(PureRunValue.Int64List [ 0L; 5L; 3L; 3L; 2L; 2L ], measured.Actual)
-            let lone = PureRun.run reopened (functionId "measureLone") [] None |> unwrap "measure lone"
-            Assert.Equal(PureRunValue.Int64 4L, lone.Actual)
             let cases =
                 [ ("hello", 1L, 4L), "ell"
                   ("hello", -5L, 2L), "he"

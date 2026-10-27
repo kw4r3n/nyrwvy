@@ -898,6 +898,10 @@ module SnapshotValidator =
                             add
                                 "NullStringLiteral"
                                 $"String literal node '{StableId.value node.Id}' has a null value."
+                        elif LooseJsonString.hasLoneSurrogate value then
+                            add
+                                "StringLiteralUnpairedSurrogate"
+                                $"String literal node '{StableId.value node.Id}' contains an unpaired surrogate; a String is a sequence of Unicode scalar values."
                     | SemanticNodeKind.BoolLiteral _
                     | SemanticNodeKind.UnitLiteral
                     | SemanticNodeKind.Int64Literal _

@@ -122,8 +122,7 @@ module StringCaseTests =
                 let proposal = session.SimulateCreateFunction request |> unwrap ("create " + name)
                 session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
             // Python parity: str.lower(), except where Python applies a full or context-sensitive
-            // mapping (marked). Lone surrogates are built with utf16, since
-            // F# literals turn them into U+FFFD; Python keeps them as they are too.
+            // mapping (marked).
             let lowerCases =
                 [ "Hello, World!", "hello, world!"
                   "", ""
@@ -139,7 +138,6 @@ module StringCaseTests =
                   "😀ABC", "😀abc"
                   "\U00010400", "\U00010428" // DESERET: a supplementary-plane mapping
                   "日本語ABC", "日本語abc"
-                  utf16 "A{D800}B{DC00}C", utf16 "a{D800}b{DC00}c"
                   // Python: "i̇stanbul" (i + U+0307, the full mapping); here the simple mapping U+0069.
                   "İstanbul", "istanbul"
                   // Python: "οδος" (Final_Sigma in context); here every Σ maps to σ.
@@ -166,12 +164,10 @@ module StringCaseTests =
                   "😀abc", "😀ABC"
                   "\U00010428", "\U00010400" // DESERET
                   "日本語abc", "日本語ABC"
-                  utf16 "a{D800}b{DC00}c", utf16 "A{D800}B{DC00}C"
                   "οδος", "ΟΔΟΣ" ]
             create "upperTable" (listOf stringType)
                 (ExpressionRecipe.ListConstruct(stringType, upperCases |> List.map (fst >> text >> ExpressionRecipe.StringToUpper)))
-            // Python parity: len(text.encode("utf-8")); a lone surrogate, which strict Python cannot
-            // encode, counts 3 bytes as with "surrogatepass" (WTF-8) and as its U+FFFD replacement.
+            // Python parity: len(text.encode("utf-8")).
             let utf8Cases =
                 [ "", 0L
                   "abc", 3L
@@ -180,9 +176,7 @@ module StringCaseTests =
                   "ΑΒΓ", 6L
                   "日本語", 9L
                   "😀", 4L
-                  "a😀b", 6L
-                  utf16 "a{D800}b", 5L
-                  utf16 "{DE00}😀", 7L ]
+                  "a😀b", 6L ]
             create "utf8Table" (listOf intType)
                 (ExpressionRecipe.ListConstruct(intType, utf8Cases |> List.map (fst >> text >> ExpressionRecipe.StringUtf8ByteCount)))
             let check name (expected: PureRunValue) =

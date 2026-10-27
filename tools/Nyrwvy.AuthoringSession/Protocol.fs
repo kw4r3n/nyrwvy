@@ -216,7 +216,8 @@ module AuthoringProtocol =
                       "A fake operation may script at most 256 responses."
                       "A fake operation may script at most 256 cases."
                       "A fake case may contain at most 256 arguments."
-                      "A fake operation may script at most 256 total responses." ] then message + " "
+                      "A fake operation may script at most 256 total responses."
+                      unpairedSurrogateMessage ] then message + " "
                 else ""
             raise (RunValueShapeException(location, expected, constraintReason))
 

@@ -7,17 +7,18 @@ open Nyrwvy.Core
 open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
-/// runPure String values carry any sequence of UTF-16 code units. On the wire, lone surrogates use
-/// JSON's own `\uD800` escapes in both directions.
+/// A String is a sequence of Unicode scalar values. On the wire, astral characters may arrive as
+/// JSON surrogate-pair escapes and round-trip; an unpaired surrogate escape in a run value, a fake
+/// response or a literal is rejected.
 module PureRunLoneSurrogateTests =
     let private stringType = TypeRef.Primitive PrimitiveType.String
 
-    let private intType = TypeRef.Primitive PrimitiveType.Int64
+    let private unpaired =
+        "A String must not contain an unpaired surrogate escape; a String is a sequence of Unicode scalar values."
 
-    /// Lone high, lone low, a reversed pair, surrogates at the start and the end, and a mix with
-    /// astral characters; the last is well-formed.
+    /// Astral characters alone, between, before and after BMP text, and next to JSON's own escapes.
     let private texts =
-        [ (utf16 "{D800}"); (utf16 "{DC00}"); (utf16 "{DC00}{D800}"); (utf16 "{DBFF}abc"); (utf16 "abc{DC01}"); (utf16 "😀{D800}😀{DFFF} x,\"\\{D83D}"); (utf16 "a{D83D}{DE00}b") ]
+        [ "😀"; "a😀b"; "\U00010000abc"; "abc\U0010FFFF"; "😀雪😀 x,\"\\𝄞" ]
 
     /// The JSON string literal a client writes for `text`: ASCII kept, everything else as `\uXXXX`.
     let private literal (text: string) =
@@ -36,23 +37,25 @@ module PureRunLoneSurrogateTests =
         | Error error -> failwithf "%s: %A" label error
 
     [<Fact>]
-    let ``run Strings are read from and written to JSON with surrogate escapes`` () =
+    let ``run Strings read surrogate pair escapes and reject unpaired surrogate escapes`` () =
         for text in texts @ [ ""; "雪"; "<&>'"; "\u0001\u2028" ] do
             use document = JsonDocument.Parse(literal text)
             Assert.Equal(text, WireInput.runText document.RootElement)
             let written = WireJson.serialize (WireJson.runString text)
             use reparsed = JsonDocument.Parse(written)
             Assert.Equal(text, WireInput.runText reparsed.RootElement)
-        // Well-formed Strings are the plain strings, encoded exactly as before.
+        // Strings are the plain strings, encoded as JSON encodes them.
         for text in [ ""; "雪😀"; "a\"b\\c\n"; "\u0001\u2028<&>'" ] do
             Assert.Equal(JsonSerializer.Serialize(text), WireJson.serialize (WireJson.runString text))
-            Assert.IsType<string>(WireJson.runString text) |> ignore
         // Lowercase escapes, as JavaScript's JSON.stringify writes them, read the same.
-        use lower = JsonDocument.Parse("\"\\udc00x\\ud83d\"")
-        Assert.Equal(utf16 "{DC00}x{D83D}", WireInput.runText lower.RootElement)
-        Assert.Equal("\"\\uD800\"", WireJson.serialize (WireJson.runString (utf16 "{D800}")))
-        Assert.Equal("\"\\uDC00\\uD800\"", WireJson.serialize (WireJson.runString (utf16 "{DC00}{D800}")))
-        Assert.Equal("\"\\uD83D\\uDE00\\uD800a\\u96EA\\u0022\"", WireJson.serialize (WireJson.runString (utf16 "😀{D800}a雪\"")))
+        use lower = JsonDocument.Parse("\"\\ud83d\\ude00x\"")
+        Assert.Equal("😀x", WireInput.runText lower.RootElement)
+        // Lone high, lone low, a reversed pair, at the start and the end, and a high before a pair.
+        for raw in [ "\\uD800"; "\\uDC00"; "\\uDC00\\uD800"; "\\udbffabc"; "abc\\uDC01"; "\\uD83D\\uD83D\\uDE00" ] do
+            use document = JsonDocument.Parse("\"" + raw + "\"")
+            match (try Ok(WireInput.runText document.RootElement) with WireInput.ProtocolInputException message -> Error message) with
+            | Error message -> Assert.Equal(unpaired, message)
+            | Ok text -> failwithf "%s was read as %A" raw text
 
     let private current (session: AuthoringSession) = (session.Status() |> unwrap "status").SnapshotId
 
@@ -87,38 +90,49 @@ module PureRunLoneSurrogateTests =
         Assert.True(document.RootElement.GetProperty("ok").GetBoolean(), raw)
         document.RootElement.GetProperty("result").Clone()
 
+    let private wireError session line =
+        let raw = AuthoringProtocol.executeLine session line
+        use document = JsonDocument.Parse(raw)
+        Assert.False(document.RootElement.GetProperty("ok").GetBoolean(), raw)
+        document.RootElement.GetProperty("error").GetProperty("message").GetString()
+
     let private structuredLiteral (functionValue: JsonElement) =
         let first = (functionValue.GetProperty("body").GetProperty("nodes"))[0]
         WireInput.runText (first.GetProperty("kind").GetProperty("value"))
 
     [<Theory; InlineData(true); InlineData(false)>]
-    let ``wire literal creation replacement review and reopen preserve every String code unit`` named =
+    let ``wire literal creation replacement review and reopen preserve astral text and reject unpaired surrogates`` named =
         withLiteralSession (fun path session ->
+            let op = if named then "simulateCreateFunctionByName" else "simulateCreateFunction"
+            let create name text =
+                $"""{{"id":"create","op":"{op}","displayName":"{name}","parameters":[],"resultType":{{"kind":"primitive","primitive":"string"}},"requiredEffects":[],"body":{{"kind":"stringLiteral","value":{text}}},"structuredReview":true,"detail":"full"}}"""
+            Assert.Equal(unpaired, wireError session (create "lone" "\"a\\uD800\""))
             let expected =
                 texts @ [ ""; "\uFFFD"; "雪"; "a\"b\\c\n" ]
                 |> List.mapi (fun index text ->
                     let name = "literal" + string index
-                    let op = if named then "simulateCreateFunctionByName" else "simulateCreateFunction"
-                    let created = wireResult session $"""{{"id":"create","op":"{op}","displayName":"{name}","parameters":[],"resultType":{{"kind":"primitive","primitive":"string"}},"requiredEffects":[],"body":{{"kind":"stringLiteral","value":{literal text}}},"structuredReview":true,"detail":"full"}}"""
+                    let created = wireResult session (create name (literal text))
                     Assert.Equal(text, structuredLiteral (created.GetProperty("review").GetProperty("createdFunction")))
                     let proposalId = created.GetProperty("proposalId").GetString()
                     let page = wireResult session $"""{{"id":"page","op":"readProposal","proposalId":"{proposalId}","path":"/review/createdFunction/body/nodes/0/kind/value","limit":1024}}"""
                     Assert.Equal(text, WireInput.runText (page.GetProperty("value")))
                     session.Commit(proposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "create commit" |> ignore
                     let fn = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
-                    let replacement = text + (utf16 "{DC00}")
+                    let replacement = text + "😀"
                     let selector =
                         if named then $"\"op\":\"simulateReplaceBodyByName\",\"function\":\"{name}\""
                         else $"\"op\":\"simulateReplaceBody\",\"functionId\":\"{StableId.value fn.Id}\",\"expectedCurrentResultNodeId\":\"{StableId.value fn.Body.ResultNodeId}\""
-                    let changed = wireResult session $"""{{"id":"replace",{selector},"replacement":{{"kind":"stringLiteral","value":{literal replacement}}},"structuredReview":true,"detail":"full"}}"""
+                    let replace value = $"""{{"id":"replace",{selector},"replacement":{{"kind":"stringLiteral","value":{value}}},"structuredReview":true,"detail":"full"}}"""
+                    Assert.Equal(unpaired, wireError session (replace "\"\\uDE00\""))
+                    let changed = wireResult session (replace (literal replacement))
                     Assert.Equal(replacement, structuredLiteral (changed.GetProperty("review").GetProperty("proposedFunction")))
                     session.Commit(changed.GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap "replace commit" |> ignore
-                    let changedFn=session.Declarations().Functions |> List.find (fun item -> item.Id=fn.Id)
-                    let finalText=replacement+(utf16 "{D800}")
+                    let changedFn = session.Declarations().Functions |> List.find (fun item -> item.Id = fn.Id)
+                    let finalText = replacement + "\U0010FFFF"
                     let targetSelector = if named then $"\"op\":\"simulateReplaceTargetByName\",\"function\":\"{name}\"" else $"\"op\":\"simulateReplaceTarget\",\"functionId\":\"{StableId.value fn.Id}\""
-                    let targeted=wireResult session $"""{{"id":"target",{targetSelector},"targetNodeId":"{StableId.value changedFn.Body.ResultNodeId}","replacement":{{"kind":"stringLiteral","value":{literal finalText}}},"structuredReview":true,"detail":"full"}}"""
-                    Assert.Equal(finalText,WireInput.runText (targeted.GetProperty("review").GetProperty("diff").GetProperty("proposedTarget").GetProperty("literal").GetProperty("value")))
-                    session.Commit(targeted.GetProperty("proposalId").GetString(),CommitPolicy.RejectBlockingObligations) |> unwrap "target commit" |> ignore
+                    let targeted = wireResult session $"""{{"id":"target",{targetSelector},"targetNodeId":"{StableId.value changedFn.Body.ResultNodeId}","replacement":{{"kind":"stringLiteral","value":{literal finalText}}},"structuredReview":true,"detail":"full"}}"""
+                    Assert.Equal(finalText, WireInput.runText (targeted.GetProperty("review").GetProperty("diff").GetProperty("proposedTarget").GetProperty("literal").GetProperty("value")))
+                    session.Commit(targeted.GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap "target commit" |> ignore
                     let read = wireResult session $"""{{"id":"read","op":"readFunction","function":"{name}"}}"""
                     Assert.Equal(finalText, structuredLiteral (read.GetProperty("function")))
                     name, finalText)
@@ -129,9 +143,9 @@ module PureRunLoneSurrogateTests =
                 Assert.Equal(text, structuredLiteral (read.GetProperty("function"))))
 
     [<Fact>]
-    let ``literal review pagination distinguishes lone surrogates from actual pairs`` () =
+    let ``literal review pagination never splits a surrogate pair`` () =
         withLiteralSession (fun _ session ->
-            let text = (utf16 "{D800}x") + String.replicate 1100 (utf16 "{DC00}") + "😀end"
+            let text = "x" + String.replicate 1100 "雪😀" + "😀end"
             let proposal =
                 session.SimulateCreateFunction
                     { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "paged"; Parameters = []
@@ -142,7 +156,7 @@ module PureRunLoneSurrogateTests =
             let page offset limit =
                 wireResult session $"""{{"id":"page","op":"readProposal","proposalId":"{id}","path":"/review/createdFunction/body/nodes/0/kind/value","offset":{offset},"limit":{limit}}}"""
             let first = page 0 1
-            Assert.Equal((utf16 "{D800}"), WireInput.runText (first.GetProperty("value")))
+            Assert.Equal("x", WireInput.runText (first.GetProperty("value")))
             Assert.Equal(1, first.GetProperty("nextOffset").GetInt32())
             let rebuilt = System.Text.StringBuilder()
             let mutable offset = 0
@@ -161,10 +175,10 @@ module PureRunLoneSurrogateTests =
             Assert.Equal("😀", WireInput.runText ((page pairOffset 2).GetProperty("value"))))
 
     [<Fact>]
-    let ``bounded compact reviews keep lone literal prefixes and remain retrievable`` () =
+    let ``bounded compact reviews keep astral literal prefixes whole and remain retrievable`` () =
         withLiteralSession (fun _ session ->
             let fn = createFunction session "large" [] stringType [] (ExpressionRecipe.StringLiteral "seed")
-            let text = String.replicate 300 (utf16 "{D800}")
+            let text = String.replicate 300 "😀"
             let body = [1..12] |> List.map (fun _ -> ExpressionRecipe.StringLiteral text) |> List.reduce (fun left right -> ExpressionRecipe.StringConcat(left, right))
             let proposal = session.SimulateReplaceTarget { ExpectedBaseSnapshotId=current session; TargetFunctionId=fn.Id; TargetNodeId=fn.Body.ResultNodeId; Replacement=body } |> unwrap "replace"
             let compact = WireEncode.compactProposal proposal |> WireJson.serialize
@@ -177,58 +191,20 @@ module PureRunLoneSurrogateTests =
             Assert.DoesNotContain("\\uFFFD", root.GetRawText(), StringComparison.OrdinalIgnoreCase))
 
     [<Fact; Trait("Suite", "Extended")>]
-    let ``lone surrogates round-trip through arguments, results, containers and fakes`` () =
+    let ``runPure round-trips astral text and rejects unpaired surrogate arguments and fake responses`` () =
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-lone-surrogates-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(root) |> ignore
         try
             use session = AuthoringSession.createNew (Path.Combine(root, "workspace.json")) |> unwrap "session"
-            let field name itemType: AgentTypeFieldIntent = { DisplayName = name; Type = itemType }
-            let holderRequest: AgentCreateTypeDeclarationRequest =
-                { Exported = true; TypeParameters = []; ExpectedBaseSnapshotId = current session
-                  DisplayName = "Holder"
-                  Kind =
-                    AgentTypeDeclarationKindIntent.Product
-                        [ field "text" stringType
-                          field "texts" (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ]))
-                          field "maybe" (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ stringType ]))
-                          field "outcome" (TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ stringType; intType ])) ] }
-            session.SimulateCreateType holderRequest |> unwrap "holder" |> publish session
-            let holder = session.Declarations().Types |> List.exactlyOne
-            let fieldId name =
-                match holder.Kind with
-                | SemanticTypeKind.Product fields -> (fields |> List.find (fun item -> item.DisplayName = name)).Id
-                | _ -> failwith "Expected a Product."
-            let holders = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Named(holder.Id, []) ])
             let echo = createFunction session "echo" [ "text", stringType ] stringType [] (ExpressionRecipe.ParameterSlot 0)
             let join = createFunction session "join" [ "left", stringType; "right", stringType ] stringType [] (ExpressionRecipe.StringConcat(ExpressionRecipe.ParameterSlot 0, ExpressionRecipe.ParameterSlot 1))
-            let echoAll = createFunction session "echoAll" [ "holders", holders ] holders [] (ExpressionRecipe.ParameterSlot 0)
             let run (fn: SemanticFunction) arguments expected = PureRun.run session fn.Id arguments expected |> unwrap fn.DisplayName
-            // Top-level String arguments, results and expectations.
             for text in texts do
                 let result = run echo [ PureRunValue.String text ] (Some(PureRunValue.String text))
                 Assert.Equal(PureRunValue.String text, result.Actual)
                 Assert.Equal(Some true, result.Matches)
-            // A lone surrogate is a distinct value: a different one does not match.
-            let differs = run echo [ PureRunValue.String (utf16 "{D800}") ] (Some(PureRunValue.String (utf16 "{DC00}")))
-            Assert.Equal(Some false, differs.Matches)
-            Assert.Equal(PureRunValue.String (utf16 "{DC00}"), differs.Mismatch.Value.Expected)
-            // Results the program builds: halves join to a pair, a reversed pair stays two lone surrogates.
-            Assert.Equal(PureRunValue.String "😀", (run join [ PureRunValue.String (utf16 "{D83D}"); PureRunValue.String (utf16 "{DE00}") ] None).Actual)
-            Assert.Equal(PureRunValue.String (utf16 "{DE00}{D83D}"), (run join [ PureRunValue.String (utf16 "{DE00}"); PureRunValue.String (utf16 "{D83D}") ] None).Actual)
-            Assert.Equal(PureRunValue.String (utf16 "x{D83D}"), (run join [ PureRunValue.String "x"; PureRunValue.String (utf16 "{D83D}") ] None).Actual)
-            // Nested containers: List, Option and Result payloads and Product fields.
-            let holderValue (text: string) =
-                PureRunValue.Product(holder.Id, [],
-                    [ fieldId "text", PureRunValue.String text
-                      fieldId "texts", PureRunValue.StringList [ text; "ok"; text + text ]
-                      fieldId "maybe", PureRunValue.StringOption(Some text)
-                      fieldId "outcome", PureRunValue.ResultOk(PureRunScalarKind.Int64, PureRunScalar.String text) ]
-                    |> List.sortBy (fst >> StableId.value))
-            let all = PureRunValue.ListValue(TypeRef.Named(holder.Id, []), texts |> List.map holderValue)
-            let echoed = run echoAll [ all ] (Some all)
-            Assert.Equal(all, echoed.Actual)
-            Assert.Equal(Some true, echoed.Matches)
-            // Fakes: keyed cases, returned values, recorded call arguments and thrown messages.
+            Assert.Equal(PureRunValue.String "😀\U0010FFFF", (run join [ PureRunValue.String "😀"; PureRunValue.String "\U0010FFFF" ] None).Actual)
+            // Fakes: a returned astral value and recorded astral call arguments.
             let effectRequest: AgentCreateEffectDeclarationRequest = { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "Lookup" }
             session.SimulateCreateEffect effectRequest |> unwrap "effect" |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
@@ -240,53 +216,35 @@ module PureRunLoneSurrogateTests =
             let dictionary = session.Declarations().Capabilities |> List.exactlyOne
             let get = dictionary.Operations |> List.exactlyOne
             let key = (List.exactlyOne get.Parameters).Id
-            let ask =
-                createFunction session "ask" [ "key", stringType; "dictionary", TypeRef.Capability dictionary.Id ] stringType [ effect.Id ]
-                    (ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 1, get.Id, [ key, ExpressionRecipe.ParameterSlot 0 ]))
-            let keyed =
-                PureRunValue.FakeCapability(dictionary.Id,
-                    [ { OperationId = get.Id; Responses = []
-                        Cases = Some(texts |> List.map (fun text ->
-                            { Arguments = [ key, PureRunValue.String text ]
-                              Responses = [ PureRunFakeResponse.Return(PureRunValue.String("=" + text)) ] })) } ])
-            for text in texts do
-                let result = run ask [ PureRunValue.String text; keyed ] None
-                Assert.Equal(PureRunValue.String("=" + text), result.Actual)
-                Assert.Equal<(CapabilityParameterId * PureRunValue) list>([ key, PureRunValue.String text ], result.Calls.Head.Arguments)
-            // The high half alone is not the pair: no case matches.
-            match PureRun.run session ask.Id [ PureRunValue.String (utf16 "{D83D}"); keyed ] None with
-            | Error(PureRunError.RuntimeFailure failure) -> Assert.Equal("FakeArgumentsUnmatchedException", failure.ExceptionType)
-            | other -> failwithf "A lone half matched: %A" other
-            let throwing = PureRunValue.FakeCapability(dictionary.Id, [ { OperationId = get.Id; Responses = [ PureRunFakeResponse.Throw (utf16 "down{DC00} 😀{D800}") ]; Cases = None } ])
-            match PureRun.run session ask.Id [ PureRunValue.String "k"; throwing ] None with
-            | Error(PureRunError.RuntimeFailure failure) ->
-                Assert.Equal("FakeCapabilityException", failure.ExceptionType)
-                Assert.Equal((utf16 "down{DC00} 😀{D800}"), failure.Message)
-            | other -> failwithf "The throwing fake was not reported: %A" other
-            // The wire: requests and responses use JSON surrogate escapes.
+            createFunction session "ask" [ "key", stringType; "dictionary", TypeRef.Capability dictionary.Id ] stringType [ effect.Id ]
+                (ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 1, get.Id, [ key, ExpressionRecipe.ParameterSlot 0 ]))
+            |> ignore
+            // The wire: astral text as surrogate-pair escapes round-trips; an unpaired escape is rejected.
             let send line =
                 let response = AuthoringProtocol.executeLine session line
                 response, JsonDocument.Parse(response)
-            let text = (utf16 "{DC00}a{D800}")
-            let request =
-                $"""{{"id":"lone","op":"runPure","functionId":"{StableId.value echo.Id}","arguments":[{{"kind":"string","value":{literal text}}}],"expected":{{"kind":"string","value":{literal text}}}}}"""
-            let raw, document = send request
+            let runPure argument expected =
+                $"""{{"id":"run","op":"runPure","functionId":"{StableId.value echo.Id}","arguments":[{{"kind":"string","value":{argument}}}],"expected":{{"kind":"string","value":{expected}}}}}"""
+            let text = "😀a\U0010FFFF"
+            let raw, document = send (runPure (literal text) (literal text))
             use document = document
             let result = document.RootElement.GetProperty("result")
             Assert.True(document.RootElement.GetProperty("ok").GetBoolean(), raw)
             Assert.True(result.GetProperty("matches").GetBoolean())
             Assert.Equal(text, WireInput.runText (result.GetProperty("actual").GetProperty("value")))
-            Assert.Contains("\"value\":\"\\uDC00a\\uD800\"", raw)
-            let listRequest =
-                $"""{{"id":"lone-list","op":"runPureByName","function":"ask","arguments":[{{"kind":"string","value":"\uD800"}},{{"kind":"fakeCapability","capability":"Dictionary","operations":[{{"operation":"get","responses":[{{"kind":"throw","message":"x\uDFFF"}}]}}]}}]}}"""
-            let raw, document = send listRequest
-            use document = document
-            Assert.False(document.RootElement.GetProperty("ok").GetBoolean(), raw)
-            Assert.Equal((utf16 "x{DFFF}"), WireInput.runText (document.RootElement.GetProperty("error").GetProperty("message")))
-            Assert.Contains("\"message\":\"x\\uDFFF\"", raw)
-            let calls = document.RootElement.GetProperty("error").GetProperty("calls")
-            let arguments = calls[0].GetProperty("arguments")
-            let call = arguments[0].GetProperty("value").GetProperty("value")
-            Assert.Equal((utf16 "{D800}"), WireInput.runText call)
+            Assert.Equal(unpaired, wireError session (runPure "\"\\uDC00a\\uD800\"" (literal "a")))
+            Assert.Equal(unpaired, wireError session (runPure (literal "a") "\"\\uD800\""))
+            let ask argument response =
+                $"""{{"id":"ask","op":"runPureByName","function":"ask","arguments":[{{"kind":"string","value":{argument}}},{{"kind":"fakeCapability","capability":"Dictionary","operations":[{{"operation":"get","responses":[{response}]}}]}}]}}"""
+            let returned value = $"""{{"kind":"return","value":{{"kind":"string","value":{value}}}}}"""
+            let answered = wireResult session (ask (literal "😀") (returned (literal "=😀")))
+            Assert.Equal("=😀", WireInput.runText (answered.GetProperty("actual").GetProperty("value")))
+            let call = (answered.GetProperty("calls")[0]).GetProperty("arguments")
+            Assert.Equal("😀", WireInput.runText ((call[0]).GetProperty("value").GetProperty("value")))
+            // Fake responses are rejected as an invalid run value at the response's path, with the reason.
+            for response in [ returned "\"=\\uD83D\""; """{"kind":"throw","message":"x\uDFFF"}""" ] do
+                let error = wireError session (ask (literal "k") response)
+                Assert.StartsWith("Invalid run value at arguments[1].operations[0].responses[0]", error)
+                Assert.Contains(unpaired, error)
         finally
             if Directory.Exists root then Directory.Delete(root, true)
