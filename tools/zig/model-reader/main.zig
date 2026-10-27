@@ -3777,6 +3777,8 @@ fn unorderedEffects(nodes: []const Value, observable: *const Set) ?[2]Str {
     }
     // `tryUnorderedPair` without its fast path (a topological walk), which only skips this search
     // when every pair is ordered and so cannot change the pair it names.
+    // shortcut: O(k²) reachability walks kept in the process arena, unlike F#'s ~k; port
+    // `totallyOrdered` or cache one reach set per node if graphs with thousands of effects appear.
     std.mem.sort(Str, effectful.items, {}, lessStr);
     for (effectful.items, 0..) |first, i| for (effectful.items[i + 1 ..]) |second| {
         if (!dependsOn(&edges, first, second) and !dependsOn(&edges, second, first)) return .{ first, second };
