@@ -37,6 +37,10 @@ At most one out or out-bytes argument per operation. Every operation parameter i
 
 **Readable adapter names.** The facade gains `New<Capability>()` for each table-bound library capability (a handle capability is created only by operations), so a host writes `NewGhostty()` instead of the adapter's generated name.
 
+## Reason
+
+A struct argument is flattened into scalar operation parameters rather than mapped to a graph Product: a Product would need type declarations in the binding graph, the generator would have to emit type requests, and the table would have to name fields, all for values that libghostty only passes in (positions, sizes, scroll requests, colours). The spec is generator input rather than names in the override because only the generator has clang; emission must stay a pure read of numbers. Version 1 is kept because every addition is optional and a 3a table means the same thing to the new reader.
+
 ## The libghostty binding
 
 `CSharpMappingTableGhosttyTests` runs:

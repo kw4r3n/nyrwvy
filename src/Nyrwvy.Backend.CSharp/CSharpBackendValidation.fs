@@ -209,12 +209,12 @@ module internal CSharpBackendValidation =
                 | Some _, _ -> false
             let retryWithoutStatus =
                 call.Arguments |> List.exists (function CSharpNativeArgument.OutBytes(_, Some _) -> true | _ -> false)
-                && (match call.Returns with CSharpNativeValue.Integer _ -> false | _ -> true)
+                && (match call.Returns with CSharpNativeValue.Integer(_, true) -> false | _ -> true)
             match call.Arguments |> List.tryPick (argumentProblem false) with
             | Some problem -> Some problem
             | None ->
                 if outValue.Length > 1 then Some "an operation has at most one out-parameter"
-                elif retryWithoutStatus then Some "retry compares an integer result"
+                elif retryWithoutStatus then Some "retry compares a signed integer result"
                 elif List.sort parameterIds <> List.sort (operation.Parameters |> List.map (fun parameter -> parameter.Id)) then
                     Some "every parameter must be passed exactly once"
                 elif binding.Handle && selfCount <> 1 then Some "a handle operation passes self exactly once"
@@ -344,7 +344,9 @@ module internal CSharpBackendValidation =
                                                         (match call.Returns with CSharpNativeValue.Handle _ -> true | _ -> false)
                                                         || call.Arguments |> List.exists (function
                                                             | CSharpNativeArgument.Self _
-                                                            | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Handle _) -> true
+                                                            | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Handle _)
+                                                            | CSharpNativeArgument.Reference(_, CSharpNativeValue.Handle _)
+                                                            | CSharpNativeArgument.Out(CSharpNativeValue.Handle _) -> true
                                                             | _ -> false)
                                                     | None -> false)
                                             let concurrentHandle =
