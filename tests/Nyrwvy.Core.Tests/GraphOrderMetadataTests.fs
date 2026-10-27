@@ -9,7 +9,7 @@ module GraphOrderMetadataTests =
 
     let private callee effects: SemanticFunction =
         let nodeId = id<GraphNodeTag> "callee-result"
-        { Id = id<FunctionTag> "callee"; DisplayName = "callee"; Exported = true
+        { MustNotWait = false; Id = id<FunctionTag> "callee"; DisplayName = "callee"; Exported = true
           TypeParameters = []; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Unit
           RequiredEffects = effects
           Body = { Nodes = [ { Id = nodeId; Kind = SemanticNodeKind.UnitLiteral } ]; ResultNodeId = nodeId } }
@@ -17,7 +17,7 @@ module GraphOrderMetadataTests =
     let private caller name: SemanticFunction =
         let first = id<GraphNodeTag> (name + "-first")
         let second = id<GraphNodeTag> (name + "-second")
-        { Id = id<FunctionTag> name; DisplayName = name; Exported = true
+        { MustNotWait = false; Id = id<FunctionTag> name; DisplayName = name; Exported = true
           TypeParameters = []; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Unit
           RequiredEffects = [ effectId ]
           Body =

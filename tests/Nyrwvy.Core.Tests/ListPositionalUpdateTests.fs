@@ -134,7 +134,7 @@ module ListPositionalUpdateTests =
                       { Id = nodeId "op"; Kind = make (nodeId "list") (nodeId "index") (nodeId "item") } ]
                   ResultNodeId = nodeId "op" }
             let fn: SemanticFunction =
-                { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-list-positional"
+                { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-list-positional"
                   TypeParameters = []
                   DisplayName = "update"; Parameters = []; ResultType = listOfText; RequiredEffects = []; Body = body }
             SnapshotValidator.validate { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-list-positional") with Functions = [ fn ] }

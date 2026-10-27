@@ -83,13 +83,13 @@ module PinnedDependencyRecoveryTests =
                     Types = [ { Exported = true; TypeParameters = []; Id = typeId; DisplayName = "Unused"; Kind = SemanticTypeKind.Product [] } ]
                     Effects = [ { Exported = true; Id = effectId; DisplayName = "Notify" } ]
                     Capabilities =
-                        [ { Exported = true; Id = capabilityId; DisplayName = "Notifier"
+                        [ { TaskBound = false; Exported = true; Id = capabilityId; DisplayName = "Notifier"
                             Operations =
-                                [ { Id = StableIdAllocator.newCapabilityOperationId (); DisplayName = "notify"
+                                [ { MayWait = false; Id = StableIdAllocator.newCapabilityOperationId (); DisplayName = "notify"
                                     Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Unit
                                     FailureType = None; EffectId = effectId } ] } ]
                     Functions =
-                        [ { Exported = true; Id = functionId; DisplayName = "constant"; Parameters = []
+                        [ { MustNotWait = false; Exported = true; Id = functionId; DisplayName = "constant"; Parameters = []
                             TypeParameters = []
                             ResultType = TypeRef.Primitive PrimitiveType.Int64; RequiredEffects = []
                             Body = { Nodes = [ { Id = nodeId; Kind = SemanticNodeKind.Int64Literal 7L } ]; ResultNodeId = nodeId } } ] }
@@ -178,7 +178,7 @@ module PinnedDependencyRecoveryTests =
             use session = AuthoringSession.createNewWithDependency local (Some source) |> unwrap
             let before = File.ReadAllText local
             let proposal = session.SimulateCreateFunction
-                                { Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId
+                                { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId
                                   TypeParameters = None
                                   DisplayName = "local"; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Int64
                                   RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 1L } |> unwrap
@@ -240,7 +240,7 @@ module PinnedDependencyRecoveryTests =
                 for workspace, unreadable in [ embedded, manifestPath embedded; local, source ] do
                     use session = AuthoringSession.openExisting workspace |> unwrap
                     let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                        { Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId; TypeParameters = None
+                        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId; TypeParameters = None
                           DisplayName = "mine"; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Int64
                           RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 1L }
                     let proposal = session.SimulateCreateFunction request |> unwrap
@@ -271,7 +271,7 @@ module PinnedDependencyRecoveryTests =
                        fingerprint = SnapshotFingerprint.compute imported |> unwrap |> SnapshotFingerprint.value |}))
                 use session = AuthoringSession.openExisting local |> unwrap
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId; TypeParameters = None
+                    { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId; TypeParameters = None
                       DisplayName = "mine"; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Int64
                       RequiredEffects = []; Body = ExpressionRecipe.Int64Literal 1L }
                 let proposal = session.SimulateCreateFunction request |> unwrap

@@ -25,7 +25,7 @@ module ProductFieldTypeMigrationTests =
 
     let private create ws name parameterType resultType body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
               TypeParameters = None
               DisplayName = name
               Parameters = [ { DisplayName = "input"; Type = parameterType } ]

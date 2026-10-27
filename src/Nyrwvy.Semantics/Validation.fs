@@ -53,6 +53,10 @@ module SnapshotValidator =
         let typeParameterNames = TypeParameters.names snapshot
         let typeParameterName id = TypeParameters.nameIn typeParameterNames id
         let oneShotPayloadRequirements = lazy (OneShotPayloadRequirements.derive snapshot)
+        for nodeId, calleeId in TaskCrossingRequirements.invalidInstantiations snapshot do
+            add
+                "TaskBoundValueCrossesTask"
+                $"Node '{StableId.value nodeId}' instantiates function '{StableId.value calleeId}' with a type that can hold a task-bound capability, and the function passes values of that type into another task, directly or through another generic call."
         for nodeId in OneShotPayloadRequirements.invalidCallbackUses snapshot do
             add "OneShotScopePayloadUnsupported" $"Callback node '{StableId.value nodeId}' instantiates a OneShot payload with a type containing TaskScope."
 
@@ -502,6 +506,16 @@ module SnapshotValidator =
             let completion = createCompletionResolver functionEntity
             let nodeType nodeId = completion nodeId |> Option.bind GraphCompletion.normalType
             let compatibleArms graphs = graphs |> List.map (SemanticFacts.graphCompletion completion) |> GraphCompletion.merge |> Option.isSome
+            // A value of a task-bound capability stays in the task that created it
+            // (docs/decisions/wait-and-task-bound-attributes.md).
+            let rejectTaskBound (what: string) (typeRef: TypeRef option) =
+                match typeRef with
+                | Some typeRef when TaskTypes.bearingTaskBound snapshot typeRef ->
+                    add "TaskBoundValueCrossesTask" $"{what} has a type that can hold a task-bound capability, whose values cannot cross into another task."
+                | _ -> ()
+            let rejectTaskBoundContext (label: string) (context: ArgumentBinding list) =
+                for binding in context do
+                    rejectTaskBound $"{label} context binding '{StableId.value binding.TargetParameterId}'" (nodeType binding.ValueNodeId)
 
             for node in allNodes do
                 for dependency in SemanticNodeShape.directValueReferences node do
@@ -1951,6 +1965,8 @@ module SnapshotValidator =
                                 if not (Set.contains effectId requiredEffects) then
                                     add "MissingEffectRequirement" $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} runs task scope body {StableId.describe body.DisplayName body.Id} but does not declare required effect {effectLabel effectId}."
                     | SemanticNodeKind.TaskStart(scopeNodeId, workerFunctionId, context, itemNodeId) ->
+                        rejectTaskBound $"TaskStart node '{StableId.value node.Id}' item" (nodeType itemNodeId)
+                        rejectTaskBoundContext $"TaskStart node '{StableId.value node.Id}'" context
                         match nodeType scopeNodeId with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])) | None -> ()
                         | Some _ -> add "TaskStartScopeTypeMismatch" $"TaskStart node '{StableId.value node.Id}' requires a TaskScope value as its scope."
@@ -1964,6 +1980,7 @@ module SnapshotValidator =
                             match substitution with
                             | None -> add "CallbackParameterTypeMismatch" $"TaskStart node '{StableId.value node.Id}' worker must take exactly one unbound parameter of the item type."
                             | Some current ->
+                                rejectTaskBound $"TaskStart node '{StableId.value node.Id}' worker result" (Some(TypeParameters.substitute current worker.ResultType))
                                 match TypeParameters.substitute current worker.ResultType with
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) -> ()
                                 | _ -> add "CallbackResultTypeMismatch" $"TaskStart node '{StableId.value node.Id}' worker must return Result<U, E>."
@@ -2004,6 +2021,8 @@ module SnapshotValidator =
                         | None -> ()
                         | Some _ -> add "TaskCancelInputTypeMismatch" $"TaskCancel node '{StableId.value node.Id}' requires a Task<T> input."
                     | SemanticNodeKind.ParallelAll(sourceListNodeId, workerFunctionId, context) ->
+                        rejectTaskBound $"ParallelAll node '{StableId.value node.Id}' source" (nodeType sourceListNodeId)
+                        rejectTaskBoundContext $"ParallelAll node '{StableId.value node.Id}'" context
                         match nodeType sourceListNodeId, Map.tryFind workerFunctionId functionsById with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ itemType ])), Some worker ->
                             let unbound, contextSubstitution = validateCallbackContext node.Id worker context
@@ -2014,6 +2033,7 @@ module SnapshotValidator =
                             match substitution with
                             | None -> add "CallbackParameterTypeMismatch" $"ParallelAll node '{StableId.value node.Id}' worker must take exactly one unbound parameter of the item type."
                             | Some current ->
+                                rejectTaskBound $"ParallelAll node '{StableId.value node.Id}' worker result" (Some(TypeParameters.substitute current worker.ResultType))
                                 match TypeParameters.substitute current worker.ResultType with
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ _; _ ]) -> ()
                                 | _ -> add "CallbackResultTypeMismatch" $"ParallelAll node '{StableId.value node.Id}' worker must return Result<U, E>."
@@ -2838,6 +2858,17 @@ module SnapshotValidator =
                     add
                         "InvalidObligationTarget"
                         $"Obligation '{StableId.value obligation.Id}' does not target a direct-call node."
+
+        // Derived only when a function needs it; reviews derive it on their own.
+        let waiting = lazy (Waiting.derive snapshot)
+        for functionEntity in snapshot.Functions do
+            if functionEntity.MustNotWait then
+                match Map.tryFind functionEntity.Id waiting.Value with
+                | Some path ->
+                    add
+                        "MustNotWaitFunctionWaits"
+                        $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} must not wait but reaches {Waiting.describe snapshot path}."
+                | None -> ()
 
         issues
         |> Seq.sortBy (fun issue -> issue.Code, issue.Message)

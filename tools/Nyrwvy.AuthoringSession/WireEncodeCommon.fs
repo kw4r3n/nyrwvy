@@ -86,6 +86,7 @@ module internal WireEncodeCommon =
         [ "id", box (StableId.value value.Id)
           "displayName", box value.DisplayName
           "exported", box value.Exported ]
+        @ (if value.MustNotWait then [ "mustNotWait", box true ] else [])
         @ typeParameters value.TypeParameters
         @ [ "parameters", value.Parameters |> List.map (parameter names) |> arrayValue
             "resultType", typeRefIn names value.ResultType
@@ -163,18 +164,20 @@ module internal WireEncodeCommon =
                       "displayName", box parameter.DisplayName
                       "type", typeRef parameter.Type ])
         objectValue
-            [ "id", box (StableId.value operation.Id)
-              "displayName", box operation.DisplayName
-              "parameters", arrayValue parameters
-              "resultType", typeRef operation.ResultType
-              "failureType", optional operation.FailureType typeRef
-              "effectId", box (StableId.value operation.EffectId) ]
+            ([ "id", box (StableId.value operation.Id)
+               "displayName", box operation.DisplayName
+               "parameters", arrayValue parameters
+               "resultType", typeRef operation.ResultType
+               "failureType", optional operation.FailureType typeRef
+               "effectId", box (StableId.value operation.EffectId) ]
+             @ (if operation.MayWait then [ "mayWait", box true ] else []))
 
     let capabilityEntity (value: SemanticCapability) =
         objectValue
             [ "id", box (StableId.value value.Id)
               "displayName", box value.DisplayName
               "exported", box value.Exported
+              if value.TaskBound then "taskBound", box true
               "operations", (Snapshot.canonicalCapabilityMembers value).Operations |> List.map capabilityOperation |> arrayValue ]
 
     let declarations (value: AuthoringDeclarations) =
@@ -374,11 +377,18 @@ module internal WireEncodeCommon =
                   "enclosingControlNodeIds", item.EnclosingControlNodeIds |> List.map (StableId.value >> box) |> arrayValue
                   "dependentContinuationNodeIds", item.DependentContinuationNodeIds |> List.map (StableId.value >> box) |> arrayValue ]) |> arrayValue
 
+    /// `"mayWait": true` and the `waitPath` when the function may wait; nothing otherwise.
+    let waitFields (value: FunctionFocusView) =
+        match value.WaitPath with
+        | Some path -> [ "mayWait", box true; "waitPath", box path ]
+        | None -> []
+
     let private focusFields encodeFunction includeNodeTypes (value: FunctionFocusView) =
         let typeRef = typeRefIn (functionTypeParameterNames value.Function)
         [ yield "snapshotId", box (StableId.value value.SnapshotId)
           yield "function", encodeFunction value.Function
           yield "bodyEffectRequirements", bodyEffectRequirements value.BodyEffectRequirements
+          yield! waitFields value
           yield "aborts", aborts value.Aborts
           if includeNodeTypes then
               yield "nodeTypes",

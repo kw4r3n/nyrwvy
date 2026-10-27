@@ -22,6 +22,7 @@
     <Compile Include="SnapshotSchemaTests.fs" />
     <Compile Include="FingerprintTests.fs" />
     <Compile Include="DeclarationVisibilityTests.fs" />
+    <Compile Include="WaitAttributesTests.fs" />
     <Compile Include="ValueGraphTests.fs" />
     <Compile Include="CapabilityTests.fs" />
     <Compile Include="TransactionTests.fs" />

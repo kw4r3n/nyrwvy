@@ -353,7 +353,7 @@ module StructuralRenameAndRemovalTests =
         let snapshot =
             { Snapshot.empty snapshotId with
                 Functions =
-                    [ { Exported = true; Id = functionId
+                    [ { MustNotWait = false; Exported = true; Id = functionId
                         TypeParameters = []
                         DisplayName = "f"
                         Parameters = [ { Id = keep; DisplayName = "keep"; Type = TypeRef.Primitive PrimitiveType.Int64 } ]

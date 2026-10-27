@@ -19,7 +19,7 @@ module RecordKindsTests =
     // ---------------------------------------------------------------------------------------------
     // The structural all-kinds model: every SemanticNodeKind case twice (lists filled and options
     // present, then empty and absent), both type kinds, every TypeRef form, a capability with and
-    // without a failure type, open and resolved obligations, a shared arm and a dependency header.
+    // without a failure type (and the wait and task-binding markers), open and resolved obligations, a shared arm and a dependency header.
     // It does not validate, so it is written through the codec's private writer by reflection.
     // ---------------------------------------------------------------------------------------------
 
@@ -57,12 +57,12 @@ module RecordKindsTests =
                 { Id = id<TypeTag> "t-empty-union"; DisplayName = "Never"; Exported = false; TypeParameters = []; Kind = SemanticTypeKind.Union [] } ]
         let effect: SemanticEffect = { Id = id<EffectTag> "e-1"; DisplayName = "io"; Exported = true }
         let op: SemanticCapabilityOperation =
-            { Id = id<CapabilityOperationTag> "op-1"; DisplayName = "read"
+            { MayWait = true; Id = id<CapabilityOperationTag> "op-1"; DisplayName = "read"
               Parameters = [ { Id = id<CapabilityParameterTag> "cp-1"; DisplayName = "path"; Type = TypeRef.Primitive PrimitiveType.String }
                              { Id = id<CapabilityParameterTag> "cp-2"; DisplayName = "mode"; Type = TypeRef.Primitive PrimitiveType.Int64 } ]
               ResultType = TypeRef.Primitive PrimitiveType.Unit; FailureType = Some(TypeRef.Primitive PrimitiveType.String); EffectId = effect.Id }
-        let op2 = { op with Id = id<CapabilityOperationTag> "op-0"; DisplayName = "write"; Parameters = []; FailureType = None }
-        let cap: SemanticCapability = { Id = id<CapabilityTag> "c-1"; DisplayName = "Fs"; Exported = true; Operations = [ op; op2 ] }
+        let op2 = { op with Id = id<CapabilityOperationTag> "op-0"; DisplayName = "write"; Parameters = []; FailureType = None; MayWait = false }
+        let cap: SemanticCapability = { TaskBound = true; Id = id<CapabilityTag> "c-1"; DisplayName = "Fs"; Exported = true; Operations = [ op; op2 ] }
         // A shared arm; a one-variant arm whose two field bindings have binding IDs ordered opposite to
         // their source field IDs; a nameless binding; construct type arguments.
         let sortedIds (names: string list) = names |> List.map uuid |> List.sort
@@ -80,16 +80,16 @@ module RecordKindsTests =
               { Id = id<GraphNodeTag> "x-construct"
                 Kind = SemanticNodeKind.UnionConstruct(id<VariantTag> "v-a", [ TypeRef.Primitive PrimitiveType.Int64 ], []) } ]
         let fn: SemanticFunction =
-            { Id = id<FunctionTag> "fn-all"; DisplayName = "all"; Exported = true; TypeParameters = [ tp; tp2 ]
+            { MustNotWait = true; Id = id<FunctionTag> "fn-all"; DisplayName = "all"; Exported = true; TypeParameters = [ tp; tp2 ]
               Parameters = [ { Id = id<ParameterTag> "p-1"; DisplayName = "a"; Type = TypeRef.TypeParameter(fst tp) }
                              { Id = id<ParameterTag> "p-0"; DisplayName = "b"; Type = TypeRef.Function([ TypeRef.Primitive PrimitiveType.Int64 ], TypeRef.Function([], TypeRef.Primitive PrimitiveType.Unit)) } ]
               ResultType = TypeRef.Primitive PrimitiveType.Unit; RequiredEffects = [ effect.Id ]; Body = g (nodes @ extra) }
-        let fn2 = { fn with Id = id<FunctionTag> "fn-plain"; DisplayName = "plain \"quoted\" <tag> & é \U0001F600"; Exported = false; TypeParameters = []; Parameters = []; RequiredEffects = []; Body = g [ lit "y-unit" ] }
+        let fn2 = { fn with Id = id<FunctionTag> "fn-plain"; DisplayName = "plain \"quoted\" <tag> & é \U0001F600"; Exported = false; MustNotWait = false; TypeParameters = []; Parameters = []; RequiredEffects = []; Body = g [ lit "y-unit" ] }
         let obligations: MissingArgumentObligation list =
             [ { Id = id<ObligationTag> "o-open"; OriginTransactionId = id<TransactionTag> "tx-1"; CallNodeId = id<GraphNodeTag> "n-DirectCall"; ParameterId = id<ParameterTag> "p-1"; Status = ObligationStatus.Open }
               { Id = id<ObligationTag> "o-done"; OriginTransactionId = id<TransactionTag> "tx-1"; CallNodeId = id<GraphNodeTag> "n-DirectCall"; ParameterId = id<ParameterTag> "p-1"
                 Status = ObligationStatus.Resolved { TransactionId = id<TransactionTag> "tx-2"; ValueNodeId = id<GraphNodeTag> "n-UnitLiteral" } } ]
-        { Id = id<SnapshotTag> "s-1"; ParentId = Some(id<SnapshotTag> "s-0"); Types = types; Effects = [ effect ]; Capabilities = [ cap ]; Functions = [ fn; fn2 ]; Obligations = obligations }
+        { Id = id<SnapshotTag> "s-1"; ParentId = Some(id<SnapshotTag> "s-0"); Types = types; Effects = [ effect ]; Capabilities = [ cap; { cap with Id = id<CapabilityTag> "c-2"; DisplayName = "Env"; TaskBound = false; Operations = [] } ]; Functions = [ fn; fn2 ]; Obligations = obligations }
 
     /// The all-kinds model as the writer's JSON, at the current schema version with a dependency marker
     /// (the public serializers validate, so this goes through the private `writeSnapshotAt`).

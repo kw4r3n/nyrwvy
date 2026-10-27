@@ -21,7 +21,7 @@ module ListFoldTests =
 
     let private create ws name parameters resultType body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws
               TypeParameters = None
               DisplayName = name
               Parameters = parameters
@@ -392,7 +392,7 @@ module ListFoldTests =
         let initial = Snapshot.empty (id<SnapshotTag> "equality-initial")
         let ws = AgentWorkspace.create initial |> unwrap "workspace"
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = initial.Id
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = initial.Id
               TypeParameters = None
               DisplayName = "same"
               Parameters = [ parameter "left" stringType; parameter "right" stringType ]

@@ -26,7 +26,7 @@ module AgentFunctionCreationTests =
           Type = typeRef }
 
     let private request (snapshot: Snapshot) displayName parameters resultType requiredEffects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
+        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
           TypeParameters = None
           DisplayName = displayName
           Parameters = parameters
@@ -149,7 +149,7 @@ module AgentFunctionCreationTests =
         let existingResultId = nodeId "existing-result"
         let existingFunctionId = functionId "existing"
         let existingFunction: SemanticFunction =
-            { Exported = true; Id = existingFunctionId
+            { MustNotWait = false; Exported = true; Id = existingFunctionId
               TypeParameters = []
               DisplayName = "existing"
               Parameters =
@@ -224,7 +224,7 @@ module AgentFunctionCreationTests =
         let calleeResultId = nodeId "effect-callee-result"
         let calleeId = functionId "effect-callee"
         let callee: SemanticFunction =
-            { Exported = true; Id = calleeId
+            { MustNotWait = false; Exported = true; Id = calleeId
               TypeParameters = []
               DisplayName = "effectful"
               Parameters = []
@@ -262,7 +262,7 @@ module AgentFunctionCreationTests =
         let existingResultId = nodeId "stale-existing-result"
         let existingFunctionId = functionId "stale-existing"
         let existingFunction: SemanticFunction =
-            { Exported = true; Id = existingFunctionId
+            { MustNotWait = false; Exported = true; Id = existingFunctionId
               TypeParameters = []
               DisplayName = "existing"
               Parameters = []
@@ -308,6 +308,7 @@ module AgentFunctionCreationTests =
             [ "ExpectedBaseSnapshotId", typeof<SnapshotId>
               "DisplayName", typeof<string>
               "Exported", typeof<bool>
+              "MustNotWait", typeof<bool>
               "TypeParameters", typeof<(TypeParameterId * string) list option>
               "Parameters", typeof<AgentExpressionStructuralWorkflow.FunctionCreation.ParameterIntent list>
               "ResultType", typeof<TypeRef>

@@ -35,6 +35,8 @@ AgentCreateCapabilityDeclarationRequest =
 
 `Exported` is the capability's [visibility](../decisions/declaration-visibility.md): whether snapshots that depend on this one may use it. The wire form is optional `"exported": true` on `simulateCreateCapability` and `simulateCreateCapabilityByName`; a capability is private otherwise, and `setExported` changes it later.
 
+`TaskBound` marks a capability whose values belong to the task that created them, and each operation intent's `MayWait` marks an operation that can wait for an external event for an unbounded time ([wait and task-bound attributes](../decisions/wait-and-task-bound-attributes.md)). The wire forms are optional `"taskBound": true` on the request and `"mayWait": true` on an operation; both default to false, and `setTaskBound` and `setMayWait` change them later.
+
 The request contains existing published `EffectId` references because operation effects are already semantic facts. It never contains production capability, operation, or parameter identities. The maintained session's `simulateCreateCapabilityByName` convenience resolves effect and type display names to these IDs before building the same request (see [Name-resolved AI authoring](agent-authoring-session.md#name-resolved-ai-authoring)).
 
 Operation and parameter order are carried as ordinary declaration structure. Display names are presentation metadata and never identity; the capability's own display name must only be unique among capabilities (see Preflight).

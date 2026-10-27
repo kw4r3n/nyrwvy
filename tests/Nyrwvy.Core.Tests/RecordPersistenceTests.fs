@@ -42,14 +42,14 @@ module RecordPersistenceTests =
         let node = id<GraphNodeTag> (name + "-node")
         { Snapshot.empty (id<SnapshotTag> name) with
             Functions =
-                [ { Exported = true; Id = id<FunctionTag> name; TypeParameters = []; DisplayName = name
+                [ { MustNotWait = false; Exported = true; Id = id<FunctionTag> name; TypeParameters = []; DisplayName = name
                     Parameters = [ { Id = parameter; DisplayName = "input"; Type = int64Type } ]
                     ResultType = int64Type; RequiredEffects = []
                     Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.ParameterReference parameter } ]; ResultNodeId = node } } ] }
 
     let private commitLiteral (session: AuthoringSession) name =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId; TypeParameters = None
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId; TypeParameters = None
               DisplayName = name; Parameters = []; ResultType = int64Type; RequiredEffects = []
               Body = ExpressionRecipe.Int64Literal 1L }
         let proposal = session.SimulateCreateFunction request |> unwrap "simulate"
@@ -58,7 +58,7 @@ module RecordPersistenceTests =
     /// A local function whose body calls `callee`, which lives in the dependency.
     let private commitCall (session: AuthoringSession) name (callee: string) =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId; TypeParameters = None
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (status session).SnapshotId; TypeParameters = None
               DisplayName = name; Parameters = [ { DisplayName = "x"; Type = int64Type } ]; ResultType = int64Type; RequiredEffects = []
               Body = ExpressionRecipe.DirectCall(id<FunctionTag> callee, [ id<ParameterTag> (callee + "-input"), ExpressionRecipe.ParameterSlot 0 ]) }
         let proposal = session.SimulateCreateFunction request |> unwrap "simulate call"

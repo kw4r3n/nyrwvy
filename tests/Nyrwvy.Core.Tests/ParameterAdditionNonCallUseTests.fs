@@ -15,7 +15,7 @@ module ParameterAdditionNonCallUseTests =
     let private target: SemanticFunction =
         let parameterId = id<ParameterTag> "double-x"
         let resultId = id<GraphNodeTag> "double-result"
-        { Exported = true; Id = targetId
+        { MustNotWait = false; Exported = true; Id = targetId
           TypeParameters = []
           DisplayName = "double"
           Parameters = [ { Id = parameterId; DisplayName = "x"; Type = int64Type } ]
@@ -25,7 +25,7 @@ module ParameterAdditionNonCallUseTests =
 
     let private user name parameters resultType (nodes: (string * SemanticNodeKind) list) : SemanticFunction =
         let nodes = nodes |> List.map (fun (key, kind) -> { Id = id<GraphNodeTag> (name + "-" + key); Kind = kind })
-        { Exported = true; Id = id<FunctionTag> name
+        { MustNotWait = false; Exported = true; Id = id<FunctionTag> name
           TypeParameters = []
           DisplayName = name
           Parameters = parameters
@@ -57,10 +57,10 @@ module ParameterAdditionNonCallUseTests =
             { Snapshot.empty (id<SnapshotTag> "initial") with
                 Effects = [ { Exported = true; Id = effectId; DisplayName = "Effect" } ]
                 Capabilities =
-                    [ { Exported = true; Id = capabilityId
+                    [ { TaskBound = false; Exported = true; Id = capabilityId
                         DisplayName = "Doubler"
                         Operations =
-                          [ { Id = operationId
+                          [ { MayWait = false; Id = operationId
                               DisplayName = "apply"
                               Parameters = [ { Id = id<CapabilityParameterTag> "apply-x"; DisplayName = "x"; Type = int64Type } ]
                               ResultType = int64Type

@@ -55,8 +55,20 @@ module internal WireOperation =
         | [ _, target ] -> AgentOperationIntent.SetExported(target (), requiredBool "exported" element)
         | _ -> fail ("A set-exported operation names exactly one declaration with one of " + String.concat ", " names + ".")
 
+    /// `setMayWait`, `setTaskBound` and `setMustNotWait` name one declaration by `keys` (exact IDs or
+    /// display names) and carry the marker's value under its own name.
+    let private setWaitAttribute (kind: string) (field: string) (keys: string list) (target: unit -> WaitAttribute) (element: JsonElement) =
+        ensureFields $"{kind} operation" ("kind" :: field :: keys) ("kind" :: field :: keys) element
+        AgentOperationIntent.SetWaitAttribute(target (), requiredBool field element)
+
     let operation (element: JsonElement): AgentOperationIntent =
         match requiredString "kind" element with
+        | "setMayWait" ->
+            setWaitAttribute "set-may-wait" "mayWait" [ "operationId" ] (fun () -> WaitAttribute.MayWait(id<CapabilityOperationTag> "operationId" element)) element
+        | "setTaskBound" ->
+            setWaitAttribute "set-task-bound" "taskBound" [ "capabilityId" ] (fun () -> WaitAttribute.TaskBound(id<CapabilityTag> "capabilityId" element)) element
+        | "setMustNotWait" ->
+            setWaitAttribute "set-must-not-wait" "mustNotWait" [ "functionId" ] (fun () -> WaitAttribute.MustNotWait(id<FunctionTag> "functionId" element)) element
         | "setExported" ->
             setExported
                 [ "typeId", (fun () -> AgentVisibilityTarget.Type(id<TypeTag> "typeId" element))
@@ -143,7 +155,7 @@ module internal WireOperation =
         | "addCapabilityOperation" ->
             ensureFields
                 "add-capability-operation operation"
-                [ "kind"; "capabilityId"; "displayName"; "parameters"; "resultType"; "failureType"; "effectId"; "implementations" ]
+                [ "kind"; "capabilityId"; "displayName"; "parameters"; "resultType"; "failureType"; "effectId"; "implementations"; "mayWait" ]
                 [ "kind"; "capabilityId"; "displayName"; "parameters"; "resultType"; "effectId"; "implementations" ]
                 element
             AgentOperationIntent.AddCapabilityOperation
@@ -157,7 +169,8 @@ module internal WireOperation =
                             { DisplayName = requiredString "displayName" parameter; Type = typeRef (property "type" parameter) })
                       ResultType = typeRef (property "resultType" element)
                       FailureType = failureType typeRef element
-                      EffectId = id<EffectTag> "effectId" element }
+                      EffectId = id<EffectTag> "effectId" element
+                      MayWait = optionalBool "mayWait" false element }
                   ImplementationPlans = implementationPlans (id<FunctionTag> "functionId") "functionId" element }
         | "removeProductField" ->
             ensureFields "remove-product-field operation" [ "kind"; "fieldId" ] [ "kind"; "fieldId" ] element
@@ -226,6 +239,12 @@ module internal WireOperation =
             ensureFields $"{kind} operation" ("kind" :: "displayName" :: keys) ("kind" :: "displayName" :: keys) element
             AgentOperationIntent.RenameDisplayName(target (), requiredString "displayName" element)
         match requiredString "kind" element with
+        | "setMayWait" ->
+            setWaitAttribute "set-may-wait" "mayWait" [ "capability"; "operation" ] (fun () -> WaitAttribute.MayWait (resolveOperation ()).Id) element
+        | "setTaskBound" ->
+            setWaitAttribute "set-task-bound" "taskBound" [ "capability" ] (fun () -> WaitAttribute.TaskBound (resolveCapability ()).Id) element
+        | "setMustNotWait" ->
+            setWaitAttribute "set-must-not-wait" "mustNotWait" [ "function" ] (fun () -> WaitAttribute.MustNotWait (resolveFunction ()).Id) element
         | "setExported" ->
             setExported
                 [ "type", (fun () -> AgentVisibilityTarget.Type (resolveType ()).Id)
@@ -262,7 +281,7 @@ module internal WireOperation =
         | "addCapabilityOperation" ->
             ensureFields
                 "add-capability-operation operation"
-                [ "kind"; "capability"; "displayName"; "parameters"; "resultType"; "failureType"; "effect"; "implementations" ]
+                [ "kind"; "capability"; "displayName"; "parameters"; "resultType"; "failureType"; "effect"; "implementations"; "mayWait" ]
                 [ "kind"; "capability"; "displayName"; "parameters"; "resultType"; "effect"; "implementations" ]
                 element
             let typeRef = WireSymbolic.typeRef declarations
@@ -277,7 +296,8 @@ module internal WireOperation =
                             { DisplayName = requiredString "displayName" parameter; Type = typeRef (property "type" parameter) })
                       ResultType = typeRef (property "resultType" element)
                       FailureType = failureType typeRef element
-                      EffectId = (resolveEffect ()).Id }
+                      EffectId = (resolveEffect ()).Id
+                      MayWait = optionalBool "mayWait" false element }
                   ImplementationPlans =
                     implementationPlans (fun plan -> (WireSymbolic.resolveFunctionAt declarations "function" plan).Id) "function" element }
         | "removeProductField" ->
@@ -312,7 +332,7 @@ module internal WireOperation =
             ensureFields "remove-union-variant operation" [ "kind"; "type"; "variant" ] [ "kind"; "type"; "variant" ] element
             AgentOperationIntent.RemoveUnionVariant (WireSymbolic.unionVariant (resolveType ()) (requiredString "variant" element)).Id
         | value ->
-            fail $"Unsupported name-resolved operation kind '{value}'. simulateOperationsByName accepts the rename operations (renameFunction, renameType, renameField, renameVariant, renameParameter, renameEffect, renameCapability, renameCapabilityOperation, renameCapabilityParameter), setExported, addFunctionParameter, addProductField, addCapabilityOperation, addUnionVariant, addRequiredEffect, removeRequiredEffect, resolveMissingArgument, removeProductField, removeFunctionParameter, removeUnionVariant, deleteFunction, deleteType, deleteEffect, deleteCapability and deleteCapabilityOperation, each naming its targets by display name."
+            fail $"Unsupported name-resolved operation kind '{value}'. simulateOperationsByName accepts the rename operations (renameFunction, renameType, renameField, renameVariant, renameParameter, renameEffect, renameCapability, renameCapabilityOperation, renameCapabilityParameter), setExported, setMayWait, setTaskBound, setMustNotWait, addFunctionParameter, addProductField, addCapabilityOperation, addUnionVariant, addRequiredEffect, removeRequiredEffect, resolveMissingArgument, removeProductField, removeFunctionParameter, removeUnionVariant, deleteFunction, deleteType, deleteEffect, deleteCapability and deleteCapabilityOperation, each naming its targets by display name."
 
     /// Type parameter names in a new variant's field types resolve to the Union's own declared
     /// type parameters; a name the Union does not declare is rejected, since a variant cannot

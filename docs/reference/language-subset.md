@@ -235,6 +235,10 @@ Insert, contains and remove are O(log n). None of them fails. An empty set is a 
 
 `CapabilityConstruct` maps every operation of an existing Capability to a monomorphic pure function with the same positional parameter types and result type. The resulting value can be passed to existing consumers; invocation still requires the operation's declared Effect. See [program capability implementations](../specs/program-capability-implementations.md) for validation, authoring, review and versioned persistence. State, capture and effectful implementations are outside this slice.
 
+## Waiting and task-bound capabilities
+
+A capability operation marked `mayWait` can wait for an external event for an unbounded time. A function may wait when it reaches one, or a builtin wait (`TaskWait`, `OneShotWait`, `ParallelAll`, `TaskScope`, with or without a limit), through calls, callbacks, bodies, handlers or workers; the fact is derived, not declared. A function marked `mustNotWait` that may wait is rejected (`MustNotWaitFunctionWaits`, naming the path). Values of a capability marked `taskBound` stay in the task that created them: a type that can hold one is rejected as a `TaskStart` item, context binding or worker result and as a `ParallelAll` source, context binding or worker result (`TaskBoundValueCrossesTask`). See the [decision](../decisions/wait-and-task-bound-attributes.md).
+
 ## Pure function values
 
 `TypeRef.Function(parameters, resultType)` describes a pure capture-free callable.

@@ -25,7 +25,7 @@ module Float64ConversionTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private request session name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
+        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = effects; Body = body }
@@ -69,7 +69,7 @@ module Float64ConversionTests =
         let nodeId name = StableId.createForTesting<GraphNodeTag> ("node-float-" + name)
         let validate operand resultType =
             let fn: SemanticFunction =
-                { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-float-entry"; DisplayName = "entry"; Parameters = []
+                { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-float-entry"; DisplayName = "entry"; Parameters = []
                   TypeParameters = []
                   ResultType = resultType; RequiredEffects = []
                   Body =
@@ -232,9 +232,9 @@ module Float64ConversionTests =
             session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO" } |> unwrap |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
             session.SimulateCreateCapability
-                { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "Scale"
+                { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "Scale"
                   Operations =
-                    [ { DisplayName = "scale"; Parameters = [ { DisplayName = "value"; Type = floatType } ]
+                    [ { MayWait = false; DisplayName = "scale"; Parameters = [ { DisplayName = "value"; Type = floatType } ]
                         ResultType = floatType; FailureType = None; EffectId = effect.Id } ] }
             |> unwrap |> publish session
             let capability = session.Declarations().Capabilities |> List.exactlyOne

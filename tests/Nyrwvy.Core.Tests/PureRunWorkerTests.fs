@@ -20,7 +20,7 @@ module PureRunWorkerTests =
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private create (session: AuthoringSession) name parameters resultType effects body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
               TypeParameters = None
               Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
               ResultType = resultType; RequiredEffects = effects; Body = body }
@@ -54,9 +54,9 @@ module PureRunWorkerTests =
         session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO" } |> unwrap |> publish session
         let effect = session.Declarations().Effects |> List.exactlyOne
         session.SimulateCreateCapability
-            { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO"
+            { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = "IO"
               Operations =
-                [ { DisplayName = "mark"; Parameters = [ { DisplayName = "value"; Type = textType } ]
+                [ { MayWait = false; DisplayName = "mark"; Parameters = [ { DisplayName = "value"; Type = textType } ]
                     ResultType = textType; FailureType = None; EffectId = effect.Id } ] }
         |> unwrap |> publish session
         let cap = session.Declarations().Capabilities |> List.exactlyOne

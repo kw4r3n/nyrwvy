@@ -29,7 +29,7 @@ module AuthoringParameterMigrationSessionTests =
 
     let private createFunction session displayName parameters resultType body =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = currentSnapshotId session
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = currentSnapshotId session
               TypeParameters = None
               DisplayName = displayName
               Parameters = parameters

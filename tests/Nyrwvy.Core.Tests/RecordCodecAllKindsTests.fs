@@ -44,7 +44,7 @@ module RecordCodecAllKindsTests =
         { Id = id<ParameterTag> $"param-{fnName}-{name}"; DisplayName = name; Type = t }
 
     let private fn name (parameters: SemanticParameter list) effects resultType build : SemanticFunction =
-        { Id = id<FunctionTag> ("fn-" + name); DisplayName = name; Exported = true; TypeParameters = []
+        { MustNotWait = false; Id = id<FunctionTag> ("fn-" + name); DisplayName = name; Exported = true; TypeParameters = []
           Parameters = parameters; ResultType = resultType; RequiredEffects = effects; Body = graph build }
 
     /// A function of one parameter whose body is built from that parameter's reference.
@@ -62,9 +62,9 @@ module RecordCodecAllKindsTests =
     let private io: SemanticEffect = { Id = id<EffectTag> "effect-io"; DisplayName = "io"; Exported = true }
     let private resourceParam: SemanticCapabilityParameter = { Id = id<CapabilityParameterTag> "cp-resource"; DisplayName = "resource"; Type = int64T }
     let private release: SemanticCapabilityOperation =
-        { Id = id<CapabilityOperationTag> "op-release"; DisplayName = "release"; Parameters = [ resourceParam ]
+        { MayWait = false; Id = id<CapabilityOperationTag> "op-release"; DisplayName = "release"; Parameters = [ resourceParam ]
           ResultType = unitT; FailureType = None; EffectId = io.Id }
-    let private fs: SemanticCapability = { Id = id<CapabilityTag> "cap-fs"; DisplayName = "Fs"; Exported = true; Operations = [ release ] }
+    let private fs: SemanticCapability = { TaskBound = false; Id = id<CapabilityTag> "cap-fs"; DisplayName = "Fs"; Exported = true; Operations = [ release ] }
     let private fieldA: SemanticField = { Id = id<FieldTag> "field-a"; DisplayName = "a"; Type = int64T }
     let private fieldB: SemanticField = { Id = id<FieldTag> "field-b"; DisplayName = "b"; Type = stringT }
     let private pair: SemanticType = { Id = id<TypeTag> "type-pair"; DisplayName = "Pair"; Exported = true; TypeParameters = []; Kind = SemanticTypeKind.Product [ fieldA; fieldB ] }

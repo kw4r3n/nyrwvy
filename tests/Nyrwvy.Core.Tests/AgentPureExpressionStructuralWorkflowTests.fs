@@ -42,7 +42,7 @@ module AgentPureExpressionStructuralWorkflowTests =
     let private stringListType = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ])
 
     let private functionWithBody id name parameters resultType resultNodeId kind: SemanticFunction =
-        { Exported = true; Id = id
+        { MustNotWait = false; Exported = true; Id = id
           TypeParameters = []
           DisplayName = name
           Parameters = parameters

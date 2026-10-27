@@ -346,6 +346,9 @@ module private ProposalSummary =
                     | AgentVisibilityTarget.Capability id -> named capabilities id
                 let visibility = if exported then "exported" else "private"
                 $"setExported {subject} to {visibility}"
+            | AgentOperationIntent.SetWaitAttribute(WaitAttribute.MayWait id, value) -> $"setMayWait {named operations id} to {value}"
+            | AgentOperationIntent.SetWaitAttribute(WaitAttribute.TaskBound id, value) -> $"setTaskBound {named capabilities id} to {value}"
+            | AgentOperationIntent.SetWaitAttribute(WaitAttribute.MustNotWait id, value) -> $"setMustNotWait {fn id} to {value}"
             | AgentOperationIntent.AddFunctionParameter item -> $"addFunctionParameter {quote item.NewParameterDisplayName} to {fn item.TargetFunctionId}"
             | AgentOperationIntent.AddProductField item -> $"addProductField {quote item.NewFieldDisplayName} to {ty item.TargetTypeId}"
             | AgentOperationIntent.RemoveProductField id -> "removeProductField " + named fields id
@@ -1107,6 +1110,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                 || (item.ResultingChange.Diff.VisibilityChanges |> List.exists (fun change ->
                     (change.Kind = "effect" && imported.Effects |> List.exists (fun effect -> StableId.value effect.Id = change.Id))
                     || (change.Kind = "capability" && imported.Capabilities |> List.exists (fun capability -> StableId.value capability.Id = change.Id))))
+                || (item.ResultingChange.Diff.AttributeChanges |> List.exists (fun change ->
+                    imported.Capabilities |> List.exists (fun capability ->
+                        StableId.value capability.Id = change.Id
+                        || capability.Operations |> List.exists (fun op -> StableId.value op.Id = change.Id))))
                 || (item.ResultingChange.Diff.CapabilitiesRemoved |> List.exists (fun removed ->
                     imported.Capabilities |> List.exists (fun capability -> capability.Id = removed.CapabilityId)))
                 || (item.ResultingChange.Diff.CapabilityOperationsRemoved |> List.exists (fun removed ->

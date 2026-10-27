@@ -68,7 +68,7 @@ module StringPositionOffsetTests =
             let session = AuthoringSession.openExisting path |> unwrap "open"
             let create name parameters resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = None
                       DisplayName = name
                       Parameters = parameters |> List.map (fun (displayName, parameterType) -> { DisplayName = displayName; Type = parameterType })

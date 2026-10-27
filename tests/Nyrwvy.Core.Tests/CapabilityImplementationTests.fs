@@ -47,10 +47,10 @@ module CapabilityImplementationTests =
             session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = "Read" } |> unwrap |> commit
             let effect = session.Declarations().Effects |> List.exactlyOne
             let operation name parameters result: AgentCapabilityOperationIntent =
-                { DisplayName = name; Parameters = parameters |> List.map (fun name -> { DisplayName = name; Type = TypeRef.Primitive PrimitiveType.String })
+                { MayWait = false; DisplayName = name; Parameters = parameters |> List.map (fun name -> { DisplayName = name; Type = TypeRef.Primitive PrimitiveType.String })
                   ResultType = result; FailureType = None; EffectId = effect.Id }
             session.SimulateCreateCapability
-                { Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = "Values"
+                { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = current (); DisplayName = "Values"
                   Operations = [ operation "read" [] (TypeRef.Primitive PrimitiveType.Int64); operation "join" [ "left"; "right" ] (TypeRef.Primitive PrimitiveType.String) ] }
             |> unwrap |> commit
             create session "ten" [] intType "[]" (number "10")

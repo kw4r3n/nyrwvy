@@ -24,7 +24,7 @@ module AgentExpressionCapabilityTests =
 
     let private createSnapshot callerEffects =
         let operation: SemanticCapabilityOperation =
-            { Id = operationId
+            { MayWait = false; Id = operationId
               DisplayName = "format"
               Parameters =
                 [ { Id = textId; DisplayName = "text"; Type = stringType }
@@ -34,7 +34,7 @@ module AgentExpressionCapabilityTests =
               EffectId = ioEffectId }
         let functionWithBody id name parameters resultType effects kind: SemanticFunction =
             let resultNodeId = nodeId name
-            { Exported = true; Id = id
+            { MustNotWait = false; Exported = true; Id = id
               TypeParameters = []
               DisplayName = name
               Parameters = parameters
@@ -51,8 +51,8 @@ module AgentExpressionCapabilityTests =
                 [ { Exported = true; Id = ioEffectId; DisplayName = "IO" }
                   { Exported = true; Id = remoteEffectId; DisplayName = "Remote" } ]
               Capabilities =
-                [ { Exported = true; Id = capabilityId; DisplayName = "Output"; Operations = [ operation ] }
-                  { Exported = true; Id = otherCapabilityId; DisplayName = "Other"; Operations = [] } ]
+                [ { TaskBound = false; Exported = true; Id = capabilityId; DisplayName = "Output"; Operations = [ operation ] }
+                  { TaskBound = false; Exported = true; Id = otherCapabilityId; DisplayName = "Other"; Operations = [] } ]
               Functions =
                 [ functionWithBody callerId "caller"
                       [ { Id = receiverId; DisplayName = "receiver"; Type = TypeRef.Capability capabilityId }

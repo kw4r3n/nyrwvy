@@ -29,7 +29,7 @@ module TaskFieldsAndListItemAtTests =
     let private find (session: AuthoringSession) name = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
     let private parameter name (fn: SemanticFunction) = (fn.Parameters |> List.find (fun item -> item.DisplayName = name)).Id
     let private request session name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
+        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
           TypeParameters = None
           Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
           ResultType = resultType; RequiredEffects = effects; Body = body }
@@ -67,11 +67,11 @@ module TaskFieldsAndListItemAtTests =
         | SemanticTypeKind.Union _ -> failwith "Expected a Product."
     let private createCapability (session: AuthoringSession) name (effect: EffectId) operations =
         session.SimulateCreateCapability
-            { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
+            { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name
               Operations =
                 operations
                 |> List.map (fun (operationName, parameters, resultType, failureType) ->
-                    ({ DisplayName = operationName
+                    ({ MayWait = false; DisplayName = operationName
                        Parameters = parameters |> List.map (fun (parameterName, t) -> { DisplayName = parameterName; Type = t })
                        ResultType = resultType
                        FailureType = failureType
@@ -291,7 +291,7 @@ module TaskFieldsAndListItemAtTests =
                           { Id = nodeId "at"; Kind = SemanticNodeKind.ListItemAt(nodeId "list", nodeId "index") } ]
                       ResultNodeId = nodeId "at" }
                 let fn: SemanticFunction =
-                    { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-list-item-at"
+                    { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-list-item-at"
                       TypeParameters = []
                       DisplayName = "itemAt"; Parameters = []; ResultType = optionOf textType; RequiredEffects = []; Body = body }
                 SnapshotValidator.validate { Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-list-item-at") with Functions = [ fn ] }

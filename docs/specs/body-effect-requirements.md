@@ -34,3 +34,5 @@ and proposed focus. Parameter/result/Product-field type migration reviews includ
 the resulting body's report. HTML focus and change review show declarations and
 derived evidence separately. The usual simulation/review/commit workflow remains
 the only way to change the declared contract.
+
+The "may wait" fact is derived differently: nothing declares it, so it follows callees transitively ([wait and task-bound attributes](../decisions/wait-and-task-bound-attributes.md)).

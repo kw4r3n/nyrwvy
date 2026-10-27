@@ -85,8 +85,18 @@ type VisibilityTarget =
     | EffectTarget of EffectId
     | CapabilityTarget of CapabilityId
 
+/// A wait or task-binding marker that `SetWaitAttribute` changes
+/// (docs/decisions/wait-and-task-bound-attributes.md).
+[<RequireQualifiedAccess>]
+type WaitAttribute =
+    | MayWait of CapabilityOperationId
+    | TaskBound of CapabilityId
+    | MustNotWait of FunctionId
+
 type SemanticOperation =
     | RenameDisplayName of RenameTarget * string
+    /// Sets one wait or task-binding marker; every stable ID and reference is kept.
+    | SetWaitAttribute of WaitAttribute * value: bool
     /// Marks one declaration exported (usable from dependents) or private. Only the visibility
     /// changes; every stable ID and reference is kept.
     | SetExported of VisibilityTarget * exported: bool
@@ -138,6 +148,14 @@ type DeclarationVisibilityChange =
       Id: string
       DisplayName: string
       Exported: bool }
+
+/// One marker that differs between the base and the proposed snapshot. `Attribute` is `mayWait`
+/// (a capability operation), `taskBound` (a capability) or `mustNotWait` (a function).
+type DeclarationAttributeChange =
+    { Attribute: string
+      Id: string
+      DisplayName: string
+      Value: bool }
 
 type ParameterAdded =
     { OwnerFunctionId: FunctionId
@@ -260,6 +278,8 @@ type SemanticDiff =
     { Renames: SymbolRename list
       /// Visibility changes of `SetExported`, net of the base snapshot, in `kind:id` order.
       VisibilityChanges: DeclarationVisibilityChange list
+      /// Marker changes of `SetWaitAttribute`, net of the base snapshot, in `attribute:id` order.
+      AttributeChanges: DeclarationAttributeChange list
       ParametersAdded: ParameterAdded list
       ProductFieldsAdded: ProductFieldAdded list
       ProductFieldsBound: ProductFieldBound list
@@ -365,6 +385,37 @@ module Transaction =
         | VisibilityTarget.CapabilityTarget id ->
             apply (StableId.value id) snapshot.Capabilities (fun item -> StableId.value item.Id) (fun item -> item.Exported)
                 (fun item -> { item with Exported = exported }) (fun capabilities -> { snapshot with Capabilities = capabilities })
+
+    /// Sets one wait or task-binding marker; TargetNotFound when nothing has the ID and
+    /// AttributeUnchanged when the marker already has that value.
+    let private setWaitAttribute (attribute: WaitAttribute) (value: bool) (snapshot: Snapshot) =
+        let shown = if value then "true" else "false"
+        let unchanged name label = Error("AttributeUnchanged", $"The declaration '{label}' already has {name} {shown}.")
+        let notFound label = Error("TargetNotFound", $"The declaration '{label}' to change was not found.")
+        match attribute with
+        | WaitAttribute.MayWait id ->
+            match snapshot.Capabilities |> List.tryPick (fun capability -> capability.Operations |> List.tryFind (fun op -> op.Id = id)) with
+            | None -> notFound (StableId.value id)
+            | Some op when op.MayWait = value -> unchanged "mayWait" (StableId.value id)
+            | Some _ ->
+                Ok
+                    { snapshot with
+                        Capabilities =
+                            snapshot.Capabilities
+                            |> List.map (fun capability ->
+                                { capability with Operations = capability.Operations |> List.map (fun op -> if op.Id = id then { op with MayWait = value } else op) }) }
+        | WaitAttribute.TaskBound id ->
+            match snapshot.Capabilities |> List.tryFind (fun capability -> capability.Id = id) with
+            | None -> notFound (StableId.value id)
+            | Some capability when capability.TaskBound = value -> unchanged "taskBound" (StableId.value id)
+            | Some _ ->
+                Ok { snapshot with Capabilities = snapshot.Capabilities |> List.map (fun capability -> if capability.Id = id then { capability with TaskBound = value } else capability) }
+        | WaitAttribute.MustNotWait id ->
+            match snapshot.Functions |> List.tryFind (fun fn -> fn.Id = id) with
+            | None -> notFound (StableId.value id)
+            | Some fn when fn.MustNotWait = value -> unchanged "mustNotWait" (StableId.value id)
+            | Some _ ->
+                Ok { snapshot with Functions = snapshot.Functions |> List.map (fun fn -> if fn.Id = id then { fn with MustNotWait = value } else fn) }
 
     let private renameType id newDisplayName (snapshot: Snapshot) =
         match snapshot.Types |> List.tryFind (fun item -> item.Id = id) with
@@ -1603,6 +1654,7 @@ module Transaction =
         | RenameDisplayName(RenameTarget.CapabilityParameterTarget id, newDisplayName) ->
             renameCapabilityParameter id newDisplayName snapshot |> Result.map (fun next -> next, changes)
         | SetExported(target, exported) -> setExported target exported snapshot |> Result.map (fun next -> next, changes)
+        | SetWaitAttribute(attribute, value) -> setWaitAttribute attribute value snapshot |> Result.map (fun next -> next, changes)
         | AddFunctionParameter request -> addFunctionParameter transactionId request snapshot changes
         | AddProductField request -> addProductField request snapshot changes
         | RemoveProductField fieldId -> removeProductField fieldId snapshot changes
@@ -1740,6 +1792,23 @@ module Transaction =
         @ changes "effect" baseSnapshot.Effects proposedSnapshot.Effects (fun item -> StableId.value item.Id) (fun item -> item.DisplayName) (fun item -> item.Exported)
         @ changes "capability" baseSnapshot.Capabilities proposedSnapshot.Capabilities (fun item -> StableId.value item.Id) (fun item -> item.DisplayName) (fun item -> item.Exported)
         |> List.sortBy (fun item -> item.Kind + ":" + item.Id)
+
+    /// The markers that differ between the base and the proposed snapshot, in `attribute:id` order.
+    let private netAttributeChanges (baseSnapshot: Snapshot) (proposedSnapshot: Snapshot) =
+        let entries (snapshot: Snapshot) =
+            [ for capability in snapshot.Capabilities do
+                  yield ("taskBound", StableId.value capability.Id), (capability.DisplayName, capability.TaskBound)
+                  for op in capability.Operations do
+                      yield ("mayWait", StableId.value op.Id), (capability.DisplayName + "." + op.DisplayName, op.MayWait)
+              for fn in snapshot.Functions do
+                  yield ("mustNotWait", StableId.value fn.Id), (fn.DisplayName, fn.MustNotWait) ]
+        let previous = entries baseSnapshot |> Map.ofList
+        entries proposedSnapshot
+        |> List.choose (fun ((attribute, id), (displayName, value)) ->
+            match Map.tryFind (attribute, id) previous with
+            | Some(_, before) when before <> value -> Some { Attribute = attribute; Id = id; DisplayName = displayName; Value = value }
+            | _ -> None)
+        |> List.sortBy (fun item -> item.Attribute + ":" + item.Id)
 
     /// The rejection message when a rename takes a name another declaration already has in its
     /// scope. Display names resolve by-name requests; pre-existing duplicates are left alone.
@@ -1916,6 +1985,7 @@ module Transaction =
                     let diff: SemanticDiff =
                         { Renames = renames
                           VisibilityChanges = netVisibilityChanges baseSnapshot proposed
+                          AttributeChanges = netAttributeChanges baseSnapshot proposed
                           ParametersAdded =
                               changes.ParametersAdded
                               |> List.filter (fun item ->
@@ -1955,6 +2025,7 @@ module Transaction =
                     let hasChanges =
                         not (List.isEmpty diff.Renames)
                         || not (List.isEmpty diff.VisibilityChanges)
+                        || not (List.isEmpty diff.AttributeChanges)
                         || not (List.isEmpty diff.ParametersAdded)
                         || not (List.isEmpty diff.ProductFieldsAdded)
                         || not (List.isEmpty diff.ProductFieldsBound)

@@ -57,7 +57,9 @@ type AgentCapabilityOperationIntent =
       Parameters: AgentCapabilityParameterIntent list
       ResultType: TypeRef
       FailureType: TypeRef option
-      EffectId: EffectId }
+      EffectId: EffectId
+      /// Wire `"mayWait": true`; omitted means false.
+      MayWait: bool }
 
 type AgentCapabilityImplementationPlan =
     { ConstructNodeId: GraphNodeId
@@ -85,6 +87,8 @@ type AgentOperationIntent =
     | RenameDisplayName of AgentRenameTarget * newDisplayName: string
     /// Marks a declaration exported (usable from snapshots that depend on this one) or private.
     | SetExported of AgentVisibilityTarget * exported: bool
+    /// Sets `mayWait` on an operation, `taskBound` on a capability or `mustNotWait` on a function.
+    | SetWaitAttribute of WaitAttribute * value: bool
     | AddFunctionParameter of AgentAddFunctionParameterIntent
     | AddProductField of AgentAddProductFieldIntent
     | RemoveProductField of FieldId
@@ -275,6 +279,8 @@ module AgentWorkflow =
             SemanticOperation.RenameDisplayName(renameTarget target, newDisplayName)
         | AgentOperationIntent.SetExported(target, exported) ->
             SemanticOperation.SetExported(visibilityTarget target, exported)
+        | AgentOperationIntent.SetWaitAttribute(attribute, value) ->
+            SemanticOperation.SetWaitAttribute(attribute, value)
         | AgentOperationIntent.AddFunctionParameter request ->
             SemanticOperation.AddFunctionParameter
                 { TargetFunctionId = request.TargetFunctionId
@@ -315,7 +321,8 @@ module AgentWorkflow =
                               Type = parameter.Type })
                       ResultType = request.Operation.ResultType
                       FailureType = request.Operation.FailureType
-                      EffectId = request.Operation.EffectId }
+                      EffectId = request.Operation.EffectId
+                      MayWait = request.Operation.MayWait }
                   ImplementationPlans =
                     request.ImplementationPlans
                     |> List.map (fun plan ->

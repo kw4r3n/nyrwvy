@@ -117,7 +117,7 @@ module Float64TextConversionTests =
         let snapshot = Snapshot.empty (id<SnapshotTag> "base")
         let ws = AgentWorkspace.create snapshot |> unwrap "workspace"
         let request parameters resultType body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = snapshot.Id
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = snapshot.Id
               TypeParameters = None
               DisplayName = "floatText"
               Parameters = parameters |> List.mapi (fun index parameterType -> { DisplayName = $"input{index}"; Type = parameterType })
@@ -184,7 +184,7 @@ module Float64TextConversionTests =
             use session = AuthoringSession.createNew (Path.Combine(root, "workspace.json")) |> unwrap "session"
             let create name parameterType resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = None
                       DisplayName = name
                       Parameters = [ { DisplayName = "input"; Type = parameterType } ]
@@ -238,7 +238,7 @@ module Float64TextConversionTests =
             Assert.Equal(runFloatOption None, run "parse" [ PureRunValue.String "+1" ])
             let create name parameters resultType body =
                 let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                    { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                       TypeParameters = None
                       DisplayName = name
                       Parameters = parameters

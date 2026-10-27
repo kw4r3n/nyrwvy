@@ -23,7 +23,7 @@ module AgentPureExpressionDirectCallTests =
     let private int64Type = TypeRef.Primitive PrimitiveType.Int64
 
     let private functionWithBody id name parameters resultType resultNodeId kind: SemanticFunction =
-        { Exported = true; Id = id
+        { MustNotWait = false; Exported = true; Id = id
           TypeParameters = []
           DisplayName = name
           Parameters = parameters

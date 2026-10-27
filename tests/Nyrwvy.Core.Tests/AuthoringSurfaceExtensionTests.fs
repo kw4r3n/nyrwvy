@@ -228,7 +228,7 @@ module AuthoringSurfaceExtensionTests =
             let ws = AgentWorkspace.create (SnapshotCodec.deserialize (File.ReadAllText session.Path) |> function Ok value -> value | Error error -> failwithf "%A" error) |> function Ok value -> value | Error error -> failwithf "%A" error
             let intent: AgentAddCapabilityOperationIntent =
                 { TargetCapabilityId = host.Id
-                  Operation = { DisplayName = "reset"; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Unit; FailureType = None; EffectId = io.Id }
+                  Operation = { MayWait = false; DisplayName = "reset"; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Unit; FailureType = None; EffectId = io.Id }
                   ImplementationPlans = [ { ConstructNodeId = construct; ImplementationFunctionId = (fn session "stopImpl").Id } ] }
             let snapshot = AgentWorkspace.snapshotForStructuralEditing ws
             let operationId = StableIdAllocator.newCapabilityOperationId ()
@@ -239,7 +239,7 @@ module AuthoringSurfaceExtensionTests =
                   Operations =
                     [ SemanticOperation.AddCapabilityOperation
                           { TargetCapabilityId = host.Id
-                            Operation = { Id = operationId; DisplayName = "reset"; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Unit; FailureType = None; EffectId = io.Id }
+                            Operation = { MayWait = false; Id = operationId; DisplayName = "reset"; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Unit; FailureType = None; EffectId = io.Id }
                             ImplementationPlans = [ { ConstructNodeId = construct; ImplementationFunctionId = (fn session "stopImpl").Id } ] }
                       SemanticOperation.DeleteCapabilityOperation operationId ] }
             match Transaction.simulate snapshot request with

@@ -155,7 +155,7 @@ module JsonDepthBoundTests =
                   ResultNodeId = bind }
         let functionId = fresh<FunctionTag> ()
         let deep: SemanticFunction =
-            { Exported = true; TypeParameters = []; Id = functionId; DisplayName = "deep"; Parameters = []; ResultType = int64; RequiredEffects = []; Body = nested 240 }
+            { MustNotWait = false; Exported = true; TypeParameters = []; Id = functionId; DisplayName = "deep"; Parameters = []; ResultType = int64; RequiredEffects = []; Body = nested 240 }
         let snapshot = { Snapshot.empty (fresh<SnapshotTag> ()) with Functions = [ deep ] }
         let root = Path.Combine(Path.GetTempPath(), "nyrwvy-json-depth-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory(root) |> ignore

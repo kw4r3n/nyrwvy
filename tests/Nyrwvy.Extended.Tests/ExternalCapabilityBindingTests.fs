@@ -43,15 +43,15 @@ module ExternalCapabilityBindingTests =
         let effect = session.Declarations().Effects |> List.exactlyOne
         let resultType = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ TypeRef.Named(responseType.Id, []); stringType ])
         let capabilityRequest: AgentCreateCapabilityDeclarationRequest =
-            { Exported = false; ExpectedBaseSnapshotId = current session
+            { TaskBound = false; Exported = false; ExpectedBaseSnapshotId = current session
               DisplayName = "LookupProvider"
               Operations =
-                [ { DisplayName = "lookup"
+                [ { MayWait = false; DisplayName = "lookup"
                     Parameters = [ { DisplayName = "request"; Type = TypeRef.Named(requestType.Id, []) } ]
                     ResultType = resultType
                     FailureType = None
                     EffectId = effect.Id }
-                  { DisplayName = "fallback"
+                  { MayWait = false; DisplayName = "fallback"
                     Parameters = []
                     ResultType = resultType
                     FailureType = None
@@ -72,7 +72,7 @@ module ExternalCapabilityBindingTests =
                     value.Id),
                 ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Error })
         let functionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = false; ExpectedBaseSnapshotId = current session
+            { MustNotWait = false; Exported = false; ExpectedBaseSnapshotId = current session
               TypeParameters = None
               DisplayName = "query"
               Parameters =

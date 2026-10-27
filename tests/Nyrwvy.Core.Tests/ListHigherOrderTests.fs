@@ -57,7 +57,7 @@ module ListHigherOrderTests =
             { Id = parameterNodeId
               Kind = SemanticNodeKind.ParameterReference parameter.Id }
         let bodyNodes, resultNodeId = buildBody parameterNodeId
-        { Exported = true; Id = functionId name
+        { MustNotWait = false; Exported = true; Id = functionId name
           TypeParameters = []
           DisplayName = name
           Parameters = [ parameter ]
@@ -106,7 +106,7 @@ module ListHigherOrderTests =
               DisplayName = "second"
               Type = int64Type }
         let resultId = nodeId "two-result"
-        { Exported = true; Id = functionId "two-parameter"
+        { MustNotWait = false; Exported = true; Id = functionId "two-parameter"
           TypeParameters = []
           DisplayName = "two_parameter"
           Parameters = [ first; second ]
@@ -145,7 +145,7 @@ module ListHigherOrderTests =
         let anyNodeId = nodeId "showcase-any"
         let allNodeId = nodeId "showcase-all"
         let showcase: SemanticFunction =
-            { Exported = true; Id = functionId "showcase"
+            { MustNotWait = false; Exported = true; Id = functionId "showcase"
               TypeParameters = []
               DisplayName = "higher_order_showcase"
               Parameters = []
@@ -172,7 +172,7 @@ module ListHigherOrderTests =
         let filteredId = nodeId "filtered-length-filter"
         let filteredLengthId = nodeId "filtered-length-result"
         let filteredLength: SemanticFunction =
-            { Exported = true; Id = functionId "filtered-length"
+            { MustNotWait = false; Exported = true; Id = functionId "filtered-length"
               TypeParameters = []
               DisplayName = "filtered_length"
               Parameters = []
@@ -188,7 +188,7 @@ module ListHigherOrderTests =
         let predicateFunction name constructor =
             let nodes, sourceId = sourceNodes name
             let resultId = nodeId (name + "-result")
-            { Exported = true; Id = functionId name
+            { MustNotWait = false; Exported = true; Id = functionId name
               TypeParameters = []
               DisplayName = name
               Parameters = []
@@ -205,7 +205,7 @@ module ListHigherOrderTests =
         let mappedAnyListId = nodeId "mapped-any-map"
         let mappedAnyResultId = nodeId "mapped-any-result"
         let mappedAny: SemanticFunction =
-            { Exported = true; Id = functionId "mapped-any"
+            { MustNotWait = false; Exported = true; Id = functionId "mapped-any"
               TypeParameters = []
               DisplayName = "mapped_any"
               Parameters = []
@@ -221,7 +221,7 @@ module ListHigherOrderTests =
         let emptyPredicateFunction name constructor =
             let emptyId = nodeId (name + "-empty")
             let resultId = nodeId (name + "-result")
-            { Exported = true; Id = functionId name
+            { MustNotWait = false; Exported = true; Id = functionId name
               TypeParameters = []
               DisplayName = name
               Parameters = []

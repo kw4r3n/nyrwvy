@@ -28,7 +28,7 @@ module AgentEffectDeclarationTests =
 
     let private untouchedFunction () =
         let resultId = nodeId "untouched-result"
-        { Exported = true; Id = functionId "untouched"
+        { MustNotWait = false; Exported = true; Id = functionId "untouched"
           TypeParameters = []
           DisplayName = "untouched"
           Parameters = []
@@ -63,7 +63,7 @@ module AgentEffectDeclarationTests =
         Assert.Contains(AgentWorkspace.listFunctions ws1, fun functionEntity -> functionEntity = untouched)
 
         let functionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws1
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId ws1
               TypeParameters = None
               DisplayName = "uses_io"
               Parameters = []

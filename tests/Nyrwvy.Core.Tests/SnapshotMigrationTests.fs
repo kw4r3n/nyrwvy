@@ -49,7 +49,7 @@ module SnapshotMigrationTests =
     let private binary name parameterType resultType (kind: GraphNodeId -> GraphNodeId -> SemanticNodeKind) =
         let left, right = id<ParameterTag> (name + "-a"), id<ParameterTag> (name + "-b")
         let leftNode, rightNode, resultNode = id<GraphNodeTag> (name + "-a"), id<GraphNodeTag> (name + "-b"), id<GraphNodeTag> (name + "-result")
-        { Id = id<FunctionTag> name; DisplayName = name; Exported = true; TypeParameters = []
+        { MustNotWait = false; Id = id<FunctionTag> name; DisplayName = name; Exported = true; TypeParameters = []
           Parameters = [ { Id = left; DisplayName = "a"; Type = parameterType }; { Id = right; DisplayName = "b"; Type = parameterType } ]
           ResultType = resultType; RequiredEffects = []
           Body =
@@ -63,7 +63,7 @@ module SnapshotMigrationTests =
     let private countOf () =
         let m, k, d = id<ParameterTag> "count-m", id<ParameterTag> "count-k", id<ParameterTag> "count-d"
         let mNode, kNode, dNode, resultNode = id<GraphNodeTag> "count-m", id<GraphNodeTag> "count-k", id<GraphNodeTag> "count-d", id<GraphNodeTag> "count-result"
-        { Id = id<FunctionTag> "countOf"; DisplayName = "countOf"; Exported = true; TypeParameters = []
+        { MustNotWait = false; Id = id<FunctionTag> "countOf"; DisplayName = "countOf"; Exported = true; TypeParameters = []
           Parameters =
             [ { Id = m; DisplayName = "m"; Type = mapType }
               { Id = k; DisplayName = "k"; Type = stringType }
@@ -364,9 +364,9 @@ module SnapshotMigrationTests =
                 { Snapshot.empty (id<SnapshotTag> "failure") with
                     Effects = [ { Id = effectId; DisplayName = "Notify"; Exported = true } ]
                     Capabilities =
-                        [ { Id = id<CapabilityTag> "notifier"; DisplayName = "Notifier"; Exported = true
+                        [ { TaskBound = false; Id = id<CapabilityTag> "notifier"; DisplayName = "Notifier"; Exported = true
                             Operations =
-                                [ { Id = id<CapabilityOperationTag> "notify"; DisplayName = "notify"; Parameters = []
+                                [ { MayWait = false; Id = id<CapabilityOperationTag> "notify"; DisplayName = "notify"; Parameters = []
                                     ResultType = TypeRef.Primitive PrimitiveType.Unit; FailureType = Some stringType; EffectId = effectId } ] } ] }
             save path snapshot
             let original = File.ReadAllText path
@@ -497,9 +497,9 @@ module SnapshotMigrationTests =
                 { Snapshot.empty (id<SnapshotTag> "failing") with
                     Effects = [ { Id = effectId; DisplayName = "Notify"; Exported = true } ]
                     Capabilities =
-                        [ { Id = id<CapabilityTag> "dep-notifier"; DisplayName = "Notifier"; Exported = true
+                        [ { TaskBound = false; Id = id<CapabilityTag> "dep-notifier"; DisplayName = "Notifier"; Exported = true
                             Operations =
-                                [ { Id = id<CapabilityOperationTag> "dep-notify"; DisplayName = "notify"; Parameters = []
+                                [ { MayWait = false; Id = id<CapabilityOperationTag> "dep-notify"; DisplayName = "notify"; Parameters = []
                                     ResultType = TypeRef.Primitive PrimitiveType.Unit; FailureType = Some stringType; EffectId = effectId } ] } ] }
             let failingSource = Path.Combine(root, "failing.json")
             let failingLocal = Path.Combine(root, "failing-local.json")
@@ -556,9 +556,9 @@ module SnapshotMigrationTests =
                 { Snapshot.empty (id<SnapshotTag> "cli-failing") with
                     Effects = [ { Id = effectId; DisplayName = "Notify"; Exported = true } ]
                     Capabilities =
-                        [ { Id = id<CapabilityTag> "cli-notifier"; DisplayName = "Notifier"; Exported = true
+                        [ { TaskBound = false; Id = id<CapabilityTag> "cli-notifier"; DisplayName = "Notifier"; Exported = true
                             Operations =
-                                [ { Id = id<CapabilityOperationTag> "cli-notify"; DisplayName = "notify"; Parameters = []
+                                [ { MayWait = false; Id = id<CapabilityOperationTag> "cli-notify"; DisplayName = "notify"; Parameters = []
                                     ResultType = TypeRef.Primitive PrimitiveType.Unit; FailureType = Some stringType; EffectId = effectId } ] } ] }
             let exitCode, stdout, stderr = runTool [ "migrate"; "--snapshot"; failing ]
             Assert.Equal(2, exitCode)

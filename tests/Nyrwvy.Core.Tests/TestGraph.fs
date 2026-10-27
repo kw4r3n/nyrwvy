@@ -46,7 +46,7 @@ module TestGraph =
               Kind = SemanticNodeKind.ParameterReference validateInputParameterId }
 
         let validateFunction: SemanticFunction =
-            { Exported = true; Id = validateFunctionId
+            { MustNotWait = false; Exported = true; Id = validateFunctionId
               TypeParameters = []
               DisplayName = "validate_user"
               Parameters = [ validateInput ]
@@ -83,7 +83,7 @@ module TestGraph =
               Kind = SemanticNodeKind.DirectCall(validateFunctionId, [ initialBinding ]) }
 
         let runFunction: SemanticFunction =
-            { Exported = true; Id = runFunctionId
+            { MustNotWait = false; Exported = true; Id = runFunctionId
               TypeParameters = []
               DisplayName = "run"
               Parameters = [ runInput; runPolicy ]

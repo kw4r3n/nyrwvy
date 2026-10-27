@@ -87,10 +87,10 @@ module DeclarationVisibilityTests =
             Types = [ { Id = id<TypeTag> "type-box"; DisplayName = "Box"; Exported = exported; TypeParameters = []; Kind = SemanticTypeKind.Product [] } ]
             Effects = [ { Id = effectId; DisplayName = "io"; Exported = exported } ]
             Capabilities =
-                [ { Id = id<CapabilityTag> "capability-host"; DisplayName = "Host"; Exported = exported
-                    Operations = [ { Id = id<CapabilityOperationTag> "operation-ping"; DisplayName = "ping"; Parameters = []; ResultType = int64Type; FailureType = None; EffectId = effectId } ] } ]
+                [ { TaskBound = false; Id = id<CapabilityTag> "capability-host"; DisplayName = "Host"; Exported = exported
+                    Operations = [ { MayWait = false; Id = id<CapabilityOperationTag> "operation-ping"; DisplayName = "ping"; Parameters = []; ResultType = int64Type; FailureType = None; EffectId = effectId } ] } ]
             Functions =
-                [ { Id = id<FunctionTag> "function-identity"; DisplayName = "identity"; Exported = exported
+                [ { MustNotWait = false; Id = id<FunctionTag> "function-identity"; DisplayName = "identity"; Exported = exported
                     TypeParameters = []
                     Parameters = [ { Id = id<ParameterTag> "parameter-value"; DisplayName = "value"; Type = int64Type } ]
                     ResultType = int64Type
@@ -273,7 +273,7 @@ module DeclarationVisibilityTests =
             Assert.Equal("ProtocolError", code)
             // By exact ID, a new reference to a private declaration is rejected before registration.
             let request body resultType requiredEffects : AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { ExpectedBaseSnapshotId = consumer.SnapshotId; DisplayName = "direct"; Exported = false
+                { MustNotWait = false; ExpectedBaseSnapshotId = consumer.SnapshotId; DisplayName = "direct"; Exported = false
                   TypeParameters = None
                   Parameters = [ { DisplayName = "value"; Type = int64Type } ]; ResultType = resultType; RequiredEffects = requiredEffects; Body = body }
             let expectNotExported (simulated: Result<AuthoringProposal, AuthoringSessionError>) =

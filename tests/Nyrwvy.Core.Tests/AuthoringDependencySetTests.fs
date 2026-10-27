@@ -27,7 +27,7 @@ module AuthoringDependencySetTests =
     let private identity name: SemanticFunction =
         let parameter = id<ParameterTag> (name + "-input")
         let node = id<GraphNodeTag> (name + "-node")
-        { Exported = true; Id = id<FunctionTag> name
+        { MustNotWait = false; Exported = true; Id = id<FunctionTag> name
           TypeParameters = []
           DisplayName = name
           Parameters = [ { Id = parameter; DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
@@ -77,7 +77,7 @@ module AuthoringDependencySetTests =
             let functions = session.Declarations().Functions |> List.map (fun fn -> fn.DisplayName) |> Set.ofList
             Assert.Equal<Set<string>>(set [ "keep"; "pass" ], functions)
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+                { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
                   TypeParameters = None
                   DisplayName = "both"
                   Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
@@ -136,7 +136,7 @@ module AuthoringDependencySetTests =
             let midPath = Path.Combine(root, "mid.json")
             let mid = AuthoringSession.createNewWithDependencies midPath [ basePath ] |> unwrap "mid"
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { Exported = true; ExpectedBaseSnapshotId = (mid.Status() |> unwrap "status").SnapshotId
+                { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (mid.Status() |> unwrap "status").SnapshotId
                   TypeParameters = None
                   DisplayName = "grow"
                   Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
@@ -173,7 +173,7 @@ module AuthoringDependencySetTests =
         let path = Path.Combine(root, "local.json")
         let session = AuthoringSession.createNewWithDependencies path [ a ] |> unwrap "create"
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
               TypeParameters = None
               DisplayName = "wrap"
               Parameters = [ { DisplayName = "input"; Type = TypeRef.Named(moneyId, []) } ]
@@ -287,7 +287,7 @@ module AuthoringDependencySetTests =
             let left: SemanticParameter = { Id = id<ParameterTag> "pair-left"; DisplayName = "left"; Type = intType }
             let right: SemanticParameter = { Id = id<ParameterTag> "pair-right"; DisplayName = "right"; Type = intType }
             let node = id<GraphNodeTag> "pair-node"
-            { Exported = true; Id = id<FunctionTag> "pair"; TypeParameters = []; DisplayName = "pair"
+            { MustNotWait = false; Exported = true; Id = id<FunctionTag> "pair"; TypeParameters = []; DisplayName = "pair"
               Parameters = [ left; right ]; ResultType = intType; RequiredEffects = []
               Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.ParameterReference left.Id } ]; ResultNodeId = node } }
         let swapped = { pair with Parameters = List.rev pair.Parameters }
@@ -321,7 +321,7 @@ module AuthoringDependencySetTests =
                 protocolError
                     """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"keep","parameters":[],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"int64Literal","value":1}}""")
             let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId
+                { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = session.SnapshotId
                   TypeParameters = None
                   DisplayName = "keep"
                   Parameters = []

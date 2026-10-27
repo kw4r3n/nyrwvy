@@ -33,7 +33,7 @@ module DependencyChainTests =
           ResultNodeId = nodeId 0 }
 
     let private functionWith (resultType: TypeRef) (body: ValueGraph): SemanticFunction =
-        { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-chain"
+        { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-chain"
           TypeParameters = []
           DisplayName = "chain"
           Parameters = []

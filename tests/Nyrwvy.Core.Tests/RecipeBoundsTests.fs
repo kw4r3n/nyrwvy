@@ -9,7 +9,7 @@ module RecipeBoundsTests =
     let private createFixture () =
         let resultNodeId = StableId.createForTesting<GraphNodeTag> "node-recipe-bounds-result"
         let target: SemanticFunction =
-            { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-recipe-bounds-target"
+            { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-recipe-bounds-target"
               TypeParameters = []
               DisplayName = "target"
               Parameters = []
@@ -102,7 +102,7 @@ module RecipeBoundsTests =
         let nodeId name = StableId.createForTesting<GraphNodeTag> ("node-recipe-bounds-targeted-" + name)
         let leftId, rightId, resultId = nodeId "left", nodeId "right", nodeId "result"
         let target: SemanticFunction =
-            { Exported = true; Id = StableId.createForTesting<FunctionTag> "function-recipe-bounds-targeted"
+            { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "function-recipe-bounds-targeted"
               TypeParameters = []
               DisplayName = "targeted"
               Parameters = []

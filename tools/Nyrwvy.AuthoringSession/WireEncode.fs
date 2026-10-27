@@ -72,6 +72,12 @@ module internal WireEncode =
               |> List.map (fun item ->
                   objectValue [ "kind", box item.Kind; "id", box item.Id; "displayName", box item.DisplayName; "exported", box item.Exported ])
               |> arrayValue ])
+        @ (if List.isEmpty value.AttributeChanges then [] else
+            [ "attributeChanges",
+              value.AttributeChanges
+              |> List.map (fun item ->
+                  objectValue [ "attribute", box item.Attribute; "id", box item.Id; "displayName", box item.DisplayName; "value", box item.Value ])
+              |> arrayValue ])
         @ (if List.isEmpty value.ParametersRemoved then [] else
             [ "parametersRemoved",
               value.ParametersRemoved
@@ -358,13 +364,14 @@ module internal WireEncode =
                       "functionFocus", item.ResultingChange.FunctionFocus |> List.map focus |> arrayValue ]
             | AuthoringProposalReview.ReplaceBody item ->
                 objectValue
-                    [ "kind", box "replaceBody"
-                      "receipt", receipt item.Receipt
-                      "readiness", readiness item.Readiness
-                      "diff", compactBodyDiff item.ResultingChange
-                      "proposedFunction", functionEntity item.ProposedFocus.Function
-                      "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.ProposedFocus.BodyEffectRequirements
-                      "aborts", WireEncodeCommon.aborts item.ProposedFocus.Aborts ]
+                    ([ "kind", box "replaceBody"
+                       "receipt", receipt item.Receipt
+                       "readiness", readiness item.Readiness
+                       "diff", compactBodyDiff item.ResultingChange
+                       "proposedFunction", functionEntity item.ProposedFocus.Function
+                       "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements item.ProposedFocus.BodyEffectRequirements
+                       "aborts", WireEncodeCommon.aborts item.ProposedFocus.Aborts ]
+                     @ WireEncodeCommon.waitFields item.ProposedFocus)
             | AuthoringProposalReview.ReplaceTarget item ->
                 objectValue
                     [ "kind", box "replaceTarget"
@@ -378,6 +385,7 @@ module internal WireEncode =
                     [ "createdFunction", functionEntity review.CreatedFunction
                       "bodyEffectRequirements", WireEncodeCommon.bodyEffectRequirements review.ProposedFocus.BodyEffectRequirements
                       "aborts", WireEncodeCommon.aborts review.ProposedFocus.Aborts ]
+                    @ WireEncodeCommon.waitFields review.ProposedFocus
                 objectValue
                     ([ "kind", box "createFunction"
                        "receipt", receipt item.Receipt

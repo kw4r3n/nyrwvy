@@ -26,12 +26,12 @@ module DisplayNameUniquenessTests =
         | Error(AgentEffectDeclarationWorkflowError.SimulationRejected diagnostics) ->
             Assert.Equal<string list>([ "EffectDeclarationDuplicateDisplayName" ], codes diagnostics)
         | other -> failwithf "Duplicate effect name was accepted: %A" other
-        match AgentCapabilityDeclarationWorkflow.simulate workspace { Exported = true; ExpectedBaseSnapshotId = baseId; DisplayName = "Console"; Operations = [] } with
+        match AgentCapabilityDeclarationWorkflow.simulate workspace { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = baseId; DisplayName = "Console"; Operations = [] } with
         | Error(AgentCapabilityDeclarationWorkflowError.SimulationRejected diagnostics) ->
             Assert.Equal<string list>([ "CapabilityDeclarationDuplicateDisplayName" ], codes diagnostics)
         | other -> failwithf "Duplicate capability name was accepted: %A" other
         let functionRequest: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = true; ExpectedBaseSnapshotId = baseId
+            { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = baseId
               TypeParameters = None
               DisplayName = "main"
               Parameters = []

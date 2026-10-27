@@ -38,7 +38,7 @@ bytes-slice=bytesSlice: id kind bytesNodeId/bytes:id(node) startNodeId/start:id(
 bytes-to-latin1=bytesToLatin1: id kind valueNodeId/value:id(node)
 cancellation-requested=cancellationRequested: id kind
 cancellation-shield=cancellationShield: id kind bodyFunctionId/body-function:id(function) context/context:pairs(targetParameterId:parameter,valueNodeId:node)?~
-capability: id displayName/name:str exported/exported:bool? operations/operations:members(operation)
+capability: id displayName/name:str exported/exported:bool? taskBound/task-bound:bool? operations/operations:members(operation)
 capability-construct=capabilityConstruct: id kind capabilityId/capability:id(capability) implementations/implementations:pairs(operationId:operation,functionId:function)
 capability-invoke=capabilityInvoke: id kind capabilityValueNodeId/capability-value:id(node) operationId/operation:id(operation) arguments/arguments:pairs(targetCapabilityParameterId:capability-parameter,valueNodeId:node)
 conditional=conditional: id kind conditionNodeId/condition:id(node) whenTrue/when-true:graph whenFalse/when-false:graph
@@ -73,7 +73,7 @@ float64-sqrt=float64Sqrt: id kind valueNodeId/value:id(node)
 float64-subtract=float64Subtract: id kind leftNodeId/left:id(node) rightNodeId/right:id(node)
 float64-to-string=float64ToString: id kind valueNodeId/value:id(node)
 float64-truncate=float64Truncate: id kind valueNodeId/value:id(node)
-function: id displayName/name:str exported/exported:bool? typeParameters/type-parameters:members(type-parameter)?~ parameters/parameters:members(parameter) resultType/result-type:type requiredEffects/required-effects:ids(effect) body/body:graph
+function: id displayName/name:str exported/exported:bool? mustNotWait/must-not-wait:bool? typeParameters/type-parameters:members(type-parameter)?~ parameters/parameters:members(parameter) resultType/result-type:type requiredEffects/required-effects:ids(effect) body/body:graph
 function-invoke=functionInvoke: id kind functionValueNodeId/function-value:id(node) arguments/arguments:ids(node)
 function-reference=functionReference: id kind targetFunctionId/target-function:id(function)
 int64-bit-and=int64BitAnd: id kind leftNodeId/left:id(node) rightNodeId/right:id(node)
@@ -153,7 +153,7 @@ missing-argument=missingArgument: id kind originTransactionId/origin-transaction
 one-shot-complete=oneShotComplete: id kind cellNodeId/cell:id(node) valueNodeId/value:id(node)
 one-shot-create=oneShotCreate: id kind scopeNodeId/scope:id(node) valueType/value-type:type
 one-shot-wait=oneShotWait: id kind cellNodeId/cell:id(node) limitNodeId/limit:id(node)?
-operation: id displayName/name:str parameters/parameters:members(parameter) resultType/result-type:type failureType/failure-type:type? effectId/effect:id(effect)
+operation: id displayName/name:str parameters/parameters:members(parameter) resultType/result-type:type failureType/failure-type:type? effectId/effect:id(effect) mayWait/may-wait:bool?
 option-and-then=optionAndThen: id kind sourceOptionNodeId/source-option:id(node) binderFunctionId/binder-function:id(function) context/context:pairs(targetParameterId:parameter,valueNodeId:node)?~
 option-get-or-default=optionGetOrDefault: id kind optionNodeId/option:id(node) defaultNodeId/default:id(node)
 option-is-some=optionIsSome: id kind valueNodeId/value:id(node)

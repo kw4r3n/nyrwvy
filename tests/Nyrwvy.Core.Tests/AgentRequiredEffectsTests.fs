@@ -30,7 +30,7 @@ module AgentRequiredEffectsTests =
             { Exported = true; Id = effectId
               DisplayName = "EditedEffect" }
         let callee: SemanticFunction =
-            { Exported = true; Id = calleeId
+            { MustNotWait = false; Exported = true; Id = calleeId
               TypeParameters = []
               DisplayName = "callee"
               Parameters = []
@@ -40,7 +40,7 @@ module AgentRequiredEffectsTests =
                 { Nodes = [ { Id = calleeResultId; Kind = SemanticNodeKind.UnitLiteral } ]
                   ResultNodeId = calleeResultId } }
         let caller: SemanticFunction =
-            { Exported = true; Id = callerId
+            { MustNotWait = false; Exported = true; Id = callerId
               TypeParameters = []
               DisplayName = "caller"
               Parameters = []

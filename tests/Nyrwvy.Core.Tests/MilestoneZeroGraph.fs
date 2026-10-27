@@ -109,7 +109,7 @@ module MilestoneZeroGraph =
               Type = stringType }
 
         let consoleWriteLine: SemanticCapabilityOperation =
-            { Id = consoleWriteLineOperationId
+            { MayWait = false; Id = consoleWriteLineOperationId
               DisplayName = "write_line"
               Parameters = [ consoleTextParameter ]
               ResultType = unitType
@@ -117,7 +117,7 @@ module MilestoneZeroGraph =
               EffectId = consoleEffectId }
 
         let consoleCapability: SemanticCapability =
-            { Exported = true; Id = consoleCapabilityId
+            { TaskBound = false; Exported = true; Id = consoleCapabilityId
               DisplayName = "Console"
               Operations = [ consoleWriteLine ] }
 
@@ -240,7 +240,7 @@ module MilestoneZeroGraph =
                 ) }
 
         let validateFunction: SemanticFunction =
-            { Exported = true; Id = validateFunctionId
+            { MustNotWait = false; Exported = true; Id = validateFunctionId
               TypeParameters = []
               DisplayName = "validate_user"
               Parameters = [ validateInputParameter ]
@@ -388,7 +388,7 @@ module MilestoneZeroGraph =
               Kind = SemanticNodeKind.MatchResult(reportResultNodeId, okArm, errArm) }
 
         let reportFunction: SemanticFunction =
-            { Exported = true; Id = reportFunctionId
+            { MustNotWait = false; Exported = true; Id = reportFunctionId
               TypeParameters = []
               DisplayName = "report_validation"
               Parameters = [ reportResultParameter; reportConsoleParameter ]
@@ -456,7 +456,7 @@ module MilestoneZeroGraph =
                 ) }
 
         let mainFunction: SemanticFunction =
-            { Exported = true; Id = mainFunctionId
+            { MustNotWait = false; Exported = true; Id = mainFunctionId
               TypeParameters = []
               DisplayName = "main"
               Parameters = [ mainInputParameter; mainPolicyParameter; mainConsoleParameter ]

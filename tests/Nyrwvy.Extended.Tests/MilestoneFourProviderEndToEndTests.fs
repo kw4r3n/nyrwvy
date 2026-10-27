@@ -66,10 +66,10 @@ module MilestoneFourProviderEndToEndTests =
 
     let private createConsoleCapability (session: AuthoringSession) effectId =
         let request: AgentCreateCapabilityDeclarationRequest =
-            { Exported = false; ExpectedBaseSnapshotId = currentSnapshotId session
+            { TaskBound = false; Exported = false; ExpectedBaseSnapshotId = currentSnapshotId session
               DisplayName = "Console"
               Operations =
-                [ { DisplayName = "write_line"
+                [ { MayWait = false; DisplayName = "write_line"
                     Parameters = [ { DisplayName = "text"; Type = stringType } ]
                     ResultType = unitType
                     FailureType = None
@@ -91,7 +91,7 @@ module MilestoneFourProviderEndToEndTests =
         body
         =
         let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-            { Exported = false; ExpectedBaseSnapshotId = currentSnapshotId session
+            { MustNotWait = false; Exported = false; ExpectedBaseSnapshotId = currentSnapshotId session
               TypeParameters = None
               DisplayName = displayName
               Parameters = parameters

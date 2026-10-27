@@ -217,7 +217,7 @@ module internal WireSymbolic =
     let capabilityOperationIntent declarations (item: JsonElement): AgentCapabilityOperationIntent =
         ensureFields
             "capability operation"
-            [ "displayName"; "parameters"; "resultType"; "failureType"; "effect" ]
+            [ "displayName"; "parameters"; "resultType"; "failureType"; "effect"; "mayWait" ]
             [ "displayName"; "parameters"; "resultType"; "effect" ]
             item
         let failureType = retiredFailureType item
@@ -230,7 +230,8 @@ module internal WireSymbolic =
                   Type = typeRef declarations (property "type" parameter) })
           ResultType = typeRef declarations (property "resultType" item)
           FailureType = failureType
-          EffectId = (resolveEffectAt declarations "effect" item).Id }
+          EffectId = (resolveEffectAt declarations "effect" item).Id
+          MayWait = optionalBool "mayWait" false item }
 
     let functionParameters declarations (element: JsonElement) =
         array "parameters" element

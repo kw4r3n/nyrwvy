@@ -34,7 +34,7 @@ module ParallelAllTests =
         session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
 
     let private creation (session: AuthoringSession) name parameters resultType effects body: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-        { Exported = true; ExpectedBaseSnapshotId = current session
+        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = current session
           TypeParameters = None
           DisplayName = name
           Parameters = parameters |> List.map (fun (displayName, itemType) -> { DisplayName = displayName; Type = itemType })
@@ -52,9 +52,9 @@ module ParallelAllTests =
             session.SimulateCreateEffect effectRequest |> unwrap "effect" |> publish session
             let effect = session.Declarations().Effects |> List.exactlyOne
             let operation name parameter resultType: AgentCapabilityOperationIntent =
-                { DisplayName = name; Parameters = [ { DisplayName = parameter; Type = stringType } ]; ResultType = resultType; FailureType = None; EffectId = effect.Id }
+                { MayWait = false; DisplayName = name; Parameters = [ { DisplayName = parameter; Type = stringType } ]; ResultType = resultType; FailureType = None; EffectId = effect.Id }
             let capability name operations =
-                let request: AgentCreateCapabilityDeclarationRequest = { Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name; Operations = operations }
+                let request: AgentCreateCapabilityDeclarationRequest = { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = current session; DisplayName = name; Operations = operations }
                 session.SimulateCreateCapability request |> unwrap name |> publish session
                 session.Declarations().Capabilities |> List.find (fun item -> item.DisplayName = name)
             let jobs = capability "Jobs" [ operation "run" "name" (result stringType) ]

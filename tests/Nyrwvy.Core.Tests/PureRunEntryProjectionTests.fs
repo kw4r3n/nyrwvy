@@ -36,15 +36,15 @@ module PureRunEntryProjectionTests =
             session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Io" } |> unwrap |> publish
             let effect = session.Declarations().Effects |> List.exactlyOne
             session.SimulateCreateCapability
-                { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Values"
-                  Operations = [ { DisplayName = "read"; Parameters = []; ResultType = intType; FailureType = None; EffectId = effect.Id } ] }
+                { TaskBound = false; Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Values"
+                  Operations = [ { MayWait = false; DisplayName = "read"; Parameters = []; ResultType = intType; FailureType = None; EffectId = effect.Id } ] }
             |> unwrap |> publish
             let capability = session.Declarations().Capabilities |> List.exactlyOne
             let fixtureRef = ref Unchecked.defaultof<Fixture>
             let create name parameters result effects body =
                 let session = fixtureRef.Value.Session
                 session.SimulateCreateFunction
-                    { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
+                    { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = name
                       TypeParameters = None
                       Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
                       ResultType = result; RequiredEffects = effects; Body = body }
@@ -165,7 +165,7 @@ module PureRunEntryProjectionTests =
             let invoke = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.ParameterSlot 0, fixture.Operation, [])
             let bytes = File.ReadAllBytes fixture.Path
             let refused = session.SimulateCreateFunction
-                              { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "unfinishedCandidate"
+                              { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "unfinishedCandidate"
                                 TypeParameters = None
                                 Parameters = [ { DisplayName = "values"; Type = TypeRef.Capability fixture.Capability } ]
                                 ResultType = intType; RequiredEffects = [ fixture.Effect ]
