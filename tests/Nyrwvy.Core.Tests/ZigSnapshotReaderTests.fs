@@ -118,3 +118,26 @@ module ZigSnapshotReaderTests =
             // Every outcome occurs, so no part of the comparison is vacuous.
             Assert.True(accepted > 100 && deferred > 0 && rejected > 300, $"accepted {accepted}, deferred {deferred}, rejected {rejected}")
         finally Directory.Delete(dir, true)
+
+    [<Fact>]
+    let ``The session's read path routes to the F# reader and maps the Zig readers' lines`` () =
+        let dependency = Snapshot.empty (StableId.createForTesting<SnapshotTag> "zig-read-dependency")
+        Assert.True(ZigSnapshotReader.routes null None)
+        Assert.False(ZigSnapshotReader.routes "fsharp" None)
+        Assert.False(ZigSnapshotReader.routes null (Some dependency))
+        let verdict record model = ZigSnapshotReader.verdict record model |> unwrap
+        let rejected error = ZigSnapshotReader.Verdict.Rejected error
+        Assert.Equal(ZigSnapshotReader.Verdict.FSharpOnly, verdict None [ "skip legacy schema 20" ])
+        Assert.Equal(ZigSnapshotReader.Verdict.Accepted, verdict (Some "ok") [ "end" ])
+        // A record error, as `recordFailure` words it, and the depth error with its model case.
+        Assert.Equal(rejected (SnapshotCodecError.InvalidShape "line 3, column 7: orphan record"), verdict (Some "error 3:7: orphan record") [])
+        Assert.Equal(rejected (SnapshotCodecError.MaximumDepthExceeded 1000), verdict (Some "error MaximumDepthExceeded: 1000") [])
+        // A model error, with its line breaks restored.
+        Assert.Equal(rejected (SnapshotCodecError.InvalidShape "a\nb"), verdict None [ "error InvalidShape: a\\nb" ])
+        Assert.Equal(rejected (SnapshotCodecError.UnsupportedSchemaVersion 99), verdict None [ "error UnsupportedSchemaVersion: 99" ])
+        // Validation issues win over the deferred placement error, which wins over acceptance.
+        let issues: ValidationIssue list = [ { Code = "A"; Message = "x: y" }; { Code = "B"; Message = "y\nz" } ]
+        Assert.Equal(rejected (SnapshotCodecError.InvalidSnapshot issues), verdict (Some "deferred 2:1: late") [ "issue A: x: y"; "issue B: y\\nz"; "end" ])
+        Assert.Equal(rejected (SnapshotCodecError.InvalidShape "line 2, column 1: late"), verdict (Some "deferred 2:1: late") [ "end" ])
+        Assert.True(Result.isError (ZigSnapshotReader.verdict None [ "issue A: x" ]))
+        Assert.True(Result.isError (ZigSnapshotReader.verdict (Some "ok") []))
