@@ -1,6 +1,6 @@
 # A shared host capability library (design note)
 
-**Status:** Accepted by the owner on 2026-10-27 with the three answers as proposed. Implemented in [`libraries/host`](../../libraries/host/README.md); snap's move is still to do.
+**Status:** Accepted by the owner on 2026-10-27 with the three answers as proposed. Implemented in [`libraries/host`](../../libraries/host/README.md); snap's move is still to do. The "no FFI" and "no binding generator" parts are being revised by [backend-neutral semantics and generated library bindings](multi-backend-and-bindings.md#8-mapping-tables-and-the-binding-generator) (directions accepted 2026-10-27, not implemented).
 
 **Date:** 2026-10-27
 
