@@ -149,6 +149,13 @@ type internal PureRunInputIssue =
       ActualType: TypeRef option
       Reason: string }
 
+/// The backend a run executes on. C# is the default; Zig covers a growing subset and reports the
+/// rest as `RunBackendUnsupported`.
+[<RequireQualifiedAccess>]
+type PureRunBackend =
+    | CSharp
+    | Zig
+
 [<RequireQualifiedAccess>]
 type PureRunError =
     | Unsupported of string * string
@@ -403,15 +410,15 @@ module PureRun =
 
     /// Runs dotnet and returns its exit code with bounded output; timeouts and I/O failures are errors.
     /// `phase` names the timed step in the timeout diagnostic.
-    let private launchRaw (phase: string) (workingDirectory: string) (args: string list) (timeoutMs: int) =
+    let private launchProcess (executable: string) (phase: string) (workingDirectory: string) (args: string list) (timeoutMs: int) =
         try
-            let info = ProcessStartInfo("dotnet")
+            let info = ProcessStartInfo(executable)
             info.WorkingDirectory <- workingDirectory
             info.RedirectStandardOutput <- true
             info.RedirectStandardError <- true
             for arg in args do info.ArgumentList.Add(arg)
             use child = Process.Start(info)
-            if isNull child then Error(diagnostic "RunStartupFailure" "Could not start dotnet.") else
+            if isNull child then Error(diagnostic "RunStartupFailure" $"Could not start {executable}.") else
                 // One character beyond the 1 MiB limit, so the check below sees the overflow.
                 let stdout = BoundedOutput.read child.StandardOutput 1048577
                 let stderr = BoundedOutput.read child.StandardError 1048577
@@ -437,6 +444,8 @@ module PureRun =
         | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
         | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message)
         | :? AggregateException as error -> Error(diagnostic "RunIoFailure" error.Message)
+
+    let private launchRaw phase workingDirectory args timeoutMs = launchProcess "dotnet" phase workingDirectory args timeoutMs
 
     let private processFailure (output: string) (errors: string) =
         let details = output + "\n" + errors
@@ -1170,8 +1179,103 @@ module PureRun =
             "        return local < queues[selected].Length ? queues[selected][local] : FakeResponse<T>.Exhausted;\n"
             "    }\n}\n" ]
 
+    /// The Zig compiler: `NYRWVY_ZIG` when set, otherwise `zig` on the PATH as seen from the session's
+    /// working directory (this repository pins the version in mise.toml).
+    let private zigExecutable () =
+        match Environment.GetEnvironmentVariable "NYRWVY_ZIG" with
+        | null | "" -> "zig"
+        | path -> path
+
+    /// Built runners keyed by a hash of their source, so repeated runs of one snapshot skip the build.
+    let private zigCache = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-runners")
+
+    /// Runs the entry on the Zig backend: emits the program and a runner that reads argument tokens
+    /// from its command line and prints the same envelope the C# runner does.
+    let private runZig
+        (context: AuthoringExecutionContext)
+        (fn: SemanticFunction)
+        (arguments: PureRunValue list)
+        (expected: PureRunValue option)
+        : Result<PureRunResult, PureRunError> =
+        let declarations = context.Declarations
+        let unsupported (problems: string list) =
+            Error(diagnostic "RunBackendUnsupported" ("The Zig backend does not yet support: " + String.Join(", ", problems |> List.truncate 8) + "."))
+        let signature = fn.ResultType :: (fn.Parameters |> List.map (fun parameter -> parameter.Type))
+        match signature |> List.filter (ZigBackend.zigType >> Option.isNone) with
+        | (_ :: _) as types -> unsupported (types |> List.distinct |> List.map (fun typeRef -> $"type {typeRef}"))
+        | [] ->
+        match context.Project fn.Id |> Result.mapError PureRunError.SessionFailure with
+        | Error error -> Error error
+        | Ok program ->
+        let program = ExecutionCallGraph.forEntry program fn.Id
+        match ZigBackend.emit program with
+        | Error problems -> unsupported problems
+        | Ok source ->
+            let parse (index: int) (parameter: SemanticParameter) =
+                match parameter.Type with
+                | TypeRef.Primitive PrimitiveType.Int64 -> $"try std.fmt.parseInt(i64, args[{index + 1}], 10)"
+                | TypeRef.Primitive PrimitiveType.Bool -> $"std.mem.eql(u8, args[{index + 1}], \"1\")"
+                | _ -> "NyUnit{}"
+            let print =
+                match fn.ResultType with
+                | TypeRef.Primitive PrimitiveType.Int64 -> "try out.print(\"[\\\"value\\\",{d},[]]\\n\", .{result});"
+                | TypeRef.Primitive PrimitiveType.Bool -> "try out.print(\"[\\\"value\\\",{},[]]\\n\", .{result});"
+                | _ -> "_ = result;\n    try out.writeAll(\"[\\\"value\\\",\\\"unit\\\",[]]\\n\");"
+            let call = ZigBackend.functionName fn.Id + "(" + String.Join(", ", fn.Parameters |> List.mapi parse) + ")"
+            let runner =
+                source
+                + "const std = @import(\"std\");\n\n"
+                + "pub fn main(init: std.process.Init) !void {\n"
+                + "    const args = try init.minimal.args.toSlice(init.arena.allocator());\n"
+                + "    _ = &args;\n"
+                + "    const result = " + call + ";\n"
+                + "    var buffer: [256]u8 = undefined;\n"
+                + "    var writer = std.Io.File.stdout().writer(init.io, &buffer);\n"
+                + "    const out = &writer.interface;\n"
+                + "    " + print + "\n"
+                + "    try out.flush();\n"
+                + "}\n"
+            let hash = Convert.ToHexString(Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes runner)).Substring(0, 32)
+            let directory = Path.Combine(zigCache, hash)
+            let executable = Path.Combine(directory, "runner")
+            let tokens = ResizeArray<string>()
+            arguments |> List.iter (inputTokens declarations.Types tokens)
+            try
+                let built =
+                    if File.Exists executable then Ok()
+                    else
+                        Directory.CreateDirectory directory |> ignore
+                        File.WriteAllText(Path.Combine(directory, "runner.zig"), runner)
+                        // Started from the session's working directory, so a version manager shim (mise)
+                        // resolves the project's pinned Zig; every path is absolute.
+                        launchProcess (zigExecutable ()) "Zig build" Environment.CurrentDirectory
+                            [ "build-exe"; Path.Combine(directory, "runner.zig"); "-O"; "ReleaseSafe"
+                              "--cache-dir"; Path.Combine(zigCache, "cache"); "-femit-bin=" + executable ] 300000
+                        |> Result.bind (fun (code, output, errors) ->
+                            if code = 0 && File.Exists executable then Ok() else Error(processFailure output errors))
+                built
+                |> Result.bind (fun () -> launchProcess executable "pure function" directory (List.ofSeq tokens) 5000)
+                |> Result.bind (fun (code, output, errors) ->
+                    if code <> 0 then Error(processFailure output errors)
+                    else
+                        parseEnvelope declarations.Types fn.ResultType [] output
+                        |> Result.bind (function
+                            | Envelope.Value(actual, calls) ->
+                                Ok { SnapshotId = program.SourceSnapshotId
+                                     FunctionId = fn.Id
+                                     Actual = actual
+                                     Expected = expected
+                                     Matches = expected |> Option.map ((=) actual)
+                                     Mismatch = expected |> Option.bind (fun expected -> mismatch expected actual)
+                                     Calls = calls }
+                            | _ -> Error(processFailure output errors)))
+            with
+            | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
+            | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message)
+
     let private runVerified
         (context: AuthoringExecutionContext)
+        (backend: PureRunBackend)
         (functionId: FunctionId)
         (arguments: PureRunValue list)
         (expected: PureRunValue option)
@@ -1221,6 +1325,10 @@ module PureRun =
         | Some fn when arguments @ Option.toList expected |> List.exists (fun value ->
             strings value |> List.sumBy (fun text -> int64 text.Length) |> fun length -> length > 65536L) ->
             Error(diagnostic "RunArgumentTooLarge" "Each value is limited to 65536 aggregate String UTF-16 code units.")
+        | Some fn when backend = PureRunBackend.Zig ->
+            if not (List.isEmpty hostSources) then
+                Error(diagnostic "RunBackendUnsupported" "The Zig backend does not yet support host sources.")
+            else runZig context fn arguments expected
         | Some fn ->
             // Check only functions reachable from this entry; unrelated parallel functions do not
             // make a sequential host binding require a concurrency assertion.
@@ -1723,7 +1831,8 @@ module PureRun =
 
     /// Runs a function whose capability parameters may be bound to host implementations compiled from
     /// the given C# sources, alongside scripted fakes and ordinary values.
-    let runWithHost
+    let runWithHostOn
+        (backend: PureRunBackend)
         (session: AuthoringSession)
         (functionId: FunctionId)
         (arguments: PureRunValue list)
@@ -1742,8 +1851,11 @@ module PureRun =
             session.ExecutionContext None
             |> Result.mapError PureRunError.SessionFailure
             |> Result.bind (fun context ->
-                readHostSources session hostSources |> Result.bind (runVerified context functionId arguments expected)
+                readHostSources session hostSources |> Result.bind (runVerified context backend functionId arguments expected)
                 |> Result.mapError (enrichInputError context.Declarations functionId arguments expected))
+
+    let runWithHost session functionId arguments expected hostSources =
+        runWithHostOn PureRunBackend.CSharp session functionId arguments expected hostSources
 
     let run session functionId arguments expected = runWithHost session functionId arguments expected []
 
@@ -1753,5 +1865,5 @@ module PureRun =
             Error(diagnostic "RunArgumentTooLarge" "Verification values exceed the runPure bound.")
         elif arguments |> List.exists (function PureRunValue.HostCapability _ -> true | _ -> false) then
             Error(diagnostic "VerificationHostUnsupported" "Change verification accepts fake capabilities only.")
-        else runVerified context functionId arguments expected [] |> Result.mapError (enrichInputError context.Declarations functionId arguments expected)
+        else runVerified context PureRunBackend.CSharp functionId arguments expected [] |> Result.mapError (enrichInputError context.Declarations functionId arguments expected)
 

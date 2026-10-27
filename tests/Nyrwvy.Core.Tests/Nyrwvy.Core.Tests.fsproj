@@ -178,6 +178,7 @@
     <Compile Include="PureRunBuildCacheTests.fs" />
     <Compile Include="PureRunWorkerTests.fs" />
     <Compile Include="PureRunLoneSurrogateTests.fs" />
+    <Compile Include="ZigBackendTests.fs" />
     <Compile Include="PureRunByNameTests.fs" />
     <Compile Include="PureRunPlainJsonTests.fs" />
     <Compile Include="RecursiveTypeGroupTests.fs" />
