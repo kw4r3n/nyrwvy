@@ -382,3 +382,74 @@ module ZigBackendTests =
             for script in scripts do
                 for name in [ "withFile"; "guarded_recover"; "guarded_rethrowCancellation"; "guarded_rethrowAll" ] do compare name [ script ]
         finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs tasks under the virtual clock and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let commitResult (response: JsonElement) =
+                Assert.True(response.GetProperty("ok").GetBoolean(), response.ToString())
+                let proposalId = response.GetProperty("result").GetProperty("proposalId").GetString()
+                Assert.True((execute session ($"""{{"id":"m","op":"commit","proposalId":"{proposalId}"}}""")).GetProperty("ok").GetBoolean())
+            commitResult (execute session """{"id":"e","op":"simulateCreateEffect","exported":true,"displayName":"io"}""")
+            commitResult (execute session ($"""{{"id":"c","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Svc","operations":[{{"displayName":"work","parameters":[{{"displayName":"n","type":{int64Type}}}],"resultType":{int64Type},"effect":"io"}},{{"displayName":"hold","parameters":[],"resultType":{int64Type},"effect":"io"}}]}}"""))
+            let svcType = """{"kind":"capability","name":"Svc"}"""
+            let generic name (arguments: string list) = $"""{{"kind":"builtinGeneric","generic":"{name}","arguments":[{String.Join(",", arguments)}]}}"""
+            let outcome = generic "result" [ int64Type; stringType ]
+            let taskType = generic "task" [ outcome ]
+            let scopeType = generic "taskScope" []
+            let waited = generic "list" [ generic "option" [ outcome ] ]
+            let effectful name (parameters: (string * string) list) result body =
+                let parameters = parameters |> List.map (fun (name, kind) -> $"""{{"displayName":"{name}","type":{kind}}}""") |> String.concat ","
+                commitResult (execute session ($"""{{"id":"f","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{parameters}],"resultType":{result},"requiredEffects":["io"],"body":{body}}}"""))
+            let value depth = $"""{{"kind":"patternReference","scopeDepth":{depth},"slot":"value"}}"""
+            let svc operation (arguments: string) = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "svc"},"capability":"Svc","operation":"{operation}","arguments":[{arguments}]}}"""
+            let ok x = $"""{{"kind":"resultOk","errorType":{stringType},"value":{x}}}"""
+            let bind x body = $"""{{"kind":"bind","value":{x},"body":{body}}}"""
+            let ctx = $"""[{{"parameter":"svc","value":{p "svc"}}}]"""
+            effectful "job" [ "svc", svcType; "n", int64Type ] outcome (bind (svc "work" ($"""{{"parameter":"n","value":{p "n"}}}""")) (ok (value 0)))
+            effectful "holder" [ "svc", svcType; "n", int64Type ] outcome (bind (svc "hold" "") (ok ($"""{{"kind":"int64WrappingAdd","left":{value 0},"right":{p "n"}}}""")))
+            effectful "fanOut" [ "svc", svcType; "xs", generic "list" [ int64Type ] ] (generic "result" [ generic "list" [ int64Type ]; stringType ])
+                ($"""{{"kind":"parallelAll","source":{p "xs"},"worker":"job","context":{ctx}}}""")
+            let start worker item = $"""{{"kind":"taskStart","scope":{p "scope"},"worker":"{worker}","item":{{"kind":"int64Literal","value":{item}}},"context":{ctx}}}"""
+            let tasks depths = $"""{{"kind":"listConstruct","itemType":{taskType},"items":[{String.Join(",", depths |> List.map value)}]}}"""
+            let some x = $"""{{"kind":"optionSome","value":{x}}}"""
+            effectful "raceBody" [ "svc", svcType; "scope", scopeType ] (generic "result" [ waited; stringType ])
+                (bind (start "job" 1) (bind (start "job" 2) (bind ($"""{{"kind":"taskWait","tasks":{tasks [ 1; 0 ]},"mode":"any","limit":{some "{\"kind\":\"int64Literal\",\"value\":25}"}}}""") (ok (value 0)))))
+            effectful "race" [ "svc", svcType ] (generic "result" [ waited; stringType ]) ($"""{{"kind":"taskScope","body":"raceBody","context":{ctx}}}""")
+            effectful "cancelBody" [ "svc", svcType; "scope", scopeType ] (generic "result" [ waited; stringType ])
+                (bind (start "holder" 7) (bind ($"""{{"kind":"taskCancel","task":{value 0}}}""") (bind ($"""{{"kind":"taskWait","tasks":{tasks [ 1 ]},"mode":"all"}}""") (ok (value 0)))))
+            effectful "cancelled" [ "svc", svcType ] (generic "result" [ waited; stringType ]) ($"""{{"kind":"taskScope","body":"cancelBody","context":{ctx}}}""")
+            effectful "shieldBody" [ "svc", svcType; "start", """{"kind":"primitive","primitive":"unit"}""" ] outcome
+                (bind (svc "work" ($"""{{"parameter":"n","value":{{"kind":"int64Literal","value":5}}}}""")) (ok ($"""{{"kind":"conditional","condition":{{"kind":"cancellationRequested"}},"whenTrue":{{"kind":"int64Literal","value":-1}},"whenFalse":{value 0}}}""")))
+            effectful "shielded" [ "svc", svcType ] outcome ($"""{{"kind":"cancellationShield","body":"shieldBody","context":{ctx}}}""")
+            effectful "addWork" [ "svc", svcType; "acc", int64Type; "n", int64Type ] int64Type (bind (svc "work" ($"""{{"parameter":"n","value":{p "n"}}}""")) ($"""{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{value 0}}}"""))
+            effectful "sumWork" [ "svc", svcType; "xs", generic "list" [ int64Type ] ] int64Type ($"""{{"kind":"listEffectFold","source":{p "xs"},"seed":{{"kind":"int64Literal","value":0}},"function":"addWork","context":{ctx}}}""")
+            let response (n: int) (delay: int option) =
+                let delayed = delay |> Option.map (fun d -> $""","delayMillis":"{d}" """) |> Option.defaultValue ""
+                $"""{{"kind":"return","value":{{"kind":"int64","value":"{n}"}}{delayed}}}"""
+            let fake (work: string list) (hold: string list) =
+                $"""{{"kind":"fakeCapability","capability":"Svc","operations":[{{"operation":"work","responses":[{String.Join(",", work)}]}},{{"operation":"hold","responses":[{String.Join(",", hold)}]}}]}}"""
+            let awaiting = """{"kind":"awaitCancellation","value":{"kind":"int64","value":100}}""".Replace("\"value\":100", "\"value\":\"100\"")
+            let compare name (arguments: string list) =
+                let csharp = run session "csharp" name arguments
+                let zig = run session "zig" name arguments
+                Assert.True(csharp.GetProperty("ok").GetBoolean() = zig.GetProperty("ok").GetBoolean(), csharp.ToString() + "\n" + zig.ToString())
+                if csharp.GetProperty("ok").GetBoolean() then
+                    Assert.Equal(csharp.GetProperty("result").GetProperty("actual").ToString(), zig.GetProperty("result").GetProperty("actual").ToString())
+                    Assert.Equal(csharp.GetProperty("result").GetProperty("calls").ToString(), zig.GetProperty("result").GetProperty("calls").ToString())
+                else
+                    if not (csharp.GetProperty("error").TryGetProperty("failureKind") |> fst) then failwith (csharp.ToString() + "\n" + zig.ToString())
+                    for property in [ "code"; "message"; "failureKind"; "exceptionType"; "calls" ] do
+                        Assert.Equal(csharp.GetProperty("error").GetProperty(property).ToString(), zig.GetProperty("error").GetProperty(property).ToString())
+            compare "fanOut" [ fake [ response 10 (Some 30); response 20 (Some 10); response 30 None ] []; "[1,2,3]" ]
+            compare "fanOut" [ fake [ response 10 (Some 5) ] []; "[1,2]" ]
+            compare "race" [ fake [ response 10 (Some 40); response 20 (Some 20) ] [] ]
+            compare "race" [ fake [ response 10 (Some 40); response 20 (Some 30) ] [] ]
+            compare "cancelled" [ fake [] [ awaiting ] ]
+            compare "cancelled" [ fake [] [] ]
+            compare "shielded" [ fake [ response 4 (Some 3) ] [] ]
+            compare "sumWork" [ fake [ response 1 None; response 2 None; response 3 None ] []; "[1,2,3]" ]
+        finally Directory.Delete(dir, true)

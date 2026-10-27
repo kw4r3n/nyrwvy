@@ -12,10 +12,15 @@ const NyUnit = struct {};
 /// stack overflow are fatal panics instead.
 const NyFailure = struct { type_name: []const u8, message: []const u8, exhausted: bool = false, cancelled: bool = false };
 const NyError = error{NyFailure};
-var ny_failure: NyFailure = undefined;
+threadlocal var ny_failure: NyFailure = undefined;
 
 fn nyRethrow(comptime T: type, failure: NyFailure) NyError!T {
     ny_failure = failure;
+    return error.NyFailure;
+}
+
+fn nyFail(exception_type: []const u8, message: []const u8, exhausted: bool) NyError {
+    ny_failure = .{ .type_name = exception_type, .message = message, .exhausted = exhausted };
     return error.NyFailure;
 }
 
@@ -85,6 +90,432 @@ fn nyConcat(left: []const u8, right: []const u8) []const u8 {
     @memcpy(joined[0..left.len], left);
     @memcpy(joined[left.len..], right);
     return joined;
+}
+
+// Concurrency follows the C# runtime under its deterministic virtual clock: one thread runs at a time;
+// when it blocks or finishes, the next resumes: an elapsed delay by (deadline, start order), else a
+// thread that can continue (new, ready, or timed out) by start order, else time jumps to the earliest
+// deadline. With nothing able to resume, every waiter fails as the C# clock's waiters do.
+var ny_io: std.Io = undefined;
+var ny_gate: std.Io.Mutex = .init;
+var ny_turn: std.Io.Condition = .init;
+var ny_running: usize = 1;
+var ny_next_order: u64 = 1;
+var ny_now: i64 = 0;
+var ny_waiters: std.ArrayList(*NyWaiter) = .empty;
+threadlocal var ny_order: u64 = 0;
+
+const NyWaiter = struct {
+    ready: *const fn (*const anyopaque) bool,
+    context: *const anyopaque,
+    due: ?i64,
+    order: u64,
+    is_delay: bool,
+    released: bool = false,
+    failed: bool = false,
+};
+
+fn nyAlways(_: *const anyopaque) bool {
+    return true;
+}
+
+fn nyNever(_: *const anyopaque) bool {
+    return false;
+}
+
+fn nyDeadline(millis: i64) i64 {
+    const span = @max(millis, 0);
+    return if (span >= std.math.maxInt(i64) - ny_now) std.math.maxInt(i64) else ny_now + span;
+}
+
+/// The waiter with the earliest deadline among those `matches` accepts; delays first, then start order.
+fn nyEarliest(comptime matches: fn (*NyWaiter) bool) ?*NyWaiter {
+    var earliest: ?*NyWaiter = null;
+    for (ny_waiters.items) |waiter| {
+        if (!matches(waiter)) continue;
+        if (earliest) |best| {
+            const key = .{ waiter.due.?, @as(u8, if (waiter.is_delay) 0 else 1), waiter.order };
+            const other = .{ best.due.?, @as(u8, if (best.is_delay) 0 else 1), best.order };
+            if (key[0] < other[0] or (key[0] == other[0] and (key[1] < other[1] or (key[1] == other[1] and key[2] < other[2])))) earliest = waiter;
+        } else earliest = waiter;
+    }
+    return earliest;
+}
+
+fn nyElapsedDelay(waiter: *NyWaiter) bool {
+    return waiter.is_delay and waiter.due.? <= ny_now;
+}
+
+fn nyHasDue(waiter: *NyWaiter) bool {
+    return waiter.due != null;
+}
+
+fn nySchedule() void {
+    if (ny_running > 0 or ny_waiters.items.len == 0) return;
+    var next = nyEarliest(nyElapsedDelay);
+    if (next == null) {
+        for (ny_waiters.items) |waiter| {
+            if ((waiter.ready(waiter.context) or (waiter.due != null and waiter.due.? <= ny_now)) and (next == null or waiter.order < next.?.order)) next = waiter;
+        }
+    }
+    if (next == null) {
+        next = nyEarliest(nyHasDue);
+        if (next == null) {
+            // Nothing can ever resume: fail every waiter instead of hanging.
+            for (ny_waiters.items) |waiter| {
+                waiter.failed = true;
+                waiter.released = true;
+                ny_running += 1;
+            }
+            ny_waiters.clearRetainingCapacity();
+            ny_turn.broadcast(ny_io);
+            return;
+        }
+        ny_now = next.?.due.?;
+    }
+    for (ny_waiters.items, 0..) |waiter, index| {
+        if (waiter == next.?) {
+            _ = ny_waiters.orderedRemove(index);
+            break;
+        }
+    }
+    next.?.released = true;
+    ny_running += 1;
+    ny_turn.broadcast(ny_io);
+}
+
+const ny_deadlock: NyFailure = .{ .type_name = "System.InvalidOperationException", .message = "Every task is blocked and no delay is pending, so the program cannot continue." };
+
+fn nyDeadlock() NyError {
+    ny_failure = ny_deadlock;
+    return error.NyFailure;
+}
+
+/// Blocks until `ready` holds or `millis` of virtual time have passed; true when ready.
+fn nyBlock(ready: *const fn (*const anyopaque) bool, context: *const anyopaque, millis: ?i64, is_delay: bool) NyError!bool {
+    ny_gate.lockUncancelable(ny_io);
+    const waiter = nyAllocator().create(NyWaiter) catch @panic("out of memory");
+    waiter.* = .{ .ready = ready, .context = context, .due = if (millis) |value| nyDeadline(value) else null, .order = ny_order, .is_delay = is_delay };
+    ny_waiters.append(nyAllocator(), waiter) catch @panic("out of memory");
+    ny_running -= 1;
+    nySchedule();
+    while (!waiter.released) ny_turn.waitUncancelable(ny_io, &ny_gate);
+    ny_gate.unlock(ny_io);
+    if (waiter.failed) return nyDeadlock();
+    return ready(context);
+}
+
+/// Registers a task that has not started; it runs once scheduled.
+fn nyEnter() *NyWaiter {
+    ny_gate.lockUncancelable(ny_io);
+    defer ny_gate.unlock(ny_io);
+    const waiter = nyAllocator().create(NyWaiter) catch @panic("out of memory");
+    waiter.* = .{ .ready = nyAlways, .context = undefined, .due = null, .order = ny_next_order, .is_delay = false };
+    ny_next_order += 1;
+    ny_waiters.append(nyAllocator(), waiter) catch @panic("out of memory");
+    return waiter;
+}
+
+/// Called first on a task's own thread: waits for its turn and takes on its start order.
+fn nyStart(ticket: *NyWaiter) bool {
+    ny_order = ticket.order;
+    ny_gate.lockUncancelable(ny_io);
+    while (!ticket.released) ny_turn.waitUncancelable(ny_io, &ny_gate);
+    ny_gate.unlock(ny_io);
+    return !ticket.failed;
+}
+
+fn nyExit() void {
+    ny_gate.lockUncancelable(ny_io);
+    ny_running -= 1;
+    nySchedule();
+    ny_gate.unlock(ny_io);
+}
+
+/// A cancellation source. Cancelling flags it, closes the hand-offs of a scope it belongs to, and
+/// cancels the sources linked to it, synchronously. `null` is the token that is never cancelled.
+const NyCancel = struct {
+    cancelled: bool = false,
+    children: std.ArrayList(*NyCancel) = .empty,
+    scope: ?*NyScope = null,
+
+    fn cancel(self: *NyCancel) void {
+        if (self.cancelled) return;
+        self.cancelled = true;
+        if (self.scope) |scope| scope.closeHandoffs();
+        for (self.children.items) |child| child.cancel();
+    }
+};
+
+threadlocal var ny_token: ?*NyCancel = null;
+
+fn nyLinked(parent: ?*NyCancel) *NyCancel {
+    const source = nyAllocator().create(NyCancel) catch @panic("out of memory");
+    source.* = .{};
+    if (parent) |owner| {
+        owner.children.append(nyAllocator(), source) catch @panic("out of memory");
+        if (owner.cancelled) source.cancel();
+    }
+    return source;
+}
+
+fn nyCancellationRequested() bool {
+    return if (ny_token) |token| token.cancelled else false;
+}
+
+const NyTaskBase = struct {
+    done: bool = false,
+    failed: bool = false,
+    failure: NyFailure = undefined,
+    cancel: *NyCancel,
+};
+
+fn NyTask(comptime W: type) type {
+    return struct { base: NyTaskBase, value: W = undefined };
+}
+
+const NyOneShotState = enum { pending, completed, closed };
+
+const NyScope = struct {
+    cancel: *NyCancel,
+    tasks: std.ArrayList(*NyTaskBase) = .empty,
+    handoffs: std.ArrayList(*NyOneShotState) = .empty,
+    closed: bool = false,
+    handoffs_closed: bool = false,
+
+    fn closeHandoffs(self: *NyScope) void {
+        if (self.handoffs_closed) return;
+        self.handoffs_closed = true;
+        for (self.handoffs.items) |state| {
+            if (state.* == .pending) state.* = .closed;
+        }
+    }
+};
+
+fn nyScopeOpen() *NyScope {
+    const scope = nyAllocator().create(NyScope) catch @panic("out of memory");
+    scope.* = .{ .cancel = nyLinked(ny_token) };
+    scope.cancel.scope = scope;
+    if (scope.cancel.cancelled) scope.closeHandoffs();
+    return scope;
+}
+
+fn nyAllDone(context: *const anyopaque) bool {
+    const tasks: *const []const *NyTaskBase = @ptrCast(@alignCast(context));
+    for (tasks.*) |task| if (!task.done) return false;
+    return true;
+}
+
+fn nyAnyDone(context: *const anyopaque) bool {
+    const tasks: *const []const *NyTaskBase = @ptrCast(@alignCast(context));
+    for (tasks.*) |task| if (task.done) return true;
+    return false;
+}
+
+fn nyWaitAll(tasks: []const *NyTaskBase) NyError!void {
+    if (tasks.len == 0) return;
+    const held = nyAllocator().create([]const *NyTaskBase) catch @panic("out of memory");
+    held.* = tasks;
+    _ = try nyBlock(nyAllDone, @ptrCast(held), null, false);
+}
+
+/// Closes a scope on its body's exit: closes hand-offs, cancels and joins its tasks, and, when the
+/// body itself did not fail, fails with the earliest-started failed task's failure.
+fn nyScopeClose(scope: *NyScope, body_failed: bool) NyError!void {
+    scope.closeHandoffs();
+    scope.closed = true;
+    const tasks = nyListOf(*NyTaskBase, scope.tasks.items);
+    scope.cancel.cancel();
+    try nyWaitAll(tasks);
+    if (body_failed) return;
+    for (tasks) |task| {
+        if (task.failed) {
+            ny_failure = task.failure;
+            return error.NyFailure;
+        }
+    }
+}
+
+/// Starts `job.run()` as a task of `scope` (or runs it at once, cancelled, when the scope is closed).
+fn nyStartTask(comptime W: type, scope: *NyScope, job: anytype) *NyTask(W) {
+    const task = nyAllocator().create(NyTask(W)) catch @panic("out of memory");
+    task.* = .{ .base = .{ .cancel = nyLinked(scope.cancel) } };
+    const Job = @TypeOf(job);
+    const held = nyAllocator().create(Job) catch @panic("out of memory");
+    held.* = job;
+    if (scope.closed) {
+        task.base.cancel.cancel();
+        const saved = ny_token;
+        ny_token = task.base.cancel;
+        nyRunJob(W, task, held);
+        ny_token = saved;
+        return task;
+    }
+    scope.tasks.append(nyAllocator(), &task.base) catch @panic("out of memory");
+    const ticket = nyEnter();
+    const thread = std.Thread.spawn(.{}, nyTaskThread(W, Job), .{ task, held, ticket }) catch @panic("cannot start a task");
+    thread.detach();
+    return task;
+}
+
+fn nyRunJob(comptime W: type, task: *NyTask(W), job: anytype) void {
+    const outcome = job.run();
+    if (@typeInfo(@TypeOf(outcome)) == .error_union) {
+        if (outcome) |value| task.value = value else |_| {
+            task.base.failed = true;
+            task.base.failure = ny_failure;
+        }
+    } else task.value = outcome;
+    task.base.done = true;
+}
+
+fn nyTaskThread(comptime W: type, comptime Job: type) fn (*NyTask(W), *Job, *NyWaiter) void {
+    return struct {
+        fn run(task: *NyTask(W), job: *Job, ticket: *NyWaiter) void {
+            if (!nyStart(ticket)) {
+                // The clock failed every waiter: the task fails before it starts.
+                task.base.failed = true;
+                task.base.failure = ny_deadlock;
+                task.base.done = true;
+            } else {
+                ny_token = task.base.cancel;
+                nyRunJob(W, task, job);
+            }
+            nyExit();
+        }
+    }.run;
+}
+
+const NyTaskWaitContext = struct { tasks: []const *NyTaskBase };
+
+/// The listed tasks' results in input order, `null` for one still running, after waiting for any or
+/// all of them (or `limit` of virtual time). A failed finished task fails the wait.
+fn nyTaskWait(comptime W: type, tasks: []const *NyTask(W), all: bool, limit: ?i64) NyError![]const ?W {
+    if (tasks.len == 0) return &.{};
+    const bases = nyAlloc(*NyTaskBase, tasks.len);
+    for (tasks, 0..) |task, index| bases[index] = &task.base;
+    const held = nyAllocator().create([]const *NyTaskBase) catch @panic("out of memory");
+    held.* = bases;
+    _ = try nyBlock(if (all) nyAllDone else nyAnyDone, @ptrCast(held), if (limit) |value| @max(value, 0) else null, false);
+    const out = nyAlloc(?W, tasks.len);
+    for (tasks, 0..) |task, index| {
+        if (task.base.done and task.base.failed) {
+            ny_failure = task.base.failure;
+            return error.NyFailure;
+        }
+        out[index] = if (task.base.done) task.value else null;
+    }
+    return out;
+}
+
+fn NyOneShot(comptime T: type) type {
+    return struct { state: NyOneShotState, value: T = undefined, scope: *NyScope };
+}
+
+fn nyOneShotCreate(comptime T: type, scope: *NyScope) *NyOneShot(T) {
+    const cell = nyAllocator().create(NyOneShot(T)) catch @panic("out of memory");
+    cell.* = .{ .state = if (scope.handoffs_closed) .closed else .pending, .scope = scope };
+    scope.handoffs.append(nyAllocator(), &cell.state) catch @panic("out of memory");
+    return cell;
+}
+
+fn nyOneShotComplete(comptime T: type, cell: *NyOneShot(T), value: T) bool {
+    if (cell.state != .pending or cell.scope.handoffs_closed) return false;
+    cell.value = value;
+    cell.state = .completed;
+    return true;
+}
+
+fn NyOneShotWaitContext(comptime T: type) type {
+    return struct {
+        cell: *NyOneShot(T),
+        token: ?*NyCancel,
+
+        fn ready(context: *const anyopaque) bool {
+            const self: *const @This() = @ptrCast(@alignCast(context));
+            return self.cell.state != .pending or (if (self.token) |token| token.cancelled else false);
+        }
+    };
+}
+
+fn nyOneShotWait(comptime T: type, cell: *NyOneShot(T), limit: ?i64) NyError!?T {
+    const context = nyAllocator().create(NyOneShotWaitContext(T)) catch @panic("out of memory");
+    context.* = .{ .cell = cell, .token = ny_token };
+    _ = try nyBlock(NyOneShotWaitContext(T).ready, @ptrCast(context), limit, false);
+    return if (cell.state == .completed) cell.value else null;
+}
+
+fn nyCancelledContext(context: *const anyopaque) bool {
+    const token: *const ?*NyCancel = @ptrCast(@alignCast(context));
+    return if (token.*) |source| source.cancelled else false;
+}
+
+/// A fake's await-cancellation response: blocks until the caller's token is cancelled.
+fn nyAwaitCancellation() NyError!void {
+    const held = nyAllocator().create(?*NyCancel) catch @panic("out of memory");
+    held.* = ny_token;
+    _ = try nyBlock(nyCancelledContext, @ptrCast(held), null, false);
+}
+
+/// ParallelAll: runs `worker(item)` for every item as tasks sharing one cancellation source linked to
+/// the caller's; a worker's Err or failure cancels the others. The first failure by index fails the
+/// call, else the lowest-index Err is the result, else the Ok values in index order.
+/// A task's work: `body` applied to the values the starting instruction captured.
+fn NyJob(comptime C: type, comptime R: type, comptime body: anytype) type {
+    return struct {
+        c: C,
+
+        fn run(job: *const @This()) R {
+            return body(job.c);
+        }
+    };
+}
+
+fn nyParallelAll(comptime T: type, comptime U: type, comptime E: type, items: []const T, context: anytype, comptime worker: anytype) NyError!NyResult([]const U, E) {
+    const Outcome = NyResult(U, E);
+    const shared = nyLinked(ny_token);
+    const tasks = nyAlloc(*NyTask(Outcome), items.len);
+    const bases = nyAlloc(*NyTaskBase, items.len);
+    const Job = struct {
+        item: T,
+        context: @TypeOf(context),
+        shared: *NyCancel,
+
+        fn run(job: *const @This()) NyError!Outcome {
+            const outcome = worker(job.context, job.item) catch |failure| {
+                job.shared.cancel();
+                return failure;
+            };
+            if (outcome == .err) job.shared.cancel();
+            return outcome;
+        }
+    };
+    for (items, 0..) |item, index| {
+        const task = nyAllocator().create(NyTask(Outcome)) catch @panic("out of memory");
+        task.* = .{ .base = .{ .cancel = shared } };
+        const job = nyAllocator().create(Job) catch @panic("out of memory");
+        job.* = .{ .item = item, .context = context, .shared = shared };
+        tasks[index] = task;
+        bases[index] = &task.base;
+        const ticket = nyEnter();
+        const thread = std.Thread.spawn(.{}, nyTaskThread(Outcome, Job), .{ task, job, ticket }) catch @panic("cannot start a task");
+        thread.detach();
+    }
+    try nyWaitAll(bases);
+    for (tasks) |task| {
+        if (task.base.failed) {
+            ny_failure = task.base.failure;
+            return error.NyFailure;
+        }
+    }
+    const values = nyAlloc(U, items.len);
+    for (tasks, 0..) |task, index| {
+        switch (task.value) {
+            .ok => |value| values[index] = value,
+            .err => |failure| return .{ .err = failure },
+        }
+    }
+    return .{ .ok = values };
 }
 
 // Lists are immutable slices. shortcut: every update copies (O(n)); a persistent vector, as the C#
@@ -530,11 +961,26 @@ fn nyDecode(comptime T: type, tokens: *NyTokens) T {
 // Scripted fakes, as the C# runner's: a script is one ordered queue, or one queue per argument key.
 fn NyResponse(comptime R: type) type {
     // Kind: 0 return, 1 throw, 2 await cancellation, 3 delay.
-    return struct { kind: u8, value: R = undefined, message: []const u8 = "" };
+    return struct { kind: u8, value: R = undefined, message: []const u8 = "", delay: i64 = 0, inner: ?*const NyResponse(R) = null };
 }
 
 fn NyScript(comptime R: type) type {
     return struct { keyed: bool, keys: []const []const u8, queues: []const []const NyResponse(R), next: []usize };
+}
+
+fn nyReadResponse(comptime R: type, tokens: *NyTokens) NyResponse(R) {
+    const kind = std.fmt.parseInt(u8, tokens.next(), 10) catch @panic("bad response token");
+    return switch (kind) {
+        0, 2 => .{ .kind = kind, .value = nyDecode(R, tokens) },
+        1 => .{ .kind = 1, .message = nyDecodeText(tokens.next()) },
+        3 => blk: {
+            const delay = std.fmt.parseInt(i64, tokens.next(), 10) catch @panic("bad delay token");
+            const inner = nyAllocator().create(NyResponse(R)) catch @panic("out of memory");
+            inner.* = nyReadResponse(R, tokens);
+            break :blk .{ .kind = 3, .delay = delay, .inner = inner };
+        },
+        else => @panic("bad response token"),
+    };
 }
 
 fn nyReadScript(comptime R: type, tokens: *NyTokens) NyScript(R) {
@@ -548,15 +994,7 @@ fn nyReadScript(comptime R: type, tokens: *NyTokens) NyScript(R) {
         // A key token is "k" and the argument tokens joined by commas.
         if (keyed) keys[index] = tokens.next()[1..];
         const responses = nyAlloc(NyResponse(R), std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad script token"));
-        for (responses) |*response| {
-            const kind = std.fmt.parseInt(u8, tokens.next(), 10) catch @panic("bad response token");
-            response.* = switch (kind) {
-                0 => .{ .kind = 0, .value = nyDecode(R, tokens) },
-                1 => .{ .kind = 1, .message = nyDecodeText(tokens.next()) },
-                // Waiting responses belong to task programs, which this backend does not run yet.
-                else => @panic("unsupported fake response"),
-            };
-        }
+        for (responses) |*response| response.* = nyReadResponse(R, tokens);
         queues[index] = responses;
     }
     return .{ .keyed = keyed, .keys = keys, .queues = queues, .next = next };
@@ -668,10 +1106,6 @@ fn nyTokens(w: *std.Io.Writer, first: *bool, value: anytype) !void {
     }
 }
 
-fn nyFail(exception_type: []const u8, message: []const u8, exhausted: bool) NyError {
-    ny_failure = .{ .type_name = exception_type, .message = message, .exhausted = exhausted };
-    return error.NyFailure;
-}
 
 /// Ends the run with the envelope of a failure no ExceptionCatch handled.
 fn nyUncaught() noreturn {
@@ -707,9 +1141,22 @@ fn nyRespond(comptime R: type, script: *NyScript(R), arguments: anytype) NyError
     const position = script.next[selected];
     if (position >= script.queues[selected].len) return nyFail("FakeResponsesExhaustedException", "The fake operation has no scripted response left for this call.", true);
     script.next[selected] += 1;
-    const response = script.queues[selected][position];
-    if (response.kind == 1) return nyFail("FakeCapabilityException", response.message, false);
-    return response.value;
+    var response: *const NyResponse(R) = &script.queues[selected][position];
+    while (true) {
+        switch (response.kind) {
+            0 => return response.value,
+            1 => return nyFail("FakeCapabilityException", response.message, false),
+            2 => {
+                try nyAwaitCancellation();
+                return response.value;
+            },
+            else => {
+                // A delay is not interrupted by cancellation; then the inner response applies.
+                _ = try nyBlock(nyNever, undefined, response.delay, true);
+                response = response.inner.?;
+            },
+        }
+    }
 }
 
 fn nyEncode(out: *std.Io.Writer, value: anytype) !void {

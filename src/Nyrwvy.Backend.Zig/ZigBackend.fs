@@ -76,6 +76,9 @@ module ZigBackend =
         | TypeRef.Primitive PrimitiveType.Bytes -> Some "NyBytes"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) -> inner item |> Option.map (fun item -> "?" + item)
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, []) -> Some "NyFailure"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> Some "*NyScope"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ item ]) -> inner item |> Option.map (fun item -> "*NyTask(" + item + ")")
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ item ]) -> inner item |> Option.map (fun item -> "*NyOneShot(" + item + ")")
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) -> inner item |> Option.map (fun item -> "NySet(" + item + ")")
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ key; value ]) ->
             match inner key, inner value with
@@ -173,6 +176,16 @@ module ZigBackend =
             name + "(" + String.Join(", ", arguments |> List.map (fun (_, expression, _) -> expression)) + ")"
         let block (body: string) = assign ("blk: { " + body + " }")
         let attempt (functionId: FunctionId) (call: string) = if context.MayFail functionId then "try " + call else call
+        /// A callback run later, on another thread: the values it reads travel in `c`.
+        let deferred (call: string) (captured: string list) =
+            let captured = List.distinct captured
+            let inner = captured |> List.fold (fun (text: string) name -> text.Replace(name, "c." + name)) call
+            ".{ " + String.Join(", ", captured |> List.map (fun name -> "." + name + " = " + name)) + " }", inner
+        let argumentOf (typeRef: TypeRef) index =
+            match typeRef with
+            | TypeRef.BuiltinGeneric(_, arguments) -> List.item index arguments
+            | other -> invalidOp $"Expected a generic type, got {other}."
+        let unit = TypeRef.Primitive PrimitiveType.Unit
         /// A comparison callback as a Zig function value: bound values travel in `c`, the two
         /// compared items are `l` and `r`.
         let comparator (functionId: FunctionId) (bindings: ExecutionCallArgument list) (item: TypeRef) (first: string) (second: string) =
@@ -423,6 +436,48 @@ module ZigBackend =
             | other -> invalidOp $"Expected a function type, got {other}."
         | ExecutionInstructionKind.FunctionInvoke(target, arguments) ->
             assign (v target + "(" + String.Join(", ", arguments |> List.map v) + ")")
+        | ExecutionInstructionKind.CancellationRequested -> assign "nyCancellationRequested()"
+        | ExecutionInstructionKind.CancellationShield(body, bindings) ->
+            let call = callback body bindings [ "NyUnit{}", unit ] instruction.Result.Type
+            block ("const saved = ny_token; ny_token = null; defer ny_token = saved; break :blk " + attempt body call + ";")
+        | ExecutionInstructionKind.TaskScope(body, bindings) ->
+            let call = callback body bindings [ "scope", TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) ] instruction.Result.Type
+            let guarded =
+                if context.MayFail body then call + " catch { const saved = ny_failure; nyScopeClose(scope, true) catch {}; ny_failure = saved; return error.NyFailure; }"
+                else call
+            block ("const scope = nyScopeOpen(); const outcome = " + guarded + "; try nyScopeClose(scope, false); break :blk outcome;")
+        | ExecutionInstructionKind.TaskStart(scope, worker, bindings, item) ->
+            let work = argumentOf instruction.Result.Type 0
+            let call = callback worker bindings [ v item, context.ValueType item ] work
+            let captured, inner = deferred call (v item :: (bindings |> List.map (fun binding -> v binding.ValueId)))
+            let result = (if context.MayFail worker then "NyError!" else "") + zig work
+            block ("const captured = " + captured + "; break :blk nyStartTask(" + zig work + ", " + v scope + ", NyJob(@TypeOf(captured), " + result + ", struct { fn call(c: anytype) " + result + " { return " + attempt worker inner + "; } }.call){ .c = captured });")
+        | ExecutionInstructionKind.TaskWait(tasks, mode, limit) ->
+            let work = argumentOf (itemType (context.ValueType tasks)) 0
+            let all = match mode with TaskWaitMode.All -> "true" | TaskWaitMode.Any -> "false"
+            assign ("try nyTaskWait(" + zig work + ", " + v tasks + ", " + all + ", " + (limit |> Option.map v |> Option.defaultValue "null") + ")")
+        | ExecutionInstructionKind.TaskCancel task -> block (v task + ".base.cancel.cancel(); break :blk NyUnit{};")
+        | ExecutionInstructionKind.OneShotCreate(scope, valueType) -> assign ("nyOneShotCreate(" + zig valueType + ", " + v scope + ")")
+        | ExecutionInstructionKind.OneShotComplete(cell, value) -> assign ("nyOneShotComplete(" + zig (argumentOf (context.ValueType cell) 0) + ", " + v cell + ", " + v value + ")")
+        | ExecutionInstructionKind.OneShotWait(cell, limit) ->
+            assign ("try nyOneShotWait(" + zig (argumentOf (context.ValueType cell) 0) + ", " + v cell + ", " + (limit |> Option.map v |> Option.defaultValue "null") + ")")
+        | ExecutionInstructionKind.ParallelAll(source, worker, bindings) ->
+            let element = itemType (context.ValueType source)
+            let values, error = argumentOf instruction.Result.Type 0, argumentOf instruction.Result.Type 1
+            let outcome = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ itemType values; error ])
+            let call = callback worker bindings [ "item", element ] outcome
+            let captured, inner = deferred call (bindings |> List.map (fun binding -> v binding.ValueId))
+            assign ("try nyParallelAll(" + zig element + ", " + zig (itemType values) + ", " + zig error + ", " + v source + ", " + captured + ", struct { fn call(c: anytype, item: " + zig element + ") NyError!" + zig outcome + " { _ = &c; return " + attempt worker inner + "; } }.call)")
+        | ExecutionInstructionKind.ListEffectFold(source, seed, folder, bindings) ->
+            let state = context.ValueType seed
+            let element = itemType (context.ValueType source)
+            if instruction.Result.Type = state then
+                let call = callback folder bindings [ "state", state; "item", element ] state
+                block ("var state = " + v seed + "; for (" + v source + ") |item| state = " + attempt folder call + "; break :blk state;")
+            else
+                // The folder returns Result<S, E>: the fold stops at the first Err.
+                let call = callback folder bindings [ "state.ok", state; "item", element ] instruction.Result.Type
+                block ("var state: " + zig instruction.Result.Type + " = .{ .ok = " + v seed + " }; for (" + v source + ") |item| { if (state == .err) break; state = " + attempt folder call + "; } break :blk state;")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let byParameter = arguments |> List.map (fun argument -> argument.TargetParameterId, argument.ValueId) |> Map.ofList
             let parameters = context.Parameters functionId |> List.map fst
@@ -574,7 +629,12 @@ module ZigBackend =
                         match instruction.Kind with
                         | ExecutionInstructionKind.CapabilityInvoke _
                         | ExecutionInstructionKind.ExceptionRethrow _
-                        | ExecutionInstructionKind.UseResource _ -> true
+                        | ExecutionInstructionKind.UseResource _
+                        // Waiting can fail when every task is blocked; a scope or join rethrows a task's failure.
+                        | ExecutionInstructionKind.TaskScope _
+                        | ExecutionInstructionKind.TaskWait _
+                        | ExecutionInstructionKind.OneShotWait _
+                        | ExecutionInstructionKind.ParallelAll _ -> true
                         | _ -> false))
             let callees (fn: ExecutionFunction) =
                 fn.Blocks |> List.collect (fun block ->
@@ -582,6 +642,8 @@ module ZigBackend =
                         match instruction.Kind with
                         | ExecutionInstructionKind.DirectCall(callee, _) -> [ callee ]
                         | ExecutionInstructionKind.ExceptionCatch(_, _, handler, _) -> [ handler ]
+                        | ExecutionInstructionKind.CancellationShield(body, _) -> [ body ]
+                        | ExecutionInstructionKind.ListEffectFold(_, _, folder, _) -> [ folder ]
                         | _ -> []))
             let mutable failing = program.Functions |> List.filter direct |> List.map (fun fn -> fn.SemanticFunctionId) |> Set.ofList
             let mutable changed = true
