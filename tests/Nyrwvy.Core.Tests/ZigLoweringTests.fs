@@ -8,6 +8,14 @@ open Nyrwvy.Tools.AuthoringSession
 open Xunit
 open Xunit.Abstractions
 
+module ZigLoweringTests =
+    [<Fact>]
+    let ``instruction_kinds.txt lists every node kind that lowers to an instruction`` () =
+        let rows = File.ReadAllLines(ZigModelReaderSupport.toolFile "instruction_kinds.txt") |> Array.map (fun line -> line.Split('|')[0]) |> Set.ofArray
+        let handwritten = set [ "parameterReference"; "patternReference"; "abort"; "conditional"; "boolAnd"; "boolOr"; "matchUnion"; "bind"; "matchOption"; "matchResult" ]
+        let kinds = File.ReadAllLines(ZigModelReaderSupport.toolFile "model_kinds.txt") |> Array.map (fun line -> line.Split('|')[0]) |> Set.ofArray
+        Assert.Equal<Set<string>>(kinds - handwritten, rows)
+
 /// Compares `model-reader --typed-ir` with `TypedSemanticIr.project` of `SnapshotCodec.readUnvalidated`
 /// (after `ExecutionCallGraph.forSnapshotEntry` for an entry), serialized by `TypedSemanticIrSerializer`.
 type ZigLoweringComparison(output: ITestOutputHelper) =
