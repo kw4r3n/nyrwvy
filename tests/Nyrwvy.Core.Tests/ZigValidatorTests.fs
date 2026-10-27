@@ -622,7 +622,8 @@ module ZigValidatorSupport =
                   synthetic "x3d-caller" [] [ "x3d-cs", caps ] (prim "unit")
                       [ reference "g1" "x3d-cs"
                         call "g2" "x3d-crosser" [ "x3d-xs", "g1" ]
-                        obj [ "id", s "g3"; "kind", s "parallelAll"; "sourceListNodeId", s "g1"; "workerFunctionId", s "x3d-worker" ]
+                        obj [ "id", s "g3"; "kind", s "parallelAll"; "sourceListNodeId", s "g1"; "workerFunctionId", s "x3d-worker"
+                              "context", JsonArray(obj [ "targetParameterId", s "x3d-missing"; "valueNodeId", s "g1" ]) ]
                         literalNode "g4" "unit"
                         obj [ "id", s "g5"; "kind", s "taskStart"; "scopeNodeId", s "g4"; "workerFunctionId", s "x3d-worker"; "itemNodeId", s "g1"
                               "context", JsonArray(obj [ "targetParameterId", s "x3d-missing"; "valueNodeId", s "g1" ]) ] ] "g4")
@@ -641,13 +642,19 @@ module ZigValidatorSupport =
                         call "q4" "x3d-forward" [ "x3d-v", "q1" ]
                         literalNode "q5" "unit" ] "q5")
               true)
-          "every function must not wait, every operation may wait, and a call reaches a wait",
+          "every function must not wait, every operation may wait, and a call, a callback and an operation reach a wait",
           (fun root ->
               root["schemaVersion"] <- JsonValue.Create 24
               let tasks () = gen "list" [ gen "task" [ prim "int64" ] ]
               let list = root["functions"] :?> JsonArray
               list.Add(synthetic "x3d-wait-leaf" [] [ "x3d-ts", tasks () ] (prim "unit") [ reference "h1" "x3d-ts"; obj [ "id", s "h2"; "kind", s "taskWait"; "mode", s "all"; "tasksNodeId", s "h1" ] ] "h2")
               list.Add(synthetic "x3d-wait-caller" [] [ "x3d-ts2", tasks () ] (prim "unit") [ reference "k1" "x3d-ts2"; call "k2" "x3d-wait-leaf" [ "x3d-ts", "k1" ] ] "k2")
+              list.Add(synthetic "x3d-wait-mapper" [] [ "x3d-ts3", tasks () ] (prim "unit") [ reference "m1" "x3d-ts3"; obj [ "id", s "m2"; "kind", s "listMap"; "sourceListNodeId", s "m1"; "mapperFunctionId", s "x3d-wait-leaf" ] ] "m2")
+              let operation = obj [ "id", s "x3d-op"; "displayName", s "Block"; "parameters", JsonArray(); "resultType", prim "unit"; "effectId", s "x3d-effect" ]
+              (root["capabilities"] :?> JsonArray).Add(obj [ "id", s "x3d-waitcap"; "displayName", s "Waiter"; "operations", JsonArray(operation) ])
+              list.Add(
+                  synthetic "x3d-blocker" [] [ "x3d-w", obj [ "kind", s "capability"; "capabilityId", s "x3d-waitcap" ] ] (prim "unit")
+                      [ reference "b1" "x3d-w"; obj [ "id", s "b2"; "kind", s "capabilityInvoke"; "capabilityValueNodeId", s "b1"; "operationId", s "x3d-op"; "arguments", JsonArray() ] ] "b2")
               for f in functions root do f["mustNotWait"] <- JsonValue.Create true
               for operations in arrayItems "operations" root do
                   for operation in operations do operation["mayWait"] <- JsonValue.Create true
