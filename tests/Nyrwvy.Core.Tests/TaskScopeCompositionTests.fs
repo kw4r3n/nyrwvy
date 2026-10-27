@@ -162,7 +162,7 @@ module TaskScopeCompositionTests =
                       node "reason" (SemanticNodeKind.StringLiteral "stop")
                       node "abort" (SemanticNodeKind.Abort(id<GraphNodeTag> "reason")) ]
                   ResultNodeId = id<GraphNodeTag> "abort" } }
-        match GraphOrder.tryAbortOrderConflict (Map.ofList [ fn.Id, fn ]) fn with
+        match GraphOrder.tryEffectOrderConflict (GraphOrder.semanticObservableFunctions [ fn ]) fn with
         | Some(first, second) ->
             Assert.Equal<Set<GraphNodeId>>(set [ id<GraphNodeTag> "cancel"; id<GraphNodeTag> "abort" ], set [ first; second ])
         | None -> failwith "An unsequenced TaskCancel was allowed beside an abort."

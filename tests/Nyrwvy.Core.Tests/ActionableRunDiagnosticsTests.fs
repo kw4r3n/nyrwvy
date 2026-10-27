@@ -137,7 +137,7 @@ module ActionableRunDiagnosticsTests =
             | other -> failwithf "%A" other)
 
     [<Fact>]
-    let ``lowering diagnostic retains IDs names operands and explicit Bind repair`` () =
+    let ``effect-order diagnostics name both operations and the Bind repair, at proposal time and in full validation`` () =
         withSession (fun session _ path ->
             let publish p = session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             session.SimulateCreateEffect { Exported = true; ExpectedBaseSnapshotId = session.SnapshotId; DisplayName = "Io" } |> publish
@@ -161,7 +161,8 @@ module ActionableRunDiagnosticsTests =
             Assert.Contains("AmbiguousEffectOrder", refusal)
             Assert.Contains("CapabilityInvoke Values.read", refusal)
             Assert.Contains("Sequence them with Bind", refusal)
-            // A snapshot published before that rule still reaches the lowering diagnostic.
+            // A snapshot holding that pair can no longer be written or opened: full validation applies
+            // the same rule and names both operations (docs/decisions/proposal-time-effect-ordering.md).
             session.SimulateCreateFunction { creation with Body = ExpressionRecipe.Bind(invoke, ExpressionRecipe.Bind(invoke, ExpressionRecipe.Int64Literal 0L)) } |> publish
             let ordered = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "unordered")
             let historical = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap
@@ -177,32 +178,13 @@ module ActionableRunDiagnosticsTests =
                       { Id = addId; Kind = SemanticNodeKind.Int64WrappingAdd(firstId, secondId) } ]
                   ResultNodeId = addId }
             let legacy = { historical with Functions = historical.Functions |> List.map (fun f -> if f.Id = ordered.Id then { f with Body = legacyBody } else f) }
-            Assert.Empty(SnapshotValidator.validate legacy)
-            session.Close()
-            File.WriteAllText(path, SnapshotCodec.serialize legacy |> unwrap)
-            // A snapshot written directly declares its backend as `create` would.
-            File.WriteAllText(path + ".backends.json", """{"targets": ["csharp"]}""")
-            use session = AuthoringSession.openExisting path |> unwrap
-            let fn = session.Declarations().Functions |> List.find (fun f -> f.DisplayName = "unordered")
-            let before = File.ReadAllBytes path
-            use response = JsonDocument.Parse(AuthoringProtocol.executeLine session "{\"id\":\"emit\",\"op\":\"emitCSharp\",\"profile\":{\"kind\":\"empty\"}}")
-            let error = response.RootElement.GetProperty("error")
-            Assert.Equal("ExecutionLoweringFailure", error.GetProperty("code").GetString())
-            let details = error.GetProperty("details")
-            Assert.Equal("unordered", details.GetProperty("function").GetString())
-            Assert.Equal(StableId.value fn.Id, details.GetProperty("functionId").GetString())
-            let operands = details.GetProperty("operands")
-            Assert.Equal("Values.read", operands[0].GetProperty("displayName").GetString())
-            Assert.Equal("Bind", details.GetProperty("repair").GetProperty("kind").GetString())
-            Assert.Equal<byte>(before, File.ReadAllBytes path)
-            let invoke = ExpressionRecipe.CapabilityInvoke(ExpressionRecipe.Parameter fn.Parameters.Head.Id, cap.Operations.Head.Id, [])
-            session.SimulateReplaceBody
-                { ExpectedBaseSnapshotId = session.SnapshotId
-                  ExpectedCurrentResultNodeId = fn.Body.ResultNodeId
-                  TargetFunctionId = fn.Id
-                  Replacement = ExpressionRecipe.Bind(invoke, ExpressionRecipe.Bind(invoke, ExpressionRecipe.Int64Literal 0L)) }
-            |> fun p -> session.Commit((unwrap p).ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
-            session.ProjectEntryExecution fn.Id |> unwrap |> ignore)
+            let issue = Assert.Single(SnapshotValidator.validate legacy)
+            Assert.Equal("AmbiguousEffectOrder", issue.Code)
+            Assert.Contains("CapabilityInvoke Values.read", issue.Message)
+            Assert.Contains("Sequence them with Bind", issue.Message)
+            match SnapshotCodec.serialize legacy with
+            | Error(SnapshotCodecError.InvalidSnapshot issues) -> Assert.Contains(issues, fun issue -> issue.Code = "AmbiguousEffectOrder")
+            | other -> failwithf "The writer accepted an unordered pair: %A" other)
 
     [<Fact>]
     let ``status reports the build and misshaped run values explain the expected form`` () =

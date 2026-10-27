@@ -100,16 +100,23 @@ module RecordCodecAllKindsTests =
             g.Add(SemanticNodeKind.Conditional(isCancellation,
                 graph (fun b -> b.Add(SemanticNodeKind.ExceptionRethrow(e, outcomeT))),
                 graph (fun b -> b.Add(SemanticNodeKind.ResultErr(int64T, b.Add(SemanticNodeKind.ExceptionMessage e)))))))
+    /// The task and OneShot operations, each bound before the next so their order is defined.
     let private scopeBody =
+        let taskT = generic BuiltinGenericType.Task [ outcomeT ]
+        let then' (g: Graph) input name t (body: Graph -> PatternBinding -> GraphNodeId) =
+            let b = binding name t
+            g.Add(SemanticNodeKind.Bind(input, { ValueBinding = b; Body = graph (fun inner -> body inner b) }))
         fn1 "scopeBody" ("scope", generic BuiltinGenericType.TaskScope []) [] outcomeT (fun g scope ->
             let task = g.Add(SemanticNodeKind.TaskStart(scope, ok1.Id, [], g.Lit 2L))
-            let tasks = g.Add(SemanticNodeKind.ListConstruct(generic BuiltinGenericType.Task [ outcomeT ], [ task ]))
-            g.Add(SemanticNodeKind.TaskWait(tasks, TaskWaitMode.All, Some(g.Add(SemanticNodeKind.OptionSome(g.Lit 5L))))) |> ignore
-            g.Add(SemanticNodeKind.TaskCancel task) |> ignore
-            let cell = g.Add(SemanticNodeKind.OneShotCreate(scope, int64T))
-            g.Add(SemanticNodeKind.OneShotComplete(cell, g.Lit 3L)) |> ignore
-            g.Add(SemanticNodeKind.OneShotWait(cell, None)) |> ignore
-            g.Add(SemanticNodeKind.ResultOk(stringT, g.Lit 4L)))
+            then' g task "started" taskT (fun g started ->
+                let tasks = g.Add(SemanticNodeKind.ListConstruct(taskT, [ patternRef g started ]))
+                let waited = g.Add(SemanticNodeKind.TaskWait(tasks, TaskWaitMode.All, Some(g.Add(SemanticNodeKind.OptionSome(g.Lit 5L)))))
+                then' g waited "waited" (generic BuiltinGenericType.List [ generic BuiltinGenericType.Option [ outcomeT ] ]) (fun g _ ->
+                    then' g (g.Add(SemanticNodeKind.TaskCancel(patternRef g started))) "cancelled" unitT (fun g _ ->
+                        then' g (g.Add(SemanticNodeKind.OneShotCreate(scope, int64T))) "cell" (generic BuiltinGenericType.OneShot [ int64T ]) (fun g cell ->
+                            then' g (g.Add(SemanticNodeKind.OneShotComplete(patternRef g cell, g.Lit 3L))) "completed" boolT (fun g _ ->
+                                g.Add(SemanticNodeKind.OneShotWait(patternRef g cell, None)) |> ignore
+                                g.Add(SemanticNodeKind.ResultOk(stringT, g.Lit 4L))))))))
 
     let private shared = [ fold2; fold3; lessThan; keep; entryValue; pred1; map1; some1; ok1; list1; errMap; unitBody; implRelease; handler; scopeBody ]
 

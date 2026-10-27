@@ -215,6 +215,11 @@ module SnapshotValidator =
         let capabilityIds = snapshot.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList
         let typesById = snapshot.Types |> List.map (fun item -> item.Id, item) |> Map.ofList
         let functionsById = snapshot.Functions |> List.map (fun item -> item.Id, item) |> Map.ofList
+        let observableFunctions = lazy (GraphOrder.semanticObservableFunctions snapshot.Functions)
+        let operationNames =
+            lazy (snapshot.Capabilities
+                  |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id, capability.DisplayName + "." + operation.DisplayName))
+                  |> Map.ofList)
         let variantsById =
             variantEntries
             |> List.map (fun (ownerId, variant) -> variant.Id, (ownerId, variant))
@@ -2580,14 +2585,19 @@ module SnapshotValidator =
                 | None -> $"'{StableId.value nodeId}'"
                 | Some node ->
                     let case, _ = Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(node.Kind, typeof<SemanticNodeKind>)
-                    match node.Kind with
-                    | SemanticNodeKind.DirectCall(callee, _) when Map.containsKey callee functionsById ->
-                        $"'{StableId.value nodeId}' (DirectCall to '{functionsById[callee].DisplayName}')"
-                    | _ -> $"'{StableId.value nodeId}' ({case.Name})"
+                    let subject =
+                        match node.Kind with
+                        | SemanticNodeKind.DirectCall(callee, _) ->
+                            Map.tryFind callee functionsById |> Option.map (fun target -> $"{case.Name} to '{target.DisplayName}'")
+                        | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
+                            Map.tryFind operationId operationNames.Value |> Option.map (fun name -> $"{case.Name} {name}")
+                        | _ -> None
+                    $"'{StableId.value nodeId}' ({Option.defaultValue case.Name subject})"
 
-            match GraphOrder.tryAbortOrderConflict functionsById functionEntity with
+            // The runtime rule lowering enforces, in every function (docs/decisions/proposal-time-effect-ordering.md).
+            match GraphOrder.tryEffectOrderConflict observableFunctions.Value functionEntity with
             | Some(first, second) ->
-                add "AmbiguousEffectOrder" $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} has unordered observable nodes '{StableId.value first}' and '{StableId.value second}', including local abort control flow. {describeUnordered first} and {describeUnordered second} each observe effects or abort, so their order is undefined; sequence them with bind so one runs first."
+                add "AmbiguousEffectOrder" $"Function {StableId.describe functionEntity.DisplayName functionEntity.Id} has unordered observable nodes {describeUnordered first} and {describeUnordered second}, whose effects (direct or through called functions) would run in no defined order. Sequence them with Bind in the intended order."
             | None -> ()
 
             if hasDependencyCycle nodesById then
@@ -2876,36 +2886,3 @@ module SnapshotValidator =
 
     let private validateCached = SnapshotComputationScope.Memoize("validation", validateUncached, retain = true)
     let validate (snapshot: Snapshot): ValidationIssue list = validateCached snapshot
-
-    /// Validates a snapshot proposed on top of `baseline`: full validation, plus the runtime
-    /// effect-ordering rule IR lowering enforces (`GraphOrder.newEffectOrderConflicts`) for every
-    /// function the proposal adds, edits or newly makes ambiguous. Full validation alone keeps the
-    /// historical abort-only rule so snapshots published under it still open for repair.
-    let validateProposal (baseline: Snapshot) (proposed: Snapshot): ValidationIssue list =
-        match validate proposed with
-        | _ :: _ as issues -> issues
-        | [] ->
-            let functionsById = proposed.Functions |> List.map (fun fn -> fn.Id, fn) |> Map.ofList
-            let operationNames =
-                proposed.Capabilities
-                |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id, capability.DisplayName + "." + operation.DisplayName))
-                |> Map.ofList
-            let describeNode (fn: SemanticFunction) (nodeId: GraphNodeId) =
-                match ValueGraph.collectNodes fn.Body |> List.tryFind (fun node -> node.Id = nodeId) with
-                | None -> $"'{StableId.value nodeId}'"
-                | Some node ->
-                    let case, _ = Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(node.Kind, typeof<SemanticNodeKind>)
-                    let subject =
-                        match node.Kind with
-                        | SemanticNodeKind.DirectCall(callee, _) ->
-                            Map.tryFind callee functionsById |> Option.map (fun target -> $"{case.Name} to '{target.DisplayName}'")
-                        | SemanticNodeKind.CapabilityInvoke(_, operationId, _) ->
-                            Map.tryFind operationId operationNames |> Option.map (fun name -> $"{case.Name} {name}")
-                        | _ -> None
-                    $"'{StableId.value nodeId}' ({Option.defaultValue case.Name subject})"
-            GraphOrder.newEffectOrderConflicts baseline proposed
-            |> List.map (fun (fn, first, second) ->
-                { Code = "AmbiguousEffectOrder"
-                  Message =
-                    $"Function {StableId.describe fn.DisplayName fn.Id} has unordered observable nodes {describeNode fn first} and {describeNode fn second}, "
-                    + "whose effects (direct or through called functions) would run in no defined order. Sequence them with Bind in the intended order." })

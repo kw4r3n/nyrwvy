@@ -3833,25 +3833,30 @@ fn unorderedEffects(nodes: []const Value, observable: *const Set, by_id: bool) ?
     return null;
 }
 
-/// Functions that declare effects (`tryAbortOrderConflict`'s observable set, over the last function of an ID).
-var declaring_functions: Set = .empty;
+/// The runtime-observable functions (`GraphOrder.semanticObservableFunctions`), set per validation.
+var observable_functions: Set = .empty;
 
-/// `GraphOrder.tryAbortOrderConflict` and its message, for a function with an Abort node.
+/// `GraphOrder.tryEffectOrderConflict` with the semantic view, in every function, and its message.
 fn effectOrderRules() void {
     const function = in_function.function;
-    for (in_function.all_nodes) |node| {
-        if (isName(str(node, "kind"), "abort")) break;
-    } else return;
-    const pair = unorderedEffects(arrayOf(get(function, "body"), "nodes"), &declaring_functions, false) orelse return;
+    const pair = unorderedEffects(arrayOf(get(function, "body"), "nodes"), &observable_functions, false) orelse return;
     const nodes_by_id = byId(in_function.all_nodes);
+    var operation_names: std.StringHashMapUnmanaged(Str) = .empty;
+    for (all_capabilities) |capability| for (arrayOf(capability, "operations")) |operation|
+        operation_names.put(a, idKey(str(operation, "id")), cat(&.{ str(capability, "displayName"), L("."), str(operation, "displayName") })) catch oom();
     var described: [2]Str = undefined;
     for (pair, &described) |id, *d| {
         const node = nodes_by_id.get(idKey(id)).?;
         const kind = str(node, "kind");
-        const callee = if (isName(kind, "directCall")) functions_by_id.get(idKey(str(node, "targetFunctionId"))) else null;
-        d.* = if (callee) |f| cat(&.{ quote(id), L(" (DirectCall to '"), str(f, "displayName"), L("')") }) else cat(&.{ quote(id), L(" ("), caseNameOf(kind), L(")") });
+        const subject: ?Str = if (isName(kind, "directCall"))
+            (if (functions_by_id.get(idKey(str(node, "targetFunctionId")))) |f| cat(&.{ L("DirectCall to '"), str(f, "displayName"), L("'") }) else null)
+        else if (isName(kind, "capabilityInvoke"))
+            (if (operation_names.get(idKey(str(node, "operationId")))) |name| cat(&.{ L("CapabilityInvoke "), name }) else null)
+        else
+            null;
+        d.* = cat(&.{ quote(id), L(" ("), subject orelse caseNameOf(kind), L(")") });
     }
-    addIn("AmbiguousEffectOrder", cat(&.{ L("Function "), functionLabel(function), L(" has unordered observable nodes "), quote(pair[0]), L(" and "), quote(pair[1]), L(", including local abort control flow. "), described[0], L(" and "), described[1], L(" each observe effects or abort, so their order is undefined; sequence them with bind so one runs first.") }));
+    addIn("AmbiguousEffectOrder", cat(&.{ L("Function "), functionLabel(function), L(" has unordered observable nodes "), described[0], L(" and "), described[1], L(", whose effects (direct or through called functions) would run in no defined order. Sequence them with Bind in the intended order.") }));
 }
 
 /// `WaitPath`: the (node, function) steps, then the waiting node and its builtin kind or operation.
@@ -4137,10 +4142,7 @@ fn validateFunctionGraphs(functions: []const Value) void {
     const resolvers = a.alloc(Resolver, functions.len) catch oom();
     for (functions, resolvers) |function, *r| r.* = Resolver.init(function);
     instantiationRules(functions, resolvers);
-    declaring_functions = .empty;
-    for (functions_by_id.values()) |function| {
-        if (arrayOf(function, "requiredEffects").len > 0) declaring_functions.put(a, idKey(str(function, "id")), {}) catch oom();
-    }
+    observable_functions = observableFunctions(functions);
     for (functions, resolvers) |function, *resolver| {
         const label = describe(str(function, "displayName"), str(function, "id"));
         const body = get(function, "body");
@@ -4683,7 +4685,9 @@ fn typedIr(root: Value) LoweringFailure![]const u8 {
 fn executionIr(root: Value) (LoweringFailure || LowerFailure)![]const u8 {
     const functions = try readyFunctions(root);
     const texts = a.alloc([]const u8, functions.len) catch oom();
-    const observable = observableFunctions(functions);
+    const plain = a.alloc(Value, functions.len) catch oom();
+    for (functions, plain) |ready, *function| function.* = ready.function;
+    const observable = observableFunctions(plain);
     for (functions, texts) |ready, *t| t.* = try executionFunction(ready.function, ready.resolver, &observable);
     return program(root, sortedDeclarations(arrayOf(root, "types"), executionDeclaredType), texts);
 }
@@ -4763,22 +4767,23 @@ fn typedOperation(operation: Value) []const u8 {
 // `ExecutionIr.lower` of the typed program and `ExecutionIrSerializer.serialize`. Instructions are
 // written as they are made; a simple node's properties are its typed ones in order, a node
 // reference becomes the value bound to it, and `instruction_kinds.txt` names them. Effect order is
-// checked by the runtime rule (`validateEffectOrder`: every function, observable callees), which is
-// stricter than the validator's historical one (`tryAbortOrderConflict`); the typed view's
-// descriptor equals the semantic one (`EffectClassificationConsistencyTests`).
+// checked again by the rule the validator applies (`validateEffectOrder`), here with the typed view's
+// order of nested graphs; its descriptor equals the semantic one (`EffectClassificationConsistencyTests`).
 
 /// `GraphOrder.observableFunctions` over the program's functions: a function is observable when it
 /// declares effects or holds an intrinsically observable node other than Abort, at any depth, or
 /// when it calls, folds with, starts or runs as a body an observable function.
-fn observableFunctions(functions: []const Ready) Set {
+fn observableFunctions(functions: []const Value) Set {
+    // `Map.ofSeq`: the last function of an ID gives its descriptor.
+    const last = byId(functions);
     var observable: Set = .empty;
     var callers: std.StringHashMapUnmanaged(List(Str)) = .empty;
     var pending: List(Str) = .empty;
-    for (functions) |ready| {
-        const id = str(ready.function, "id");
-        var seed = arrayOf(ready.function, "requiredEffects").len > 0;
+    for (last.values()) |function| {
+        const id = str(function, "id");
+        var seed = arrayOf(function, "requiredEffects").len > 0;
         var nodes: List(Value) = .empty;
-        collectNodes(get(ready.function, "body"), &nodes);
+        collectNodes(get(function, "body"), &nodes);
         for (nodes.items) |node| {
             const kind = text(str(node, "kind"));
             if (!std.mem.eql(u8, kind, "parallelAll") and kindIs(kind, effectful_kinds)) seed = true;

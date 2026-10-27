@@ -113,13 +113,9 @@ module EffectClassificationConsistencyTests =
     let private semanticObservable (variant: Variant) (case: UnionCaseInfo) =
         let candidate: SemanticNode = { Id = freshNode (); Kind = makeCase<SemanticNodeKind> variant case }
         let witness: SemanticNode = { Id = witnessId; Kind = SemanticNodeKind.Abort(freshNode ()) }
-        let targets =
-            [ semanticFunction effectfulTargetId [ effectId ] (semanticGraph pureVariant)
-              semanticFunction pureTargetId [] (semanticGraph pureVariant) ]
-            |> List.map (fun fn -> fn.Id, fn)
-            |> Map.ofList
         let probe = semanticFunction probeId [] { Nodes = [ candidate; witness ]; ResultNodeId = witnessId }
-        match GraphOrder.tryAbortOrderConflict targets probe with
+        // The effectful target declares an effect; the pure one observes nothing.
+        match GraphOrder.tryEffectOrderConflict (set [ effectfulTargetId ]) probe with
         | Some(first, second) -> first = candidate.Id || second = candidate.Id
         | None -> false
 
