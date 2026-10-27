@@ -225,3 +225,32 @@ module ZigBackendTests =
             for a, b in [ "[1,2,3]", "[3,4]"; "[]", "[1]"; "[2,1]", "[1,2,3]" ] do
                 for kind in [ "setUnion"; "setIntersection"; "setDifference"; "subset"; "sameSet" ] do agree session kind [ a; b ]
         finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs Bytes and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let bytesType = """{"kind":"primitive","primitive":"bytes"}"""
+            let from name = $"""{{"kind":"bytesFromLatin1","value":{p name}}}"""
+            create session "fill" [ "n", int64Type; "v", int64Type ] bytesType ($"""{{"kind":"bytesFill","length":{p "n"},"value":{p "v"}}}""")
+            create session "edit" [ "s", stringType; "i", int64Type; "v", int64Type ] stringType
+                ($"""{{"kind":"bytesToLatin1","value":{{"kind":"bytesAppend","bytes":{{"kind":"bytesSet","bytes":{from "s"},"index":{p "i"},"value":{p "v"}}},"value":{p "v"}}}}}""")
+            create session "at" [ "s", stringType; "i", int64Type ] (sprintf """{"kind":"builtinGeneric","generic":"option","arguments":[%s]}""" int64Type) ($"""{{"kind":"bytesGet","bytes":{from "s"},"index":{p "i"}}}""")
+            create session "cut" [ "s", stringType; "i", int64Type; "j", int64Type ] bytesType ($"""{{"kind":"bytesSlice","bytes":{from "s"},"start":{p "i"},"end":{p "j"}}}""")
+            create session "join" [ "s", stringType; "t", stringType ] bytesType ($"""{{"kind":"bytesConcat","left":{from "s"},"right":{from "t"}}}""")
+            create session "size" [ "s", stringType ] int64Type ($"""{{"kind":"bytesLength","value":{from "s"}}}""")
+            create session "sameBytes" [ "s", stringType; "t", stringType ] boolType ($"""{{"kind":"valueEqual","left":{from "s"},"right":{from "t"}}}""")
+            for n, v in [ "-1", "5"; "0", "1"; "3", "-1"; "4", "256" ] do agree session "fill" [ n; v ]
+            let texts = [ "\"\""; "\"abc\""; "\"\\u00ff\\u0000x\""; "\"\\u20ac\"" ]
+            for s in texts do
+                agree session "size" [ s ]
+                for i in [ "-1"; "0"; "2"; "9" ] do
+                    agree session "edit" [ s; i; "300" ]
+                    agree session "at" [ s; i ]
+                    agree session "cut" [ s; i; "2" ]
+                for t in texts do
+                    agree session "join" [ s; t ]
+                    agree session "sameBytes" [ s; t ]
+        finally Directory.Delete(dir, true)

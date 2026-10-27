@@ -70,6 +70,7 @@ module ZigBackend =
         | TypeRef.Primitive PrimitiveType.Unit -> Some "NyUnit"
         | TypeRef.Primitive PrimitiveType.String -> Some "[]const u8"
         | TypeRef.Primitive PrimitiveType.Float64 -> Some "f64"
+        | TypeRef.Primitive PrimitiveType.Bytes -> Some "NyBytes"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) -> inner item |> Option.map (fun item -> "?" + item)
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) -> inner item |> Option.map (fun item -> "NySet(" + item + ")")
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ key; value ]) ->
@@ -333,6 +334,16 @@ module ZigBackend =
             let element = itemType (context.ValueType source)
             let call = callback keyOf bindings [ "item", element ] keyType
             block ("var out: " + zig instruction.Result.Type + " = .{ .keys = &.{}, .values = &.{} }; for (" + v source + ") |item| out = nyMapInsert(" + zig keyType + ", " + zig element + ", out, " + call + ", item); break :blk out;")
+        | ExecutionInstructionKind.BytesEmpty -> assign ".{ .data = &.{} }"
+        | ExecutionInstructionKind.BytesFill(length, value) -> assign ("nyBytesFill(" + v length + ", " + v value + ")")
+        | ExecutionInstructionKind.BytesLength bytes -> assign ("@as(i64, @intCast(" + v bytes + ".data.len))")
+        | ExecutionInstructionKind.BytesGet(bytes, index) -> assign ("if (nyListItemAt(u8, " + v bytes + ".data, " + v index + ")) |byte| @as(i64, byte) else null")
+        | ExecutionInstructionKind.BytesSet(bytes, index, value) -> assign ("nyBytesSet(" + v bytes + ", " + v index + ", " + v value + ")")
+        | ExecutionInstructionKind.BytesAppend(bytes, value) -> assign (".{ .data = nyListAppend(u8, " + v bytes + ".data, @truncate(@as(u64, @bitCast(" + v value + ")))) }")
+        | ExecutionInstructionKind.BytesConcat(left, right) -> assign (".{ .data = nyListConcat(u8, " + v left + ".data, " + v right + ".data) }")
+        | ExecutionInstructionKind.BytesSlice(bytes, start, finish) -> assign (".{ .data = nyListSlice(u8, " + v bytes + ".data, " + v start + ", " + v finish + ") }")
+        | ExecutionInstructionKind.BytesFromLatin1 text -> assign ("nyBytesFromLatin1(" + v text + ")")
+        | ExecutionInstructionKind.BytesToLatin1 bytes -> assign ("nyBytesToLatin1(" + v bytes + ")")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let byParameter = arguments |> List.map (fun argument -> argument.TargetParameterId, argument.ValueId) |> Map.ofList
             let parameters = context.Parameters functionId |> List.map fst

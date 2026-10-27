@@ -286,6 +286,45 @@ fn nyMapUnion(comptime K: type, comptime V: type, left: NyMap(K, V), right: NyMa
     return map;
 }
 
+/// Bytes wrap a byte slice so they stay distinct from a UTF-8 String.
+const NyBytes = struct {
+    data: []const u8,
+    pub const ny_bytes = true;
+};
+
+fn nyBytesFill(length: i64, value: i64) NyBytes {
+    if (length <= 0) return .{ .data = &.{} };
+    if (length > std.math.maxInt(u32)) @panic("out of memory");
+    const data = nyAlloc(u8, @intCast(length));
+    @memset(data, @truncate(@as(u64, @bitCast(value))));
+    return .{ .data = data };
+}
+
+fn nyBytesSet(bytes: NyBytes, index: i64, value: i64) NyBytes {
+    return .{ .data = nyListSetAt(u8, bytes.data, index, @truncate(@as(u64, @bitCast(value)))) };
+}
+
+/// One byte per code point; a code point above U+00FF becomes 0xFF.
+fn nyBytesFromLatin1(text: []const u8) NyBytes {
+    const data = nyAlloc(u8, std.unicode.utf8CountCodepoints(text) catch unreachable);
+    var view = std.unicode.Utf8View.initUnchecked(text);
+    var points = view.iterator();
+    var at: usize = 0;
+    while (points.nextCodepoint()) |point| : (at += 1) data[at] = if (point > 0xFF) 0xFF else @intCast(point);
+    return .{ .data = data };
+}
+
+/// One code point U+0000..U+00FF per byte, as UTF-8.
+fn nyBytesToLatin1(bytes: NyBytes) []const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (bytes.data) |byte| {
+        var buffer: [2]u8 = undefined;
+        const size = std.unicode.utf8Encode(byte, &buffer) catch unreachable;
+        out.appendSlice(nyAllocator(), buffer[0..size]) catch @panic("out of memory");
+    }
+    return out.items;
+}
+
 /// Structural equality over every supported value type.
 fn nyEqual(left: anytype, right: @TypeOf(left)) bool {
     const T = @TypeOf(left);
@@ -311,6 +350,7 @@ fn nyEqual(left: anytype, right: @TypeOf(left)) bool {
             return nyEqual(left.*, right.*);
         },
         .@"struct" => |info| {
+            if (comptime @hasDecl(T, "ny_bytes")) return std.mem.eql(u8, left.data, right.data);
             // Sets and Maps compare by content regardless of insertion order.
             if (comptime @hasDecl(T, "ny_set")) {
                 if (left.items.len != right.items.len) return false;
@@ -403,6 +443,8 @@ fn nyDecode(comptime T: type, tokens: *NyTokens) T {
                 const Item = @typeInfo(@FieldType(T, "items")).pointer.child;
                 return nySetFromList(Item, nyDecode([]const Item, tokens));
             }
+            // Bytes travel as the String token of their latin-1 form.
+            if (comptime @hasDecl(T, "ny_bytes")) return nyBytesFromLatin1(nyDecodeText(tokens.next()));
             if (comptime @hasDecl(T, "ny_map")) {
                 const K = @typeInfo(@FieldType(T, "keys")).pointer.child;
                 const V = @typeInfo(@FieldType(T, "values")).pointer.child;
@@ -461,6 +503,7 @@ fn nyEncode(out: *std.Io.Writer, value: anytype) !void {
         .@"struct" => |info| {
             if (T == NyUnit) return out.writeAll("\"unit\"");
             if (comptime @hasDecl(T, "ny_set")) return nyEncode(out, value.items);
+            if (comptime @hasDecl(T, "ny_bytes")) return nyEncodeText(out, nyBytesToLatin1(value));
             if (comptime @hasDecl(T, "ny_map")) {
                 try out.writeAll("[");
                 for (value.keys, value.values, 0..) |key, item, position| {
