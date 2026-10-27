@@ -1241,21 +1241,24 @@ module PureRun =
 
     let private sha256Hex (text: string) = Convert.ToHexString(Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes text))
 
-    let private emitterLock = obj ()
-    let mutable private emitterPath: string option = None
+    let private zigTools = Collections.Generic.Dictionary<string, string>()
 
-    /// The Zig emitter (tools/zig/emitter beside mise.toml, see docs/decisions/zig-tools.md), built
-    /// once into the runner cache, keyed by a hash of its sources.
-    let private zigEmitter () =
-        lock emitterLock (fun () ->
-            match emitterPath with
-            | Some path -> Ok path
-            | None ->
+    /// A Zig tool (`tools/zig/<name>` beside mise.toml, see docs/decisions/zig-tools.md), built once
+    /// per process into the runner cache, keyed by a hash of every file in its directory.
+    let zigTool (name: string) =
+        lock zigTools (fun () ->
+            match zigTools.TryGetValue name with
+            | true, path -> Ok path
+            | _ ->
                 try
-                    let sources = Path.Combine(zigDirectory.Value, "tools", "zig", "emitter")
-                    let text = [ "main.zig"; "runtime.zig"; "runner_support.zig"; "case_mapping.zig" ] |> List.map (fun name -> File.ReadAllText(Path.Combine(sources, name))) |> String.concat "\u0000"
-                    let directory = Path.Combine(zigCache, "emitter-" + (sha256Hex text).Substring(0, 32))
-                    let executable = Path.Combine(directory, "emitter")
+                    let sources = Path.Combine(zigDirectory.Value, "tools", "zig", name)
+                    let text =
+                        Directory.GetFiles sources
+                        |> Array.sortWith (fun x y -> String.CompareOrdinal(x, y))
+                        |> Array.map (fun file -> Path.GetFileName file + "\u0000" + File.ReadAllText file)
+                        |> String.concat "\u0000"
+                    let directory = Path.Combine(zigCache, name + "-" + (sha256Hex text).Substring(0, 32))
+                    let executable = Path.Combine(directory, name)
                     let built =
                         if File.Exists executable then Ok()
                         else
@@ -1263,7 +1266,7 @@ module PureRun =
                             createPrivateDirectory directory
                             // Built under a fresh name and moved, so another process never runs a partial file.
                             let partial = executable + "." + Guid.NewGuid().ToString("N")
-                            launchProcess (zigExecutable ()) "Zig emitter build" zigDirectory.Value
+                            launchProcess (zigExecutable ()) $"Zig {name} build" zigDirectory.Value
                                 [ "build-exe"; Path.Combine(sources, "main.zig"); "-O"; "ReleaseSafe"
                                   "--cache-dir"; Path.Combine(zigCache, "cache"); "-femit-bin=" + partial ] 300000
                             |> Result.bind (fun (code, output, errors) ->
@@ -1271,7 +1274,7 @@ module PureRun =
                                     File.Move(partial, executable, true)
                                     Ok()
                                 else Error(processFailure output errors))
-                    built |> Result.map (fun () -> emitterPath <- Some executable; executable)
+                    built |> Result.map (fun () -> zigTools[name] <- executable; executable)
                 with
                 | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
                 | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message))
@@ -1281,7 +1284,7 @@ module PureRun =
     /// set it), the F# emitter's output must match byte for byte.
     let zigEmit (program: ExecutionProgram) (entry: FunctionId option) : Result<Result<string, string list>, PureRunError> =
         let ir = ExecutionIrSerializer.serialize program
-        zigEmitter ()
+        zigTool "emitter"
         |> Result.bind (fun emitter ->
             let input = Path.Combine(zigCache, "ir-" + Guid.NewGuid().ToString("N") + ".json")
             try

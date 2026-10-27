@@ -260,6 +260,10 @@ module RecordCodecAllKindsTests =
 
     let private kindNames = FSharpType.GetUnionCases(typeof<SemanticNodeKind>) |> Array.map (fun c -> c.Name)
 
+    /// One valid snapshot per function that holds a node kind, so together they hold every kind.
+    let allKindSnapshots () =
+        functionsByKind.Value |> Map.values |> Seq.distinct |> Seq.map snapshotFor |> List.ofSeq
+
     let everyKind: obj array seq = kindNames |> Seq.map (fun name -> [| box name |])
 
     [<Theory>]
