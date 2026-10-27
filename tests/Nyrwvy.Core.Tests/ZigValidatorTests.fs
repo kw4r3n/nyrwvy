@@ -452,6 +452,60 @@ module ZigValidatorSupport =
                       changed <- true
                   | _ -> ()
               changed)
+          "product nodes target an unknown type",
+          (fun root ->
+              let products = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> n.ContainsKey "typeId")
+              for n in products do n["typeId"] <- s "missing-type"
+              not products.IsEmpty)
+          "product nodes target a union type",
+          (fun root ->
+              let unions = match root["types"] with :? JsonArray as types -> [ for t in types do if string (t["kind"]) = "union" then yield string (t["id"]) ] | _ -> []
+              let products = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> n.ContainsKey "typeId")
+              match unions with
+              | union :: _ when not products.IsEmpty -> (for n in products do n["typeId"] <- s union); true
+              | _ -> false)
+          for mode in 0 .. 3 do
+            $"field bindings are duplicated, retargeted, emptied or given a String value ({mode})",
+            (fun root ->
+              let nodes = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> match n["fields"] with :? JsonArray as f -> f.Count > 0 | _ -> false)
+              nodes |> List.iter (fun n ->
+                  let fields = n["fields"] :?> JsonArray
+                  match mode with
+                  | 0 -> fields.Add(fields[0].DeepClone())
+                  | 1 -> fields[0]["targetFieldId"] <- s "missing-field"
+                  | 2 -> if string (n["kind"]) = "productUpdate" then fields.Clear() else fields.RemoveAt 0
+                  | _ ->
+                      ((n.Parent :?> JsonArray).Add(literalNode "field-string" "string"))
+                      for f in fields do f["valueNodeId"] <- s "field-string")
+              not nodes.IsEmpty)
+          for mode in 0 .. 3 do
+            $"union match arms are duplicated, dropped, merged or bind fields twice ({mode})",
+            (fun root ->
+              let matches = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> string (n["kind"]) = "matchUnion")
+              matches |> List.iter (fun n ->
+                  let arms = n["arms"] :?> JsonArray
+                  match mode with
+                  | 0 -> arms.Add(arms[0].DeepClone())
+                  | 1 -> if arms.Count > 1 then arms.RemoveAt 0
+                  | 2 ->
+                      let arm = arms[0] :?> JsonObject
+                      match arm["variantId"] with
+                      | null -> ()
+                      | v ->
+                          arm.Remove "variantId" |> ignore
+                          arm["variantIds"] <- JsonArray(s (string v), s "other-variant")
+                  | _ ->
+                      let bindings = arms[0]["fieldBindings"] :?> JsonArray
+                      if bindings.Count > 0 then
+                          let copy = bindings[0].DeepClone()
+                          copy["binding"]["id"] <- s "copied-binding"
+                          bindings.Add copy)
+              not matches.IsEmpty)
+          "pattern binding types become Bytes",
+          (fun root ->
+              let bindings = objectsIn root |> List.collect (fun o -> [ for name in [ "valueBinding"; "errorBinding"; "binding" ] do match o[name] with :? JsonObject as b -> yield b | _ -> () ])
+              for b in bindings do b["type"] <- prim "bytes"
+              not bindings.IsEmpty)
           "string literals hold a lone surrogate",
           (fun root ->
               let literals = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> string n["kind"] = "stringLiteral")

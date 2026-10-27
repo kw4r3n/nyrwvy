@@ -2769,6 +2769,207 @@ fn collectionRules(node: Value) void {
     }
 }
 
+/// A union match arm's variant IDs: `variantId` alone, or `variantIds`.
+fn armVariantIds(arm: Value) []const Str {
+    if (tryProperty("variantId", arm)) |single| return a.dupe(Str, &.{single.string}) catch oom();
+    const items = arrayOf(arm, "variantIds");
+    const ids = a.alloc(Str, items.len) catch oom();
+    for (items, ids) |item, *id| id.* = item.string;
+    return ids;
+}
+
+var variants_by_id: ValueMap = .empty;
+
+/// A declared field with its type seen through the owner's type arguments (`instantiateFields`).
+const Field = struct { id: Str, display: Str, type: TypeRef };
+
+fn instantiateFields(owner: ?Value, arguments: []const TypeRef, fields: []const Value) []const Field {
+    const out = a.alloc(Field, fields.len) catch oom();
+    for (fields, out) |field, *f| {
+        const declared = typeRefOf(get(field, "type"));
+        f.* = .{ .id = str(field, "id"), .display = str(field, "displayName"), .type = if (owner) |o| instantiate(o, arguments, declared) else declared };
+    }
+    return out;
+}
+
+fn findField(fields: []const Field, id: Str) ?Field {
+    for (fields) |f| if (same(f.id, id)) return f;
+    return null;
+}
+
+fn duplicateTargets(context: Str, bindings: []const Value, comptime target: []const u8) void {
+    const ids = a.alloc(Str, bindings.len) catch oom();
+    for (bindings, ids) |binding, *id| id.* = str(binding, target);
+    for (countBy(ids).values()) |entry| {
+        if (entry.count > 1) addIn("DuplicateFieldBinding", cat(&.{ context, L(" binds field '"), entry.id, L("' more than once.") }));
+    }
+}
+
+fn fieldValueType(context: Str, field: Field, binding: Value) void {
+    if (nodeType(str(binding, "valueNodeId"))) |value_type| if (!typeEql(field.type, value_type))
+        addIn("FieldValueTypeMismatch", cat(&.{ context, L(" binds a value with the wrong type to field "), describe(field.display, field.id), L(".") }));
+}
+
+/// `validateFieldBindings`.
+fn validateFieldBindings(context: Str, expected: []const Field, bindings: []const Value) void {
+    duplicateTargets(context, bindings, "targetFieldId");
+    var expected_ids: Set = .empty;
+    for (expected) |f| expected_ids.put(a, idKey(f.id), {}) catch oom();
+    var actual_ids: Set = .empty;
+    for (bindings) |binding| actual_ids.put(a, idKey(str(binding, "targetFieldId")), {}) catch oom();
+    if (!sameSet(&expected_ids, &actual_ids)) addIn("FieldBindingMismatch", cat(&.{ context, L(" must bind exactly the fields declared by its target.") }));
+    for (bindings) |binding| {
+        if (findField(expected, str(binding, "targetFieldId"))) |field| fieldValueType(context, field, binding);
+    }
+}
+
+fn sameSet(left: *const Set, right: *const Set) bool {
+    if (left.count() != right.count()) return false;
+    for (left.keys()) |key| if (!right.contains(key)) return false;
+    return true;
+}
+
+fn bindingType(binding: Value) TypeRef {
+    return typeRefOf(get(binding, "type"));
+}
+
+/// Products, unions, abort and the match nodes (Validation.fs `ProductConstruct` … `MatchResult`).
+fn structureRules(node: Value, graph_result: Str) void {
+    const kind = text(str(node, "kind"));
+    const id = str(node, "id");
+    const ops = operandsOf(node);
+    const function = in_function.function;
+    const function_label = describe(str(function, "displayName"), str(function, "id"));
+    if (std.mem.eql(u8, kind, "productConstruct")) {
+        const type_id = str(node, "typeId");
+        const context = cat(&.{ L("Product node '"), id, L("'") });
+        if (types_by_id.get(idKey(type_id))) |type_entity| {
+            if (isName(str(type_entity, "kind"), "product"))
+                validateFieldBindings(context, instantiateFields(type_entity, typeArgumentsOf(node), arrayOf(type_entity, "fields")), arrayOf(node, "fields"))
+            else
+                addIn("InvalidProductConstructTarget", cat(&.{ context, L(" targets a non-product type.") }));
+        } else addIn("UnknownProductConstructType", cat(&.{ context, L(" targets unknown type '"), type_id, L("'.") }));
+    } else if (std.mem.eql(u8, kind, "fieldAccess")) {
+        const owner = product_field_owners.get(idKey(str(node, "fieldId"))) orelse
+            return addIn("UnknownProductField", cat(&.{ L("Field-access node '"), id, L("' references a field that is not owned by a product type.") }));
+        if (nodeType(ops[0])) |source| if (source.kind != .named or !same(source.name, str(owner, "id")))
+            addIn("FieldAccessTypeMismatch", cat(&.{ L("Field-access node '"), id, L("' reads a field from the wrong source type.") }));
+    } else if (std.mem.eql(u8, kind, "productUpdate")) {
+        const type_id = str(node, "typeId");
+        const context = cat(&.{ L("Product-update node '"), id, L("'") });
+        const type_entity = types_by_id.get(idKey(type_id)) orelse
+            return addIn("UnknownProductUpdateType", cat(&.{ context, L(" targets unknown type '"), type_id, L("'.") }));
+        if (!isName(str(type_entity, "kind"), "product")) return addIn("InvalidProductUpdateTarget", cat(&.{ context, L(" targets a non-product type.") }));
+        const declared = arrayOf(type_entity, "fields");
+        // The bound values must match the fields at the source's type arguments.
+        const expected = if (nodeType(ops[0])) |source| blk: {
+            if (source.kind == .named and same(source.name, type_id)) break :blk instantiateFields(type_entity, source.args, declared);
+            addIn("ProductUpdateSourceTypeMismatch", cat(&.{ context, L(" updates a source that is not of its product type.") }));
+            break :blk instantiateFields(null, &.{}, declared);
+        } else instantiateFields(null, &.{}, declared);
+        const fields = arrayOf(node, "fields");
+        if (fields.len == 0) addIn("EmptyProductUpdate", cat(&.{ context, L(" must replace at least one field.") }));
+        duplicateTargets(context, fields, "targetFieldId");
+        for (fields) |binding| {
+            const field = findField(expected, str(binding, "targetFieldId")) orelse {
+                addIn("FieldBindingMismatch", cat(&.{ context, L(" binds field '"), str(binding, "targetFieldId"), L("', which its product type does not declare.") }));
+                continue;
+            };
+            fieldValueType(context, field, binding);
+        }
+    } else if (std.mem.eql(u8, kind, "unionConstruct")) {
+        const variant_id = str(node, "variantId");
+        const context = cat(&.{ L("Union node '"), id, L("'") });
+        const variant = variants_by_id.get(idKey(variant_id)) orelse
+            return addIn("UnknownUnionVariant", cat(&.{ context, L(" references unknown variant '"), variant_id, L("'.") }));
+        const owner = types_by_id.get(idKey(variant_owners.get(idKey(variant_id)).?));
+        validateFieldBindings(context, instantiateFields(owner, typeArgumentsOf(node), arrayOf(variant, "fields")), arrayOf(node, "fields"));
+    } else if (std.mem.eql(u8, kind, "abort")) {
+        if (!same(id, graph_result))
+            addIn("AbortNotGraphResult", cat(&.{ L("Abort node '"), id, L("' in function "), function_label, L(" must be its graph result.") }));
+        const result_type = typeRefOf(get(function, "resultType"));
+        if (result_type.isGeneric("result") and result_type.args.len == 2) {
+            requireNodeType("AbortPayloadTypeMismatch", cat(&.{ L("Abort node '"), id, L("' payload '"), ops[0], L("' must match error type "), typeText(result_type.args[1]), L(" of function "), function_label, L(".") }), result_type.args[1], ops[0]);
+        } else addIn("AbortOwnerResultTypeMismatch", cat(&.{ L("Abort node '"), id, L("' requires function "), function_label, L(" to return Result<T, E>.") }));
+    } else if (std.mem.eql(u8, kind, "matchUnion")) {
+        matchUnionRules(node, ops[0]);
+    } else if (std.mem.eql(u8, kind, "bind")) {
+        const binding = get(get(node, "boundBody"), "valueBinding");
+        requireNodeType("PatternBindingTypeMismatch", cat(&.{ L("Bind binding '"), str(binding, "id"), L("' does not match its input type.") }), bindingType(binding), ops[0]);
+    } else if (std.mem.eql(u8, kind, "matchOption")) {
+        const some = get(node, "someArm");
+        switch (shapeOf(ops[0], "option", 1)) {
+            .args => |args| if (!typeEql(bindingType(get(some, "valueBinding")), args[0]))
+                addIn("PatternBindingTypeMismatch", cat(&.{ L("Option match binding '"), str(get(some, "valueBinding"), "id"), L("' does not match the Option item type.") })),
+            .other => addIn("MatchOptionInputTypeMismatch", cat(&.{ L("Option match node '"), id, L("' requires Option<T> input.") })),
+            .unknown => {},
+        }
+        if (!compatibleArms(&.{ get(some, "body"), get(node, "noneBody") }))
+            addIn("MatchArmTypeMismatch", cat(&.{ L("Option match node '"), id, L("' arms do not produce one common type.") }));
+    } else if (std.mem.eql(u8, kind, "matchResult")) {
+        const ok_arm = get(node, "okArm");
+        const err_arm = get(node, "errArm");
+        switch (shapeOf(ops[0], "result", 2)) {
+            .args => |args| {
+                if (!typeEql(bindingType(get(ok_arm, "valueBinding")), args[0]))
+                    addIn("PatternBindingTypeMismatch", cat(&.{ L("Result.Ok binding '"), str(get(ok_arm, "valueBinding"), "id"), L("' does not match the Result ok type.") }));
+                if (!typeEql(bindingType(get(err_arm, "errorBinding")), args[1]))
+                    addIn("PatternBindingTypeMismatch", cat(&.{ L("Result.Err binding '"), str(get(err_arm, "errorBinding"), "id"), L("' does not match the Result error type.") }));
+            },
+            .other => addIn("MatchResultInputTypeMismatch", cat(&.{ L("Result match node '"), id, L("' requires Result<T,E> input.") })),
+            .unknown => {},
+        }
+        if (!compatibleArms(&.{ get(ok_arm, "body"), get(err_arm, "body") }))
+            addIn("MatchArmTypeMismatch", cat(&.{ L("Result match node '"), id, L("' arms do not produce one common type.") }));
+    }
+}
+
+fn matchUnionRules(node: Value, input: Str) void {
+    const id = str(node, "id");
+    const arms = arrayOf(node, "arms");
+    if (nodeType(input)) |input_type| {
+        const input_entity = if (input_type.kind == .named) types_by_id.get(idKey(input_type.name)) else null;
+        if (input_entity != null and isName(str(input_entity.?, "kind"), "union")) {
+            const declared = arrayOf(input_entity.?, "variants");
+            // `EmptyUnionMatchArm` cannot occur: the reader requires a variant per arm.
+            var all_ids: List(Str) = .empty;
+            for (arms) |arm| all_ids.appendSlice(a, armVariantIds(arm)) catch oom();
+            for (countBy(all_ids.items).values()) |entry| {
+                if (entry.count > 1) addIn("DuplicateUnionMatchArm", cat(&.{ L("Union match node '"), id, L("' has duplicate arm for variant '"), entry.id, L("'.") }));
+            }
+            const expected = idSet(declared);
+            var actual: Set = .empty;
+            for (all_ids.items) |v| actual.put(a, idKey(v), {}) catch oom();
+            if (!sameSet(&expected, &actual)) addIn("NonExhaustiveUnionMatch", cat(&.{ L("Union match node '"), id, L("' must contain exactly one arm for every variant.") }));
+            for (arms) |arm| {
+                const ids = armVariantIds(arm);
+                const bindings = arrayOf(arm, "fieldBindings");
+                if (ids.len >= 2 and bindings.len > 0)
+                    addIn("PatternFieldBindingMismatch", cat(&.{ L("Union match arm '"), describeArm(arm), L("' names several variants and must bind no fields.") }));
+                if (ids.len != 1) continue;
+                const variant = for (declared) |v| {
+                    if (same(str(v, "id"), ids[0])) break v;
+                } else continue;
+                const fields = instantiateFields(input_entity.?, input_type.args, arrayOf(variant, "fields"));
+                var expected_fields: Set = .empty;
+                for (fields) |f| expected_fields.put(a, idKey(f.id), {}) catch oom();
+                var actual_fields: Set = .empty;
+                for (bindings) |b| actual_fields.put(a, idKey(str(b, "sourceFieldId")), {}) catch oom();
+                if (!sameSet(&expected_fields, &actual_fields) or bindings.len != actual_fields.count())
+                    addIn("PatternFieldBindingMismatch", cat(&.{ L("Union match arm '"), describeArm(arm), L("' must bind each variant field exactly once.") }));
+                for (bindings) |b| {
+                    const field = findField(fields, str(b, "sourceFieldId")) orelse continue;
+                    if (!typeEql(field.type, bindingType(get(b, "binding"))))
+                        addIn("PatternBindingTypeMismatch", cat(&.{ L("Pattern binding '"), str(get(b, "binding"), "id"), L("' does not match its variant field type.") }));
+                }
+            }
+        } else addIn("MatchUnionInputTypeMismatch", cat(&.{ L("Union match node '"), id, L("' requires a declared union input.") }));
+    }
+    var bodies: List(Value) = .empty;
+    for (arms) |arm| bodies.append(a, get(arm, "body")) catch oom();
+    if (!compatibleArms(bodies.items)) addIn("MatchArmTypeMismatch", cat(&.{ L("Union match node '"), id, L("' arms do not produce one common type.") }));
+}
+
 /// `validateGraph`: the graph's own rules, each node's rules, then its nested graphs.
 fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, context: Str, graph: Value) void {
     const nodes = arrayOf(graph, "nodes");
@@ -2790,6 +2991,7 @@ fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, contex
         }
         scalarRules(node);
         collectionRules(node);
+        structureRules(node, result_id);
         const kind = str(node, "kind");
         if (isName(kind, "parameterReference")) {
             const parameter_id = str(node, "parameterId");
@@ -2852,8 +3054,7 @@ fn withPattern(patterns: *const Set, binding: Value) Set {
 
 /// `UnionMatchArm.canonicalVariantIds` joined with `|`: the arm's variant IDs, sorted ordinally.
 fn describeArm(arm: Value) Str {
-    const ids = a.alloc(Str, arrayOf(arm, "variantIds").len) catch oom();
-    for (arrayOf(arm, "variantIds"), ids) |v, *d| d.* = v.string;
+    const ids = a.dupe(Str, armVariantIds(arm)) catch oom();
     std.mem.sort(Str, ids, {}, lessStr);
     var out: List(u16) = .empty;
     for (ids, 0..) |v, i| {
@@ -3081,8 +3282,11 @@ fn validate(root: Value) void {
     for ([_][]const Value{ types, functions }) |declared| for (declared) |owner| for (arrayOf(owner, "typeParameters")) |declaration|
         type_parameter_names.put(a, idKey(str(declaration, "typeParameterId")), str(declaration, "displayName")) catch oom();
     variant_owners = .empty;
-    for (types) |type_entity| for (arrayOf(type_entity, "variants")) |variant|
+    variants_by_id = .empty;
+    for (types) |type_entity| for (arrayOf(type_entity, "variants")) |variant| {
         variant_owners.put(a, idKey(str(variant, "id")), str(type_entity, "id")) catch oom();
+        variants_by_id.put(a, idKey(str(variant, "id")), variant) catch oom();
+    };
     validateTypeReferences(types, operations.items, functions);
 
     all_capabilities = capabilities;
