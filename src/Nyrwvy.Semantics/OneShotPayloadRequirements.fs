@@ -4,7 +4,7 @@ namespace Nyrwvy.Core
 /// These are graph facts, not persisted constraints or a new generic type system.
 [<RequireQualifiedAccess>]
 module internal OneShotPayloadRequirements =
-    let private instantiations =
+    let instantiations =
         SnapshotComputationScope.Memoize("oneShotInstantiations", fun (snapshot: Snapshot) ->
             let functions = snapshot.Functions |> List.map (fun fn -> fn.Id, fn) |> Map.ofList
             let resolve = SemanticFacts.createNodeTypeResolverFactory snapshot
@@ -131,3 +131,56 @@ module internal OneShotPayloadRequirements =
                 if reference.Role <> FunctionReferenceRole.DirectCall && violates requirements reference.FunctionId substitution then
                     Some nodeId
                 else None)
+
+/// Derived requirements for type parameters whose values cross into another task (a TaskStart or
+/// ParallelAll item, context binding or worker result), directly or through generic calls that
+/// forward them. An instantiation of such a parameter with a type that can hold a task-bound
+/// capability is rejected at the call or callback node (docs/decisions/wait-and-task-bound-attributes.md).
+[<RequireQualifiedAccess>]
+module internal TaskCrossingRequirements =
+    let private deriveUncached (snapshot: Snapshot) =
+        let resolve = SemanticFacts.createNodeTypeResolverFactory snapshot
+        let mutable requirements =
+            snapshot.Functions |> List.map (fun fn ->
+                let nodeType = resolve fn
+                let crossing =
+                    ValueGraph.collectNodes fn.Body |> List.collect (fun node ->
+                        // The node's own type carries the worker result (Task<Result<U, E>> or Result<List<U>, E>).
+                        match node.Kind with
+                        | SemanticNodeKind.TaskStart(_, _, context, item) -> node.Id :: item :: (context |> List.map (fun binding -> binding.ValueNodeId))
+                        | SemanticNodeKind.ParallelAll(source, _, context) -> node.Id :: source :: (context |> List.map (fun binding -> binding.ValueNodeId))
+                        | _ -> [])
+                    |> List.choose nodeType
+                fn.Id, crossing |> List.collect TypeParameters.occurring |> Set.ofList) |> Map.ofList
+        if requirements |> Map.exists (fun _ parameters -> not (Set.isEmpty parameters)) then
+            let calls = OneShotPayloadRequirements.instantiations snapshot
+            let mutable changed = true
+            while changed do
+                changed <- false
+                for owner, _, reference, substitution in calls do
+                    let inherited =
+                        Map.tryFind reference.FunctionId requirements |> Option.defaultValue Set.empty
+                        |> Seq.choose (fun id -> Map.tryFind id substitution)
+                        |> Seq.collect TypeParameters.occurring |> Set.ofSeq
+                    let previous = Map.find owner requirements
+                    let next = Set.union previous inherited
+                    if next <> previous then
+                        requirements <- Map.add owner next requirements
+                        changed <- true
+        requirements
+
+    let derive = SnapshotComputationScope.Memoize("taskCrossingRequirements", deriveUncached)
+
+    /// The call and callback nodes that instantiate a crossing type parameter with a type that can
+    /// hold a task-bound capability, with the callee.
+    let invalidInstantiations (snapshot: Snapshot) =
+        if not (snapshot.Capabilities |> List.exists (fun capability -> capability.TaskBound)) then []
+        else
+            let requirements = derive snapshot
+            OneShotPayloadRequirements.instantiations snapshot
+            |> List.choose (fun (_, nodeId, reference, substitution) ->
+                let crosses =
+                    Map.tryFind reference.FunctionId requirements |> Option.defaultValue Set.empty
+                    |> Set.exists (fun id -> Map.tryFind id substitution |> Option.exists (TaskTypes.bearingTaskBound snapshot))
+                if crosses then Some(nodeId, reference.FunctionId) else None)
+            |> List.distinct

@@ -53,6 +53,10 @@ module SnapshotValidator =
         let typeParameterNames = TypeParameters.names snapshot
         let typeParameterName id = TypeParameters.nameIn typeParameterNames id
         let oneShotPayloadRequirements = lazy (OneShotPayloadRequirements.derive snapshot)
+        for nodeId, calleeId in TaskCrossingRequirements.invalidInstantiations snapshot do
+            add
+                "TaskBoundValueCrossesTask"
+                $"Node '{StableId.value nodeId}' instantiates function '{StableId.value calleeId}' with a type that can hold a task-bound capability, and the function passes values of that type into another task, directly or through another generic call."
         for nodeId in OneShotPayloadRequirements.invalidCallbackUses snapshot do
             add "OneShotScopePayloadUnsupported" $"Callback node '{StableId.value nodeId}' instantiates a OneShot payload with a type containing TaskScope."
 
@@ -2855,10 +2859,11 @@ module SnapshotValidator =
                         "InvalidObligationTarget"
                         $"Obligation '{StableId.value obligation.Id}' does not target a direct-call node."
 
-        let waiting = Waiting.derive snapshot
+        // Derived only when a function needs it; reviews derive it on their own.
+        let waiting = lazy (Waiting.derive snapshot)
         for functionEntity in snapshot.Functions do
             if functionEntity.MustNotWait then
-                match Map.tryFind functionEntity.Id waiting with
+                match Map.tryFind functionEntity.Id waiting.Value with
                 | Some path ->
                     add
                         "MustNotWaitFunctionWaits"

@@ -320,3 +320,42 @@ module WaitAttributesTests =
             consumer.Close()
         finally
             Directory.Delete(root, true)
+
+    /// `spawnAll<T>` runs a ParallelAll over `List<T>`; `outer<T>` forwards to it. `direct` and
+    /// `forwarded` instantiate T with the capability `Ui`.
+    let private genericCrossingSnapshot (taskBound: bool) : Snapshot =
+        let ui: SemanticCapability = { Id = uiId; DisplayName = "Ui"; Exported = true; TaskBound = taskBound; Operations = [] }
+        let tp name = id<TypeParameterTag> name
+        let listOf item = generic BuiltinGenericType.List [ item ]
+        let genericFn name (typeParameter: string) parameters resultType nodes =
+            { fn name false parameters resultType [] nodes with TypeParameters = [ tp typeParameter, typeParameter ] }
+        let spawnResult = resultOf (listOf int64Type)
+        let worker =
+            genericFn "genericWorker" "U" [ parameter "gw-x" (TypeRef.TypeParameter(tp "U")) ] (resultOf int64Type)
+                [ node "gw-lit" (SemanticNodeKind.Int64Literal 1L)
+                  node "gw-ok" (SemanticNodeKind.ResultOk(stringType, id "gw-lit")) ]
+        let spawnAll =
+            genericFn "spawnAll" "T" [ parameter "sa-xs" (listOf (TypeRef.TypeParameter(tp "T"))) ] spawnResult
+                [ node "sa-p" (SemanticNodeKind.ParameterReference(id "sa-xs"))
+                  node "sa-all" (SemanticNodeKind.ParallelAll(id "sa-p", id "genericWorker", [])) ]
+        let outer =
+            genericFn "outer" "V" [ parameter "o-xs" (listOf (TypeRef.TypeParameter(tp "V"))) ] spawnResult
+                [ node "o-p" (SemanticNodeKind.ParameterReference(id "o-xs"))
+                  node "o-call" (SemanticNodeKind.DirectCall(id "spawnAll", [ bind "sa-xs" "o-p" ])) ]
+        let user name target targetParameter =
+            fn name false [ parameter (name + "-uis") (listOf uiType) ] spawnResult []
+                [ node (name + "-p") (SemanticNodeKind.ParameterReference(id (name + "-uis")))
+                  node (name + "-call") (SemanticNodeKind.DirectCall(id target, [ bind targetParameter (name + "-p") ])) ]
+        { Snapshot.empty (id<SnapshotTag> "snapshot-generic-crossing") with
+            Capabilities = [ ui ]
+            Functions = [ worker; spawnAll; outer; user "direct" "spawnAll" "sa-xs"; user "forwarded" "outer" "o-xs" ] }
+
+    [<Fact>]
+    let ``a generic function that moves its type parameter across tasks rejects a task-bound instantiation, also when forwarded`` () =
+        Assert.Empty(SnapshotValidator.validate (genericCrossingSnapshot false))
+        let issues = SnapshotValidator.validate (genericCrossingSnapshot true)
+        Assert.All(issues, fun issue -> Assert.Equal("TaskBoundValueCrossesTask", issue.Code))
+        let messages = issues |> List.map (fun issue -> issue.Message)
+        Assert.Equal(2, messages.Length)
+        Assert.Contains(messages, fun message -> message.Contains(uuid "direct-call"))
+        Assert.Contains(messages, fun message -> message.Contains(uuid "forwarded-call"))
