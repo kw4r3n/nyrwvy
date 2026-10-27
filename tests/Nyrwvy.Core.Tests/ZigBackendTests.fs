@@ -78,8 +78,8 @@ module ZigBackendTests =
                 Assert.Equal(csharp.GetProperty("result").GetProperty("actual").ToString(), zig.GetProperty("result").GetProperty("actual").ToString())
             Assert.Equal("500000500000", (run session "zig" "sumTo" [ int64 1000000L ]).GetProperty("result").GetProperty("actual").GetProperty("value").ToString())
             // Created last: a snapshot the backend cannot emit whole builds one runner per entry.
-            create session "shout" [ "text", stringType ] stringType ($"""{{"kind":"stringToUpper","value":{p "text"}}}""")
-            let unsupported = run session "zig" "shout" [ "\"a\"" ]
+            create session "toBits" [ "n", int64Type ] """{"kind":"primitive","primitive":"bits32"}""" ($"""{{"kind":"bits32FromInt64","value":{p "n"}}}""")
+            let unsupported = run session "zig" "toBits" [ int64 3L ]
             Assert.False(unsupported.GetProperty("ok").GetBoolean())
             Assert.Equal("RunBackendUnsupported", unsupported.GetProperty("error").GetProperty("code").GetString())
         finally Directory.Delete(dir, true)
@@ -452,4 +452,110 @@ module ZigBackendTests =
             compare "cancelled" [ fake [] [] ]
             compare "shielded" [ fake [ response 4 (Some 3) ] [] ]
             compare "sumWork" [ fake [ response 1 None; response 2 None; response 3 None ] []; "[1,2,3]" ]
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs String search, split and join and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let st = [ "s", stringType; "t", stringType ]
+            let sti = st @ [ "i", int64Type ]
+            let optionInt = $"""{{"kind":"builtinGeneric","generic":"option","arguments":[{int64Type}]}}"""
+            let texts = $"""{{"kind":"builtinGeneric","generic":"list","arguments":[{stringType}]}}"""
+            create session "slice" [ "s", stringType; "i", int64Type; "j", int64Type ] stringType ($"""{{"kind":"stringSlice","value":{p "s"},"start":{p "i"},"end":{p "j"}}}""")
+            create session "indexOf" sti optionInt ($"""{{"kind":"stringIndexOf","value":{p "s"},"substring":{p "t"},"from":{p "i"}}}""")
+            create session "lastBefore" sti optionInt ($"""{{"kind":"stringLastIndexOfBefore","value":{p "s"},"substring":{p "t"},"end":{p "i"}}}""")
+            create session "span" sti int64Type ($"""{{"kind":"stringSpan","value":{p "s"},"set":{p "t"},"from":{p "i"}}}""")
+            create session "spanBack" sti int64Type ($"""{{"kind":"stringSpanBack","value":{p "s"},"set":{p "t"},"end":{p "i"}}}""")
+            create session "lastIndexOf" st optionInt ($"""{{"kind":"stringLastIndexOf","value":{p "s"},"substring":{p "t"}}}""")
+            create session "contains" st boolType ($"""{{"kind":"stringContains","value":{p "s"},"substring":{p "t"}}}""")
+            create session "startsWith" st boolType ($"""{{"kind":"stringStartsWith","value":{p "s"},"prefix":{p "t"}}}""")
+            create session "endsWith" st boolType ($"""{{"kind":"stringEndsWith","value":{p "s"},"suffix":{p "t"}}}""")
+            create session "less" st boolType ($"""{{"kind":"stringLessThan","left":{p "s"},"right":{p "t"}}}""")
+            create session "split" st texts ($"""{{"kind":"stringSplit","value":{p "s"},"separator":{p "t"}}}""")
+            create session "lines" st texts ($"""{{"kind":"stringSplitLines","value":{p "s"},"breaks":{p "t"}}}""")
+            create session "replace" st stringType ($"""{{"kind":"stringReplace","value":{p "s"},"pattern":{p "t"},"replacement":{{"kind":"stringLiteral","value":"<😀>"}}}}""")
+            create session "join" [ "xs", texts; "t", stringType ] stringType ($"""{{"kind":"stringJoin","list":{p "xs"},"separator":{p "t"}}}""")
+            let strings = [ "\"\""; "\"aXbXXc\""; "\"héllo wörld\""; "\"a😀b😀\""; "\"x\\r\\ny\\n\\u2028z\\r\""; "\"€uro€\"" ]
+            let patterns = [ "\"\""; "\"X\""; "\"😀\""; "\"ö\""; "\"\\r\\n\\u2028\""; "\"€\""; "\"lo wö\"" ]
+            for s in strings do
+                for i in [ "-1"; "0"; "2"; "100" ] do
+                    for j in [ "-1"; "1"; "3"; "100" ] do agree session "slice" [ s; i; j ]
+                for t in patterns @ strings do
+                    for name in [ "lastIndexOf"; "contains"; "startsWith"; "endsWith"; "less"; "split"; "lines"; "replace" ] do agree session name [ s; t ]
+                for t in patterns do
+                    for i in [ "-1"; "0"; "2"; "100" ] do
+                        for name in [ "indexOf"; "lastBefore"; "span"; "spanBack" ] do agree session name [ s; t; i ]
+            for xs in [ "[]"; "[\"\"]"; "[\"a\",\"\",\"😀\"]" ] do
+                for t in [ "\"\""; "\", \"" ] do agree session "join" [ xs; t ]
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs case mapping, trimming, code points and UTF-8 and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let unary kind = $"""{{"kind":"{kind}","value":{p "s"}}}"""
+            for kind in [ "stringToLower"; "stringToUpper"; "stringTrim"; "stringTrimStart"; "stringTrimEnd"; "stringEncodeUtf8"; "stringDecodeUtf8Lossy" ] do
+                create session kind [ "s", stringType ] stringType (unary kind)
+            create session "codePoints" [ "s", stringType ] ($"""{{"kind":"builtinGeneric","generic":"list","arguments":[{stringType}]}}""") (unary "stringCodePoints")
+            create session "byteCount" [ "s", stringType ] int64Type (unary "stringUtf8ByteCount")
+            create session "ord" [ "s", stringType ] ($"""{{"kind":"builtinGeneric","generic":"option","arguments":[{int64Type}]}}""") (unary "stringToCodePoint")
+            create session "repeat" [ "s", stringType; "n", int64Type ] stringType ($"""{{"kind":"stringRepeat","text":{p "s"},"count":{p "n"}}}""")
+            let chr value = $"""{{"kind":"optionGetOrDefault","option":{{"kind":"stringFromCodePoint","value":{value}}},"default":{{"kind":"stringLiteral","value":"-"}}}}"""
+            create session "chr" [ "n", int64Type ] stringType (chr (p "n"))
+            // Every code point in [a, b), lowered and uppered; the chunks below cover every cased one.
+            let all = $"""{{"kind":"stringJoin","list":{{"kind":"listMap","source":{{"kind":"listRange","start":{p "a"},"end":{p "b"}}},"function":"chr"}},"separator":{{"kind":"stringLiteral","value":""}}}}"""
+            create session "cases" [ "a", int64Type; "b", int64Type ] stringType
+                ($"""{{"kind":"stringConcat","left":{{"kind":"stringToLower","value":{all}}},"right":{{"kind":"stringToUpper","value":{all}}}}}""")
+            let strings =
+                [ "\"\""; "\"  \\t a b \\u00a0\\u3000\\n\""; "\"\\u200bx\\u200b\""; "\"Straße İstanbul ıi ΣΑΣ σς \\u212a k ǅ\""; "\"😀𐐷𐐏\""
+                  "\"\\u00c0\\u00ff\\u0080\\u00e2\\u0082\\u00ac\""; "\"\\u00ed\\u00a0\\u0080A\""; "\"\\u00f0\\u009f\\u0098\""; "\"\\u0100\\u00e2\\u0082\"" ]
+            for s in strings do
+                for kind in [ "stringToLower"; "stringToUpper"; "stringTrim"; "stringTrimStart"; "stringTrimEnd"; "stringEncodeUtf8"; "stringDecodeUtf8Lossy"; "codePoints"; "byteCount"; "ord" ] do
+                    agree session kind [ s ]
+                for n in [ "-1"; "0"; "3" ] do agree session "repeat" [ s; n ]
+            for s in [ "\"a\""; "\"😀\""; "\"é\"" ] do agree session "ord" [ s ]
+            for n in [ "-1"; "0"; "65"; "55296"; "57343"; "128512"; "1114111"; "1114112" ] do agree session "chr" [ n ]
+            // A result holds at most 65536 code units, and no code point above U+1EFFF has a case mapping.
+            for start in 0 .. 16000 .. 0x1F000 do agree session "cases" [ string start; string (start + 16000) ]
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs number text, Float64 rounding and checked Int64 and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let float = """{"kind":"primitive","primitive":"float64"}"""
+            let option item = $"""{{"kind":"builtinGeneric","generic":"option","arguments":[{item}]}}"""
+            let unary kind name = $"""{{"kind":"{kind}","value":{p name}}}"""
+            create session "hex" [ "n", int64Type ] stringType (unary "int64ToHexString" "n")
+            create session "parse" [ "s", stringType ] (option int64Type) (unary "stringParseInt64" "s")
+            create session "parseHex" [ "s", stringType ] (option int64Type) (unary "stringParseInt64Hex" "s")
+            create session "parseFloat" [ "s", stringType ] (option float) (unary "stringParseFloat64" "s")
+            create session "show" [ "x", float ] stringType (unary "float64ToString" "x")
+            create session "round" [ "x", float; "n", int64Type ] float ($"""{{"kind":"float64Round","value":{p "x"},"digits":{p "n"}}}""")
+            for kind in [ "int64CheckedAdd"; "int64CheckedSubtract"; "int64CheckedMultiply" ] do
+                create session kind [ "a", int64Type; "b", int64Type ] (option int64Type) (binary kind)
+            let edges = [ Int64.MinValue; -255L; -1L; 0L; 2L; 255L; 3037000500L; Int64.MaxValue ]
+            for a in edges do
+                agree session "hex" [ int64 a ]
+                for b in edges do
+                    for kind in [ "int64CheckedAdd"; "int64CheckedSubtract"; "int64CheckedMultiply" ] do agree session kind [ int64 a; int64 b ]
+            let numbers =
+                [ ""; "-"; "0"; "-0"; "007"; "+1"; " 1"; "1_0"; "12a"; "١"; "FFff"; "0x10"; "7fffffffffffffff"; "-8000000000000000"; "8000000000000000"
+                  "10000000000000000"; "9223372036854775807"; "9223372036854775808"; "-9223372036854775808"; "-9223372036854775809"
+                  "0.1"; "1e400"; "-1e-400"; "1E+2"; ".5"; "5."; "1e"; "00.5"; "1e99999999999999999999"; "NaN"; "inf"; "1.0e-5"; "2.675" ]
+            for text in numbers do
+                for name in [ "parse"; "parseHex"; "parseFloat" ] do agree session name [ JsonSerializer.Serialize text ]
+            let floats =
+                [ "0.1"; "1e16"; "1e17"; "1e-5"; "0.0001"; "\"-0\""; "\"NaN\""; "\"Infinity\""; "\"-Infinity\""; "5e-324"; "1.7976931348623157e308"
+                  "2.675"; "0.5"; "1.5"; "-2.5"; "123.456"; "100"; "1250"; "-0.004"; "1e22"; "1e23"; "123456789012345680"; "0.30000000000000004" ]
+            for x in floats do
+                agree session "show" [ x ]
+                for n in [ "-1001"; "-2"; "0"; "1"; "2"; "15"; "400" ] do agree session "round" [ x; n ]
         finally Directory.Delete(dir, true)
