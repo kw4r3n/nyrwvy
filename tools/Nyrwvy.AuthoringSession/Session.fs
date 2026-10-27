@@ -429,8 +429,9 @@ module internal ZigSnapshotReader =
     /// `NYRWVY_SNAPSHOT_READER` (`setting`) is `fsharp`.
     let routes (setting: string) (dependency: Snapshot option) = setting <> "fsharp" && dependency.IsNone
 
-    // The tools write a line break inside a message as `\n` (and `\r`).
-    let private unescape (text: string) = text.Replace("\\n", "\n").Replace("\\r", "\r")
+    // The model reader writes a backslash in a message as `\\` and a line break as `\n` (and `\r`).
+    let private unescape (text: string) =
+        RegularExpressions.Regex.Replace(text, @"\\[\\nr]", fun m -> match m.Value[1] with 'n' -> "\n" | 'r' -> "\r" | _ -> "\\")
 
     let private recordPosition = RegularExpressions.Regex(@"^(\d+):(\d+): (.*)$", RegularExpressions.RegexOptions.Singleline)
 

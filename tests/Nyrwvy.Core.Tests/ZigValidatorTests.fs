@@ -16,7 +16,7 @@ open Xunit.Abstractions
 module ZigValidatorSupport =
     let codes () = File.ReadAllLines(ZigModelReaderSupport.toolFile "validation_codes.txt") |> Array.filter (fun line -> line <> "") |> Set.ofArray
 
-    let escape (text: string) = text.Replace("\r", "\\r").Replace("\n", "\\n")
+    let escape (text: string) = text.Replace("\\", "\\\\").Replace("\r", "\\r").Replace("\n", "\\n")
 
     let objectsIn (node: JsonNode) =
         ZigModelReaderSupport.containers node |> List.choose (function :? JsonObject as o -> Some o | _ -> None)

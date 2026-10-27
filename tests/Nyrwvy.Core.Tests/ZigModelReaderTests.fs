@@ -262,7 +262,7 @@ type ZigModelReaderComparison(output: ITestOutputHelper) =
                     | Some(Error error) ->
                         let line =
                             // One line per input: the Zig reader writes a line break in a message as `\n`.
-                            (fun (text: string) -> text.Replace("\r", "\\r").Replace("\n", "\\n")) <|
+                            (fun (text: string) -> text.Replace("\\", "\\\\").Replace("\r", "\\r").Replace("\n", "\\n")) <|
                             match error with
                             | SnapshotCodecError.InvalidJson message -> $"error InvalidJson: {message}"
                             | SnapshotCodecError.InvalidShape message -> $"error InvalidShape: {message}"
