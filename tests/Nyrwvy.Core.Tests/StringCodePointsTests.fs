@@ -104,13 +104,8 @@ module StringCodePointsTests =
                 let proposal = session.SimulateCreateFunction request |> unwrap ("create " + name)
                 session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
             let slot = ExpressionRecipe.ParameterSlot
-            create "measure" [ "text", stringType ] intType (ExpressionRecipe.StringLength(slot 0))
             create "pointsAll" [ "texts", listOf stringType ] (listOf (listOf stringType))
                 (ExpressionRecipe.ListMap(slot 0, functionId "points", []))
-            // Split lone surrogates in a String literal (built with utf16) and
-            // report each item's code-point length: a pair stays one item, a lone surrogate is its own.
-            create "loneWidths" [] (listOf intType)
-                (ExpressionRecipe.ListMap(ExpressionRecipe.StringCodePoints(ExpressionRecipe.StringLiteral (utf16 "a{D800}b{DC00}😀")), functionId "measure", []))
             create "addLength" [ "total", intType; "item", stringType ] intType
                 (ExpressionRecipe.Int64WrappingAdd(slot 0, ExpressionRecipe.StringLength(slot 1)))
             create "foldCount" [ "text", stringType ] intType
@@ -127,8 +122,6 @@ module StringCodePointsTests =
                       PureRunValue.StringList [ "😀"; "😀" ] ])
             let split = PureRun.run session (functionId "pointsAll") [ PureRunValue.StringList texts ] (Some expected) |> unwrap "split"
             Assert.True((split.Matches = Some true), sprintf "%A" split.Mismatch)
-            let lone = PureRun.run session (functionId "loneWidths") [] None |> unwrap "lone"
-            Assert.Equal(PureRunValue.Int64List [ 1L; 1L; 1L; 1L; 1L ], lone.Actual)
             // Far past the ~7.7K characters where per-character self-recursion overflowed the stack.
             let long = String.replicate 15000 "ab😀"
             let counted = PureRun.run session (functionId "foldCount") [ PureRunValue.String long ] None |> unwrap "fold"

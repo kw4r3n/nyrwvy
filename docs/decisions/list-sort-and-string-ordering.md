@@ -1,6 +1,7 @@
 # List sorting and String ordering
 
 - **Status:** Accepted
+- **Amended:** 2026-10-27 by [String as a sequence of Unicode scalar values](string-scalar-values.md): Strings no longer hold unpaired surrogates, so the rules for them below no longer apply.
 - **Date:** 2026-09-28
 - **Roadmap:** [post-M2 queue from the 2026-09-28 probe 3](../plans/post-m2-roadmap.md#queue-from-the-2026-09-28-probe-3), order 12; `ListMinBy` is order 48 (owner choice of 2026-10-04); its counterpart `ListMaxBy` is order 69 ([decision](list-max-by.md))
 

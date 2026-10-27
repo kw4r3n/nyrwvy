@@ -489,12 +489,11 @@ module CSharpBackend =
         writer.Line("return string.Create(bytes.Length, bytes, static (span, source) => { for (var index = 0; index < source.Length; index++) span[index] = (char)source[index]; });")
         writer.Pop()
         writer.Line("}")
-        // FromCodePoint is Python chr as an Option. A BMP code, surrogates included, is one UTF-16 unit;
-        // char.ConvertFromUtf32 is used only above U+FFFF, since it throws for a surrogate code.
+        // FromCodePoint is Python chr as an Option, limited to Unicode scalar values: a surrogate code is None.
         writer.Line("public static NyOption<NyStr> FromCodePoint(long code) =>")
-        writer.Line("code < 0L || code > 0x10FFFFL ? NyOption<NyStr>.None() : NyOption<NyStr>.Some(code < 0x10000L ? ((char)code).ToString() : char.ConvertFromUtf32((int)code));")
+        writer.Line("code < 0L || code > 0x10FFFFL || (code >= 0xD800L && code <= 0xDFFFL) ? NyOption<NyStr>.None() : NyOption<NyStr>.Some(char.ConvertFromUtf32((int)code));")
         // ToCodePoint is Python ord as an Option: one code point as StringLength counts it, so a surrogate
-        // pair gives its scalar value and an unpaired surrogate its code unit.
+        // pair gives its scalar value.
         writer.Line("public static NyOption<long> ToCodePoint(string text) =>")
         writer.Line("text.Length == 1 ? NyOption<long>.Some(text[0])")
         writer.Line(": text.Length == 2 && Width(text, 0) == 2 ? NyOption<long>.Some(char.ConvertToUtf32(text[0], text[1]))")
@@ -781,7 +780,24 @@ module CSharpBackend =
         writer.Line("private string? _text;")
         writer.Line("private NyStr(string text) { _text = text; _length = text.Length; }")
         writer.Line("private NyStr(Store store, int length) { _store = store; _length = length; }")
-        writer.Line("public static implicit operator NyStr(string text) => text.Length == 0 ? EmptyString : new NyStr(text);")
+        // A String is a sequence of Unicode scalar values. Every .NET string reaching the program (host
+        // results, host arguments) passes through here, so an unpaired surrogate becomes U+FFFD.
+        writer.Line("public static implicit operator NyStr(string text) => text.Length == 0 ? EmptyString : new NyStr(WellFormed(text));")
+        writer.Line("private static string WellFormed(string text)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (text.AsSpan().IndexOfAnyInRange('\\uD800', '\\uDFFF') < 0) return text;")
+        writer.Line("char[]? chars = null;")
+        writer.Line("for (var index = 0; index < text.Length; index++)")
+        writer.Line("{")
+        writer.Push()
+        writer.Line("if (char.IsHighSurrogate(text[index]) && index + 1 < text.Length && char.IsLowSurrogate(text[index + 1])) { index++; continue; }")
+        writer.Line("if (char.IsSurrogate(text[index])) (chars ??= text.ToCharArray())[index] = '\\uFFFD';")
+        writer.Pop()
+        writer.Line("}")
+        writer.Line("return chars is null ? text : new string(chars);")
+        writer.Pop()
+        writer.Line("}")
         writer.Line("public static implicit operator string(NyStr value) => value is null ? null! : value.Text;")
         writer.Line("public int Length => _length;")
         writer.Line("public string Text => _text ??= new string(_store!.Chars, 0, _length);")

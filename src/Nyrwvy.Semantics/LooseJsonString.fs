@@ -6,10 +6,10 @@ open System.Text
 open System.Text.Encodings.Web
 open System.Text.Json
 
-/// JSON string literals for Strings that may hold an unpaired surrogate code unit, which the
-/// language permits. The .NET writers replace a lone surrogate with U+FFFD and `GetString`
-/// rejects its escape, so such text is written with an explicit `\uXXXX` escape for each lone
-/// surrogate (as the authoring session writes run values) and read back exactly.
+/// JSON string literals for text that may hold an unpaired surrogate code unit. A String cannot
+/// (validation rejects such a literal), but the .NET writers would replace one with U+FFFD and
+/// `GetString` rejects its escape, so such text is written with an explicit `\uXXXX` escape and
+/// read back exactly; the validator then names the problem instead of a silent substitution.
 [<RequireQualifiedAccess>]
 module internal LooseJsonString =
     let hasLoneSurrogate (text: string) =

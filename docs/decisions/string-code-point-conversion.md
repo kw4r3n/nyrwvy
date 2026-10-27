@@ -1,6 +1,7 @@
 # String code point conversion
 
 - **Status:** Accepted
+- **Amended:** 2026-10-27 by [String as a sequence of Unicode scalar values](string-scalar-values.md): Strings no longer hold unpaired surrogates, so the rules for them below no longer apply.
 - **Date:** 2026-09-30
 - **Roadmap:** [post-M2 findings from the 2026-09-30 probe 9](../plans/post-m2-roadmap.md#findings-from-the-2026-09-30-probe-9), order 28
 

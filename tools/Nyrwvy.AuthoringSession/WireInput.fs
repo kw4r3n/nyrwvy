@@ -77,36 +77,17 @@ module internal WireInput =
         if value.ValueKind <> JsonValueKind.String then fail $"Property '{name}' must be a JSON string."
         value.GetString()
 
-    /// Reads a semantic String (run value or literal): any sequence of UTF-16 code units. JSON's `\uD800`-style escapes may
-    /// spell lone surrogates, which `JsonElement.GetString` refuses, so those strings are unescaped here.
+    let unpairedSurrogateMessage =
+        "A String must not contain an unpaired surrogate escape; a String is a sequence of Unicode scalar values."
+
+    /// Reads a semantic String (run value or literal): a sequence of Unicode scalar values. JSON's
+    /// `\uD800`-style escapes can spell an unpaired surrogate, which `JsonElement.GetString` refuses;
+    /// such a String is not a value of the language, so it is rejected.
     let runText (value: JsonElement): string =
         if value.ValueKind <> JsonValueKind.String then fail "A String run value must be a JSON string."
         try value.GetString()
         with :? InvalidOperationException ->
-            // The document parser has already validated the escapes; only surrogate pairing failed.
-            let raw = value.GetRawText()
-            let text = Text.StringBuilder(raw.Length)
-            let mutable index = 1
-            while index < raw.Length - 1 do
-                if raw[index] = '\\' then
-                    match raw[index + 1] with
-                    | 'u' ->
-                        text.Append(char (Convert.ToInt32(raw.Substring(index + 2, 4), 16))) |> ignore
-                        index <- index + 6
-                    | escaped ->
-                        text.Append(
-                            match escaped with
-                            | 'b' -> '\b'
-                            | 'f' -> '\012'
-                            | 'n' -> '\n'
-                            | 'r' -> '\r'
-                            | 't' -> '\t'
-                            | other -> other) |> ignore
-                        index <- index + 2
-                else
-                    text.Append(raw[index]) |> ignore
-                    index <- index + 1
-            text.ToString()
+            fail unpairedSurrogateMessage
 
     let requiredRunText (name: string) (element: JsonElement): string = runText (property name element)
 

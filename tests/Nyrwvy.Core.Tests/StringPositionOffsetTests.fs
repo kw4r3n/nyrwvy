@@ -10,7 +10,7 @@ open Xunit
 /// StringSpan and StringSpanBack map positions to UTF-16 offsets through the runtime position map
 /// (a no-surrogate flag, or a checkpoint every 64 code points). Positions around the checkpoints,
 /// far into the text and past its end must agree with a plain code-point model, with surrogate
-/// pairs counted once and lone surrogates counted as one code point each.
+/// pairs counted once.
 module StringPositionOffsetTests =
     let private id<'tag> name = StableId.createForTesting<'tag> ("string-position-" + name)
     let private stringType = TypeRef.Primitive PrimitiveType.String
@@ -25,7 +25,7 @@ module StringPositionOffsetTests =
     let private text value = ExpressionRecipe.StringLiteral value
     let private lit value = ExpressionRecipe.Int64Literal value
 
-    // The reference model: one element per code point, a valid pair together, a lone surrogate alone.
+    // The reference model: one element per code point, a surrogate pair together.
     let private codePoints (value: string) =
         let result = ResizeArray<string>()
         let mutable index = 0
@@ -95,10 +95,10 @@ module StringPositionOffsetTests =
                         (if itemType = intType then PureRunValue.Int64List(primitive (function PureRunValue.Int64 value -> Some value | _ -> None))
                          elif itemType = boolType then PureRunValue.BoolList(primitive (function PureRunValue.Bool value -> Some value | _ -> None))
                          else PureRunValue.ListValue(itemType, expected)))
-            // Pairs, lone high and low surrogates (a lone high one right before the next chunk's "a"),
-            // and a lone high surrogate at the very end. The long texts pass the 256-unit map threshold.
-            let chunk = utf16 "ab😀c{D800}d{DC00}😀😀e{DBFF}"
-            let mixed = String.replicate 120 chunk + utf16 "{D83D}"
+            // Several distinct astral characters (one right before the next chunk's "a"),
+            // and one at the very end. The long texts pass the 256-unit map threshold.
+            let chunk = "ab😀c𝔸d🌍😀😀e𐐷"
+            let mixed = String.replicate 120 chunk + "😎"
             let shortMixed = String.replicate 5 chunk
             let ascii = String.init 2000 (fun index -> string (char (int 'a' + index % 26)))
             let texts = [ "mixed", mixed; "shortMixed", shortMixed; "ascii", ascii ]
@@ -112,14 +112,14 @@ module StringPositionOffsetTests =
                         for stop in [ start; start + 1L; start + 63L; start + 64L; start + 65L; n - 1L; n; n + 3L; 1L ] do
                             ExpressionRecipe.StringEqual(ExpressionRecipe.StringSlice(text value, lit start, lit stop), text (slice cps start stop)),
                             PureRunValue.Bool true ]
-                let needles = [ "😀"; utf16 "{D800}d"; "e"; "😀😀"; utf16 "{DC00}"; "c"; utf16 "{DE00}"; "zz" ]
+                let needles = [ "😀"; "𝔸d"; "e"; "😀😀"; "🌍"; "c"; "𐐷"; "😎"; "zz" ]
                 table (label + "IndexOf") (optionOf intType)
                     [ for needle in needles do
                         for from in positions do
                             ExpressionRecipe.StringIndexOf(text value, text needle, lit from), PureRunValue.Int64Option(indexOf cps needle from) ]
                 table (label + "LastIndexOf") (optionOf intType)
                     [ for needle in needles -> ExpressionRecipe.StringLastIndexOf(text value, text needle), PureRunValue.Int64Option(lastIndexOf cps needle) ]
-                let sets = [ "ab😀c"; utf16 "😀e{DBFF}{D800}d{DC00}"; "abcdefghijklmnopqrstuvwxyz" ]
+                let sets = [ "ab😀c"; "😀e𐐷𝔸d🌍"; "abcdefghijklmnopqrstuvwxyz" ]
                 table (label + "Spans") intType
                     [ for set in sets do
                         for position in positions do
