@@ -224,6 +224,12 @@ module ZigValidatorSupport =
                     obligation "ob-not-a-call" other parameter None
                     obligation "ob-unknown-node" "missing-node" parameter None
                     obligation "ob-unknown-node" "another-missing-node" parameter None ]))
+          // A model that stays valid but incomplete: the lowering test's IncompleteSnapshot.
+          "an open obligation for a dropped argument",
+          (fun root ->
+              addObligations root (fun _ call argument ->
+                  (call["arguments"] :?> JsonArray).Remove argument |> ignore
+                  [ obligation "ob-open-dropped" (string (call["id"])) (string (argument["targetParameterId"])) None ]))
           // Slice 3b: type references, equatability, task types, payload type parameters, cycles.
           for kind, key in [ "named", "typeId"; "capability", "capabilityId" ] do
               $"{kind} type references point nowhere",
@@ -665,6 +671,35 @@ module ZigValidatorSupport =
               for n in literals do n["value"] <- s loneSurrogateMarker
               not literals.IsEmpty) ]
 
+    /// The validator test's inputs: the originals, named edits, random combinations of edits and shape mutations.
+    let corpus () =
+        let kindNames = File.ReadAllLines(ZigModelReaderSupport.toolFile "model_kinds.txt") |> Array.map (fun line -> line.Split('|')[0])
+        let root = ZigModelReaderSupport.root ()
+        let allKinds = ZigModelReaderSupport.allKindsJson ()
+        let fixtures =
+            Directory.GetFiles(Path.Combine(root, "tests", "Nyrwvy.Core.Tests", "fixtures", "record-format"), "*.json")
+            |> Array.map File.ReadAllText |> List.ofArray
+        let repository =
+            Directory.GetFiles(Path.Combine(root, "examples"), "*.nyrec", SearchOption.AllDirectories)
+            |> Array.map (File.ReadAllText >> RecordCodec.toJson >> ZigModelReaderSupport.unwrap) |> List.ofArray
+        let originals = allKinds @ fixtures @ repository
+        let apply (edits: (JsonObject -> bool) list) (json: string) =
+            let document = JsonNode.Parse json :?> JsonObject
+            let changed = edits |> List.fold (fun changed edit -> edit document || changed) false
+            if changed then Some(document.ToJsonString().Replace(loneSurrogateMarker, "\\ud800")) else None
+        let targeted = [ for json in originals do for _, edit in semanticEdits do yield! Option.toList (apply [ edit ] json) ]
+        // Two or three random edits together, so rules meet each other's damage.
+        let combined =
+            originals |> List.mapi (fun index json ->
+                let random = Random(1000 + index)
+                [ for _ in 1 .. 6 do
+                      let edits = [ for _ in 1 .. random.Next(2, 4) -> snd semanticEdits[random.Next semanticEdits.Length] ]
+                      yield! Option.toList (apply edits json) ])
+            |> List.concat
+        // The slice-2 shape mutations as a sanity subset: shape failures pass through unchanged.
+        let shape = originals |> List.mapi (fun index json -> let random = Random index in [ for _ in 1 .. 2 -> ZigModelReaderSupport.mutate kindNames random json ]) |> List.concat
+        originals, targeted, combined, shape
+
 module ZigValidatorTests =
     [<Fact>]
     let ``validation_codes.txt names validator codes`` () =
@@ -725,35 +760,11 @@ module ZigValidatorTests =
 
 /// The extended comparison (a class, so that it can report its counts).
 type ZigValidatorComparison(output: ITestOutputHelper) =
-    let kindNames = lazy (File.ReadAllLines(ZigModelReaderSupport.toolFile "model_kinds.txt") |> Array.map (fun line -> line.Split('|')[0]))
 
     [<Fact; Trait("Suite", "Extended")>]
     member _.``The Zig validator matches the F# validator on the ported codes`` () =
-        let root = ZigModelReaderSupport.root ()
         let codes = ZigValidatorSupport.codes ()
-        let allKinds = ZigModelReaderSupport.allKindsJson ()
-        let fixtures =
-            Directory.GetFiles(Path.Combine(root, "tests", "Nyrwvy.Core.Tests", "fixtures", "record-format"), "*.json")
-            |> Array.map File.ReadAllText |> List.ofArray
-        let repository =
-            Directory.GetFiles(Path.Combine(root, "examples"), "*.nyrec", SearchOption.AllDirectories)
-            |> Array.map (File.ReadAllText >> RecordCodec.toJson >> ZigModelReaderSupport.unwrap) |> List.ofArray
-        let originals = allKinds @ fixtures @ repository
-        let apply (edits: (JsonObject -> bool) list) (json: string) =
-            let document = JsonNode.Parse json :?> JsonObject
-            let changed = edits |> List.fold (fun changed edit -> edit document || changed) false
-            if changed then Some(document.ToJsonString().Replace(ZigValidatorSupport.loneSurrogateMarker, "\\ud800")) else None
-        let targeted = [ for json in originals do for _, edit in ZigValidatorSupport.semanticEdits do yield! Option.toList (apply [ edit ] json) ]
-        // Two or three random edits together, so rules meet each other's damage.
-        let combined =
-            originals |> List.mapi (fun index json ->
-                let random = Random(1000 + index)
-                [ for _ in 1 .. 6 do
-                      let edits = [ for _ in 1 .. random.Next(2, 4) -> snd ZigValidatorSupport.semanticEdits[random.Next ZigValidatorSupport.semanticEdits.Length] ]
-                      yield! Option.toList (apply edits json) ])
-            |> List.concat
-        // The slice-2 shape mutations as a sanity subset: shape failures pass through unchanged.
-        let shape = originals |> List.mapi (fun index json -> let random = Random index in [ for _ in 1 .. 2 -> ZigModelReaderSupport.mutate kindNames.Value random json ]) |> List.concat
+        let originals, targeted, combined, shape = ZigValidatorSupport.corpus ()
         let texts = originals @ targeted @ combined @ shape |> List.distinct
         let reader = ZigTools.tool "model-reader" |> ZigModelReaderSupport.unwrap
         let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-validator-" + Guid.NewGuid().ToString("N"))
