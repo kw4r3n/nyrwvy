@@ -98,3 +98,4 @@ A **separate library graph**, like `libraries/host`: `snap/libraries/ghostty/` w
 ## Revisit conditions
 
 Revisit when snap needs an out-struct or a callback, when regeneration should update a committed graph in place, or when a library uses enums wider than `int`.
+If a binding later needs the remaining out-parameter cost (about 0.3 ns a call) or `NyNative.Address` stops holding on a new runtime, add an opt-in `unsafe` profile that emits `T*` out parameters and requires `AllowUnsafeBlocks` only in projects that choose it.
