@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <Compile Include="ZigRuntime.fs" />
     <Compile Include="ZigBackend.fs" />
   </ItemGroup>
   <ItemGroup>

@@ -1,12 +1,14 @@
 namespace Nyrwvy.Core
 
 open System
+open System.Collections.Generic
 open System.Text
 
 /// Emits Zig source from Execution IR. The supported slice covers Int64, Bool, Unit and String
-/// values, Option, Result and monomorphic Product and Union types, their operations, direct calls
-/// and the block terminators over them; anything else is reported as unsupported instead of
-/// emitted.
+/// values, Option, Result, List and declared Product and Union types (generic ones included),
+/// their operations, list callbacks, direct calls and every block terminator; anything else is
+/// reported as unsupported instead of emitted. Generic functions and types are instantiated per
+/// use (monomorphized), since a Zig function cannot infer a type parameter from a runtime value.
 [<RequireQualifiedAccess>]
 module ZigBackend =
     let private identifier (prefix: string) (raw: string) =
@@ -14,30 +16,74 @@ module ZigBackend =
         for c in raw do builder.Append(if Char.IsAsciiLetterOrDigit c then c else '_') |> ignore
         builder.ToString()
 
-    let functionName (functionId: FunctionId) = identifier "f_" (StableId.value functionId)
     let private valueName (valueId: ExecutionValueId) = identifier "v_" (ExecutionValueId.value valueId)
     let private blockName (blockId: ExecutionBlockId) = identifier "b_" (ExecutionBlockId.value blockId)
     let private parameterName (parameterId: ParameterId) = identifier "p_" (StableId.value parameterId)
-    let private typeName (typeId: TypeId) = identifier "T_" (StableId.value typeId)
     let private fieldName (fieldId: FieldId) = identifier "f_" (StableId.value fieldId)
     let private variantName (variantId: VariantId) = identifier "c_" (StableId.value variantId)
 
-    /// The Zig type of a supported value type. Products and Unions are boxed (`*const`), which keeps
-    /// recursive types finite; generic declared types are not supported yet.
-    let rec typeOf (types: Map<TypeId, ExecutionType>) (typeRef: TypeRef) : string option =
+    /// A short stable suffix for one list of type arguments.
+    let private instanceSuffix (arguments: TypeRef list) =
+        if List.isEmpty arguments then ""
+        else "__" + Convert.ToHexString(Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sprintf "%A" arguments))).Substring(0, 12)
+
+    let private instanceName (functionId: FunctionId) (arguments: TypeRef list) =
+        identifier "f_" (StableId.value functionId) + instanceSuffix arguments
+
+    /// The Zig name of a non-generic function.
+    let functionName (functionId: FunctionId) = instanceName functionId []
+
+    let private typeName (typeId: TypeId) (arguments: TypeRef list) = identifier "T_" (StableId.value typeId) + instanceSuffix arguments
+
+    let rec private substitute (map: Map<TypeParameterId, TypeRef>) (typeRef: TypeRef) =
+        match typeRef with
+        | TypeRef.TypeParameter id -> Map.tryFind id map |> Option.defaultValue typeRef
+        | TypeRef.Named(id, arguments) -> TypeRef.Named(id, List.map (substitute map) arguments)
+        | TypeRef.BuiltinGeneric(kind, arguments) -> TypeRef.BuiltinGeneric(kind, List.map (substitute map) arguments)
+        | TypeRef.Function(parameters, result) -> TypeRef.Function(List.map (substitute map) parameters, substitute map result)
+        | other -> other
+
+    /// Binds the type parameters in `pattern` so that it matches `actual`.
+    let rec private unify (pattern: TypeRef) (actual: TypeRef) (bound: Map<TypeParameterId, TypeRef>) =
+        match pattern, actual with
+        | TypeRef.TypeParameter id, _ when not (Map.containsKey id bound) -> Map.add id actual bound
+        | TypeRef.Named(_, patterns), TypeRef.Named(_, actuals)
+        | TypeRef.BuiltinGeneric(_, patterns), TypeRef.BuiltinGeneric(_, actuals) when patterns.Length = actuals.Length ->
+            List.fold2 (fun state p a -> unify p a state) bound patterns actuals
+        | _ -> bound
+
+    let rec private concrete (typeRef: TypeRef) =
+        match typeRef with
+        | TypeRef.TypeParameter _ -> false
+        | TypeRef.Named(_, arguments)
+        | TypeRef.BuiltinGeneric(_, arguments) -> List.forall concrete arguments
+        | TypeRef.Function(parameters, result) -> List.forall concrete (result :: parameters)
+        | _ -> true
+
+    /// The Zig type of a supported value type, recording each declared type instance it names.
+    /// Products and Unions are boxed (`*const`), which keeps recursive types finite.
+    let rec private zigType (types: Map<TypeId, ExecutionType>) (record: TypeId * TypeRef list -> unit) (typeRef: TypeRef) : string option =
+        let inner = zigType types record
         match typeRef with
         | TypeRef.Primitive PrimitiveType.Int64 -> Some "i64"
         | TypeRef.Primitive PrimitiveType.Bool -> Some "bool"
         | TypeRef.Primitive PrimitiveType.Unit -> Some "NyUnit"
         | TypeRef.Primitive PrimitiveType.String -> Some "[]const u8"
-        | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) -> typeOf types item |> Option.map (fun item -> "?" + item)
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) -> inner item |> Option.map (fun item -> "?" + item)
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) -> inner item |> Option.map (fun item -> "[]const " + item)
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ ok; error ]) ->
-            match typeOf types ok, typeOf types error with
+            match inner ok, inner error with
             | Some ok, Some error -> Some("NyResult(" + ok + ", " + error + ")")
             | _ -> None
-        | TypeRef.Named(typeId, []) when types |> Map.tryFind typeId |> Option.exists (fun item -> List.isEmpty item.TypeParameters) ->
-            Some("*const " + typeName typeId)
+        | TypeRef.Named(typeId, arguments) when Map.containsKey typeId types && List.forall concrete arguments
+                                                && (Map.find typeId types).TypeParameters.Length = arguments.Length ->
+            record (typeId, arguments)
+            Some("*const " + typeName typeId arguments)
         | _ -> None
+
+    /// The Zig type of a supported value type of a program.
+    let typeOf (program: ExecutionProgram) (typeRef: TypeRef) =
+        zigType (program.Types |> List.map (fun item -> item.Id, item) |> Map.ofList) ignore typeRef
 
     let private stringLiteral (text: string) =
         let builder = StringBuilder("\"")
@@ -52,19 +98,52 @@ module ZigBackend =
         |> List.map (fun field -> "." + fieldName field.TargetFieldId + " = " + valueName field.ValueId)
         |> fun items -> ".{ " + String.Join(", ", items) + " }"
 
-    /// One line per instruction, or None when the instruction is outside the supported slice.
-    let private instructionLine
-        (parametersOf: FunctionId -> ParameterId list)
-        (instruction: ExecutionInstruction)
-        : string option =
+    /// What one function body needs from the program while it is emitted.
+    type private Context =
+        { ZigType: TypeRef -> string option
+          ValueType: ExecutionValueId -> TypeRef
+          /// The instance name for a call of the function with the given argument type per
+          /// parameter and the given result type.
+          Call: FunctionId -> (ParameterId * TypeRef) list -> TypeRef -> string
+          Parameters: FunctionId -> (ParameterId * TypeRef) list }
+
+    let private itemType (typeRef: TypeRef) =
+        match typeRef with
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) -> item
+        | other -> invalidOp $"Expected a List type, got {other}."
+
+    /// One Zig statement per instruction, or None when the instruction is outside the supported slice.
+    let private instructionLine (context: Context) (instruction: ExecutionInstruction) : string option =
         let target = valueName instruction.Result.Id
         let v = valueName
+        let zig typeRef = context.ZigType typeRef |> Option.defaultValue "void"
         let assign (expression: string) = Some(target + " = " + expression + ";")
         let binary left operator right = assign (v left + " " + operator + " " + v right)
         let resultTypeName () =
             match instruction.Result.Type with
-            | TypeRef.Named(typeId, _) -> typeName typeId
+            | TypeRef.Named _ as named -> (zig named).Substring("*const ".Length)
             | other -> invalidOp $"Expected a declared type, got {other}."
+        let elementOf (listValue: ExecutionValueId) = zig (itemType (context.ValueType listValue))
+        let resultElement () = zig (itemType instruction.Result.Type)
+        let listCall name (listValue: ExecutionValueId) (rest: string list) =
+            assign (name + "(" + String.Join(", ", elementOf listValue :: v listValue :: rest) + ")")
+        /// A callback call: context-bound parameters take their values, the others take `roles` in
+        /// declaration order.
+        let callback (functionId: FunctionId) (bindings: ExecutionCallArgument list) (roles: (string * TypeRef) list) (result: TypeRef) =
+            let bound = bindings |> List.map (fun binding -> binding.TargetParameterId, binding.ValueId) |> Map.ofList
+            let mutable remaining = roles
+            let arguments =
+                context.Parameters functionId
+                |> List.map (fun (parameterId, _) ->
+                    match Map.tryFind parameterId bound with
+                    | Some valueId -> parameterId, v valueId, context.ValueType valueId
+                    | None ->
+                        let expression, roleType = List.head remaining
+                        remaining <- List.tail remaining
+                        parameterId, expression, roleType)
+            let name = context.Call functionId (arguments |> List.map (fun (id, _, typeRef) -> id, typeRef)) result
+            name + "(" + String.Join(", ", arguments |> List.map (fun (_, expression, _) -> expression)) + ")"
+        let block (body: string) = assign ("blk: { " + body + " }")
         match instruction.Kind with
         | ExecutionInstructionKind.ReadParameter source
         | ExecutionInstructionKind.ReadPatternBinding source -> assign (v source)
@@ -103,7 +182,7 @@ module ZigBackend =
         | ExecutionInstructionKind.FieldAccess(source, fieldId) -> assign (v source + "." + fieldName fieldId)
         | ExecutionInstructionKind.ProductUpdate(source, fields) ->
             let updates = fields |> List.map (fun field -> " copy." + fieldName field.TargetFieldId + " = " + v field.ValueId + ";") |> String.concat ""
-            assign ("blk: { var copy = " + v source + ".*;" + updates + " break :blk nyBox(" + resultTypeName () + ", copy); }")
+            block ("var copy = " + v source + ".*;" + updates + " break :blk nyBox(" + resultTypeName () + ", copy);")
         | ExecutionInstructionKind.UnionConstruct(variantId, fields) ->
             assign ("nyBox(" + resultTypeName () + ", .{ ." + variantName variantId + " = " + fieldList fields + " })")
         | ExecutionInstructionKind.OptionNone -> assign "null"
@@ -118,10 +197,58 @@ module ZigBackend =
         | ExecutionInstructionKind.ResultIsOk input -> assign (v input + " == .ok")
         | ExecutionInstructionKind.OptionGetOrDefault(option, fallback) -> assign (v option + " orelse " + v fallback)
         | ExecutionInstructionKind.ResultGetOrDefault(result, fallback) -> assign ("switch (" + v result + ") { .ok => |item| item, .err => " + v fallback + " }")
+        | ExecutionInstructionKind.ListEmpty -> assign "&.{}"
+        | ExecutionInstructionKind.ListConstruct items ->
+            assign ("nyListOf(" + resultElement () + ", &[_]" + resultElement () + "{ " + String.Join(", ", items |> List.map v) + " })")
+        | ExecutionInstructionKind.ListRange(start, finish) -> assign ("nyListRange(" + v start + ", " + v finish + ")")
+        | ExecutionInstructionKind.ListLength list -> assign ("@as(i64, @intCast(" + v list + ".len))")
+        | ExecutionInstructionKind.ListAppendItem(list, item) -> listCall "nyListAppend" list [ v item ]
+        | ExecutionInstructionKind.ListConcat(left, right) -> listCall "nyListConcat" left [ v right ]
+        | ExecutionInstructionKind.ListReverse list -> listCall "nyListReverse" list []
+        | ExecutionInstructionKind.ListItemAt(list, index) -> listCall "nyListItemAt" list [ v index ]
+        | ExecutionInstructionKind.ListLast list -> listCall "nyListLast" list []
+        | ExecutionInstructionKind.ListDropLast list -> listCall "nyListDropLast" list []
+        | ExecutionInstructionKind.ListSlice(list, start, finish) -> listCall "nyListSlice" list [ v start; v finish ]
+        | ExecutionInstructionKind.ListSetAt(list, index, item) -> listCall "nyListSetAt" list [ v index; v item ]
+        | ExecutionInstructionKind.ListInsertAt(list, index, item) -> listCall "nyListInsertAt" list [ v index; v item ]
+        | ExecutionInstructionKind.ListRemoveAt(list, index) -> listCall "nyListRemoveAt" list [ v index ]
+        | ExecutionInstructionKind.ListIndexOf(list, item) -> listCall "nyListIndexOf" list [ v item ]
+        | ExecutionInstructionKind.ListLastIndexOf(list, item) -> listCall "nyListLastIndexOf" list [ v item ]
+        | ExecutionInstructionKind.ListContains(list, item) -> assign ("nyListIndexOf(" + elementOf list + ", " + v list + ", " + v item + ") != null")
+        | ExecutionInstructionKind.ListFold(source, seed, folder, bindings) ->
+            let state = context.ValueType seed
+            let call = callback folder bindings [ "state", state; "item", itemType (context.ValueType source) ] state
+            block ("var state = " + v seed + "; for (" + v source + ") |item| state = " + call + "; break :blk state;")
+        | ExecutionInstructionKind.ListScan(source, seed, folder, bindings) ->
+            let state = context.ValueType seed
+            let call = callback folder bindings [ "state", state; "item", itemType (context.ValueType source) ] state
+            block ("const out = nyAlloc(" + zig state + ", " + v source + ".len + 1); out[0] = " + v seed + "; for (" + v source + ", 0..) |item, at| { const state = out[at]; out[at + 1] = " + call + "; } break :blk out;")
+        | ExecutionInstructionKind.ListMap(source, mapper, bindings) ->
+            let call = callback mapper bindings [ "item", itemType (context.ValueType source) ] (itemType instruction.Result.Type)
+            block ("const out = nyAlloc(" + resultElement () + ", " + v source + ".len); for (" + v source + ", 0..) |item, at| out[at] = " + call + "; break :blk out;")
+        | ExecutionInstructionKind.ListFilter(source, predicate, bindings) ->
+            let call = callback predicate bindings [ "item", itemType (context.ValueType source) ] (TypeRef.Primitive PrimitiveType.Bool)
+            block ("const out = nyAlloc(" + elementOf source + ", " + v source + ".len); var count: usize = 0; for (" + v source + ") |item| { if (" + call + ") { out[count] = item; count += 1; } } break :blk out[0..count];")
+        | ExecutionInstructionKind.ListAny(source, predicate, bindings) ->
+            let call = callback predicate bindings [ "item", itemType (context.ValueType source) ] (TypeRef.Primitive PrimitiveType.Bool)
+            block ("for (" + v source + ") |item| { if (" + call + ") break :blk true; } break :blk false;")
+        | ExecutionInstructionKind.ListAll(source, predicate, bindings) ->
+            let call = callback predicate bindings [ "item", itemType (context.ValueType source) ] (TypeRef.Primitive PrimitiveType.Bool)
+            block ("for (" + v source + ") |item| { if (!" + call + ") break :blk false; } break :blk true;")
+        | ExecutionInstructionKind.ListFindIndex(source, predicate, bindings) ->
+            let call = callback predicate bindings [ "item", itemType (context.ValueType source) ] (TypeRef.Primitive PrimitiveType.Bool)
+            block ("for (" + v source + ", 0..) |item, at| { if (" + call + ") break :blk @as(i64, @intCast(at)); } break :blk null;")
+        | ExecutionInstructionKind.ListZipWith(left, right, combiner, bindings) ->
+            let call = callback combiner bindings [ "l", itemType (context.ValueType left); "r", itemType (context.ValueType right) ] (itemType instruction.Result.Type)
+            block ("const count = @min(" + v left + ".len, " + v right + ".len); const out = nyAlloc(" + resultElement () + ", count); for (" + v left + "[0..count], " + v right + "[0..count], 0..) |l, r, at| out[at] = " + call + "; break :blk out;")
+        | ExecutionInstructionKind.ListFlatMap(source, mapper, bindings) ->
+            let call = callback mapper bindings [ "item", itemType (context.ValueType source) ] instruction.Result.Type
+            block ("var out: std.ArrayList(" + resultElement () + ") = .empty; for (" + v source + ") |item| out.appendSlice(nyAllocator(), " + call + ") catch @panic(\"out of memory\"); break :blk out.items;")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let byParameter = arguments |> List.map (fun argument -> argument.TargetParameterId, argument.ValueId) |> Map.ofList
-            let rendered = parametersOf functionId |> List.map (fun parameterId -> v (Map.find parameterId byParameter))
-            assign (functionName functionId + "(" + String.Join(", ", rendered) + ")")
+            let parameters = context.Parameters functionId |> List.map fst
+            let name = context.Call functionId (parameters |> List.map (fun id -> id, context.ValueType (Map.find id byParameter))) instruction.Result.Type
+            assign (name + "(" + String.Join(", ", parameters |> List.map (fun id -> v (Map.find id byParameter))) + ")")
         | _ -> None
 
     let private caseName (value: obj) =
@@ -133,273 +260,27 @@ module ZigBackend =
         (fn.Parameters |> List.map (fun parameter -> parameter.Value))
         @ (fn.Blocks |> List.collect (fun block -> block.Parameters @ (block.Instructions |> List.map (fun instruction -> instruction.Result))))
 
-    /// What keeps a function out of the supported slice, if anything. Every terminator is supported.
-    let private unsupported (types: Map<TypeId, ExecutionType>) (fn: ExecutionFunction) =
-        let typeProblems =
-            fn.ResultType :: (valuesOf fn |> List.map (fun value -> value.Type))
-            |> List.filter (typeOf types >> Option.isNone)
-            |> List.distinct
-            |> List.map (fun typeRef -> $"type {typeRef}")
-        let instructions =
-            fn.Blocks
-            |> List.collect (fun block -> block.Instructions)
-            |> List.filter (fun instruction -> Option.isNone (instructionLine (fun _ -> []) instruction))
-            |> List.map (fun instruction -> caseName (box instruction.Kind))
-        List.distinct (typeProblems @ instructions)
+    let private substituteFunction (map: Map<TypeParameterId, TypeRef>) (fn: ExecutionFunction) =
+        if Map.isEmpty map then fn
+        else
+            let value (item: ExecutionValue) = { item with Type = substitute map item.Type }
+            { fn with
+                TypeParameters = []
+                ResultType = substitute map fn.ResultType
+                Parameters = fn.Parameters |> List.map (fun parameter -> { parameter with Value = value parameter.Value })
+                Blocks =
+                    fn.Blocks |> List.map (fun block ->
+                        { block with
+                            Parameters = List.map value block.Parameters
+                            Instructions = block.Instructions |> List.map (fun instruction -> { instruction with Result = value instruction.Result }) }) }
 
-    let private runtime = """const std = @import("std");
-
-const NyUnit = struct {};
-
-fn NyResult(comptime Ok: type, comptime Err: type) type {
-    return union(enum) { ok: Ok, err: Err };
-}
-
-// shortcut: every String and boxed value lives in one arena for the life of the process; replace
-// with reference counting (plan: Zig backend notes) before long-running programs use this backend.
-var ny_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-
-fn nyAllocator() std.mem.Allocator {
-    return ny_arena.allocator();
-}
-
-fn nyBox(comptime T: type, value: T) *const T {
-    const slot = nyAllocator().create(T) catch @panic("out of memory");
-    slot.* = value;
-    return slot;
-}
-
-fn nyFloorDivide(dividend: i64, divisor: i64) i64 {
-    if (divisor == 0) return 0;
-    if (divisor == -1) return 0 -% dividend;
-    return @divFloor(dividend, divisor);
-}
-
-fn nyFloorModulo(dividend: i64, divisor: i64) i64 {
-    if (divisor == 0) return dividend;
-    if (divisor == -1) return 0;
-    const remainder = @rem(dividend, divisor);
-    return if (remainder != 0 and (remainder < 0) != (divisor < 0)) remainder + divisor else remainder;
-}
-
-fn nyShiftLeft(value: i64, count: i64) i64 {
-    if (count <= 0) return value;
-    if (count >= 64) return 0;
-    return value << @as(u6, @intCast(count));
-}
-
-fn nyShiftRight(value: i64, count: i64) i64 {
-    if (count <= 0) return value;
-    if (count >= 64) return if (value < 0) -1 else 0;
-    return value >> @as(u6, @intCast(count));
-}
-
-fn nyInt64ToString(value: i64) []const u8 {
-    return std.fmt.allocPrint(nyAllocator(), "{d}", .{value}) catch @panic("out of memory");
-}
-
-/// Strings are UTF-8 sequences of Unicode scalar values, so this never fails.
-fn nyStringLength(text: []const u8) i64 {
-    return @intCast(std.unicode.utf8CountCodepoints(text) catch unreachable);
-}
-
-fn nyConcat(left: []const u8, right: []const u8) []const u8 {
-    if (left.len == 0) return right;
-    if (right.len == 0) return left;
-    const joined = nyAllocator().alloc(u8, left.len + right.len) catch @panic("out of memory");
-    @memcpy(joined[0..left.len], left);
-    @memcpy(joined[left.len..], right);
-    return joined;
-}
-
-/// Structural equality over every supported value type.
-fn nyEqual(left: anytype, right: @TypeOf(left)) bool {
-    const T = @TypeOf(left);
-    switch (@typeInfo(T)) {
-        .int, .bool => return left == right,
-        .optional => {
-            if (left) |l| {
-                if (right) |r| return nyEqual(l, r);
-                return false;
-            }
-            return right == null;
-        },
-        .pointer => |pointer| {
-            if (pointer.size == .slice) return std.mem.eql(pointer.child, left, right);
-            return nyEqual(left.*, right.*);
-        },
-        .@"struct" => |info| {
-            inline for (info.field_names) |name| {
-                if (!nyEqual(@field(left, name), @field(right, name))) return false;
-            }
-            return true;
-        },
-        .@"union" => |info| {
-            const tag = std.meta.activeTag(left);
-            if (tag != std.meta.activeTag(right)) return false;
-            inline for (info.field_names) |name| {
-                if (tag == @field(info.tag_type.?, name)) return nyEqual(@field(left, name), @field(right, name));
-            }
-            unreachable;
-        },
-        else => @compileError("nyEqual does not support " ++ @typeName(T)),
-    }
-}
-"""
-
-    /// Zig support for a runPure runner: reads argument tokens in the order the authoring session
-    /// writes them and writes a result in the session's envelope form.
-    let runnerSupport = """
-const NyTokens = struct {
-    items: []const [:0]const u8,
-    index: usize = 1,
-
-    fn next(self: *NyTokens) []const u8 {
-        const token = self.items[self.index];
-        self.index += 1;
-        return token;
-    }
-};
-
-/// A String token is "s" and the Base64 of its UTF-16LE code units.
-fn nyDecodeText(token: []const u8) []const u8 {
-    const encoded = token[1..];
-    const size = std.base64.standard.Decoder.calcSizeForSlice(encoded) catch @panic("bad String token");
-    const units = nyAllocator().alloc(u16, size / 2) catch @panic("out of memory");
-    std.base64.standard.Decoder.decode(std.mem.sliceAsBytes(units), encoded) catch @panic("bad String token");
-    for (units) |*unit| unit.* = std.mem.littleToNative(u16, unit.*);
-    return std.unicode.utf16LeToUtf8Alloc(nyAllocator(), units) catch @panic("bad String token");
-}
-
-fn nyEncodeText(out: *std.Io.Writer, text: []const u8) !void {
-    const units = std.unicode.utf8ToUtf16LeAlloc(nyAllocator(), text) catch @panic("bad String");
-    const bytes = std.mem.sliceAsBytes(units);
-    const encoded = nyAllocator().alloc(u8, std.base64.standard.Encoder.calcSize(bytes.len)) catch @panic("out of memory");
-    try out.print("\"s{s}\"", .{std.base64.standard.Encoder.encode(encoded, bytes)});
-}
-
-fn nyDecode(comptime T: type, tokens: *NyTokens) T {
-    switch (@typeInfo(T)) {
-        .int => return std.fmt.parseInt(i64, tokens.next(), 10) catch @panic("bad Int64 token"),
-        .bool => return std.mem.eql(u8, tokens.next(), "1"),
-        .optional => |info| {
-            if (std.mem.eql(u8, tokens.next(), "1")) return nyDecode(info.child, tokens);
-            return null;
-        },
-        .pointer => |info| {
-            if (info.size == .slice) return nyDecodeText(tokens.next());
-            return nyBox(info.child, nyDecode(info.child, tokens));
-        },
-        .@"struct" => |info| {
-            if (T == NyUnit) {
-                _ = tokens.next();
-                return NyUnit{};
-            }
-            var value: T = undefined;
-            inline for (info.field_names, info.field_types) |name, FieldType| @field(value, name) = nyDecode(FieldType, tokens);
-            return value;
-        },
-        .@"union" => |info| {
-            if (@hasDecl(T, "ny_ids")) {
-                const index = std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad variant token");
-                inline for (info.field_names, info.field_types, 0..) |name, FieldType, position| {
-                    if (position == index) return @unionInit(T, name, nyDecode(FieldType, tokens));
-                }
-                @panic("bad variant token");
-            }
-            if (std.mem.eql(u8, tokens.next(), "1")) return .{ .ok = nyDecode(@FieldType(T, "ok"), tokens) };
-            return .{ .err = nyDecode(@FieldType(T, "err"), tokens) };
-        },
-        else => @compileError("nyDecode does not support " ++ @typeName(T)),
-    }
-}
-
-fn nyEncode(out: *std.Io.Writer, value: anytype) !void {
-    const T = @TypeOf(value);
-    switch (@typeInfo(T)) {
-        .int => try out.print("{d}", .{value}),
-        .bool => try out.writeAll(if (value) "true" else "false"),
-        .optional => {
-            if (value) |item| {
-                try out.writeAll("[");
-                try nyEncode(out, item);
-                try out.writeAll("]");
-            } else try out.writeAll("[]");
-        },
-        .pointer => |info| {
-            if (info.size == .slice) return nyEncodeText(out, value);
-            return nyEncode(out, value.*);
-        },
-        .@"struct" => |info| {
-            if (T == NyUnit) return out.writeAll("\"unit\"");
-            try out.writeAll("[");
-            inline for (info.field_names, 0..) |name, position| {
-                if (position > 0) try out.writeAll(",");
-                try nyEncode(out, @field(value, name));
-            }
-            try out.writeAll("]");
-        },
-        .@"union" => |info| {
-            if (@hasDecl(T, "ny_ids")) {
-                const tag = std.meta.activeTag(value);
-                inline for (info.field_names, 0..) |name, position| {
-                    if (tag == @field(info.tag_type.?, name)) {
-                        try out.print("[\"{s}\",", .{T.ny_ids[position]});
-                        try nyEncode(out, @field(value, name));
-                        try out.writeAll("]");
-                    }
-                }
-                return;
-            }
-            switch (value) {
-                .ok => |item| {
-                    try out.writeAll("[true,");
-                    try nyEncode(out, item);
-                    try out.writeAll("]");
-                },
-                .err => |item| {
-                    try out.writeAll("[false,");
-                    try nyEncode(out, item);
-                    try out.writeAll("]");
-                },
-            }
-        },
-        else => @compileError("nyEncode does not support " ++ @typeName(T)),
-    }
-}
-"""
-
-    /// Fields and variants are emitted in stable-ID order, the order runPure tokens and results use.
-    let private emitType (builder: StringBuilder) (types: Map<TypeId, ExecutionType>) (item: ExecutionType) =
+    let private emitFunction (builder: StringBuilder) (context: Context) (name: string) (fn: ExecutionFunction) =
         let line (text: string) = builder.Append(text).Append('\n') |> ignore
-        let fields (items: ExecutionField list) =
-            items
-            |> List.sortBy (fun field -> StableId.value field.Id)
-            |> List.map (fun field -> fieldName field.Id + ": " + (typeOf types field.Type).Value)
-        match item.Kind with
-        | ExecutionTypeKind.Product items ->
-            line ("const " + typeName item.Id + " = struct { " + String.Join(", ", fields items) + " };")
-        | ExecutionTypeKind.Union variants ->
-            let ordered = variants |> List.sortBy (fun variant -> StableId.value variant.Id)
-            line ("const " + typeName item.Id + " = union(enum) {")
-            for variant in ordered do
-                line ("    " + variantName variant.Id + ": struct { " + String.Join(", ", fields variant.Fields) + " },")
-            let ids = ordered |> List.map (fun variant -> "\"" + StableId.value variant.Id + "\"")
-            line ("    pub const ny_ids = [_][]const u8{ " + String.Join(", ", ids) + " };")
-            line "};"
-        line ""
-
-    let private emitFunction
-        (builder: StringBuilder)
-        (types: Map<TypeId, ExecutionType>)
-        (parametersOf: FunctionId -> ParameterId list)
-        (fn: ExecutionFunction) =
-        let line (text: string) = builder.Append(text).Append('\n') |> ignore
-        let zig typeRef = (typeOf types typeRef).Value
+        let zig typeRef = (context.ZigType typeRef).Value
         let parameters =
             fn.Parameters
             |> List.map (fun parameter -> parameterName parameter.SemanticParameterId + ": " + zig parameter.Value.Type)
-        line ("pub fn " + functionName fn.SemanticFunctionId + "(" + String.Join(", ", parameters) + ") " + zig fn.ResultType + " {")
+        line ("fn " + name + "(" + String.Join(", ", parameters) + ") " + zig fn.ResultType + " {")
         let values =
             valuesOf fn
             |> List.distinctBy (fun value -> value.Id)
@@ -434,7 +315,7 @@ fn nyEncode(out: *std.Io.Writer, value: anytype) !void {
         for block in blocks do
             line ("        ." + blockName block.Id + " => {")
             for instruction in block.Instructions do
-                line ("            " + (instructionLine parametersOf instruction).Value)
+                line ("            " + (instructionLine context instruction).Value)
             match block.Terminator with
             | ExecutionTerminator.Return value -> line ("            return " + valueName value + ";")
             | ExecutionTerminator.Abort(_, error) -> line ("            return .{ .err = " + valueName error + " };")
@@ -466,32 +347,88 @@ fn nyEncode(out: *std.Io.Writer, value: anytype) !void {
         line "}"
         line ""
 
-    /// Zig source for every type and function of the program, or what is outside the supported slice.
+    /// Fields and variants are emitted in stable-ID order, the order runPure tokens and results use.
+    let private emitType (builder: StringBuilder) (zig: TypeRef -> string) (item: ExecutionType) (arguments: TypeRef list) =
+        let line (text: string) = builder.Append(text).Append('\n') |> ignore
+        let map = List.zip (item.TypeParameters |> List.map fst) arguments |> Map.ofList
+        let fields (items: ExecutionField list) =
+            items
+            |> List.sortBy (fun field -> StableId.value field.Id)
+            |> List.map (fun field -> fieldName field.Id + ": " + zig (substitute map field.Type))
+        let name = typeName item.Id arguments
+        match item.Kind with
+        | ExecutionTypeKind.Product items ->
+            line ("const " + name + " = struct { " + String.Join(", ", fields items) + " };")
+        | ExecutionTypeKind.Union variants ->
+            let ordered = variants |> List.sortBy (fun variant -> StableId.value variant.Id)
+            line ("const " + name + " = union(enum) {")
+            for variant in ordered do
+                line ("    " + variantName variant.Id + ": struct { " + String.Join(", ", fields variant.Fields) + " },")
+            let ids = ordered |> List.map (fun variant -> "\"" + StableId.value variant.Id + "\"")
+            line ("    pub const ny_ids = [_][]const u8{ " + String.Join(", ", ids) + " };")
+            line "};"
+        line ""
+
+    /// Zig source for the program's non-generic functions and every instance of a generic function
+    /// or type they reach, or what is outside the supported slice.
     let emit (program: ExecutionProgram) : Result<string, string list> =
         let types = program.Types |> List.map (fun item -> item.Id, item) |> Map.ofList
-        let monomorphic = program.Types |> List.filter (fun item -> List.isEmpty item.TypeParameters)
-        let typeProblems =
-            monomorphic
-            |> List.collect (fun item ->
-                match item.Kind with
-                | ExecutionTypeKind.Product fields -> fields
-                | ExecutionTypeKind.Union variants -> variants |> List.collect (fun variant -> variant.Fields))
-            |> List.filter (fun field -> Option.isNone (typeOf types field.Type))
-            |> List.map (fun field -> $"type {field.Type}")
-        let problems =
-            typeProblems
-            @ (program.Functions |> List.collect (fun fn -> (if List.isEmpty fn.TypeParameters then [] else [ "generic function" ]) @ unsupported types fn))
-            |> List.distinct
-        if not (List.isEmpty problems) then Error problems
-        else
-            let parameters =
-                program.Functions
-                |> List.map (fun fn -> fn.SemanticFunctionId, fn.Parameters |> List.map (fun parameter -> parameter.SemanticParameterId))
-                |> Map.ofList
-            let builder = StringBuilder()
-            builder.Append("// Generated by the Nyrwvy Zig backend.\n\n").Append(runtime).Append('\n') |> ignore
-            for item in monomorphic |> List.sortBy (fun item -> StableId.value item.Id) do
-                emitType builder types item
-            for fn in program.Functions |> List.sortBy (fun fn -> StableId.value fn.SemanticFunctionId) do
-                emitFunction builder types (fun id -> Map.find id parameters) fn
-            Ok(builder.ToString())
+        let functions = program.Functions |> List.map (fun fn -> fn.SemanticFunctionId, fn) |> Map.ofList
+        let parametersOf functionId =
+            (Map.find functionId functions).Parameters |> List.map (fun parameter -> parameter.SemanticParameterId, parameter.Value.Type)
+        let problems = ResizeArray<string>()
+        let typeInstances = HashSet<TypeId * TypeRef list>()
+        let typeOrder = ResizeArray<TypeId * TypeRef list>()
+        let record instance = if typeInstances.Add instance then typeOrder.Add instance
+        let zigOf typeRef =
+            match zigType types record typeRef with
+            | Some text -> Some text
+            | None ->
+                problems.Add $"type {typeRef}"
+                None
+        let pending = Queue<FunctionId * TypeRef list>()
+        let functionInstances = HashSet<FunctionId * TypeRef list>()
+        let call functionId (arguments: (ParameterId * TypeRef) list) (result: TypeRef) =
+            let fn = Map.find functionId functions
+            let parameterTypes = fn.Parameters |> List.map (fun parameter -> parameter.SemanticParameterId, parameter.Value.Type) |> Map.ofList
+            let bound =
+                arguments
+                |> List.fold (fun state (id, actual) -> unify (Map.find id parameterTypes) actual state) Map.empty
+                |> unify fn.ResultType result
+            let typeArguments = fn.TypeParameters |> List.map (fun (id, _) -> Map.tryFind id bound |> Option.defaultValue (TypeRef.TypeParameter id))
+            if not (List.forall concrete typeArguments) then problems.Add "a generic call whose type arguments cannot be inferred"
+            if functionInstances.Add((functionId, typeArguments)) then pending.Enqueue((functionId, typeArguments))
+            instanceName functionId typeArguments
+        let builder = StringBuilder()
+        builder.Append("// Generated by the Nyrwvy Zig backend.\n\n").Append(ZigRuntime.runtime).Append('\n') |> ignore
+        let bodies = StringBuilder()
+        for fn in program.Functions |> List.filter (fun fn -> List.isEmpty fn.TypeParameters) do
+            if functionInstances.Add((fn.SemanticFunctionId, [])) then pending.Enqueue((fn.SemanticFunctionId, []))
+        while pending.Count > 0 do
+            let functionId, typeArguments = pending.Dequeue()
+            let generic = Map.find functionId functions
+            let fn = substituteFunction (List.zip (generic.TypeParameters |> List.map fst) typeArguments |> Map.ofList) generic
+            let valueTypes = valuesOf fn |> List.map (fun value -> value.Id, value.Type) |> Map.ofList
+            let context =
+                { ZigType = zigOf
+                  ValueType = fun id -> Map.find id valueTypes
+                  Call = call
+                  Parameters = parametersOf }
+            for value in valuesOf fn do zigOf value.Type |> ignore
+            zigOf fn.ResultType |> ignore
+            let unsupported =
+                fn.Blocks
+                |> List.collect (fun block -> block.Instructions)
+                |> List.filter (fun instruction -> Option.isNone (instructionLine context instruction))
+                |> List.map (fun instruction -> caseName (box instruction.Kind))
+            problems.AddRange unsupported
+            if problems.Count = 0 then emitFunction bodies context (instanceName functionId typeArguments) fn
+        // Field types can name further instances, so declarations are emitted until none is new.
+        let declarations = StringBuilder()
+        let mutable emitted = 0
+        while problems.Count = 0 && emitted < typeOrder.Count do
+            let typeId, arguments = typeOrder[emitted]
+            emitted <- emitted + 1
+            emitType declarations (fun typeRef -> zigOf typeRef |> Option.defaultValue "void") (Map.find typeId types) arguments
+        if problems.Count > 0 then Error(problems |> Seq.distinct |> List.ofSeq)
+        else Ok(builder.Append(declarations).Append(bodies).ToString())

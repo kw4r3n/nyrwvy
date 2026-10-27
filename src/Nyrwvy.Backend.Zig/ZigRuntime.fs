@@ -1,0 +1,355 @@
+namespace Nyrwvy.Core
+
+/// Zig source the backend emits with every program, and the support a runPure runner adds.
+[<RequireQualifiedAccess>]
+module ZigRuntime =
+    let runtime = """const std = @import("std");
+
+const NyUnit = struct {};
+
+fn NyResult(comptime Ok: type, comptime Err: type) type {
+    return union(enum) { ok: Ok, err: Err };
+}
+
+// shortcut: every String and boxed value lives in one arena for the life of the process; replace
+// with reference counting (plan: Zig backend notes) before long-running programs use this backend.
+var ny_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+
+fn nyAllocator() std.mem.Allocator {
+    return ny_arena.allocator();
+}
+
+fn nyBox(comptime T: type, value: T) *const T {
+    const slot = nyAllocator().create(T) catch @panic("out of memory");
+    slot.* = value;
+    return slot;
+}
+
+fn nyFloorDivide(dividend: i64, divisor: i64) i64 {
+    if (divisor == 0) return 0;
+    if (divisor == -1) return 0 -% dividend;
+    return @divFloor(dividend, divisor);
+}
+
+fn nyFloorModulo(dividend: i64, divisor: i64) i64 {
+    if (divisor == 0) return dividend;
+    if (divisor == -1) return 0;
+    const remainder = @rem(dividend, divisor);
+    return if (remainder != 0 and (remainder < 0) != (divisor < 0)) remainder + divisor else remainder;
+}
+
+fn nyShiftLeft(value: i64, count: i64) i64 {
+    if (count <= 0) return value;
+    if (count >= 64) return 0;
+    return value << @as(u6, @intCast(count));
+}
+
+fn nyShiftRight(value: i64, count: i64) i64 {
+    if (count <= 0) return value;
+    if (count >= 64) return if (value < 0) -1 else 0;
+    return value >> @as(u6, @intCast(count));
+}
+
+fn nyInt64ToString(value: i64) []const u8 {
+    return std.fmt.allocPrint(nyAllocator(), "{d}", .{value}) catch @panic("out of memory");
+}
+
+/// Strings are UTF-8 sequences of Unicode scalar values, so this never fails.
+fn nyStringLength(text: []const u8) i64 {
+    return @intCast(std.unicode.utf8CountCodepoints(text) catch unreachable);
+}
+
+fn nyConcat(left: []const u8, right: []const u8) []const u8 {
+    if (left.len == 0) return right;
+    if (right.len == 0) return left;
+    const joined = nyAllocator().alloc(u8, left.len + right.len) catch @panic("out of memory");
+    @memcpy(joined[0..left.len], left);
+    @memcpy(joined[left.len..], right);
+    return joined;
+}
+
+// Lists are immutable slices. shortcut: every update copies (O(n)); a persistent vector, as the C#
+// backend uses, replaces this when a consumer needs the documented O(log n) updates.
+fn nyAlloc(comptime T: type, count: usize) []T {
+    return nyAllocator().alloc(T, count) catch @panic("out of memory");
+}
+
+fn nyListOf(comptime T: type, items: []const T) []const T {
+    const copy = nyAlloc(T, items.len);
+    @memcpy(copy, items);
+    return copy;
+}
+
+fn nyIndex(index: i64, length: usize) ?usize {
+    return if (index >= 0 and index < @as(i64, @intCast(length))) @intCast(index) else null;
+}
+
+fn nyClamp(bound: i64, length: usize) usize {
+    if (bound <= 0) return 0;
+    return @min(@as(usize, @intCast(bound)), length);
+}
+
+fn nyListRange(start: i64, end: i64) []const i64 {
+    if (end <= start) return &.{};
+    const count: u64 = @bitCast(end -% start);
+    if (count > std.math.maxInt(u32)) @panic("out of memory");
+    const items = nyAlloc(i64, @intCast(count));
+    for (items, 0..) |*item, offset| item.* = start +% @as(i64, @intCast(offset));
+    return items;
+}
+
+fn nyListAppend(comptime T: type, list: []const T, item: T) []const T {
+    const items = nyAlloc(T, list.len + 1);
+    @memcpy(items[0..list.len], list);
+    items[list.len] = item;
+    return items;
+}
+
+fn nyListConcat(comptime T: type, left: []const T, right: []const T) []const T {
+    if (left.len == 0) return right;
+    if (right.len == 0) return left;
+    const items = nyAlloc(T, left.len + right.len);
+    @memcpy(items[0..left.len], left);
+    @memcpy(items[left.len..], right);
+    return items;
+}
+
+fn nyListReverse(comptime T: type, list: []const T) []const T {
+    const items = nyAlloc(T, list.len);
+    for (list, 0..) |item, position| items[list.len - 1 - position] = item;
+    return items;
+}
+
+fn nyListItemAt(comptime T: type, list: []const T, index: i64) ?T {
+    return if (nyIndex(index, list.len)) |at| list[at] else null;
+}
+
+fn nyListLast(comptime T: type, list: []const T) ?T {
+    return if (list.len == 0) null else list[list.len - 1];
+}
+
+fn nyListDropLast(comptime T: type, list: []const T) []const T {
+    return if (list.len == 0) list else list[0 .. list.len - 1];
+}
+
+fn nyListSlice(comptime T: type, list: []const T, start: i64, end: i64) []const T {
+    const from = nyClamp(start, list.len);
+    const to = nyClamp(end, list.len);
+    return if (to <= from) &.{} else list[from..to];
+}
+
+fn nyListSetAt(comptime T: type, list: []const T, index: i64, item: T) []const T {
+    const at = nyIndex(index, list.len) orelse return list;
+    const items = nyAlloc(T, list.len);
+    @memcpy(items, list);
+    items[at] = item;
+    return items;
+}
+
+fn nyListInsertAt(comptime T: type, list: []const T, index: i64, item: T) []const T {
+    const at = nyClamp(index, list.len);
+    const items = nyAlloc(T, list.len + 1);
+    @memcpy(items[0..at], list[0..at]);
+    items[at] = item;
+    @memcpy(items[at + 1 ..], list[at..]);
+    return items;
+}
+
+fn nyListRemoveAt(comptime T: type, list: []const T, index: i64) []const T {
+    const at = nyIndex(index, list.len) orelse return list;
+    const items = nyAlloc(T, list.len - 1);
+    @memcpy(items[0..at], list[0..at]);
+    @memcpy(items[at..], list[at + 1 ..]);
+    return items;
+}
+
+fn nyListIndexOf(comptime T: type, list: []const T, item: T) ?i64 {
+    for (list, 0..) |candidate, position| if (nyEqual(candidate, item)) return @intCast(position);
+    return null;
+}
+
+fn nyListLastIndexOf(comptime T: type, list: []const T, item: T) ?i64 {
+    var position = list.len;
+    while (position > 0) {
+        position -= 1;
+        if (nyEqual(list[position], item)) return @intCast(position);
+    }
+    return null;
+}
+
+/// Structural equality over every supported value type.
+fn nyEqual(left: anytype, right: @TypeOf(left)) bool {
+    const T = @TypeOf(left);
+    switch (@typeInfo(T)) {
+        .int, .bool => return left == right,
+        .optional => {
+            if (left) |l| {
+                if (right) |r| return nyEqual(l, r);
+                return false;
+            }
+            return right == null;
+        },
+        .pointer => |pointer| {
+            // A u8 slice is a String; any other slice is a List.
+            if (pointer.size == .slice and pointer.child == u8) return std.mem.eql(u8, left, right);
+            if (pointer.size == .slice) {
+                if (left.len != right.len) return false;
+                for (left, right) |l, r| if (!nyEqual(l, r)) return false;
+                return true;
+            }
+            return nyEqual(left.*, right.*);
+        },
+        .@"struct" => |info| {
+            inline for (info.field_names) |name| {
+                if (!nyEqual(@field(left, name), @field(right, name))) return false;
+            }
+            return true;
+        },
+        .@"union" => |info| {
+            const tag = std.meta.activeTag(left);
+            if (tag != std.meta.activeTag(right)) return false;
+            inline for (info.field_names) |name| {
+                if (tag == @field(info.tag_type.?, name)) return nyEqual(@field(left, name), @field(right, name));
+            }
+            unreachable;
+        },
+        else => @compileError("nyEqual does not support " ++ @typeName(T)),
+    }
+}
+"""
+
+    /// Zig support for a runPure runner: reads argument tokens in the order the authoring session
+    /// writes them and writes a result in the session's envelope form.
+    let runnerSupport = """
+const NyTokens = struct {
+    items: []const [:0]const u8,
+    index: usize = 1,
+
+    fn next(self: *NyTokens) []const u8 {
+        const token = self.items[self.index];
+        self.index += 1;
+        return token;
+    }
+};
+
+/// A String token is "s" and the Base64 of its UTF-16LE code units.
+fn nyDecodeText(token: []const u8) []const u8 {
+    const encoded = token[1..];
+    const size = std.base64.standard.Decoder.calcSizeForSlice(encoded) catch @panic("bad String token");
+    const units = nyAllocator().alloc(u16, size / 2) catch @panic("out of memory");
+    std.base64.standard.Decoder.decode(std.mem.sliceAsBytes(units), encoded) catch @panic("bad String token");
+    for (units) |*unit| unit.* = std.mem.littleToNative(u16, unit.*);
+    return std.unicode.utf16LeToUtf8Alloc(nyAllocator(), units) catch @panic("bad String token");
+}
+
+fn nyEncodeText(out: *std.Io.Writer, text: []const u8) !void {
+    const units = std.unicode.utf8ToUtf16LeAlloc(nyAllocator(), text) catch @panic("bad String");
+    const bytes = std.mem.sliceAsBytes(units);
+    const encoded = nyAllocator().alloc(u8, std.base64.standard.Encoder.calcSize(bytes.len)) catch @panic("out of memory");
+    try out.print("\"s{s}\"", .{std.base64.standard.Encoder.encode(encoded, bytes)});
+}
+
+fn nyDecode(comptime T: type, tokens: *NyTokens) T {
+    switch (@typeInfo(T)) {
+        .int => return std.fmt.parseInt(i64, tokens.next(), 10) catch @panic("bad Int64 token"),
+        .bool => return std.mem.eql(u8, tokens.next(), "1"),
+        .optional => |info| {
+            if (std.mem.eql(u8, tokens.next(), "1")) return nyDecode(info.child, tokens);
+            return null;
+        },
+        .pointer => |info| {
+            if (info.size == .slice and info.child == u8) return nyDecodeText(tokens.next());
+            if (info.size == .slice) {
+                const count = std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad List token");
+                const items = nyAllocator().alloc(info.child, count) catch @panic("out of memory");
+                for (items) |*item| item.* = nyDecode(info.child, tokens);
+                return items;
+            }
+            return nyBox(info.child, nyDecode(info.child, tokens));
+        },
+        .@"struct" => |info| {
+            if (T == NyUnit) {
+                _ = tokens.next();
+                return NyUnit{};
+            }
+            var value: T = undefined;
+            inline for (info.field_names, info.field_types) |name, FieldType| @field(value, name) = nyDecode(FieldType, tokens);
+            return value;
+        },
+        .@"union" => |info| {
+            if (@hasDecl(T, "ny_ids")) {
+                const index = std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad variant token");
+                inline for (info.field_names, info.field_types, 0..) |name, FieldType, position| {
+                    if (position == index) return @unionInit(T, name, nyDecode(FieldType, tokens));
+                }
+                @panic("bad variant token");
+            }
+            if (std.mem.eql(u8, tokens.next(), "1")) return .{ .ok = nyDecode(@FieldType(T, "ok"), tokens) };
+            return .{ .err = nyDecode(@FieldType(T, "err"), tokens) };
+        },
+        else => @compileError("nyDecode does not support " ++ @typeName(T)),
+    }
+}
+
+fn nyEncode(out: *std.Io.Writer, value: anytype) !void {
+    const T = @TypeOf(value);
+    switch (@typeInfo(T)) {
+        .int => try out.print("{d}", .{value}),
+        .bool => try out.writeAll(if (value) "true" else "false"),
+        .optional => {
+            if (value) |item| {
+                try out.writeAll("[");
+                try nyEncode(out, item);
+                try out.writeAll("]");
+            } else try out.writeAll("[]");
+        },
+        .pointer => |info| {
+            if (info.size == .slice and info.child == u8) return nyEncodeText(out, value);
+            if (info.size == .slice) {
+                try out.writeAll("[");
+                for (value, 0..) |item, position| {
+                    if (position > 0) try out.writeAll(",");
+                    try nyEncode(out, item);
+                }
+                return out.writeAll("]");
+            }
+            return nyEncode(out, value.*);
+        },
+        .@"struct" => |info| {
+            if (T == NyUnit) return out.writeAll("\"unit\"");
+            try out.writeAll("[");
+            inline for (info.field_names, 0..) |name, position| {
+                if (position > 0) try out.writeAll(",");
+                try nyEncode(out, @field(value, name));
+            }
+            try out.writeAll("]");
+        },
+        .@"union" => |info| {
+            if (@hasDecl(T, "ny_ids")) {
+                const tag = std.meta.activeTag(value);
+                inline for (info.field_names, 0..) |name, position| {
+                    if (tag == @field(info.tag_type.?, name)) {
+                        try out.print("[\"{s}\",", .{T.ny_ids[position]});
+                        try nyEncode(out, @field(value, name));
+                        try out.writeAll("]");
+                    }
+                }
+                return;
+            }
+            switch (value) {
+                .ok => |item| {
+                    try out.writeAll("[true,");
+                    try nyEncode(out, item);
+                    try out.writeAll("]");
+                },
+                .err => |item| {
+                    try out.writeAll("[false,");
+                    try nyEncode(out, item);
+                    try out.writeAll("]");
+                },
+            }
+        },
+        else => @compileError("nyEncode does not support " ++ @typeName(T)),
+    }
+}
+"""

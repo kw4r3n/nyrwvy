@@ -1203,28 +1203,42 @@ module PureRun =
         match context.Project fn.Id |> Result.mapError PureRunError.SessionFailure with
         | Error error -> Error error
         | Ok program ->
-        let program = ExecutionCallGraph.forEntry program fn.Id
-        match ZigBackend.emit program with
+        // One runner serves every runnable entry of the snapshot, so a session builds once per
+        // snapshot; a program the backend cannot emit whole falls back to this entry's reach.
+        let runnable (program: ExecutionProgram) (candidate: ExecutionFunction) =
+            List.isEmpty candidate.TypeParameters
+            && candidate.ResultType :: (candidate.Parameters |> List.map (fun parameter -> parameter.Value.Type))
+               |> List.forall (ZigBackend.typeOf program >> Option.isSome)
+        let emitted =
+            match ZigBackend.emit program with
+            | Ok source -> Ok(program, source, program.Functions |> List.filter (runnable program))
+            | Error _ ->
+                let reach = ExecutionCallGraph.forEntry program fn.Id
+                ZigBackend.emit reach |> Result.map (fun source -> reach, source, reach.Functions |> List.filter (fun item -> item.SemanticFunctionId = fn.Id))
+        match emitted with
         | Error problems -> unsupported problems
-        | Ok source ->
-            let types = program.Types |> List.map (fun item -> item.Id, item) |> Map.ofList
-            let zigType typeRef = (ZigBackend.typeOf types typeRef).Value
-            let decoded = fn.Parameters |> List.mapi (fun index parameter -> $"    const a{index} = nyDecode({zigType parameter.Type}, &tokens);\n")
-            let call = ZigBackend.functionName fn.Id + "(" + String.Join(", ", fn.Parameters |> List.mapi (fun index _ -> $"a{index}")) + ")"
+        | Ok(program, source, entries) ->
+            let zigType typeRef = (ZigBackend.typeOf program typeRef).Value
+            let dispatch (entry: ExecutionFunction) =
+                let name = ZigBackend.functionName entry.SemanticFunctionId
+                let decoded = entry.Parameters |> List.mapi (fun index parameter -> $"        const a{index} = nyDecode({zigType parameter.Value.Type}, &tokens);\n")
+                $"    if (std.mem.eql(u8, entry, \"{name}\")) {{\n"
+                + String.concat "" decoded
+                + "        try nyEncode(out, " + name + "(" + String.Join(", ", entry.Parameters |> List.mapi (fun index _ -> $"a{index}")) + "));\n"
+                + "    }\n"
             let runner =
                 source
-                + ZigBackend.runnerSupport
+                + ZigRuntime.runnerSupport
                 + "\npub fn main(init: std.process.Init) !void {\n"
                 + "    const args = try init.minimal.args.toSlice(init.arena.allocator());\n"
-                + "    var tokens = NyTokens{ .items = args };\n"
+                + "    const entry = args[1];\n"
+                + "    var tokens = NyTokens{ .items = args, .index = 2 };\n"
                 + "    _ = &tokens;\n"
-                + String.concat "" decoded
-                + "    const result = " + call + ";\n"
                 + "    var buffer: [4096]u8 = undefined;\n"
                 + "    var writer = std.Io.File.stdout().writer(init.io, &buffer);\n"
                 + "    const out = &writer.interface;\n"
                 + "    try out.writeAll(\"[\\\"value\\\",\");\n"
-                + "    try nyEncode(out, result);\n"
+                + String.concat "" (entries |> List.sortBy (fun entry -> StableId.value entry.SemanticFunctionId) |> List.map dispatch)
                 + "    try out.writeAll(\",[]]\\n\");\n"
                 + "    try out.flush();\n"
                 + "}\n"
@@ -1247,9 +1261,20 @@ module PureRun =
                         |> Result.bind (fun (code, output, errors) ->
                             if code = 0 && File.Exists executable then Ok() else Error(processFailure output errors))
                 built
-                |> Result.bind (fun () -> launchProcess executable "pure function" directory (List.ofSeq tokens) 5000)
+                |> Result.bind (fun () -> launchProcess executable "pure function" directory (ZigBackend.functionName fn.Id :: List.ofSeq tokens) 5000)
                 |> Result.bind (fun (code, output, errors) ->
-                    if code <> 0 then Error(processFailure output errors)
+                    // A Zig panic (allocation failure) or a crash (stack overflow) ends the run: fatal.
+                    if code <> 0 then
+                        let panic = errors.Split('\n') |> Array.tryFind (fun line -> line.StartsWith("panic: ", StringComparison.Ordinal))
+                        Error(PureRunError.RuntimeFailure
+                                { SnapshotId = program.SourceSnapshotId
+                                  FunctionId = fn.Id
+                                  Kind = "fatal"
+                                  ExceptionType = (if panic.IsSome then "ZigPanic" else "ZigCrash")
+                                  Message = panic |> Option.map (fun line -> line.Substring 7) |> Option.defaultValue $"The Zig program stopped with exit code {code} (for example a stack overflow)."
+                                  Frames = []
+                                  BindingExhausted = false
+                                  Calls = [] })
                     else
                         parseEnvelope declarations.Types fn.ResultType [] output
                         |> Result.bind (function
