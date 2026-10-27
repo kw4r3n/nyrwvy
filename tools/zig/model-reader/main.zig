@@ -2514,6 +2514,111 @@ fn nodeLabel(comptime what: []const u8, node: Value, comptime rest: []const u8) 
     return cat(&.{ L(what ++ " node '"), str(node, "id"), L("' " ++ rest) });
 }
 
+/// One `requireNodeType` of `validateGraph` on a fixed operand: the kinds (space-separated), the
+/// operand's index in `directValueReferences`, its required type, the code, the name the message
+/// starts with (empty: the F# case name) and the rest of the message after "node '<id>' ".
+const Requirement = struct { kinds: []const u8, operand: u8, type: []const u8, code: []const u8, name: []const u8 = "", tail: []const u8 };
+
+const string_unary = "stringIsEmpty stringParseInt64 stringParseInt64Hex stringParseFloat64 stringCodePoints stringToLower stringToUpper stringDecodeUtf8Lossy stringEncodeUtf8 stringUtf8ByteCount stringToCodePoint stringLength stringSlice stringContains stringIndexOf stringLastIndexOfBefore stringSpan stringSpanBack stringLastIndexOf stringStartsWith stringEndsWith stringSplit stringSplitLines stringReplace stringTrim stringTrimStart stringTrimEnd";
+const int64_binary = "int64WrappingAdd int64WrappingSubtract int64WrappingMultiply int64FloorDivide int64FloorModulo int64Min int64Max int64BitAnd int64BitOr int64BitXor int64ShiftLeft int64ShiftRight int64CheckedAdd int64CheckedSubtract int64CheckedMultiply listRange int64Equal int64LessThan int64LessThanOrEqual int64GreaterThan int64GreaterThanOrEqual";
+const float64_binary = "float64Add float64Min float64Max float64Subtract float64Multiply float64Divide float64FloorModulo float64Equal float64LessThan";
+const float64_unary = "float64ToString float64RoundToInt64 float64FloorToInt64 float64Sqrt float64Abs float64Negate float64Floor float64Ceiling float64Truncate float64Round";
+const string_code = "StringIntrinsicTypeMismatch";
+const bytes_code = "BytesOperandTypeMismatch";
+const bits_code = "Bits32OperandTypeMismatch";
+
+/// Literals, arithmetic, strings, Bits32 and Bytes (Validation.fs, the scalar node kinds).
+const requirements = [_]Requirement{
+    .{ .kinds = string_unary, .operand = 0, .type = "string", .code = string_code, .tail = "requires a String value." },
+    .{ .kinds = "stringFromCodePoint", .operand = 0, .type = "int64", .code = string_code, .tail = "requires an Int64 value." },
+    .{ .kinds = "stringSlice", .operand = 1, .type = "int64", .code = string_code, .tail = "requires an Int64 start." },
+    .{ .kinds = "stringSlice stringLastIndexOfBefore stringSpanBack", .operand = 2, .type = "int64", .code = string_code, .tail = "requires an Int64 end." },
+    .{ .kinds = "stringRepeat", .operand = 0, .type = "string", .code = string_code, .tail = "requires a String text." },
+    .{ .kinds = "stringRepeat", .operand = 1, .type = "int64", .code = string_code, .tail = "requires an Int64 count." },
+    .{ .kinds = "stringContains stringIndexOf stringLastIndexOfBefore stringLastIndexOf", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String substring." },
+    .{ .kinds = "stringIndexOf stringSpan", .operand = 2, .type = "int64", .code = string_code, .tail = "requires an Int64 from." },
+    .{ .kinds = "stringSpan stringSpanBack", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String set." },
+    .{ .kinds = "stringStartsWith", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String prefix." },
+    .{ .kinds = "stringEndsWith", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String suffix." },
+    .{ .kinds = "stringSplitLines", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String breaks." },
+    .{ .kinds = "stringSplit", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String separator." },
+    .{ .kinds = "stringReplace", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String pattern." },
+    .{ .kinds = "stringReplace", .operand = 2, .type = "string", .code = string_code, .tail = "requires a String replacement." },
+    .{ .kinds = "stringJoin", .operand = 0, .type = "listString", .code = string_code, .tail = "requires a List<String> list." },
+    .{ .kinds = "stringJoin", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String separator." },
+    .{ .kinds = "stringEqual", .operand = 0, .type = "string", .code = string_code, .tail = "requires a StringEqual left operand." },
+    .{ .kinds = "stringEqual", .operand = 1, .type = "string", .code = string_code, .tail = "requires a StringEqual right operand." },
+    .{ .kinds = "stringLessThan", .operand = 0, .type = "string", .code = string_code, .tail = "requires a StringLessThan left operand." },
+    .{ .kinds = "stringLessThan", .operand = 1, .type = "string", .code = string_code, .tail = "requires a StringLessThan right operand." },
+    .{ .kinds = "stringConcat", .operand = 0, .type = "string", .code = string_code, .tail = "requires a StringConcat left operand." },
+    .{ .kinds = "stringConcat", .operand = 1, .type = "string", .code = string_code, .tail = "requires a StringConcat right operand." },
+    .{ .kinds = "int64ToString int64ToHexString int64ToFloat64 int64WrappingAbs int64BitNot", .operand = 0, .type = "int64", .code = "Int64IntrinsicTypeMismatch", .tail = "requires an Int64 value." },
+    .{ .kinds = int64_binary, .operand = 0, .type = "int64", .code = "Int64OperandTypeMismatch", .name = "Int64", .tail = "requires a Int64 left operand." },
+    .{ .kinds = int64_binary, .operand = 1, .type = "int64", .code = "Int64OperandTypeMismatch", .name = "Int64", .tail = "requires a Int64 right operand." },
+    .{ .kinds = float64_unary, .operand = 0, .type = "float64", .code = "Float64OperandTypeMismatch", .tail = "requires a Float64 value." },
+    .{ .kinds = "float64Round", .operand = 1, .type = "int64", .code = "Float64OperandTypeMismatch", .tail = "requires an Int64 digit count." },
+    .{ .kinds = float64_binary, .operand = 0, .type = "float64", .code = "Float64OperandTypeMismatch", .name = "Float64", .tail = "requires a Float64 left operand." },
+    .{ .kinds = float64_binary, .operand = 1, .type = "float64", .code = "Float64OperandTypeMismatch", .name = "Float64", .tail = "requires a Float64 right operand." },
+    .{ .kinds = "float64IsNaN float64IsFinite float64IsInfinite", .operand = 0, .type = "float64", .code = "Float64OperandTypeMismatch", .name = "Float64", .tail = "requires a Float64 operand." },
+    .{ .kinds = "bits32FromInt64", .operand = 0, .type = "int64", .code = bits_code, .tail = "requires an Int64 value." },
+    .{ .kinds = "bits32ToInt64 bits32Not", .operand = 0, .type = "bits32", .code = bits_code, .name = "Bits32", .tail = "requires a Bits32 operand." },
+    .{ .kinds = "bits32Xor bits32And bits32Or bits32Add", .operand = 0, .type = "bits32", .code = bits_code, .name = "Bits32", .tail = "requires a Bits32 left operand." },
+    .{ .kinds = "bits32Xor bits32And bits32Or bits32Add", .operand = 1, .type = "bits32", .code = bits_code, .name = "Bits32", .tail = "requires a Bits32 right operand." },
+    .{ .kinds = "bits32RotateRight bits32ShiftRight bits32ShiftLeft", .operand = 0, .type = "bits32", .code = bits_code, .name = "Bits32", .tail = "requires a Bits32 value." },
+    .{ .kinds = "bits32RotateRight bits32ShiftRight bits32ShiftLeft", .operand = 1, .type = "int64", .code = bits_code, .name = "Bits32", .tail = "requires an Int64 amount." },
+    .{ .kinds = "bytesFill", .operand = 0, .type = "int64", .code = bytes_code, .tail = "requires an Int64 length." },
+    .{ .kinds = "bytesFill", .operand = 1, .type = "int64", .code = bytes_code, .tail = "requires an Int64 value." },
+    .{ .kinds = "bytesLength bytesToLatin1", .operand = 0, .type = "bytes", .code = bytes_code, .name = "Bytes", .tail = "requires a Bytes operand." },
+    .{ .kinds = "bytesFromLatin1", .operand = 0, .type = "string", .code = bytes_code, .tail = "requires a String value." },
+    .{ .kinds = "bytesConcat", .operand = 0, .type = "bytes", .code = bytes_code, .name = "Bytes", .tail = "requires a Bytes left operand." },
+    .{ .kinds = "bytesConcat", .operand = 1, .type = "bytes", .code = bytes_code, .name = "Bytes", .tail = "requires a Bytes right operand." },
+    .{ .kinds = "bytesGet bytesAppend bytesSet bytesSlice", .operand = 0, .type = "bytes", .code = bytes_code, .name = "Bytes", .tail = "requires a Bytes value." },
+    .{ .kinds = "bytesGet bytesSet", .operand = 1, .type = "int64", .code = bytes_code, .name = "Bytes", .tail = "requires an Int64 index." },
+    .{ .kinds = "bytesAppend", .operand = 1, .type = "int64", .code = bytes_code, .name = "Bytes", .tail = "requires an Int64 value." },
+    .{ .kinds = "bytesSet", .operand = 2, .type = "int64", .code = bytes_code, .name = "Bytes", .tail = "requires an Int64 value." },
+    .{ .kinds = "bytesSlice", .operand = 1, .type = "int64", .code = bytes_code, .name = "Bytes", .tail = "requires an Int64 start." },
+    .{ .kinds = "bytesSlice", .operand = 2, .type = "int64", .code = bytes_code, .name = "Bytes", .tail = "requires an Int64 end." },
+};
+
+/// A type of the requirement table.
+fn requiredType(spec: []const u8) TypeRef {
+    if (std.mem.eql(u8, spec, "listString")) return builtin("list", &.{primitiveType("string")});
+    return .{ .kind = .primitive, .name = asciiUnits(spec) };
+}
+
+/// The F# case name of a node kind: its wire name with an upper-case first letter.
+fn caseNameOf(kind: Str) Str {
+    const out = a.dupe(u16, kind) catch oom();
+    if (out.len > 0 and out[0] >= 'a' and out[0] <= 'z') out[0] -= 'a' - 'A';
+    return out;
+}
+
+/// The table's requirements on one node, then `ValueEqual`.
+fn scalarRules(node: Value) void {
+    const kind = text(str(node, "kind"));
+    var references: List(Str) = .empty;
+    directValueReferences(node, &references);
+    for (requirements) |r| {
+        var kinds_listed = std.mem.tokenizeScalar(u8, r.kinds, ' ');
+        while (kinds_listed.next()) |listed| {
+            if (!std.mem.eql(u8, listed, kind)) continue;
+            const name = if (r.name.len == 0) caseNameOf(str(node, "kind")) else asciiUnits(r.name);
+            requireNodeType(r.code, cat(&.{ name, L(" node '"), str(node, "id"), L("' "), asciiUnits(r.tail) }), requiredType(r.type), references.items[r.operand]);
+        }
+    }
+    if (std.mem.eql(u8, kind, "valueEqual")) {
+        const left = nodeType(references.items[0]);
+        const right = nodeType(references.items[1]);
+        const id = str(node, "id");
+        if (left != null and right != null and !typeEql(left.?, right.?)) {
+            addIn("ValueEqualOperandTypeMismatch", cat(&.{ L("ValueEqual node '"), id, L("' requires operands of one type, but its left operand is "), describeType(left.?), L(" and its right operand is "), describeType(right.?), L(".") }));
+        } else if (left orelse right) |operand_type| {
+            if (!isEquatable(operand_type))
+                addIn("ValueEqualTypeNotEquatable", cat(&.{ L("ValueEqual node '"), id, L("' compares values of a type that is not equatable: "), explainEquatable(operand_type) }));
+        }
+    }
+}
+
 /// `validateGraph`: the graph's own rules, each node's rules, then its nested graphs.
 fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, context: Str, graph: Value) void {
     const nodes = arrayOf(graph, "nodes");
@@ -2533,6 +2638,7 @@ fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, contex
             if (!visible.contains(idKey(reference)))
                 addIn("ValueNodeOutOfScope", cat(&.{ L("Graph node '"), id, L("' references value node '"), reference, L("' outside its lexical value-graph scope.") }));
         }
+        scalarRules(node);
         const kind = str(node, "kind");
         if (isName(kind, "parameterReference")) {
             const parameter_id = str(node, "parameterId");

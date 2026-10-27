@@ -360,6 +360,31 @@ module ZigValidatorSupport =
                               if key.EndsWith "NodeId" then (node[key] <- s id; changed <- true)
                       (body["nodes"] :?> JsonArray).Add(literalNode id literal)
                   changed)
+          for rotation in 0 .. 2 do
+              $"operands are literals of a type by position, rotated {rotation}",
+              (fun root ->
+                  let literals = [ "string"; "int64"; "bool"; "float64"; "unit" ]
+                  let mutable changed = false
+                  for f in functions root do
+                      let nodes = (f["body"] :?> JsonObject)["nodes"] :?> JsonArray
+                      for node in ZigModelReaderSupport.graphNodes f do
+                          let keys = [ for p in node do if p.Key.EndsWith "NodeId" then yield p.Key ]
+                          keys |> List.iteri (fun i key -> node[key] <- s ("pos-" + literals[(i + rotation) % literals.Length]); changed <- true)
+                      for literal in literals do nodes.Add(literalNode ("pos-" + literal) literal)
+                  changed)
+          "left operands are String and right operands Int64 literals",
+          (fun root ->
+              let mutable changed = false
+              for f in functions root do
+                  let nodes = (f["body"] :?> JsonObject)["nodes"] :?> JsonArray
+                  for node in ZigModelReaderSupport.graphNodes f do
+                      if node.ContainsKey "leftNodeId" && node.ContainsKey "rightNodeId" then
+                          node["leftNodeId"] <- s "lit-left"
+                          node["rightNodeId"] <- s "lit-right"
+                          changed <- true
+                  nodes.Add(literalNode "lit-left" "string")
+                  nodes.Add(literalNode "lit-right" "int64")
+              changed)
           "the first nested graph ends in a String literal and every body in a Unit literal",
           (fun root ->
               let graphs = objectsIn root |> List.filter (fun o -> o.ContainsKey "nodes" && o.ContainsKey "resultNodeId")
