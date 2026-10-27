@@ -62,8 +62,11 @@ module ZigBackend =
 
     /// The Zig type of a supported value type, recording each declared type instance it names.
     /// Products and Unions are boxed (`*const`), which keeps recursive types finite.
-    let rec private zigType (types: Map<TypeId, ExecutionType>) (record: TypeId * TypeRef list -> unit) (typeRef: TypeRef) : string option =
-        let inner = zigType types record
+    let private capabilityName (capabilityId: CapabilityId) = identifier "C_" (StableId.value capabilityId)
+    let private operationName (operationId: CapabilityOperationId) = identifier "op_" (StableId.value operationId)
+
+    let rec private zigType (types: Map<TypeId, ExecutionType>) (capabilities: Set<CapabilityId>) (record: TypeId * TypeRef list -> unit) (typeRef: TypeRef) : string option =
+        let inner = zigType types capabilities record
         match typeRef with
         | TypeRef.Primitive PrimitiveType.Int64 -> Some "i64"
         | TypeRef.Primitive PrimitiveType.Bool -> Some "bool"
@@ -86,11 +89,18 @@ module ZigBackend =
                                                 && (Map.find typeId types).TypeParameters.Length = arguments.Length ->
             record (typeId, arguments)
             Some("*const " + typeName typeId arguments)
+        // A capability value's type is declared by whoever binds the capability (a runPure runner's
+        // fakes for now), with one method per operation.
+        | TypeRef.Capability capabilityId when Set.contains capabilityId capabilities -> Some(capabilityName capabilityId)
         | _ -> None
 
     /// The Zig type of a supported value type of a program.
     let typeOf (program: ExecutionProgram) (typeRef: TypeRef) =
-        zigType (program.Types |> List.map (fun item -> item.Id, item) |> Map.ofList) ignore typeRef
+        zigType
+            (program.Types |> List.map (fun item -> item.Id, item) |> Map.ofList)
+            (program.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList)
+            ignore
+            typeRef
 
     let private stringLiteral (text: string) =
         let builder = StringBuilder("\"")
@@ -112,7 +122,8 @@ module ZigBackend =
           /// The instance name for a call of the function with the given argument type per
           /// parameter and the given result type.
           Call: FunctionId -> (ParameterId * TypeRef) list -> TypeRef -> string
-          Parameters: FunctionId -> (ParameterId * TypeRef) list }
+          Parameters: FunctionId -> (ParameterId * TypeRef) list
+          OperationParameters: CapabilityOperationId -> CapabilityParameterId list }
 
     let private itemType (typeRef: TypeRef) =
         match typeRef with
@@ -344,6 +355,10 @@ module ZigBackend =
         | ExecutionInstructionKind.BytesSlice(bytes, start, finish) -> assign (".{ .data = nyListSlice(u8, " + v bytes + ".data, " + v start + ", " + v finish + ") }")
         | ExecutionInstructionKind.BytesFromLatin1 text -> assign ("nyBytesFromLatin1(" + v text + ")")
         | ExecutionInstructionKind.BytesToLatin1 bytes -> assign ("nyBytesToLatin1(" + v bytes + ")")
+        | ExecutionInstructionKind.CapabilityInvoke(capability, operationId, arguments) ->
+            let byParameter = arguments |> List.map (fun argument -> argument.TargetCapabilityParameterId, argument.ValueId) |> Map.ofList
+            let rendered = context.OperationParameters operationId |> List.map (fun id -> v (Map.find id byParameter))
+            assign (v capability + "." + operationName operationId + "(" + String.Join(", ", rendered) + ")")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let byParameter = arguments |> List.map (fun argument -> argument.TargetParameterId, argument.ValueId) |> Map.ofList
             let parameters = context.Parameters functionId |> List.map fst
@@ -480,8 +495,13 @@ module ZigBackend =
         let typeInstances = HashSet<TypeId * TypeRef list>()
         let typeOrder = ResizeArray<TypeId * TypeRef list>()
         let record instance = if typeInstances.Add instance then typeOrder.Add instance
+        let capabilities = program.Capabilities |> List.map (fun item -> item.Id) |> Set.ofList
+        let operationParameters =
+            program.Capabilities
+            |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id, operation.Parameters |> List.map (fun parameter -> parameter.Id)))
+            |> Map.ofList
         let zigOf typeRef =
-            match zigType types record typeRef with
+            match zigType types capabilities record typeRef with
             | Some text -> Some text
             | None ->
                 problems.Add $"type {typeRef}"
@@ -513,7 +533,8 @@ module ZigBackend =
                 { ZigType = zigOf
                   ValueType = fun id -> Map.find id valueTypes
                   Call = call
-                  Parameters = parametersOf }
+                  Parameters = parametersOf
+                  OperationParameters = fun id -> Map.find id operationParameters }
             for value in valuesOf fn do zigOf value.Type |> ignore
             zigOf fn.ResultType |> ignore
             let unsupported =
@@ -532,3 +553,54 @@ module ZigBackend =
             emitType declarations (fun typeRef -> zigOf typeRef |> Option.defaultValue "void") (Map.find typeId types) arguments
         if problems.Count > 0 then Error(problems |> Seq.distinct |> List.ofSeq)
         else Ok(builder.Append(declarations).Append(bodies).ToString())
+
+    /// Scripted fake capabilities for a runPure runner: one struct per capability whose methods record
+    /// each call under its site, select the scripted response (by the call's argument key for a keyed
+    /// script) and return it, or end the run as the C# runner's fake exceptions do. `fake` indexes the
+    /// per-operation script arrays; `site` is the capability's first call site.
+    let fakeCapabilities (program: ExecutionProgram) : Result<string, string list> =
+        let zig typeRef = typeOf program typeRef
+        let problems =
+            program.Capabilities
+            |> List.collect (fun capability -> capability.Operations)
+            |> List.collect (fun operation -> operation.ResultType :: (operation.Parameters |> List.map (fun parameter -> parameter.Type)))
+            |> List.filter (fun typeRef -> match typeRef with TypeRef.Capability _ -> true | other -> Option.isNone (zig other))
+            |> List.distinct
+            |> List.map (fun typeRef -> $"capability operation type {typeRef}")
+        if not (List.isEmpty problems) then Error problems
+        else
+            let builder = StringBuilder()
+            let line (text: string) = builder.Append(text).Append('\n') |> ignore
+            for capability in program.Capabilities do
+                line ("const " + capabilityName capability.Id + " = struct {")
+                line "    fake: usize,"
+                line "    site: usize,"
+                for index, operation in capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id) |> List.indexed do
+                    let result = (zig operation.ResultType).Value
+                    let parameters = operation.Parameters |> List.map (fun parameter -> identifier "a_" (StableId.value parameter.Id) + ": " + (zig parameter.Type).Value)
+                    let recorded = operation.Parameters |> List.map (fun parameter -> identifier "a_" (StableId.value parameter.Id))
+                    let keyed = operation.Parameters |> List.sortBy (fun parameter -> StableId.value parameter.Id) |> List.map (fun parameter -> identifier "a_" (StableId.value parameter.Id))
+                    let scripts = identifier "ny_scripts_" (StableId.value operation.Id)
+                    line ("    pub fn " + operationName operation.Id + "(self: @This()" + String.concat "" (parameters |> List.map (fun item -> ", " + item)) + ") " + result + " {")
+                    line ("        nyRecordCall(self.site + " + string index + ", .{ " + String.Join(", ", recorded) + " });")
+                    line ("        return nyRespond(" + result + ", &" + scripts + "[self.fake], .{ " + String.Join(", ", keyed) + " });")
+                    line "    }"
+                line "};"
+                for operation in capability.Operations do
+                    line ("var " + identifier "ny_scripts_" (StableId.value operation.Id) + ": [16]NyScript(" + (zig operation.ResultType).Value + ") = undefined;")
+                line ""
+            Ok(builder.ToString())
+
+    /// The Zig statements a runner's entry dispatch uses to make the fake for one capability
+    /// parameter, reading its scripts from the argument tokens in canonical operation order.
+    let fakeArgument (program: ExecutionProgram) (capabilityId: CapabilityId) (name: string) (fake: int) (site: int) =
+        let capability = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
+        let reads =
+            capability.Operations
+            |> List.sortBy (fun operation -> StableId.value operation.Id)
+            |> List.map (fun operation ->
+                let scripts = identifier "ny_scripts_" (StableId.value operation.Id)
+                let result = (typeOf program operation.ResultType).Value
+                $"        {scripts}[{fake}] = nyReadScript({result}, &tokens);\n")
+        let typeName = capabilityName capabilityId
+        $"        const {name} = {typeName}{{ .fake = {fake}, .site = {site} }};\n" + String.concat "" reads, capability.Operations.Length

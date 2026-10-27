@@ -254,3 +254,44 @@ module ZigBackendTests =
                     agree session "join" [ s; t ]
                     agree session "sameBytes" [ s; t ]
         finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs scripted fake capabilities and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let effect = execute session """{"id":"e","op":"simulateCreateEffect","exported":true,"displayName":"io"}"""
+            let effectProposal = effect.GetProperty("result").GetProperty("proposalId").GetString()
+            Assert.True((execute session ($"""{{"id":"m","op":"commit","proposalId":"{effectProposal}"}}""")).GetProperty("ok").GetBoolean())
+            let optionText = $"""{{"kind":"builtinGeneric","generic":"option","arguments":[{stringType}]}}"""
+            let capability = execute session ($"""{{"id":"c","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Store","operations":[{{"displayName":"get","parameters":[{{"displayName":"key","type":{stringType}}},{{"displayName":"slot","type":{int64Type}}}],"resultType":{optionText},"effect":"io"}},{{"displayName":"count","parameters":[],"resultType":{int64Type},"effect":"io"}}]}}""")
+            Assert.True(capability.GetProperty("ok").GetBoolean(), capability.ToString())
+            let capabilityProposal = capability.GetProperty("result").GetProperty("proposalId").GetString()
+            Assert.True((execute session ($"""{{"id":"m","op":"commit","proposalId":"{capabilityProposal}"}}""")).GetProperty("ok").GetBoolean())
+            let storeType = """{"kind":"capability","name":"Store"}"""
+            let invokeGet key = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "store"},"capability":"Store","operation":"get","arguments":[{{"parameter":"key","value":{key}}},{{"parameter":"slot","value":{{"kind":"int64Literal","value":1}}}}]}}"""
+            let count = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "store"},"capability":"Store","operation":"count","arguments":[]}}"""
+            let proposal = execute session ($"""{{"id":"f","op":"simulateCreateFunctionByName","exported":true,"displayName":"look","parameters":[{{"displayName":"store","type":{storeType}}},{{"displayName":"name","type":{stringType}}}],"resultType":{stringType},"requiredEffects":["io"],"body":{{"kind":"bind","value":{count},"body":{{"kind":"stringConcat","left":{{"kind":"int64ToString","value":{{"kind":"patternReference","scopeDepth":0,"slot":"value"}}}},"right":{{"kind":"matchOption","input":{invokeGet (p "name")},"someBody":{{"kind":"patternReference","scopeDepth":0,"slot":"value"}},"noneBody":{{"kind":"stringLiteral","value":"-"}}}}}}}}}}""")
+            Assert.True(proposal.GetProperty("ok").GetBoolean(), proposal.ToString())
+            Assert.True((execute session ($"""{{"id":"m","op":"commit","proposalId":"{proposal.GetProperty("result").GetProperty("proposalId").GetString()}"}}""")).GetProperty("ok").GetBoolean())
+            let ordered responses = $"""{{"kind":"fakeCapability","capability":"Store","operations":[{{"operation":"count","responses":[{{"kind":"return","value":{{"kind":"int64","value":"3"}}}}]}},{{"operation":"get","responses":[{responses}]}}]}}"""
+            let some text = $"""{{"kind":"return","value":{{"kind":"option","itemKind":"string","hasValue":true,"value":"{text}"}}}}"""
+            let keyed = $"""{{"kind":"fakeCapability","capability":"Store","operations":[{{"operation":"count","responses":[{{"kind":"return","value":{{"kind":"int64","value":"0"}}}}]}},{{"operation":"get","cases":[{{"arguments":[{{"parameter":"key","value":{{"kind":"string","value":"ä 😀"}}}},{{"parameter":"slot","value":{{"kind":"int64","value":"1"}}}}],"responses":[{some "found"}]}}]}}]}}"""
+            let compare (arguments: string list) =
+                let csharp = run session "csharp" "look" arguments
+                let zig = run session "zig" "look" arguments
+                Assert.True(csharp.GetProperty("ok").GetBoolean() = zig.GetProperty("ok").GetBoolean(), csharp.ToString() + "\n" + zig.ToString())
+                if not (csharp.GetProperty("ok").GetBoolean()) && not (csharp.GetProperty("error").TryGetProperty("failureKind") |> fst) then failwith (csharp.ToString() + "\n" + zig.ToString())
+                if csharp.GetProperty("ok").GetBoolean() then
+                    Assert.Equal(csharp.GetProperty("result").GetProperty("actual").ToString(), zig.GetProperty("result").GetProperty("actual").ToString())
+                    Assert.Equal(csharp.GetProperty("result").GetProperty("calls").ToString(), zig.GetProperty("result").GetProperty("calls").ToString())
+                else
+                    for property in [ "code"; "message"; "failureKind"; "exceptionType"; "calls" ] do
+                        Assert.Equal(csharp.GetProperty("error").GetProperty(property).ToString(), zig.GetProperty("error").GetProperty(property).ToString())
+            compare [ ordered (some "x"); "\"k\"" ]
+            compare [ ordered """{"kind":"throw","message":"down ✗"}"""; "\"k\"" ]
+            compare [ ordered ""; "\"k\"" ]
+            compare [ keyed; "\"ä 😀\"" ]
+            compare [ keyed; "\"other\"" ]
+        finally Directory.Delete(dir, true)

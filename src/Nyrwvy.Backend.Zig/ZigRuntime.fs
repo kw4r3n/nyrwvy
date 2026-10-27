@@ -475,6 +475,177 @@ fn nyDecode(comptime T: type, tokens: *NyTokens) T {
     }
 }
 
+// Scripted fakes, as the C# runner's: a script is one ordered queue, or one queue per argument key.
+fn NyResponse(comptime R: type) type {
+    // Kind: 0 return, 1 throw, 2 await cancellation, 3 delay.
+    return struct { kind: u8, value: R = undefined, message: []const u8 = "" };
+}
+
+fn NyScript(comptime R: type) type {
+    return struct { keyed: bool, keys: []const []const u8, queues: []const []const NyResponse(R), next: []usize };
+}
+
+fn nyReadScript(comptime R: type, tokens: *NyTokens) NyScript(R) {
+    const keyed = std.mem.eql(u8, tokens.next(), "1");
+    const count = std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad script token");
+    const keys = nyAlloc([]const u8, count);
+    const queues = nyAlloc([]const NyResponse(R), count);
+    const next = nyAlloc(usize, count);
+    for (0..count) |index| {
+        next[index] = 0;
+        // A key token is "k" and the argument tokens joined by commas.
+        if (keyed) keys[index] = tokens.next()[1..];
+        const responses = nyAlloc(NyResponse(R), std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad script token"));
+        for (responses) |*response| {
+            const kind = std.fmt.parseInt(u8, tokens.next(), 10) catch @panic("bad response token");
+            response.* = switch (kind) {
+                0 => .{ .kind = 0, .value = nyDecode(R, tokens) },
+                1 => .{ .kind = 1, .message = nyDecodeText(tokens.next()) },
+                // Waiting responses belong to task programs, which this backend does not run yet.
+                else => @panic("unsupported fake response"),
+            };
+        }
+        queues[index] = responses;
+    }
+    return .{ .keyed = keyed, .keys = keys, .queues = queues, .next = next };
+}
+
+var ny_out: *std.Io.Writer = undefined;
+var ny_calls: std.Io.Writer.Allocating = undefined;
+var ny_call_count: usize = 0;
+
+fn nyRecordCall(site: usize, arguments: anytype) void {
+    nyRecordCallWrite(site, arguments) catch @panic("out of memory");
+}
+
+fn nyRecordCallWrite(site: usize, arguments: anytype) !void {
+    if (ny_call_count >= 1024) {
+        try ny_out.writeAll("[\"limit\",\"The program made more than 1024 capability calls.\"]\n");
+        try ny_out.flush();
+        std.process.exit(0);
+    }
+    const w = &ny_calls.writer;
+    if (ny_call_count > 0) try w.writeAll(",");
+    ny_call_count += 1;
+    try w.print("[{d},[", .{site});
+    inline for (@typeInfo(@TypeOf(arguments)).@"struct".field_names, 0..) |name, position| {
+        if (position > 0) try w.writeAll(",");
+        try nyEncode(w, @field(arguments, name));
+    }
+    try w.writeAll("]]");
+}
+
+fn nyToken(w: *std.Io.Writer, first: *bool, comptime format: []const u8, arguments: anytype) !void {
+    if (!first.*) try w.writeAll(",");
+    first.* = false;
+    try w.print(format, arguments);
+}
+
+fn nyTextToken(text: []const u8) []const u8 {
+    var buffer: std.Io.Writer.Allocating = .init(nyAllocator());
+    nyEncodeText(&buffer.writer, text) catch @panic("out of memory");
+    const quoted = buffer.written();
+    return quoted[1 .. quoted.len - 1];
+}
+
+/// Writes a value's input tokens, comma separated, exactly as the authoring session writes an
+/// argument, so a call's key compares equal to a keyed case's.
+fn nyTokens(w: *std.Io.Writer, first: *bool, value: anytype) !void {
+    const T = @TypeOf(value);
+    switch (@typeInfo(T)) {
+        .int => try nyToken(w, first, "{d}", .{value}),
+        .bool => try nyToken(w, first, "{s}", .{if (value) "1" else "0"}),
+        .float => try nyToken(w, first, "{x:0>16}", .{@as(u64, @bitCast(value))}),
+        .optional => {
+            if (value) |item| {
+                try nyToken(w, first, "1", .{});
+                try nyTokens(w, first, item);
+            } else try nyToken(w, first, "0", .{});
+        },
+        .pointer => |info| {
+            if (info.size == .slice and info.child == u8) return nyToken(w, first, "{s}", .{nyTextToken(value)});
+            if (info.size == .slice) {
+                try nyToken(w, first, "{d}", .{value.len});
+                for (value) |item| try nyTokens(w, first, item);
+                return;
+            }
+            try nyTokens(w, first, value.*);
+        },
+        .@"struct" => |info| {
+            if (T == NyUnit) return nyToken(w, first, "u", .{});
+            if (comptime @hasDecl(T, "ny_bytes")) return nyToken(w, first, "{s}", .{nyTextToken(nyBytesToLatin1(value))});
+            if (comptime @hasDecl(T, "ny_set")) {
+                try nyToken(w, first, "{d}", .{value.items.len});
+                for (value.items) |item| try nyTokens(w, first, item);
+                return;
+            }
+            if (comptime @hasDecl(T, "ny_map")) {
+                try nyToken(w, first, "{d}", .{value.keys.len});
+                for (value.keys, value.values) |key, item| {
+                    try nyTokens(w, first, key);
+                    try nyTokens(w, first, item);
+                }
+                return;
+            }
+            // A Product, or a Union variant's fields.
+            inline for (info.field_names) |name| try nyTokens(w, first, @field(value, name));
+        },
+        .@"union" => |info| {
+            if (comptime @hasDecl(T, "ny_ids")) {
+                const tag = std.meta.activeTag(value);
+                inline for (info.field_names, 0..) |name, position| {
+                    if (tag == @field(info.tag_type.?, name)) {
+                        try nyToken(w, first, "{d}", .{position});
+                        try nyTokens(w, first, @field(value, name));
+                    }
+                }
+                return;
+            }
+            switch (value) {
+                .ok => |item| {
+                    try nyToken(w, first, "1", .{});
+                    try nyTokens(w, first, item);
+                },
+                .err => |item| {
+                    try nyToken(w, first, "0", .{});
+                    try nyTokens(w, first, item);
+                },
+            }
+        },
+        else => @compileError("nyTokens does not support " ++ @typeName(T)),
+    }
+}
+
+fn nyFail(exception_type: []const u8, message: []const u8, exhausted: bool) noreturn {
+    nyFailWrite(exception_type, message, exhausted) catch {};
+    std.process.exit(0);
+}
+
+fn nyFailWrite(exception_type: []const u8, message: []const u8, exhausted: bool) !void {
+    try ny_out.print("[\"exception\",\"{s}\",", .{exception_type});
+    try nyEncodeText(ny_out, message);
+    try ny_out.print(",[],[{s}],{},\"fault\"]\n", .{ ny_calls.written(), exhausted });
+    try ny_out.flush();
+}
+
+fn nyRespond(comptime R: type, script: *NyScript(R), arguments: anytype) R {
+    var selected: usize = 0;
+    if (script.keyed) {
+        var key: std.Io.Writer.Allocating = .init(nyAllocator());
+        var first = true;
+        inline for (@typeInfo(@TypeOf(arguments)).@"struct".field_names) |name| nyTokens(&key.writer, &first, @field(arguments, name)) catch @panic("out of memory");
+        selected = for (script.keys, 0..) |candidate, index| {
+            if (std.mem.eql(u8, candidate, key.written())) break index;
+        } else nyFail("FakeArgumentsUnmatchedException", "No fake case matches the complete call arguments.", false);
+    }
+    const position = script.next[selected];
+    if (position >= script.queues[selected].len) nyFail("FakeResponsesExhaustedException", "The fake operation has no scripted response left for this call.", true);
+    script.next[selected] += 1;
+    const response = script.queues[selected][position];
+    if (response.kind == 1) nyFail("FakeCapabilityException", response.message, false);
+    return response.value;
+}
+
 fn nyEncode(out: *std.Io.Writer, value: anytype) !void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
