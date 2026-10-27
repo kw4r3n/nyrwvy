@@ -16,6 +16,9 @@ module internal ZigTools =
             info.WorkingDirectory <- workingDirectory
             info.RedirectStandardOutput <- true
             info.RedirectStandardError <- true
+            // The tools and runners write UTF-8; without this, Windows decodes with the console code page.
+            info.StandardOutputEncoding <- Text.UTF8Encoding false
+            info.StandardErrorEncoding <- Text.UTF8Encoding false
             for arg in args do info.ArgumentList.Add(arg)
             use child = Process.Start(info)
             if isNull child then Error("RunStartupFailure", $"Could not start {executable}.") else

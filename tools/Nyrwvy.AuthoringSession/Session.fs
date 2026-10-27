@@ -529,7 +529,9 @@ module internal ZigSnapshotReader =
         let key = function
             | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidJson _)) -> Error(SnapshotCodecError.InvalidJson "")
             | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidShape message))
-                when message.StartsWith("Invalid JSON string encoding:", StringComparison.Ordinal) -> Error(SnapshotCodecError.InvalidShape "Invalid JSON string encoding:")
+                when message.StartsWith("Invalid JSON string encoding:", StringComparison.Ordinal)
+                     || message.StartsWith("Invalid JSON property name encoding:", StringComparison.Ordinal) ->
+                Error(SnapshotCodecError.InvalidShape(message.Substring(0, message.IndexOf ':' + 1)))
             | Error(AuthoringSessionError.SnapshotCodecFailure error) -> Error error
             | Error error -> Error(SnapshotCodecError.InvalidShape(sprintf "%A" error))
             | Ok snapshot -> SnapshotCodec.serialize snapshot |> Result.mapError (fun error -> SnapshotCodecError.InvalidShape(sprintf "writer: %A" error))
@@ -614,7 +616,9 @@ module internal SessionStorage =
             match ZigSnapshotReader.read record source with
             | Error problem when check -> Error(AuthoringSessionError.IoFailure $"ReaderMismatch: the Zig reader failed: {problem}")
             | Error problem ->
-                if Threading.Interlocked.Exchange(&zigUnavailable, 1) = 0 then
+                // A timeout or oversized output belongs to this source; only a build or launch failure sticks.
+                let perInput = problem.StartsWith("RunTimeout", StringComparison.Ordinal) || problem.StartsWith("RunOutputTooLarge", StringComparison.Ordinal)
+                if not perInput && Threading.Interlocked.Exchange(&zigUnavailable, 1) = 0 then
                     eprintfn "nyrwvy: the Zig snapshot reader is unavailable (%s); reading snapshots with the F# reader." problem
                 decodeFSharp record dependency source
             | Ok(ZigSnapshotReader.Verdict.FSharpOnly, _) -> decodeFSharp record dependency source
