@@ -82,12 +82,32 @@ module ZigSnapshotReaderTests =
                   yield header " parent=snapshot:x" text
                   yield replaceFirst @"schema=\d+" "schema=20" text
                   yield replaceFirst @"schema=\d+" "schema=024" text ]
-        let texts = repository @ fixtures @ allKinds @ mutated @ targeted @ [ ""; "\n"; "﻿snapshot x\n"; "snapshot x\r\n"; "snapshot x" ]
+        let texts = repository @ fixtures @ allKinds @ mutated @ targeted @ [ ""; "\n"; "\uFEFFsnapshot x\n"; "snapshot x\r\n"; "snapshot x" ]
+        // Resolved locals: each original split into a dependency and a local that names its subjects
+        // (the types, effects and capabilities; or every function but the last), with damage.
+        let dependencyId = StableId.createForTesting<SnapshotTag> "zig-reader-dependency"
+        let asDependency (snapshot: Snapshot) = { snapshot with Id = dependencyId; ParentId = None; Obligations = [] }
+        let resolved =
+            [ for snapshot in (repository @ fixtures |> List.map (RecordCodec.deserialize >> unwrap)) @ RecordCodecAllKindsTests.allKindSnapshots () do
+                  yield asDependency { snapshot with Functions = [] }, { snapshot with Types = []; Effects = []; Capabilities = [] }
+                  match List.rev snapshot.Functions with
+                  | last :: rest when not rest.IsEmpty ->
+                      yield asDependency { snapshot with Functions = List.rev rest }, { snapshot with Types = []; Effects = []; Capabilities = []; Functions = [ last ]; Obligations = [] }
+                  | _ -> () ]
+            |> List.choose (fun (dependency, local) -> RecordCodec.serializeResolved dependency local |> Result.toOption |> Option.map (fun text -> dependency, text))
+            // Only locals that name a dependency subject: without the dependency they do not decode.
+            |> List.filter (snd >> RecordCodec.toJsonDeferred >> Result.isError)
         let reader = ZigTools.tool "snapshot-reader" |> unwrap
         let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-reader-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory dir |> ignore
-        try
+        let mutable accepted, deferred, rejected = 0, 0, 0
+        // One process per dependency: `--dependency` names its subjects for every pair.
+        let run (dependency: Snapshot option) (texts: string list) =
             let info = ProcessStartInfo(reader, RedirectStandardOutput = true)
+            dependency |> Option.iter (fun d ->
+                File.WriteAllLines(Path.Combine(dir, "subjects"), RecordCodec.dependencySubjects d)
+                info.ArgumentList.Add "--dependency"
+                info.ArgumentList.Add(Path.Combine(dir, "subjects")))
             texts |> List.iteri (fun index text ->
                 File.WriteAllText(Path.Combine(dir, $"{index}.nyrec"), text, Text.UTF8Encoding false)
                 info.ArgumentList.Add(Path.Combine(dir, $"{index}.nyrec"))
@@ -97,9 +117,8 @@ module ZigSnapshotReaderTests =
             child.WaitForExit()
             Assert.Equal(0, child.ExitCode)
             Assert.Equal(texts.Length, lines.Length)
-            let mutable accepted, deferred, rejected = 0, 0, 0
             texts |> List.iteri (fun index text ->
-                match RecordCodec.toJsonDeferred text with
+                match (match dependency with Some d -> RecordCodec.toJsonDeferredResolved d text | None -> RecordCodec.toJsonDeferred text) with
                 | Ok(json, later) ->
                     match later with
                     | None ->
@@ -115,8 +134,16 @@ module ZigSnapshotReaderTests =
                 | Error error ->
                     rejected <- rejected + 1
                     Assert.Equal($"error {error.Line}:{error.Column}: {error.Message}", lines[index]))
+        try
+            run None texts
             // Every outcome occurs, so no part of the comparison is vacuous.
             Assert.True(accepted > 100 && deferred > 0 && rejected > 300, $"accepted {accepted}, deferred {deferred}, rejected {rejected}")
+            accepted <- 0
+            rejected <- 0
+            resolved |> List.iteri (fun index (dependency, text) -> run (Some dependency) (text :: mutations index 40 text))
+            Assert.True(resolved.Length > 40 && accepted > resolved.Length && rejected > resolved.Length, $"{resolved.Length} resolved: accepted {accepted}, rejected {rejected}")
+            // Without its dependency each is rejected, on both sides.
+            run None (List.map snd resolved)
         finally Directory.Delete(dir, true)
 
     [<Fact>]
