@@ -3,10 +3,11 @@
   <RunConfiguration>
     <TestCaseFilter>Suite=Extended</TestCaseFilter>
     <!-- runPure's Zig route also runs the F# emitter, and the session's Zig snapshot reader the F#
-         reader; both fail on any difference (docs/decisions/zig-tools.md). -->
+         reader, and the session's projections the Zig lowering; all fail on any difference (docs/decisions/zig-tools.md). -->
     <EnvironmentVariables>
       <NYRWVY_ZIG_EMITTER_CHECK>1</NYRWVY_ZIG_EMITTER_CHECK>
       <NYRWVY_ZIG_READER_CHECK>1</NYRWVY_ZIG_READER_CHECK>
+      <NYRWVY_ZIG_LOWERING_CHECK>1</NYRWVY_ZIG_LOWERING_CHECK>
     </EnvironmentVariables>
   </RunConfiguration>
 </RunSettings>

@@ -8,17 +8,42 @@ open Nyrwvy.Tools.AuthoringSession
 open Xunit
 open Xunit.Abstractions
 
+module ZigLoweringTests =
+    [<Fact>]
+    let ``instruction_kinds.txt lists every node kind that lowers to an instruction`` () =
+        let rows = File.ReadAllLines(ZigModelReaderSupport.toolFile "instruction_kinds.txt") |> Array.map (fun line -> line.Split('|')[0]) |> Set.ofArray
+        let handwritten = set [ "parameterReference"; "patternReference"; "abort"; "conditional"; "boolAnd"; "boolOr"; "matchUnion"; "bind"; "matchOption"; "matchResult" ]
+        let kinds = File.ReadAllLines(ZigModelReaderSupport.toolFile "model_kinds.txt") |> Array.map (fun line -> line.Split('|')[0]) |> Set.ofArray
+        Assert.Equal<Set<string>>(kinds - handwritten, rows)
+
 /// Compares `model-reader --typed-ir` with `TypedSemanticIr.project` of `SnapshotCodec.readUnvalidated`
 /// (after `ExecutionCallGraph.forSnapshotEntry` for an entry), serialized by `TypedSemanticIrSerializer`.
 type ZigLoweringComparison(output: ITestOutputHelper) =
-    /// The F# line for one input and entry: `ok` with the JSON, or the error line the Zig tool prints.
-    let reference (snapshot: Snapshot) (entry: FunctionId option) =
+    let project (snapshot: Snapshot) (entry: FunctionId option) =
         let selected = match entry with Some id -> ExecutionCallGraph.forSnapshotEntry snapshot id | None -> snapshot
-        match TypedSemanticIr.project selected with
+        TypedSemanticIr.project selected
+        |> Result.mapError (function
+            | TypedSemanticIrError.InvalidSnapshot issues -> $"error InvalidSnapshot: {issues.Length} issues"
+            | TypedSemanticIrError.IncompleteSnapshot ids -> "error IncompleteSnapshot: " + String.Join(", ", ids |> List.map StableId.value)
+            | TypedSemanticIrError.MissingNodeType(functionId, nodeId) -> $"error MissingNodeType: {StableId.value functionId} {StableId.value nodeId}")
+
+    /// The F# line for one input and entry: `ok` with the JSON, or the error line the Zig tool prints.
+    let typedReference snapshot entry =
+        match project snapshot entry with
         | Ok program -> "ok", Some(TypedSemanticIrSerializer.serialize program)
-        | Error(TypedSemanticIrError.InvalidSnapshot issues) -> $"error InvalidSnapshot: {issues.Length} issues", None
-        | Error(TypedSemanticIrError.IncompleteSnapshot ids) -> "error IncompleteSnapshot: " + String.Join(", ", ids |> List.map StableId.value), None
-        | Error(TypedSemanticIrError.MissingNodeType(functionId, nodeId)) -> $"error MissingNodeType: {StableId.value functionId} {StableId.value nodeId}", None
+        | Error line -> line, None
+
+    let executionReference snapshot entry =
+        let id x = StableId.value x
+        match project snapshot entry |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError (function
+            | ExecutionIrError.MissingNodeValue(f, node) -> $"error MissingNodeValue: {id f} {id node}"
+            | ExecutionIrError.MissingPatternValue(f, binding) -> $"error MissingPatternValue: {id f} {id binding}"
+            | ExecutionIrError.MissingFunctionParameter(f, parameter) -> $"error MissingFunctionParameter: {id f} {id parameter}"
+            | ExecutionIrError.UnresolvedDependencies(f, nodes) -> $"error UnresolvedDependencies: {id f} " + String.Join(", ", nodes |> List.map id)
+            | ExecutionIrError.AmbiguousEffectOrder(f, first, second) -> $"error AmbiguousEffectOrder: {id f} {id first} {id second}"
+            | ExecutionIrError.UnterminatedBlock(f, block) -> $"error UnterminatedBlock: {id f} {ExecutionBlockId.value block}")) with
+        | Ok program -> "ok", Some(ExecutionIrSerializer.serialize program)
+        | Error line -> line, None
 
     /// The first difference of two texts, with some context.
     let difference (expected: string) (actual: string) =
@@ -26,8 +51,9 @@ type ZigLoweringComparison(output: ITestOutputHelper) =
         let around (text: string) = text.Substring(max 0 (at - 120), min 240 (text.Length - max 0 (at - 120)))
         $"at {at}:\nF#  {around expected}\nZig {around actual}"
 
-    [<Fact; Trait("Suite", "Extended")>]
-    member _.``The Zig typed semantic IR matches the F# projection`` () =
+    /// Runs `model-reader <mode>` on every corpus text that decodes, whole and with each of up to six
+    /// of its functions as entry, and compares each line and JSON with `reference`.
+    let compare (mode: string) reference =
         let originals, targeted, combined, _ = ZigValidatorSupport.corpus ()
         let texts = originals @ targeted @ combined |> List.distinct
         // Each model whole, and with each of up to six of its functions as entry.
@@ -55,7 +81,7 @@ type ZigLoweringComparison(output: ITestOutputHelper) =
             let lines =
                 cases |> List.indexed |> List.chunkBySize 1000 |> List.collect (fun batch ->
                     let info = ProcessStartInfo(reader, RedirectStandardOutput = true)
-                    info.ArgumentList.Add "--typed-ir"
+                    info.ArgumentList.Add mode
                     for index, (text, _, entry) in batch do
                         info.ArgumentList.Add(input text)
                         info.ArgumentList.Add(Path.Combine(dir, $"{index}.out"))
@@ -71,7 +97,7 @@ type ZigLoweringComparison(output: ITestOutputHelper) =
             let mutable throws = 0
             let failures = ResizeArray<string>()
             cases |> List.iteri (fun index (text, snapshot, entry) ->
-                match (try Some(reference snapshot entry) with error -> output.WriteLine($"case {index}: F# threw {error.GetType().Name}: {error.Message}"); None) with
+                match (try Some(reference snapshot entry : string * string option) with error -> output.WriteLine($"case {index}: F# threw {error.GetType().Name}: {error.Message}"); None) with
                 | None -> throws <- throws + 1
                 | Some(line, json) ->
                     let key = (line.Split(':')[0])
@@ -91,3 +117,9 @@ type ZigLoweringComparison(output: ITestOutputHelper) =
             // A case where F# throws would compare nothing; none does on this corpus.
             Assert.Equal(0, throws)
         finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    member _.``The Zig typed semantic IR matches the F# projection`` () = compare "--typed-ir" typedReference
+
+    [<Fact; Trait("Suite", "Extended")>]
+    member _.``The Zig Execution IR matches the F# lowering`` () = compare "--execution-ir" executionReference

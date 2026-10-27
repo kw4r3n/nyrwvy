@@ -489,7 +489,7 @@ module internal ZigSnapshotReader =
                 | None -> Ok Verdict.Accepted
         | _ -> unexpected ()
 
-    let private run (tool: string) (args: string list) =
+    let run (tool: string) (args: string list) =
         ZigTools.tool tool
         |> Result.bind (fun path -> ZigTools.launch path $"Zig {tool}" ZigTools.cache args 60000)
         |> Result.mapError (fun (code, message) -> $"{code}: {message}")
@@ -541,6 +541,41 @@ module internal ZigSnapshotReader =
                 | Ok _ -> "accepts"
                 | Error error -> (let text = sprintf "%A" error in if text.Length > 2000 then text.Substring(0, 2000) + "…" else text)
             Error(AuthoringSessionError.IoFailure $"ReaderMismatch: Zig {describe zig}, F# {describe fsharp}")
+
+/// The lowering's check mode (`NYRWVY_ZIG_LOWERING_CHECK`, set by the extended test settings):
+/// `model-reader --execution-ir` on the canonical JSON of the snapshot a session projects must give
+/// the F# program's `ExecutionIrSerializer` JSON, or reject it where F# does; else `LoweringMismatch`.
+/// The session keeps the F# program either way (docs/decisions/zig-tools.md).
+module internal ZigLowering =
+    let check (snapshotJson: unit -> Result<string, SnapshotCodecError>) (entry: FunctionId option) (fsharp: Result<ExecutionProgram, AuthoringSessionError>) =
+        if String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_LOWERING_CHECK") then fsharp
+        else
+            let mismatch (text: string) = Error(AuthoringSessionError.IoFailure("LoweringMismatch: " + text))
+            // The writer validates the whole snapshot, an entry's projection only what it reaches; a
+            // snapshot the writer rejects is not checked.
+            match snapshotJson () with
+            | Error _ -> fsharp
+            | Ok json ->
+                let stem = Path.Combine(ZigTools.cache, "lower-" + Guid.NewGuid().ToString("N"))
+                try
+                    try
+                        ZigTools.createPrivateDirectory ZigTools.cache
+                        File.WriteAllText(stem + ".json", json, UTF8Encoding false)
+                        let target = entry |> Option.map StableId.value |> Option.defaultValue "-"
+                        match ZigSnapshotReader.run "model-reader" [ "--execution-ir"; stem + ".json"; stem + ".out.json"; target ], fsharp with
+                        | Error problem, _ -> mismatch problem
+                        | Ok [ "ok" ], Ok program ->
+                            if ExecutionIrSerializer.serialize program = File.ReadAllText(stem + ".out.json") then fsharp
+                            else mismatch $"the Zig Execution IR of entry {target} differs from the F# lowering"
+                        | Ok [ "ok" ], Error error -> mismatch $"only F# rejects entry {target}: %A{error}"
+                        | Ok _, Error _ -> fsharp
+                        | Ok lines, Ok _ -> mismatch ($"only Zig rejects entry {target}: " + String.Join(" | ", lines))
+                    finally
+                        for file in [ stem + ".json"; stem + ".out.json" ] do
+                            if File.Exists file then File.Delete file
+                with
+                | :? IOException as error -> mismatch error.Message
+                | :? UnauthorizedAccessException as error -> mismatch error.Message
 
 module internal SessionStorage =
     let fullPath (path: string): string = Path.GetFullPath(path)
@@ -1878,9 +1913,10 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
 
     member _.ProjectExecution(): Result<ExecutionProgram, AuthoringSessionError> =
         use _scope = SnapshotComputationScope.Start()
-        match AgentExecution.projectTypedSemanticIr workspace with
-        | Error error -> Error(AuthoringSessionError.SemanticProjectionFailure error)
-        | Ok typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure
+        (match AgentExecution.projectTypedSemanticIr workspace with
+         | Error error -> Error(AuthoringSessionError.SemanticProjectionFailure error)
+         | Ok typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure)
+        |> ZigLowering.check (fun () -> AgentWorkspace.serializeCurrentSnapshot workspace) None
 
     /// The execution program of one entry over the committed snapshot. It is a pure function of the
     /// workspace state and the entry, so it is kept with the workspace object, which every commit
@@ -1901,6 +1937,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     AgentExecution.projectEntryTypedSemanticIr workspace entry
                     |> Result.mapError AuthoringSessionError.SemanticProjectionFailure
                     |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure)
+                    |> ZigLowering.check (fun () -> AgentWorkspace.serializeCurrentSnapshot workspace) (Some entry)
                 projections[entry] <- projected
                 projected)
 
@@ -1925,6 +1962,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     |> TypedSemanticIr.project
                     |> Result.mapError AuthoringSessionError.SemanticProjectionFailure
                     |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure)
+                    |> ZigLowering.check (fun () -> SnapshotCodec.serialize snapshot) (Some entry)
                   ProjectAll = None
                   Worker = worker })
         this.VerifyPersistedSource()
