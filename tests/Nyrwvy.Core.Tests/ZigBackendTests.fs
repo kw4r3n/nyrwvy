@@ -452,6 +452,37 @@ module ZigBackendTests =
             compare "cancelled" [ fake [] [] ]
             compare "shielded" [ fake [ response 4 (Some 3) ] [] ]
             compare "sumWork" [ fake [ response 1 None; response 2 None; response 3 None ] []; "[1,2,3]" ]
+            // One-shot hand-offs, failures surfacing from tasks, a Result-returning effectful fold, and a deadlock.
+            let optionInt = generic "option" [ int64Type ]
+            let handed = generic "result" [ optionInt; stringType ]
+            let create = $"""{{"kind":"oneShotCreate","scope":{p "scope"},"valueType":{int64Type}}}"""
+            let waitCell limit = $"""{{"kind":"oneShotWait","cell":{value 0}{limit}}}"""
+            effectful "handoffBody" [ "svc", svcType; "scope", scopeType ] handed
+                (bind create (bind ($"""{{"kind":"oneShotComplete","cell":{value 0},"value":{{"kind":"int64Literal","value":5}}}}""") (bind ($"""{{"kind":"oneShotWait","cell":{value 1}}}""") (ok (value 0)))))
+            effectful "handoff" [ "svc", svcType ] handed ($"""{{"kind":"taskScope","body":"handoffBody","context":{ctx}}}""")
+            let limited = some "{\"kind\":\"int64Literal\",\"value\":10}"
+            effectful "timeoutBody" [ "svc", svcType; "scope", scopeType ] handed (bind create (bind (waitCell (",\"limit\":" + limited)) (ok (value 0))))
+            effectful "timeout" [ "svc", svcType ] handed ($"""{{"kind":"taskScope","body":"timeoutBody","context":{ctx}}}""")
+            effectful "stuckBody" [ "svc", svcType; "scope", scopeType ] handed (bind create (bind (waitCell "") (ok (value 0))))
+            effectful "stuck" [ "svc", svcType ] handed ($"""{{"kind":"taskScope","body":"stuckBody","context":{ctx}}}""")
+            effectful "failWaitBody" [ "svc", svcType; "scope", scopeType ] (generic "result" [ waited; stringType ])
+                (bind (start "job" 1) (bind ($"""{{"kind":"taskWait","tasks":{tasks [ 0 ]},"mode":"all"}}""") (ok (value 0))))
+            effectful "failWait" [ "svc", svcType ] (generic "result" [ waited; stringType ]) ($"""{{"kind":"taskScope","body":"failWaitBody","context":{ctx}}}""")
+            effectful "failCloseBody" [ "svc", svcType; "scope", scopeType ] outcome (bind (start "job" 1) (bind (start "job" 2) (ok "{\"kind\":\"int64Literal\",\"value\":0}")))
+            effectful "failClose" [ "svc", svcType ] outcome ($"""{{"kind":"taskScope","body":"failCloseBody","context":{ctx}}}""")
+            let added = ok ($"""{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{value 0}}}""")
+            effectful "addChecked" [ "svc", svcType; "acc", int64Type; "n", int64Type ] outcome
+                (bind (svc "work" ($"""{{"parameter":"n","value":{p "n"}}}""")) ($"""{{"kind":"conditional","condition":{{"kind":"int64LessThan","left":{value 0},"right":{{"kind":"int64Literal","value":0}}}},"whenTrue":{{"kind":"resultErr","okType":{int64Type},"error":{{"kind":"stringLiteral","value":"negative"}}}},"whenFalse":{added}}}"""))
+            effectful "sumChecked" [ "svc", svcType; "xs", generic "list" [ int64Type ] ] outcome ($"""{{"kind":"listEffectFold","source":{p "xs"},"seed":{{"kind":"int64Literal","value":0}},"function":"addChecked","context":{ctx}}}""")
+            let throws = """{"kind":"throw","message":"task ✗"}"""
+            compare "handoff" [ fake [] [] ]
+            compare "timeout" [ fake [] [] ]
+            compare "stuck" [ fake [] [] ]
+            compare "failWait" [ fake [ throws ] [] ]
+            compare "failClose" [ fake [ response 1 (Some 5); throws ] [] ]
+            compare "failClose" [ fake [ throws; response 2 None ] [] ]
+            compare "sumChecked" [ fake [ response 1 None; response -2 None; response 3 None ] []; "[1,2,3]" ]
+            compare "sumChecked" [ fake [ response 1 None; response 2 None ] []; "[1,2]" ]
         finally Directory.Delete(dir, true)
 
     [<Fact; Trait("Suite", "Extended")>]
