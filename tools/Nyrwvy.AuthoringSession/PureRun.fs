@@ -436,48 +436,13 @@ module PureRun =
             | _ -> false
         local || (children value |> List.exists oversized)
 
-    /// Runs dotnet and returns its exit code with bounded output; timeouts and I/O failures are errors.
-    /// `phase` names the timed step in the timeout diagnostic.
-    let private launchProcess (executable: string) (phase: string) (workingDirectory: string) (args: string list) (timeoutMs: int) =
-        try
-            let info = ProcessStartInfo(executable)
-            info.WorkingDirectory <- workingDirectory
-            info.RedirectStandardOutput <- true
-            info.RedirectStandardError <- true
-            for arg in args do info.ArgumentList.Add(arg)
-            use child = Process.Start(info)
-            if isNull child then Error(diagnostic "RunStartupFailure" $"Could not start {executable}.") else
-                // One character beyond the 1 MiB limit, so the check below sees the overflow.
-                let stdout = BoundedOutput.read child.StandardOutput 1048577
-                let stderr = BoundedOutput.read child.StandardError 1048577
-                if not (child.WaitForExit(timeoutMs)) then
-                    try child.Kill(true)
-                    with
-                    | :? InvalidOperationException
-                    | :? System.ComponentModel.Win32Exception -> ()
-                    if child.WaitForExit(5000) then
-                        Error(diagnostic "RunTimeout" $"The {phase} exceeded its time limit of {timeoutMs / 1000} s.")
-                    else
-                        Error(diagnostic "RunReapFailure" "The timed-out child has not been confirmed terminated.")
-                elif not (System.Threading.Tasks.Task.WaitAll([| stdout :> System.Threading.Tasks.Task; stderr :> System.Threading.Tasks.Task |], 5000)) then
-                    Error(diagnostic "RunOutputTimeout" "The process exited but its output streams did not close.")
-                else
-                    let output, errors = stdout.Result, stderr.Result
-                    if output.Length > 1048576 || errors.Length > 1048576 then
-                        Error(diagnostic "RunOutputTooLarge" "The process produced more than 1 MiB of output.")
-                    else Ok(child.ExitCode, output, errors)
-        with
-        | :? System.ComponentModel.Win32Exception as error ->
-            Error(diagnostic "RunStartupFailure" error.Message)
-        | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
-        | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message)
-        | :? AggregateException as error -> Error(diagnostic "RunIoFailure" error.Message)
+    /// Runs a process and returns its exit code with bounded output (see `ZigTools.launch`).
+    let private launchProcess executable phase workingDirectory args timeoutMs =
+        ZigTools.launch executable phase workingDirectory args timeoutMs |> Result.mapError (fun (code, message) -> diagnostic code message)
 
     let private launchRaw phase workingDirectory args timeoutMs = launchProcess "dotnet" phase workingDirectory args timeoutMs
 
-    let private processFailure (output: string) (errors: string) =
-        let details = output + "\n" + errors
-        diagnostic "RunProcessFailure" (if details.Length > 4096 then details.Substring(0, 4096) else details)
+    let private processFailure output errors = ZigTools.processFailure output errors |> fun (code, message) -> diagnostic code message
 
     /// Maps generated symbol names back to semantic identities using the emitted symbol manifest.
     let private frameResolver (symbols: CSharpSymbolManifest) =
@@ -1207,77 +1172,13 @@ module PureRun =
             "        return local < queues[selected].Length ? queues[selected][local] : FakeResponse<T>.Exhausted;\n"
             "    }\n}\n" ]
 
-    /// The Zig compiler: `NYRWVY_ZIG` when set, otherwise `zig` on the PATH, started from the Nyrwvy
-    /// installation (see `zigDirectory`).
-    let private zigExecutable () =
-        match Environment.GetEnvironmentVariable "NYRWVY_ZIG" with
-        | null | "" -> "zig"
-        | path -> path
+    let private zigExecutable = ZigTools.executable
+    let private zigDirectory = ZigTools.directory
+    let private zigCache = ZigTools.cache
+    let private createPrivateDirectory = ZigTools.createPrivateDirectory
 
-    /// Built runners keyed by a hash of their source, so repeated runs of one snapshot skip the build.
-    /// The hash is predictable, so the cache is per user (`XDG_CACHE_HOME`, else `~/.cache`) and
-    /// created owner-only: a shared temporary directory would let another local user plant a runner.
-    /// Where `zig` starts: the nearest directory above the session's own binaries that pins tool
-    /// versions (`mise.toml`), so a version manager shim resolves the Zig this repository pins even
-    /// when the workspace lies elsewhere; else the working directory.
-    let private zigDirectory =
-        lazy (
-            let rec up (directory: DirectoryInfo) =
-                if isNull directory then Environment.CurrentDirectory
-                elif File.Exists(Path.Combine(directory.FullName, "mise.toml")) then directory.FullName
-                else up directory.Parent
-            up (DirectoryInfo AppContext.BaseDirectory))
-
-    let private zigCache =
-        let root =
-            match Environment.GetEnvironmentVariable "XDG_CACHE_HOME" with
-            | null | "" -> Path.Combine(Environment.GetFolderPath Environment.SpecialFolder.UserProfile, ".cache")
-            | path -> path
-        Path.Combine(root, "nyrwvy", "zig-runners")
-
-    let private createPrivateDirectory (path: string) =
-        if OperatingSystem.IsWindows() then Directory.CreateDirectory path |> ignore
-        else Directory.CreateDirectory(path, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute) |> ignore
-
-    let private sha256Hex (text: string) = Convert.ToHexString(Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes text))
-
-    let private zigTools = Collections.Generic.Dictionary<string, string>()
-
-    /// A Zig tool (`tools/zig/<name>` beside mise.toml, see docs/decisions/zig-tools.md), built once
-    /// per process into the runner cache, keyed by a hash of every file in its directory.
-    let zigTool (name: string) =
-        lock zigTools (fun () ->
-            match zigTools.TryGetValue name with
-            | true, path -> Ok path
-            | _ ->
-                try
-                    let sources = Path.Combine(zigDirectory.Value, "tools", "zig", name)
-                    let text =
-                        Directory.GetFiles sources
-                        |> Array.sortWith (fun x y -> String.CompareOrdinal(x, y))
-                        |> Array.map (fun file -> Path.GetFileName file + "\u0000" + File.ReadAllText file)
-                        |> String.concat "\u0000"
-                    let directory = Path.Combine(zigCache, name + "-" + (sha256Hex text).Substring(0, 32))
-                    let executable = Path.Combine(directory, name)
-                    let built =
-                        if File.Exists executable then Ok()
-                        else
-                            createPrivateDirectory zigCache
-                            createPrivateDirectory directory
-                            // Built under a fresh name and moved, so another process never runs a partial file.
-                            let partial = executable + "." + Guid.NewGuid().ToString("N")
-                            launchProcess (zigExecutable ()) $"Zig {name} build" zigDirectory.Value
-                                [ "build-exe"; Path.Combine(sources, "main.zig"); "-O"; "ReleaseSafe"
-                                  "--cache-dir"; Path.Combine(zigCache, "cache"); "-femit-bin=" + partial ] 300000
-                            |> Result.bind (fun (code, output, errors) ->
-                                if code = 0 && File.Exists partial then
-                                    File.Move(partial, executable, true)
-                                    Ok()
-                                else Error(processFailure output errors))
-                    built |> Result.map (fun () -> zigTools[name] <- executable; executable)
-                with
-                | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
-                | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message))
+    /// A Zig tool (`tools/zig/<name>`), built once per process (see `ZigTools.tool`).
+    let zigTool (name: string) = ZigTools.tool name |> Result.mapError (fun (code, message) -> diagnostic code message)
 
     /// The complete runPure runner for the program from the Zig emitter (see `ZigBackend.runner`), or
     /// the constructs it does not support. With `NYRWVY_ZIG_EMITTER_CHECK` set (the extended tests

@@ -46,15 +46,26 @@ var message: []const u8 = "";
 var declared_version: i32 = 0;
 
 fn invalidJson(reason: []const u8) Failure {
-    message = reason;
+    message = oneLine(reason);
     return error.Json;
 }
 
 fn invalidShape(reason: []const u8) Failure {
-    // One line per input: a line break inside a message (a quoted value) is written as `\n`.
-    const once = std.mem.replaceOwned(u8, a, reason, "\r", "\\r") catch oom();
-    message = std.mem.replaceOwned(u8, a, once, "\n", "\\n") catch oom();
+    message = oneLine(reason);
     return error.Shape;
+}
+
+/// One line per input: a backslash in a message is written `\\`, a line break `\n` (and `\r`), so
+/// a reader can undo it.
+fn oneLine(reason: []const u8) []const u8 {
+    var out: List(u8) = .empty;
+    for (reason) |byte| switch (byte) {
+        '\\' => out.appendSlice(a, "\\\\") catch oom(),
+        '\n' => out.appendSlice(a, "\\n") catch oom(),
+        '\r' => out.appendSlice(a, "\\r") catch oom(),
+        else => out.append(a, byte) catch oom(),
+    };
+    return out.items;
 }
 
 // ---------------------------------------------------------------- JSON text
@@ -4344,17 +4355,9 @@ fn validate(root: Value) void {
     std.mem.sort(Issue, issues.items, {}, issueLess);
 }
 
-/// One line per issue, then `end`; a line break in a message is written `\n` (and `\r`), as in the reader's errors.
+/// One line per issue, then `end`; a message is escaped as the reader's errors are (`oneLine`).
 fn printIssues(out: *std.Io.Writer) !void {
-    for (issues.items) |issue| {
-        try out.print("issue {s}: ", .{issue.code});
-        for (text(issue.message)) |byte| switch (byte) {
-            '\n' => try out.writeAll("\\n"),
-            '\r' => try out.writeAll("\\r"),
-            else => try out.writeByte(byte),
-        };
-        try out.writeByte('\n');
-    }
+    for (issues.items) |issue| try out.print("issue {s}: {s}\n", .{ issue.code, oneLine(text(issue.message)) });
     try out.writeAll("end\n");
 }
 

@@ -1,11 +1,13 @@
 //! The Nyrwvy snapshot reader, first stage: record text (`.nyrec`) to the snapshot JSON the strict
 //! writer produces, with every record-form check of the F# `RecordCodec`, which is its reference
-//! (`RecordCodec.toJson`). Validating that JSON as a model is not ported yet. See
-//! docs/decisions/zig-tools.md.
+//! (`RecordCodec.toJsonDeferred`). The model reader (`tools/zig/model-reader`) validates that JSON.
+//! See docs/decisions/zig-tools.md.
 //!
 //! Usage: `snapshot-reader <in.nyrec> <out.json> [<in> <out> ...]`. One line per pair on standard
-//! output: `ok`, or `error <line>:<column>: <message>` (columns count UTF-16 code units, as the F#
-//! reader does). Exit 0 unless the arguments or files cannot be used.
+//! output: `ok`; `deferred <line>:<column>: <message>` when the JSON was written but the `position=`
+//! placement error stands unless the model check fails first; `error MaximumDepthExceeded: 1000`;
+//! or `error <line>:<column>: <message>` (columns count UTF-16 code units, as the F# reader does).
+//! Exit 0 unless the arguments or files cannot be used.
 //!
 //! `record_kinds.txt` beside this file is the per-kind key table, shared with the F# codec.
 const std = @import("std");
@@ -352,7 +354,10 @@ const Writer = struct {
     }
 
     fn open(self: *Writer, key: ?[]const u8, bracket: u8) RecordError!void {
-        if (self.stack.items.len >= max_json_depth) return fail(1, 1, fmt("Maximum JSON depth of {d} exceeded.", .{max_json_depth}));
+        if (self.stack.items.len >= max_json_depth) {
+            depth_exceeded = true;
+            return fail(1, 1, fmt("Maximum JSON depth of {d} exceeded.", .{max_json_depth}));
+        }
         if (key) |k| self.name(k);
         self.separate();
         self.out.append(a, bracket) catch oom();
@@ -604,7 +609,10 @@ var subjects: std.StringHashMap(*Record) = undefined;
 var owned: std.StringArrayHashMapUnmanaged(List(*Record)) = undefined;
 var arms: std.StringArrayHashMapUnmanaged(List(*Record)) = undefined;
 var blocks: List(*List(*Record)) = .empty;
+/// The `position=` placement error, which `RecordCodec.deserialize` reports only after the model check.
 var deferred: ?Failure = null;
+/// The writer's depth limit, which `RecordCodec.deserialize` reports as `MaximumDepthExceeded`.
+var depth_exceeded = false;
 
 fn deferFailure(line: usize, col: usize, message: []const u8) void {
     if (deferred == null) deferred = .{ .line = line, .column = col, .message = message };
@@ -625,6 +633,7 @@ fn decode() RecordError![]const u8 {
     records = .empty;
     blocks = .empty;
     deferred = null;
+    depth_exceeded = false;
     subjects = .init(a);
     owned = .empty;
     arms = .empty;
@@ -793,7 +802,6 @@ fn decode() RecordError![]const u8 {
     for (records.items) |r| {
         if (!r.consumed) return fail(r.line, r.column, if (r.owner) |o| fmt("owner {s} not found", .{o}) else "orphan record");
     }
-    if (deferred) |d| return fail(d.line, d.column, d.message);
     return w.out.items;
 }
 
@@ -1222,8 +1230,11 @@ pub fn main(init: std.process.Init) !void {
         text = input;
         if (decode()) |json| {
             try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[index + 1], .data = json });
-            try out.print("ok\n", .{});
-        } else |_| try out.print("error {d}:{d}: {s}\n", .{ failure.line, failure.column, failure.message });
+            if (deferred) |d| try out.print("deferred {d}:{d}: {s}\n", .{ d.line, d.column, d.message }) else try out.print("ok\n", .{});
+        } else |_| if (depth_exceeded)
+            try out.print("error MaximumDepthExceeded: {d}\n", .{max_json_depth})
+        else
+            try out.print("error {d}:{d}: {s}\n", .{ failure.line, failure.column, failure.message });
     }
     try out.flush();
 }

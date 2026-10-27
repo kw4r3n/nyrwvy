@@ -9,7 +9,8 @@ open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// The Zig snapshot reader (tools/zig/snapshot-reader) turns record text into the same JSON as
-/// `RecordCodec.toJson`, or fails at the same line and column with the same message.
+/// `RecordCodec.toJsonDeferred` (with its deferred placement error), or fails at the same line and
+/// column with the same message.
 module ZigSnapshotReaderTests =
     let private root () =
         let rec find (directory: DirectoryInfo) =
@@ -82,7 +83,7 @@ module ZigSnapshotReaderTests =
                   yield replaceFirst @"schema=\d+" "schema=20" text
                   yield replaceFirst @"schema=\d+" "schema=024" text ]
         let texts = repository @ fixtures @ allKinds @ mutated @ targeted @ [ ""; "\n"; "﻿snapshot x\n"; "snapshot x\r\n"; "snapshot x" ]
-        let reader = PureRun.zigTool "snapshot-reader" |> unwrap
+        let reader = ZigTools.tool "snapshot-reader" |> unwrap
         let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-reader-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory dir |> ignore
         try
@@ -96,16 +97,47 @@ module ZigSnapshotReaderTests =
             child.WaitForExit()
             Assert.Equal(0, child.ExitCode)
             Assert.Equal(texts.Length, lines.Length)
-            let mutable accepted, rejected = 0, 0
+            let mutable accepted, deferred, rejected = 0, 0, 0
             texts |> List.iteri (fun index text ->
-                match RecordCodec.toJson text with
-                | Ok json ->
-                    accepted <- accepted + 1
-                    Assert.True("ok" = lines[index], $"case {index}: F# accepts, Zig says {lines[index]}\n{text}")
+                match RecordCodec.toJsonDeferred text with
+                | Ok(json, later) ->
+                    match later with
+                    | None ->
+                        accepted <- accepted + 1
+                        Assert.True("ok" = lines[index], $"case {index}: F# accepts, Zig says {lines[index]}\n{text}")
+                    | Some error ->
+                        deferred <- deferred + 1
+                        Assert.Equal($"deferred {error.Line}:{error.Column}: {error.Message}", lines[index])
                     Assert.True((json = File.ReadAllText(Path.Combine(dir, $"{index}.json"))), $"case {index}: the JSON differs")
+                | Error { Model = Some(SnapshotCodecError.MaximumDepthExceeded depth) } ->
+                    rejected <- rejected + 1
+                    Assert.Equal($"error MaximumDepthExceeded: {depth}", lines[index])
                 | Error error ->
                     rejected <- rejected + 1
                     Assert.Equal($"error {error.Line}:{error.Column}: {error.Message}", lines[index]))
-            // Both outcomes occur, so neither half of the comparison is vacuous.
-            Assert.True(accepted > 100 && rejected > 300, $"accepted {accepted}, rejected {rejected}")
+            // Every outcome occurs, so no part of the comparison is vacuous.
+            Assert.True(accepted > 100 && deferred > 0 && rejected > 300, $"accepted {accepted}, deferred {deferred}, rejected {rejected}")
         finally Directory.Delete(dir, true)
+
+    [<Fact>]
+    let ``The session's read path routes to the F# reader and maps the Zig readers' lines`` () =
+        let dependency = Snapshot.empty (StableId.createForTesting<SnapshotTag> "zig-read-dependency")
+        Assert.True(ZigSnapshotReader.routes null None)
+        Assert.False(ZigSnapshotReader.routes "fsharp" None)
+        Assert.False(ZigSnapshotReader.routes null (Some dependency))
+        let verdict record model = ZigSnapshotReader.verdict record model |> unwrap
+        let rejected error = ZigSnapshotReader.Verdict.Rejected error
+        Assert.Equal(ZigSnapshotReader.Verdict.FSharpOnly, verdict None [ "skip legacy schema 20" ])
+        Assert.Equal(ZigSnapshotReader.Verdict.Accepted, verdict (Some "ok") [ "end" ])
+        // A record error, as `recordFailure` words it, and the depth error with its model case.
+        Assert.Equal(rejected (SnapshotCodecError.InvalidShape "line 3, column 7: orphan record"), verdict (Some "error 3:7: orphan record") [])
+        Assert.Equal(rejected (SnapshotCodecError.MaximumDepthExceeded 1000), verdict (Some "error MaximumDepthExceeded: 1000") [])
+        // A model error, with its line breaks restored.
+        Assert.Equal(rejected (SnapshotCodecError.InvalidShape "a\nb"), verdict None [ "error InvalidShape: a\\nb" ])
+        Assert.Equal(rejected (SnapshotCodecError.UnsupportedSchemaVersion 99), verdict None [ "error UnsupportedSchemaVersion: 99" ])
+        // Validation issues win over the deferred placement error, which wins over acceptance.
+        let issues: ValidationIssue list = [ { Code = "A"; Message = "x: y" }; { Code = "B"; Message = "y\nz" } ]
+        Assert.Equal(rejected (SnapshotCodecError.InvalidSnapshot issues), verdict (Some "deferred 2:1: late") [ "issue A: x: y"; "issue B: y\\nz"; "end" ])
+        Assert.Equal(rejected (SnapshotCodecError.InvalidShape "line 2, column 1: late"), verdict (Some "deferred 2:1: late") [ "end" ])
+        Assert.True(Result.isError (ZigSnapshotReader.verdict None [ "issue A: x" ]))
+        Assert.True(Result.isError (ZigSnapshotReader.verdict (Some "ok") []))

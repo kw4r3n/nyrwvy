@@ -534,7 +534,12 @@ module SnapshotMigrationTests =
         let stdout = child.StandardOutput.ReadToEndAsync()
         let stderr = child.StandardError.ReadToEndAsync()
         child.WaitForExit()
-        child.ExitCode, stdout.Result, stderr.Result
+        // A machine without Zig adds the read path's one-time fallback note (docs/decisions/zig-tools.md).
+        let errors =
+            stderr.Result.Split('\n')
+            |> Array.filter (fun line -> not (line.StartsWith "nyrwvy: the Zig snapshot reader is unavailable"))
+            |> String.concat "\n"
+        child.ExitCode, stdout.Result, errors
 
     [<Fact>]
     let ``the migrate command prints the report and exits without starting a session; a rejection exits with status 2`` () =

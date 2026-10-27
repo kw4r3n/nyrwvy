@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="GeneratedBuild.fs" />
     <Compile Include="PureRunWorker.fs" />
+    <Compile Include="ZigTools.fs" />
     <Compile Include="Session.fs" />
     <Compile Include="CSharpFacade.fs" />
     <Compile Include="Migration.fs" />

@@ -227,7 +227,7 @@ type ZigModelReaderComparison(output: ITestOutputHelper) =
                   yield json.Insert(at, [| ","; "}"; "x"; "\"" |][random.Next 4]) ]
             |> List.distinct
         let texts = originals @ mutated @ perKind allKinds @ targeted
-        let reader = PureRun.zigTool "model-reader" |> ZigModelReaderSupport.unwrap
+        let reader = ZigTools.tool "model-reader" |> ZigModelReaderSupport.unwrap
         let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-model-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory dir |> ignore
         try
@@ -262,7 +262,7 @@ type ZigModelReaderComparison(output: ITestOutputHelper) =
                     | Some(Error error) ->
                         let line =
                             // One line per input: the Zig reader writes a line break in a message as `\n`.
-                            (fun (text: string) -> text.Replace("\r", "\\r").Replace("\n", "\\n")) <|
+                            (fun (text: string) -> text.Replace("\\", "\\\\").Replace("\r", "\\r").Replace("\n", "\\n")) <|
                             match error with
                             | SnapshotCodecError.InvalidJson message -> $"error InvalidJson: {message}"
                             | SnapshotCodecError.InvalidShape message -> $"error InvalidShape: {message}"
