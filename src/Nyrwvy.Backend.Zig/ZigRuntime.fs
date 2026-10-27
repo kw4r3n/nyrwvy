@@ -325,6 +325,39 @@ fn nyBytesToLatin1(bytes: NyBytes) []const u8 {
     return out.items;
 }
 
+/// The language's sort: a top-down merge sort; a list of 0 or 1 items is returned as is, the
+/// first length / 2 items and the rest are sorted, then merged taking the right head only when
+/// less(right head, left head) holds.
+fn nySortBy(comptime T: type, list: []const T, context: anytype, comptime less: anytype) []const T {
+    if (list.len <= 1) return list;
+    const half = list.len / 2;
+    const left = nySortBy(T, list[0..half], context, less);
+    const right = nySortBy(T, list[half..], context, less);
+    const out = nyAlloc(T, list.len);
+    var l: usize = 0;
+    var r: usize = 0;
+    for (out) |*slot| {
+        if (l < left.len and (r >= right.len or !less(context, right[r], left[l]))) {
+            slot.* = left[l];
+            l += 1;
+        } else {
+            slot.* = right[r];
+            r += 1;
+        }
+    }
+    return out;
+}
+
+/// The first best item: a later item replaces it only when better(context, item, best) holds.
+fn nyBestBy(comptime T: type, list: []const T, context: anytype, comptime better: anytype) ?T {
+    if (list.len == 0) return null;
+    var best = list[0];
+    for (list[1..]) |item| {
+        if (better(context, item, best)) best = item;
+    }
+    return best;
+}
+
 /// Structural equality over every supported value type.
 fn nyEqual(left: anytype, right: @TypeOf(left)) bool {
     const T = @TypeOf(left);

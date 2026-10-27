@@ -92,6 +92,12 @@ module ZigBackend =
         // A capability value's type is declared by whoever binds the capability (a runPure runner's
         // fakes for now), with one method per operation.
         | TypeRef.Capability capabilityId when Set.contains capabilityId capabilities -> Some(capabilityName capabilityId)
+        | TypeRef.Function(parameters, result) ->
+            let parts = (result :: parameters) |> List.map inner
+            if List.forall Option.isSome parts then
+                let parts = parts |> List.map Option.get
+                Some("*const fn (" + String.Join(", ", List.tail parts) + ") " + List.head parts)
+            else None
         | _ -> None
 
     /// The Zig type of a supported value type of a program.
@@ -162,6 +168,16 @@ module ZigBackend =
             let name = context.Call functionId (arguments |> List.map (fun (id, _, typeRef) -> id, typeRef)) result
             name + "(" + String.Join(", ", arguments |> List.map (fun (_, expression, _) -> expression)) + ")"
         let block (body: string) = assign ("blk: { " + body + " }")
+        /// A comparison callback as a Zig function value: bound values travel in `c`, the two
+        /// compared items are `l` and `r`.
+        let comparator (functionId: FunctionId) (bindings: ExecutionCallArgument list) (item: TypeRef) (first: string) (second: string) =
+            let call = callback functionId bindings [ first, item; second, item ] (TypeRef.Primitive PrimitiveType.Bool)
+            let captured = bindings |> List.map (fun binding -> v binding.ValueId) |> List.distinct
+            // Zig forbids shadowing the outer locals, so the call reads them from `c` (value names
+            // have one fixed length, so no name is a prefix of another).
+            let inner = captured |> List.fold (fun (text: string) name -> text.Replace(name, "c." + name)) call
+            let context = ".{ " + String.Join(", ", captured |> List.map (fun name -> "." + name + " = " + name)) + " }"
+            context, "struct { fn less(c: anytype, l: " + zig item + ", r: " + zig item + ") bool { _ = &c; return " + inner + "; } }.less"
         let mapTypes (mapValue: ExecutionValueId) =
             match context.ValueType mapValue with
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ key; value ]) -> key, value
@@ -359,6 +375,24 @@ module ZigBackend =
             let byParameter = arguments |> List.map (fun argument -> argument.TargetCapabilityParameterId, argument.ValueId) |> Map.ofList
             let rendered = context.OperationParameters operationId |> List.map (fun id -> v (Map.find id byParameter))
             assign (v capability + "." + operationName operationId + "(" + String.Join(", ", rendered) + ")")
+        | ExecutionInstructionKind.ListSortBy(source, lessThan, bindings) ->
+            let context, less = comparator lessThan bindings (itemType (context.ValueType source)) "l" "r"
+            assign ("nySortBy(" + elementOf source + ", " + v source + ", " + context + ", " + less + ")")
+        | ExecutionInstructionKind.ListMinBy(source, lessThan, bindings) ->
+            let context, less = comparator lessThan bindings (itemType (context.ValueType source)) "l" "r"
+            assign ("nyBestBy(" + elementOf source + ", " + v source + ", " + context + ", " + less + ")")
+        | ExecutionInstructionKind.ListMaxBy(source, lessThan, bindings) ->
+            // The best is replaced when lessThan(best, item): the same comparator with the items swapped.
+            let context, less = comparator lessThan bindings (itemType (context.ValueType source)) "r" "l"
+            assign ("nyBestBy(" + elementOf source + ", " + v source + ", " + context + ", " + less + ")")
+        | ExecutionInstructionKind.FunctionReference functionId ->
+            match instruction.Result.Type with
+            | TypeRef.Function(parameters, result) ->
+                let ids = context.Parameters functionId |> List.map fst
+                assign ("&" + context.Call functionId (List.zip ids parameters) result)
+            | other -> invalidOp $"Expected a function type, got {other}."
+        | ExecutionInstructionKind.FunctionInvoke(target, arguments) ->
+            assign (v target + "(" + String.Join(", ", arguments |> List.map v) + ")")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let byParameter = arguments |> List.map (fun argument -> argument.TargetParameterId, argument.ValueId) |> Map.ofList
             let parameters = context.Parameters functionId |> List.map fst

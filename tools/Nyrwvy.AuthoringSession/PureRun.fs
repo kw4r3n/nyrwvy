@@ -1207,8 +1207,16 @@ module PureRun =
         let program = whole |> Option.defaultValue reach
         // One runner serves every runnable entry of the snapshot, so a session builds once per
         // snapshot; a program the backend cannot emit whole falls back to this entry's reach.
+        // Function values are not run values, so an entry taking or returning one is not dispatched.
+        let rec mentionsFunction typeRef =
+            match typeRef with
+            | TypeRef.Function _ -> true
+            | TypeRef.Named(_, arguments)
+            | TypeRef.BuiltinGeneric(_, arguments) -> List.exists mentionsFunction arguments
+            | _ -> false
         let runnable (program: ExecutionProgram) (candidate: ExecutionFunction) =
             List.isEmpty candidate.TypeParameters
+            && not (candidate.ResultType :: (candidate.Parameters |> List.map (fun parameter -> parameter.Value.Type)) |> List.exists mentionsFunction)
             && candidate.ResultType :: (candidate.Parameters |> List.map (fun parameter -> parameter.Value.Type))
                |> List.forall (ZigBackend.typeOf program >> Option.isSome)
         let withFakes (program: ExecutionProgram) =

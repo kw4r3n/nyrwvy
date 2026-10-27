@@ -295,3 +295,29 @@ module ZigBackendTests =
             compare [ keyed; "\"ä 😀\"" ]
             compare [ keyed; "\"other\"" ]
         finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs sorting, min and max by, and function values and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let ints = $"""{{"kind":"builtinGeneric","generic":"list","arguments":[{int64Type}]}}"""
+            let optionInt = $"""{{"kind":"builtinGeneric","generic":"option","arguments":[{int64Type}]}}"""
+            let modulo name = $"""{{"kind":"int64FloorModulo","left":{p name},"right":{{"kind":"int64Literal","value":10}}}}"""
+            // Orders by the last digit only, so equal keys show stability; `descending` comes from context.
+            create session "before" [ "descending", boolType; "left", int64Type; "right", int64Type ] boolType
+                ($"""{{"kind":"conditional","condition":{p "descending"},"whenTrue":{{"kind":"int64LessThan","left":{modulo "right"},"right":{modulo "left"}}},"whenFalse":{{"kind":"int64LessThan","left":{modulo "left"},"right":{modulo "right"}}}}}""")
+            create session "sorted" [ "xs", ints; "down", boolType ] ints ($"""{{"kind":"listSortBy","source":{p "xs"},"function":"before","context":[{{"parameter":"descending","value":{p "down"}}}]}}""")
+            create session "smallest" [ "xs", ints ] optionInt ($"""{{"kind":"listMinBy","source":{p "xs"},"function":"before","context":[{{"parameter":"descending","value":{{"kind":"boolLiteral","value":false}}}}]}}""")
+            create session "largest" [ "xs", ints ] optionInt ($"""{{"kind":"listMaxBy","source":{p "xs"},"function":"before","context":[{{"parameter":"descending","value":{{"kind":"boolLiteral","value":false}}}}]}}""")
+            let unary = $"""{{"kind":"function","parameters":[{int64Type}],"resultType":{int64Type}}}"""
+            create session "twice" [ "x", int64Type ] int64Type ($"""{{"kind":"int64WrappingMultiply","left":{p "x"},"right":{{"kind":"int64Literal","value":2}}}}""")
+            create session "apply" [ "f", unary; "x", int64Type ] int64Type ($"""{{"kind":"functionInvoke","functionValue":{p "f"},"arguments":[{{"kind":"functionInvoke","functionValue":{p "f"},"arguments":[{p "x"}]}}]}}""")
+            create session "quadruple" [ "x", int64Type ] int64Type ($"""{{"kind":"directCall","function":"apply","arguments":[{{"parameter":"f","value":{{"kind":"functionReference","function":"twice"}}}},{{"parameter":"x","value":{p "x"}}}]}}""")
+            for xs in [ "[]"; "[7]"; "[13,2,23,5,42,3,12,33]" ] do
+                for down in [ "true"; "false" ] do agree session "sorted" [ xs; down ]
+                agree session "smallest" [ xs ]
+                agree session "largest" [ xs ]
+            for x in [ "3"; "-9223372036854775808" ] do agree session "quadruple" [ x ]
+        finally Directory.Delete(dir, true)
