@@ -2034,12 +2034,19 @@ module AuthoringProtocol =
                     |> Option.defaultValue []
                 // Both run operations report the same output: exact IDs plus display names beside them.
                 let runNames = runNames (names |> Option.defaultWith session.Declarations)
+                // An explicit backend wins; otherwise the workspace's first declared target.
                 let backend =
-                    match tryProperty "backend" root |> Option.map (fun value -> value.ValueKind, (if value.ValueKind = JsonValueKind.String then value.GetString() else null)) with
-                    | None
-                    | Some(_, "csharp") -> PureRunBackend.CSharp
-                    | Some(_, "zig") -> PureRunBackend.Zig
+                    match tryProperty "backend" root with
+                    | Some value when value.ValueKind = JsonValueKind.String ->
+                        match PureRunBackends.parse (value.GetString()) with
+                        | Ok backend -> backend
+                        | Error message -> fail message
                     | Some _ -> fail "backend must be \"csharp\" or \"zig\"."
+                    | None ->
+                        match PureRunBackends.declared session.Path with
+                        | Ok(first :: _) -> first
+                        | Ok [] -> PureRunBackend.CSharp
+                        | Error message -> fail message
                 match PureRun.runWithHostOn backend session functionId arguments expected hostSources with
                 | Ok result ->
                     success requestId
