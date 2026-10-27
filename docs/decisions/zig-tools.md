@@ -31,7 +31,7 @@ The emitter's input and output are both text with a byte-exact reference, so the
 - A change to the emitter is made in both languages until the F# one is retired; the extended suite reports any difference.
 - Unsupported-construct messages name a type by its IR JSON on the Zig route, not by F#'s `%A` text.
 - The emitted source now crosses a process boundary, so runPure's 1 MiB output limit (`RunOutputTooLarge`) applies to it; the runtime and case mapping take about 70 KB, so only very large programs reach it.
-- The check covers only the instruction kinds the extended suite reaches. On 2026-10-27, 41 of the 192 kinds the emitter knows appeared in no checked program: `bytesEmpty`, `float64Literal`, `int64Equal`, `int64GreaterThan`, `int64GreaterThanOrEqual`, `int64LessThanOrEqual`, `listAll`, `listConcat`, `listContains`, `listDropLast`, `listEmpty`, `listFindIndex`, `listFlatMap`, `listIndexOf`, `listLast`, `listLastIndexOf`, `listLength`, `listScan`, `listZipWith`, `mapContainsKey`, `mapFilter`, `mapFold`, `mapFromList`, `mapGet`, `mapMapValues`, `mapSize`, `mapValues`, `optionIsSome`, `resultGetOrDefault`, `resultIsOk`, `setContains`, `setEmpty`, `setFilter`, `setFold`, `setInsert`, `setMap`, `setRemove`, `setSize`, `setToList`, `stringEqual`, `stringIsEmpty`. Their ports are unverified until a checked program uses them.
+- The check covers only the instruction kinds the extended suite reaches; on 2026-10-27 that is all 192 the emitter knows (one test exists only to reach the kinds no other Zig test used). A new kind needs a checked program too.
 - Strings compare by UTF-8 bytes in Zig and by UTF-16 code units in F#; the two orders differ only beyond the Basic Multilingual Plane, which stable IDs never use.
 
 ## Next stage

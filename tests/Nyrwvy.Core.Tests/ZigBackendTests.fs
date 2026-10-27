@@ -619,3 +619,68 @@ module ZigBackendTests =
                 | Ok(Error _) -> ()
                 | Error error -> failwithf "%s: %A" path error
         Assert.True(emitted > 0, "No repository program was emitted, so nothing was compared.")
+
+    /// The instruction kinds no other Zig test reaches, so the emitter check covers them too.
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs the remaining list, map and set operations and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let generic name (arguments: string list) = $"""{{"kind":"builtinGeneric","generic":"{name}","arguments":[{String.Join(",", arguments)}]}}"""
+            let ints = generic "list" [ int64Type ]
+            let set = generic "set" [ int64Type ]
+            let map = generic "map" [ int64Type; int64Type ]
+            let lit (n: int) = $"""{{"kind":"int64Literal","value":{n}}}"""
+            let xs = p "xs"
+            let toSet = $"""{{"kind":"setFromList","value":{xs}}}"""
+            let toMap = $"""{{"kind":"mapFromList","source":{xs},"function":"half"}}"""
+            let fn name parameters result body = create session name parameters result body
+            fn "half" [ "x", int64Type ] int64Type ($"""{{"kind":"int64FloorDivide","left":{p "x"},"right":{lit 2}}}""")
+            fn "positive" [ "x", int64Type ] boolType ($"""{{"kind":"int64GreaterThan","left":{p "x"},"right":{lit 0}}}""")
+            fn "add" [ "acc", int64Type; "x", int64Type ] int64Type ($"""{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{p "x"}}}""")
+            fn "mul" [ "a", int64Type; "b", int64Type ] int64Type ($"""{{"kind":"int64WrappingMultiply","left":{p "a"},"right":{p "b"}}}""")
+            fn "twice" [ "x", int64Type ] ints ($"""{{"kind":"listConcat","left":{{"kind":"listEmpty","itemType":{int64Type}}},"right":{{"kind":"listAppendItem","list":{{"kind":"listAppendItem","list":{{"kind":"listEmpty","itemType":{int64Type}}},"item":{p "x"}}},"item":{p "x"}}}}}""")
+            fn "keyAdd" [ "acc", int64Type; "k", int64Type; "v", int64Type ] int64Type ($"""{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{{"kind":"int64WrappingMultiply","left":{p "k"},"right":{p "v"}}}}}""")
+            fn "keyBig" [ "k", int64Type; "v", int64Type ] boolType ($"""{{"kind":"int64GreaterThanOrEqual","left":{p "v"},"right":{p "k"}}}""")
+            fn "keyLe" [ "k", int64Type; "v", int64Type ] int64Type ($"""{{"kind":"int64WrappingSubtract","left":{p "v"},"right":{p "k"}}}""")
+            fn "small" [ "x", int64Type ] boolType ($"""{{"kind":"int64LessThanOrEqual","left":{p "x"},"right":{lit 3}}}""")
+            fn "isTwo" [ "x", int64Type ] boolType ($"""{{"kind":"int64Equal","left":{p "x"},"right":{lit 2}}}""")
+            let cases =
+                [ "all", boolType, $"""{{"kind":"listAll","source":{xs},"function":"positive"}}"""
+                  "findIndex", generic "option" [ int64Type ], $"""{{"kind":"listFindIndex","source":{xs},"function":"isTwo"}}"""
+                  "flatMap", ints, $"""{{"kind":"listFlatMap","source":{xs},"function":"twice"}}"""
+                  "scan", ints, $"""{{"kind":"listScan","source":{xs},"seed":{lit 0},"function":"add"}}"""
+                  "zip", ints, $"""{{"kind":"listZipWith","left":{xs},"right":{{"kind":"listDropLast","value":{xs}}},"function":"mul"}}"""
+                  "last", generic "option" [ int64Type ], $"""{{"kind":"listLast","value":{xs}}}"""
+                  "length", int64Type, $"""{{"kind":"listLength","value":{xs}}}"""
+                  "contains", boolType, $"""{{"kind":"listContains","list":{xs},"item":{lit 3}}}"""
+                  "indexOf", generic "option" [ int64Type ], $"""{{"kind":"listIndexOf","list":{xs},"item":{lit 3}}}"""
+                  "lastIndexOf", generic "option" [ int64Type ], $"""{{"kind":"listLastIndexOf","list":{xs},"item":{lit 3}}}"""
+                  "mapFold", int64Type, $"""{{"kind":"mapFold","map":{toMap},"seed":{lit 0},"function":"keyAdd"}}"""
+                  "mapFilter", map, $"""{{"kind":"mapFilter","map":{toMap},"function":"keyBig"}}"""
+                  "mapValues", ints, $"""{{"kind":"mapValues","value":{{"kind":"mapMapValues","map":{toMap},"function":"keyLe"}}}}"""
+                  "mapGet", generic "option" [ int64Type ], $"""{{"kind":"mapGet","map":{toMap},"key":{lit 1}}}"""
+                  "mapHas", boolType, $"""{{"kind":"mapContainsKey","map":{toMap},"key":{lit 1}}}"""
+                  "mapSize", int64Type, $"""{{"kind":"mapSize","value":{toMap}}}"""
+                  "setFold", int64Type, $"""{{"kind":"setFold","set":{toSet},"seed":{lit 0},"function":"add"}}"""
+                  "setFilter", ints, $"""{{"kind":"setToList","value":{{"kind":"setFilter","set":{toSet},"function":"small"}}}}"""
+                  "setMap", ints, $"""{{"kind":"setToList","value":{{"kind":"setMap","set":{toSet},"function":"half"}}}}"""
+                  "setEdit", int64Type, $"""{{"kind":"setSize","value":{{"kind":"setRemove","set":{{"kind":"setInsert","set":{{"kind":"setEmpty","itemType":{int64Type}}},"item":{lit 4}}},"item":{lit 5}}}}}"""
+                  "setHas", boolType, $"""{{"kind":"setContains","set":{toSet},"item":{lit 3}}}"""
+                  "someLast", boolType, $"""{{"kind":"optionIsSome","value":{{"kind":"listLast","value":{xs}}}}}"""
+                  "bytes", int64Type, $"""{{"kind":"bytesLength","value":{{"kind":"bytesEmpty"}}}}"""
+                  "float", boolType, $"""{{"kind":"float64LessThan","left":{{"kind":"float64Literal","bits":"3ff8000000000000"}},"right":{{"kind":"int64ToFloat64","value":{{"kind":"listLength","value":{xs}}}}}}}"""
+                  "text", boolType, $"""{{"kind":"stringEqual","left":{{"kind":"int64ToString","value":{{"kind":"listLength","value":{xs}}}}},"right":{{"kind":"stringLiteral","value":"3"}}}}"""
+                  "empty", boolType, $"""{{"kind":"stringIsEmpty","value":{{"kind":"int64ToString","value":{lit 0}}}}}""" ]
+            for name, result, body in cases do fn name [ "xs", ints ] result body
+            // Ok(n) for n >= 0, else Err.
+            let checkedOf = $"""{{"kind":"conditional","condition":{{"kind":"int64LessThan","left":{p "n"},"right":{lit 0}}},"whenTrue":{{"kind":"resultErr","okType":{int64Type},"error":{{"kind":"stringLiteral","value":"no"}}}},"whenFalse":{{"kind":"resultOk","errorType":{stringType},"value":{p "n"}}}}}"""
+            fn "okOr" [ "n", int64Type ] int64Type ($"""{{"kind":"resultGetOrDefault","result":{checkedOf},"default":{lit -1}}}""")
+            fn "isOk" [ "n", int64Type ] boolType ($"""{{"kind":"resultIsOk","value":{checkedOf}}}""")
+            for value in [ "[]"; "[3]"; "[1,2,3,4,3,-5,2]" ] do
+                for name, _, _ in cases do agree session name [ value ]
+            for n in [ "7"; "-2" ] do
+                agree session "okOr" [ n ]
+                agree session "isOk" [ n ]
+        finally Directory.Delete(dir, true)
