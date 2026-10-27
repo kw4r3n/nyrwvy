@@ -18,6 +18,8 @@
 //! line when the shape read fails, otherwise the typed semantic IR of the model (or of the
 //! functions the entry reaches) written to `<out.json>` and `ok`, or `error InvalidSnapshot: <n>
 //! issues`, `error IncompleteSnapshot: <ids>` or `error MissingNodeType: <function> <node>`.
+//! `--execution-ir`, same arguments, writes the Execution IR instead (`ExecutionIr.lower`), or prints
+//! `error <ExecutionIrError case>: <function> <ids>` when the lowering fails.
 //!
 //! `model_kinds.txt` beside this file is the node reader table, one kind per line:
 //! `kind|context|name:shape ...|written names` (properties in reading order; the last field only
