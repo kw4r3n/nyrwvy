@@ -23,10 +23,13 @@ module ZigBackend =
     let private fieldName (fieldId: FieldId) = identifier "f_" (StableId.value fieldId)
     let private variantName (variantId: VariantId) = identifier "c_" (StableId.value variantId)
 
-    /// A short stable suffix for one list of type arguments.
+    /// A short stable suffix for one list of type arguments: a hash of their IR JSON array, which the
+    /// Zig emitter (tools/zig/emitter) reproduces.
     let private instanceSuffix (arguments: TypeRef list) =
         if List.isEmpty arguments then ""
-        else "__" + Convert.ToHexString(Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(sprintf "%A" arguments))).Substring(0, 12)
+        else
+            let json = "[" + String.Join(",", arguments |> List.map ExecutionIrSerializer.serializeTypeRef) + "]"
+            "__" + Convert.ToHexString(Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes json)).Substring(0, 12)
 
     let private instanceName (functionId: FunctionId) (arguments: TypeRef list) =
         identifier "f_" (StableId.value functionId) + instanceSuffix arguments
@@ -176,6 +179,7 @@ module ZigBackend =
             let name = context.Call functionId (arguments |> List.map (fun (id, _, typeRef) -> id, typeRef)) result
             name + "(" + String.Join(", ", arguments |> List.map (fun (_, expression, _) -> expression)) + ")"
         let block (body: string) = assign ("blk: { " + body + " }")
+        let sorted (bindings: ExecutionCallArgument list) = bindings |> List.sortBy (fun binding -> StableId.value binding.TargetParameterId)
         let attempt (functionId: FunctionId) (call: string) = if context.MayFail functionId then "try " + call else call
         /// A callback run later, on another thread: the values it reads travel in `c`.
         let deferred (call: string) (captured: string list) =
@@ -191,7 +195,7 @@ module ZigBackend =
         /// compared items are `l` and `r`.
         let comparator (functionId: FunctionId) (bindings: ExecutionCallArgument list) (item: TypeRef) (first: string) (second: string) =
             let call = callback functionId bindings [ first, item; second, item ] (TypeRef.Primitive PrimitiveType.Bool)
-            let captured = bindings |> List.map (fun binding -> v binding.ValueId) |> List.distinct
+            let captured = sorted bindings |> List.map (fun binding -> v binding.ValueId) |> List.distinct
             // Zig forbids shadowing the outer locals, so the call reads them from `c` (value names
             // have one fixed length, so no name is a prefix of another).
             let inner = captured |> List.fold (fun (text: string) name -> text.Replace(name, "c." + name)) call
@@ -242,7 +246,7 @@ module ZigBackend =
         | ExecutionInstructionKind.ProductConstruct fields -> assign ("nyBox(" + resultTypeName () + ", " + fieldList fields + ")")
         | ExecutionInstructionKind.FieldAccess(source, fieldId) -> assign (v source + "." + fieldName fieldId)
         | ExecutionInstructionKind.ProductUpdate(source, fields) ->
-            let updates = fields |> List.map (fun field -> " copy." + fieldName field.TargetFieldId + " = " + v field.ValueId + ";") |> String.concat ""
+            let updates = fields |> List.sortBy (fun field -> StableId.value field.TargetFieldId) |> List.map (fun field -> " copy." + fieldName field.TargetFieldId + " = " + v field.ValueId + ";") |> String.concat ""
             block ("var copy = " + v source + ".*;" + updates + " break :blk nyBox(" + resultTypeName () + ", copy);")
         | ExecutionInstructionKind.UnionConstruct(variantId, fields) ->
             assign ("nyBox(" + resultTypeName () + ", .{ ." + variantName variantId + " = " + fieldList fields + " })")
@@ -450,7 +454,7 @@ module ZigBackend =
         | ExecutionInstructionKind.TaskStart(scope, worker, bindings, item) ->
             let work = argumentOf instruction.Result.Type 0
             let call = callback worker bindings [ v item, context.ValueType item ] work
-            let captured, inner = deferred call (v item :: (bindings |> List.map (fun binding -> v binding.ValueId)))
+            let captured, inner = deferred call (v item :: (sorted bindings |> List.map (fun binding -> v binding.ValueId)))
             let result = (if context.MayFail worker then "NyError!" else "") + zig work
             block ("const captured = " + captured + "; break :blk nyStartTask(" + zig work + ", " + v scope + ", NyJob(@TypeOf(captured), " + result + ", struct { fn call(c: anytype) " + result + " { return " + attempt worker inner + "; } }.call){ .c = captured });")
         | ExecutionInstructionKind.TaskWait(tasks, mode, limit) ->
@@ -467,7 +471,7 @@ module ZigBackend =
             let values, error = argumentOf instruction.Result.Type 0, argumentOf instruction.Result.Type 1
             let outcome = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ itemType values; error ])
             let call = callback worker bindings [ "item", element ] outcome
-            let captured, inner = deferred call (bindings |> List.map (fun binding -> v binding.ValueId))
+            let captured, inner = deferred call (sorted bindings |> List.map (fun binding -> v binding.ValueId))
             assign ("try nyParallelAll(" + zig element + ", " + zig (itemType values) + ", " + zig error + ", " + v source + ", " + captured + ", struct { fn call(c: anytype, item: " + zig element + ") NyError!" + zig outcome + " { _ = &c; return " + attempt worker inner + "; } }.call)")
         | ExecutionInstructionKind.ListEffectFold(source, seed, folder, bindings) ->
             let state = context.ValueType seed
@@ -591,7 +595,7 @@ module ZigBackend =
             | ExecutionTerminator.Return value -> line ("            return " + valueName value + ";")
             | ExecutionTerminator.Abort(_, error) -> line ("            return .{ .err = " + valueName error + " };")
             | ExecutionTerminator.Jump(target, arguments) ->
-                assignAll (arguments |> List.map (fun argument -> argument.TargetValueId, argument.ValueId))
+                assignAll (arguments |> List.sortBy (fun argument -> ExecutionValueId.value argument.TargetValueId) |> List.map (fun argument -> argument.TargetValueId, argument.ValueId))
                 line ("            " + goTo target + ";")
             | ExecutionTerminator.Branch(condition, whenTrue, whenFalse) ->
                 line ("            if (" + valueName condition + ") " + goTo whenTrue + ";")
@@ -640,9 +644,23 @@ module ZigBackend =
             line "};"
         line ""
 
+    /// The program in the order its IR JSON lists functions, blocks, capabilities and operations, so
+    /// the emitted source depends only on the IR (the Zig emitter reads it from that JSON).
+    let private canonical (program: ExecutionProgram) =
+        { program with
+            Functions =
+                program.Functions
+                |> List.sortBy (fun fn -> StableId.value fn.SemanticFunctionId)
+                |> List.map (fun fn -> { fn with Blocks = fn.Blocks |> List.sortBy (fun block -> ExecutionBlockId.value block.Id) })
+            Capabilities =
+                program.Capabilities
+                |> List.sortBy (fun capability -> StableId.value capability.Id)
+                |> List.map (fun capability -> { capability with Operations = capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id) }) }
+
     /// Zig source for the program's non-generic functions and every instance of a generic function
     /// or type they reach, or what is outside the supported slice.
     let emit (program: ExecutionProgram) : Result<string, string list> =
+        let program = canonical program
         let types = program.Types |> List.map (fun item -> item.Id, item) |> Map.ofList
         let functions = program.Functions |> List.map (fun fn -> fn.SemanticFunctionId, fn) |> Map.ofList
         let parametersOf functionId =
@@ -766,6 +784,7 @@ module ZigBackend =
     /// script) and return it, or end the run as the C# runner's fake exceptions do. `fake` indexes the
     /// per-operation script arrays; `site` is the capability's first call site.
     let fakeCapabilities (program: ExecutionProgram) : Result<string, string list> =
+        let program = canonical program
         let zig typeRef = typeOf program typeRef
         let problems =
             program.Capabilities

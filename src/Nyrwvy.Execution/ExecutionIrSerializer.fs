@@ -119,6 +119,9 @@ module ExecutionIrSerializer =
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, arguments) ->
             invalidOp $"Execution IR contains Set with {arguments.Length} type arguments."
 
+    /// One type in IR form; the Zig backend names generic instances by a hash of it.
+    let serializeTypeRef (typeRef: TypeRef): string = writeTypeRef typeRef
+
     let private writeOrigin (origin: ExecutionOrigin): string =
         match origin with
         | ExecutionOrigin.FunctionParameter parameterId ->

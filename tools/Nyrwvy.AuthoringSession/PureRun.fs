@@ -1239,6 +1239,79 @@ module PureRun =
         if OperatingSystem.IsWindows() then Directory.CreateDirectory path |> ignore
         else Directory.CreateDirectory(path, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute) |> ignore
 
+    let private sha256Hex (text: string) = Convert.ToHexString(Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes text))
+
+    let private emitterLock = obj ()
+    let mutable private emitterPath: string option = None
+
+    /// The Zig emitter (tools/zig/emitter beside mise.toml, see docs/decisions/zig-tools.md), built
+    /// once into the runner cache, keyed by a hash of its sources.
+    let private zigEmitter () =
+        lock emitterLock (fun () ->
+            match emitterPath with
+            | Some path -> Ok path
+            | None ->
+                try
+                    let sources = Path.Combine(zigDirectory.Value, "tools", "zig", "emitter")
+                    let text = [ "main.zig"; "runtime.zig"; "case_mapping.zig" ] |> List.map (fun name -> File.ReadAllText(Path.Combine(sources, name))) |> String.concat "\u0000"
+                    let directory = Path.Combine(zigCache, "emitter-" + (sha256Hex text).Substring(0, 32))
+                    let executable = Path.Combine(directory, "emitter")
+                    let built =
+                        if File.Exists executable then Ok()
+                        else
+                            createPrivateDirectory zigCache
+                            createPrivateDirectory directory
+                            // Built under a fresh name and moved, so another process never runs a partial file.
+                            let partial = executable + "." + Guid.NewGuid().ToString("N")
+                            launchProcess (zigExecutable ()) "Zig emitter build" zigDirectory.Value
+                                [ "build-exe"; Path.Combine(sources, "main.zig"); "-O"; "ReleaseSafe"
+                                  "--cache-dir"; Path.Combine(zigCache, "cache"); "-femit-bin=" + partial ] 300000
+                            |> Result.bind (fun (code, output, errors) ->
+                                if code = 0 && File.Exists partial then
+                                    File.Move(partial, executable, true)
+                                    Ok()
+                                else Error(processFailure output errors))
+                    built |> Result.map (fun () -> emitterPath <- Some executable; executable)
+                with
+                | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
+                | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message))
+
+    /// Zig source and fake capabilities for the program from the Zig emitter, or the constructs it
+    /// does not support. With `NYRWVY_ZIG_EMITTER_CHECK` set (the extended tests set it), the F#
+    /// emitter's output must match byte for byte.
+    let zigEmit (program: ExecutionProgram) : Result<Result<string, string list>, PureRunError> =
+        let ir = ExecutionIrSerializer.serialize program
+        zigEmitter ()
+        |> Result.bind (fun emitter ->
+            let input = Path.Combine(zigCache, "ir-" + Guid.NewGuid().ToString("N") + ".json")
+            try
+                try
+                    File.WriteAllText(input, ir)
+                    launchProcess emitter "Zig emitter" zigCache [ input ] 60000
+                finally File.Delete input
+            with
+            | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
+            | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message))
+        |> Result.bind (fun (code, output, errors) ->
+            match code with
+            | 0 -> Ok(Ok output)
+            | 2 -> Ok(Error(output.Split('\n', StringSplitOptions.RemoveEmptyEntries) |> List.ofArray))
+            | _ -> Error(processFailure output errors))
+        |> Result.bind (fun emitted ->
+            match Environment.GetEnvironmentVariable "NYRWVY_ZIG_EMITTER_CHECK" with
+            | null | "" -> Ok emitted
+            | _ ->
+                let reference = ZigBackend.emit program |> Result.bind (fun source -> ZigBackend.fakeCapabilities program |> Result.map (fun fakes -> source + fakes))
+                match emitted, reference with
+                | Ok zig, Ok fsharp when zig <> fsharp ->
+                    let left, right = zig.Split('\n'), fsharp.Split('\n')
+                    let index = Seq.zip left right |> Seq.tryFindIndex (fun (x, y) -> x <> y) |> Option.defaultValue (min left.Length right.Length)
+                    let at (lines: string[]) = if index < lines.Length then lines[index] else "<end>"
+                    Error(diagnostic "RunBackendMismatch" $"The Zig emitter differs from the F# emitter at line {index + 1}: Zig `{at left}`, F# `{at right}`.")
+                | Ok _, Error problems -> Error(diagnostic "RunBackendMismatch" ("Only the F# emitter rejects the program: " + String.Join(", ", problems) + "."))
+                | Error problems, Ok _ -> Error(diagnostic "RunBackendMismatch" ("Only the Zig emitter rejects the program: " + String.Join(", ", problems) + "."))
+                | _ -> Ok emitted)
+
     /// Runs the entry on the Zig backend: emits the program and a runner that reads argument tokens
     /// from its command line and prints the same envelope the C# runner does.
     let private runZig
@@ -1271,15 +1344,13 @@ module PureRun =
             && not (candidate.ResultType :: (candidate.Parameters |> List.map (fun parameter -> parameter.Value.Type)) |> List.exists mentionsFunction)
             && candidate.ResultType :: (candidate.Parameters |> List.map (fun parameter -> parameter.Value.Type))
                |> List.forall (ZigBackend.typeOf program >> Option.isSome)
-        let withFakes (program: ExecutionProgram) =
-            ZigBackend.emit program
-            |> Result.bind (fun source -> ZigBackend.fakeCapabilities program |> Result.map (fun fakes -> source + fakes))
         let emitted =
-            match withFakes program with
-            | Ok source -> Ok(program, source, program.Functions |> List.filter (runnable program))
-            | Error _ ->
-                let reach = ExecutionCallGraph.forEntry reach fn.Id
-                withFakes reach |> Result.map (fun source -> reach, source, reach.Functions |> List.filter (fun item -> item.SemanticFunctionId = fn.Id))
+            zigEmit program
+            |> Result.bind (function
+                | Ok source -> Ok(Ok(program, source, program.Functions |> List.filter (runnable program)))
+                | Error _ ->
+                    let reach = ExecutionCallGraph.forEntry reach fn.Id
+                    zigEmit reach |> Result.map (Result.map (fun source -> reach, source, reach.Functions |> List.filter (fun item -> item.SemanticFunctionId = fn.Id))))
         // As on the C# backend, waiting fake responses need a program that uses the concurrency runtime.
         let waitingResponses =
             arguments |> List.exists (function
@@ -1291,10 +1362,11 @@ module PureRun =
                             | _ -> false))
                 | _ -> false)
         match emitted with
-        | Error problems -> unsupported problems
-        | Ok _ when waitingResponses && not (CSharpBackend.usesConcurrencyRuntime (ExecutionCallGraph.forEntry reach fn.Id)) ->
+        | Error error -> Error error
+        | Ok(Error problems) -> unsupported problems
+        | Ok(Ok _) when waitingResponses && not (CSharpBackend.usesConcurrencyRuntime (ExecutionCallGraph.forEntry reach fn.Id)) ->
             Error(diagnostic "RunBindingShapeMismatch" "awaitCancellation and delayMillis responses need a program that uses ParallelAll, a task construct or CancellationRequested.")
-        | Ok(program, source, entries) ->
+        | Ok(Ok(program, source, entries)) ->
             let zigType typeRef = (ZigBackend.typeOf program typeRef).Value
             let dispatch (entry: ExecutionFunction) =
                 let name = ZigBackend.functionName entry.SemanticFunctionId

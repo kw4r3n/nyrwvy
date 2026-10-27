@@ -590,3 +590,29 @@ module ZigBackendTests =
                 agree session "show" [ x ]
                 for n in [ "-1001"; "-2"; "0"; "1"; "2"; "15"; "400" ] do agree session "round" [ x; n ]
         finally Directory.Delete(dir, true)
+
+    /// The Zig emitter embeds the case-mapping runs as a file; they must stay what .NET computes, the
+    /// mapping the C# backend applies (regenerate the file from `ZigRuntime.caseMapping` on a change).
+    [<Fact>]
+    let ``The Zig emitter's case mapping matches the .NET mapping`` () =
+        let rec root (directory: DirectoryInfo) =
+            if File.Exists(Path.Combine(directory.FullName, "Nyrwvy.slnx")) then directory.FullName else root directory.Parent
+        let file = Path.Combine(root (DirectoryInfo AppContext.BaseDirectory), "tools", "zig", "emitter", "case_mapping.zig")
+        Assert.True((ZigRuntime.caseMapping.Value = File.ReadAllText file), "tools/zig/emitter/case_mapping.zig is stale.")
+
+    /// Every repository snapshot, whole and per entry, emits the same Zig from the Zig emitter as from
+    /// the F# one (the extended settings turn the comparison on), or both reject it.
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig emitter matches the F# emitter on every repository snapshot`` () =
+        Assert.Equal("1", Environment.GetEnvironmentVariable "NYRWVY_ZIG_EMITTER_CHECK")
+        let rec root (directory: DirectoryInfo) =
+            if File.Exists(Path.Combine(directory.FullName, "Nyrwvy.slnx")) then directory.FullName else root directory.Parent
+        let snapshots = Directory.GetFiles(Path.Combine(root (DirectoryInfo AppContext.BaseDirectory), "examples"), "*.nyrec", SearchOption.AllDirectories)
+        Assert.NotEmpty snapshots
+        for path in snapshots do
+            use session = AuthoringSession.openReadOnly path |> unwrap
+            let program = session.ProjectExecution() |> unwrap
+            for candidate in program :: (program.Functions |> List.map (fun fn -> ExecutionCallGraph.forEntry program fn.SemanticFunctionId)) do
+                match PureRun.zigEmit candidate with
+                | Ok _ -> ()
+                | Error error -> failwithf "%s: %A" path error
