@@ -1,15 +1,17 @@
 //! The Nyrwvy Zig backend emitter: reads one Execution IR JSON file (the form
-//! ExecutionIrSerializer writes) and prints the Zig source the F# `ZigBackend.emit` and
-//! `ZigBackend.fakeCapabilities` produce for it. Exit 0 prints the source; exit 2 prints the
-//! unsupported constructs, one per line. See docs/decisions/zig-tools.md.
+//! ExecutionIrSerializer writes) and prints the runPure runner the F# `ZigBackend.runner` produces
+//! for it, dispatching the entry named after the file or else every runnable function. Exit 0
+//! prints the source; exit 2 prints the unsupported constructs, one per line. See
+//! docs/decisions/zig-tools.md.
 //!
-//! `runtime.zig` and `case_mapping.zig` beside this file are text the emitter copies into its
+//! `runtime.zig`, `runner_support.zig` and `case_mapping.zig` beside this file are text the emitter copies into its
 //! output, not modules of the emitter.
 const std = @import("std");
 const json = std.json;
 
 const runtime = @embedFile("runtime.zig");
 const case_mapping = @embedFile("case_mapping.zig");
+const runner_support = @embedFile("runner_support.zig");
 
 var a: std.mem.Allocator = undefined;
 
@@ -1591,6 +1593,92 @@ fn fakeCapabilities() ?[]const u8 {
     return out.items;
 }
 
+/// Function values, exceptions and task handles are not run values, so an entry taking or
+/// returning one is not dispatched.
+fn mentionsFunction(t: *const Type) bool {
+    return switch (t.*) {
+        .function => true,
+        .builtin => |builtin| for ([_][]const u8{ "task", "oneShot", "taskScope", "exception" }) |kind| {
+            if (eql(builtin.kind, kind)) break true;
+        } else for (builtin.args) |arg| {
+            if (mentionsFunction(arg)) break true;
+        } else false,
+        .named => |named| for (named.args) |arg| {
+            if (mentionsFunction(arg)) break true;
+        } else false,
+        else => false,
+    };
+}
+
+fn runnable(fn_: Function) bool {
+    if (fn_.type_parameters.len > 0) return false;
+    var types: List(*const Type) = .empty;
+    push(*const Type, &types, fn_.result);
+    for (fn_.parameters) |parameter| push(*const Type, &types, parameter.value.type);
+    for (types.items) |t| if (mentionsFunction(t)) return false;
+    for (types.items) |t| if (zigType(t, false) == null) return false;
+    return true;
+}
+
+/// `ZigBackend.fakeArgument`: the statements that make the fake for one capability parameter,
+/// reading its scripts from the argument tokens in canonical operation order.
+fn fakeArgument(out: *List(u8), capability_id: []const u8, name: []const u8, fake: usize, site: usize) usize {
+    const capability = findCapability(capability_id).?;
+    out.print(a, "        const {s} = {s}{{ .fake = {d}, .site = {d} }};\n", .{ name, identifier("C_", capability_id), fake, site }) catch oom();
+    for (capability.operations) |operation| {
+        out.print(a, "        {s}[{d}] = nyReadScript({s}, &tokens);\n", .{ identifier("ny_scripts_", operation.id), fake, zigType(operation.result, false).? }) catch oom();
+    }
+    return capability.operations.len;
+}
+
+/// The runner support and a `main` that dispatches `entry`, or every runnable function, decoding
+/// each argument from the command line.
+fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
+    var out: List(u8) = .empty;
+    out.appendSlice(a, runner_support) catch oom();
+    out.appendSlice(a,
+        \\
+        \\pub fn main(init: std.process.Init) !void {
+        \\    const args = try init.minimal.args.toSlice(init.arena.allocator());
+        \\    const entry = args[1];
+        \\    var tokens = NyTokens{ .items = args, .index = 2 };
+        \\    _ = &tokens;
+        \\    var buffer: [4096]u8 = undefined;
+        \\    var writer = std.Io.File.stdout().writer(init.io, &buffer);
+        \\    const out = &writer.interface;
+        \\    ny_out = out;
+        \\    ny_io = init.io;
+        \\    ny_calls = .init(nyAllocator());
+        \\    var value: std.Io.Writer.Allocating = .init(nyAllocator());
+        \\
+    ) catch oom();
+    for (ordered) |fn_| {
+        if (if (entry) |id| !eql(fn_.id, id) else !runnable(fn_)) continue;
+        const name = instanceName(fn_.id, &.{});
+        out.print(a, "    if (std.mem.eql(u8, entry, \"{s}\")) {{\n", .{name}) catch oom();
+        // A capability parameter is a scripted fake; its call sites follow the earlier fakes'.
+        var fake: usize = 0;
+        var site: usize = 0;
+        var names: List([]const u8) = .empty;
+        for (fn_.parameters, 0..) |parameter, index| {
+            const argument = std.fmt.allocPrint(a, "a{d}", .{index}) catch oom();
+            push([]const u8, &names, argument);
+            if (parameter.value.type.* == .capability) {
+                site += fakeArgument(&out, parameter.value.type.capability, argument, fake, site);
+                fake += 1;
+            } else out.print(a, "        const {s} = nyDecode({s}, &tokens);\n", .{ argument, zigType(parameter.value.type, false).? }) catch oom();
+        }
+        out.print(a, "        try nyEncode(&value.writer, nyValue({s}({s})));\n    }}\n", .{ name, join(", ", names.items) }) catch oom();
+    }
+    out.appendSlice(a,
+        \\    try out.print("[\"value\",{s},[{s}]]\n", .{ value.written(), ny_calls.written() });
+        \\    try out.flush();
+        \\}
+        \\
+    ) catch oom();
+    return out.items;
+}
+
 fn functionKey(item: Function) []const u8 {
     return item.id;
 }
@@ -1610,8 +1698,8 @@ fn variantDeclKey(item: Variant) []const u8 {
 pub fn main(init: std.process.Init) !void {
     a = init.arena.allocator();
     const args = try init.minimal.args.toSlice(a);
-    if (args.len != 2) {
-        std.debug.print("usage: emitter <execution-ir.json>\n", .{});
+    if (args.len != 2 and args.len != 3) {
+        std.debug.print("usage: emitter <execution-ir.json> [entry-function-id]\n", .{});
         std.process.exit(64);
     }
     const text = try std.Io.Dir.cwd().readFileAlloc(init.io, args[1], a, .unlimited);
@@ -1669,6 +1757,7 @@ pub fn main(init: std.process.Init) !void {
     if (fakes) |text_fakes| {
         try out.writeAll(source.?);
         try out.writeAll(text_fakes);
+        try out.writeAll(runnerMain(ordered, if (args.len == 3) args[2] else null));
         try out.flush();
         return;
     }

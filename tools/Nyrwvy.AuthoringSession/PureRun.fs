@@ -1253,7 +1253,7 @@ module PureRun =
             | None ->
                 try
                     let sources = Path.Combine(zigDirectory.Value, "tools", "zig", "emitter")
-                    let text = [ "main.zig"; "runtime.zig"; "case_mapping.zig" ] |> List.map (fun name -> File.ReadAllText(Path.Combine(sources, name))) |> String.concat "\u0000"
+                    let text = [ "main.zig"; "runtime.zig"; "runner_support.zig"; "case_mapping.zig" ] |> List.map (fun name -> File.ReadAllText(Path.Combine(sources, name))) |> String.concat "\u0000"
                     let directory = Path.Combine(zigCache, "emitter-" + (sha256Hex text).Substring(0, 32))
                     let executable = Path.Combine(directory, "emitter")
                     let built =
@@ -1276,10 +1276,10 @@ module PureRun =
                 | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
                 | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message))
 
-    /// Zig source and fake capabilities for the program from the Zig emitter, or the constructs it
-    /// does not support. With `NYRWVY_ZIG_EMITTER_CHECK` set (the extended tests set it), the F#
-    /// emitter's output must match byte for byte.
-    let zigEmit (program: ExecutionProgram) : Result<Result<string, string list>, PureRunError> =
+    /// The complete runPure runner for the program from the Zig emitter (see `ZigBackend.runner`), or
+    /// the constructs it does not support. With `NYRWVY_ZIG_EMITTER_CHECK` set (the extended tests
+    /// set it), the F# emitter's output must match byte for byte.
+    let zigEmit (program: ExecutionProgram) (entry: FunctionId option) : Result<Result<string, string list>, PureRunError> =
         let ir = ExecutionIrSerializer.serialize program
         zigEmitter ()
         |> Result.bind (fun emitter ->
@@ -1287,7 +1287,7 @@ module PureRun =
             try
                 try
                     File.WriteAllText(input, ir)
-                    launchProcess emitter "Zig emitter" zigCache [ input ] 60000
+                    launchProcess emitter "Zig emitter" zigCache (input :: (entry |> Option.map StableId.value |> Option.toList)) 60000
                 finally File.Delete input
             with
             | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
@@ -1301,7 +1301,7 @@ module PureRun =
             match Environment.GetEnvironmentVariable "NYRWVY_ZIG_EMITTER_CHECK" with
             | null | "" -> Ok emitted
             | _ ->
-                let reference = ZigBackend.emit program |> Result.bind (fun source -> ZigBackend.fakeCapabilities program |> Result.map (fun fakes -> source + fakes))
+                let reference = ZigBackend.runner program entry
                 match emitted, reference with
                 | Ok zig, Ok fsharp when zig <> fsharp ->
                     let left, right = zig.Split('\n'), fsharp.Split('\n')
@@ -1330,27 +1330,13 @@ module PureRun =
         let program = whole |> Option.defaultValue reach
         // One runner serves every runnable entry of the snapshot, so a session builds once per
         // snapshot; a program the backend cannot emit whole falls back to this entry's reach.
-        // Function values, exceptions and task handles are not run values, so an entry taking or
-        // returning one is not dispatched.
-        let rec mentionsFunction typeRef =
-            match typeRef with
-            | TypeRef.Function _
-            | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.OneShot | BuiltinGenericType.TaskScope | BuiltinGenericType.Exception), _) -> true
-            | TypeRef.Named(_, arguments)
-            | TypeRef.BuiltinGeneric(_, arguments) -> List.exists mentionsFunction arguments
-            | _ -> false
-        let runnable (program: ExecutionProgram) (candidate: ExecutionFunction) =
-            List.isEmpty candidate.TypeParameters
-            && not (candidate.ResultType :: (candidate.Parameters |> List.map (fun parameter -> parameter.Value.Type)) |> List.exists mentionsFunction)
-            && candidate.ResultType :: (candidate.Parameters |> List.map (fun parameter -> parameter.Value.Type))
-               |> List.forall (ZigBackend.typeOf program >> Option.isSome)
         let emitted =
-            zigEmit program
+            zigEmit program None
             |> Result.bind (function
-                | Ok source -> Ok(Ok(program, source, program.Functions |> List.filter (runnable program)))
+                | Ok runner -> Ok(Ok(program, runner))
                 | Error _ ->
                     let reach = ExecutionCallGraph.forEntry reach fn.Id
-                    zigEmit reach |> Result.map (Result.map (fun source -> reach, source, reach.Functions |> List.filter (fun item -> item.SemanticFunctionId = fn.Id))))
+                    zigEmit reach (Some fn.Id) |> Result.map (Result.map (fun runner -> reach, runner)))
         // As on the C# backend, waiting fake responses need a program that uses the concurrency runtime.
         let waitingResponses =
             arguments |> List.exists (function
@@ -1366,45 +1352,7 @@ module PureRun =
         | Ok(Error problems) -> unsupported problems
         | Ok(Ok _) when waitingResponses && not (CSharpBackend.usesConcurrencyRuntime (ExecutionCallGraph.forEntry reach fn.Id)) ->
             Error(diagnostic "RunBindingShapeMismatch" "awaitCancellation and delayMillis responses need a program that uses ParallelAll, a task construct or CancellationRequested.")
-        | Ok(Ok(program, source, entries)) ->
-            let zigType typeRef = (ZigBackend.typeOf program typeRef).Value
-            let dispatch (entry: ExecutionFunction) =
-                let name = ZigBackend.functionName entry.SemanticFunctionId
-                // A capability parameter is a scripted fake; its call sites follow the earlier fakes'.
-                let mutable fake = 0
-                let mutable site = 0
-                let decoded =
-                    entry.Parameters |> List.mapi (fun index parameter ->
-                        match parameter.Value.Type with
-                        | TypeRef.Capability capabilityId ->
-                            let text, operations = ZigBackend.fakeArgument program capabilityId $"a{index}" fake site
-                            fake <- fake + 1
-                            site <- site + operations
-                            text
-                        | other -> $"        const a{index} = nyDecode({zigType other}, &tokens);\n")
-                $"    if (std.mem.eql(u8, entry, \"{name}\")) {{\n"
-                + String.concat "" decoded
-                + "        try nyEncode(&value.writer, nyValue(" + name + "(" + String.Join(", ", entry.Parameters |> List.mapi (fun index _ -> $"a{index}")) + ")));\n"
-                + "    }\n"
-            let runner =
-                source
-                + ZigRuntime.runnerSupport
-                + "\npub fn main(init: std.process.Init) !void {\n"
-                + "    const args = try init.minimal.args.toSlice(init.arena.allocator());\n"
-                + "    const entry = args[1];\n"
-                + "    var tokens = NyTokens{ .items = args, .index = 2 };\n"
-                + "    _ = &tokens;\n"
-                + "    var buffer: [4096]u8 = undefined;\n"
-                + "    var writer = std.Io.File.stdout().writer(init.io, &buffer);\n"
-                + "    const out = &writer.interface;\n"
-                + "    ny_out = out;\n"
-                + "    ny_io = init.io;\n"
-                + "    ny_calls = .init(nyAllocator());\n"
-                + "    var value: std.Io.Writer.Allocating = .init(nyAllocator());\n"
-                + String.concat "" (entries |> List.sortBy (fun entry -> StableId.value entry.SemanticFunctionId) |> List.map dispatch)
-                + "    try out.print(\"[\\\"value\\\",{s},[{s}]]\\n\", .{ value.written(), ny_calls.written() });\n"
-                + "    try out.flush();\n"
-                + "}\n"
+        | Ok(Ok(program, runner)) ->
             let hash = Convert.ToHexString(Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes runner)).Substring(0, 32)
             let directory = Path.Combine(zigCache, hash)
             let executable = Path.Combine(directory, "runner")

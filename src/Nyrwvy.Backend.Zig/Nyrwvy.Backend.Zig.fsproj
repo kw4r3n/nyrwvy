@@ -4,6 +4,7 @@
     <Compile Include="ZigBackend.fs" />
     <!-- Shared with the Zig emitter (tools/zig/emitter), which embeds the same file. -->
     <EmbeddedResource Include="../../tools/zig/emitter/runtime.zig" LogicalName="runtime.zig" />
+    <EmbeddedResource Include="../../tools/zig/emitter/runner_support.zig" LogicalName="runner_support.zig" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />

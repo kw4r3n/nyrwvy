@@ -613,8 +613,8 @@ module ZigBackendTests =
         for path in snapshots do
             use session = AuthoringSession.openReadOnly path |> unwrap
             let program = session.ProjectExecution() |> unwrap
-            for candidate in program :: (program.Functions |> List.map (fun fn -> ExecutionCallGraph.forEntry program fn.SemanticFunctionId)) do
-                match PureRun.zigEmit candidate with
+            for candidate, entry in (program, None) :: (program.Functions |> List.map (fun fn -> ExecutionCallGraph.forEntry program fn.SemanticFunctionId, Some fn.SemanticFunctionId)) do
+                match PureRun.zigEmit candidate entry with
                 | Ok(Ok _) -> emitted <- emitted + 1
                 | Ok(Error _) -> ()
                 | Error error -> failwithf "%s: %A" path error

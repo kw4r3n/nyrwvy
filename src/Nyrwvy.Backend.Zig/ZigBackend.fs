@@ -830,3 +830,67 @@ module ZigBackend =
                 $"        {scripts}[{fake}] = nyReadScript({result}, &tokens);\n")
         let typeName = capabilityName capabilityId
         $"        const {name} = {typeName}{{ .fake = {fake}, .site = {site} }};\n" + String.concat "" reads, capability.Operations.Length
+
+    /// Function values, exceptions and task handles are not run values, so an entry taking or
+    /// returning one is not dispatched.
+    let rec private mentionsFunction typeRef =
+        match typeRef with
+        | TypeRef.Function _
+        | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.OneShot | BuiltinGenericType.TaskScope | BuiltinGenericType.Exception), _) -> true
+        | TypeRef.Named(_, arguments)
+        | TypeRef.BuiltinGeneric(_, arguments) -> List.exists mentionsFunction arguments
+        | _ -> false
+
+    /// A complete runPure runner: the program, its fakes and a `main` that dispatches `entry`, or
+    /// every runnable function when `entry` is None, decoding each argument from the command line
+    /// and printing the same envelope the C# runner does.
+    let runner (program: ExecutionProgram) (entry: FunctionId option) : Result<string, string list> =
+        emit program
+        |> Result.bind (fun source -> fakeCapabilities program |> Result.map (fun fakes -> source + fakes))
+        |> Result.map (fun source ->
+            let zigType typeRef = (typeOf program typeRef).Value
+            let runnable (candidate: ExecutionFunction) =
+                let types = candidate.ResultType :: (candidate.Parameters |> List.map (fun parameter -> parameter.Value.Type))
+                List.isEmpty candidate.TypeParameters
+                && not (List.exists mentionsFunction types)
+                && List.forall (typeOf program >> Option.isSome) types
+            let entries =
+                match entry with
+                | Some id -> program.Functions |> List.filter (fun fn -> fn.SemanticFunctionId = id)
+                | None -> program.Functions |> List.filter runnable
+            let dispatch (entry: ExecutionFunction) =
+                let name = functionName entry.SemanticFunctionId
+                // A capability parameter is a scripted fake; its call sites follow the earlier fakes'.
+                let mutable fake = 0
+                let mutable site = 0
+                let decoded =
+                    entry.Parameters |> List.mapi (fun index parameter ->
+                        match parameter.Value.Type with
+                        | TypeRef.Capability capabilityId ->
+                            let text, operations = fakeArgument program capabilityId $"a{index}" fake site
+                            fake <- fake + 1
+                            site <- site + operations
+                            text
+                        | other -> $"        const a{index} = nyDecode({zigType other}, &tokens);\n")
+                $"    if (std.mem.eql(u8, entry, \"{name}\")) {{\n"
+                + String.concat "" decoded
+                + "        try nyEncode(&value.writer, nyValue(" + name + "(" + String.Join(", ", entry.Parameters |> List.mapi (fun index _ -> $"a{index}")) + ")));\n"
+                + "    }\n"
+            source
+            + ZigRuntime.runnerSupport
+            + "\npub fn main(init: std.process.Init) !void {\n"
+            + "    const args = try init.minimal.args.toSlice(init.arena.allocator());\n"
+            + "    const entry = args[1];\n"
+            + "    var tokens = NyTokens{ .items = args, .index = 2 };\n"
+            + "    _ = &tokens;\n"
+            + "    var buffer: [4096]u8 = undefined;\n"
+            + "    var writer = std.Io.File.stdout().writer(init.io, &buffer);\n"
+            + "    const out = &writer.interface;\n"
+            + "    ny_out = out;\n"
+            + "    ny_io = init.io;\n"
+            + "    ny_calls = .init(nyAllocator());\n"
+            + "    var value: std.Io.Writer.Allocating = .init(nyAllocator());\n"
+            + String.concat "" (entries |> List.sortBy (fun entry -> StableId.value entry.SemanticFunctionId) |> List.map dispatch)
+            + "    try out.print(\"[\\\"value\\\",{s},[{s}]]\\n\", .{ value.written(), ny_calls.written() });\n"
+            + "    try out.flush();\n"
+            + "}\n")
