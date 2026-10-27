@@ -293,3 +293,30 @@ module WaitAttributesTests =
             session.Close()
         finally
             Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``a dependent cannot reach an imported waiting operation from a must-not-wait function`` () =
+        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-wait-dependency-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory root |> ignore
+        try
+            let libraryPath = Path.Combine(root, "library.json")
+            using (AuthoringSession.createNew libraryPath |> unwrap "library") (fun library ->
+                publish library """{"id":"e","op":"simulateCreateEffect","exported":true,"displayName":"io"}""" |> ignore
+                publish library $"""{{"id":"c","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Fs","operations":[{{"displayName":"read","parameters":[],"resultType":{stringJson},"effect":"io","mayWait":true}}]}}""" |> ignore
+                library.Close())
+            use consumer = AuthoringSession.createNewWithDependency (Path.Combine(root, "consumer.json")) (Some libraryPath) |> unwrap "consumer"
+            let rejected = failure consumer (functionJson "handler" true "read")
+            Assert.Contains("MustNotWaitFunctionWaits", rejected)
+            Assert.Contains("waiting operation Fs.read", rejected)
+            // The creation review shows the derived fact.
+            let review = (publish consumer (functionJson "loader" false "read")).GetProperty("review")
+            Assert.True(review.GetProperty("mayWait").GetBoolean())
+            Assert.Contains("Fs.read", review.GetProperty("waitPath").GetString())
+            // The imported operation's marker is read-only.
+            let read = (consumer.Declarations().Capabilities |> List.exactlyOne).Operations |> List.exactlyOne
+            Assert.Contains(
+                "ImportedDeclarationModified",
+                failure consumer $"""{{"id":"x","op":"simulateOperations","operations":[{{"kind":"setMayWait","operationId":"{StableId.value read.Id}","mayWait":false}}]}}""")
+            consumer.Close()
+        finally
+            Directory.Delete(root, true)

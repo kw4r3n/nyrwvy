@@ -377,16 +377,18 @@ module internal WireEncodeCommon =
                   "enclosingControlNodeIds", item.EnclosingControlNodeIds |> List.map (StableId.value >> box) |> arrayValue
                   "dependentContinuationNodeIds", item.DependentContinuationNodeIds |> List.map (StableId.value >> box) |> arrayValue ]) |> arrayValue
 
+    /// `"mayWait": true` and the `waitPath` when the function may wait; nothing otherwise.
+    let waitFields (value: FunctionFocusView) =
+        match value.WaitPath with
+        | Some path -> [ "mayWait", box true; "waitPath", box path ]
+        | None -> []
+
     let private focusFields encodeFunction includeNodeTypes (value: FunctionFocusView) =
         let typeRef = typeRefIn (functionTypeParameterNames value.Function)
         [ yield "snapshotId", box (StableId.value value.SnapshotId)
           yield "function", encodeFunction value.Function
           yield "bodyEffectRequirements", bodyEffectRequirements value.BodyEffectRequirements
-          match value.WaitPath with
-          | Some path ->
-              yield "mayWait", box true
-              yield "waitPath", box path
-          | None -> ()
+          yield! waitFields value
           yield "aborts", aborts value.Aborts
           if includeNodeTypes then
               yield "nodeTypes",
