@@ -1187,7 +1187,18 @@ module PureRun =
         | path -> path
 
     /// Built runners keyed by a hash of their source, so repeated runs of one snapshot skip the build.
-    let private zigCache = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-runners")
+    /// The hash is predictable, so the cache is per user (`XDG_CACHE_HOME`, else `~/.cache`) and
+    /// created owner-only: a shared temporary directory would let another local user plant a runner.
+    let private zigCache =
+        let root =
+            match Environment.GetEnvironmentVariable "XDG_CACHE_HOME" with
+            | null | "" -> Path.Combine(Environment.GetFolderPath Environment.SpecialFolder.UserProfile, ".cache")
+            | path -> path
+        Path.Combine(root, "nyrwvy", "zig-runners")
+
+    let private createPrivateDirectory (path: string) =
+        if OperatingSystem.IsWindows() then Directory.CreateDirectory path |> ignore
+        else Directory.CreateDirectory(path, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute) |> ignore
 
     /// Runs the entry on the Zig backend: emits the program and a runner that reads argument tokens
     /// from its command line and prints the same envelope the C# runner does.
@@ -1304,7 +1315,8 @@ module PureRun =
                 let built =
                     if File.Exists executable then Ok()
                     else
-                        Directory.CreateDirectory directory |> ignore
+                        createPrivateDirectory zigCache
+                        createPrivateDirectory directory
                         File.WriteAllText(Path.Combine(directory, "runner.zig"), runner)
                         // Started from the session's working directory, so a version manager shim (mise)
                         // resolves the project's pinned Zig; every path is absolute.
