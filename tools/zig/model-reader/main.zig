@@ -4360,7 +4360,6 @@ fn validate(root: Value) void {
     std.mem.sort(Issue, issues.items, {}, issueLess);
 }
 
-/// One line per issue, then `end`; a message is escaped as the reader's errors are (`oneLine`).
 // ---------------------------------------------------------------- lowering, stage 1: typed semantic IR
 
 // `TypedSemanticIr.project` and `TypedSemanticIrSerializer.serialize` over the parsed document,
@@ -4553,9 +4552,11 @@ fn typedGraph(resolver: *Resolver, graph: Value) []const u8 {
     return obj.done();
 }
 
-/// The first node without a completion, in `projectGraph`'s order (each node before its nested graphs).
+/// The first node without a completion, in `projectGraph`'s order (by ID, each node before its nested graphs).
 fn missingNodeType(resolver: *Resolver, graph: Value) ?Str {
-    for (arrayOf(graph, "nodes")) |node| {
+    const nodes = a.dupe(Value, arrayOf(graph, "nodes")) catch oom();
+    std.mem.sort(Value, nodes, {}, lessById);
+    for (nodes) |node| {
         if (resolver.completion(str(node, "id")) == null) return str(node, "id");
         for (nestedScopes(node)) |scope| if (missingNodeType(resolver, scope.graph)) |id| return id;
     }
@@ -4700,6 +4701,7 @@ fn typedOperation(operation: Value) []const u8 {
     return o.done();
 }
 
+/// One line per issue, then `end`; a message is escaped as the reader's errors are (`oneLine`).
 fn printIssues(out: *std.Io.Writer) !void {
     for (issues.items) |issue| try out.print("issue {s}: {s}\n", .{ issue.code, oneLine(text(issue.message)) });
     try out.writeAll("end\n");

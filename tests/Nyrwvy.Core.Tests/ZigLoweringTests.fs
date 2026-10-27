@@ -88,5 +88,6 @@ type ZigLoweringComparison(output: ITestOutputHelper) =
             Assert.True(failures.Count = 0, $"{failures.Count} differences; the first:\n" + String.Join("\n\n", failures |> Seq.truncate 5))
             let count key = match outcomes.TryGetValue key with | true, n -> n | _ -> 0
             Assert.True(count "ok" > 100 && count "error InvalidSnapshot" > 100 && count "error IncompleteSnapshot" > 0, "every outcome must occur")
-            Assert.True(throws * 20 < cases.Length, $"F# threw on {throws} of {cases.Length} cases")
+            // A case where F# throws would compare nothing; none does on this corpus.
+            Assert.Equal(0, throws)
         finally Directory.Delete(dir, true)
