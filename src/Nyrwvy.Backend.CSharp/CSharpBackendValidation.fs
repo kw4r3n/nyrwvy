@@ -114,23 +114,65 @@ module internal CSharpBackendValidation =
         match binding.Call with
         | None -> None
         | Some call ->
-            let argumentProblem (argument: CSharpNativeArgument) =
+            let scalar value = match value with CSharpNativeValue.Integer _ | CSharpNativeValue.Bits64 | CSharpNativeValue.Bool | CSharpNativeValue.IntBool | CSharpNativeValue.Float _ -> true | _ -> false
+            let validBits value = match value with CSharpNativeValue.Integer(bits, _) -> List.contains bits [ 8; 16; 32; 64 ] | CSharpNativeValue.Float bits -> bits = 32 || bits = 64 | _ -> true
+            let parameterFits (parameterId, value) =
+                match operation.Parameters |> List.tryFind (fun parameter -> parameter.Id = parameterId) with
+                | None -> Some "an argument names no parameter of the operation"
+                | Some parameter ->
+                    let fits =
+                        match value, parameter.Type with
+                        | (CSharpNativeValue.Integer _ | CSharpNativeValue.Bits64), TypeRef.Primitive PrimitiveType.Int64 -> validBits value
+                        | CSharpNativeValue.Float _, TypeRef.Primitive PrimitiveType.Float64 -> validBits value
+                        | (CSharpNativeValue.Bool | CSharpNativeValue.IntBool), TypeRef.Primitive PrimitiveType.Bool -> true
+                        | CSharpNativeValue.Utf8 None, TypeRef.Primitive PrimitiveType.String -> true
+                        | CSharpNativeValue.Bytes, TypeRef.Primitive PrimitiveType.Bytes -> true
+                        | CSharpNativeValue.Handle _, typeRef -> handleType typeRef
+                        | _ -> false
+                    if fits then None else Some $"argument {StableId.value parameterId}: {value} does not convert its parameter type"
+            let constantFits value constant =
+                match constant with
+                | CSharpNativeValue.Pointer -> value = 0L
+                | CSharpNativeValue.Integer(bits, signed) when validBits constant ->
+                    if bits = 64 then signed || value >= 0L
+                    elif signed then value >= -(1L <<< (bits - 1)) && value < (1L <<< (bits - 1))
+                    else value >= 0L && value < (1L <<< bits)
+                | CSharpNativeValue.Bool | CSharpNativeValue.IntBool -> value = 0L || value = 1L
+                | _ -> false
+            let rec argumentProblem inStruct (argument: CSharpNativeArgument) =
                 match argument with
+                | CSharpNativeArgument.Self _ when inStruct -> Some "self cannot be a struct field"
                 | CSharpNativeArgument.Self _ -> if binding.Handle then None else Some "self is only an argument of a handle capability's operations"
-                | CSharpNativeArgument.Parameter(parameterId, value) ->
-                    match operation.Parameters |> List.tryFind (fun parameter -> parameter.Id = parameterId) with
-                    | None -> Some "an argument names no parameter of the operation"
-                    | Some parameter ->
-                        let fits =
-                            match value, parameter.Type with
-                            | CSharpNativeValue.Integer(bits, _), TypeRef.Primitive PrimitiveType.Int64 -> List.contains bits [ 8; 16; 32; 64 ]
-                            | (CSharpNativeValue.Bool | CSharpNativeValue.IntBool), TypeRef.Primitive PrimitiveType.Bool -> true
-                            | CSharpNativeValue.Utf8 None, TypeRef.Primitive PrimitiveType.String -> true
-                            | CSharpNativeValue.Bytes, TypeRef.Primitive PrimitiveType.Bytes -> true
-                            | CSharpNativeValue.Handle _, typeRef -> handleType typeRef
-                            | _ -> false
-                        if fits then None else Some $"argument {StableId.value parameterId}: {value} does not convert its parameter type"
-            let parameterIds = call.Arguments |> List.choose (function CSharpNativeArgument.Parameter(id, _) -> Some id | CSharpNativeArgument.Self _ -> None)
+                | CSharpNativeArgument.Parameter(_, value) when inStruct && not (scalar value) -> Some $"a struct field cannot hold {value}"
+                | CSharpNativeArgument.Parameter(parameterId, value) -> parameterFits (parameterId, value)
+                | CSharpNativeArgument.Reference _ when inStruct -> Some "a struct field cannot be a reference"
+                | CSharpNativeArgument.Reference(parameterId, value) ->
+                    if scalar value || value = CSharpNativeValue.Handle false then parameterFits (parameterId, value)
+                    else Some $"{value} cannot be passed by address"
+                | CSharpNativeArgument.Constant(value, constant) ->
+                    if constantFits value constant then None else Some $"constant {value} does not fit {constant}"
+                | CSharpNativeArgument.Out _ | CSharpNativeArgument.OutBytes _ when inStruct -> Some "a struct field cannot be an out-parameter"
+                | CSharpNativeArgument.Out value ->
+                    if (scalar value && validBits value) || value = CSharpNativeValue.Handle false then None else Some $"{value} cannot be an out-parameter"
+                | CSharpNativeArgument.OutBytes(capacity, _) -> if capacity >= 1 then None else Some "an out buffer needs a capacity of at least 1"
+                | CSharpNativeArgument.Struct _ when inStruct -> Some "structs do not nest"
+                | CSharpNativeArgument.Struct(fields, size, _) ->
+                    if List.isEmpty fields then Some "a struct has at least one field"
+                    elif size |> Option.exists (fun bytes -> bytes < 1) then Some "a struct size is positive"
+                    else fields |> List.tryPick (argumentProblem true)
+                | CSharpNativeArgument.SizeOf value ->
+                    if not inStruct then Some "sizeof is only a struct field"
+                    else match value with CSharpNativeValue.Integer _ when validBits value -> None | _ -> Some "sizeof is an integer field"
+            let flattened = call.Arguments |> List.collect (function CSharpNativeArgument.Struct(fields, _, _) -> fields | other -> [ other ])
+            let parameterIds =
+                flattened |> List.choose (function
+                    | CSharpNativeArgument.Parameter(id, _) | CSharpNativeArgument.Reference(id, _) -> Some id
+                    | _ -> None)
+            let outValue =
+                call.Arguments |> List.choose (function
+                    | CSharpNativeArgument.Out value -> Some value
+                    | CSharpNativeArgument.OutBytes _ -> Some CSharpNativeValue.Bytes
+                    | _ -> None)
             let selfCount = call.Arguments |> List.filter (function CSharpNativeArgument.Self _ -> true | _ -> false) |> List.length
             let releases =
                 call.Arguments |> List.filter (function
@@ -140,26 +182,40 @@ module internal CSharpBackendValidation =
                 match operation.ResultType with
                 | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ ok; TypeRef.Primitive PrimitiveType.String ]) -> ok, true
                 | other -> other, false
-            let resultFits =
-                match call.Returns, okType with
+            let valueFits value =
+                match value, okType with
                 | CSharpNativeValue.Void, TypeRef.Primitive PrimitiveType.Unit -> true
-                | CSharpNativeValue.Integer(bits, _), TypeRef.Primitive PrimitiveType.Int64 -> List.contains bits [ 8; 16; 32; 64 ]
-                | CSharpNativeValue.Integer _, TypeRef.Primitive PrimitiveType.Unit -> Option.isSome call.Failure
+                | (CSharpNativeValue.Integer _ | CSharpNativeValue.Bits64), TypeRef.Primitive PrimitiveType.Int64 -> validBits value
+                | CSharpNativeValue.Float _, TypeRef.Primitive PrimitiveType.Float64 -> validBits value
                 | (CSharpNativeValue.Bool | CSharpNativeValue.IntBool), TypeRef.Primitive PrimitiveType.Bool -> true
                 | CSharpNativeValue.Utf8 _, TypeRef.Primitive PrimitiveType.String -> true
+                | CSharpNativeValue.Bytes, TypeRef.Primitive PrimitiveType.Bytes -> true
                 | CSharpNativeValue.Handle false, typeRef -> handleType typeRef
                 | _ -> false
+            // With an out-parameter the C result is only a status: void, or an integer that is ignored or detects failure.
+            let resultFits =
+                match outValue, call.Returns, okType with
+                | [ value ], (CSharpNativeValue.Void | CSharpNativeValue.Integer _ | CSharpNativeValue.Bool), _ -> valueFits value
+                | [ _ ], _, _ -> false
+                | _, CSharpNativeValue.Integer _, TypeRef.Primitive PrimitiveType.Unit -> Option.isSome call.Failure
+                | _, CSharpNativeValue.Bytes, _ | _, CSharpNativeValue.Pointer, _ -> false
+                | _, value, _ -> valueFits value
             let failureFits =
                 match call.Failure, call.Returns with
                 | None, _ -> true
                 | Some CSharpNativeFailure.NullPointer, (CSharpNativeValue.Utf8 _ | CSharpNativeValue.Handle _) -> true
                 | Some CSharpNativeFailure.Negative, CSharpNativeValue.Integer(_, true) -> true
-                | Some CSharpNativeFailure.Nonzero, CSharpNativeValue.Integer _ -> okType = TypeRef.Primitive PrimitiveType.Unit
+                | Some CSharpNativeFailure.Nonzero, CSharpNativeValue.Integer _ -> okType = TypeRef.Primitive PrimitiveType.Unit || not outValue.IsEmpty
                 | Some _, _ -> false
-            match call.Arguments |> List.tryPick argumentProblem with
+            let retryWithoutStatus =
+                call.Arguments |> List.exists (function CSharpNativeArgument.OutBytes(_, Some _) -> true | _ -> false)
+                && (match call.Returns with CSharpNativeValue.Integer _ -> false | _ -> true)
+            match call.Arguments |> List.tryPick (argumentProblem false) with
             | Some problem -> Some problem
             | None ->
-                if List.sort parameterIds <> List.sort (operation.Parameters |> List.map (fun parameter -> parameter.Id)) then
+                if outValue.Length > 1 then Some "an operation has at most one out-parameter"
+                elif retryWithoutStatus then Some "retry compares an integer result"
+                elif List.sort parameterIds <> List.sort (operation.Parameters |> List.map (fun parameter -> parameter.Id)) then
                     Some "every parameter must be passed exactly once"
                 elif binding.Handle && selfCount <> 1 then Some "a handle operation passes self exactly once"
                 elif releases > 1 then Some "an operation releases at most one handle"

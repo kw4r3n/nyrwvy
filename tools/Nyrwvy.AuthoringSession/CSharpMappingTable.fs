@@ -49,8 +49,7 @@ module internal CSharpMappingTable =
                         state) capabilities
         Option.orElse library overrideLibrary, merged
 
-    let private nativeValue (context: string) (element: JsonElement) (isResult: bool) =
-        let c = requiredString "c" element
+    let private nativeValueOf (context: string) (c: string) (element: JsonElement) (isResult: bool) =
         let integer bits signed = CSharpNativeValue.Integer(bits, signed)
         let value =
             match c with
@@ -62,11 +61,74 @@ module internal CSharpMappingTable =
             | "bytes" -> CSharpNativeValue.Bytes
             | "handle" -> CSharpNativeValue.Handle(optionalBool "release" false element)
             | "void" -> CSharpNativeValue.Void
+            | "bits64" -> CSharpNativeValue.Bits64
+            | "float32" -> CSharpNativeValue.Float 32
+            | "float64" -> CSharpNativeValue.Float 64
+            | "pointer" -> CSharpNativeValue.Pointer
             | other -> fail $"{context}: unknown C type '{other}'."
         match value with
         | CSharpNativeValue.Utf8(Some _) when not isResult -> fail $"{context}: free applies to a result only."
         | CSharpNativeValue.Handle true when isResult -> fail $"{context}: release applies to an argument only."
         | _ -> value
+
+    let private nativeValue (context: string) (element: JsonElement) (isResult: bool) =
+        nativeValueOf context (requiredString "c" element) element isResult
+
+    let private byPointer (context: string) (element: JsonElement) =
+        match tryProperty "by" element |> Option.map (fun _ -> requiredString "by" element) with
+        | None | Some "value" -> false
+        | Some "pointer" -> true
+        | Some other -> fail $"{context}: by must be 'value' or 'pointer', not '{other}'."
+
+    let private int64Of (context: string) (name: string) (element: JsonElement) =
+        match (property name element).TryGetInt64() with
+        | true, value -> value
+        | _ -> fail $"{context}: {name} must be an integer."
+
+    /// One C argument (or, `isField`, one struct field) of an entry.
+    let rec private argument (context: string) (operation: SemanticCapabilityOperation) (isField: bool) (item: JsonElement) =
+        let parameterId () =
+            let name = requiredString "from" item
+            match operation.Parameters |> List.filter (fun parameter -> parameter.DisplayName = name) with
+            | [ parameter ] -> parameter.Id
+            | _ -> fail $"{context}: '{name}' names no single parameter of the operation."
+        let has name = tryProperty name item |> Option.isSome
+        if item.ValueKind <> JsonValueKind.Object then fail $"{context} must be an object."
+        if has "self" && not isField then
+            ensureFields context [ "self"; "release" ] [ "self" ] item
+            if not (optionalBool "self" false item) then fail $"{context}: self must be true."
+            CSharpNativeArgument.Self(optionalBool "release" false item)
+        elif has "out" && not isField then
+            ensureFields context [ "out"; "capacity"; "retry" ] [ "out" ] item
+            match requiredString "out" item with
+            | "bytes" ->
+                ensureFields context [ "out"; "capacity"; "retry" ] [ "out"; "capacity" ] item
+                CSharpNativeArgument.OutBytes(requiredInt "capacity" item, if has "retry" then Some(int64Of context "retry" item) else None)
+            | c ->
+                ensureFields context [ "out" ] [ "out" ] item
+                CSharpNativeArgument.Out(nativeValueOf context c item true)
+        elif has "struct" && not isField then
+            ensureFields context [ "struct"; "size"; "by" ] [ "struct" ] item
+            let fields = property "struct" item
+            if fields.ValueKind <> JsonValueKind.Array then fail $"{context}: struct must be an array of fields."
+            CSharpNativeArgument.Struct(
+                fields.EnumerateArray() |> Seq.mapi (fun index field -> argument $"{context} field {index}" operation true field) |> Seq.toList,
+                (if has "size" then Some(requiredInt "size" item) else None),
+                byPointer context item)
+        elif has "sizeof" && isField then
+            ensureFields context [ "sizeof"; "c" ] [ "sizeof"; "c" ] item
+            CSharpNativeArgument.SizeOf(nativeValue context item false)
+        elif has "value" then
+            ensureFields context [ "value"; "c"; "name" ] [ "value"; "c" ] item
+            let isNull = (property "value" item).ValueKind = JsonValueKind.Null
+            if isNull <> (requiredString "c" item = "pointer") then fail $"{context}: null is the only pointer constant."
+            let value = if isNull then 0L else int64Of context "value" item
+            CSharpNativeArgument.Constant(value, nativeValue context item false)
+        else
+            ensureFields context [ "from"; "c"; "release"; "by" ] [ "from"; "c" ] item
+            if isField && (has "release" || has "by") then fail $"{context}: a struct field takes only from and c."
+            if byPointer context item then CSharpNativeArgument.Reference(parameterId (), nativeValue context item false)
+            else CSharpNativeArgument.Parameter(parameterId (), nativeValue context item false)
 
     let private entry (context: string) (library: string option) (operation: SemanticCapabilityOperation) (element: JsonElement) =
         ensureFields context [ "symbol"; "arguments"; "result"; "failure"; "unavailable"; "library" ] [] element
@@ -84,17 +146,7 @@ module internal CSharpMappingTable =
                     if items.ValueKind <> JsonValueKind.Array then fail $"{context}: arguments must be an array."
                     items.EnumerateArray() |> Seq.toList)
                 |> Option.defaultValue []
-                |> List.mapi (fun index item ->
-                    let at = $"{context} argument {index}"
-                    if optionalBool "self" false item then
-                        ensureFields at [ "self"; "release" ] [ "self" ] item
-                        CSharpNativeArgument.Self(optionalBool "release" false item)
-                    else
-                        ensureFields at [ "from"; "c"; "release" ] [ "from"; "c" ] item
-                        let name = requiredString "from" item
-                        match operation.Parameters |> List.filter (fun parameter -> parameter.DisplayName = name) with
-                        | [ parameter ] -> CSharpNativeArgument.Parameter(parameter.Id, nativeValue at item false)
-                        | _ -> fail $"{at}: '{name}' names no single parameter of the operation.")
+                |> List.mapi (fun index item -> argument $"{context} argument {index}" operation false item)
             let result = tryProperty "result" element
             result |> Option.iter (ensureFields $"{context} result" [ "c"; "free" ] [ "c" ])
             let failure =

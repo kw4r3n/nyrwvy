@@ -1202,6 +1202,10 @@ module CSharpBackend =
         | CSharpNativeValue.Handle _ -> "System.IntPtr"
         | CSharpNativeValue.Bytes -> "System.IntPtr pointer, nuint length"
         | CSharpNativeValue.Void -> "void"
+        | CSharpNativeValue.Bits64 -> "ulong"
+        | CSharpNativeValue.Float 32 -> "float"
+        | CSharpNativeValue.Float _ -> "double"
+        | CSharpNativeValue.Pointer -> "System.IntPtr"
 
     let private csharpString (text: string) = System.Text.Json.JsonSerializer.Serialize text
 
@@ -1235,13 +1239,32 @@ module CSharpBackend =
         | Some call ->
             let externName = "N_" + methodName
             let freeName = "F_" + methodName
+            let structName index = "S_" + methodName + "_" + string index
             let indexed = List.indexed call.Arguments
+            let interop = "System.Runtime.InteropServices."
+            // Blittable structs; Sequential layout gives C's natural alignment, Size pads a union tail.
+            for index, argument in indexed do
+                match argument with
+                | CSharpNativeArgument.Struct(fields, size, _) ->
+                    let sized = match size with Some bytes -> ", Size = " + string bytes | None -> ""
+                    let fieldType = function
+                        | CSharpNativeArgument.Parameter(_, value) | CSharpNativeArgument.Constant(_, value) | CSharpNativeArgument.SizeOf value -> nativeType value
+                        | _ -> invalidOp "A struct field was validated to a scalar."
+                    let declared = fields |> List.mapi (fun field item -> "public " + fieldType item + " f" + string field + ";") |> String.concat " "
+                    writer.Line("[" + interop + "StructLayout(" + interop + "LayoutKind.Sequential" + sized + ")] private struct " + structName index + " { " + declared + " }")
+                | _ -> ()
             let externParameters =
                 indexed |> List.map (fun (index, argument) ->
+                    let name = " a" + string index
                     match argument with
-                    | CSharpNativeArgument.Self _ -> "System.IntPtr a" + string index
-                    | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Bytes) -> "System.IntPtr a" + string index + ", nuint n" + string index
-                    | CSharpNativeArgument.Parameter(_, value) -> nativeType value + " a" + string index)
+                    | CSharpNativeArgument.Self _ -> "System.IntPtr" + name
+                    | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Bytes) -> "System.IntPtr" + name + ", nuint n" + string index
+                    | CSharpNativeArgument.Parameter(_, value) | CSharpNativeArgument.Constant(_, value) -> nativeType value + name
+                    | CSharpNativeArgument.Reference(_, value) -> "ref " + nativeType value + name
+                    | CSharpNativeArgument.Out value -> "out " + nativeType value + name
+                    | CSharpNativeArgument.OutBytes _ -> "System.IntPtr" + name + ", nuint n" + string index + ", out nuint w" + string index
+                    | CSharpNativeArgument.Struct(_, _, byPointer) -> (if byPointer then "ref " else "") + structName index + name
+                    | CSharpNativeArgument.SizeOf _ -> invalidOp "sizeof was validated to a struct field.")
                 |> String.concat ", "
             writer.Line(dllImport call.Library call.Symbol)
             writer.Line("private static extern " + nativeType call.Returns + " " + externName + "(" + externParameters + ");")
@@ -1258,16 +1281,17 @@ module CSharpBackend =
                 | TypeRef.Capability id -> CSharpBackendNames.capabilityAdapterName id
                 | _ -> invalidOp "A native handle argument has a capability type."
             let parameterType id = (operation.Parameters |> List.find (fun parameter -> parameter.Id = id)).Type
-            let handleOf owner value release = owner + (if release then ".Release(" else ".Open(") + value + ")"
             // Allocations are made inside try so a failure between them still frees the earlier ones.
             for index, argument in indexed do
                 match argument with
                 | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Utf8 _) -> writer.Line("var s" + string index + " = System.IntPtr.Zero;")
-                | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Bytes) -> writer.Line("var g" + string index + " = default(System.Runtime.InteropServices.GCHandle);")
+                | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Bytes)
+                | CSharpNativeArgument.OutBytes _ -> writer.Line("var g" + string index + " = default(" + interop + "GCHandle);")
                 | _ -> ()
             let needsCleanup =
                 call.Arguments |> List.exists (function
-                    | CSharpNativeArgument.Parameter(_, (CSharpNativeValue.Utf8 _ | CSharpNativeValue.Bytes)) -> true
+                    | CSharpNativeArgument.Parameter(_, (CSharpNativeValue.Utf8 _ | CSharpNativeValue.Bytes))
+                    | CSharpNativeArgument.OutBytes _ -> true
                     | _ -> false)
             if needsCleanup then
                 writer.Line("try")
@@ -1285,24 +1309,60 @@ module CSharpBackend =
                     released.Add("var a" + string index + " = " + owner + ".Release(" + value + ");")
                     "a" + string index
                 else local index (owner + ".Open(" + value + ")")
+            let convert value name =
+                match value with
+                | CSharpNativeValue.Integer _ -> "checked((" + nativeType value + ")" + name + ")"
+                | CSharpNativeValue.Bits64 -> "unchecked((ulong)" + name + ")"
+                | CSharpNativeValue.Float 32 -> "(float)" + name
+                | CSharpNativeValue.Float _ -> name
+                | CSharpNativeValue.Bool -> "(byte)(" + name + " ? 1 : 0)"
+                | CSharpNativeValue.IntBool -> "(" + name + " ? 1 : 0)"
+                | _ -> invalidOp "Only scalars convert inline."
+            let constant (value: int64) native =
+                match native with
+                | CSharpNativeValue.Pointer -> "System.IntPtr.Zero"
+                | _ -> "unchecked((" + nativeType native + ")(" + string value + "L))"
+            let field structType = function
+                | CSharpNativeArgument.Parameter(id, value) -> convert value (CSharpBackendNames.capabilityParameterName id)
+                | CSharpNativeArgument.Constant(value, native) -> constant value native
+                | CSharpNativeArgument.SizeOf value -> "unchecked((" + nativeType value + ")" + interop + "Marshal.SizeOf<" + structType + ">())"
+                | _ -> invalidOp "A struct field was validated to a scalar."
             let arguments =
                 indexed |> List.map (fun (index, argument) ->
                     match argument with
                     | CSharpNativeArgument.Self release -> handleArgument index capabilityName "this" release
+                    | CSharpNativeArgument.Constant(value, native) -> constant value native
+                    | CSharpNativeArgument.Out value ->
+                        writer.Line(nativeType value + " a" + string index + ";")
+                        "out a" + string index
+                    | CSharpNativeArgument.OutBytes(capacity, _) ->
+                        writer.Line("var b" + string index + " = new byte[" + string capacity + "];")
+                        writer.Line("g" + string index + " = " + interop + "GCHandle.Alloc(b" + string index + ", " + interop + "GCHandleType.Pinned);")
+                        writer.Line("nuint w" + string index + ";")
+                        "g" + string index + ".AddrOfPinnedObject(), (nuint)b" + string index + ".Length, out w" + string index
+                    | CSharpNativeArgument.Struct(fields, _, byPointer) ->
+                        let assignments =
+                            fields |> List.mapi (fun position item -> "f" + string position + " = " + field (structName index) item)
+                            |> String.concat ", "
+                        (if byPointer then "ref " else "") + local index ("new " + structName index + " { " + assignments + " }")
+                    | CSharpNativeArgument.SizeOf _ -> invalidOp "sizeof was validated to a struct field."
+                    | CSharpNativeArgument.Reference(id, value) ->
+                        let name = CSharpBackendNames.capabilityParameterName id
+                        match value with
+                        | CSharpNativeValue.Handle _ -> "ref " + local index (handleClass (parameterType id) + ".Open(" + name + ")")
+                        | _ -> "ref " + local index (convert value name)
                     | CSharpNativeArgument.Parameter(id, value) ->
                         let name = CSharpBackendNames.capabilityParameterName id
                         match value with
-                        | CSharpNativeValue.Integer _ -> local index ("checked((" + nativeType value + ")" + name + ")")
-                        | CSharpNativeValue.Bool -> local index ("(byte)(" + name + " ? 1 : 0)")
-                        | CSharpNativeValue.IntBool -> local index ("(" + name + " ? 1 : 0)")
                         | CSharpNativeValue.Utf8 _ ->
                             writer.Line("s" + string index + " = NyNative.Utf8(" + name + ");")
                             "s" + string index
                         | CSharpNativeValue.Bytes ->
-                            writer.Line("g" + string index + " = System.Runtime.InteropServices.GCHandle.Alloc(" + name + ".Span.ToArray(), System.Runtime.InteropServices.GCHandleType.Pinned);")
+                            writer.Line("g" + string index + " = " + interop + "GCHandle.Alloc(" + name + ".Span.ToArray(), " + interop + "GCHandleType.Pinned);")
                             "g" + string index + ".AddrOfPinnedObject(), (nuint)" + name + ".Span.Length"
                         | CSharpNativeValue.Handle release -> handleArgument index (handleClass (parameterType id)) name release
-                        | CSharpNativeValue.Void -> invalidOp "A void argument was validated away.")
+                        | CSharpNativeValue.Void | CSharpNativeValue.Pointer -> invalidOp "A void or pointer argument was validated away."
+                        | _ -> local index (convert value name))
                 |> String.concat ", "
             for line in released do writer.Line line
             let invocation = externName + "(" + arguments + ")"
@@ -1312,6 +1372,21 @@ module CSharpBackend =
                 | other -> other, false
             if call.Returns = CSharpNativeValue.Void then writer.Line(invocation + ";")
             else writer.Line("var r = " + invocation + ";")
+            // Too small a buffer: the C function wrote the size it needs; run once more with that size.
+            for index, argument in indexed do
+                match argument with
+                | CSharpNativeArgument.OutBytes(_, Some retry) ->
+                    let i = string index
+                    writer.Line("if (r == " + string retry + "L)")
+                    writer.Line("{")
+                    writer.Push()
+                    writer.Line("g" + i + ".Free();")
+                    writer.Line("b" + i + " = new byte[checked((int)w" + i + ")];")
+                    writer.Line("g" + i + " = " + interop + "GCHandle.Alloc(b" + i + ", " + interop + "GCHandleType.Pinned);")
+                    writer.Line("r = " + invocation + ";")
+                    writer.Pop()
+                    writer.Line("}")
+                | _ -> ()
             let symbol = csharpString call.Symbol
             match call.Failure with
             | None -> ()
@@ -1323,12 +1398,27 @@ module CSharpBackend =
                     | CSharpNativeFailure.Nonzero -> "r != 0", symbol + " + \" failed with \" + r"
                 if isResult then writer.Line("if (" + condition + ") return " + formatType operation.ResultType + ".Err(" + message + ");")
                 else writer.Line("if (" + condition + ") throw new System.InvalidOperationException(" + message + ");")
+            let scalarValue native expression =
+                match native with
+                | CSharpNativeValue.Integer _ -> "checked((long)" + expression + ")"
+                | CSharpNativeValue.Bits64 -> "unchecked((long)" + expression + ")"
+                | CSharpNativeValue.Float _ -> "(double)" + expression
+                | CSharpNativeValue.Bool | CSharpNativeValue.IntBool -> expression + " != 0"
+                | CSharpNativeValue.Handle _ -> "new " + handleClass okType + "(NyNative.NotNull(" + expression + ", " + symbol + "))"
+                | _ -> invalidOp "A native result was validated away."
+            let outArgument =
+                indexed |> List.tryPick (fun (index, argument) ->
+                    match argument with
+                    | CSharpNativeArgument.Out native -> Some(scalarValue native ("a" + string index))
+                    | CSharpNativeArgument.OutBytes _ ->
+                        let i = string index
+                        Some("NyBytes.FromOwnedArray(new System.ReadOnlySpan<byte>(b" + i + ", 0, checked((int)w" + i + ")).ToArray())")
+                    | _ -> None)
             let value =
-                match call.Returns, okType with
-                | _, TypeRef.Primitive PrimitiveType.Unit -> "NyUnit.Value"
-                | CSharpNativeValue.Integer _, _ -> "checked((long)r)"
-                | (CSharpNativeValue.Bool | CSharpNativeValue.IntBool), _ -> "r != 0"
-                | CSharpNativeValue.Utf8 free, _ ->
+                match outArgument, call.Returns, okType with
+                | Some value, _, _ -> value
+                | None, _, TypeRef.Primitive PrimitiveType.Unit -> "NyUnit.Value"
+                | None, CSharpNativeValue.Utf8 free, _ ->
                     match free with
                     | Some _ ->
                         writer.Line("NyStr text;")
@@ -1336,8 +1426,7 @@ module CSharpBackend =
                         writer.Line("finally { if (r != System.IntPtr.Zero) " + freeName + "(r); }")
                         "text"
                     | None -> "NyNative.ReadUtf8(r, " + symbol + ")"
-                | CSharpNativeValue.Handle _, typeRef -> "new " + handleClass typeRef + "(NyNative.NotNull(r, " + symbol + "))"
-                | _ -> invalidOp "A native result was validated away."
+                | None, native, _ -> scalarValue native "r"
             writer.Line("return " + (if isResult then formatType operation.ResultType + ".Ok(" + value + ")" else value) + ";")
             if needsCleanup then
                 writer.Pop()
@@ -1348,7 +1437,8 @@ module CSharpBackend =
                 for index, argument in indexed do
                     match argument with
                     | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Utf8 _) -> writer.Line("NyNative.Free(s" + string index + ");")
-                    | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Bytes) -> writer.Line("if (g" + string index + ".IsAllocated) g" + string index + ".Free();")
+                    | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Bytes)
+                    | CSharpNativeArgument.OutBytes _ -> writer.Line("if (g" + string index + ".IsAllocated) g" + string index + ".Free();")
                     | _ -> ()
                 writer.Pop()
                 writer.Line("}")

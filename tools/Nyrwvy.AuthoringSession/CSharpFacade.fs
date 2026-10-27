@@ -63,7 +63,9 @@ module CSharpFacade =
     /// Emits the facade, or the names that are invalid or carried by more than one declaration.
     /// `hostOperationIds` are the operations the host implements: their capabilities get a base class even
     /// when no exported signature reaches them, as an imported library's capabilities often are not.
-    let emit (declarations: AuthoringDeclarations) (hostOperationIds: CapabilityOperationId list) : Result<string, CSharpFacadeProblem list> =
+    /// `tableCapabilityIds` are mapping-table capabilities with a public generated adapter: each gets a
+    /// `New<Name>()` constructor, so a host need not spell the adapter's generated name.
+    let emit (declarations: AuthoringDeclarations) (hostOperationIds: CapabilityOperationId list) (tableCapabilityIds: CapabilityId list) : Result<string, CSharpFacadeProblem list> =
         let isLocal kind (id: string) =
             declarations.Provenance |> List.exists (fun p -> p.Kind = kind && p.Id = id && p.IsLocal)
         let functions =
@@ -80,6 +82,7 @@ module CSharpFacade =
             @ (declarations.Capabilities
                |> List.filter (fun c -> c.Operations |> List.exists (fun op -> List.contains op.Id hostOperationIds))
                |> List.map (fun c -> TypeRef.Capability c.Id))
+            @ (tableCapabilityIds |> List.map TypeRef.Capability)
         let typeIds, capabilityIds = reachable declarations roots
         let types = declarations.Types |> List.filter (fun t -> Set.contains t.Id typeIds) |> List.sortBy (fun t -> StableId.value t.Id)
         let capabilities =
@@ -102,6 +105,7 @@ module CSharpFacade =
               for c in capabilities do
                   yield c.DisplayName, ("capability", StableId.value c.Id)
                   yield c.DisplayName + "Base", ("capability", StableId.value c.Id)
+                  if List.contains c.Id tableCapabilityIds then yield "New" + c.DisplayName, ("capability", StableId.value c.Id)
               for f in functions do
                   yield f.DisplayName, ("function", StableId.value f.Id) ]
         let members =
@@ -187,6 +191,9 @@ module CSharpFacade =
                         fieldBlock variantName generics v.Fields
                         let parameters = parameterList (v.Fields |> List.map (fun f -> f.DisplayName, f.Type))
                         line $"    public static {shown} New{t.DisplayName}{v.DisplayName}{generics}({parameters}) => {construct variantName v.Fields};"
+            for c in capabilities do
+                if List.contains c.Id tableCapabilityIds then
+                    line $"    public static {identifier c.DisplayName} New{c.DisplayName}() => new {CSharpBackendNames.capabilityAdapterName c.Id}();"
             for f in functions do
                 let generics = genericList f.TypeParameters
                 let parameters = parameterList (f.Parameters |> List.map (fun p -> p.DisplayName, p.Type))
