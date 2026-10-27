@@ -2792,16 +2792,20 @@ module SnapshotCodec =
     let deserialize (json: string): Result<Snapshot, SnapshotCodecError> =
         deserializeUsing None json
 
+    /// The shape-decoded model without semantic validation (shape, schema version and construct
+    /// minimums only): the input the Zig validator (tools/zig/model-reader `--validate`) is checked on.
+    let readUnvalidated (json: string): Result<Snapshot, SnapshotCodecError> =
+        if isNull json then Error(SnapshotCodecError.InvalidJson "Snapshot JSON must not be null.")
+        else readDocument None (fun () -> JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth))) (fun snapshot _ -> Ok snapshot)
+
     /// The JSON the writer produces for the shape-decoded model, without semantic validation: the
     /// reference of the Zig model reader (tools/zig/model-reader). The writer normally runs on
     /// validated models; it may throw on one that is only shape-valid.
     let toCanonicalJson (json: string): Result<string, SnapshotCodecError> =
-        if isNull json then Error(SnapshotCodecError.InvalidJson "Snapshot JSON must not be null.")
-        else
-            readDocument None (fun () -> JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth))) (fun snapshot _ -> Ok snapshot)
-            |> Result.bind (fun snapshot ->
-                if nestsBeyondMaxDepth snapshot then Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
-                else writeSnapshotAt (Some SnapshotSchema.current) None snapshot)
+        readUnvalidated json
+        |> Result.bind (fun snapshot ->
+            if nestsBeyondMaxDepth snapshot then Error(SnapshotCodecError.MaximumDepthExceeded maxJsonDepth)
+            else writeSnapshotAt (Some SnapshotSchema.current) None snapshot)
 
     /// Strict parsing and validation with an explicitly resolved dependency graph.
     let deserializeResolved (dependency: Snapshot) (json: string): Result<Snapshot, SnapshotCodecError> =

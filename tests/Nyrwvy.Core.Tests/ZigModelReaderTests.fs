@@ -63,30 +63,10 @@ module ZigModelReaderSupport =
         |> List.map (fun line -> line + "\n")
         |> String.concat ""
 
-module ZigModelReaderTests =
-    open ZigModelReaderSupport
-
-    [<Fact>]
-    let ``schema_minimums.txt is the construct table derived from SnapshotSchema`` () =
-        let derived = minimumsText ()
-        Assert.True(
-            (derived = File.ReadAllText(toolFile "schema_minimums.txt")),
-            $"tools/zig/model-reader/schema_minimums.txt no longer matches SnapshotSchema; replace it with:\n\n{derived}")
-
-    [<Fact>]
-    let ``model_kinds.txt names every node kind the writer writes`` () =
-        let written = allKindsJson () |> List.collect (fun json -> graphNodes (JsonNode.Parse json)) |> List.map (fun node -> string node["kind"]) |> Set.ofList
-        let table = File.ReadAllLines(toolFile "model_kinds.txt") |> Array.map (fun line -> line.Split('|')[0]) |> Set.ofArray
-        Assert.Equal<Set<string>>(written, table)
-
-/// The extended comparison (a class, so that it can report its counts).
-type ZigModelReaderComparison(output: ITestOutputHelper) =
-    let kindNames = lazy (File.ReadAllLines(ZigModelReaderSupport.toolFile "model_kinds.txt") |> Array.map (fun line -> line.Split('|')[0]))
-
     /// One deterministic structural change to a snapshot JSON.
-    let mutate (random: Random) (json: string) =
+    let mutate (kindNames: string array) (random: Random) (json: string) =
         let document = JsonNode.Parse json
-        let all = ZigModelReaderSupport.containers document |> Array.ofList
+        let all = containers document |> Array.ofList
         let objects = all |> Array.choose (function :? JsonObject as o when o.Count > 0 -> Some o | _ -> None)
         let pick (items: 'a array) = items[random.Next items.Length]
         let keys (o: JsonObject) = o |> Seq.map (fun property -> property.Key) |> Array.ofSeq
@@ -149,7 +129,7 @@ type ZigModelReaderComparison(output: ITestOutputHelper) =
             | [||] -> text ()
             | candidates ->
                 let o, key = pick candidates
-                o[key] <- JsonValue.Create(pick (Array.append kindNames.Value [| "product"; "union"; "primitive"; "named"; "function"; "missingArgument"; "bogus" |]))
+                o[key] <- JsonValue.Create(pick (Array.append kindNames [| "product"; "union"; "primitive"; "named"; "function"; "missingArgument"; "bogus" |]))
                 text ()
         | 8 ->
             match stringProperties (fun key -> key = "displayName" || key = "value" || key = "bits" || key = "mode" || key = "status" || key = "primitive" || key = "generic") with
@@ -163,6 +143,28 @@ type ZigModelReaderComparison(output: ITestOutputHelper) =
             o[pick [| "exported"; "mayWait"; "taskBound"; "mustNotWait"; "typeParameters"; "context"; "typeArguments"; "failureType"; "limitNodeId"; "parentSnapshotId"; "displayName" |]] <-
                 pick [| JsonValue.Create true :> JsonNode; JsonValue.Create false; JsonArray(); JsonValue.Create "x" |]
             text ()
+
+module ZigModelReaderTests =
+    open ZigModelReaderSupport
+
+    [<Fact>]
+    let ``schema_minimums.txt is the construct table derived from SnapshotSchema`` () =
+        let derived = minimumsText ()
+        Assert.True(
+            (derived = File.ReadAllText(toolFile "schema_minimums.txt")),
+            $"tools/zig/model-reader/schema_minimums.txt no longer matches SnapshotSchema; replace it with:\n\n{derived}")
+
+    [<Fact>]
+    let ``model_kinds.txt names every node kind the writer writes`` () =
+        let written = allKindsJson () |> List.collect (fun json -> graphNodes (JsonNode.Parse json)) |> List.map (fun node -> string node["kind"]) |> Set.ofList
+        let table = File.ReadAllLines(toolFile "model_kinds.txt") |> Array.map (fun line -> line.Split('|')[0]) |> Set.ofArray
+        Assert.Equal<Set<string>>(written, table)
+
+/// The extended comparison (a class, so that it can report its counts).
+type ZigModelReaderComparison(output: ITestOutputHelper) =
+    let kindNames = lazy (File.ReadAllLines(ZigModelReaderSupport.toolFile "model_kinds.txt") |> Array.map (fun line -> line.Split('|')[0]))
+
+    let mutate random json = ZigModelReaderSupport.mutate kindNames.Value random json
 
     /// For the first node of each kind: an unsupported property, then each property dropped and retyped.
     let perKind (documents: string list) =
