@@ -119,7 +119,7 @@ module ZigSnapshotReaderTests =
             let texts = inputs |> List.map Text.Encoding.UTF8.GetString
             let info = ProcessStartInfo(reader, RedirectStandardOutput = true, StandardOutputEncoding = Text.Encoding.UTF8)
             dependency |> Option.iter (fun d ->
-                File.WriteAllLines(Path.Combine(dir, "subjects"), RecordCodec.dependencySubjects d)
+                File.WriteAllText(Path.Combine(dir, "subjects"), String.Join("\n", RecordCodec.dependencySubjects d) + "\n")
                 info.ArgumentList.Add "--dependency"
                 info.ArgumentList.Add(Path.Combine(dir, "subjects")))
             inputs |> List.iteri (fun index input ->
