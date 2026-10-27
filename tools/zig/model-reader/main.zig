@@ -3439,6 +3439,153 @@ fn useResourceRules(node: Value, local: *const Set) void {
     if (!in_function.required_effects.contains(idKey(effect_id))) addIn("MissingEffectRequirement", cat(&.{ before, effectLabel(effect_id), L(" that it does not declare.") }));
 }
 
+/// Open obligations as (call, parameter) pairs, for `MissingArgument`.
+var open_obligation_pairs: Set = .empty;
+
+/// `CapabilityImplementations.validate`, prefixed "Capability construction '<id>': ".
+fn capabilityImplementationRules(node: Value) void {
+    const head = cat(&.{ L("Capability construction '"), str(node, "id"), L("': ") });
+    const capability_id = str(node, "capabilityId");
+    const capability = for (all_capabilities) |c| {
+        if (same(str(c, "id"), capability_id)) break c;
+    } else return addIn("UnknownCapabilityConstructTarget", cat(&.{ head, L("A capability construction must name an existing capability.") }));
+    const operations = byId(arrayOf(capability, "operations"));
+    const implementations = arrayOf(node, "implementations");
+    const operation_ids = a.alloc(Str, implementations.len) catch oom();
+    for (implementations, operation_ids) |implementation, *id| id.* = str(implementation, "operationId");
+    var duplicated = false;
+    for (countBy(operation_ids).values()) |entry| duplicated = duplicated or entry.count > 1;
+    if (duplicated) addIn("DuplicateCapabilityImplementation", cat(&.{ head, L("Each capability operation must have exactly one implementation.") }));
+    var implemented: Set = .empty;
+    for (operation_ids) |id| implemented.put(a, idKey(id), {}) catch oom();
+    var declared: Set = .empty;
+    for (operations.keys()) |key| declared.put(a, key, {}) catch oom();
+    if (!sameSet(&implemented, &declared)) addIn("CapabilityImplementationSetMismatch", cat(&.{ head, L("Implementations must cover exactly the operations of the constructed capability.") }));
+    for (implementations) |implementation| {
+        const operation_id = str(implementation, "operationId");
+        const function_id = str(implementation, "functionId");
+        const function = functions_by_id.get(idKey(function_id)) orelse {
+            addIn("UnknownCapabilityImplementationFunction", cat(&.{ head, L("Implementation function '"), function_id, L("' does not exist.") }));
+            continue;
+        };
+        const operation = operations.get(idKey(operation_id)) orelse continue;
+        if (arrayOf(function, "typeParameters").len > 0) addIn("GenericCapabilityImplementationUnsupported", cat(&.{ head, L("Use a monomorphic wrapper for a generic implementation function.") }));
+        if (!isPure(function_id)) addIn("ImpureCapabilityImplementation", cat(&.{ head, L("Implementation '"), function_id, L("' must be transitively pure, including ambient cancellation behavior.") }));
+        const function_parameters = arrayOf(function, "parameters");
+        const operation_parameters = arrayOf(operation, "parameters");
+        var signature = function_parameters.len == operation_parameters.len and typeEql(typeRefOf(get(function, "resultType")), typeRefOf(get(operation, "resultType")));
+        if (signature) for (function_parameters, operation_parameters) |f, o| {
+            signature = signature and typeEql(parameterType(f), parameterType(o));
+        };
+        if (!signature) addIn("CapabilityImplementationSignatureMismatch", cat(&.{ head, L("Implementation '"), function_id, L("' must match operation '"), operation_id, L("' parameter order, parameter types and result type exactly.") }));
+    }
+}
+
+/// Function references and invocations, direct calls and capabilities (Validation.fs
+/// `CapabilityConstruct` … `CapabilityInvoke`).
+fn callRules(node: Value) void {
+    const kind = text(str(node, "kind"));
+    const id = str(node, "id");
+    const function_label = functionLabel(in_function.function);
+    if (std.mem.eql(u8, kind, "capabilityConstruct")) {
+        capabilityImplementationRules(node);
+    } else if (std.mem.eql(u8, kind, "functionReference")) {
+        const target_id = str(node, "targetFunctionId");
+        const head = cat(&.{ L("Function reference '"), id, L("'") });
+        const target = functions_by_id.get(idKey(target_id)) orelse return addIn("UnknownFunctionReference", cat(&.{ head, L(" names unknown function '"), target_id, L("'.") }));
+        if (arrayOf(target, "typeParameters").len > 0) {
+            addIn("GenericFunctionReferenceUnsupported", cat(&.{ head, L(" must reference a monomorphic function; use a concrete wrapper.") }));
+        } else if (!isPure(target_id)) addIn("ImpureFunctionReference", cat(&.{ head, L(" must reference a pure function, including its transitive calls and ambient cancellation behavior.") }));
+    } else if (std.mem.eql(u8, kind, "functionInvoke")) {
+        const head = cat(&.{ L("Function invocation '"), id, L("'") });
+        const value_type = nodeType(str(node, "functionValueNodeId")) orelse return;
+        if (value_type.kind != .function) return addIn("FunctionInvokeTargetTypeMismatch", cat(&.{ head, L(" requires a function value.") }));
+        const arguments = arrayOf(node, "arguments");
+        if (value_type.args.len != arguments.len) return addIn("FunctionInvokeArityMismatch", cat(&.{ head, L(" must supply exactly one value for each positional parameter.") }));
+        for (value_type.args, arguments) |expected, argument| {
+            if (nodeType(argument.string)) |actual| if (!typeEql(actual, expected))
+                addIn("FunctionInvokeArgumentTypeMismatch", cat(&.{ head, L(" argument has the wrong type.") }));
+        }
+    } else if (std.mem.eql(u8, kind, "directCall")) {
+        directCallRules(node);
+    } else if (std.mem.eql(u8, kind, "capabilityInvoke")) {
+        const operation_id = str(node, "operationId");
+        const head = cat(&.{ L("Capability-invoke node '"), id, L("'") });
+        const operation = operations_by_id.get(idKey(operation_id)) orelse return addIn("UnknownCapabilityOperation", cat(&.{ head, L(" references unknown operation '"), operation_id, L("'.") }));
+        if (nodeType(str(node, "capabilityValueNodeId"))) |t| if (t.kind != .capability or !same(t.name, operation_owners.get(idKey(operation_id)).?))
+            addIn("CapabilityValueTypeMismatch", cat(&.{ head, L(" does not receive the capability that owns operation '"), operation_id, L("'.") }));
+        const arguments = arrayOf(node, "arguments");
+        const targets = a.alloc(Str, arguments.len) catch oom();
+        for (arguments, targets) |argument, *t| t.* = str(argument, "targetCapabilityParameterId");
+        for (countBy(targets).values()) |entry| {
+            if (entry.count > 1) addIn("DuplicateCapabilityArgumentTarget", cat(&.{ head, L(" binds capability parameter '"), entry.id, L("' more than once.") }));
+        }
+        const parameters = arrayOf(operation, "parameters");
+        var actual: Set = .empty;
+        for (targets) |t| actual.put(a, idKey(t), {}) catch oom();
+        if (!sameSet(&idSet(parameters), &actual))
+            addIn("CapabilityArgumentSetMismatch", cat(&.{ head, L(" must bind exactly the parameters declared by operation '"), operation_id, L("'.") }));
+        for (arguments, targets) |argument, target| {
+            const parameter = for (parameters) |p| {
+                if (same(str(p, "id"), target)) break p;
+            } else continue;
+            if (nodeType(str(argument, "valueNodeId"))) |value_type| if (!typeEql(parameterType(parameter), value_type))
+                addIn("CapabilityArgumentTypeMismatch", cat(&.{ head, L(" binds a value with the wrong type to capability parameter "), describe(str(parameter, "displayName"), str(parameter, "id")), L(".") }));
+        }
+        const effect_id = str(operation, "effectId");
+        if (!in_function.required_effects.contains(idKey(effect_id)))
+            addIn("MissingEffectRequirement", cat(&.{ L("Function "), function_label, L(" invokes capability operation "), describe(str(operation, "displayName"), operation_id), L(" but does not declare required effect "), effectLabel(effect_id), L(".") }));
+    }
+}
+
+fn directCallRules(node: Value) void {
+    const id = str(node, "id");
+    const target_id = str(node, "targetFunctionId");
+    const head = cat(&.{ L("Call node '"), id, L("'") });
+    const function = in_function.function;
+    const target = functions_by_id.get(idKey(target_id)) orelse return addIn("UnknownCallTarget", cat(&.{ head, L(" references unknown function '"), target_id, L("'.") }));
+    const arguments = arrayOf(node, "arguments");
+    const targets = a.alloc(Str, arguments.len) catch oom();
+    for (arguments, targets) |argument, *t| t.* = str(argument, "targetParameterId");
+    for (countBy(targets).values()) |entry| {
+        if (entry.count > 1) addIn("DuplicateArgumentTarget", cat(&.{ head, L(" binds parameter '"), entry.id, L("' more than once.") }));
+    }
+    for (targets) |t| {
+        if (parameterOf(target, t) == null) addIn("UnknownArgumentTargetParameter", cat(&.{ head, L(" targets parameter '"), t, L("' not owned by its callee.") }));
+    }
+    // A generic callee's type arguments follow from matching every bound argument.
+    const Bound = struct { parameter: Value, value_type: TypeRef };
+    var pairs: List(Bound) = .empty;
+    for (arguments, targets) |argument, t| {
+        const parameter = parameterOf(target, t);
+        const value_type = nodeType(str(argument, "valueNodeId"));
+        if (parameter != null and value_type != null) pairs.append(a, .{ .parameter = parameter.?, .value_type = value_type.? }) catch oom();
+    }
+    if (same(target_id, str(function, "id"))) {
+        // A self call takes the function's exact parameter types.
+        for (pairs.items) |pair| {
+            const declared = parameterType(pair.parameter);
+            if (!typeEql(pair.value_type, declared))
+                addIn("PolymorphicSelfCallUnsupported", cat(&.{ head, L(" calls its own function "), functionLabel(function), L(" with a value of type "), describeType(pair.value_type), L(" for parameter "), describe(str(pair.parameter, "displayName"), str(pair.parameter, "id")), L(" of type "), describeType(declared), L("; a function calls itself at its own parameter types.") }));
+        }
+    } else {
+        var matched: List(Pair) = .empty;
+        for (pairs.items) |pair| matched.append(a, .{ .declared = parameterType(pair.parameter), .actual = pair.value_type }) catch oom();
+        // `OneShotScopePayloadUnsupported` on a matching substitution belongs to slice 3d.
+        if (matchAll(matched.items) == null) addIn("ArgumentTypeMismatch", cat(&.{ head, L(" binds a value whose type does not match its callee parameter.") }));
+    }
+    for (arrayOf(target, "parameters")) |parameter| {
+        const parameter_id = str(parameter, "id");
+        const bound = bindsParameter(arguments, parameter_id);
+        const open = open_obligation_pairs.contains(idKey(cat(&.{ id, L("\n"), parameter_id })));
+        if (!bound and !open) addIn("MissingArgument", cat(&.{ head, L(" has no binding or open obligation for parameter "), describe(str(parameter, "displayName"), parameter_id), L(".") }));
+    }
+    for (arrayOf(target, "requiredEffects")) |effect| {
+        if (!in_function.required_effects.contains(idKey(effect.string)))
+            addIn("MissingEffectRequirement", cat(&.{ L("Function "), functionLabel(function), L(" calls "), functionLabel(target), L(" but does not declare required effect "), effectLabel(effect.string), L(".") }));
+    }
+}
+
 /// `validateGraph`: the graph's own rules, each node's rules, then its nested graphs.
 fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, context: Str, graph: Value) void {
     const nodes = arrayOf(graph, "nodes");
@@ -3462,6 +3609,7 @@ fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, contex
         collectionRules(node);
         structureRules(node, result_id);
         callbackRules(node, &local);
+        callRules(node);
         const kind = str(node, "kind");
         if (isName(kind, "parameterReference")) {
             const parameter_id = str(node, "parameterId");
@@ -3773,6 +3921,8 @@ fn validate(root: Value) void {
         product_field_owners.put(a, idKey(str(field, "id")), type_entity) catch oom();
     };
     product_fields_by_id = byId(product_fields.items);
+    open_obligation_pairs = .empty;
+    for (open_pairs.items) |pair| open_obligation_pairs.put(a, idKey(pair), {}) catch oom();
     validateFunctionGraphs(functions);
 
     std.mem.sort(Issue, issues.items, {}, issueLess);

@@ -344,7 +344,7 @@ module ZigValidatorSupport =
               let mutable changed = false
               for node in ZigModelReaderSupport.graphNodes root do
                   for key in [ for p in node -> p.Key ] do
-                      if key.EndsWith "FunctionId" || key.EndsWith "OperationId" || key = "fieldId" || key = "variantId" || key = "parameterId" || key = "patternBindingId" then
+                      if key.EndsWith "FunctionId" || key.EndsWith "OperationId" || key = "fieldId" || key = "variantId" || key = "parameterId" || key = "patternBindingId" || key = "capabilityId" then
                           (node[key] <- s (string node["id"]); changed <- true)
               changed)
           // Slice 3c: literals of each type as every operand, graph results and scopes.
@@ -541,13 +541,15 @@ module ZigValidatorSupport =
                   let mutable changed = false
                   for f in functions root do
                       for node in ZigModelReaderSupport.graphNodes f do
-                          for name in [ "context"; "bodyContext"; "handlerContext" ] do
+                          for name in [ "context"; "bodyContext"; "handlerContext"; "arguments" ] do
                               match node[name] with
-                              | :? JsonArray as bindings when bindings.Count > 0 ->
+                              | :? JsonArray as bindings when bindings.Count > 0 && (bindings[0] :? JsonObject) ->
                                   changed <- true
                                   match mode with
                                   | 0 -> bindings.Add(bindings[0].DeepClone())
-                                  | 1 -> bindings[0]["targetParameterId"] <- s "missing-parameter"
+                                  | 1 ->
+                                      let target = if (bindings[0] :?> JsonObject).ContainsKey "targetCapabilityParameterId" then "targetCapabilityParameterId" else "targetParameterId"
+                                      bindings[0][target] <- s "missing-parameter"
                                   | _ ->
                                       ((f["body"] :?> JsonObject)["nodes"] :?> JsonArray).Add(literalNode ("ctx-" + string (node["id"])) "string")
                                       bindings[0]["valueNodeId"] <- s ("ctx-" + string (node["id"]))
@@ -563,6 +565,33 @@ module ZigValidatorSupport =
                           node["limitNodeId"] <- s ("limit-" + string (node["id"]))
                           changed <- true
               changed)
+          "every function declares a type parameter",
+          (fun root ->
+              for f in functions root do withTypeParameters f [ typeParameter ("tp-" + string (f["id"])) "T" ]
+              not (functions root).IsEmpty)
+          "every function calls itself with String values",
+          (fun root ->
+              for f in functions root do
+                  let nodes = (f["body"] :?> JsonObject)["nodes"] :?> JsonArray
+                  let literal = "self-arg-" + string (f["id"])
+                  nodes.Add(literalNode literal "string")
+                  let arguments = JsonArray()
+                  for p in f["parameters"] :?> JsonArray do arguments.Add(obj [ "targetParameterId", s (string (p["id"])); "valueNodeId", s literal ])
+                  let call = obj [ "id", s ("self-call-" + string (f["id"])); "kind", s "directCall"; "targetFunctionId", s (string (f["id"])) ]
+                  if arguments.Count > 0 then call["arguments"] <- arguments
+                  nodes.Add call
+              not (functions root).IsEmpty)
+          for mode in 0 .. 2 do
+              $"capability implementations are duplicated, dropped or point nowhere ({mode})",
+              (fun root ->
+                  let nodes = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> match n["implementations"] with :? JsonArray as i -> i.Count > 0 | _ -> false)
+                  for n in nodes do
+                      let implementations = n["implementations"] :?> JsonArray
+                      match mode with
+                      | 0 -> implementations.Add(implementations[0].DeepClone())
+                      | 1 -> implementations.RemoveAt 0
+                      | _ -> implementations[0]["functionId"] <- s "missing-function"
+                  not nodes.IsEmpty)
           "string literals hold a lone surrogate",
           (fun root ->
               let literals = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> string n["kind"] = "stringLiteral")
@@ -572,9 +601,10 @@ module ZigValidatorSupport =
 module ZigValidatorTests =
     [<Fact>]
     let ``validation_codes.txt names validator codes`` () =
-        let source = File.ReadAllText(Path.Combine(ZigModelReaderSupport.root (), "src", "Nyrwvy.Semantics", "Validation.fs"))
+        // CapabilityImplementations.validate reports for the validator's CapabilityConstruct rule.
+        let source = [ "Validation.fs"; "CapabilityImplementations.fs" ] |> List.map (fun file -> File.ReadAllText(Path.Combine(ZigModelReaderSupport.root (), "src", "Nyrwvy.Semantics", file))) |> String.concat "\n"
         for code in ZigValidatorSupport.codes () do
-            Assert.True(source.Contains $"\"{code}\"", $"{code} is not a code of Validation.fs")
+            Assert.True(source.Contains $"\"{code}\"", $"{code} is not a code of Validation.fs or CapabilityImplementations.fs")
 
     /// `node_references.txt` lists, per node kind, the properties `directValueReferences` reads, in
     /// its operand order (a list property stands for its items, a binding list for their values).
