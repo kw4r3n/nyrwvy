@@ -29,6 +29,9 @@ int nyd_live(void);
 int nyd_platform_only(void);
 struct point { int x, y; };
 struct point nyd_origin(void);
+int nyd_format(const char *format, ...);
+size_t nyd_sum_short(const unsigned char *data, int length);
+int nyd_plain(char c);
 """
 
     let private source = """#include "nyrdemo.h"
@@ -154,13 +157,18 @@ static bool Fails<T>(Func<object> action, string? message = null) where T : Exce
             let generate () =
                 succeed root [] "dotnet"
                     [ tool; "bind-c"; "--header"; "nyrdemo.h"; "--library"; "nyrdemo"; "--capability"; "Demo"; "--effect"; "DemoCalls"; "--prefix"; "nyd_"
-                      "--functions"; "nyd_add,nyd_is_even,nyd_greet,nyd_counter_create,nyd_counter_add,nyd_counter_destroy,nyd_parse_port,nyd_checksum,nyd_live,nyd_platform_only,nyd_origin,nyd_free"
+                      "--functions"; "nyd_add,nyd_is_even,nyd_greet,nyd_counter_create,nyd_counter_add,nyd_counter_destroy,nyd_parse_port,nyd_checksum,nyd_live,nyd_platform_only,nyd_origin,nyd_free,nyd_format,nyd_sum_short,nyd_plain"
                       "--release"; "nyd_counter_destroy"; "--free"; "nyd_greet=nyd_free"
                       "--failure"; "nyd_counter_create=null"; "--failure"; "nyd_parse_port=negative"
                       "--requests"; "demo.requests.jsonl"; "--table"; "demo.csharp.json" ]
             use report = JsonDocument.Parse(generate ())
             let unmapped = report.RootElement.GetProperty("unmapped").EnumerateArray() |> Seq.map (fun item -> item.GetProperty("function").GetString()) |> Seq.toList
-            Assert.Equal<string list>([ "nyd_origin"; "nyd_free" ], unmapped)
+            Assert.Equal<string list>([ "nyd_origin"; "nyd_free"; "nyd_format"; "nyd_sum_short"; "nyd_plain" ], unmapped)
+            let code, _, stderr =
+                run root [] "dotnet" [ tool; "bind-c"; "--header"; "nyrdemo.h"; "--library"; "x"; "--capability"; "X"; "--effect"; "X"; "--functions"; "nyd_add"
+                                       "--requests"; "x.jsonl"; "--table"; "x.json"; "--clang-arg"; "--target=x86_64-pc-windows-msvc" ]
+            Assert.Equal(2, code)
+            Assert.Contains("LP64", stderr)
             // nyd_platform_only is declared but not built here: the hand-edited override marks it unavailable.
             File.WriteAllText(Path.Combine(root, "demo.csharp.override.json"),
                 """{"format":"nyrwvy.csharp-mapping","version":1,"capabilities":{"Demo":{"operations":{"platformOnly":{"unavailable":true}}}}}""")
@@ -203,6 +211,10 @@ static bool Fails<T>(Func<object> action, string? message = null) where T : Exce
                 emitted.GetProperty("symbols").GetProperty("capabilityAdapters").EnumerateArray()
                 |> Seq.map (fun item -> item.GetProperty("name").GetString())
                 |> Seq.find (fun name -> name = CSharpBackendNames.capabilityAdapterName (session.Declarations().Capabilities |> List.find (fun item -> item.DisplayName = "Demo")).Id)
+
+            let counterId = (session.Declarations().Capabilities |> List.find (fun item -> item.DisplayName = "Counter")).Id
+            let concurrent = send session ((emit "\"demo.csharp.json\"").Replace("\"tables\"", $"\"concurrentCapabilityIds\":[\"{StableId.value counterId}\"],\"tables\""))
+            Assert.Contains("ConcurrentNativeHandle", concurrent.GetProperty("error").GetProperty("message").GetString())
 
             // Mismatches are diagnostics before emission.
             let refused (table: string) (expected: string) =

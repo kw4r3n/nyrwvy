@@ -62,7 +62,8 @@ module CBindingGenerator =
     type private Declarations =
         { Typedefs: Map<string, string>
           CompleteRecords: Set<string>
-          Functions: Map<string, string * (string * string) list> }
+          /// Name → (function type, parameters, variadic).
+          Functions: Map<string, string * (string * string) list * bool> }
 
     let private declarations (root: JsonElement) =
         let nodes = root.GetProperty("inner").EnumerateArray() |> Seq.toList
@@ -86,16 +87,17 @@ module CBindingGenerator =
                     match node.TryGetProperty "inner" with
                     | true, inner -> inner.EnumerateArray() |> Seq.filter (fun item -> kind item = "ParmVarDecl") |> Seq.map (fun item -> text item "name", qualType item) |> Seq.toList
                     | _ -> []
-                text node "name", (qualType node, parameters))
+                let variadic = match node.TryGetProperty "variadic" with | true, value -> value.ValueKind = JsonValueKind.True | _ -> false
+                text node "name", (qualType node, parameters, variadic))
             |> Map.ofList }
 
     let private exactIntegers =
         Map.ofList
             [ "int8_t", (8, true); "int16_t", (16, true); "int32_t", (32, true); "int64_t", (64, true)
               "uint8_t", (8, false); "uint16_t", (16, false); "uint32_t", (32, false); "uint64_t", (64, false)
-              // shortcut: assumes an LP64 target (Linux, macOS); Windows needs long as 32 bits.
+              // LP64 only (checked before reading the header); Windows needs long as 32 bits.
               "size_t", (64, false); "ssize_t", (64, true); "intptr_t", (64, true); "uintptr_t", (64, false)
-              "char", (8, true); "signed char", (8, true); "unsigned char", (8, false)
+              "signed char", (8, true); "unsigned char", (8, false)
               "short", (16, true); "unsigned short", (16, false); "int", (32, true); "unsigned int", (32, false)
               "long", (64, true); "unsigned long", (64, false); "long long", (64, true); "unsigned long long", (64, false) ]
 
@@ -122,6 +124,7 @@ module CBindingGenerator =
             match resolve (fst (stripConst text)) 0 with
             | "void" -> CType.Void
             | "_Bool" | "bool" -> CType.Bool
+            | "char" -> CType.Unmapped "plain 'char' has target-dependent signedness; use signed char, unsigned char or int8_t/uint8_t"
             | name ->
                 match Map.tryFind name exactIntegers with
                 | Some(bits, signed) -> CType.Integer(bits, signed)
@@ -150,9 +153,12 @@ module CBindingGenerator =
     let private operation (options: Options) (declarations: Declarations) (functionName: string) =
         match Map.tryFind functionName declarations.Functions with
         | None -> Error "not declared in the header"
-        | Some(functionType, parameters) ->
+        | Some(functionType, parameters, variadic) ->
             let returnText = functionType.Substring(0, max 0 (functionType.IndexOf '('))
-            if functionType.Contains "(*" || returnText.Trim() = "" then Error $"'{functionType}' returns a function pointer" else
+            if functionType.Contains "(*" || returnText.Trim() = "" then Error $"'{functionType}' returns a function pointer"
+            elif variadic || functionType.Contains "..." then Error "variadic functions are out of scope"
+            elif functionType.TrimEnd().EndsWith("()", StringComparison.Ordinal) then Error "the declaration does not specify its parameters (write '(void)')"
+            else
             let handleName tag = pascal (strip options.Prefix tag)
             let classified = parameters |> List.map (fun (name, qualType) -> name, classify declarations qualType)
             let unmapped =
@@ -164,11 +170,12 @@ module CBindingGenerator =
             match unmapped with
             | Some reason -> Error reason
             | None ->
-            // A const byte pointer followed by an integer is one Bytes argument.
+            // A const byte pointer followed by a size_t is one Bytes argument (the emitter passes nuint).
+            let isSize name = parameters |> List.exists (fun (parameter, qualType) -> parameter = name && not (isNull qualType) && qualType.Trim() = "size_t")
             let rec arguments = function
                 | [] -> Ok []
-                | (name, CType.BytePointer) :: (_, CType.Integer _) :: rest -> arguments rest |> Result.map (fun tail -> (name, CType.BytePointer) :: tail)
-                | (name, CType.BytePointer) :: _ -> Error $"parameter {name}: a byte pointer must be followed by its length"
+                | (name, CType.BytePointer) :: (length, CType.Integer _) :: rest when isSize length -> arguments rest |> Result.map (fun tail -> (name, CType.BytePointer) :: tail)
+                | (name, CType.BytePointer) :: _ -> Error $"parameter {name}: a byte pointer must be followed by its size_t length"
                 | (name, CType.Text false) :: _ -> Error $"parameter {name}: 'char *' may be written by the library; only 'const char *' maps to String"
                 | (name, CType.Void) :: _ -> Error $"parameter {name}: void"
                 | item :: rest -> arguments rest |> Result.map (fun tail -> item :: tail)
@@ -252,9 +259,9 @@ module CBindingGenerator =
                 |> List.choose (function CType.Handle tag -> Some(handleName tag) | _ -> None)
             Ok { Owner = owner; Name = name; Declaration = declaration; Entry = entry; Handles = handles }
 
-    let private clang (options: Options) =
+    let private clangWith (arguments: string list) =
         let info = ProcessStartInfo("clang")
-        for argument in [ "-x"; "c"; "-Xclang"; "-ast-dump=json"; "-fsyntax-only" ] @ options.ClangArgs @ [ options.Header ] do
+        for argument in arguments do
             info.ArgumentList.Add argument
         info.RedirectStandardOutput <- true
         info.RedirectStandardError <- true
@@ -263,6 +270,13 @@ module CBindingGenerator =
         let output = child.StandardOutput.ReadToEnd()
         child.WaitForExit()
         if child.ExitCode <> 0 then Error $"clang failed: {errors.Result}" else Ok output
+
+    /// The integer mapping (long and size_t as 64 bits) holds only for LP64 targets.
+    let private clang (options: Options) =
+        match clangWith ([ "-x"; "c"; "-dM"; "-E" ] @ options.ClangArgs @ [ "/dev/null" ]) with
+        | Error message -> Error message
+        | Ok macros when not (macros.Contains "#define __LP64__ 1") -> Error "bind-c supports LP64 targets only (Linux, macOS); clang's target is not LP64."
+        | Ok _ -> clangWith ([ "-x"; "c"; "-Xclang"; "-ast-dump=json"; "-fsyntax-only" ] @ options.ClangArgs @ [ options.Header ])
 
     /// Writes the requests and the table and returns the report, or an error message.
     let private generate (options: Options) =

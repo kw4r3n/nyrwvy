@@ -1273,25 +1273,38 @@ module CSharpBackend =
                 writer.Line("try")
                 writer.Line("{")
                 writer.Push()
+            // Every argument is converted into a local first; a released handle is cleared last, so a
+            // conversion that throws never leaves the handle closed without the C call having run.
+            let released = ResizeArray<string>()
+            let local index expression =
+                writer.Line("var a" + string index + " = " + expression + ";")
+                "a" + string index
+            let handleArgument index owner value release =
+                if release then
+                    writer.Line(owner + ".Open(" + value + ");")
+                    released.Add("var a" + string index + " = " + owner + ".Release(" + value + ");")
+                    "a" + string index
+                else local index (owner + ".Open(" + value + ")")
             let arguments =
                 indexed |> List.map (fun (index, argument) ->
                     match argument with
-                    | CSharpNativeArgument.Self release -> handleOf capabilityName "this" release
+                    | CSharpNativeArgument.Self release -> handleArgument index capabilityName "this" release
                     | CSharpNativeArgument.Parameter(id, value) ->
                         let name = CSharpBackendNames.capabilityParameterName id
                         match value with
-                        | CSharpNativeValue.Integer _ -> "checked((" + nativeType value + ")" + name + ")"
-                        | CSharpNativeValue.Bool -> "(byte)(" + name + " ? 1 : 0)"
-                        | CSharpNativeValue.IntBool -> "(" + name + " ? 1 : 0)"
+                        | CSharpNativeValue.Integer _ -> local index ("checked((" + nativeType value + ")" + name + ")")
+                        | CSharpNativeValue.Bool -> local index ("(byte)(" + name + " ? 1 : 0)")
+                        | CSharpNativeValue.IntBool -> local index ("(" + name + " ? 1 : 0)")
                         | CSharpNativeValue.Utf8 _ ->
                             writer.Line("s" + string index + " = NyNative.Utf8(" + name + ");")
                             "s" + string index
                         | CSharpNativeValue.Bytes ->
                             writer.Line("g" + string index + " = System.Runtime.InteropServices.GCHandle.Alloc(" + name + ".Span.ToArray(), System.Runtime.InteropServices.GCHandleType.Pinned);")
                             "g" + string index + ".AddrOfPinnedObject(), (nuint)" + name + ".Span.Length"
-                        | CSharpNativeValue.Handle release -> handleOf (handleClass (parameterType id)) name release
+                        | CSharpNativeValue.Handle release -> handleArgument index (handleClass (parameterType id)) name release
                         | CSharpNativeValue.Void -> invalidOp "A void argument was validated away.")
                 |> String.concat ", "
+            for line in released do writer.Line line
             let invocation = externName + "(" + arguments + ")"
             let okType, isResult =
                 match operation.ResultType with
@@ -1318,8 +1331,9 @@ module CSharpBackend =
                 | CSharpNativeValue.Utf8 free, _ ->
                     match free with
                     | Some _ ->
-                        writer.Line("var text = NyNative.ReadUtf8(r, " + symbol + ");")
-                        writer.Line(freeName + "(r);")
+                        writer.Line("NyStr text;")
+                        writer.Line("try { text = NyNative.ReadUtf8(r, " + symbol + "); }")
+                        writer.Line("finally { if (r != System.IntPtr.Zero) " + freeName + "(r); }")
                         "text"
                     | None -> "NyNative.ReadUtf8(r, " + symbol + ")"
                 | CSharpNativeValue.Handle _, typeRef -> "new " + handleClass typeRef + "(NyNative.NotNull(r, " + symbol + "))"
@@ -1365,7 +1379,9 @@ module CSharpBackend =
                     writer.Line("internal " + adapterName + "(System.IntPtr handle) { _handle = handle; }")
                     writer.Line("internal static System.IntPtr Open(" + capabilityName + " value) => value is " + adapterName
                                 + " native && native._handle != System.IntPtr.Zero ? native._handle : throw new System.InvalidOperationException(\"Handle is not open\");")
-                    writer.Line("internal static System.IntPtr Release(" + capabilityName + " value) { var handle = Open(value); ((" + adapterName + ")value)._handle = System.IntPtr.Zero; return handle; }")
+                    // Exchange, so two racing releases cannot both pass the pointer to the C release function.
+                    writer.Line("internal static System.IntPtr Release(" + capabilityName + " value) { var handle = value is " + adapterName
+                                + " native ? System.Threading.Interlocked.Exchange(ref native._handle, System.IntPtr.Zero) : System.IntPtr.Zero; return handle != System.IntPtr.Zero ? handle : throw new System.InvalidOperationException(\"Handle is not open\"); }")
                 for operation in capability.Operations |> List.sortBy (fun item -> StableId.value item.Id) do
                   match Map.find operation.Id context.BindingsByOperation with
                   | CSharpCapabilityBindingKind.Native binding -> emitNativeOperation writer adapterName operation binding

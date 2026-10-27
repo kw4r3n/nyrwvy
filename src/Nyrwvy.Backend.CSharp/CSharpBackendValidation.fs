@@ -281,7 +281,26 @@ module internal CSharpBackendValidation =
                                         with
                                         | Some operation -> Error(CSharpBackendError.UnsupportedCapabilityFailure operation.Id)
                                         | None ->
-                                            match concurrentBindingProblem program profile operationsById with
+                                            let touchesHandle (binding: CSharpNativeBinding) =
+                                                binding.Handle
+                                                || (match binding.Call with
+                                                    | Some call ->
+                                                        (match call.Returns with CSharpNativeValue.Handle _ -> true | _ -> false)
+                                                        || call.Arguments |> List.exists (function
+                                                            | CSharpNativeArgument.Self _
+                                                            | CSharpNativeArgument.Parameter(_, CSharpNativeValue.Handle _) -> true
+                                                            | _ -> false)
+                                                    | None -> false)
+                                            let concurrentHandle =
+                                                profile.ConcurrentCapabilityIds |> Set.toList |> List.tryFind (fun id ->
+                                                    match Map.tryFind id capabilitiesById with
+                                                    | Some capability ->
+                                                        capability.Operations |> List.exists (fun operation ->
+                                                            match Map.tryFind operation.Id bindingsByOperation with
+                                                            | Some(CSharpCapabilityBindingKind.Native binding) -> touchesHandle binding
+                                                            | _ -> false)
+                                                    | None -> false)
+                                            match concurrentHandle |> Option.map CSharpBackendError.ConcurrentNativeHandle |> Option.orElse (concurrentBindingProblem program profile operationsById) with
                                             | Some error -> Error error
                                             | None ->
                                                 Ok

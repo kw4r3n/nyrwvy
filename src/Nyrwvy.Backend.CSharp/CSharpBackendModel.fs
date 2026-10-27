@@ -94,6 +94,8 @@ type CSharpBackendError =
     | IncompatibleNativeBinding of CapabilityOperationId * reason: string
     | MixedCapabilityBindingKinds of CapabilityId
     | InvalidConcurrentCapabilityBinding of CapabilityId
+    /// Table-bound handles are not synchronized, so their capabilities cannot be asserted concurrent.
+    | ConcurrentNativeHandle of CapabilityId
     | ConcurrentCapabilityBindingRequired of FunctionId * GraphNodeId * CapabilityId * CapabilityOperationId
     | UnsupportedCapabilityFailure of CapabilityOperationId
     | UnknownCallTarget of FunctionId
