@@ -83,6 +83,18 @@ module ZigSnapshotReaderTests =
                   yield replaceFirst @"schema=\d+" "schema=20" text
                   yield replaceFirst @"schema=\d+" "schema=024" text ]
         let texts = repository @ fixtures @ allKinds @ mutated @ targeted @ [ ""; "\n"; "\uFEFFsnapshot x\n"; "snapshot x\r\n"; "snapshot x" ]
+        // Ill-formed UTF-8, which the F# reader sees as U+FFFD per maximal subpart: stray and truncated
+        // sequences, overlong forms, surrogates and code points above U+10FFFF, in a name and anywhere.
+        let invalid =
+            let random = Random 7
+            let sequences = [| [| 0x80uy |]; [| 0xFFuy |]; [| 0xC3uy |]; [| 0xC0uy; 0xAFuy |]; [| 0xE2uy; 0x82uy |]; [| 0xEDuy; 0xA0uy; 0x80uy |]
+                               [| 0xF0uy; 0x9Fuy; 0x98uy |]; [| 0xF4uy; 0x90uy; 0x80uy; 0x80uy |]; [| 0xE0uy; 0x80uy; 0x41uy |]; [| 0xC3uy; 0xA9uy; 0xBFuy |] |]
+            [ for text in repository @ fixtures do
+                  let bytes = Text.Encoding.UTF8.GetBytes text
+                  let name = text.IndexOf("name=\"") + 6
+                  for sequence in sequences do
+                      for at in [ name; random.Next bytes.Length ] do
+                          yield Array.concat [ bytes[.. at - 1]; sequence; bytes[at ..] ] ]
         // Resolved locals: each original split into a dependency and a local that names its subjects
         // (the types, effects and capabilities; or every function but the last), with damage.
         let dependencyId = StableId.createForTesting<SnapshotTag> "zig-reader-dependency"
@@ -102,14 +114,16 @@ module ZigSnapshotReaderTests =
         Directory.CreateDirectory dir |> ignore
         let mutable accepted, deferred, rejected = 0, 0, 0
         // One process per dependency: `--dependency` names its subjects for every pair.
-        let run (dependency: Snapshot option) (texts: string list) =
-            let info = ProcessStartInfo(reader, RedirectStandardOutput = true)
+        let utf8 (text: string) = Text.Encoding.UTF8.GetBytes text
+        let run (dependency: Snapshot option) (inputs: byte array list) =
+            let texts = inputs |> List.map Text.Encoding.UTF8.GetString
+            let info = ProcessStartInfo(reader, RedirectStandardOutput = true, StandardOutputEncoding = Text.Encoding.UTF8)
             dependency |> Option.iter (fun d ->
                 File.WriteAllLines(Path.Combine(dir, "subjects"), RecordCodec.dependencySubjects d)
                 info.ArgumentList.Add "--dependency"
                 info.ArgumentList.Add(Path.Combine(dir, "subjects")))
-            texts |> List.iteri (fun index text ->
-                File.WriteAllText(Path.Combine(dir, $"{index}.nyrec"), text, Text.UTF8Encoding false)
+            inputs |> List.iteri (fun index input ->
+                File.WriteAllBytes(Path.Combine(dir, $"{index}.nyrec"), input)
                 info.ArgumentList.Add(Path.Combine(dir, $"{index}.nyrec"))
                 info.ArgumentList.Add(Path.Combine(dir, $"{index}.json")))
             use child = Process.Start info
@@ -135,15 +149,15 @@ module ZigSnapshotReaderTests =
                     rejected <- rejected + 1
                     Assert.Equal($"error {error.Line}:{error.Column}: {error.Message}", lines[index]))
         try
-            run None texts
+            run None (List.map utf8 texts @ invalid)
             // Every outcome occurs, so no part of the comparison is vacuous.
             Assert.True(accepted > 100 && deferred > 0 && rejected > 300, $"accepted {accepted}, deferred {deferred}, rejected {rejected}")
             accepted <- 0
             rejected <- 0
-            resolved |> List.iteri (fun index (dependency, text) -> run (Some dependency) (text :: mutations index 40 text))
+            resolved |> List.iteri (fun index (dependency, text) -> run (Some dependency) (List.map utf8 (text :: mutations index 40 text)))
             Assert.True(resolved.Length > 40 && accepted > resolved.Length && rejected > resolved.Length, $"{resolved.Length} resolved: accepted {accepted}, rejected {rejected}")
             // Without its dependency each is rejected, on both sides.
-            run None (List.map snd resolved)
+            run None (resolved |> List.map (snd >> utf8))
         finally Directory.Delete(dir, true)
 
     [<Fact>]

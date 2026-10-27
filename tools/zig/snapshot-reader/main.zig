@@ -1231,12 +1231,8 @@ pub fn main(init: std.process.Init) !void {
     const out = &writer.interface;
     while (index < args.len) : (index += 2) {
         const input = try std.Io.Dir.cwd().readFileAlloc(init.io, args[index], a, .unlimited);
-        // shortcut: assumes valid UTF-8 (F# would read invalid bytes as U+FFFD); reject until needed.
-        if (!std.unicode.utf8ValidateSlice(input)) {
-            try out.print("error 1:1: invalid UTF-8\n", .{});
-            continue;
-        }
-        text = input;
+        // Ill-formed bytes become U+FFFD per maximal subpart, as .NET's UTF8Encoding decodes them.
+        text = if (std.unicode.utf8ValidateSlice(input)) input else fmt("{f}", .{std.unicode.fmtUtf8(input)});
         if (decode()) |json| {
             try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[index + 1], .data = json });
             if (deferred) |d| try out.print("deferred {d}:{d}: {s}\n", .{ d.line, d.column, d.message }) else try out.print("ok\n", .{});
