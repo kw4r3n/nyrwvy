@@ -53,6 +53,30 @@ module ZigValidatorSupport =
                   yield "resolutionValueNodeId", s value ]
         :> JsonNode
 
+    let private prim name = obj [ "kind", s "primitive"; "primitive", s name ] :> JsonNode
+    let private gen name (arguments: JsonNode list) = obj [ "kind", s "builtinGeneric"; "generic", s name; "arguments", JsonArray(Array.ofList arguments) ] :> JsonNode
+    let private named id (arguments: JsonNode list) =
+        obj [ yield "kind", s "named"; yield "typeId", s id; if not arguments.IsEmpty then yield "arguments", JsonArray(Array.ofList arguments) ] :> JsonNode
+    let private tparam id = obj [ "kind", s "typeParameter"; "typeParameterId", s id ] :> JsonNode
+    let private field id (typeRef: JsonNode) = obj [ "id", s id; "displayName", s id; "type", typeRef ] :> JsonNode
+
+    /// A literal node of a primitive type.
+    let private literalNode id literal =
+        match literal with
+        | "string" -> obj [ "id", s id; "kind", s "stringLiteral"; "value", s "text" ]
+        | "int64" -> obj [ "id", s id; "kind", s "int64Literal"; "value", JsonValue.Create 7L ]
+        | "bool" -> obj [ "id", s id; "kind", s "boolLiteral"; "value", JsonValue.Create true ]
+        | "float64" -> obj [ "id", s id; "kind", s "float64Literal"; "bits", s "3ff0000000000000" ]
+        | _ -> obj [ "id", s id; "kind", s "unitLiteral" ]
+        :> JsonNode
+
+    /// Replaced by a `\ud800` escape in the written text, which JsonNode cannot write itself.
+    let loneSurrogateMarker = "lone-surrogate-marker"
+
+    /// The type references of one kind, anywhere in the document.
+    let private typeRefs kind (root: JsonObject) =
+        objectsIn root |> List.filter (fun o -> o.ContainsKey "kind" && string o["kind"] = kind && not (o.ContainsKey "id"))
+
     let private withTypeParameters (o: JsonObject) (declarations: JsonNode list) =
         let list = match o["typeParameters"] with :? JsonArray as items -> items | _ -> (let items = JsonArray() in o["typeParameters"] <- items; items)
         for declaration in declarations do list.Add declaration
@@ -186,14 +210,451 @@ module ZigValidatorSupport =
                     obligation "ob-foreign-parameter" callId "missing-parameter" None
                     obligation "ob-not-a-call" other parameter None
                     obligation "ob-unknown-node" "missing-node" parameter None
-                    obligation "ob-unknown-node" "another-missing-node" parameter None ])) ]
+                    obligation "ob-unknown-node" "another-missing-node" parameter None ]))
+          // Slice 3b: type references, equatability, task types, payload type parameters, cycles.
+          for kind, key in [ "named", "typeId"; "capability", "capabilityId" ] do
+              $"{kind} type references point nowhere",
+              (fun root ->
+                  let refs = typeRefs kind root
+                  for r in refs do r[key] <- s $"missing-{kind}"
+                  not refs.IsEmpty)
+          "named type references gain an argument",
+          (fun root ->
+              let refs = typeRefs "named" root
+              for r in refs do
+                  match r["arguments"] with
+                  | :? JsonArray as arguments -> arguments.Add(prim "int64")
+                  | _ -> r["arguments"] <- JsonArray(prim "int64")
+              not refs.IsEmpty)
+          "builtin generics gain an argument",
+          (fun root ->
+              let refs = typeRefs "builtinGeneric" root
+              for r in refs do (r["arguments"] :?> JsonArray).Add(prim "int64")
+              not refs.IsEmpty)
+          "builtin generics lose their arguments",
+          (fun root ->
+              let refs = typeRefs "builtinGeneric" root |> List.filter (fun r -> (r["arguments"] :?> JsonArray).Count > 0)
+              for r in refs do r["arguments"] <- JsonArray()
+              not refs.IsEmpty)
+          "declared types hold task scopes",
+          (fun root ->
+              (root["types"] :?> JsonArray).Add(
+                  obj
+                      [ "id", s "scope-type"
+                        "displayName", s "Scoped"
+                        "kind", s "product"
+                        "fields",
+                        JsonArray(
+                            field "scope-list" (gen "list" [ gen "taskScope" [] ]),
+                            field "scope-oneshot" (gen "oneShot" [ gen "option" [ gen "taskScope" [] ] ]),
+                            field "scope-argument" (named "scope-type" [ gen "taskScope" [] ])) ])
+              true)
+          "declared types use types that are not equatable",
+          (fun root ->
+              let types = root["types"] :?> JsonArray
+              types.Add(
+                  obj
+                      [ "id", s "eq-union"
+                        "displayName", s "EqUnion"
+                        "kind", s "union"
+                        "variants", JsonArray(obj [ "id", s "eq-variant"; "displayName", s "V"; "fields", JsonArray(field "eq-variant-field" (prim "float64")) ]) ])
+              types.Add(
+                  obj
+                      [ "id", s "eq-type"
+                        "displayName", s "Eq"
+                        "typeParameters", JsonArray(typeParameter "eq-t" "T")
+                        "kind", s "product"
+                        "fields",
+                        JsonArray(
+                            field "eq-float" (gen "set" [ prim "float64" ]),
+                            field "eq-function" (gen "map" [ gen "list" [ gen "option" [ gen "result" [ prim "int64"; obj [ "kind", s "function"; "parameters", JsonArray(prim "int64"); "resultType", prim "bool" ] ] ] ]; prim "int64" ]),
+                            field "eq-self" (gen "set" [ named "eq-type" [ prim "int64" ] ]),
+                            field "eq-parameter" (gen "map" [ tparam "eq-t"; prim "int64" ]),
+                            field "eq-handle" (gen "set" [ gen "exception" [] ]),
+                            field "eq-task" (gen "map" [ gen "task" [ prim "int64" ]; prim "int64" ]),
+                            field "eq-capability" (gen "set" [ obj [ "kind", s "capability"; "capabilityId", s "missing-capability" ] ]),
+                            field "eq-variant" (gen "set" [ gen "result" [ named "eq-union" []; prim "string" ] ]),
+                            field "eq-nested" (gen "set" [ named "eq-type" [ prim "string" ] ])) ])
+              true)
+          "a capability operation passes task types",
+          (fun root ->
+              match arrayItems "operations" root |> List.tryFind (fun items -> items.Count > 0) with
+              | Some operations ->
+                  (root["types"] :?> JsonArray).Add(
+                      obj [ "id", s "task-holder"; "displayName", s "Holder"; "kind", s "product"; "fields", JsonArray(field "task-held" (gen "option" [ gen "task" [ prim "int64" ] ])) ])
+                  operations[0]["resultType"] <- named "task-holder" []
+                  if operations.Count > 1 then operations[1]["resultType"] <- gen "exception" []
+                  true
+              | None -> false)
+          "payload types and a field use undeclared type parameters",
+          (fun root ->
+              let payload = [ "itemType"; "keyType"; "valueType"; "resultType"; "okType"; "errorType" ]
+              let mutable changed = false
+              for node in ZigModelReaderSupport.graphNodes root do
+                  for key in payload do
+                      if node.ContainsKey key then (node[key] <- gen "list" [ tparam "tp-undeclared" ]; changed <- true)
+                  if node.ContainsKey "typeArguments" then (node["typeArguments"] <- JsonArray(tparam "tp-undeclared", tparam "tp-undeclared"); changed <- true)
+              match first "types" root with
+              | Some types ->
+                  let fields = objectsIn types[0] |> List.filter (fun o -> o.ContainsKey "type" && o.ContainsKey "displayName")
+                  for f in fields |> List.truncate 1 do (f["type"] <- gen "result" [ tparam "tp-field"; tparam "tp-field" ]; changed <- true)
+              | None -> ()
+              changed)
+          "a function uses another declaration's type parameter",
+          (fun root ->
+              match functions root, first "types" root with
+              | f :: _, Some types ->
+                  withTypeParameters (types[0] :?> JsonObject) [ typeParameter "tp-foreign" "F" ]
+                  f["resultType"] <- tparam "tp-foreign"
+                  true
+              | _ -> false)
+          "the last node with a node reference refers to itself",
+          (fun root ->
+              let referring = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> n |> Seq.exists (fun p -> p.Key.EndsWith "NodeId"))
+              match List.tryLast referring with
+              | Some node ->
+                  let key = (node |> Seq.find (fun p -> p.Key.EndsWith "NodeId")).Key
+                  node[key] <- s (string node["id"])
+                  true
+              | None -> false)
+          "the last node with a reference list refers to itself",
+          (fun root ->
+              let lists = [ "itemNodeIds"; "arguments"; "context"; "bodyContext"; "handlerContext"; "fields" ]
+              let listed (n: JsonObject) = lists |> List.tryPick (fun key -> match n[key] with :? JsonArray as items when items.Count > 0 -> Some items | _ -> None)
+              match ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> (listed n).IsSome) |> List.tryLast with
+              | Some node ->
+                  let items = (listed node).Value
+                  match items[0] with
+                  | :? JsonObject as binding -> binding["valueNodeId"] <- s (string node["id"])
+                  | _ -> items[0] <- s (string node["id"])
+                  true
+              | None -> false)
+          "a nested node refers to its enclosing node",
+          (fun root ->
+              let enclosing =
+                  ZigModelReaderSupport.graphNodes root
+                  |> List.tryPick (fun n ->
+                      ZigModelReaderSupport.graphNodes n
+                      |> List.tryPick (fun inner -> inner |> Seq.tryFind (fun p -> p.Key.EndsWith "NodeId") |> Option.map (fun p -> n, inner, p.Key)))
+              match enclosing with
+              | Some(n, inner, key) -> inner[key] <- s (string n["id"]); true
+              | None -> false)
+          "declaration references of nodes take the node's own ID",
+          (fun root ->
+              let mutable changed = false
+              for node in ZigModelReaderSupport.graphNodes root do
+                  for key in [ for p in node -> p.Key ] do
+                      if key.EndsWith "FunctionId" || key.EndsWith "OperationId" || key = "fieldId" || key = "variantId" || key = "parameterId" || key = "patternBindingId" || key = "capabilityId" then
+                          (node[key] <- s (string node["id"]); changed <- true)
+              changed)
+          // Slice 3c: literals of each type as every operand, graph results and scopes.
+          for literal in [ "string"; "int64"; "bool"; "float64"; "unit" ] do
+              $"every operand is a {literal} literal",
+              (fun root ->
+                  let mutable changed = false
+                  for f in functions root do
+                      let body = f["body"] :?> JsonObject
+                      let id = $"lit-{literal}"
+                      for node in ZigModelReaderSupport.graphNodes f do
+                          for key in [ for p in node -> p.Key ] do
+                              if key.EndsWith "NodeId" then (node[key] <- s id; changed <- true)
+                      (body["nodes"] :?> JsonArray).Add(literalNode id literal)
+                  changed)
+          for rotation in 0 .. 2 do
+              $"operands are literals of a type by position, rotated {rotation}",
+              (fun root ->
+                  let literals = [ "string"; "int64"; "bool"; "float64"; "unit" ]
+                  let mutable changed = false
+                  for f in functions root do
+                      let nodes = (f["body"] :?> JsonObject)["nodes"] :?> JsonArray
+                      for node in ZigModelReaderSupport.graphNodes f do
+                          let keys = [ for p in node do if p.Key.EndsWith "NodeId" then yield p.Key ]
+                          keys |> List.iteri (fun i key -> node[key] <- s ("pos-" + literals[(i + rotation) % literals.Length]); changed <- true)
+                      for literal in literals do nodes.Add(literalNode ("pos-" + literal) literal)
+                  changed)
+          for rotation in [ 0; 1; 4; 5; 6; 7 ] do
+              $"operands are typed containers by position, rotated {rotation}",
+              (fun root ->
+                  let prim name = obj [ "kind", s "primitive"; "primitive", s name ] :> JsonNode
+                  let values =
+                      [ obj [ "id", s "c-list-int64"; "kind", s "listEmpty"; "itemType", prim "int64" ]
+                        obj [ "id", s "c-list-float"; "kind", s "listEmpty"; "itemType", prim "float64" ]
+                        literalNode "c-string" "string" :?> JsonObject
+                        literalNode "c-int64" "int64" :?> JsonObject
+                        obj [ "id", s "c-set-string"; "kind", s "setEmpty"; "itemType", prim "string" ]
+                        obj [ "id", s "c-map"; "kind", s "mapEmpty"; "keyType", prim "string"; "valueType", prim "int64" ]
+                        obj [ "id", s "c-option"; "kind", s "optionNone"; "itemType", prim "int64" ]
+                        obj [ "id", s "c-result"; "kind", s "resultErr"; "okType", prim "int64"; "errorNodeId", s "c-string" ] ]
+                  let mutable changed = false
+                  for f in functions root do
+                      let nodes = (f["body"] :?> JsonObject)["nodes"] :?> JsonArray
+                      for node in ZigModelReaderSupport.graphNodes f do
+                          let keys = [ for p in node do if p.Key.EndsWith "NodeId" then yield p.Key ]
+                          keys |> List.iteri (fun i key -> node[key] <- s (string (values[(i + rotation) % values.Length]["id"])); changed <- true)
+                      for value in values do nodes.Add(value.DeepClone())
+                  changed)
+          "left operands are String and right operands Int64 literals",
+          (fun root ->
+              let mutable changed = false
+              for f in functions root do
+                  let nodes = (f["body"] :?> JsonObject)["nodes"] :?> JsonArray
+                  for node in ZigModelReaderSupport.graphNodes f do
+                      if node.ContainsKey "leftNodeId" && node.ContainsKey "rightNodeId" then
+                          node["leftNodeId"] <- s "lit-left"
+                          node["rightNodeId"] <- s "lit-right"
+                          changed <- true
+                  nodes.Add(literalNode "lit-left" "string")
+                  nodes.Add(literalNode "lit-right" "int64")
+              changed)
+          "the first nested graph ends in a String literal and every body in a Unit literal",
+          (fun root ->
+              let graphs = objectsIn root |> List.filter (fun o -> o.ContainsKey "nodes" && o.ContainsKey "resultNodeId")
+              let bodies = functions root |> List.map (fun f -> f["body"] :?> JsonObject)
+              let endIn (graph: JsonObject) id literal =
+                  (graph["nodes"] :?> JsonArray).Add(literalNode id literal)
+                  graph["resultNodeId"] <- s id
+              match graphs |> List.tryFind (fun g -> not (bodies |> List.exists (fun b -> Object.ReferenceEquals(b, g)))) with
+              | Some nested -> endIn nested "nested-string" "string"
+              | None -> ()
+              bodies |> List.iteri (fun i body -> endIn body $"body-unit-{i}" "unit")
+              not bodies.IsEmpty)
+          "a node uses an abort node and a body result points into a nested graph",
+          (fun root ->
+              match functions root with
+              | f :: _ ->
+                  let body = f["body"] :?> JsonObject
+                  let nodes = body["nodes"] :?> JsonArray
+                  if nodes.Count = 0 then false
+                  else
+                      let first = nodes[0] :?> JsonObject
+                      nodes.Add(obj [ "id", s "abort-node"; "kind", s "abort"; "errorNodeId", s (string first["id"]) ])
+                      match ZigModelReaderSupport.graphNodes f |> List.filter (fun n -> n |> Seq.exists (fun p -> p.Key.EndsWith "NodeId")) |> List.tryLast with
+                      | Some user -> user[(user |> Seq.find (fun p -> p.Key.EndsWith "NodeId")).Key] <- s "abort-node"
+                      | None -> ()
+                      let nested = ZigModelReaderSupport.graphNodes f |> List.filter (fun n -> not (nodes |> Seq.exists (fun t -> Object.ReferenceEquals(t, n))))
+                      match nested with
+                      | inner :: _ ->
+                          body["resultNodeId"] <- s (string inner["id"])
+                          first |> Seq.tryFind (fun p -> p.Key.EndsWith "NodeId") |> Option.iter (fun p -> first[p.Key] <- s (string inner["id"]))
+                      | [] -> body["resultNodeId"] <- s "missing-node"
+                      true
+              | [] -> false)
+          "in each function the last node with a node reference uses an abort node",
+          (fun root ->
+              let mutable changed = false
+              for f in functions root do
+                  let nodes = (f["body"] :?> JsonObject)["nodes"] :?> JsonArray
+                  match ZigModelReaderSupport.graphNodes f |> List.filter (fun n -> n |> Seq.exists (fun p -> p.Key.EndsWith "NodeId")) |> List.tryLast with
+                  | Some user when nodes.Count > 0 ->
+                      let abortId = "abort-" + string (f["id"])
+                      nodes.Insert(0, obj [ "id", s abortId; "kind", s "abort"; "errorNodeId", s (string (nodes[0]["id"])) ])
+                      user[(user |> Seq.find (fun p -> p.Key.EndsWith "NodeId")).Key] <- s abortId
+                      changed <- true
+                  | _ -> ()
+              changed)
+          "product nodes target an unknown type",
+          (fun root ->
+              let products = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> n.ContainsKey "typeId")
+              for n in products do n["typeId"] <- s "missing-type"
+              not products.IsEmpty)
+          "product nodes target a union type",
+          (fun root ->
+              let unions = match root["types"] with :? JsonArray as types -> [ for t in types do if string (t["kind"]) = "union" then yield string (t["id"]) ] | _ -> []
+              let products = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> n.ContainsKey "typeId")
+              match unions with
+              | union :: _ when not products.IsEmpty -> (for n in products do n["typeId"] <- s union); true
+              | _ -> false)
+          for mode in 0 .. 3 do
+            $"field bindings are duplicated, retargeted, emptied or given a String value ({mode})",
+            (fun root ->
+              let nodes = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> match n["fields"] with :? JsonArray as f -> f.Count > 0 | _ -> false)
+              nodes |> List.iter (fun n ->
+                  let fields = n["fields"] :?> JsonArray
+                  match mode with
+                  | 0 -> fields.Add(fields[0].DeepClone())
+                  | 1 -> fields[0]["targetFieldId"] <- s "missing-field"
+                  | 2 -> if string (n["kind"]) = "productUpdate" then fields.Clear() else fields.RemoveAt 0
+                  | _ ->
+                      ((n.Parent :?> JsonArray).Add(literalNode "field-string" "string"))
+                      for f in fields do f["valueNodeId"] <- s "field-string")
+              not nodes.IsEmpty)
+          for mode in 0 .. 3 do
+            $"union match arms are duplicated, dropped, merged or bind fields twice ({mode})",
+            (fun root ->
+              let matches = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> string (n["kind"]) = "matchUnion")
+              matches |> List.iter (fun n ->
+                  let arms = n["arms"] :?> JsonArray
+                  match mode with
+                  | 0 -> arms.Add(arms[0].DeepClone())
+                  | 1 -> if arms.Count > 1 then arms.RemoveAt 0
+                  | 2 ->
+                      let arm = arms[0] :?> JsonObject
+                      match arm["variantId"] with
+                      | null -> ()
+                      | v ->
+                          arm.Remove "variantId" |> ignore
+                          arm["variantIds"] <- JsonArray(s (string v), s "other-variant")
+                  | _ ->
+                      let bindings = arms[0]["fieldBindings"] :?> JsonArray
+                      if bindings.Count > 0 then
+                          let copy = bindings[0].DeepClone()
+                          copy["binding"]["id"] <- s "copied-binding"
+                          bindings.Add copy)
+              not matches.IsEmpty)
+          "pattern binding types become Bytes",
+          (fun root ->
+              let bindings = objectsIn root |> List.collect (fun o -> [ for name in [ "valueBinding"; "errorBinding"; "binding" ] do match o[name] with :? JsonObject as b -> yield b | _ -> () ])
+              for b in bindings do b["type"] <- prim "bytes"
+              not bindings.IsEmpty)
+          // Callbacks: signatures, purity and context bindings.
+          "every function gains an Int64 parameter",
+          (fun root ->
+              for f in functions root do (f["parameters"] :?> JsonArray).Add(obj [ "id", s ("extra-" + string (f["id"])); "displayName", s "extra"; "type", prim "int64" ])
+              not (functions root).IsEmpty)
+          "every function loses its first parameter",
+          (fun root ->
+              let mutable changed = false
+              for f in functions root do
+                  let parameters = f["parameters"] :?> JsonArray
+                  if parameters.Count > 0 then (parameters.RemoveAt 0; changed <- true)
+              changed)
+          "function parameter types become Bytes",
+          (fun root ->
+              let mutable changed = false
+              for f in functions root do
+                  for p in f["parameters"] :?> JsonArray do (p["type"] <- prim "bytes"; changed <- true)
+              changed)
+          "function results become Bytes",
+          (fun root ->
+              for f in functions root do f["resultType"] <- prim "bytes"
+              not (functions root).IsEmpty)
+          "every function requires the first effect",
+          (fun root ->
+              match root["effects"] with
+              | :? JsonArray as effects when effects.Count > 0 ->
+                  for f in functions root do (f["requiredEffects"] :?> JsonArray).Add(s (string (effects[0]["id"])))
+                  true
+              | _ -> false)
+          for mode in 0 .. 2 do
+              $"context bindings are duplicated, retargeted or given a String value ({mode})",
+              (fun root ->
+                  let mutable changed = false
+                  for f in functions root do
+                      for node in ZigModelReaderSupport.graphNodes f do
+                          for name in [ "context"; "bodyContext"; "handlerContext"; "arguments" ] do
+                              match node[name] with
+                              | :? JsonArray as bindings when bindings.Count > 0 && (bindings[0] :? JsonObject) ->
+                                  changed <- true
+                                  match mode with
+                                  | 0 -> bindings.Add(bindings[0].DeepClone())
+                                  | 1 ->
+                                      let target = if (bindings[0] :?> JsonObject).ContainsKey "targetCapabilityParameterId" then "targetCapabilityParameterId" else "targetParameterId"
+                                      bindings[0][target] <- s "missing-parameter"
+                                  | _ ->
+                                      ((f["body"] :?> JsonObject)["nodes"] :?> JsonArray).Add(literalNode ("ctx-" + string (node["id"])) "string")
+                                      bindings[0]["valueNodeId"] <- s ("ctx-" + string (node["id"]))
+                              | _ -> ()
+                  changed)
+          "waits get a String limit",
+          (fun root ->
+              let mutable changed = false
+              for f in functions root do
+                  for node in ZigModelReaderSupport.graphNodes f do
+                      if string (node["kind"]) = "oneShotWait" || string (node["kind"]) = "taskWait" then
+                          ((f["body"] :?> JsonObject)["nodes"] :?> JsonArray).Add(literalNode ("limit-" + string (node["id"])) "string")
+                          node["limitNodeId"] <- s ("limit-" + string (node["id"]))
+                          changed <- true
+              changed)
+          "every function declares a type parameter",
+          (fun root ->
+              for f in functions root do withTypeParameters f [ typeParameter ("tp-" + string (f["id"])) "T" ]
+              not (functions root).IsEmpty)
+          "every function calls itself with String values",
+          (fun root ->
+              for f in functions root do
+                  let nodes = (f["body"] :?> JsonObject)["nodes"] :?> JsonArray
+                  let literal = "self-arg-" + string (f["id"])
+                  nodes.Add(literalNode literal "string")
+                  let arguments = JsonArray()
+                  for p in f["parameters"] :?> JsonArray do arguments.Add(obj [ "targetParameterId", s (string (p["id"])); "valueNodeId", s literal ])
+                  let call = obj [ "id", s ("self-call-" + string (f["id"])); "kind", s "directCall"; "targetFunctionId", s (string (f["id"])) ]
+                  if arguments.Count > 0 then call["arguments"] <- arguments
+                  nodes.Add call
+              not (functions root).IsEmpty)
+          for mode in 0 .. 2 do
+              $"capability implementations are duplicated, dropped or point nowhere ({mode})",
+              (fun root ->
+                  let nodes = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> match n["implementations"] with :? JsonArray as i -> i.Count > 0 | _ -> false)
+                  for n in nodes do
+                      let implementations = n["implementations"] :?> JsonArray
+                      match mode with
+                      | 0 -> implementations.Add(implementations[0].DeepClone())
+                      | 1 -> implementations.RemoveAt 0
+                      | _ -> implementations[0]["functionId"] <- s "missing-function"
+                  not nodes.IsEmpty)
+          "string literals hold a lone surrogate",
+          (fun root ->
+              let literals = ZigModelReaderSupport.graphNodes root |> List.filter (fun n -> string n["kind"] = "stringLiteral")
+              for n in literals do n["value"] <- s loneSurrogateMarker
+              not literals.IsEmpty) ]
 
 module ZigValidatorTests =
     [<Fact>]
     let ``validation_codes.txt names validator codes`` () =
-        let source = File.ReadAllText(Path.Combine(ZigModelReaderSupport.root (), "src", "Nyrwvy.Semantics", "Validation.fs"))
+        // CapabilityImplementations.validate reports for the validator's CapabilityConstruct rule.
+        let source = [ "Validation.fs"; "CapabilityImplementations.fs" ] |> List.map (fun file -> File.ReadAllText(Path.Combine(ZigModelReaderSupport.root (), "src", "Nyrwvy.Semantics", file))) |> String.concat "\n"
         for code in ZigValidatorSupport.codes () do
-            Assert.True(source.Contains $"\"{code}\"", $"{code} is not a code of Validation.fs")
+            Assert.True(source.Contains $"\"{code}\"", $"{code} is not a code of Validation.fs or CapabilityImplementations.fs")
+
+    /// `node_references.txt` lists, per node kind, the properties `directValueReferences` reads, in
+    /// its operand order (a list property stands for its items, a binding list for their values).
+    [<Fact>]
+    let ``node_references.txt follows directValueReferences`` () =
+        let table =
+            File.ReadAllLines(ZigModelReaderSupport.toolFile "node_references.txt")
+            |> Array.filter (fun line -> line <> "")
+            |> Array.map (fun line -> let parts = line.Split('|') in parts[0], parts[1].Split(' ', StringSplitOptions.RemoveEmptyEntries) |> List.ofArray)
+            |> Map.ofArray
+        let mutable checkedKinds = Set.empty
+        let mutable mismatches = []
+        // Every reference gets its own ID and every list two items, so the order is observable.
+        for json in ZigModelReaderSupport.allKindsJson () do
+            let document = JsonNode.Parse json
+            for o in ZigModelReaderSupport.graphNodes document do
+                let kind = string o["kind"]
+                for name in table[kind] do
+                    if not (name.EndsWith "NodeId") && isNull o[name] then o[name] <- JsonArray()
+                    match o[name] with
+                    | :? JsonArray as items ->
+                        let strings = kind = "listConstruct" || kind = "functionInvoke"
+                        let target = if name = "fields" then "targetFieldId" elif kind = "capabilityInvoke" then "targetCapabilityParameterId" else "targetParameterId"
+                        items.Clear()
+                        for i in 1 .. 2 do
+                            if strings then items.Add(JsonValue.Create $"ref-{name}-{i}")
+                            else
+                                let binding = JsonObject()
+                                binding[target] <- JsonValue.Create $"target-{name}-{i}"
+                                binding["valueNodeId"] <- JsonValue.Create $"ref-{name}-{i}"
+                                items.Add binding
+                    | _ -> o[name] <- JsonValue.Create $"ref-{name}"
+            let snapshot = SnapshotCodec.readUnvalidated (document.ToJsonString()) |> Result.mapError string |> ZigModelReaderSupport.unwrap
+            let jsonNodes = ZigModelReaderSupport.graphNodes document |> List.map (fun n -> string n["id"], n) |> Map.ofList
+            for f in snapshot.Functions do
+                for node in ValueGraph.collectNodes f.Body do
+                    let o = jsonNodes[StableId.value node.Id]
+                    let kind = string o["kind"]
+                    let fromTable =
+                        table[kind]
+                        |> List.collect (fun name ->
+                            match o[name] with
+                            | null -> []
+                            | :? JsonArray as items -> [ for item in items -> match item with :? JsonObject as b -> string b["valueNodeId"] | v -> string v ]
+                            | v -> [ string v ])
+                    let actual = SemanticNodeShape.directValueReferences node |> List.map StableId.value
+                    if fromTable <> actual then mismatches <- $"{kind}: {String.Join(' ', fromTable)} <> {String.Join(' ', actual)}" :: mismatches
+                    checkedKinds <- checkedKinds.Add kind
+        Assert.True(mismatches.IsEmpty, String.Join("\n", List.distinct mismatches))
+        Assert.Equal<string list>(table.Keys |> List.ofSeq, checkedKinds |> List.ofSeq)
 
 /// The extended comparison (a class, so that it can report its counts).
 type ZigValidatorComparison(output: ITestOutputHelper) =
@@ -214,7 +675,7 @@ type ZigValidatorComparison(output: ITestOutputHelper) =
         let apply (edits: (JsonObject -> bool) list) (json: string) =
             let document = JsonNode.Parse json :?> JsonObject
             let changed = edits |> List.fold (fun changed edit -> edit document || changed) false
-            if changed then Some(document.ToJsonString()) else None
+            if changed then Some(document.ToJsonString().Replace(ZigValidatorSupport.loneSurrogateMarker, "\\ud800")) else None
         let targeted = [ for json in originals do for _, edit in ZigValidatorSupport.semanticEdits do yield! Option.toList (apply [ edit ] json) ]
         // Two or three random edits together, so rules meet each other's damage.
         let combined =

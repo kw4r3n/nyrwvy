@@ -1,8 +1,10 @@
 //! The Nyrwvy snapshot reader, second stage: snapshot JSON to the canonical JSON the F# writer
 //! produces for the shape-decoded model, with every shape check of `SnapshotCodec`'s reader, the
 //! schema version and construct minimums. Its reference is `SnapshotCodec.toCanonicalJson`.
-//! The model-only rules of semantic validation (`SnapshotValidator`, the codes in
-//! `validation_codes.txt`) are ported; the rest is not. See docs/decisions/zig-tools.md.
+//! Semantic validation (`SnapshotValidator`) is ported for the codes in `validation_codes.txt`:
+//! model-only rules, type references and the typed graph rules on a port of the node type
+//! resolver; effect order, waiting, OneShot payloads and task crossing are not. See
+//! docs/decisions/zig-tools.md.
 //!
 //! Usage: `model-reader <in.json> <out.json> [<in> <out> ...]`. One line per pair on standard
 //! output: `ok`, `skip legacy schema <n>` (versions before 21 are not ported yet), or
@@ -21,6 +23,7 @@ const std = @import("std");
 
 const kind_table_text = @embedFile("model_kinds.txt");
 const minimums_text = @embedFile("schema_minimums.txt");
+const references_text = @embedFile("node_references.txt");
 const max_json_depth = 1000;
 
 var a: std.mem.Allocator = undefined;
@@ -663,6 +666,8 @@ const Kind = struct {
     required: []const []const u8,
     allowed: []const []const u8,
     row: ?usize = null,
+    /// The properties `directValueReferences` reads, in operand order (node_references.txt).
+    references: []const []const u8 = &.{},
 };
 var kinds: std.StringHashMapUnmanaged(Kind) = .empty;
 
@@ -722,6 +727,17 @@ fn loadTables() void {
         }
         kinds.put(a, name, .{ .context = context, .reads = reads.items, .writes = writes.items, .required = required.items, .allowed = allowed.items, .row = row }) catch oom();
     }
+
+    lines = std.mem.tokenizeScalar(u8, references_text, '\n');
+    while (lines.next()) |line| {
+        var parts = std.mem.splitScalar(u8, line, '|');
+        const kind = kinds.getPtr(parts.next().?) orelse @panic("node_references.txt: unknown kind");
+        var names: List([]const u8) = .empty;
+        var items = std.mem.tokenizeScalar(u8, parts.next().?, ' ');
+        while (items.next()) |item| names.append(a, item) catch oom();
+        kind.references = names.items;
+    }
+    checkTypingTable();
 }
 
 fn readArgumentLike(context: []const u8, target: []const u8, element: Value) Failure!Keyed {
@@ -1116,12 +1132,14 @@ const Issue = struct { code: []const u8, message: Str };
 var issues: List(Issue) = .empty;
 var parsed_root: Value = .json_null;
 
+/// Reports an issue of a listed code. A code stays unlisted until every site that emits it is
+/// ported; the sites already ported run but report nothing (and a misspelt code shows up as an
+/// issue the comparison misses).
 fn add(code: []const u8, message_units: Str) void {
     var lines = std.mem.tokenizeAny(u8, codes_text, "\r\n");
     while (lines.next()) |line| {
         if (std.mem.eql(u8, line, code)) return issues.append(a, .{ .code = code, .message = message_units }) catch oom();
     }
-    @panic("a ported code is missing from validation_codes.txt");
 }
 
 /// The F# validator's final `sortBy (Code, Message)`: ordinal, that is per UTF-16 unit.
@@ -1173,6 +1191,11 @@ fn quote(id: Str) Str {
 
 fn idKey(id: Str) []const u8 {
     return std.mem.sliceAsBytes(id);
+}
+
+/// The ID back from an `idKey`.
+fn keyId(key: []const u8) Str {
+    return @as([*]const u16, @ptrCast(@alignCast(key.ptr)))[0 .. key.len / 2];
 }
 
 const Set = std.StringArrayHashMapUnmanaged(void);
@@ -1358,6 +1381,2334 @@ fn typeParameterDeclarations(comptime what: []const u8, label: Str, declarations
     if (countBy(ids).count() != ids.len) add("DuplicateTypeParameterId", cat(&.{ L(what ++ " "), label, L(" declares one type parameter more than once.") }));
 }
 
+// ---------------------------------------------------------------- type references (slice 3b)
+
+/// A decoded `TypeRef`. `name` is the primitive or generic wire name, or the type, capability or
+/// type parameter ID; a function type keeps its parameters in `args` and its result in `result`.
+const TypeKind = enum { primitive, named, function, type_parameter, capability, generic };
+const TypeRef = struct {
+    kind: TypeKind,
+    name: Str = &.{},
+    args: []const TypeRef = &.{},
+    result: ?*const TypeRef = null,
+
+    fn isGeneric(self: TypeRef, comptime name: []const u8) bool {
+        return self.kind == .generic and isName(self.name, name);
+    }
+    fn isPrimitive(self: TypeRef, comptime name: []const u8) bool {
+        return self.kind == .primitive and isName(self.name, name);
+    }
+};
+
+fn typeRefOf(element: Value) TypeRef {
+    const kind = str(element, "kind");
+    if (isName(kind, "primitive")) return .{ .kind = .primitive, .name = str(element, "primitive") };
+    if (isName(kind, "named")) return .{ .kind = .named, .name = str(element, "typeId"), .args = typeRefsOf(arrayOf(element, "arguments")) };
+    if (isName(kind, "typeParameter")) return .{ .kind = .type_parameter, .name = str(element, "typeParameterId") };
+    if (isName(kind, "capability")) return .{ .kind = .capability, .name = str(element, "capabilityId") };
+    if (isName(kind, "builtinGeneric")) return .{ .kind = .generic, .name = str(element, "generic"), .args = typeRefsOf(arrayOf(element, "arguments")) };
+    return .{ .kind = .function, .args = typeRefsOf(arrayOf(element, "parameters")), .result = boxed(typeRefOf(get(element, "resultType"))) };
+}
+
+fn typeRefsOf(elements: []const Value) []const TypeRef {
+    const out = a.alloc(TypeRef, elements.len) catch oom();
+    for (elements, out) |element, *t| t.* = typeRefOf(element);
+    return out;
+}
+
+fn boxed(t: TypeRef) *const TypeRef {
+    const p = a.create(TypeRef) catch oom();
+    p.* = t;
+    return p;
+}
+
+fn builtin(comptime name: []const u8, args: []const TypeRef) TypeRef {
+    return .{ .kind = .generic, .name = L(name), .args = a.dupe(TypeRef, args) catch oom() };
+}
+
+/// Structural equality, as F# compares `TypeRef` values.
+fn typeEql(left: TypeRef, right: TypeRef) bool {
+    if (left.kind != right.kind or !same(left.name, right.name) or left.args.len != right.args.len) return false;
+    for (left.args, right.args) |l, r| if (!typeEql(l, r)) return false;
+    if (left.result) |l| return typeEql(l.*, right.result.?.*);
+    return true;
+}
+
+/// A text that identifies a type reference structurally, for sets keyed by types.
+fn typeKey(t: TypeRef, out: *List(u8)) void {
+    out.append(a, "pnftcg"[@intFromEnum(t.kind)]) catch oom();
+    out.appendSlice(a, idKey(t.name)) catch oom();
+    out.append(a, '(') catch oom();
+    for (t.args) |arg| typeKey(arg, out);
+    if (t.result) |r| typeKey(r.*, out);
+    out.append(a, ')') catch oom();
+}
+
+/// The type references directly below one (`Function`: parameters, then the result).
+fn typeArgs(t: TypeRef) []const TypeRef {
+    if (t.result) |r| {
+        var out: List(TypeRef) = .empty;
+        out.appendSlice(a, t.args) catch oom();
+        out.append(a, r.*) catch oom();
+        return out.items;
+    }
+    return t.args;
+}
+
+/// `TypeParameters.occurring`: distinct, in first-occurrence order.
+fn occurringIds(t: TypeRef, out: *Set) void {
+    if (t.kind == .type_parameter) out.put(a, idKey(t.name), {}) catch oom();
+    for (typeArgs(t)) |arg| occurringIds(arg, out);
+}
+
+const Substitution = std.StringArrayHashMapUnmanaged(TypeRef);
+
+/// `TypeParameters.substitute`.
+fn substitute(substitution: *const Substitution, t: TypeRef) TypeRef {
+    if (t.kind == .type_parameter) return substitution.get(idKey(t.name)) orelse t;
+    var out = t;
+    const args = a.alloc(TypeRef, t.args.len) catch oom();
+    for (t.args, args) |arg, *d| d.* = substitute(substitution, arg);
+    out.args = args;
+    if (t.result) |r| out.result = boxed(substitute(substitution, r.*));
+    return out;
+}
+
+/// `TypeParameters.ofArguments`: the declared parameters zipped with the arguments; the last of a duplicated ID wins.
+fn ofArguments(type_entity: Value, arguments: []const TypeRef) Substitution {
+    const declared = arrayOf(type_entity, "typeParameters");
+    var substitution: Substitution = .empty;
+    const n = @min(declared.len, arguments.len);
+    for (declared[0..n], arguments[0..n]) |declaration, argument| substitution.put(a, idKey(str(declaration, "typeParameterId")), argument) catch oom();
+    return substitution;
+}
+
+/// `TypeParameters.instantiate`: a field type seen through a reference with these arguments.
+fn instantiate(type_entity: Value, arguments: []const TypeRef, field_type: TypeRef) TypeRef {
+    if (arrayOf(type_entity, "typeParameters").len == 0) return field_type;
+    const substitution = ofArguments(type_entity, arguments);
+    return substitute(&substitution, field_type);
+}
+
+/// `TaskTypes.occurs` for builtin generics with these wire names.
+fn occursGeneric(t: TypeRef, comptime names: []const []const u8) bool {
+    if (t.kind == .generic and inNames(t.name, names)) return true;
+    for (typeArgs(t)) |arg| if (occursGeneric(arg, names)) return true;
+    return false;
+}
+
+fn mentionsScope(t: TypeRef) bool {
+    return occursGeneric(t, &.{"taskScope"});
+}
+
+fn mentionsTaskTypes(t: TypeRef) bool {
+    return occursGeneric(t, &.{ "exception", "oneShot", "task", "taskScope" });
+}
+
+/// The declared types a type reference names, with their arguments, outermost first
+/// (`Function`: the result before the parameters).
+fn namedIn(t: TypeRef, out: *List(TypeRef)) void {
+    if (t.kind == .named) out.append(a, t) catch oom();
+    if (t.result) |r| namedIn(r.*, out);
+    for (t.args) |arg| namedIn(arg, out);
+}
+
+var types_by_id: std.StringArrayHashMapUnmanaged(Value) = .empty;
+var all_types: []const Value = &.{};
+var capability_ids: Set = .empty;
+/// `TypeParameters.names`: types before functions, the last declaration of an ID wins.
+var type_parameter_names: std.StringArrayHashMapUnmanaged(Str) = .empty;
+
+/// `TaskTypes.bearingWith`: the type mentions what `mentions` looks for, or reaches a declared
+/// type whose instantiated fields do; each (type, arguments) pair is inspected once.
+fn bearingWith(mentions: *const fn (TypeRef) bool, t: TypeRef, visited: *Set) bool {
+    if (mentions(t)) return true;
+    var named_list: List(TypeRef) = .empty;
+    namedIn(t, &named_list);
+    for (named_list.items) |n| {
+        var key: List(u8) = .empty;
+        typeKey(n, &key);
+        if ((visited.getOrPut(a, key.items) catch oom()).found_existing) continue;
+        const type_entity = types_by_id.get(idKey(n.name)) orelse continue;
+        for (fieldsOf(type_entity)) |field| {
+            if (bearingWith(mentions, instantiate(type_entity, n.args, typeRefOf(get(field, "type"))), visited)) return true;
+        }
+    }
+    return false;
+}
+
+/// `TaskTypes.bearing`.
+fn bearing(t: TypeRef) bool {
+    var visited: Set = .empty;
+    return bearingWith(&mentionsTaskTypes, t, &visited);
+}
+
+fn asciiUnits(bytes: []const u8) Str {
+    const out = a.alloc(u16, bytes.len) catch oom();
+    for (bytes, out) |b, *u| u.* = b;
+    return out;
+}
+
+fn number(n: anytype) Str {
+    return asciiUnits(fmt("{d}", .{n}));
+}
+
+fn joinTypes(types: []const TypeRef, render: *const fn (TypeRef) Str) Str {
+    var out: List(u16) = .empty;
+    for (types, 0..) |t, i| {
+        if (i > 0) out.appendSlice(a, L(", ")) catch oom();
+        out.appendSlice(a, render(t)) catch oom();
+    }
+    return out.items;
+}
+
+/// The first declared type with this ID (`List.tryFind`).
+fn firstType(type_id: Str) ?Value {
+    for (all_types) |type_entity| if (same(str(type_entity, "id"), type_id)) return type_entity;
+    return null;
+}
+
+const primitive_names = [_][2][]const u8{ .{ "string", "String" }, .{ "bool", "Bool" }, .{ "unit", "Unit" }, .{ "int64", "Int64" }, .{ "float64", "Float64" }, .{ "bits32", "Bits32" }, .{ "bytes", "Bytes" } };
+const generic_names = [_][2][]const u8{ .{ "option", "Option" }, .{ "result", "Result" }, .{ "map", "Map" }, .{ "list", "List" }, .{ "set", "Set" }, .{ "oneShot", "OneShot" }, .{ "task", "Task" }, .{ "exception", "Exception" }, .{ "taskScope", "TaskScope" } };
+
+/// The F# case name of a primitive or builtin generic (`string primitive`, `{kind}`).
+fn caseName(t: TypeRef) Str {
+    for (if (t.kind == .primitive) &primitive_names else &generic_names) |pair| if (isName(t.name, pair[0])) return asciiUnits(pair[1]);
+    unreachable;
+}
+
+fn typeParameterName(id: Str) Str {
+    return type_parameter_names.get(idKey(id)) orelse id;
+}
+
+/// `EquatableTypes.describeIn` with the snapshot's type parameter names.
+fn describeType(t: TypeRef) Str {
+    return switch (t.kind) {
+        .primitive => caseName(t),
+        .named => blk: {
+            const name = if (firstType(t.name)) |type_entity| str(type_entity, "displayName") else t.name;
+            break :blk if (t.args.len == 0) name else cat(&.{ name, L("<"), joinTypes(t.args, &describeType), L(">") });
+        },
+        .capability => cat(&.{ L("capability '"), t.name, L("'") }),
+        .function => cat(&.{ L("("), joinTypes(t.args, &describeType), L(") -> "), describeType(t.result.?.*) }),
+        .generic => if (t.isGeneric("taskScope")) L("TaskScope") else cat(&.{ caseName(t), L("<"), joinTypes(t.args, &describeType), L(">") }),
+        .type_parameter => typeParameterName(t.name),
+    };
+}
+
+const NotEquatable = struct { path: []const Str, offending: TypeRef };
+
+fn notEquatableAt(path: *List(Str), step: Str, t: TypeRef, visited: *Set) ?NotEquatable {
+    path.append(a, step) catch oom();
+    defer _ = path.pop();
+    return firstNotEquatableAt(path, t, visited);
+}
+
+/// `EquatableTypes.firstNotEquatable`: the path to the first part that is not equatable.
+fn firstNotEquatableAt(path: *List(Str), t: TypeRef, visited: *Set) ?NotEquatable {
+    switch (t.kind) {
+        .primitive => if (!t.isPrimitive("float64")) return null,
+        .function, .capability, .type_parameter => {},
+        .generic => if (!inNames(t.name, &.{ "exception", "oneShot", "task", "taskScope" })) {
+            for (t.args, 0..) |arg, i| {
+                const step = if (t.isGeneric("list")) L("List item") else if (t.isGeneric("set")) L("Set item") else if (t.isGeneric("option")) L("Option value") else if (t.isGeneric("map"))
+                    (if (i == 0) L("Map key") else L("Map value"))
+                else if (i == 0) L("Result ok") else L("Result err");
+                if (notEquatableAt(path, step, arg, visited)) |found| return found;
+            }
+            return null;
+        },
+        .named => {
+            var key: List(u8) = .empty;
+            typeKey(t, &key);
+            if ((visited.getOrPut(a, key.items) catch oom()).found_existing) return null;
+            const type_entity = types_by_id.get(idKey(t.name)) orelse return null;
+            const type_name = str(type_entity, "displayName");
+            if (isName(str(type_entity, "kind"), "product")) {
+                for (arrayOf(type_entity, "fields")) |field| {
+                    if (notEquatableAt(path, cat(&.{ type_name, L("."), str(field, "displayName") }), instantiate(type_entity, t.args, typeRefOf(get(field, "type"))), visited)) |found| return found;
+                }
+            } else for (arrayOf(type_entity, "variants")) |variant| {
+                for (arrayOf(variant, "fields")) |field| {
+                    if (notEquatableAt(path, cat(&.{ type_name, L("."), str(variant, "displayName"), L("."), str(field, "displayName") }), instantiate(type_entity, t.args, typeRefOf(get(field, "type"))), visited)) |found| return found;
+                }
+            }
+            return null;
+        },
+    }
+    return .{ .path = a.dupe(Str, path.items) catch oom(), .offending = t };
+}
+
+fn firstNotEquatable(t: TypeRef) ?NotEquatable {
+    var path: List(Str) = .empty;
+    var visited: Set = .empty;
+    return firstNotEquatableAt(&path, t, &visited);
+}
+
+fn isEquatable(t: TypeRef) bool {
+    return firstNotEquatable(t) == null;
+}
+
+/// `EquatableTypes.explainIn`.
+fn explainEquatable(t: TypeRef) Str {
+    const found = firstNotEquatable(t) orelse return cat(&.{ describeType(t), L(" is equatable.") });
+    const reason = switch (found.offending.kind) {
+        .primitive => L("Float64 is not equatable because of NaN; compare with Float64Equal"),
+        .function => L("function values are not equatable"),
+        .generic => L("runtime handles and scopes are not equatable"),
+        .capability => L("capability values are not equatable"),
+        .type_parameter => L("type parameters are never equatable, because nothing constrains their type arguments, so a Set item or Map key type must be concrete"),
+        .named => unreachable,
+    };
+    var location: List(u16) = .empty;
+    for (found.path, 0..) |step, i| {
+        location.appendSlice(a, if (i == 0) L(" at ") else L(" -> ")) catch oom();
+        location.appendSlice(a, step) catch oom();
+    }
+    return cat(&.{ describeType(t), L(" is not equatable: "), describeType(found.offending), location.items, L("; "), reason, L(".") });
+}
+
+/// `validateTypeRef`. It uses the outer `add`, so no function prefix even inside a graph.
+fn validateTypeRef(context: Str, t: TypeRef) void {
+    switch (t.kind) {
+        .primitive, .type_parameter => {},
+        .function => for (typeArgs(t)) |arg| validateTypeRef(context, arg),
+        .named => {
+            if (types_by_id.get(idKey(t.name))) |type_entity| {
+                const declared = arrayOf(type_entity, "typeParameters").len;
+                if (declared != t.args.len)
+                    add("NamedTypeArityMismatch", cat(&.{ context, L(" uses "), str(type_entity, "displayName"), L(" with "), number(t.args.len), L(" type arguments; exactly "), number(declared), L(" are required.") }));
+            } else add("UnknownNamedType", cat(&.{ context, L(" references unknown type '"), t.name, L("'.") }));
+            for (t.args) |arg| if (mentionsScope(arg)) {
+                add("TaskTypeInDeclaredType", cat(&.{ context, L(" passes TaskScope as a type argument; a task scope cannot be stored in a declared type.") }));
+                break;
+            };
+            for (t.args) |arg| validateTypeRef(context, arg);
+        },
+        .capability => if (!capability_ids.contains(idKey(t.name)))
+            add("UnknownCapabilityType", cat(&.{ context, L(" references unknown capability '"), t.name, L("'.") })),
+        .generic => {
+            const n = t.args.len;
+            if (t.isGeneric("exception")) {
+                if (n != 0) add("BuiltinGenericArityMismatch", cat(&.{ context, L(" uses Exception with type arguments; none are allowed.") }));
+                return;
+            }
+            if (t.isGeneric("taskScope")) {
+                if (n != 0) add("BuiltinGenericArityMismatch", cat(&.{ context, L(" uses TaskScope with "), number(n), L(" type arguments; none are allowed.") }));
+                return;
+            }
+            const required: usize = if (t.isGeneric("result") or t.isGeneric("map")) 2 else 1;
+            if (n != required) {
+                if (t.isGeneric("oneShot"))
+                    add("BuiltinGenericArityMismatch", cat(&.{ context, L(" uses OneShot with "), number(n), L(" arguments; exactly 1 is required.") }))
+                else
+                    add("BuiltinGenericArityMismatch", cat(&.{ context, L(" uses "), caseName(t), L(" with "), number(n), L(" type arguments; exactly "), number(required), if (required == 1) L(" is required.") else L(" are required.") }));
+            } else if (t.isGeneric("set") and !isEquatable(t.args[0])) {
+                add("SetItemTypeNotEquatable", cat(&.{ context, L(" uses a Set whose item type is not equatable: "), explainEquatable(t.args[0]) }));
+            } else if (t.isGeneric("map") and !isEquatable(t.args[0])) {
+                add("MapKeyTypeNotEquatable", cat(&.{ context, L(" uses a Map whose key type is not equatable: "), explainEquatable(t.args[0]) }));
+            }
+            if (t.isGeneric("oneShot")) {
+                for (t.args) |arg| if (mentionsScope(arg)) {
+                    add("OneShotScopePayloadUnsupported", cat(&.{ context, L(" cannot hide a TaskScope inside a OneShot payload.") }));
+                    break;
+                };
+            }
+            for (t.args) |arg| validateTypeRef(context, arg);
+        },
+    }
+}
+
+fn validateTypeOf(context: Str, element: Value) void {
+    validateTypeRef(context, typeRefOf(element));
+}
+
+/// A node's own type arguments; none when omitted.
+fn typeArgumentsOf(node: Value) []const TypeRef {
+    return typeRefsOf(arrayOf(node, "typeArguments"));
+}
+
+/// `variantsById` (the last of a duplicated ID wins): the owning type of each variant.
+var variant_owners: std.StringArrayHashMapUnmanaged(Str) = .empty;
+
+/// The 11 `validateTypeRef` sites of `validateGraph`, each on its node alone.
+fn validateNodeTypeRefs(node: Value) void {
+    const kind = str(node, "kind");
+    const id = str(node, "id");
+    if (isName(kind, "listEmpty")) {
+        validateTypeOf(cat(&.{ L("ListEmpty node '"), id, L("' item type") }), get(node, "itemType"));
+    } else if (isName(kind, "setEmpty")) {
+        validateTypeRef(cat(&.{ L("SetEmpty node '"), id, L("' type") }), builtin("set", &.{typeRefOf(get(node, "itemType"))}));
+    } else if (isName(kind, "mapEmpty")) {
+        validateTypeRef(cat(&.{ L("MapEmpty node '"), id, L("' type") }), builtin("map", &.{ typeRefOf(get(node, "keyType")), typeRefOf(get(node, "valueType")) }));
+    } else if (isName(kind, "listConstruct")) {
+        validateTypeOf(cat(&.{ L("ListConstruct node '"), id, L("' item type") }), get(node, "itemType"));
+    } else if (isName(kind, "exceptionRethrow")) {
+        validateTypeOf(L("ExceptionRethrow result"), get(node, "resultType"));
+    } else if (isName(kind, "oneShotCreate")) {
+        validateTypeRef(L("OneShotCreate payload"), builtin("oneShot", &.{typeRefOf(get(node, "valueType"))}));
+    } else if (isName(kind, "productConstruct")) {
+        // Only for a declared Product (`Some({ Kind = Product _ })`).
+        const type_id = str(node, "typeId");
+        const type_entity = types_by_id.get(idKey(type_id)) orelse return;
+        if (isName(str(type_entity, "kind"), "product"))
+            validateTypeRef(cat(&.{ L("Product node '"), id, L("'") }), .{ .kind = .named, .name = type_id, .args = typeArgumentsOf(node) });
+    } else if (isName(kind, "unionConstruct")) {
+        const owner = variant_owners.get(idKey(str(node, "variantId"))) orelse return;
+        validateTypeRef(cat(&.{ L("Union node '"), id, L("'") }), .{ .kind = .named, .name = owner, .args = typeArgumentsOf(node) });
+    } else if (isName(kind, "optionNone")) {
+        validateTypeOf(cat(&.{ L("Option.None node '"), id, L("'") }), get(node, "itemType"));
+    } else if (isName(kind, "resultOk")) {
+        validateTypeOf(cat(&.{ L("Result.Ok node '"), id, L("' error type") }), get(node, "errorType"));
+    } else if (isName(kind, "resultErr")) {
+        validateTypeOf(cat(&.{ L("Result.Err node '"), id, L("' ok type") }), get(node, "okType"));
+    }
+}
+
+/// `SemanticNodeShape.payloadTypeRefs`: the types a node states in its own payload (the `type`
+/// and `targs` properties of model_kinds.txt).
+fn payloadTypeRefs(node: Value, out: *List(TypeRef)) void {
+    for (node.object) |member| {
+        if (isName(member.name, "typeArguments")) {
+            out.appendSlice(a, typeRefsOf(member.value.array)) catch oom();
+        } else if (inNames(member.name, &.{ "itemType", "keyType", "valueType", "resultType", "okType", "errorType" })) {
+            out.append(a, typeRefOf(member.value)) catch oom();
+        }
+    }
+}
+
+fn kindOf(node: Value) *const Kind {
+    return kinds.getPtr(text(str(node, "kind"))).?;
+}
+
+/// `SemanticNodeShape.directValueReferences`, in operand order: the properties node_references.txt
+/// lists for the kind; a node list stands for its items, a binding list for their values.
+fn directValueReferences(node: Value, out: *List(Str)) void {
+    for (kindOf(node).references) |name| {
+        const value = tryProperty(name, node) orelse continue;
+        switch (value) {
+            .string => |s| out.append(a, s) catch oom(),
+            .array => |items| for (items) |item| switch (item) {
+                .string => |s| out.append(a, s) catch oom(),
+                else => out.append(a, str(item, "valueNodeId")) catch oom(),
+            },
+            else => unreachable,
+        }
+    }
+}
+
+/// `SemanticNodeShape.dependencies`: direct references and what nested graphs reference from outside themselves.
+fn dependencies(node: Value, out: *List(Str)) void {
+    directValueReferences(node, out);
+    for (nestedScopes(node)) |scope| {
+        const nodes = arrayOf(scope.graph, "nodes");
+        const local = idSet(nodes);
+        for (nodes) |inner| {
+            var deps: List(Str) = .empty;
+            dependencies(inner, &deps);
+            for (deps.items) |dep| if (!local.contains(idKey(dep))) out.append(a, dep) catch oom();
+        }
+    }
+}
+
+/// `hasDependencyCycle` over `nodesById` (the last node of a duplicated ID wins); a reference to
+/// an unknown node is no edge.
+fn hasDependencyCycle(nodes: []const Value) bool {
+    const nodes_by_id = byId(nodes);
+    // 0 unvisited, 1 on the path, 2 finished.
+    const state = a.alloc(u8, nodes_by_id.count()) catch oom();
+    @memset(state, 0);
+    const Frame = struct { index: usize, deps: []const Str, next: usize = 0 };
+    var frames: List(Frame) = .empty;
+    for (0..nodes_by_id.count()) |root| {
+        if (state[root] != 0) continue;
+        var index = root;
+        while (true) {
+            var deps: List(Str) = .empty;
+            dependencies(nodes_by_id.values()[index], &deps);
+            state[index] = 1;
+            frames.append(a, .{ .index = index, .deps = deps.items }) catch oom();
+            const next: ?usize = descend: while (frames.items.len > 0) {
+                const top = &frames.items[frames.items.len - 1];
+                if (top.next == top.deps.len) {
+                    state[top.index] = 2;
+                    _ = frames.pop();
+                    continue;
+                }
+                const dep = top.deps[top.next];
+                top.next += 1;
+                const at = nodes_by_id.getIndex(idKey(dep)) orelse continue;
+                if (state[at] == 1) return true;
+                if (state[at] == 0) break :descend at;
+            } else null;
+            index = next orelse break;
+        }
+    }
+    return false;
+}
+
+/// The prefix the per-function loop's `add` gives a message.
+fn inFunction(function: Value) Str {
+    return cat(&.{ L("In function "), describe(str(function, "displayName"), str(function, "id")), L(": ") });
+}
+
+/// The rules of slice 3b: type references of declarations and nodes, undeclared type parameters,
+/// task types in declared types and at capability boundaries, and graph dependency cycles.
+fn validateTypeReferences(types: []const Value, operations: []const Value, functions: []const Value) void {
+    for (types) |type_entity| {
+        for (fieldsOf(type_entity)) |field| validateTypeOf(cat(&.{ L("Field "), describe(str(field, "displayName"), str(field, "id")) }), get(field, "type"));
+    }
+    for (operations) |operation| {
+        const label = describe(str(operation, "displayName"), str(operation, "id"));
+        for (arrayOf(operation, "parameters")) |parameter| validateTypeOf(cat(&.{ L("Capability parameter "), describe(str(parameter, "displayName"), str(parameter, "id")) }), get(parameter, "type"));
+        validateTypeOf(cat(&.{ L("Capability operation "), label, L(" result") }), get(operation, "resultType"));
+        if (tryProperty("failureType", operation)) |failure| validateTypeOf(cat(&.{ L("Capability operation "), label, L(" failure") }), failure);
+    }
+    for (types) |type_entity| {
+        const declared = idSetOf(arrayOf(type_entity, "typeParameters"));
+        for (fieldsOf(type_entity)) |field| {
+            const field_label = describe(str(field, "displayName"), str(field, "id"));
+            const field_type = typeRefOf(get(field, "type"));
+            var ids: Set = .empty;
+            occurringIds(field_type, &ids);
+            for (ids.keys()) |key| if (!declared.contains(key))
+                add("TypeParameterNotDeclared", cat(&.{ L("Field "), field_label, L(" uses type parameter '"), typeParameterName(keyId(key)), L("', which its type "), describe(str(type_entity, "displayName"), str(type_entity, "id")), L(" does not declare.") }));
+            if (mentionsScope(field_type))
+                add("TaskTypeInDeclaredType", cat(&.{ L("Field "), field_label, L(" uses TaskScope; a task scope cannot be stored in a declared type.") }));
+        }
+    }
+    for (operations) |operation| {
+        var bears = bearing(typeRefOf(get(operation, "resultType")));
+        for (arrayOf(operation, "parameters")) |parameter| bears = bears or bearing(typeRefOf(get(parameter, "type")));
+        if (tryProperty("failureType", operation)) |failure| bears = bears or bearing(typeRefOf(failure));
+        if (bears) add("TaskTypeAtCapabilityBoundary", cat(&.{ L("Capability operation "), describe(str(operation, "displayName"), str(operation, "id")), L(" uses Task, OneShot or TaskScope, directly or through a declared type, which cannot cross a capability boundary.") }));
+    }
+
+    for (functions) |function| {
+        const label = describe(str(function, "displayName"), str(function, "id"));
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        var bindings: List(Value) = .empty;
+        collectBindings(get(function, "body"), &bindings);
+
+        const declared = idSetOf(arrayOf(function, "typeParameters"));
+        var mentioned: List(TypeRef) = .empty;
+        mentioned.append(a, typeRefOf(get(function, "resultType"))) catch oom();
+        for (arrayOf(function, "parameters")) |parameter| mentioned.append(a, typeRefOf(get(parameter, "type"))) catch oom();
+        for (bindings.items) |binding| mentioned.append(a, typeRefOf(get(binding, "type"))) catch oom();
+        for (nodes.items) |node| payloadTypeRefs(node, &mentioned);
+        for (mentioned.items) |t| {
+            var ids: Set = .empty;
+            occurringIds(t, &ids);
+            for (ids.keys()) |key| if (!declared.contains(key))
+                add("TypeParameterNotDeclared", cat(&.{ L("Function "), label, L(" uses type parameter '"), typeParameterName(keyId(key)), L("' that it does not declare.") }));
+        }
+
+        validateTypeOf(cat(&.{ L("Function "), label, L(" result") }), get(function, "resultType"));
+        for (arrayOf(function, "parameters")) |parameter| validateTypeOf(cat(&.{ L("Parameter "), describe(str(parameter, "displayName"), str(parameter, "id")) }), get(parameter, "type"));
+        for (bindings.items) |binding| validateTypeOf(cat(&.{ L("Pattern binding '"), str(binding, "id"), L("'") }), get(binding, "type"));
+
+        // `validateGraph` visits each node of each nested graph once, as `collectNodes` does.
+        for (nodes.items) |node| validateNodeTypeRefs(node);
+        if (hasDependencyCycle(nodes.items))
+            add("GraphNodeDependencyCycle", cat(&.{ inFunction(function), L("Function "), label, L(" contains a cycle between value-producing graph nodes.") }));
+    }
+}
+
+/// The declared type parameter IDs.
+fn idSetOf(declarations: []const Value) Set {
+    var set: Set = .empty;
+    for (declarations) |declaration| set.put(a, idKey(str(declaration, "typeParameterId")), {}) catch oom();
+    return set;
+}
+
+// ---------------------------------------------------------------- node typing (slice 3c)
+
+// `SemanticFacts.createCompletionResolver`: the completion (normal type or abrupt) of each node of
+// one function. The F# resolver resolves every node eagerly when it is created, in a post-order
+// search over `nodesById` (ordinal ID order), and memoises every result, including the `None` of a
+// node met again on the current path; a later query only reads the memo. So the order in which the
+// validator asks does not matter, but the order of the search does, and it is ported exactly:
+// `directValueReferences` in operand order (node_references.txt), then the nested graphs' nodes.
+
+const Completion = union(enum) { normal: TypeRef, aborts };
+
+fn normalType(completion: ?Completion) ?TypeRef {
+    return if (completion) |c| switch (c) {
+        .normal => |t| t,
+        .aborts => null,
+    } else null;
+}
+
+/// `GraphCompletion.merge`: unknown or inconsistent arms stay unknown; abrupt arms are ignored.
+fn mergeCompletions(arms: []const ?Completion) ?Completion {
+    if (arms.len == 0) return null;
+    for (arms) |arm| if (arm == null) return null;
+    var first: ?TypeRef = null;
+    for (arms) |arm| switch (arm.?) {
+        .normal => |t| if (first) |f| {
+            if (!typeEql(f, t)) return null;
+        } else {
+            first = t;
+        },
+        .aborts => {},
+    };
+    return if (first) |f| .{ .normal = f } else .aborts;
+}
+
+const ValueMap = std.StringArrayHashMapUnmanaged(Value);
+var functions_by_id: ValueMap = .empty;
+var operations_by_id: ValueMap = .empty;
+var product_fields_by_id: ValueMap = .empty;
+/// `ProductFieldOwners`: the Product that declares each Product field (the last wins).
+var product_field_owners: ValueMap = .empty;
+
+/// `TypeParameters.matchType`, extending `substitution` in place; false on a conflict (the caller
+/// then discards the substitution).
+fn matchType(substitution: *Substitution, declared: TypeRef, actual: TypeRef) bool {
+    if (declared.kind == .type_parameter) {
+        if (substitution.get(idKey(declared.name))) |bound| return typeEql(bound, actual);
+        substitution.put(a, idKey(declared.name), actual) catch oom();
+        return true;
+    }
+    const structural = declared.kind == actual.kind and declared.args.len == actual.args.len and switch (declared.kind) {
+        .function => true,
+        .generic, .named => same(declared.name, actual.name),
+        else => false,
+    };
+    if (structural) {
+        const declared_args = typeArgs(declared);
+        for (declared_args, typeArgs(actual)) |d, x| if (!matchType(substitution, d, x)) return false;
+        return true;
+    }
+    return typeEql(declared, actual);
+}
+
+const Pair = struct { declared: TypeRef, actual: TypeRef };
+
+/// `TypeParameters.matchFrom`.
+fn matchFrom(initial: *const Substitution, pairs: []const Pair) ?Substitution {
+    var substitution = initial.clone(a) catch oom();
+    for (pairs) |pair| if (!matchType(&substitution, pair.declared, pair.actual)) return null;
+    return substitution;
+}
+
+fn matchAll(pairs: []const Pair) ?Substitution {
+    return matchFrom(&.empty, pairs);
+}
+
+/// The first parameter of a function with this ID (`List.tryFind`).
+fn parameterOf(function: Value, parameter_id: Str) ?Value {
+    for (arrayOf(function, "parameters")) |parameter| if (same(str(parameter, "id"), parameter_id)) return parameter;
+    return null;
+}
+
+fn bindsParameter(context: []const Value, parameter_id: Str) bool {
+    for (context) |binding| if (same(str(binding, "targetParameterId"), parameter_id)) return true;
+    return false;
+}
+
+/// The parameter types a callback's context leaves unbound, in order.
+fn unboundTypes(callback: Value, context: []const Value) []const TypeRef {
+    var out: List(TypeRef) = .empty;
+    for (arrayOf(callback, "parameters")) |parameter| {
+        if (!bindsParameter(context, str(parameter, "id"))) out.append(a, typeRefOf(get(parameter, "type"))) catch oom();
+    }
+    return out.items;
+}
+
+const Resolver = struct {
+    nodes_by_id: ValueMap = .empty,
+    parameters_by_id: ValueMap = .empty,
+    bindings_by_id: ValueMap = .empty,
+    resolved: std.StringHashMapUnmanaged(?Completion) = .empty,
+    /// The F# `visiting` set: the nodes on the current resolution path.
+    visiting: Set = .empty,
+
+    fn init(function: Value) Resolver {
+        var self: Resolver = .{};
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        self.nodes_by_id = byId(nodes.items);
+        self.parameters_by_id = byId(arrayOf(function, "parameters"));
+        var bindings: List(Value) = .empty;
+        collectBindings(get(function, "body"), &bindings);
+        self.bindings_by_id = byId(bindings.items);
+        self.resolveAll();
+        return self;
+    }
+
+    /// The post-order search of the F# constructor.
+    fn resolveAll(self: *Resolver) void {
+        const ids = a.dupe([]const u8, self.nodes_by_id.keys()) catch oom();
+        std.mem.sort([]const u8, ids, {}, lessKey);
+        var finished: Set = .empty;
+        var on_path: Set = .empty;
+        const Frame = struct { id: []const u8, reads: []const Str, next: usize = 0 };
+        var frames: List(Frame) = .empty;
+        for (ids) |root| {
+            if (finished.contains(root)) continue;
+            self.enter(root, &on_path, &frames);
+            while (frames.items.len > 0) {
+                const top = &frames.items[frames.items.len - 1];
+                if (top.next == top.reads.len) {
+                    const id = top.id;
+                    _ = frames.pop();
+                    _ = on_path.swapRemove(id);
+                    finished.put(a, id, {}) catch oom();
+                    _ = self.completion(keyId(id));
+                    continue;
+                }
+                const next = top.reads[top.next];
+                top.next += 1;
+                if (on_path.contains(idKey(next))) {
+                    self.resolved.put(a, idKey(next), null) catch oom();
+                } else if (!finished.contains(idKey(next))) self.enter(idKey(next), &on_path, &frames);
+            }
+        }
+    }
+
+    fn enter(self: *Resolver, id: []const u8, on_path: *Set, frames: anytype) void {
+        const node = self.nodes_by_id.get(id) orelse return;
+        on_path.put(a, id, {}) catch oom();
+        var reads: List(Str) = .empty;
+        directValueReferences(node, &reads);
+        for (nestedScopes(node)) |scope| for (arrayOf(scope.graph, "nodes")) |nested| reads.append(a, str(nested, "id")) catch oom();
+        frames.append(a, .{ .id = id, .reads = reads.items }) catch oom();
+    }
+
+    fn nodeType(self: *Resolver, id: Str) ?TypeRef {
+        return normalType(self.completion(id));
+    }
+
+    /// `SemanticFacts.graphCompletion`: abrupt when any stored node is, else the result node's.
+    fn graph(self: *Resolver, graph_value: Value) ?Completion {
+        for (arrayOf(graph_value, "nodes")) |node| {
+            if (self.completion(str(node, "id"))) |c| if (c == .aborts) return .aborts;
+        }
+        return self.completion(str(graph_value, "resultNodeId"));
+    }
+
+    /// `tryCompletion`.
+    fn completion(self: *Resolver, id: Str) ?Completion {
+        if (self.resolved.get(idKey(id))) |cached| return cached;
+        const result: ?Completion = if (self.visiting.contains(idKey(id))) null else blk: {
+            self.visiting.put(a, idKey(id), {}) catch oom();
+            defer _ = self.visiting.swapRemove(idKey(id));
+            break :blk self.structured(id);
+        };
+        self.resolved.put(a, idKey(id), result) catch oom();
+        return result;
+    }
+
+    fn structured(self: *Resolver, id: Str) ?Completion {
+        const node = self.nodes_by_id.get(idKey(id)) orelse return null;
+        const kind = str(node, "kind");
+        if (isName(kind, "abort")) return .aborts;
+        if (isName(kind, "conditional")) {
+            const when_true = self.graph(get(node, "whenTrue"));
+            return mergeCompletions(&.{ when_true, self.graph(get(node, "whenFalse")) });
+        }
+        if (isName(kind, "matchUnion")) {
+            var arms: List(?Completion) = .empty;
+            for (arrayOf(node, "arms")) |arm| arms.append(a, self.graph(get(arm, "body"))) catch oom();
+            return mergeCompletions(arms.items);
+        }
+        if (isName(kind, "bind")) return self.graph(get(get(node, "boundBody"), "body"));
+        if (isName(kind, "matchOption")) {
+            const some = self.graph(get(get(node, "someArm"), "body"));
+            return mergeCompletions(&.{ some, self.graph(get(node, "noneBody")) });
+        }
+        if (isName(kind, "matchResult")) {
+            const ok = self.graph(get(get(node, "okArm"), "body"));
+            return mergeCompletions(&.{ ok, self.graph(get(get(node, "errArm"), "body")) });
+        }
+        return if (self.infer(node)) |t| .{ .normal = t } else null;
+    }
+
+    /// `callbackResult`: the callback's result type at the type arguments its context and
+    /// iteration values determine.
+    fn callbackResult(self: *Resolver, function: Value, context: []const Value, iteration: []const TypeRef) TypeRef {
+        var pairs: List(Pair) = .empty;
+        for (context) |binding| {
+            const parameter = parameterOf(function, str(binding, "targetParameterId"));
+            const actual = self.nodeType(str(binding, "valueNodeId"));
+            if (parameter != null and actual != null) pairs.append(a, .{ .declared = typeRefOf(get(parameter.?, "type")), .actual = actual.? }) catch oom();
+        }
+        const unbound = unboundTypes(function, context);
+        const n = @min(unbound.len, iteration.len);
+        for (unbound[0..n], iteration[0..n]) |declared, actual| pairs.append(a, .{ .declared = declared, .actual = actual }) catch oom();
+        const result_type = typeRefOf(get(function, "resultType"));
+        const substitution = matchAll(pairs.items) orelse return result_type;
+        return substitute(&substitution, result_type);
+    }
+
+    fn operand(self: *Resolver, node: Value, name: []const u8) ?TypeRef {
+        return self.nodeType(str(node, name));
+    }
+
+    fn functionAt(node: Value, name: []const u8) ?Value {
+        return functions_by_id.get(idKey(str(node, name)));
+    }
+
+    /// `inferNodeType` for a node of the function (not a structured one).
+    fn infer(self: *Resolver, node: Value) ?TypeRef {
+        const kind = text(str(node, "kind"));
+        if (constantType(kind)) |t| return t;
+        const k = std.meta.stringToEnum(Typed, kind) orelse return null;
+        const context = arrayOf(node, "context");
+        switch (k) {
+            .parameterReference => return if (self.parameters_by_id.get(idKey(str(node, "parameterId")))) |p| typeRefOf(get(p, "type")) else null,
+            .patternReference => return if (self.bindings_by_id.get(idKey(str(node, "patternBindingId")))) |b| typeRefOf(get(b, "type")) else null,
+            .mapEmpty => return builtin("map", &.{ typeRefOf(get(node, "keyType")), typeRefOf(get(node, "valueType")) }),
+            .mapInsert, .mapRemove, .mapGetOrDefault, .mapGet, .mapKeys, .mapValues => {
+                const t = self.operand(node, "mapNodeId") orelse return null;
+                if (!t.isGeneric("map") or t.args.len != 2) return null;
+                return switch (k) {
+                    .mapGetOrDefault => t.args[1],
+                    .mapGet => builtin("option", &.{t.args[1]}),
+                    .mapKeys => builtin("list", &.{t.args[0]}),
+                    .mapValues => builtin("list", &.{t.args[1]}),
+                    else => t,
+                };
+            },
+            .mapUnion => {
+                const t = self.operand(node, "leftMapNodeId") orelse return null;
+                return if (t.isGeneric("map") and t.args.len == 2) t else null;
+            },
+            .mapFilter => {
+                const t = self.operand(node, "sourceMapNodeId") orelse return null;
+                return if (t.isGeneric("map") and t.args.len == 2) t else null;
+            },
+            .mapMapValues => {
+                const t = self.operand(node, "sourceMapNodeId");
+                const mapper = functionAt(node, "mapperFunctionId");
+                if (t == null or mapper == null or !t.?.isGeneric("map") or t.?.args.len != 2) return null;
+                return builtin("map", &.{ t.?.args[0], self.callbackResult(mapper.?, context, t.?.args) });
+            },
+            .optionGetOrDefault => {
+                const t = self.operand(node, "optionNodeId") orelse return null;
+                return if (t.isGeneric("option") and t.args.len == 1) t.args[0] else null;
+            },
+            .resultGetOrDefault => {
+                const t = self.operand(node, "resultNodeId") orelse return null;
+                return if (t.isGeneric("result") and t.args.len == 2) t.args[0] else null;
+            },
+            .optionOkOr => {
+                const option = self.operand(node, "optionNodeId");
+                const error_type = self.operand(node, "errorNodeId");
+                if (option == null or error_type == null or !option.?.isGeneric("option") or option.?.args.len != 1) return null;
+                return builtin("result", &.{ option.?.args[0], error_type.? });
+            },
+            .resultOkValue, .resultErrValue => {
+                const t = self.operand(node, "valueNodeId") orelse return null;
+                if (!t.isGeneric("result") or t.args.len != 2) return null;
+                return builtin("option", &.{t.args[if (k == .resultOkValue) 0 else 1]});
+            },
+            .optionMap, .optionAndThen => {
+                const t = self.operand(node, "sourceOptionNodeId");
+                const f = functionAt(node, if (k == .optionMap) "mapperFunctionId" else "binderFunctionId");
+                if (t == null or f == null or !t.?.isGeneric("option") or t.?.args.len != 1) return null;
+                const result = self.callbackResult(f.?, context, t.?.args);
+                return if (k == .optionMap) builtin("option", &.{result}) else result;
+            },
+            .resultMap, .resultMapErr, .resultAndThen => {
+                const t = self.operand(node, "sourceResultNodeId");
+                const f = functionAt(node, if (k == .resultAndThen) "binderFunctionId" else "mapperFunctionId");
+                if (t == null or f == null or !t.?.isGeneric("result") or t.?.args.len != 2) return null;
+                const ok_type = t.?.args[0];
+                const error_type = t.?.args[1];
+                return switch (k) {
+                    .resultMap => builtin("result", &.{ self.callbackResult(f.?, context, &.{ok_type}), error_type }),
+                    .resultMapErr => builtin("result", &.{ ok_type, self.callbackResult(f.?, context, &.{error_type}) }),
+                    else => self.callbackResult(f.?, context, &.{ok_type}),
+                };
+            },
+            .listMinBy, .listMaxBy => {
+                const t = self.operand(node, "sourceListNodeId") orelse return null;
+                return if (t.isGeneric("list") and t.args.len == 1) builtin("option", t.args) else null;
+            },
+            .setFilter, .setMap, .setToList, .setInsert, .setRemove, .setUnion, .setIntersection, .setDifference => {
+                const t = self.nodeType(str(node, switch (k) {
+                    .setFilter, .setMap => "sourceSetNodeId",
+                    .setInsert, .setRemove, .setToList => "setNodeId",
+                    else => "leftSetNodeId",
+                })) orelse return null;
+                if (k == .setMap) {
+                    const mapper = functionAt(node, "mapperFunctionId");
+                    if (mapper == null or !t.isGeneric("set") or t.args.len != 1) return null;
+                    return builtin("set", &.{self.callbackResult(mapper.?, context, t.args)});
+                }
+                if (!t.isGeneric("set") or t.args.len != 1) return null;
+                return if (k == .setToList) builtin("list", t.args) else t;
+            },
+            .setEmpty => return builtin("set", &.{typeRefOf(get(node, "itemType"))}),
+            .setFromList => {
+                const t = self.operand(node, "listNodeId") orelse return null;
+                return if (t.isGeneric("list") and t.args.len == 1) builtin("set", t.args) else null;
+            },
+            .listEmpty, .listConstruct => return builtin("list", &.{typeRefOf(get(node, "itemType"))}),
+            .listItemAt, .listLast => {
+                const t = self.operand(node, "listNodeId") orelse return null;
+                return if (t.isGeneric("list") and t.args.len == 1) builtin("option", t.args) else null;
+            },
+            .listAppendItem, .listSlice, .listSetAt, .listInsertAt, .listRemoveAt, .listReverse, .listDropLast, .listFilter, .listSortBy => {
+                const t = self.nodeType(str(node, if (k == .listFilter or k == .listSortBy) "sourceListNodeId" else "listNodeId")) orelse return null;
+                return if (t.isGeneric("list") and t.args.len == 1) builtin("list", t.args) else null;
+            },
+            .listConcat => {
+                const left = self.operand(node, "leftListNodeId");
+                const right = self.operand(node, "rightListNodeId");
+                if (left == null or right == null or !left.?.isGeneric("list") or left.?.args.len != 1 or !right.?.isGeneric("list") or right.?.args.len != 1) return null;
+                return if (typeEql(left.?.args[0], right.?.args[0])) builtin("list", left.?.args) else null;
+            },
+            .listFold, .mapFold, .setFold => return self.operand(node, "seedNodeId"),
+            .listScan => return if (self.operand(node, "seedNodeId")) |seed| builtin("list", &.{seed}) else null,
+            .listEffectFold => {
+                const seed = self.operand(node, "seedNodeId");
+                const folder = functionAt(node, "folderFunctionId");
+                if (seed == null or folder == null) return seed;
+                const source = self.operand(node, "sourceListNodeId");
+                var iteration: [2]TypeRef = .{ seed.?, undefined };
+                var n: usize = 1;
+                if (source != null and source.?.isGeneric("list") and source.?.args.len == 1) {
+                    iteration[1] = source.?.args[0];
+                    n = 2;
+                }
+                const result = self.callbackResult(folder.?, context, iteration[0..n]);
+                return if (result.isGeneric("result") and result.args.len == 2 and typeEql(result.args[0], seed.?)) result else seed;
+            },
+            .useResource => {
+                const body = functionAt(node, "bodyFunctionId") orelse return null;
+                const acquired = self.operand(node, "acquireNodeId");
+                const resource: []const TypeRef = if (acquired != null and acquired.?.isGeneric("result") and acquired.?.args.len == 2) acquired.?.args[0..1] else &.{};
+                return self.callbackResult(body, context, resource);
+            },
+            .exceptionCatch => {
+                const body = functionAt(node, "bodyFunctionId") orelse return null;
+                return self.callbackResult(body, arrayOf(node, "bodyContext"), &.{.{ .kind = .primitive, .name = L("unit") }});
+            },
+            .cancellationShield => {
+                const body = functionAt(node, "bodyFunctionId") orelse return null;
+                return self.callbackResult(body, context, &.{.{ .kind = .primitive, .name = L("unit") }});
+            },
+            .taskScope => {
+                const body = functionAt(node, "bodyFunctionId") orelse return null;
+                return self.callbackResult(body, context, &.{builtin("taskScope", &.{})});
+            },
+            .exceptionRethrow => return typeRefOf(get(node, "resultType")),
+            .taskStart => {
+                const item = self.operand(node, "itemNodeId");
+                const worker = functionAt(node, "workerFunctionId");
+                if (item == null or worker == null) return null;
+                return builtin("task", &.{self.callbackResult(worker.?, context, &.{item.?})});
+            },
+            .taskWait => {
+                const t = self.operand(node, "tasksNodeId") orelse return null;
+                if (!t.isGeneric("list") or t.args.len != 1 or !t.args[0].isGeneric("task") or t.args[0].args.len != 1) return null;
+                return builtin("list", &.{builtin("option", t.args[0].args)});
+            },
+            .oneShotCreate => return builtin("oneShot", &.{typeRefOf(get(node, "valueType"))}),
+            .oneShotWait => {
+                const t = self.operand(node, "cellNodeId") orelse return null;
+                return if (t.isGeneric("oneShot") and t.args.len == 1) builtin("option", t.args) else null;
+            },
+            .parallelAll => {
+                const t = self.operand(node, "sourceListNodeId");
+                const worker = functionAt(node, "workerFunctionId");
+                if (t == null or worker == null or !t.?.isGeneric("list") or t.?.args.len != 1) return null;
+                const result = self.callbackResult(worker.?, context, t.?.args);
+                if (!result.isGeneric("result") or result.args.len != 2) return null;
+                return builtin("result", &.{ builtin("list", result.args[0..1]), result.args[1] });
+            },
+            .listMap, .listFlatMap, .mapFromList => {
+                const t = self.operand(node, "sourceListNodeId");
+                const f = functionAt(node, if (k == .mapFromList) "keyOfFunctionId" else "mapperFunctionId");
+                if (t == null or f == null or !t.?.isGeneric("list") or t.?.args.len != 1) return null;
+                const result = self.callbackResult(f.?, context, t.?.args);
+                return switch (k) {
+                    .listMap => builtin("list", &.{result}),
+                    .listFlatMap => if (result.isGeneric("list") and result.args.len == 1) result else null,
+                    else => builtin("map", &.{ result, t.?.args[0] }),
+                };
+            },
+            .listZipWith => {
+                const left = self.operand(node, "leftListNodeId");
+                const right = self.operand(node, "rightListNodeId");
+                const combiner = functionAt(node, "combinerFunctionId");
+                if (left == null or right == null or combiner == null or !left.?.isGeneric("list") or left.?.args.len != 1 or !right.?.isGeneric("list") or right.?.args.len != 1) return null;
+                return builtin("list", &.{self.callbackResult(combiner.?, context, &.{ left.?.args[0], right.?.args[0] })});
+            },
+            .capabilityConstruct => return .{ .kind = .capability, .name = str(node, "capabilityId") },
+            .functionReference => {
+                const target = functionAt(node, "targetFunctionId") orelse return null;
+                return functionType(target);
+            },
+            .functionInvoke => {
+                const t = self.operand(node, "functionValueNodeId") orelse return null;
+                return if (t.kind == .function) t.result.?.* else null;
+            },
+            .directCall => {
+                const target = functionAt(node, "targetFunctionId") orelse return null;
+                return self.callbackResult(target, arrayOf(node, "arguments"), &.{});
+            },
+            .capabilityInvoke => return if (operations_by_id.get(idKey(str(node, "operationId")))) |operation| typeRefOf(get(operation, "resultType")) else null,
+            .productConstruct => return .{ .kind = .named, .name = str(node, "typeId"), .args = typeArgumentsOf(node) },
+            .productUpdate => {
+                const type_id = str(node, "typeId");
+                if (self.operand(node, "sourceNodeId")) |source| if (source.kind == .named and same(source.name, type_id)) return source;
+                return .{ .kind = .named, .name = type_id };
+            },
+            .fieldAccess => {
+                const field_id = idKey(str(node, "fieldId"));
+                const field = product_fields_by_id.get(field_id) orelse return null;
+                const owner = product_field_owners.get(field_id) orelse return null;
+                const field_type = typeRefOf(get(field, "type"));
+                if (arrayOf(owner, "typeParameters").len == 0) return field_type;
+                const source = self.operand(node, "sourceNodeId") orelse return null;
+                if (source.kind != .named or !same(source.name, str(owner, "id"))) return null;
+                return instantiate(owner, source.args, field_type);
+            },
+            .unionConstruct => return if (variant_owners.get(idKey(str(node, "variantId")))) |owner| .{ .kind = .named, .name = owner, .args = typeArgumentsOf(node) } else null,
+            .optionNone => return builtin("option", &.{typeRefOf(get(node, "itemType"))}),
+            .optionSome => return if (self.operand(node, "valueNodeId")) |t| builtin("option", &.{t}) else null,
+            .resultOk => return if (self.operand(node, "valueNodeId")) |t| builtin("result", &.{ t, typeRefOf(get(node, "errorType")) }) else null,
+            .resultErr => return if (self.operand(node, "errorNodeId")) |t| builtin("result", &.{ typeRefOf(get(node, "okType")), t }) else null,
+        }
+    }
+};
+
+/// `TypeRef.Function` of a function's declared signature.
+fn functionType(function: Value) TypeRef {
+    var parameters: List(TypeRef) = .empty;
+    for (arrayOf(function, "parameters")) |parameter| parameters.append(a, typeRefOf(get(parameter, "type"))) catch oom();
+    return .{ .kind = .function, .args = parameters.items, .result = boxed(typeRefOf(get(function, "resultType"))) };
+}
+
+fn lessKey(_: void, left: []const u8, right: []const u8) bool {
+    return lessUnits(keyId(left), keyId(right));
+}
+
+/// The kinds `inferNodeType` types from operands or payload. Every other kind is constant, or
+/// has no type of its own (`abort` and the structured kinds, which `tryCompletion` handles).
+const Typed = enum {
+    parameterReference, patternReference, mapEmpty, mapInsert, mapRemove, mapUnion, mapGetOrDefault, mapMapValues,
+    optionGetOrDefault, resultGetOrDefault, optionOkOr, resultOkValue, resultErrValue, optionMap, optionAndThen,
+    resultMap, resultMapErr, resultAndThen, listMinBy, listMaxBy, mapGet, mapFilter, setFilter, setMap, mapKeys,
+    mapValues, setEmpty, setInsert, setRemove, setUnion, setIntersection, setDifference, setToList, setFromList,
+    listEmpty, listConstruct, listItemAt, listLast, listAppendItem, listSlice, listSetAt, listInsertAt, listRemoveAt,
+    listReverse, listDropLast, listFilter, listSortBy, listConcat, listFold, listScan, mapFold, setFold,
+    listEffectFold, useResource, exceptionCatch, exceptionRethrow, cancellationShield, taskScope, taskStart,
+    taskWait, oneShotCreate, oneShotWait, parallelAll, listMap, listZipWith, listFlatMap, mapFromList,
+    capabilityConstruct, functionReference, functionInvoke, directCall, capabilityInvoke, productConstruct,
+    productUpdate, fieldAccess, unionConstruct, optionNone, optionSome, resultOk, resultErr,
+};
+const untyped_kinds = [_][]const u8{ "abort", "conditional", "matchUnion", "bind", "matchOption", "matchResult" };
+
+/// The kinds with one fixed type, by that type.
+const constant_kinds = [_]struct { []const u8, []const []const u8 }{
+    .{ "string", &.{ "stringLiteral", "stringConcat", "stringToLower", "stringToUpper", "stringReplace", "stringTrim", "stringTrimStart", "stringTrimEnd", "stringDecodeUtf8Lossy", "stringEncodeUtf8", "stringJoin", "stringRepeat", "stringSlice", "bytesToLatin1", "int64ToString", "int64ToHexString", "float64ToString", "exceptionMessage" } },
+    .{ "listInt64", &.{"listRange"} },
+    .{ "bool", &.{ "boolLiteral", "boolNot", "boolAnd", "boolOr", "stringIsEmpty", "stringContains", "stringStartsWith", "stringEndsWith", "stringEqual", "stringLessThan", "valueEqual", "int64Equal", "int64LessThan", "int64LessThanOrEqual", "int64GreaterThan", "int64GreaterThanOrEqual", "float64Equal", "float64LessThan", "float64IsNaN", "float64IsFinite", "float64IsInfinite", "listAny", "listAll", "mapContainsKey", "setContains", "listContains", "setIsSubset", "optionIsSome", "resultIsOk", "cancellationRequested", "exceptionIsCancellation", "oneShotComplete" } },
+    .{ "unit", &.{ "unitLiteral", "taskCancel" } },
+    .{ "int64", &.{ "int64Literal", "int64WrappingAdd", "int64WrappingSubtract", "int64WrappingMultiply", "int64FloorDivide", "int64FloorModulo", "int64Min", "int64Max", "int64BitAnd", "int64BitOr", "int64BitXor", "int64ShiftLeft", "int64ShiftRight", "int64WrappingAbs", "int64BitNot", "stringLength", "stringUtf8ByteCount", "stringSpan", "stringSpanBack", "listLength", "mapSize", "setSize", "bits32ToInt64", "bytesLength" } },
+    .{ "float64", &.{ "float64Literal", "float64Round", "float64Add", "float64Min", "float64Max", "float64Subtract", "float64Multiply", "float64Divide", "float64FloorModulo", "int64ToFloat64", "float64Sqrt", "float64Abs", "float64Negate", "float64Floor", "float64Ceiling", "float64Truncate" } },
+    .{ "bits32", &.{ "bits32FromInt64", "bits32Xor", "bits32And", "bits32Or", "bits32Not", "bits32Add", "bits32RotateRight", "bits32ShiftRight", "bits32ShiftLeft" } },
+    .{ "bytes", &.{ "bytesEmpty", "bytesFill", "bytesSet", "bytesAppend", "bytesConcat", "bytesSlice", "bytesFromLatin1" } },
+    .{ "optionInt64", &.{ "bytesGet", "stringParseInt64", "stringParseInt64Hex", "stringIndexOf", "stringLastIndexOf", "stringLastIndexOfBefore", "stringToCodePoint", "int64CheckedAdd", "int64CheckedSubtract", "int64CheckedMultiply", "float64RoundToInt64", "float64FloorToInt64", "listFindIndex", "listIndexOf", "listLastIndexOf" } },
+    .{ "optionFloat64", &.{"stringParseFloat64"} },
+    .{ "optionString", &.{"stringFromCodePoint"} },
+    .{ "listString", &.{ "stringCodePoints", "stringSplitLines", "stringSplit" } },
+};
+
+fn primitiveType(comptime name: []const u8) TypeRef {
+    return .{ .kind = .primitive, .name = L(name) };
+}
+
+fn constantType(kind: []const u8) ?TypeRef {
+    for (constant_kinds) |group| {
+        for (group[1]) |listed| if (std.mem.eql(u8, listed, kind)) {
+            const t = group[0];
+            if (std.mem.eql(u8, t, "listInt64")) return builtin("list", &.{primitiveType("int64")});
+            if (std.mem.eql(u8, t, "listString")) return builtin("list", &.{primitiveType("string")});
+            if (std.mem.eql(u8, t, "optionInt64")) return builtin("option", &.{primitiveType("int64")});
+            if (std.mem.eql(u8, t, "optionFloat64")) return builtin("option", &.{primitiveType("float64")});
+            if (std.mem.eql(u8, t, "optionString")) return builtin("option", &.{primitiveType("string")});
+            return .{ .kind = .primitive, .name = asciiUnits(t) };
+        };
+    }
+    return null;
+}
+
+/// Each model kind is typed exactly once: constant, typed from operands, or untyped.
+fn checkTypingTable() void {
+    var it = kinds.iterator();
+    while (it.next()) |entry| {
+        const kind = entry.key_ptr.*;
+        var count: usize = @intFromBool(std.meta.stringToEnum(Typed, kind) != null);
+        for (untyped_kinds) |listed| count += @intFromBool(std.mem.eql(u8, listed, kind));
+        for (constant_kinds) |group| for (group[1]) |listed| {
+            count += @intFromBool(std.mem.eql(u8, listed, kind));
+        };
+        if (count != 1) std.debug.panic("node kind '{s}' is typed {d} times", .{ kind, count });
+    }
+    inline for (@typeInfo(Typed).@"enum".field_names) |name| if (!kinds.contains(name)) @panic("unknown typed kind " ++ name);
+}
+
+// ---------------------------------------------------------------- typed graph rules (slice 3c)
+
+/// `DiagnosticText.typeRef`: display names in wire notation; an unknown declaration keeps its ID.
+/// (F# throws on `Exception` with type arguments; the comparison skips such inputs.)
+fn typeText(t: TypeRef) Str {
+    return switch (t.kind) {
+        .primitive => caseName(t),
+        .named => blk: {
+            const name = if (firstType(t.name)) |type_entity| str(type_entity, "displayName") else cat(&.{ L("type '"), t.name, L("'") });
+            break :blk if (t.args.len == 0) name else cat(&.{ name, L("<"), joinTypes(t.args, &typeText), L(">") });
+        },
+        .capability => blk: {
+            for (all_capabilities) |capability| if (same(str(capability, "id"), t.name)) break :blk str(capability, "displayName");
+            break :blk cat(&.{ L("capability '"), t.name, L("'") });
+        },
+        .function => cat(&.{ L("("), joinTypes(t.args, &typeText), L(") -> "), typeText(t.result.?.*) }),
+        .type_parameter => typeParameterName(t.name),
+        .generic => if (t.args.len == 0 and (t.isGeneric("exception") or t.isGeneric("taskScope"))) caseName(t) else cat(&.{ caseName(t), L("<"), joinTypes(t.args, &typeText), L(">") }),
+    };
+}
+
+var all_capabilities: []const Value = &.{};
+
+/// The function the per-function loop is in, its resolver and its parameters.
+const Scope3c = struct {
+    function: Value,
+    prefix: Str,
+    resolver: *Resolver,
+    parameters_by_id: ValueMap,
+    all_nodes: []const Value,
+    required_effects: Set,
+};
+var in_function: Scope3c = undefined;
+
+/// The per-function loop's `add`: "In function …: " before the message.
+fn addIn(code: []const u8, message_units: Str) void {
+    add(code, cat(&.{ in_function.prefix, message_units }));
+}
+
+fn nodeType(id: Str) ?TypeRef {
+    return in_function.resolver.nodeType(id);
+}
+
+fn nodeTypeAt(node: Value, name: []const u8) ?TypeRef {
+    return nodeType(str(node, name));
+}
+
+/// `requireNodeType`: reports when the node has a known type other than `expected`.
+fn requireNodeType(code: []const u8, message_units: Str, expected: TypeRef, id: Str) void {
+    if (nodeType(id)) |actual| if (!typeEql(actual, expected)) addIn(code, message_units);
+}
+
+/// `compatibleArms`: the merged completion of these graphs is known.
+fn compatibleArms(graphs: []const Value) bool {
+    var arms: List(?Completion) = .empty;
+    for (graphs) |g| arms.append(a, in_function.resolver.graph(g)) catch oom();
+    return mergeCompletions(arms.items) != null;
+}
+
+fn nodeLabel(comptime what: []const u8, node: Value, comptime rest: []const u8) Str {
+    return cat(&.{ L(what ++ " node '"), str(node, "id"), L("' " ++ rest) });
+}
+
+/// One `requireNodeType` of `validateGraph` on a fixed operand: the kinds (space-separated), the
+/// operand's index in `directValueReferences`, its required type, the code, the name the message
+/// starts with (empty: the F# case name) and the rest of the message after "node '<id>' ".
+const Requirement = struct { kinds: []const u8, operand: u8, type: []const u8, code: []const u8, name: []const u8 = "", tail: []const u8 };
+
+const string_unary = "stringIsEmpty stringParseInt64 stringParseInt64Hex stringParseFloat64 stringCodePoints stringToLower stringToUpper stringDecodeUtf8Lossy stringEncodeUtf8 stringUtf8ByteCount stringToCodePoint stringLength stringSlice stringContains stringIndexOf stringLastIndexOfBefore stringSpan stringSpanBack stringLastIndexOf stringStartsWith stringEndsWith stringSplit stringSplitLines stringReplace stringTrim stringTrimStart stringTrimEnd";
+const int64_binary = "int64WrappingAdd int64WrappingSubtract int64WrappingMultiply int64FloorDivide int64FloorModulo int64Min int64Max int64BitAnd int64BitOr int64BitXor int64ShiftLeft int64ShiftRight int64CheckedAdd int64CheckedSubtract int64CheckedMultiply listRange int64Equal int64LessThan int64LessThanOrEqual int64GreaterThan int64GreaterThanOrEqual";
+const float64_binary = "float64Add float64Min float64Max float64Subtract float64Multiply float64Divide float64FloorModulo float64Equal float64LessThan";
+const float64_unary = "float64ToString float64RoundToInt64 float64FloorToInt64 float64Sqrt float64Abs float64Negate float64Floor float64Ceiling float64Truncate float64Round";
+const string_code = "StringIntrinsicTypeMismatch";
+const bytes_code = "BytesOperandTypeMismatch";
+const bits_code = "Bits32OperandTypeMismatch";
+
+/// Literals, arithmetic, strings, Bits32 and Bytes (Validation.fs, the scalar node kinds).
+const requirements = [_]Requirement{
+    .{ .kinds = string_unary, .operand = 0, .type = "string", .code = string_code, .tail = "requires a String value." },
+    .{ .kinds = "stringFromCodePoint", .operand = 0, .type = "int64", .code = string_code, .tail = "requires an Int64 value." },
+    .{ .kinds = "stringSlice", .operand = 1, .type = "int64", .code = string_code, .tail = "requires an Int64 start." },
+    .{ .kinds = "stringSlice stringLastIndexOfBefore stringSpanBack", .operand = 2, .type = "int64", .code = string_code, .tail = "requires an Int64 end." },
+    .{ .kinds = "stringRepeat", .operand = 0, .type = "string", .code = string_code, .tail = "requires a String text." },
+    .{ .kinds = "stringRepeat", .operand = 1, .type = "int64", .code = string_code, .tail = "requires an Int64 count." },
+    .{ .kinds = "stringContains stringIndexOf stringLastIndexOfBefore stringLastIndexOf", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String substring." },
+    .{ .kinds = "stringIndexOf stringSpan", .operand = 2, .type = "int64", .code = string_code, .tail = "requires an Int64 from." },
+    .{ .kinds = "stringSpan stringSpanBack", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String set." },
+    .{ .kinds = "stringStartsWith", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String prefix." },
+    .{ .kinds = "stringEndsWith", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String suffix." },
+    .{ .kinds = "stringSplitLines", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String breaks." },
+    .{ .kinds = "stringSplit", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String separator." },
+    .{ .kinds = "stringReplace", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String pattern." },
+    .{ .kinds = "stringReplace", .operand = 2, .type = "string", .code = string_code, .tail = "requires a String replacement." },
+    .{ .kinds = "stringJoin", .operand = 0, .type = "listString", .code = string_code, .tail = "requires a List<String> list." },
+    .{ .kinds = "stringJoin", .operand = 1, .type = "string", .code = string_code, .tail = "requires a String separator." },
+    .{ .kinds = "stringEqual", .operand = 0, .type = "string", .code = string_code, .tail = "requires a StringEqual left operand." },
+    .{ .kinds = "stringEqual", .operand = 1, .type = "string", .code = string_code, .tail = "requires a StringEqual right operand." },
+    .{ .kinds = "stringLessThan", .operand = 0, .type = "string", .code = string_code, .tail = "requires a StringLessThan left operand." },
+    .{ .kinds = "stringLessThan", .operand = 1, .type = "string", .code = string_code, .tail = "requires a StringLessThan right operand." },
+    .{ .kinds = "stringConcat", .operand = 0, .type = "string", .code = string_code, .tail = "requires a StringConcat left operand." },
+    .{ .kinds = "stringConcat", .operand = 1, .type = "string", .code = string_code, .tail = "requires a StringConcat right operand." },
+    .{ .kinds = "int64ToString int64ToHexString int64ToFloat64 int64WrappingAbs int64BitNot", .operand = 0, .type = "int64", .code = "Int64IntrinsicTypeMismatch", .tail = "requires an Int64 value." },
+    .{ .kinds = int64_binary, .operand = 0, .type = "int64", .code = "Int64OperandTypeMismatch", .name = "Int64", .tail = "requires a Int64 left operand." },
+    .{ .kinds = int64_binary, .operand = 1, .type = "int64", .code = "Int64OperandTypeMismatch", .name = "Int64", .tail = "requires a Int64 right operand." },
+    .{ .kinds = float64_unary, .operand = 0, .type = "float64", .code = "Float64OperandTypeMismatch", .tail = "requires a Float64 value." },
+    .{ .kinds = "float64Round", .operand = 1, .type = "int64", .code = "Float64OperandTypeMismatch", .tail = "requires an Int64 digit count." },
+    .{ .kinds = float64_binary, .operand = 0, .type = "float64", .code = "Float64OperandTypeMismatch", .name = "Float64", .tail = "requires a Float64 left operand." },
+    .{ .kinds = float64_binary, .operand = 1, .type = "float64", .code = "Float64OperandTypeMismatch", .name = "Float64", .tail = "requires a Float64 right operand." },
+    .{ .kinds = "float64IsNaN float64IsFinite float64IsInfinite", .operand = 0, .type = "float64", .code = "Float64OperandTypeMismatch", .name = "Float64", .tail = "requires a Float64 operand." },
+    .{ .kinds = "bits32FromInt64", .operand = 0, .type = "int64", .code = bits_code, .tail = "requires an Int64 value." },
+    .{ .kinds = "bits32ToInt64 bits32Not", .operand = 0, .type = "bits32", .code = bits_code, .name = "Bits32", .tail = "requires a Bits32 operand." },
+    .{ .kinds = "bits32Xor bits32And bits32Or bits32Add", .operand = 0, .type = "bits32", .code = bits_code, .name = "Bits32", .tail = "requires a Bits32 left operand." },
+    .{ .kinds = "bits32Xor bits32And bits32Or bits32Add", .operand = 1, .type = "bits32", .code = bits_code, .name = "Bits32", .tail = "requires a Bits32 right operand." },
+    .{ .kinds = "bits32RotateRight bits32ShiftRight bits32ShiftLeft", .operand = 0, .type = "bits32", .code = bits_code, .name = "Bits32", .tail = "requires a Bits32 value." },
+    .{ .kinds = "bits32RotateRight bits32ShiftRight bits32ShiftLeft", .operand = 1, .type = "int64", .code = bits_code, .name = "Bits32", .tail = "requires an Int64 amount." },
+    .{ .kinds = "bytesFill", .operand = 0, .type = "int64", .code = bytes_code, .tail = "requires an Int64 length." },
+    .{ .kinds = "bytesFill", .operand = 1, .type = "int64", .code = bytes_code, .tail = "requires an Int64 value." },
+    .{ .kinds = "bytesLength bytesToLatin1", .operand = 0, .type = "bytes", .code = bytes_code, .name = "Bytes", .tail = "requires a Bytes operand." },
+    .{ .kinds = "bytesFromLatin1", .operand = 0, .type = "string", .code = bytes_code, .tail = "requires a String value." },
+    .{ .kinds = "bytesConcat", .operand = 0, .type = "bytes", .code = bytes_code, .name = "Bytes", .tail = "requires a Bytes left operand." },
+    .{ .kinds = "bytesConcat", .operand = 1, .type = "bytes", .code = bytes_code, .name = "Bytes", .tail = "requires a Bytes right operand." },
+    .{ .kinds = "bytesGet bytesAppend bytesSet bytesSlice", .operand = 0, .type = "bytes", .code = bytes_code, .name = "Bytes", .tail = "requires a Bytes value." },
+    .{ .kinds = "bytesGet bytesSet", .operand = 1, .type = "int64", .code = bytes_code, .name = "Bytes", .tail = "requires an Int64 index." },
+    .{ .kinds = "bytesAppend", .operand = 1, .type = "int64", .code = bytes_code, .name = "Bytes", .tail = "requires an Int64 value." },
+    .{ .kinds = "bytesSet", .operand = 2, .type = "int64", .code = bytes_code, .name = "Bytes", .tail = "requires an Int64 value." },
+    .{ .kinds = "bytesSlice", .operand = 1, .type = "int64", .code = bytes_code, .name = "Bytes", .tail = "requires an Int64 start." },
+    .{ .kinds = "bytesSlice", .operand = 2, .type = "int64", .code = bytes_code, .name = "Bytes", .tail = "requires an Int64 end." },
+};
+
+/// A type of the requirement table.
+fn requiredType(spec: []const u8) TypeRef {
+    if (std.mem.eql(u8, spec, "listString")) return builtin("list", &.{primitiveType("string")});
+    return .{ .kind = .primitive, .name = asciiUnits(spec) };
+}
+
+/// The F# case name of a node kind: its wire name with an upper-case first letter.
+fn caseNameOf(kind: Str) Str {
+    const out = a.dupe(u16, kind) catch oom();
+    if (out.len > 0 and out[0] >= 'a' and out[0] <= 'z') out[0] -= 'a' - 'A';
+    return out;
+}
+
+/// The table's requirements on one node, then `ValueEqual`.
+fn scalarRules(node: Value) void {
+    const kind = text(str(node, "kind"));
+    var references: List(Str) = .empty;
+    directValueReferences(node, &references);
+    for (requirements) |r| {
+        var kinds_listed = std.mem.tokenizeScalar(u8, r.kinds, ' ');
+        while (kinds_listed.next()) |listed| {
+            if (!std.mem.eql(u8, listed, kind)) continue;
+            const name = if (r.name.len == 0) caseNameOf(str(node, "kind")) else asciiUnits(r.name);
+            requireNodeType(r.code, cat(&.{ name, L(" node '"), str(node, "id"), L("' "), asciiUnits(r.tail) }), requiredType(r.type), references.items[r.operand]);
+        }
+    }
+    if (std.mem.eql(u8, kind, "valueEqual")) {
+        const left = nodeType(references.items[0]);
+        const right = nodeType(references.items[1]);
+        const id = str(node, "id");
+        if (left != null and right != null and !typeEql(left.?, right.?)) {
+            addIn("ValueEqualOperandTypeMismatch", cat(&.{ L("ValueEqual node '"), id, L("' requires operands of one type, but its left operand is "), describeType(left.?), L(" and its right operand is "), describeType(right.?), L(".") }));
+        } else if (left orelse right) |operand_type| {
+            if (!isEquatable(operand_type))
+                addIn("ValueEqualTypeNotEquatable", cat(&.{ L("ValueEqual node '"), id, L("' compares values of a type that is not equatable: "), explainEquatable(operand_type) }));
+        }
+    }
+}
+
+/// A node's type seen as one builtin generic of a fixed arity.
+const TypeShape = union(enum) { unknown, other, args: []const TypeRef };
+
+fn shapeOf(id: Str, comptime name: []const u8, arity: usize) TypeShape {
+    const t = nodeType(id) orelse return .unknown;
+    return if (t.isGeneric(name) and t.args.len == arity) .{ .args = t.args } else .other;
+}
+
+fn operandsOf(node: Value) []const Str {
+    var references: List(Str) = .empty;
+    directValueReferences(node, &references);
+    return references.items;
+}
+
+fn nodeMessage(name: Str, node: Value, comptime tail: []const u8) Str {
+    return cat(&.{ name, L(" node '"), str(node, "id"), L("' " ++ tail) });
+}
+
+/// `requireMapInput`: the key and value types of a Map input.
+fn requireMapInput(node: Value, id: Str) ?[]const TypeRef {
+    return switch (shapeOf(id, "map", 2)) {
+        .args => |args| args,
+        .other => blk: {
+            addIn("MapInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires a Map<K, V> input.") }));
+            break :blk null;
+        },
+        .unknown => null,
+    };
+}
+
+/// `requireSetInput`: the item type of a Set input.
+fn requireSetInput(node: Value, id: Str) ?TypeRef {
+    return switch (shapeOf(id, "set", 1)) {
+        .args => |args| args[0],
+        .other => blk: {
+            addIn("SetInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires a Set<T> input.") }));
+            break :blk null;
+        },
+        .unknown => null,
+    };
+}
+
+fn requireMapKey(node: Value, key_type: TypeRef, id: Str) void {
+    requireNodeType("MapKeyTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires a key of the map's key type.") }), key_type, id);
+}
+
+fn kindIs(kind: []const u8, comptime names: []const u8) bool {
+    var it = std.mem.tokenizeScalar(u8, names, ' ');
+    while (it.next()) |name| if (std.mem.eql(u8, name, kind)) return true;
+    return false;
+}
+
+/// Lists, Sets, Maps, Option and Result without callbacks (Validation.fs `ListConstruct` … `ListConcat`).
+fn collectionRules(node: Value) void {
+    const kind = text(str(node, "kind"));
+    const name = caseNameOf(str(node, "kind"));
+    const ops = operandsOf(node);
+    const int64 = primitiveType("int64");
+    if (std.mem.eql(u8, kind, "listConstruct")) {
+        const item_type = typeRefOf(get(node, "itemType"));
+        for (ops) |item| requireNodeType("ListConstructItemTypeMismatch", nodeMessage(name, node, "contains an item whose type does not match its declared item type."), item_type, item);
+    } else if (kindIs(kind, "listLength listReverse listLast listDropLast")) {
+        if (shapeOf(ops[0], "list", 1) == .other) addIn(fmt("{s}InputTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires List<T> input."));
+    } else if (kindIs(kind, "mapSize mapKeys mapValues")) {
+        _ = requireMapInput(node, ops[0]);
+    } else if (kindIs(kind, "mapGet mapContainsKey mapRemove")) {
+        if (requireMapInput(node, ops[0])) |args| requireMapKey(node, args[0], ops[1]);
+    } else if (kindIs(kind, "setSize setToList")) {
+        _ = requireSetInput(node, ops[0]);
+    } else if (kindIs(kind, "listIndexOf listLastIndexOf listContains")) {
+        switch (shapeOf(ops[0], "list", 1)) {
+            .args => |args| {
+                if (!isEquatable(args[0]))
+                    addIn(fmt("{s}ItemTypeNotEquatable", .{text(name)}), cat(&.{ nodeMessage(name, node, "compares items of a type that is not equatable: "), explainEquatable(args[0]) }));
+                requireNodeType(fmt("{s}ItemTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires an item of the list's item type."), args[0], ops[1]);
+            },
+            .other => addIn(fmt("{s}ListTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires List<T> as its list input.")),
+            .unknown => {},
+        }
+    } else if (kindIs(kind, "setContains setInsert setRemove")) {
+        if (requireSetInput(node, ops[0])) |item| requireNodeType("SetItemTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires an item of the set's item type.") }), item, ops[1]);
+    } else if (kindIs(kind, "setUnion setIntersection setDifference setIsSubset")) {
+        if (requireSetInput(node, ops[0])) |item| requireNodeType("SetInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires two sets of the same item type.") }), builtin("set", &.{item}), ops[1]);
+    } else if (std.mem.eql(u8, kind, "setFromList")) {
+        switch (shapeOf(ops[0], "list", 1)) {
+            .args => |args| if (!isEquatable(args[0]))
+                addIn("SetItemTypeNotEquatable", cat(&.{ nodeMessage(name, node, "makes a Set of a type that is not equatable: "), explainEquatable(args[0]) })),
+            .other => addIn("HigherOrderSourceTypeMismatch", nodeMessage(name, node, "requires List<T> input.")),
+            .unknown => {},
+        }
+    } else if (std.mem.eql(u8, kind, "mapInsert") or std.mem.eql(u8, kind, "mapGetOrDefault")) {
+        if (requireMapInput(node, ops[0])) |args| {
+            requireMapKey(node, args[0], ops[1]);
+            requireNodeType("MapValueTypeMismatch", if (std.mem.eql(u8, kind, "mapInsert")) nodeMessage(name, node, "requires a value of the map's value type.") else nodeMessage(name, node, "requires a default of the map's value type."), args[1], ops[2]);
+        }
+    } else if (std.mem.eql(u8, kind, "mapUnion")) {
+        if (requireMapInput(node, ops[0])) |args| requireNodeType("MapInputTypeMismatch", nodeMessage(name, node, "requires two maps of the same key and value types."), builtin("map", args), ops[1]);
+    } else if (std.mem.eql(u8, kind, "optionGetOrDefault")) {
+        switch (shapeOf(ops[0], "option", 1)) {
+            .args => |args| requireNodeType("OptionDefaultTypeMismatch", nodeMessage(name, node, "requires a default of the option's item type."), args[0], ops[1]),
+            .other => addIn("OptionInputTypeMismatch", nodeMessage(name, node, "requires an Option<T> input.")),
+            .unknown => {},
+        }
+    } else if (std.mem.eql(u8, kind, "resultGetOrDefault")) {
+        switch (shapeOf(ops[0], "result", 2)) {
+            .args => |args| requireNodeType("ResultDefaultTypeMismatch", nodeMessage(name, node, "requires a default of the result's ok type."), args[0], ops[1]),
+            .other => addIn("ResultInputTypeMismatch", nodeMessage(name, node, "requires a Result<T, E> input.")),
+            .unknown => {},
+        }
+    } else if (kindIs(kind, "optionOkOr optionIsSome")) {
+        if (shapeOf(ops[0], "option", 1) == .other) addIn("OptionInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires an Option<T> input.") }));
+    } else if (kindIs(kind, "resultOkValue resultErrValue resultIsOk")) {
+        if (shapeOf(ops[0], "result", 2) == .other) addIn("ResultInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires a Result<T, E> input.") }));
+    } else if (std.mem.eql(u8, kind, "listItemAt")) {
+        if (shapeOf(ops[0], "list", 1) == .other) addIn("ListItemAtListTypeMismatch", nodeMessage(name, node, "requires List<T> as its list input."));
+        requireNodeType("ListItemAtIndexTypeMismatch", nodeMessage(name, node, "requires an Int64 index."), int64, ops[1]);
+    } else if (kindIs(kind, "listSetAt listInsertAt")) {
+        switch (shapeOf(ops[0], "list", 1)) {
+            .args => |args| requireNodeType(fmt("{s}ItemTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires an item of the list's item type."), args[0], ops[2]),
+            .other => addIn(fmt("{s}ListTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires List<T> as its list input.")),
+            .unknown => {},
+        }
+        requireNodeType(fmt("{s}IndexTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires an Int64 index."), int64, ops[1]);
+    } else if (std.mem.eql(u8, kind, "listRemoveAt")) {
+        if (shapeOf(ops[0], "list", 1) == .other) addIn("ListRemoveAtListTypeMismatch", nodeMessage(name, node, "requires List<T> as its list input."));
+        requireNodeType("ListRemoveAtIndexTypeMismatch", nodeMessage(name, node, "requires an Int64 index."), int64, ops[1]);
+    } else if (std.mem.eql(u8, kind, "listSlice")) {
+        if (shapeOf(ops[0], "list", 1) == .other) addIn("ListSliceListTypeMismatch", nodeMessage(name, node, "requires List<T> as its list input."));
+        requireNodeType("ListSliceBoundTypeMismatch", nodeMessage(name, node, "requires an Int64 start."), int64, ops[1]);
+        requireNodeType("ListSliceBoundTypeMismatch", nodeMessage(name, node, "requires an Int64 end."), int64, ops[2]);
+    } else if (std.mem.eql(u8, kind, "listAppendItem")) {
+        switch (shapeOf(ops[0], "list", 1)) {
+            .args => |args| if (nodeType(ops[1])) |actual| if (!typeEql(actual, args[0]))
+                addIn("ListAppendItemTypeMismatch", nodeMessage(name, node, "item does not match the list item type.")),
+            .other => addIn("ListAppendListTypeMismatch", nodeMessage(name, node, "requires List<T> as its list input.")),
+            .unknown => {},
+        }
+    } else if (std.mem.eql(u8, kind, "listConcat")) {
+        const left = shapeOf(ops[0], "list", 1);
+        const right = shapeOf(ops[1], "list", 1);
+        if (left == .unknown or right == .unknown) return;
+        if (left == .args and right == .args) {
+            if (!typeEql(left.args[0], right.args[0])) addIn("ListConcatItemTypeMismatch", nodeMessage(name, node, "requires both lists to have the same item type."));
+            return;
+        }
+        if (left == .other) addIn("ListConcatLeftTypeMismatch", nodeMessage(name, node, "requires List<T> as its left input."));
+        if (right == .other) addIn("ListConcatRightTypeMismatch", nodeMessage(name, node, "requires List<T> as its right input."));
+    }
+}
+
+/// A union match arm's variant IDs: `variantId` alone, or `variantIds`.
+fn armVariantIds(arm: Value) []const Str {
+    if (tryProperty("variantId", arm)) |single| return a.dupe(Str, &.{single.string}) catch oom();
+    const items = arrayOf(arm, "variantIds");
+    const ids = a.alloc(Str, items.len) catch oom();
+    for (items, ids) |item, *id| id.* = item.string;
+    return ids;
+}
+
+var variants_by_id: ValueMap = .empty;
+
+/// A declared field with its type seen through the owner's type arguments (`instantiateFields`).
+const Field = struct { id: Str, display: Str, type: TypeRef };
+
+fn instantiateFields(owner: ?Value, arguments: []const TypeRef, fields: []const Value) []const Field {
+    const out = a.alloc(Field, fields.len) catch oom();
+    for (fields, out) |field, *f| {
+        const declared = typeRefOf(get(field, "type"));
+        f.* = .{ .id = str(field, "id"), .display = str(field, "displayName"), .type = if (owner) |o| instantiate(o, arguments, declared) else declared };
+    }
+    return out;
+}
+
+fn findField(fields: []const Field, id: Str) ?Field {
+    for (fields) |f| if (same(f.id, id)) return f;
+    return null;
+}
+
+fn duplicateTargets(context: Str, bindings: []const Value, comptime target: []const u8) void {
+    const ids = a.alloc(Str, bindings.len) catch oom();
+    for (bindings, ids) |binding, *id| id.* = str(binding, target);
+    for (countBy(ids).values()) |entry| {
+        if (entry.count > 1) addIn("DuplicateFieldBinding", cat(&.{ context, L(" binds field '"), entry.id, L("' more than once.") }));
+    }
+}
+
+fn fieldValueType(context: Str, field: Field, binding: Value) void {
+    if (nodeType(str(binding, "valueNodeId"))) |value_type| if (!typeEql(field.type, value_type))
+        addIn("FieldValueTypeMismatch", cat(&.{ context, L(" binds a value with the wrong type to field "), describe(field.display, field.id), L(".") }));
+}
+
+/// `validateFieldBindings`.
+fn validateFieldBindings(context: Str, expected: []const Field, bindings: []const Value) void {
+    duplicateTargets(context, bindings, "targetFieldId");
+    var expected_ids: Set = .empty;
+    for (expected) |f| expected_ids.put(a, idKey(f.id), {}) catch oom();
+    var actual_ids: Set = .empty;
+    for (bindings) |binding| actual_ids.put(a, idKey(str(binding, "targetFieldId")), {}) catch oom();
+    if (!sameSet(&expected_ids, &actual_ids)) addIn("FieldBindingMismatch", cat(&.{ context, L(" must bind exactly the fields declared by its target.") }));
+    for (bindings) |binding| {
+        if (findField(expected, str(binding, "targetFieldId"))) |field| fieldValueType(context, field, binding);
+    }
+}
+
+fn sameSet(left: *const Set, right: *const Set) bool {
+    if (left.count() != right.count()) return false;
+    for (left.keys()) |key| if (!right.contains(key)) return false;
+    return true;
+}
+
+fn bindingType(binding: Value) TypeRef {
+    return typeRefOf(get(binding, "type"));
+}
+
+/// Products, unions, abort and the match nodes (Validation.fs `ProductConstruct` … `MatchResult`).
+fn structureRules(node: Value, graph_result: Str) void {
+    const kind = text(str(node, "kind"));
+    const id = str(node, "id");
+    const ops = operandsOf(node);
+    const function = in_function.function;
+    const function_label = describe(str(function, "displayName"), str(function, "id"));
+    if (std.mem.eql(u8, kind, "productConstruct")) {
+        const type_id = str(node, "typeId");
+        const context = cat(&.{ L("Product node '"), id, L("'") });
+        if (types_by_id.get(idKey(type_id))) |type_entity| {
+            if (isName(str(type_entity, "kind"), "product"))
+                validateFieldBindings(context, instantiateFields(type_entity, typeArgumentsOf(node), arrayOf(type_entity, "fields")), arrayOf(node, "fields"))
+            else
+                addIn("InvalidProductConstructTarget", cat(&.{ context, L(" targets a non-product type.") }));
+        } else addIn("UnknownProductConstructType", cat(&.{ context, L(" targets unknown type '"), type_id, L("'.") }));
+    } else if (std.mem.eql(u8, kind, "fieldAccess")) {
+        const owner = product_field_owners.get(idKey(str(node, "fieldId"))) orelse
+            return addIn("UnknownProductField", cat(&.{ L("Field-access node '"), id, L("' references a field that is not owned by a product type.") }));
+        if (nodeType(ops[0])) |source| if (source.kind != .named or !same(source.name, str(owner, "id")))
+            addIn("FieldAccessTypeMismatch", cat(&.{ L("Field-access node '"), id, L("' reads a field from the wrong source type.") }));
+    } else if (std.mem.eql(u8, kind, "productUpdate")) {
+        const type_id = str(node, "typeId");
+        const context = cat(&.{ L("Product-update node '"), id, L("'") });
+        const type_entity = types_by_id.get(idKey(type_id)) orelse
+            return addIn("UnknownProductUpdateType", cat(&.{ context, L(" targets unknown type '"), type_id, L("'.") }));
+        if (!isName(str(type_entity, "kind"), "product")) return addIn("InvalidProductUpdateTarget", cat(&.{ context, L(" targets a non-product type.") }));
+        const declared = arrayOf(type_entity, "fields");
+        // The bound values must match the fields at the source's type arguments.
+        const expected = if (nodeType(ops[0])) |source| blk: {
+            if (source.kind == .named and same(source.name, type_id)) break :blk instantiateFields(type_entity, source.args, declared);
+            addIn("ProductUpdateSourceTypeMismatch", cat(&.{ context, L(" updates a source that is not of its product type.") }));
+            break :blk instantiateFields(null, &.{}, declared);
+        } else instantiateFields(null, &.{}, declared);
+        const fields = arrayOf(node, "fields");
+        if (fields.len == 0) addIn("EmptyProductUpdate", cat(&.{ context, L(" must replace at least one field.") }));
+        duplicateTargets(context, fields, "targetFieldId");
+        for (fields) |binding| {
+            const field = findField(expected, str(binding, "targetFieldId")) orelse {
+                addIn("FieldBindingMismatch", cat(&.{ context, L(" binds field '"), str(binding, "targetFieldId"), L("', which its product type does not declare.") }));
+                continue;
+            };
+            fieldValueType(context, field, binding);
+        }
+    } else if (std.mem.eql(u8, kind, "unionConstruct")) {
+        const variant_id = str(node, "variantId");
+        const context = cat(&.{ L("Union node '"), id, L("'") });
+        const variant = variants_by_id.get(idKey(variant_id)) orelse
+            return addIn("UnknownUnionVariant", cat(&.{ context, L(" references unknown variant '"), variant_id, L("'.") }));
+        const owner = types_by_id.get(idKey(variant_owners.get(idKey(variant_id)).?));
+        validateFieldBindings(context, instantiateFields(owner, typeArgumentsOf(node), arrayOf(variant, "fields")), arrayOf(node, "fields"));
+    } else if (std.mem.eql(u8, kind, "abort")) {
+        if (!same(id, graph_result))
+            addIn("AbortNotGraphResult", cat(&.{ L("Abort node '"), id, L("' in function "), function_label, L(" must be its graph result.") }));
+        const result_type = typeRefOf(get(function, "resultType"));
+        if (result_type.isGeneric("result") and result_type.args.len == 2) {
+            requireNodeType("AbortPayloadTypeMismatch", cat(&.{ L("Abort node '"), id, L("' payload '"), ops[0], L("' must match error type "), typeText(result_type.args[1]), L(" of function "), function_label, L(".") }), result_type.args[1], ops[0]);
+        } else addIn("AbortOwnerResultTypeMismatch", cat(&.{ L("Abort node '"), id, L("' requires function "), function_label, L(" to return Result<T, E>.") }));
+    } else if (std.mem.eql(u8, kind, "matchUnion")) {
+        matchUnionRules(node, ops[0]);
+    } else if (std.mem.eql(u8, kind, "bind")) {
+        const binding = get(get(node, "boundBody"), "valueBinding");
+        requireNodeType("PatternBindingTypeMismatch", cat(&.{ L("Bind binding '"), str(binding, "id"), L("' does not match its input type.") }), bindingType(binding), ops[0]);
+    } else if (std.mem.eql(u8, kind, "matchOption")) {
+        const some = get(node, "someArm");
+        switch (shapeOf(ops[0], "option", 1)) {
+            .args => |args| if (!typeEql(bindingType(get(some, "valueBinding")), args[0]))
+                addIn("PatternBindingTypeMismatch", cat(&.{ L("Option match binding '"), str(get(some, "valueBinding"), "id"), L("' does not match the Option item type.") })),
+            .other => addIn("MatchOptionInputTypeMismatch", cat(&.{ L("Option match node '"), id, L("' requires Option<T> input.") })),
+            .unknown => {},
+        }
+        if (!compatibleArms(&.{ get(some, "body"), get(node, "noneBody") }))
+            addIn("MatchArmTypeMismatch", cat(&.{ L("Option match node '"), id, L("' arms do not produce one common type.") }));
+    } else if (std.mem.eql(u8, kind, "matchResult")) {
+        const ok_arm = get(node, "okArm");
+        const err_arm = get(node, "errArm");
+        switch (shapeOf(ops[0], "result", 2)) {
+            .args => |args| {
+                if (!typeEql(bindingType(get(ok_arm, "valueBinding")), args[0]))
+                    addIn("PatternBindingTypeMismatch", cat(&.{ L("Result.Ok binding '"), str(get(ok_arm, "valueBinding"), "id"), L("' does not match the Result ok type.") }));
+                if (!typeEql(bindingType(get(err_arm, "errorBinding")), args[1]))
+                    addIn("PatternBindingTypeMismatch", cat(&.{ L("Result.Err binding '"), str(get(err_arm, "errorBinding"), "id"), L("' does not match the Result error type.") }));
+            },
+            .other => addIn("MatchResultInputTypeMismatch", cat(&.{ L("Result match node '"), id, L("' requires Result<T,E> input.") })),
+            .unknown => {},
+        }
+        if (!compatibleArms(&.{ get(ok_arm, "body"), get(err_arm, "body") }))
+            addIn("MatchArmTypeMismatch", cat(&.{ L("Result match node '"), id, L("' arms do not produce one common type.") }));
+    }
+}
+
+fn matchUnionRules(node: Value, input: Str) void {
+    const id = str(node, "id");
+    const arms = arrayOf(node, "arms");
+    if (nodeType(input)) |input_type| {
+        const input_entity = if (input_type.kind == .named) types_by_id.get(idKey(input_type.name)) else null;
+        if (input_entity != null and isName(str(input_entity.?, "kind"), "union")) {
+            const declared = arrayOf(input_entity.?, "variants");
+            // `EmptyUnionMatchArm` cannot occur: the reader requires a variant per arm.
+            var all_ids: List(Str) = .empty;
+            for (arms) |arm| all_ids.appendSlice(a, armVariantIds(arm)) catch oom();
+            for (countBy(all_ids.items).values()) |entry| {
+                if (entry.count > 1) addIn("DuplicateUnionMatchArm", cat(&.{ L("Union match node '"), id, L("' has duplicate arm for variant '"), entry.id, L("'.") }));
+            }
+            const expected = idSet(declared);
+            var actual: Set = .empty;
+            for (all_ids.items) |v| actual.put(a, idKey(v), {}) catch oom();
+            if (!sameSet(&expected, &actual)) addIn("NonExhaustiveUnionMatch", cat(&.{ L("Union match node '"), id, L("' must contain exactly one arm for every variant.") }));
+            for (arms) |arm| {
+                const ids = armVariantIds(arm);
+                const bindings = arrayOf(arm, "fieldBindings");
+                if (ids.len >= 2 and bindings.len > 0)
+                    addIn("PatternFieldBindingMismatch", cat(&.{ L("Union match arm '"), describeArm(arm), L("' names several variants and must bind no fields.") }));
+                if (ids.len != 1) continue;
+                const variant = for (declared) |v| {
+                    if (same(str(v, "id"), ids[0])) break v;
+                } else continue;
+                const fields = instantiateFields(input_entity.?, input_type.args, arrayOf(variant, "fields"));
+                var expected_fields: Set = .empty;
+                for (fields) |f| expected_fields.put(a, idKey(f.id), {}) catch oom();
+                var actual_fields: Set = .empty;
+                for (bindings) |b| actual_fields.put(a, idKey(str(b, "sourceFieldId")), {}) catch oom();
+                if (!sameSet(&expected_fields, &actual_fields) or bindings.len != actual_fields.count())
+                    addIn("PatternFieldBindingMismatch", cat(&.{ L("Union match arm '"), describeArm(arm), L("' must bind each variant field exactly once.") }));
+                for (bindings) |b| {
+                    const field = findField(fields, str(b, "sourceFieldId")) orelse continue;
+                    if (!typeEql(field.type, bindingType(get(b, "binding"))))
+                        addIn("PatternBindingTypeMismatch", cat(&.{ L("Pattern binding '"), str(get(b, "binding"), "id"), L("' does not match its variant field type.") }));
+                }
+            }
+        } else addIn("MatchUnionInputTypeMismatch", cat(&.{ L("Union match node '"), id, L("' requires a declared union input.") }));
+    }
+    var bodies: List(Value) = .empty;
+    for (arms) |arm| bodies.append(a, get(arm, "body")) catch oom();
+    if (!compatibleArms(bodies.items)) addIn("MatchArmTypeMismatch", cat(&.{ L("Union match node '"), id, L("' arms do not produce one common type.") }));
+}
+
+/// `TypeParameters.matchType` without changing `substitution`.
+fn matchOne(substitution: *const Substitution, declared: TypeRef, actual: TypeRef) ?Substitution {
+    return matchFrom(substitution, &.{.{ .declared = declared, .actual = actual }});
+}
+
+fn resultOf(callback: Value, substitution: *const Substitution) TypeRef {
+    return substitute(substitution, typeRefOf(get(callback, "resultType")));
+}
+
+const CallbackContext = struct { unbound: []const Value, substitution: Substitution };
+
+/// `validateCallbackContext`: the context's own rules; the parameters it leaves unbound and the
+/// substitution its values determine (empty when they conflict).
+fn validateCallbackContext(node: Value, callback: Value, context: []const Value) CallbackContext {
+    const id = str(node, "id");
+    const targets = a.alloc(Str, context.len) catch oom();
+    for (context, targets) |binding, *t| t.* = str(binding, "targetParameterId");
+    for (countBy(targets).values()) |entry| {
+        if (entry.count > 1) addIn("DuplicateArgumentTarget", cat(&.{ L("Higher-order node '"), id, L("' binds callback parameter '"), entry.id, L("' more than once.") }));
+    }
+    for (targets) |target| {
+        if (parameterOf(callback, target) == null)
+            addIn("UnknownCallbackContextParameter", cat(&.{ L("Higher-order node '"), id, L("' binds '"), target, L("', which is not a parameter of callback '"), str(callback, "id"), L("'.") }));
+    }
+    var pairs: List(Pair) = .empty;
+    for (context) |binding| {
+        const parameter = parameterOf(callback, str(binding, "targetParameterId"));
+        const actual = nodeType(str(binding, "valueNodeId"));
+        if (parameter != null and actual != null) pairs.append(a, .{ .declared = typeRefOf(get(parameter.?, "type")), .actual = actual.? }) catch oom();
+    }
+    const substitution = matchAll(pairs.items) orelse blk: {
+        addIn("CallbackContextTypeMismatch", cat(&.{ L("Higher-order node '"), id, L("' binds a callback parameter to a value of another type.") }));
+        break :blk Substitution.empty;
+    };
+    var unbound: List(Value) = .empty;
+    for (arrayOf(callback, "parameters")) |parameter| {
+        if (!bindsParameter(context, str(parameter, "id"))) unbound.append(a, parameter) catch oom();
+    }
+    return .{ .unbound = unbound.items, .substitution = substitution };
+}
+
+fn parameterType(parameter: Value) TypeRef {
+    return typeRefOf(get(parameter, "type"));
+}
+
+/// The kinds `SemanticNodeShape.isIntrinsicallyEffectful` names.
+const effectful_kinds = "parallelAll cancellationRequested useResource exceptionCatch exceptionRethrow cancellationShield taskScope taskStart taskWait oneShotCreate oneShotComplete oneShotWait taskCancel capabilityInvoke";
+
+/// `PureFunctions.isPure`: the function and every function its nodes name, transitively, are
+/// known, require no effect and hold no intrinsically effectful node.
+fn isPure(function_id: Str) bool {
+    var seen: Set = .empty;
+    var pending: List(Str) = .empty;
+    pending.append(a, function_id) catch oom();
+    while (pending.pop()) |id| {
+        if ((seen.getOrPut(a, idKey(id)) catch oom()).found_existing) continue;
+        const function = functions_by_id.get(idKey(id)) orelse return false;
+        if (arrayOf(function, "requiredEffects").len > 0) return false;
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        for (nodes.items) |node| {
+            if (kindIs(text(str(node, "kind")), effectful_kinds)) return false;
+            for (node.object) |member| {
+                const name = member.name;
+                if (name.len > 10 and isName(name[name.len - 10 ..], "FunctionId")) pending.append(a, member.value.string) catch oom();
+            }
+            for (arrayOf(node, "implementations")) |implementation| pending.append(a, str(implementation, "functionId")) catch oom();
+        }
+    }
+    return true;
+}
+
+/// `callbackEffectsHint`.
+fn effectsHint(comptime collection: []const u8, callback: Value) Str {
+    var out: List(u16) = .empty;
+    const effects = arrayOf(callback, "requiredEffects");
+    if (effects.len > 0) {
+        out.appendSlice(a, L(" The callback requires effect ")) catch oom();
+        for (effects, 0..) |effect, i| {
+            if (i > 0) out.appendSlice(a, L(", ")) catch oom();
+            out.appendSlice(a, effectLabel(effect.string)) catch oom();
+        }
+        out.appendSlice(a, L(".")) catch oom();
+    }
+    out.appendSlice(a, if (comptime std.mem.eql(u8, collection, "List"))
+        L(" To run effects once per item, in order, use ListEffectFold instead (its folder takes the accumulator and the item).")
+    else
+        L(" Do the effectful work outside the callback and pass only pure values into it.")) catch oom();
+    return out.items;
+}
+
+/// `MissingEffectRequirement` for each effect the callback requires and the function does not declare.
+fn missingEffects(callback: Value, before: Str, after: Str) void {
+    for (arrayOf(callback, "requiredEffects")) |effect| {
+        if (!in_function.required_effects.contains(idKey(effect.string)))
+            addIn("MissingEffectRequirement", cat(&.{ before, effectLabel(effect.string), after }));
+    }
+}
+
+fn functionLabel(function: Value) Str {
+    return describe(str(function, "displayName"), str(function, "id"));
+}
+
+/// `validateCallbackOver`: a pure callback taking each List or Set item.
+fn validateCallbackOver(comptime collection: []const u8, node: Value, source: Str, callback_id: Str, context: []const Value, predicate: bool) void {
+    const id = str(node, "id");
+    const head = cat(&.{ L("Higher-order " ++ collection ++ " node '"), id, L("'") });
+    const item: ?TypeRef = if (nodeType(source)) |t| blk: {
+        if (t.kind == .generic and t.args.len == 1 and isName(t.name, if (comptime std.mem.eql(u8, collection, "List")) "list" else "set")) break :blk t.args[0];
+        addIn("HigherOrderSourceTypeMismatch", cat(&.{ head, L(" requires " ++ collection ++ "<T> input.") }));
+        break :blk null;
+    } else null;
+    const callback = functions_by_id.get(idKey(callback_id)) orelse
+        return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references unknown callback function '"), callback_id, L("'.") }));
+    var checked = validateCallbackContext(node, callback, context);
+    if (checked.unbound.len != 1) {
+        addIn("CallbackArityMismatch", cat(&.{ head, L(" requires callback '"), str(callback, "id"), L("' to have exactly one parameter not bound by context.") }));
+    } else if (item) |item_type| {
+        if (matchOne(&checked.substitution, parameterType(checked.unbound[0]), item_type)) |extended| {
+            checked.substitution = extended;
+        } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, L(" callback parameter type does not match the source "), asciiUnits(comptime lowerAscii(collection)), L(" item type.") }));
+    }
+    if (!isPure(str(callback, "id")))
+        addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls."), effectsHint(collection, callback) }));
+    if (predicate and !resultOf(callback, &checked.substitution).isPrimitive("bool"))
+        addIn("PredicateResultTypeMismatch", cat(&.{ head, L(" predicate callback must return Bool.") }));
+}
+
+fn lowerAscii(comptime s: []const u8) []const u8 {
+    comptime var out: [s.len]u8 = undefined;
+    inline for (s, 0..) |c, i| out[i] = comptime std.ascii.toLower(c);
+    const final = out;
+    return &final;
+}
+
+/// `validateLessThanCallback`.
+fn validateLessThanCallback(name: Str, node: Value, source: Str, callback_id: Str, context: []const Value) void {
+    const head = cat(&.{ name, L(" node '"), str(node, "id"), L("'") });
+    const item: ?TypeRef = switch (shapeOf(source, "list", 1)) {
+        .args => |args| args[0],
+        .other => blk: {
+            addIn("HigherOrderSourceTypeMismatch", cat(&.{ head, L(" requires List<T> input.") }));
+            break :blk null;
+        },
+        .unknown => null,
+    };
+    const callback = functions_by_id.get(idKey(callback_id)) orelse
+        return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references unknown callback function '"), callback_id, L("'.") }));
+    var checked = validateCallbackContext(node, callback, context);
+    if (checked.unbound.len != 2) {
+        addIn("CallbackArityMismatch", cat(&.{ head, L(" requires callback '"), str(callback, "id"), L("' to have exactly two parameters not bound by context (left, right).") }));
+    } else if (item) |item_type| {
+        if (matchFrom(&checked.substitution, &.{ .{ .declared = parameterType(checked.unbound[0]), .actual = item_type }, .{ .declared = parameterType(checked.unbound[1]), .actual = item_type } })) |extended| {
+            checked.substitution = extended;
+        } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, L(" callback parameter types must both match the source list item type.") }));
+    }
+    if (!isPure(str(callback, "id")))
+        addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls.") }));
+    if (!resultOf(callback, &checked.substitution).isPrimitive("bool"))
+        addIn("PredicateResultTypeMismatch", cat(&.{ head, L(" less-than callback must return Bool.") }));
+}
+
+/// `validateMapEntryCallback`: MapFilter and MapMapValues.
+fn validateMapEntryCallback(name: Str, require_bool: bool, node: Value, source: Str, callback_id: Str, context: []const Value) void {
+    const head = cat(&.{ name, L(" node '"), str(node, "id"), L("'") });
+    switch (shapeOf(source, "map", 2)) {
+        .args => |args| {
+            const keep = functions_by_id.get(idKey(callback_id)) orelse return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references an unknown callback.") }));
+            var checked = validateCallbackContext(node, keep, context);
+            if (checked.unbound.len == 2) {
+                if (matchFrom(&checked.substitution, &.{ .{ .declared = parameterType(checked.unbound[0]), .actual = args[0] }, .{ .declared = parameterType(checked.unbound[1]), .actual = args[1] } })) |extended| {
+                    checked.substitution = extended;
+                } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, L(" callback input types must match the key and value types.") }));
+            } else addIn("CallbackArityMismatch", cat(&.{ head, L(" callback must have exactly two parameters not bound by context (key, value).") }));
+            if (require_bool and !resultOf(keep, &checked.substitution).isPrimitive("bool"))
+                addIn("PredicateResultTypeMismatch", cat(&.{ head, L(" callback must return Bool.") }));
+            if (!isPure(str(keep, "id")))
+                addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" callback must be pure, including its transitive calls and ambient task or cancellation behavior.") }));
+        },
+        .other => addIn("MapInputTypeMismatch", cat(&.{ head, L(" requires a Map<K, V> input.") })),
+        .unknown => {},
+    }
+}
+
+const CasePayload = enum { option_item, result_ok, result_error };
+const BinderResult = enum { none, option, result_with_source_error };
+
+fn casePayload(t: TypeRef, payload: CasePayload) ?TypeRef {
+    return switch (payload) {
+        .option_item => if (t.isGeneric("option") and t.args.len == 1) t.args[0] else null,
+        .result_ok => if (t.isGeneric("result") and t.args.len == 2) t.args[0] else null,
+        .result_error => if (t.isGeneric("result") and t.args.len == 2) t.args[1] else null,
+    };
+}
+
+/// `validateCaseCallback`: OptionMap, OptionAndThen, ResultMap, ResultMapErr and ResultAndThen.
+fn validateCaseCallback(name: Str, comptime source_shape: []const u8, node: Value, source: Str, callback_id: Str, context: []const Value, payload: CasePayload, binder: BinderResult) void {
+    const head = cat(&.{ name, L(" node '"), str(node, "id"), L("'") });
+    const source_type = nodeType(source) orelse return;
+    const payload_type = casePayload(source_type, payload) orelse return addIn("HigherOrderSourceTypeMismatch", cat(&.{ head, L(" requires " ++ source_shape ++ " input.") }));
+    const callback = functions_by_id.get(idKey(callback_id)) orelse
+        return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references unknown callback function '"), callback_id, L("'.") }));
+    var checked = validateCallbackContext(node, callback, context);
+    if (checked.unbound.len == 1) {
+        if (matchOne(&checked.substitution, parameterType(checked.unbound[0]), payload_type)) |extended| {
+            checked.substitution = extended;
+        } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, L(" callback parameter type does not match the " ++ source_shape ++ " payload type.") }));
+    } else addIn("CallbackArityMismatch", cat(&.{ head, L(" requires callback '"), str(callback, "id"), L("' to have exactly one parameter not bound by context.") }));
+    const result = resultOf(callback, &checked.substitution);
+    switch (binder) {
+        .none => {},
+        .option => if (casePayload(result, .option_item) == null) addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" callback must return Option<R>.") })),
+        .result_with_source_error => {
+            const source_error = casePayload(source_type, .result_error);
+            const result_error = casePayload(result, .result_error);
+            if (source_error == null or result_error == null or !typeEql(source_error.?, result_error.?))
+                addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" callback must return Result<R, E> with the source's error type E.") }));
+        },
+    }
+    if (!isPure(str(callback, "id")))
+        addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls.") }));
+}
+
+/// ListFold, ListScan, SetFold, MapFold and ListEffectFold.
+fn validateFold(name: Str, kind: []const u8, node: Value, ops: []const Str, context: []const Value) void {
+    const head = cat(&.{ name, L(" node '"), str(node, "id"), L("'") });
+    const is_map = std.mem.eql(u8, kind, "mapFold");
+    const is_set = std.mem.eql(u8, kind, "setFold");
+    const effect = std.mem.eql(u8, kind, "listEffectFold");
+    const source_shape = if (is_map) shapeOf(ops[0], "map", 2) else if (is_set) shapeOf(ops[0], "set", 1) else shapeOf(ops[0], "list", 1);
+    const seed_type = nodeType(ops[1]);
+    if (source_shape == .unknown or seed_type == null) return;
+    const args = switch (source_shape) {
+        .args => |args| args,
+        else => return if (is_map)
+            addIn("MapInputTypeMismatch", cat(&.{ head, L(" requires a Map<K, V> input.") }))
+        else if (is_set)
+            addIn("SetInputTypeMismatch", cat(&.{ head, L(" requires a Set<T> input.") }))
+        else
+            addIn("HigherOrderSourceTypeMismatch", cat(&.{ head, L(" requires List<T> input.") })),
+    };
+    const seed = seed_type.?;
+    const folder = functions_by_id.get(idKey(str(node, "folderFunctionId"))) orelse
+        return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references an unknown folder.") }));
+    var checked = validateCallbackContext(node, folder, context);
+    const arity: usize = if (is_map) 3 else 2;
+    if (checked.unbound.len != arity) {
+        addIn("CallbackArityMismatch", if (is_map)
+            cat(&.{ head, L(" folder must have exactly three parameters not bound by context (accumulator, key, value).") })
+        else
+            cat(&.{ head, L(" folder must have exactly two parameters not bound by context (accumulator, item).") }));
+    } else {
+        var pairs: List(Pair) = .empty;
+        pairs.append(a, .{ .declared = parameterType(checked.unbound[0]), .actual = seed }) catch oom();
+        for (checked.unbound[1..], args) |parameter, t| pairs.append(a, .{ .declared = parameterType(parameter), .actual = t }) catch oom();
+        if (matchFrom(&checked.substitution, pairs.items)) |extended| {
+            checked.substitution = extended;
+        } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, if (is_map) L(" folder input types must match the seed, key and value types.") else if (is_set) L(" folder input types must match seed and set item types.") else L(" folder input types must match seed and list item types.") }));
+    }
+    const result = resultOf(folder, &checked.substitution);
+    if (effect) {
+        const accepted = typeEql(result, seed) or (result.isGeneric("result") and result.args.len == 2 and typeEql(result.args[0], seed));
+        if (!accepted) addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" folder must return the seed type S or Result<S, E>.") }));
+        missingEffects(folder, cat(&.{ L("Function "), functionLabel(in_function.function), L(" folds with "), functionLabel(folder), L(" but does not declare required effect ") }), L("."));
+        return;
+    }
+    if (!typeEql(result, seed)) addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" folder must return the seed type.") }));
+    if (!isPure(str(folder, "id")))
+        addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" folder must be pure, including its transitive calls and ambient task or cancellation behavior.") }));
+}
+
+/// A body callback with one unbound parameter of a fixed type (CancellationShield, TaskScope,
+/// UseResource): the substitution that makes it fit, or none.
+fn bodySubstitution(checked: *const CallbackContext, input: TypeRef) ?Substitution {
+    if (checked.unbound.len != 1) return null;
+    return matchOne(&checked.substitution, parameterType(checked.unbound[0]), input);
+}
+
+/// The higher-order, effect and task nodes (Validation.fs `ListFold` … `ListAll`).
+fn callbackRules(node: Value, local: *const Set) void {
+    const kind = text(str(node, "kind"));
+    const name = caseNameOf(str(node, "kind"));
+    const id = str(node, "id");
+    const ops = operandsOf(node);
+    const context = arrayOf(node, "context");
+    const function_label = functionLabel(in_function.function);
+    if (kindIs(kind, "listFold listScan mapFold setFold listEffectFold")) {
+        validateFold(name, kind, node, ops, context);
+    } else if (kindIs(kind, "mapFilter mapMapValues")) {
+        validateMapEntryCallback(name, std.mem.eql(u8, kind, "mapFilter"), node, ops[0], str(node, if (std.mem.eql(u8, kind, "mapFilter")) "keepFunctionId" else "mapperFunctionId"), context);
+    } else if (kindIs(kind, "setFilter setMap")) {
+        const filter = std.mem.eql(u8, kind, "setFilter");
+        validateCallbackOver("Set", node, ops[0], str(node, if (filter) "predicateFunctionId" else "mapperFunctionId"), context, filter);
+        if (!filter) if (nodeType(id)) |t| if (t.isGeneric("set") and t.args.len == 1 and !isEquatable(t.args[0]))
+            addIn("SetItemTypeNotEquatable", cat(&.{ L("SetMap node '"), id, L("' makes a Set of a type that is not equatable: "), explainEquatable(t.args[0]) }));
+    } else if (std.mem.eql(u8, kind, "optionMap")) {
+        validateCaseCallback(name, "Option<T>", node, ops[0], str(node, "mapperFunctionId"), context, .option_item, .none);
+    } else if (std.mem.eql(u8, kind, "optionAndThen")) {
+        validateCaseCallback(name, "Option<T>", node, ops[0], str(node, "binderFunctionId"), context, .option_item, .option);
+    } else if (std.mem.eql(u8, kind, "resultMap")) {
+        validateCaseCallback(name, "Result<T, E>", node, ops[0], str(node, "mapperFunctionId"), context, .result_ok, .none);
+    } else if (std.mem.eql(u8, kind, "resultMapErr")) {
+        validateCaseCallback(name, "Result<T, E>", node, ops[0], str(node, "mapperFunctionId"), context, .result_error, .none);
+    } else if (std.mem.eql(u8, kind, "resultAndThen")) {
+        validateCaseCallback(name, "Result<T, E>", node, ops[0], str(node, "binderFunctionId"), context, .result_ok, .result_with_source_error);
+    } else if (std.mem.eql(u8, kind, "listZipWith")) {
+        const left = shapeOf(ops[0], "list", 1);
+        const right = shapeOf(ops[1], "list", 1);
+        if (left == .unknown or right == .unknown) return;
+        if (left == .other or right == .other) return addIn("HigherOrderSourceTypeMismatch", nodeMessage(name, node, "requires List<T> inputs."));
+        const combiner = functions_by_id.get(idKey(str(node, "combinerFunctionId"))) orelse
+            return addIn("UnknownCallbackFunction", nodeMessage(name, node, "references an unknown combiner."));
+        const checked = validateCallbackContext(node, combiner, context);
+        if (checked.unbound.len != 2) {
+            addIn("CallbackArityMismatch", nodeMessage(name, node, "combiner must have exactly two parameters not bound by context (left item, right item)."));
+        } else if (matchFrom(&checked.substitution, &.{ .{ .declared = parameterType(checked.unbound[0]), .actual = left.args[0] }, .{ .declared = parameterType(checked.unbound[1]), .actual = right.args[0] } }) == null)
+            addIn("CallbackParameterTypeMismatch", nodeMessage(name, node, "combiner input types must match the left and right list item types."));
+        if (!isPure(str(combiner, "id")))
+            addIn("CallbackEffectsNotAllowed", nodeMessage(name, node, "combiner must be pure, including its transitive calls and ambient task or cancellation behavior."));
+    } else if (kindIs(kind, "listMap listFlatMap mapFromList listFilter listAny listFindIndex listAll")) {
+        const callback_id = str(node, if (std.mem.eql(u8, kind, "mapFromList")) "keyOfFunctionId" else if (kindIs(kind, "listMap listFlatMap")) "mapperFunctionId" else "predicateFunctionId");
+        validateCallbackOver("List", node, ops[0], callback_id, context, kindIs(kind, "listFilter listAny listFindIndex listAll"));
+        if (std.mem.eql(u8, kind, "listFlatMap")) {
+            if (shapeOf(ops[0], "list", 1) == .args and functions_by_id.contains(idKey(callback_id)) and nodeType(id) == null)
+                addIn("CallbackResultTypeMismatch", nodeMessage(name, node, "mapper must return List<R>."));
+        } else if (std.mem.eql(u8, kind, "mapFromList")) {
+            if (nodeType(id)) |t| if (t.isGeneric("map") and t.args.len == 2 and !isEquatable(t.args[0]))
+                addIn("MapKeyTypeNotEquatable", cat(&.{ L("MapFromList node '"), id, L("' makes keys of a type that is not equatable: "), explainEquatable(t.args[0]) }));
+        }
+    } else if (kindIs(kind, "listSortBy listMinBy listMaxBy")) {
+        validateLessThanCallback(name, node, ops[0], str(node, "lessThanFunctionId"), context);
+    } else if (std.mem.eql(u8, kind, "useResource")) {
+        useResourceRules(node, local);
+    } else if (std.mem.eql(u8, kind, "exceptionCatch")) {
+        const body = catchCallback(node, "body", str(node, "bodyFunctionId"), arrayOf(node, "bodyContext"), primitiveType("unit"), L("Primitive Unit"));
+        const handler = catchCallback(node, "handler", str(node, "handlerFunctionId"), arrayOf(node, "handlerContext"), builtin("exception", &.{}), L("BuiltinGeneric (Exception, [])"));
+        if (body != null and handler != null) {
+            const same_result = body.?.isGeneric("result") and body.?.args.len == 2 and typeEql(body.?, handler.?);
+            if (!same_result) addIn("ExceptionCatchResultMismatch", L("ExceptionCatch callbacks must return the same Result<T, E>."));
+        }
+    } else if (kindIs(kind, "exceptionIsCancellation exceptionMessage exceptionRethrow")) {
+        const value_type = nodeType(ops[0]);
+        if (value_type == null or !typeEql(value_type.?, builtin("exception", &.{})))
+            addIn("ExceptionValueTypeMismatch", cat(&.{ name, L(" requires an Exception value.") }));
+    } else if (kindIs(kind, "cancellationShield taskScope")) {
+        const shield = std.mem.eql(u8, kind, "cancellationShield");
+        const body = functions_by_id.get(idKey(str(node, "bodyFunctionId"))) orelse
+            return addIn("UnknownCallTarget", nodeMessage(name, node, "references an unknown body function."));
+        const checked = validateCallbackContext(node, body, context);
+        const fitted = bodySubstitution(&checked, if (shield) primitiveType("unit") else builtin("taskScope", &.{}));
+        if (fitted == null) addIn(if (shield) "CancellationShieldBodyMismatch" else "TaskScopeBodyMismatch", if (shield) nodeMessage(name, node, "body must have exactly one unbound parameter of type Unit.") else nodeMessage(name, node, "body must have exactly one unbound parameter of type TaskScope."));
+        const result = resultOf(body, if (fitted) |*f| f else &checked.substitution);
+        if (!(result.isGeneric("result") and result.args.len == 2))
+            addIn(if (shield) "CancellationShieldResultMismatch" else "TaskScopeResultMismatch", nodeMessage(name, node, "body must return Result<T, E>."));
+        missingEffects(body, cat(&.{ L("Function "), function_label, if (shield) L(" runs cancellation shield body ") else L(" runs task scope body "), functionLabel(body), L(" but does not declare required effect ") }), L("."));
+    } else if (std.mem.eql(u8, kind, "taskStart")) {
+        // `TaskBoundValueCrossesTask` (rejectTaskBound) belongs to slice 3d.
+        if (nodeType(ops[0])) |scope| if (!typeEql(scope, builtin("taskScope", &.{})))
+            addIn("TaskStartScopeTypeMismatch", nodeMessage(name, node, "requires a TaskScope value as its scope."));
+        const item = nodeType(ops[1]);
+        const worker = functions_by_id.get(idKey(str(node, "workerFunctionId"))) orelse
+            return addIn("UnknownCallbackFunction", nodeMessage(name, node, "references an unknown worker."));
+        const item_type = item orelse return;
+        workerRules(name, node, worker, context, item_type, " starts ", " as a task but does not declare required effect ");
+    } else if (std.mem.eql(u8, kind, "parallelAll")) {
+        const source = shapeOf(ops[0], "list", 1);
+        const worker = functions_by_id.get(idKey(str(node, "workerFunctionId")));
+        if (source == .args and worker != null) {
+            workerRules(name, node, worker.?, context, source.args[0], " runs ", " in parallel but does not declare required effect ");
+        } else if (source == .other and worker != null) {
+            addIn("HigherOrderSourceTypeMismatch", nodeMessage(name, node, "requires List<T> input."));
+        } else if (worker == null) addIn("UnknownCallbackFunction", nodeMessage(name, node, "references an unknown worker."));
+    } else if (std.mem.eql(u8, kind, "taskWait")) {
+        if (nodeType(str(node, "tasksNodeId"))) |t| if (!(t.isGeneric("list") and t.args.len == 1 and t.args[0].isGeneric("task") and t.args[0].args.len == 1))
+            addIn("TaskWaitInputTypeMismatch", nodeMessage(name, node, "requires List<Task<T>> input."));
+        if (limitType(node)) |t| if (!isOptionInt64(t)) addIn("TaskWaitLimitTypeMismatch", nodeMessage(name, node, "requires an Option<Int64> limit."));
+    } else if (std.mem.eql(u8, kind, "oneShotCreate")) {
+        if (nodeType(ops[0])) |t| if (!typeEql(t, builtin("taskScope", &.{}))) addIn("OneShotScopeTypeMismatch", L("OneShotCreate requires a TaskScope."));
+    } else if (std.mem.eql(u8, kind, "oneShotComplete")) {
+        const cell = nodeType(ops[0]) orelse return;
+        if (!(cell.isGeneric("oneShot") and cell.args.len == 1)) return addIn("OneShotCellTypeMismatch", L("OneShotComplete requires OneShot<T>."));
+        if (nodeType(ops[1])) |actual| if (!typeEql(cell.args[0], actual)) addIn("OneShotValueTypeMismatch", L("OneShotComplete payload must match the cell's exact type."));
+    } else if (std.mem.eql(u8, kind, "oneShotWait")) {
+        if (nodeType(ops[0])) |cell| if (!(cell.isGeneric("oneShot") and cell.args.len == 1)) addIn("OneShotCellTypeMismatch", L("OneShotWait requires OneShot<T>."));
+        if (limitType(node)) |t| if (!isOptionInt64(t)) addIn("OneShotLimitTypeMismatch", L("OneShotWait requires Option<Int64> limit."));
+    } else if (std.mem.eql(u8, kind, "taskCancel")) {
+        if (nodeType(ops[0])) |t| if (!(t.isGeneric("task") and t.args.len == 1)) addIn("TaskCancelInputTypeMismatch", nodeMessage(name, node, "requires a Task<T> input."));
+    }
+}
+
+fn limitType(node: Value) ?TypeRef {
+    const limit = tryProperty("limitNodeId", node) orelse return null;
+    return nodeType(limit.string);
+}
+
+fn isOptionInt64(t: TypeRef) bool {
+    return t.isGeneric("option") and t.args.len == 1 and t.args[0].isPrimitive("int64");
+}
+
+/// The worker of TaskStart and ParallelAll, given the item it receives.
+fn workerRules(name: Str, node: Value, worker: Value, context: []const Value, item_type: TypeRef, comptime runs: []const u8, comptime missing: []const u8) void {
+    const checked = validateCallbackContext(node, worker, context);
+    if (bodySubstitution(&checked, item_type)) |fitted| {
+        const result = resultOf(worker, &fitted);
+        if (!(result.isGeneric("result") and result.args.len == 2)) addIn("CallbackResultTypeMismatch", nodeMessage(name, node, "worker must return Result<U, E>."));
+    } else addIn("CallbackParameterTypeMismatch", nodeMessage(name, node, "worker must take exactly one unbound parameter of the item type."));
+    missingEffects(worker, cat(&.{ L("Function "), functionLabel(in_function.function), L(runs), functionLabel(worker), L(missing) }), L("."));
+}
+
+/// One callback of ExceptionCatch: its result type, or none when the function is unknown.
+fn catchCallback(node: Value, comptime role: []const u8, function_id: Str, context: []const Value, input: TypeRef, input_text: Str) ?TypeRef {
+    const callback = functions_by_id.get(idKey(function_id)) orelse {
+        addIn("UnknownCallTarget", L("ExceptionCatch " ++ role ++ " references an unknown function."));
+        return null;
+    };
+    const checked = validateCallbackContext(node, callback, context);
+    const fitted = bodySubstitution(&checked, input);
+    if (fitted == null) addIn("ExceptionCatchCallbackMismatch", cat(&.{ L("ExceptionCatch " ++ role ++ " must have one unbound parameter of type "), input_text, L(".") }));
+    missingEffects(callback, L("ExceptionCatch " ++ role ++ " requires effect "), L("."));
+    return resultOf(callback, if (fitted) |*f| f else &checked.substitution);
+}
+
+/// `capabilityOperationsById`: each operation with its capability (the last of a duplicated ID wins).
+var operation_owners: std.StringArrayHashMapUnmanaged(Str) = .empty;
+
+fn useResourceRules(node: Value, local: *const Set) void {
+    const id = str(node, "id");
+    const acquire = str(node, "acquireNodeId");
+    const head = cat(&.{ L("UseResource node '"), id, L("'") });
+    if (in_function.resolver.nodes_by_id.contains(idKey(acquire))) {
+        if (!local.contains(idKey(acquire)))
+            addIn("UseResourceAcquireOutOfGraph", cat(&.{ head, L(" acquires resource node '"), acquire, L("' from an enclosing graph; the acquisition must be owned by the same graph as the node that releases it.") }));
+        for (in_function.all_nodes) |other| {
+            if (same(str(other, "id"), id)) continue;
+            for (operandsOf(other)) |reference| if (same(reference, acquire)) {
+                addIn("UseResourceAcquireShared", cat(&.{ head, L(" must be the only consumer of resource node '"), acquire, L("', which node '"), str(other, "id"), L("' also uses.") }));
+                break;
+            };
+        }
+    }
+    const acquired = nodeType(acquire) orelse return;
+    if (!(acquired.isGeneric("result") and acquired.args.len == 2)) return addIn("UseResourceAcquireTypeMismatch", cat(&.{ head, L(" acquisition must produce Result<R, E>.") }));
+    const body = functions_by_id.get(idKey(str(node, "bodyFunctionId"))) orelse return addIn("UnknownCallTarget", cat(&.{ head, L(" references an unknown body function.") }));
+    const release_id = idKey(str(node, "releaseOperationId"));
+    const operation = operations_by_id.get(release_id) orelse return addIn("UnknownCapabilityOperation", cat(&.{ head, L(" references an unknown release operation.") }));
+    const resource_type = acquired.args[0];
+    const error_type = acquired.args[1];
+    const checked = validateCallbackContext(node, body, arrayOf(node, "context"));
+    const fitted = bodySubstitution(&checked, resource_type);
+    if (fitted == null) addIn("UseResourceBodyMismatch", cat(&.{ head, L(" body must have exactly one unbound parameter of the resource type.") }));
+    const result = resultOf(body, if (fitted) |*f| f else &checked.substitution);
+    if (!(result.isGeneric("result") and result.args.len == 2 and typeEql(result.args[1], error_type)))
+        addIn("UseResourceResultMismatch", cat(&.{ head, L(" body must return Result<T, E> with the acquisition error type.") }));
+    const receiver = nodeType(str(node, "releaseCapabilityNodeId"));
+    if (receiver == null or receiver.?.kind != .capability or !same(receiver.?.name, operation_owners.get(release_id).?))
+        addIn("UseResourceReleaseReceiverMismatch", cat(&.{ head, L(" release capability does not own the release operation.") }));
+    const parameters = arrayOf(operation, "parameters");
+    const release_result = typeRefOf(get(operation, "resultType"));
+    const signature = parameters.len == 1 and typeEql(parameterType(parameters[0]), resource_type) and
+        (release_result.isPrimitive("unit") or typeEql(release_result, builtin("result", &.{ primitiveType("unit"), error_type })));
+    if (!signature) addIn("UseResourceReleaseSignatureMismatch", cat(&.{ head, L(" release must take the resource and return Unit or Result<Unit, E>.") }));
+    const before = cat(&.{ L("Function "), functionLabel(in_function.function), L(" uses a resource requiring effect ") });
+    missingEffects(body, before, L(" that it does not declare."));
+    const effect_id = str(operation, "effectId");
+    if (!in_function.required_effects.contains(idKey(effect_id))) addIn("MissingEffectRequirement", cat(&.{ before, effectLabel(effect_id), L(" that it does not declare.") }));
+}
+
+/// Open obligations as (call, parameter) pairs, for `MissingArgument`.
+var open_obligation_pairs: Set = .empty;
+
+/// `CapabilityImplementations.validate`, prefixed "Capability construction '<id>': ".
+fn capabilityImplementationRules(node: Value) void {
+    const head = cat(&.{ L("Capability construction '"), str(node, "id"), L("': ") });
+    const capability_id = str(node, "capabilityId");
+    const capability = for (all_capabilities) |c| {
+        if (same(str(c, "id"), capability_id)) break c;
+    } else return addIn("UnknownCapabilityConstructTarget", cat(&.{ head, L("A capability construction must name an existing capability.") }));
+    const operations = byId(arrayOf(capability, "operations"));
+    const implementations = arrayOf(node, "implementations");
+    const operation_ids = a.alloc(Str, implementations.len) catch oom();
+    for (implementations, operation_ids) |implementation, *id| id.* = str(implementation, "operationId");
+    var duplicated = false;
+    for (countBy(operation_ids).values()) |entry| duplicated = duplicated or entry.count > 1;
+    if (duplicated) addIn("DuplicateCapabilityImplementation", cat(&.{ head, L("Each capability operation must have exactly one implementation.") }));
+    var implemented: Set = .empty;
+    for (operation_ids) |id| implemented.put(a, idKey(id), {}) catch oom();
+    var declared: Set = .empty;
+    for (operations.keys()) |key| declared.put(a, key, {}) catch oom();
+    if (!sameSet(&implemented, &declared)) addIn("CapabilityImplementationSetMismatch", cat(&.{ head, L("Implementations must cover exactly the operations of the constructed capability.") }));
+    for (implementations) |implementation| {
+        const operation_id = str(implementation, "operationId");
+        const function_id = str(implementation, "functionId");
+        const function = functions_by_id.get(idKey(function_id)) orelse {
+            addIn("UnknownCapabilityImplementationFunction", cat(&.{ head, L("Implementation function '"), function_id, L("' does not exist.") }));
+            continue;
+        };
+        const operation = operations.get(idKey(operation_id)) orelse continue;
+        if (arrayOf(function, "typeParameters").len > 0) addIn("GenericCapabilityImplementationUnsupported", cat(&.{ head, L("Use a monomorphic wrapper for a generic implementation function.") }));
+        if (!isPure(function_id)) addIn("ImpureCapabilityImplementation", cat(&.{ head, L("Implementation '"), function_id, L("' must be transitively pure, including ambient cancellation behavior.") }));
+        const function_parameters = arrayOf(function, "parameters");
+        const operation_parameters = arrayOf(operation, "parameters");
+        var signature = function_parameters.len == operation_parameters.len and typeEql(typeRefOf(get(function, "resultType")), typeRefOf(get(operation, "resultType")));
+        if (signature) for (function_parameters, operation_parameters) |f, o| {
+            signature = signature and typeEql(parameterType(f), parameterType(o));
+        };
+        if (!signature) addIn("CapabilityImplementationSignatureMismatch", cat(&.{ head, L("Implementation '"), function_id, L("' must match operation '"), operation_id, L("' parameter order, parameter types and result type exactly.") }));
+    }
+}
+
+/// Function references and invocations, direct calls and capabilities (Validation.fs
+/// `CapabilityConstruct` … `CapabilityInvoke`).
+fn callRules(node: Value) void {
+    const kind = text(str(node, "kind"));
+    const id = str(node, "id");
+    const function_label = functionLabel(in_function.function);
+    if (std.mem.eql(u8, kind, "capabilityConstruct")) {
+        capabilityImplementationRules(node);
+    } else if (std.mem.eql(u8, kind, "functionReference")) {
+        const target_id = str(node, "targetFunctionId");
+        const head = cat(&.{ L("Function reference '"), id, L("'") });
+        const target = functions_by_id.get(idKey(target_id)) orelse return addIn("UnknownFunctionReference", cat(&.{ head, L(" names unknown function '"), target_id, L("'.") }));
+        if (arrayOf(target, "typeParameters").len > 0) {
+            addIn("GenericFunctionReferenceUnsupported", cat(&.{ head, L(" must reference a monomorphic function; use a concrete wrapper.") }));
+        } else if (!isPure(target_id)) addIn("ImpureFunctionReference", cat(&.{ head, L(" must reference a pure function, including its transitive calls and ambient cancellation behavior.") }));
+    } else if (std.mem.eql(u8, kind, "functionInvoke")) {
+        const head = cat(&.{ L("Function invocation '"), id, L("'") });
+        const value_type = nodeType(str(node, "functionValueNodeId")) orelse return;
+        if (value_type.kind != .function) return addIn("FunctionInvokeTargetTypeMismatch", cat(&.{ head, L(" requires a function value.") }));
+        const arguments = arrayOf(node, "arguments");
+        if (value_type.args.len != arguments.len) return addIn("FunctionInvokeArityMismatch", cat(&.{ head, L(" must supply exactly one value for each positional parameter.") }));
+        for (value_type.args, arguments) |expected, argument| {
+            if (nodeType(argument.string)) |actual| if (!typeEql(actual, expected))
+                addIn("FunctionInvokeArgumentTypeMismatch", cat(&.{ head, L(" argument has the wrong type.") }));
+        }
+    } else if (std.mem.eql(u8, kind, "directCall")) {
+        directCallRules(node);
+    } else if (std.mem.eql(u8, kind, "capabilityInvoke")) {
+        const operation_id = str(node, "operationId");
+        const head = cat(&.{ L("Capability-invoke node '"), id, L("'") });
+        const operation = operations_by_id.get(idKey(operation_id)) orelse return addIn("UnknownCapabilityOperation", cat(&.{ head, L(" references unknown operation '"), operation_id, L("'.") }));
+        if (nodeType(str(node, "capabilityValueNodeId"))) |t| if (t.kind != .capability or !same(t.name, operation_owners.get(idKey(operation_id)).?))
+            addIn("CapabilityValueTypeMismatch", cat(&.{ head, L(" does not receive the capability that owns operation '"), operation_id, L("'.") }));
+        const arguments = arrayOf(node, "arguments");
+        const targets = a.alloc(Str, arguments.len) catch oom();
+        for (arguments, targets) |argument, *t| t.* = str(argument, "targetCapabilityParameterId");
+        for (countBy(targets).values()) |entry| {
+            if (entry.count > 1) addIn("DuplicateCapabilityArgumentTarget", cat(&.{ head, L(" binds capability parameter '"), entry.id, L("' more than once.") }));
+        }
+        const parameters = arrayOf(operation, "parameters");
+        var actual: Set = .empty;
+        for (targets) |t| actual.put(a, idKey(t), {}) catch oom();
+        if (!sameSet(&idSet(parameters), &actual))
+            addIn("CapabilityArgumentSetMismatch", cat(&.{ head, L(" must bind exactly the parameters declared by operation '"), operation_id, L("'.") }));
+        for (arguments, targets) |argument, target| {
+            const parameter = for (parameters) |p| {
+                if (same(str(p, "id"), target)) break p;
+            } else continue;
+            if (nodeType(str(argument, "valueNodeId"))) |value_type| if (!typeEql(parameterType(parameter), value_type))
+                addIn("CapabilityArgumentTypeMismatch", cat(&.{ head, L(" binds a value with the wrong type to capability parameter "), describe(str(parameter, "displayName"), str(parameter, "id")), L(".") }));
+        }
+        const effect_id = str(operation, "effectId");
+        if (!in_function.required_effects.contains(idKey(effect_id)))
+            addIn("MissingEffectRequirement", cat(&.{ L("Function "), function_label, L(" invokes capability operation "), describe(str(operation, "displayName"), operation_id), L(" but does not declare required effect "), effectLabel(effect_id), L(".") }));
+    }
+}
+
+fn directCallRules(node: Value) void {
+    const id = str(node, "id");
+    const target_id = str(node, "targetFunctionId");
+    const head = cat(&.{ L("Call node '"), id, L("'") });
+    const function = in_function.function;
+    const target = functions_by_id.get(idKey(target_id)) orelse return addIn("UnknownCallTarget", cat(&.{ head, L(" references unknown function '"), target_id, L("'.") }));
+    const arguments = arrayOf(node, "arguments");
+    const targets = a.alloc(Str, arguments.len) catch oom();
+    for (arguments, targets) |argument, *t| t.* = str(argument, "targetParameterId");
+    for (countBy(targets).values()) |entry| {
+        if (entry.count > 1) addIn("DuplicateArgumentTarget", cat(&.{ head, L(" binds parameter '"), entry.id, L("' more than once.") }));
+    }
+    for (targets) |t| {
+        if (parameterOf(target, t) == null) addIn("UnknownArgumentTargetParameter", cat(&.{ head, L(" targets parameter '"), t, L("' not owned by its callee.") }));
+    }
+    // A generic callee's type arguments follow from matching every bound argument.
+    const Bound = struct { parameter: Value, value_type: TypeRef };
+    var pairs: List(Bound) = .empty;
+    for (arguments, targets) |argument, t| {
+        const parameter = parameterOf(target, t);
+        const value_type = nodeType(str(argument, "valueNodeId"));
+        if (parameter != null and value_type != null) pairs.append(a, .{ .parameter = parameter.?, .value_type = value_type.? }) catch oom();
+    }
+    if (same(target_id, str(function, "id"))) {
+        // A self call takes the function's exact parameter types.
+        for (pairs.items) |pair| {
+            const declared = parameterType(pair.parameter);
+            if (!typeEql(pair.value_type, declared))
+                addIn("PolymorphicSelfCallUnsupported", cat(&.{ head, L(" calls its own function "), functionLabel(function), L(" with a value of type "), describeType(pair.value_type), L(" for parameter "), describe(str(pair.parameter, "displayName"), str(pair.parameter, "id")), L(" of type "), describeType(declared), L("; a function calls itself at its own parameter types.") }));
+        }
+    } else {
+        var matched: List(Pair) = .empty;
+        for (pairs.items) |pair| matched.append(a, .{ .declared = parameterType(pair.parameter), .actual = pair.value_type }) catch oom();
+        // `OneShotScopePayloadUnsupported` on a matching substitution belongs to slice 3d.
+        if (matchAll(matched.items) == null) addIn("ArgumentTypeMismatch", cat(&.{ head, L(" binds a value whose type does not match its callee parameter.") }));
+    }
+    for (arrayOf(target, "parameters")) |parameter| {
+        const parameter_id = str(parameter, "id");
+        const bound = bindsParameter(arguments, parameter_id);
+        const open = open_obligation_pairs.contains(idKey(cat(&.{ id, L("\n"), parameter_id })));
+        if (!bound and !open) addIn("MissingArgument", cat(&.{ head, L(" has no binding or open obligation for parameter "), describe(str(parameter, "displayName"), parameter_id), L(".") }));
+    }
+    for (arrayOf(target, "requiredEffects")) |effect| {
+        if (!in_function.required_effects.contains(idKey(effect.string)))
+            addIn("MissingEffectRequirement", cat(&.{ L("Function "), functionLabel(function), L(" calls "), functionLabel(target), L(" but does not declare required effect "), effectLabel(effect.string), L(".") }));
+    }
+}
+
+/// `validateGraph`: the graph's own rules, each node's rules, then its nested graphs.
+fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, context: Str, graph: Value) void {
+    const nodes = arrayOf(graph, "nodes");
+    const local = idSet(nodes);
+    var visible = outer_visible.clone(a) catch oom();
+    for (local.keys()) |key| visible.put(a, key, {}) catch oom();
+
+    const result_id = str(graph, "resultNodeId");
+    if (!local.contains(idKey(result_id)))
+        addIn("UnknownGraphResultNode", cat(&.{ context, L(" result node '"), result_id, L("' is not owned directly by that graph.") }));
+
+    for (nodes) |node| {
+        const id = str(node, "id");
+        var references: List(Str) = .empty;
+        directValueReferences(node, &references);
+        for (references.items) |reference| {
+            if (!visible.contains(idKey(reference)))
+                addIn("ValueNodeOutOfScope", cat(&.{ L("Graph node '"), id, L("' references value node '"), reference, L("' outside its lexical value-graph scope.") }));
+        }
+        scalarRules(node);
+        collectionRules(node);
+        structureRules(node, result_id);
+        callbackRules(node, &local);
+        callRules(node);
+        const kind = str(node, "kind");
+        if (isName(kind, "parameterReference")) {
+            const parameter_id = str(node, "parameterId");
+            if (!in_function.parameters_by_id.contains(idKey(parameter_id)))
+                addIn("UnknownParameterReference", cat(&.{ L("Graph node '"), id, L("' references parameter '"), parameter_id, L("' outside its owning function.") }));
+        } else if (isName(kind, "patternReference")) {
+            const binding_id = str(node, "patternBindingId");
+            if (!visible_patterns.contains(idKey(binding_id)))
+                addIn("UnknownPatternReference", cat(&.{ L("Graph node '"), id, L("' references pattern binding '"), binding_id, L("' outside its lexical binding scope.") }));
+        } else if (isName(kind, "stringLiteral")) {
+            // `NullStringLiteral` cannot occur: the reader requires a string.
+            if (hasLoneSurrogate(str(node, "value")))
+                addIn("StringLiteralUnpairedSurrogate", nodeLabel("String literal", node, "contains an unpaired surrogate; a String is a sequence of Unicode scalar values."));
+        } else if (isName(kind, "boolNot")) {
+            requireNodeType("BoolOperandTypeMismatch", nodeLabel("BoolNot", node, "requires a Bool operand."), primitiveType("bool"), str(node, "operandNodeId"));
+        } else if (isName(kind, "boolAnd") or isName(kind, "boolOr")) {
+            const role: Str = if (isName(kind, "boolAnd")) L("BoolAnd") else L("BoolOr");
+            requireNodeType("BoolOperandTypeMismatch", cat(&.{ role, L(" node '"), id, L("' requires a Bool left operand.") }), primitiveType("bool"), str(node, "leftNodeId"));
+            const right = get(node, "right");
+            // The right graph is a Conditional branch in all but name: abrupt is allowed, normal must be Bool.
+            if (normalType(in_function.resolver.graph(right))) |t| if (!t.isPrimitive("bool"))
+                addIn("BoolOperandTypeMismatch", cat(&.{ role, L(" node '"), id, L("' requires a Bool right operand.") }));
+            validateGraph(&visible, visible_patterns, cat(&.{ role, L(" right operand of '"), id, L("'") }), right);
+        } else if (isName(kind, "conditional")) {
+            if (nodeTypeAt(node, "conditionNodeId")) |t| if (!t.isPrimitive("bool"))
+                addIn("ConditionalConditionTypeMismatch", nodeLabel("Conditional", node, "requires a Bool condition."));
+            const when_true = get(node, "whenTrue");
+            const when_false = get(node, "whenFalse");
+            if (!compatibleArms(&.{ when_true, when_false }))
+                addIn("ConditionalBranchTypeMismatch", nodeLabel("Conditional", node, "branches do not produce one common type."));
+            validateGraph(&visible, visible_patterns, cat(&.{ L("Conditional true branch of '"), id, L("'") }), when_true);
+            validateGraph(&visible, visible_patterns, cat(&.{ L("Conditional false branch of '"), id, L("'") }), when_false);
+        } else if (isName(kind, "matchUnion")) {
+            for (arrayOf(node, "arms")) |arm| {
+                var patterns = visible_patterns.clone(a) catch oom();
+                for (arrayOf(arm, "fieldBindings")) |field| patterns.put(a, idKey(str(get(field, "binding"), "id")), {}) catch oom();
+                validateGraph(&visible, &patterns, cat(&.{ L("Union match arm '"), describeArm(arm), L("'") }), get(arm, "body"));
+            }
+        } else if (isName(kind, "bind")) {
+            const body = get(node, "boundBody");
+            validateGraph(&visible, &withPattern(visible_patterns, get(body, "valueBinding")), cat(&.{ L("Bind body of '"), id, L("'") }), get(body, "body"));
+        } else if (isName(kind, "matchOption")) {
+            const some = get(node, "someArm");
+            validateGraph(&visible, &withPattern(visible_patterns, get(some, "valueBinding")), cat(&.{ L("Option.Some arm of '"), id, L("'") }), get(some, "body"));
+            validateGraph(&visible, visible_patterns, cat(&.{ L("Option.None arm of '"), id, L("'") }), get(node, "noneBody"));
+        } else if (isName(kind, "matchResult")) {
+            const ok_arm = get(node, "okArm");
+            const err_arm = get(node, "errArm");
+            validateGraph(&visible, &withPattern(visible_patterns, get(ok_arm, "valueBinding")), cat(&.{ L("Result.Ok arm of '"), id, L("'") }), get(ok_arm, "body"));
+            validateGraph(&visible, &withPattern(visible_patterns, get(err_arm, "errorBinding")), cat(&.{ L("Result.Err arm of '"), id, L("'") }), get(err_arm, "body"));
+        }
+    }
+}
+
+fn withPattern(patterns: *const Set, binding: Value) Set {
+    var out = patterns.clone(a) catch oom();
+    out.put(a, idKey(str(binding, "id")), {}) catch oom();
+    return out;
+}
+
+/// `UnionMatchArm.canonicalVariantIds` joined with `|`: the arm's variant IDs, sorted ordinally.
+fn describeArm(arm: Value) Str {
+    const ids = a.dupe(Str, armVariantIds(arm)) catch oom();
+    std.mem.sort(Str, ids, {}, lessStr);
+    var out: List(u16) = .empty;
+    for (ids, 0..) |v, i| {
+        if (i > 0) out.append(a, '|') catch oom();
+        out.appendSlice(a, v) catch oom();
+    }
+    return out.items;
+}
+
+/// The per-function loop of `validateUncached` (the rules ported so far).
+fn validateFunctionGraphs(functions: []const Value) void {
+    for (functions) |function| {
+        const label = describe(str(function, "displayName"), str(function, "id"));
+        var resolver = Resolver.init(function);
+        const body = get(function, "body");
+        var nodes: List(Value) = .empty;
+        collectNodes(body, &nodes);
+        var required_effects: Set = .empty;
+        for (arrayOf(function, "requiredEffects")) |effect| required_effects.put(a, idKey(effect.string), {}) catch oom();
+        in_function = .{ .function = function, .prefix = inFunction(function), .resolver = &resolver, .parameters_by_id = byId(arrayOf(function, "parameters")), .all_nodes = nodes.items, .required_effects = required_effects };
+        for (nodes.items) |node| {
+            var references: List(Str) = .empty;
+            directValueReferences(node, &references);
+            for (references.items) |reference| {
+                if (resolver.completion(reference)) |c| if (c == .aborts)
+                    addIn("AbortValueUse", cat(&.{ L("Node '"), str(node, "id"), L("' uses abrupt node '"), reference, L("' as a value in function "), label, L(".") }));
+            }
+        }
+        validateGraph(&.empty, &.empty, cat(&.{ L("Function "), label, L(" body") }), body);
+        if (resolver.nodeType(str(body, "resultNodeId"))) |t| if (!typeEql(t, typeRefOf(get(function, "resultType"))))
+            addIn("FunctionResultTypeMismatch", cat(&.{ L("Function "), label, L(" result node type does not match its declared result type.") }));
+    }
+}
+
 const NodeOwner = struct { owner: Str, node: Value };
 const TypeParameterOwners = struct { id: Str, first: Str, shared: bool };
 
@@ -1445,7 +3796,7 @@ fn validate(root: Value) void {
 
     const effect_ids = idSet(effects);
     effect_names = byId(effects);
-    const functions_by_id = byId(functions);
+    functions_by_id = byId(functions);
 
     for (operations.items) |operation| {
         const effect_id = str(operation, "effectId");
@@ -1545,6 +3896,36 @@ fn validate(root: Value) void {
                 add("InvalidObligationResolutionValue", cat(&.{ L("Resolved obligation '"), id, L("' references a value node outside the call's owning function.") }));
         }
     }
+
+    types_by_id = byId(types);
+    all_types = types;
+    capability_ids = idSet(capabilities);
+    type_parameter_names = .empty;
+    for ([_][]const Value{ types, functions }) |declared| for (declared) |owner| for (arrayOf(owner, "typeParameters")) |declaration|
+        type_parameter_names.put(a, idKey(str(declaration, "typeParameterId")), str(declaration, "displayName")) catch oom();
+    variant_owners = .empty;
+    variants_by_id = .empty;
+    for (types) |type_entity| for (arrayOf(type_entity, "variants")) |variant| {
+        variant_owners.put(a, idKey(str(variant, "id")), str(type_entity, "id")) catch oom();
+        variants_by_id.put(a, idKey(str(variant, "id")), variant) catch oom();
+    };
+    validateTypeReferences(types, operations.items, functions);
+
+    all_capabilities = capabilities;
+    operations_by_id = byId(operations.items);
+    operation_owners = .empty;
+    for (capabilities) |capability| for (arrayOf(capability, "operations")) |operation|
+        operation_owners.put(a, idKey(str(operation, "id")), str(capability, "id")) catch oom();
+    var product_fields: List(Value) = .empty;
+    product_field_owners = .empty;
+    for (types) |type_entity| if (isName(str(type_entity, "kind"), "product")) for (arrayOf(type_entity, "fields")) |field| {
+        product_fields.append(a, field) catch oom();
+        product_field_owners.put(a, idKey(str(field, "id")), type_entity) catch oom();
+    };
+    product_fields_by_id = byId(product_fields.items);
+    open_obligation_pairs = .empty;
+    for (open_pairs.items) |pair| open_obligation_pairs.put(a, idKey(pair), {}) catch oom();
+    validateFunctionGraphs(functions);
 
     std.mem.sort(Issue, issues.items, {}, issueLess);
 }
