@@ -609,10 +609,13 @@ module ZigBackendTests =
             if File.Exists(Path.Combine(directory.FullName, "Nyrwvy.slnx")) then directory.FullName else root directory.Parent
         let snapshots = Directory.GetFiles(Path.Combine(root (DirectoryInfo AppContext.BaseDirectory), "examples"), "*.nyrec", SearchOption.AllDirectories)
         Assert.NotEmpty snapshots
+        let mutable emitted = 0
         for path in snapshots do
             use session = AuthoringSession.openReadOnly path |> unwrap
             let program = session.ProjectExecution() |> unwrap
             for candidate in program :: (program.Functions |> List.map (fun fn -> ExecutionCallGraph.forEntry program fn.SemanticFunctionId)) do
                 match PureRun.zigEmit candidate with
-                | Ok _ -> ()
+                | Ok(Ok _) -> emitted <- emitted + 1
+                | Ok(Error _) -> ()
                 | Error error -> failwithf "%s: %A" path error
+        Assert.True(emitted > 0, "No repository program was emitted, so nothing was compared.")
