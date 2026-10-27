@@ -28,7 +28,9 @@
     <Compile Include="WireProtocolAdapters.fs" />
     <Compile Include="ConfinedDirectory.fs" />
     <Compile Include="ViewerFile.fs" />
+    <Compile Include="CSharpMappingTable.fs" />
     <Compile Include="Protocol.fs" />
+    <Compile Include="CBindingGenerator.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
   <ItemGroup>

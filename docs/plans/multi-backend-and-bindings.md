@@ -1,6 +1,6 @@
 # Backend-neutral semantics and generated library bindings (design note)
 
-**Status:** §§2–9 accepted by the owner on 2026-10-27, one question at a time. §1 is a proposed shape, not yet decided. Nothing here is implemented. Each part becomes a decision record when its slice is implemented.
+**Status:** §§2–9 accepted by the owner on 2026-10-27, one question at a time. §1 is a proposed shape, not yet decided. Implemented parts are listed under Order. Each part becomes a decision record when its slice is implemented.
 
 **Date:** 2026-10-27
 
@@ -142,5 +142,7 @@ Owner choice (2026-10-27): steps 2 and 3 follow the Zig backend; the order is 1,
 1. Restate the contract: §2, §4 and the specification text above, with C# still the only backend. Done: §4 ([decision](../decisions/string-scalar-values.md)) and §2 ([decision](../decisions/host-failure-kinds.md); the explicit token argument moves to the binding ABI).
 2. The waiting and task-binding properties (§3, §7) in the graph and validator. Done: `mayWait`, `mustNotWait` and `taskBound` as snapshot schema 24, with the derived "may wait" fact and `libraries/host` marked ([decision](../decisions/wait-and-task-bound-attributes.md)); the JS lowering and the mapping-table report come with those steps.
 3. Mapping tables and the generator on the C# backend. Acceptance: snap's `Native.cs` and its other hand-written binding code are generated.
+   - 3a. Done: C functions through `<graph>.csharp.json` tables with a kept override file, checked against the graph before emission, emitted as `DllImport` adapters, and the `bind-c` generator over clang's JSON AST; checked against a C library compiled in the extended suite ([decision](../decisions/csharp-mapping-tables.md)).
+   - 3b. Apply it to snap's libghostty `Native.cs`, adding the conversions it needs that 3a leaves out (structs and out-parameters, enums, callbacks, `Option` for null, Bytes results) and a readable name for the generated adapters.
 4. `runPure` with a backend parameter, the parity command, and the saved cases as the conformance suite. Done: `runPure` takes `backend`, workspaces declare targets in `<snapshot>.backends.json` (no default; `create` writes `["csharp"]`), and the saved-fixture client checks parity ([decision](../decisions/backend-targets-and-parity.md)).
 5. A second backend: Zig (owner choice). Started with Int64, Bool and Unit functions, direct calls and tail self calls (`src/Nyrwvy.Backend.Zig`), then Strings (UTF-8), Option, Result and Products and Unions (boxed in a process arena for now), then Lists (copying slices for now), list callbacks and generic functions and types (monomorphized), then Float64 arithmetic and conversions, insertion-ordered Maps and Sets (linear lookups for now), Bytes and scripted fake capabilities, then every String and text operation, sorting, function values, host failures with exception boundaries and resources, and tasks under a port of the virtual clock. Left: Bits32, program-defined and host capabilities, and the shortcuts (arena memory, copying collections) before production use; each slice is checked against the C# backend and widened step by step.

@@ -3,11 +3,57 @@ namespace Nyrwvy.Core
 open System
 open System.Text
 
+/// A C value as a mapping-table entry names it ([mapping tables](../../docs/decisions/csharp-mapping-tables.md)).
+[<RequireQualifiedAccess>]
+type CSharpNativeValue =
+    /// A C integer of 8, 16, 32 or 64 bits; Int64 arguments outside its range are a host failure.
+    | Integer of bits: int * signed: bool
+    /// C `bool` (one byte).
+    | Bool
+    /// A C `int` read as a Bool (nonzero is true).
+    | IntBool
+    /// A NUL-terminated UTF-8 `char*`: borrowed for the call as an argument; as a result, borrowed
+    /// from the library, or owned and passed to `free` after it is copied.
+    | Utf8 of free: string option
+    /// `Bytes` as a pointer and a `size_t` length, borrowed for the call (two C arguments).
+    | Bytes
+    /// An opaque pointer held by a handle capability value; `release` marks the handle closed.
+    | Handle of release: bool
+    | Void
+
+[<RequireQualifiedAccess>]
+type CSharpNativeFailure =
+    | NullPointer
+    | Negative
+    | Nonzero
+
+[<RequireQualifiedAccess>]
+type CSharpNativeArgument =
+    /// The handle the invoked handle capability value holds.
+    | Self of release: bool
+    | Parameter of CapabilityParameterId * CSharpNativeValue
+
+type CSharpNativeCall =
+    { Library: string
+      Symbol: string
+      /// In C parameter order.
+      Arguments: CSharpNativeArgument list
+      Returns: CSharpNativeValue
+      Failure: CSharpNativeFailure option }
+
+type CSharpNativeBinding =
+    { /// The operation's capability is a handle: its values hold a native pointer.
+      Handle: bool
+      /// None: explicitly unavailable on this backend; the generated method is a host failure.
+      Call: CSharpNativeCall option }
+
 [<RequireQualifiedAccess>]
 type CSharpCapabilityBindingKind =
     | SystemConsoleWriteLine
     /// The host implements the generated typed capability interface and supplies it as a function argument.
     | ExternalImplementation
+    /// A mapping-table entry: the generated adapter calls a C function through P/Invoke.
+    | Native of CSharpNativeBinding
 
 type CSharpCapabilityBinding =
     { OperationId: CapabilityOperationId
@@ -45,8 +91,11 @@ type CSharpBackendError =
     | MissingCapabilityBinding of CapabilityOperationId
     | UnknownCapabilityBindingOperation of CapabilityOperationId
     | IncompatibleSystemConsoleWriteLineBinding of CapabilityOperationId
+    | IncompatibleNativeBinding of CapabilityOperationId * reason: string
     | MixedCapabilityBindingKinds of CapabilityId
     | InvalidConcurrentCapabilityBinding of CapabilityId
+    /// Table-bound handles are not synchronized, so their capabilities cannot be asserted concurrent.
+    | ConcurrentNativeHandle of CapabilityId
     | ConcurrentCapabilityBindingRequired of FunctionId * GraphNodeId * CapabilityId * CapabilityOperationId
     | UnsupportedCapabilityFailure of CapabilityOperationId
     | UnknownCallTarget of FunctionId

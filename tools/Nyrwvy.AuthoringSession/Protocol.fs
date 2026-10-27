@@ -10,37 +10,40 @@ module AuthoringProtocol =
     open WireInput
     open WireJson
 
+    /// Reads a JSON file inside the snapshot's directory (no symbolic links, at most 1 MiB).
+    let private confinedJsonFile (session: AuthoringSession) fileName (requested: string) =
+        let directory = Path.GetDirectoryName(Path.GetFullPath session.Path)
+        try
+            let full = Path.GetFullPath(requested, directory)
+            let relative = Path.GetRelativePath(directory, full)
+            if Path.IsPathRooted relative || relative = ".." || relative.StartsWith(".." + string Path.DirectorySeparatorChar, StringComparison.Ordinal) || relative = "." then
+                fail $"{fileName} must stay inside the snapshot's directory."
+            let parts = relative.Split([| Path.DirectorySeparatorChar; Path.AltDirectorySeparatorChar |], StringSplitOptions.RemoveEmptyEntries)
+            let mutable current = directory
+            for part in parts do
+                current <- Path.Combine(current, part)
+                if not (isNull (FileInfo(current).LinkTarget)) then
+                    fail $"{fileName} must not pass through a symbolic link or reparse point."
+            let info = FileInfo(full)
+            if not info.Exists then fail $"{fileName} must name an existing JSON file."
+            if info.Length > 1048576L then fail $"{fileName} exceeds 1 MiB."
+            use stream = File.OpenRead(full)
+            if stream.Length > 1048576L then fail $"{fileName} exceeds 1 MiB."
+            use document = JsonDocument.Parse(stream, JsonDocumentOptions(MaxDepth = WireInput.requestMaxJsonDepth))
+            if stream.Position > 1048576L then fail $"{fileName} exceeds 1 MiB."
+            document.RootElement.Clone()
+        with
+        | :? IOException | :? UnauthorizedAccessException | :? ArgumentException | :? NotSupportedException ->
+            fail $"{fileName} cannot be read as a JSON file inside the snapshot's directory."
+        | :? JsonException -> fail $"{fileName} must contain valid JSON."
+
     let private recipeInput (session: AuthoringSession) inlineName fileName (item: JsonElement) =
         match tryProperty inlineName item, tryProperty fileName item with
         | Some value, None -> value
         | None, Some file ->
             if file.ValueKind <> JsonValueKind.String || String.IsNullOrWhiteSpace(file.GetString()) then
                 fail $"{fileName} must be a file path."
-            let requested = file.GetString()
-            let directory = Path.GetDirectoryName(Path.GetFullPath session.Path)
-            try
-                let full = Path.GetFullPath(requested, directory)
-                let relative = Path.GetRelativePath(directory, full)
-                if Path.IsPathRooted relative || relative = ".." || relative.StartsWith(".." + string Path.DirectorySeparatorChar, StringComparison.Ordinal) || relative = "." then
-                    fail $"{fileName} must stay inside the snapshot's directory."
-                let parts = relative.Split([| Path.DirectorySeparatorChar; Path.AltDirectorySeparatorChar |], StringSplitOptions.RemoveEmptyEntries)
-                let mutable current = directory
-                for part in parts do
-                    current <- Path.Combine(current, part)
-                    if not (isNull (FileInfo(current).LinkTarget)) then
-                        fail $"{fileName} must not pass through a symbolic link or reparse point."
-                let info = FileInfo(full)
-                if not info.Exists then fail $"{fileName} must name an existing JSON file."
-                if info.Length > 1048576L then fail $"{fileName} exceeds 1 MiB."
-                use stream = File.OpenRead(full)
-                if stream.Length > 1048576L then fail $"{fileName} exceeds 1 MiB."
-                use document = JsonDocument.Parse(stream, JsonDocumentOptions(MaxDepth = WireInput.requestMaxJsonDepth))
-                if stream.Position > 1048576L then fail $"{fileName} exceeds 1 MiB."
-                document.RootElement.Clone()
-            with
-            | :? IOException | :? UnauthorizedAccessException | :? ArgumentException | :? NotSupportedException ->
-                fail $"{fileName} cannot be read as a JSON file inside the snapshot's directory."
-            | :? JsonException -> fail $"{fileName} must contain valid JSON."
+            confinedJsonFile session fileName (file.GetString())
         | _ -> fail $"Pass exactly one of {inlineName} and {fileName}."
 
     let private success id result =
@@ -2091,7 +2094,7 @@ module AuthoringProtocol =
                     | "externalImplementations" ->
                         ensureFields
                             "External C# implementations profile"
-                            [ "kind"; "operationIds"; "concurrentCapabilityIds" ]
+                            [ "kind"; "operationIds"; "concurrentCapabilityIds"; "tables" ]
                             [ "kind"; "operationIds" ]
                             profileValue
                         let operationIds =
@@ -2107,7 +2110,20 @@ module AuthoringProtocol =
                                     if element.ValueKind <> JsonValueKind.String then fail "Concurrent capability ID must be a string."
                                     stableId<CapabilityTag> "capabilityId" (element.GetString())))
                             |> Option.defaultValue []
-                        CSharpBackendProfile.externalImplementations operationIds
+                        // Mapping tables bind whole capabilities; the snapshot's directory confines them.
+                        let tables =
+                            tryProperty "tables" profileValue
+                            |> Option.map (fun _ ->
+                                array "tables" profileValue |> List.map (fun element ->
+                                    if element.ValueKind <> JsonValueKind.String || String.IsNullOrWhiteSpace(element.GetString()) then fail "A mapping table must be a file path."
+                                    element.GetString()))
+                            |> Option.defaultValue []
+                        let directory = Path.GetDirectoryName(Path.GetFullPath session.Path)
+                        let tableBindings =
+                            CSharpMappingTable.bindings (session.Declarations()) (confinedJsonFile session "tables")
+                                (fun path -> File.Exists(Path.GetFullPath(path, directory))) tables
+                        let external = CSharpBackendProfile.externalImplementations operationIds
+                        { external with CapabilityBindings = external.CapabilityBindings @ tableBindings }
                         |> CSharpBackendProfile.withConcurrentCapabilities concurrentIds
                     | value -> WireInput.fail $"Unsupported C# profile '{value}'."
                 let writeFailed message = failure requestId (objectValue [ "code", box "EmitWriteFailed"; "message", box message ])
