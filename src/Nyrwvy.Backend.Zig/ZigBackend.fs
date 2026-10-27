@@ -4,11 +4,12 @@ open System
 open System.Collections.Generic
 open System.Text
 
-/// Emits Zig source from Execution IR. The supported slice covers Int64, Bool, Unit and String
-/// values, Option, Result, List and declared Product and Union types (generic ones included),
-/// their operations, list callbacks, direct calls and every block terminator; anything else is
-/// reported as unsupported instead of emitted. Generic functions and types are instantiated per
-/// use (monomorphized), since a Zig function cannot infer a type parameter from a runtime value.
+/// Emits Zig source from Execution IR. The supported slice covers Int64, Bool, Unit, String
+/// (every text operation) and Float64 values, Option, Result, List and declared Product and
+/// Union types (generic ones included), their operations, list callbacks, direct calls and every
+/// block terminator; anything else is reported as unsupported instead of emitted. Generic functions
+/// and types are instantiated per use (monomorphized), since a Zig function cannot infer a type
+/// parameter from a runtime value.
 [<RequireQualifiedAccess>]
 module ZigBackend =
     let private identifier (prefix: string) (raw: string) =
@@ -359,6 +360,41 @@ module ZigBackend =
             let byParameter = arguments |> List.map (fun argument -> argument.TargetCapabilityParameterId, argument.ValueId) |> Map.ofList
             let rendered = context.OperationParameters operationId |> List.map (fun id -> v (Map.find id byParameter))
             assign (v capability + "." + operationName operationId + "(" + String.Join(", ", rendered) + ")")
+        | ExecutionInstructionKind.Int64CheckedAdd(left, right) -> assign ("nyChecked(@addWithOverflow(" + v left + ", " + v right + "))")
+        | ExecutionInstructionKind.Int64CheckedSubtract(left, right) -> assign ("nyChecked(@subWithOverflow(" + v left + ", " + v right + "))")
+        | ExecutionInstructionKind.Int64CheckedMultiply(left, right) -> assign ("nyChecked(@mulWithOverflow(" + v left + ", " + v right + "))")
+        | ExecutionInstructionKind.Int64ToHexString source -> assign ("nyInt64ToHexString(" + v source + ")")
+        | ExecutionInstructionKind.StringParseInt64 source -> assign ("nyStringParseInt64(" + v source + ")")
+        | ExecutionInstructionKind.StringParseInt64Hex source -> assign ("nyStringParseInt64Hex(" + v source + ")")
+        | ExecutionInstructionKind.Float64ToString source -> assign ("nyFloat64ToString(" + v source + ")")
+        | ExecutionInstructionKind.StringParseFloat64 source -> assign ("nyStringParseFloat64(" + v source + ")")
+        | ExecutionInstructionKind.Float64Round(value, digits) -> assign ("nyFloat64Round(" + v value + ", " + v digits + ")")
+        | ExecutionInstructionKind.StringSlice(text, start, finish) -> assign ("nyStringSlice(" + v text + ", " + v start + ", " + v finish + ")")
+        | ExecutionInstructionKind.StringContains(text, value) -> assign ("std.mem.indexOf(u8, " + v text + ", " + v value + ") != null")
+        | ExecutionInstructionKind.StringIndexOf(text, value, from) -> assign ("nyStringIndexOf(" + v text + ", " + v value + ", " + v from + ")")
+        | ExecutionInstructionKind.StringLastIndexOf(text, value) -> assign ("nyStringLastIndexOfBefore(" + v text + ", " + v value + ", std.math.maxInt(i64))")
+        | ExecutionInstructionKind.StringLastIndexOfBefore(text, value, finish) -> assign ("nyStringLastIndexOfBefore(" + v text + ", " + v value + ", " + v finish + ")")
+        | ExecutionInstructionKind.StringSpan(text, set, from) -> assign ("nyStringSpan(" + v text + ", " + v set + ", " + v from + ")")
+        | ExecutionInstructionKind.StringSpanBack(text, set, finish) -> assign ("nyStringSpanBack(" + v text + ", " + v set + ", " + v finish + ")")
+        | ExecutionInstructionKind.StringStartsWith(text, prefix) -> assign ("std.mem.startsWith(u8, " + v text + ", " + v prefix + ")")
+        | ExecutionInstructionKind.StringEndsWith(text, suffix) -> assign ("std.mem.endsWith(u8, " + v text + ", " + v suffix + ")")
+        | ExecutionInstructionKind.StringSplit(text, separator) -> assign ("nyStringSplit(" + v text + ", " + v separator + ")")
+        | ExecutionInstructionKind.StringSplitLines(text, breaks) -> assign ("nyStringSplitLines(" + v text + ", " + v breaks + ")")
+        | ExecutionInstructionKind.StringReplace(text, pattern, replacement) -> assign ("nyStringReplace(" + v text + ", " + v pattern + ", " + v replacement + ")")
+        | ExecutionInstructionKind.StringTrim source -> assign ("nyStringTrimEnd(nyStringTrimStart(" + v source + "))")
+        | ExecutionInstructionKind.StringTrimStart source -> assign ("nyStringTrimStart(" + v source + ")")
+        | ExecutionInstructionKind.StringTrimEnd source -> assign ("nyStringTrimEnd(" + v source + ")")
+        | ExecutionInstructionKind.StringJoin(list, separator) -> assign ("nyStringJoin(" + v list + ", " + v separator + ")")
+        | ExecutionInstructionKind.StringLessThan(left, right) -> assign ("std.mem.lessThan(u8, " + v left + ", " + v right + ")")
+        | ExecutionInstructionKind.StringCodePoints source -> assign ("nyStringCodePoints(" + v source + ")")
+        | ExecutionInstructionKind.StringFromCodePoint source -> assign ("nyStringFromCodePoint(" + v source + ")")
+        | ExecutionInstructionKind.StringToCodePoint source -> assign ("nyStringToCodePoint(" + v source + ")")
+        | ExecutionInstructionKind.StringUtf8ByteCount source -> assign ("@as(i64, @intCast(" + v source + ".len))")
+        | ExecutionInstructionKind.StringEncodeUtf8 source -> assign ("nyStringEncodeUtf8(" + v source + ")")
+        | ExecutionInstructionKind.StringDecodeUtf8Lossy source -> assign ("nyStringDecodeUtf8Lossy(" + v source + ")")
+        | ExecutionInstructionKind.StringRepeat(text, count) -> assign ("nyStringRepeat(" + v text + ", " + v count + ")")
+        | ExecutionInstructionKind.StringToLower source -> assign ("nyMapCase(" + v source + ", &ny_lower_runs)")
+        | ExecutionInstructionKind.StringToUpper source -> assign ("nyMapCase(" + v source + ", &ny_upper_runs)")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let byParameter = arguments |> List.map (fun argument -> argument.TargetParameterId, argument.ValueId) |> Map.ofList
             let parameters = context.Parameters functionId |> List.map fst
@@ -521,6 +557,16 @@ module ZigBackend =
             instanceName functionId typeArguments
         let builder = StringBuilder()
         builder.Append("// Generated by the Nyrwvy Zig backend.\n\n").Append(ZigRuntime.runtime).Append('\n') |> ignore
+        let mapsCase =
+            program.Functions
+            |> List.exists (fun fn ->
+                fn.Blocks |> List.exists (fun block ->
+                    block.Instructions |> List.exists (fun instruction ->
+                        match instruction.Kind with
+                        | ExecutionInstructionKind.StringToLower _
+                        | ExecutionInstructionKind.StringToUpper _ -> true
+                        | _ -> false)))
+        if mapsCase then builder.Append(ZigRuntime.caseMapping.Value).Append('\n') |> ignore
         let bodies = StringBuilder()
         for fn in program.Functions |> List.filter (fun fn -> List.isEmpty fn.TypeParameters) do
             if functionInstances.Add((fn.SemanticFunctionId, [])) then pending.Enqueue((fn.SemanticFunctionId, []))

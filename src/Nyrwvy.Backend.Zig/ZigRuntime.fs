@@ -325,6 +325,305 @@ fn nyBytesToLatin1(bytes: NyBytes) []const u8 {
     return out.items;
 }
 
+// Text positions count code points. A String is valid UTF-8, so a byte-level match of a String
+// always starts and ends on code-point boundaries and byte order is code-point order.
+fn nyOom() noreturn {
+    @panic("out of memory");
+}
+
+fn nyWidth(text: []const u8, offset: usize) usize {
+    return std.unicode.utf8ByteSequenceLength(text[offset]) catch unreachable;
+}
+
+/// The byte offset of a code-point position clamped to [0, length].
+fn nyOffsetOf(text: []const u8, position: i64) usize {
+    var offset: usize = 0;
+    var reached: i64 = 0;
+    while (reached < position and offset < text.len) : (reached += 1) offset += nyWidth(text, offset);
+    return offset;
+}
+
+fn nyPositionOf(text: []const u8, offset: usize) i64 {
+    return nyStringLength(text[0..offset]);
+}
+
+/// Whether the code point at the start of `point` (one whole code point) is in `set`.
+fn nyInSet(set: []const u8, point: []const u8) bool {
+    return std.mem.indexOf(u8, set, point) != null;
+}
+
+fn nyStringSlice(text: []const u8, start: i64, end: i64) []const u8 {
+    const from = nyOffsetOf(text, start);
+    const to = if (end > start) nyOffsetOf(text, end) else from;
+    return text[from..to];
+}
+
+fn nyStringIndexOf(text: []const u8, value: []const u8, from: i64) ?i64 {
+    const offset = nyOffsetOf(text, from);
+    if (value.len == 0) return nyPositionOf(text, offset);
+    return if (std.mem.indexOfPos(u8, text, offset, value)) |found| nyPositionOf(text, found) else null;
+}
+
+/// The last match that ends at or before code-point position `end`.
+fn nyStringLastIndexOfBefore(text: []const u8, value: []const u8, end: i64) ?i64 {
+    const offset = nyOffsetOf(text, end);
+    if (value.len == 0) return nyPositionOf(text, offset);
+    return if (std.mem.lastIndexOf(u8, text[0..offset], value)) |found| nyPositionOf(text, found) else null;
+}
+
+fn nyStringSpan(text: []const u8, set: []const u8, from: i64) i64 {
+    var offset = nyOffsetOf(text, from);
+    var position = nyPositionOf(text, offset);
+    if (set.len == 0) return position;
+    while (offset < text.len) : (position += 1) {
+        const next = offset + nyWidth(text, offset);
+        if (!nyInSet(set, text[offset..next])) break;
+        offset = next;
+    }
+    return position;
+}
+
+fn nyStringSpanBack(text: []const u8, set: []const u8, end: i64) i64 {
+    var offset = nyOffsetOf(text, end);
+    var position = nyPositionOf(text, offset);
+    if (set.len == 0) return position;
+    while (offset > 0) : (position -= 1) {
+        var previous = offset - 1;
+        while (text[previous] & 0xC0 == 0x80) previous -= 1;
+        if (!nyInSet(set, text[previous..offset])) break;
+        offset = previous;
+    }
+    return position;
+}
+
+fn nyStringSplit(text: []const u8, separator: []const u8) []const []const u8 {
+    if (separator.len == 0) return nyListOf([]const u8, &.{text});
+    var pieces: std.ArrayList([]const u8) = .empty;
+    var parts = std.mem.splitSequence(u8, text, separator);
+    while (parts.next()) |piece| pieces.append(nyAllocator(), piece) catch nyOom();
+    return pieces.items;
+}
+
+/// Lines split at code points of `breaks`; "\r\n" is one break when both are members, and a final
+/// break adds no trailing empty line (Python splitlines).
+fn nyStringSplitLines(text: []const u8, breaks: []const u8) []const []const u8 {
+    if (text.len == 0) return &.{};
+    if (breaks.len == 0) return nyListOf([]const u8, &.{text});
+    const crlf = nyInSet(breaks, "\r") and nyInSet(breaks, "\n");
+    var lines: std.ArrayList([]const u8) = .empty;
+    var start: usize = 0;
+    var offset: usize = 0;
+    while (offset < text.len) {
+        var next = offset + nyWidth(text, offset);
+        if (nyInSet(breaks, text[offset..next])) {
+            lines.append(nyAllocator(), text[start..offset]) catch nyOom();
+            if (crlf and text[offset] == '\r' and next < text.len and text[next] == '\n') next += 1;
+            start = next;
+        }
+        offset = next;
+    }
+    if (start < text.len) lines.append(nyAllocator(), text[start..]) catch nyOom();
+    return lines.items;
+}
+
+fn nyStringReplace(text: []const u8, pattern: []const u8, replacement: []const u8) []const u8 {
+    if (pattern.len == 0) return text;
+    return std.mem.replaceOwned(u8, nyAllocator(), text, pattern, replacement) catch nyOom();
+}
+
+/// The Unicode White_Space property (.NET char.IsWhiteSpace); every member is in the BMP.
+fn nyIsWhiteSpace(point: []const u8) bool {
+    const code = std.unicode.utf8Decode(point) catch unreachable;
+    return switch (code) {
+        0x09...0x0D, 0x20, 0x85, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 => true,
+        else => false,
+    };
+}
+
+fn nyStringTrimStart(text: []const u8) []const u8 {
+    var start: usize = 0;
+    while (start < text.len) {
+        const next = start + nyWidth(text, start);
+        if (!nyIsWhiteSpace(text[start..next])) break;
+        start = next;
+    }
+    return text[start..];
+}
+
+fn nyStringTrimEnd(text: []const u8) []const u8 {
+    var end = text.len;
+    while (end > 0) {
+        var previous = end - 1;
+        while (text[previous] & 0xC0 == 0x80) previous -= 1;
+        if (!nyIsWhiteSpace(text[previous..end])) break;
+        end = previous;
+    }
+    return text[0..end];
+}
+
+fn nyStringJoin(list: []const []const u8, separator: []const u8) []const u8 {
+    return std.mem.join(nyAllocator(), separator, list) catch nyOom();
+}
+
+fn nyStringCodePoints(text: []const u8) []const []const u8 {
+    const points = nyAlloc([]const u8, @intCast(nyStringLength(text)));
+    var offset: usize = 0;
+    for (points) |*point| {
+        const next = offset + nyWidth(text, offset);
+        point.* = text[offset..next];
+        offset = next;
+    }
+    return points;
+}
+
+/// Python chr limited to Unicode scalar values.
+fn nyStringFromCodePoint(code: i64) ?[]const u8 {
+    if (code < 0 or code > 0x10FFFF or (code >= 0xD800 and code <= 0xDFFF)) return null;
+    const out = nyAlloc(u8, 4);
+    return out[0 .. std.unicode.utf8Encode(@intCast(code), out) catch unreachable];
+}
+
+/// Python ord: exactly one code point.
+fn nyStringToCodePoint(text: []const u8) ?i64 {
+    if (text.len == 0 or nyWidth(text, 0) != text.len) return null;
+    return std.unicode.utf8Decode(text) catch unreachable;
+}
+
+/// UTF-8 bytes as one code point U+0000..U+00FF each.
+fn nyStringEncodeUtf8(text: []const u8) []const u8 {
+    return nyBytesToLatin1(.{ .data = text });
+}
+
+/// The inverse: code points as bytes (above U+00FF reads as 0xFF), decoded with one U+FFFD per
+/// maximal ill-formed subpart, as .NET and Python's decode("utf-8", "replace") do.
+fn nyStringDecodeUtf8Lossy(text: []const u8) []const u8 {
+    return std.fmt.allocPrint(nyAllocator(), "{f}", .{std.unicode.fmtUtf8(nyBytesFromLatin1(text).data)}) catch nyOom();
+}
+
+/// Python text * count; a result longer than a .NET string (2^31 - 1 UTF-16 units) fails as the
+/// C# backend's allocation does.
+fn nyStringRepeat(text: []const u8, count: i64) []const u8 {
+    if (count <= 0 or text.len == 0) return "";
+    const units = std.unicode.calcUtf16LeLen(text) catch unreachable;
+    if (count > @divTrunc(std.math.maxInt(i32), @as(i64, @intCast(units)))) nyOom();
+    const out = nyAlloc(u8, text.len * @as(usize, @intCast(count)));
+    var at: usize = 0;
+    while (at < out.len) : (at += text.len) @memcpy(out[at..][0..text.len], text);
+    return out;
+}
+
+/// Python format(value, "x").
+fn nyInt64ToHexString(value: i64) []const u8 {
+    return std.fmt.allocPrint(nyAllocator(), "{s}{x}", .{ if (value < 0) "-" else "", @abs(value) }) catch nyOom();
+}
+
+/// Only '-'? ASCII digits; the Int64 range is then enforced by parseInt.
+fn nyStringParseInt64(text: []const u8) ?i64 {
+    const start: usize = if (text.len > 0 and text[0] == '-') 1 else 0;
+    if (text.len == start) return null;
+    for (text[start..]) |c| if (c < '0' or c > '9') return null;
+    return std.fmt.parseInt(i64, text, 10) catch null;
+}
+
+/// Only '-'? ASCII hex digits of either case; the magnitude must be at most 2^63 - 1, or 2^63 when
+/// negative.
+fn nyStringParseInt64Hex(text: []const u8) ?i64 {
+    const negative = text.len > 0 and text[0] == '-';
+    const start: usize = if (negative) 1 else 0;
+    if (text.len == start) return null;
+    var magnitude: u64 = 0;
+    for (text[start..]) |c| {
+        const digit = std.fmt.charToDigit(c, 16) catch return null;
+        if (magnitude > std.math.maxInt(u64) >> 4) return null;
+        magnitude = (magnitude << 4) + digit;
+    }
+    if (magnitude > @as(u64, if (negative) 1 << 63 else (1 << 63) - 1)) return null;
+    return if (negative) 0 -% @as(i64, @bitCast(magnitude)) else @intCast(magnitude);
+}
+
+fn nyChecked(result: anytype) ?i64 {
+    return if (result[1] == 0) result[0] else null;
+}
+
+/// The shortest round-trip decimal digits of a positive finite value, without leading or trailing
+/// zeros, and the point position: value = 0.d1d2... * 10^point.
+const NyDecimal = struct { digits: []const u8, point: i64 };
+
+fn nyShortest(magnitude: f64, digits: *[24]u8) NyDecimal {
+    var buffer: [32]u8 = undefined;
+    // "{e}" is "d.ddde±x" (or "de±x") with the shortest digits.
+    const text = std.fmt.bufPrint(&buffer, "{e}", .{magnitude}) catch unreachable;
+    const mark = std.mem.indexOfScalar(u8, text, 'e').?;
+    digits[0] = text[0];
+    const count = if (mark > 1) mark - 1 else 1;
+    if (mark > 1) @memcpy(digits[1..count], text[2..mark]);
+    const exponent = std.fmt.parseInt(i64, text[mark + 1 ..], 10) catch unreachable;
+    return .{ .digits = digits[0..count], .point = exponent + 1 };
+}
+
+/// Python repr(float): exponent notation when point <= -4 or > 16, with a signed exponent of at
+/// least two digits, otherwise fixed notation with at least one fractional digit.
+fn nyFloat64ToString(value: f64) []const u8 {
+    if (std.math.isNan(value)) return "nan";
+    if (std.math.isInf(value)) return if (value > 0) "inf" else "-inf";
+    if (value == 0) return if (std.math.signbit(value)) "-0.0" else "0.0";
+    var buffer: [24]u8 = undefined;
+    const decimal = nyShortest(@abs(value), &buffer);
+    const digits = decimal.digits;
+    const sign = if (value < 0) "-" else "";
+    const zeros = "0000000000000000";
+    const point = decimal.point;
+    const text = if (point <= -4 or point > 16)
+        std.fmt.allocPrint(nyAllocator(), "{s}{c}{s}{s}e{s}{d:0>2}", .{ sign, digits[0], if (digits.len > 1) "." else "", digits[1..], if (point - 1 < 0) "-" else "+", @abs(point - 1) })
+    else if (point <= 0)
+        std.fmt.allocPrint(nyAllocator(), "{s}0.{s}{s}", .{ sign, zeros[0..@intCast(-point)], digits })
+    else if (point >= digits.len)
+        std.fmt.allocPrint(nyAllocator(), "{s}{s}{s}.0", .{ sign, digits, zeros[0 .. @as(usize, @intCast(point)) - digits.len] })
+    else
+        std.fmt.allocPrint(nyAllocator(), "{s}{s}.{s}", .{ sign, digits[0..@intCast(point)], digits[@intCast(point)..] });
+    return text catch nyOom();
+}
+
+/// Python float(text) on the JSON number grammar only; parseFloat is correctly rounded and gives a
+/// signed infinity on overflow and a signed zero on underflow.
+fn nyStringParseFloat64(text: []const u8) ?f64 {
+    var index: usize = if (text.len > 0 and text[0] == '-') 1 else 0;
+    if (!nySkipDigits(text, &index)) return null;
+    if (index < text.len and text[index] == '.') {
+        index += 1;
+        if (!nySkipDigits(text, &index)) return null;
+    }
+    if (index < text.len and (text[index] == 'e' or text[index] == 'E')) {
+        index += 1;
+        if (index < text.len and (text[index] == '+' or text[index] == '-')) index += 1;
+        if (!nySkipDigits(text, &index)) return null;
+    }
+    if (index != text.len) return null;
+    return std.fmt.parseFloat(f64, text) catch unreachable;
+}
+
+fn nySkipDigits(text: []const u8, index: *usize) bool {
+    const start = index.*;
+    while (index.* < text.len and text[index.*] >= '0' and text[index.*] <= '9') index.* += 1;
+    return index.* > start;
+}
+
+/// Round(value, digits) rounds the shortest round-trip decimal text half away from zero at `digits`
+/// places and reads the result back: 2.675 to 2 places is 2.68 although the binary64 is below it.
+fn nyFloat64Round(value: f64, places: i64) f64 {
+    if (std.math.isNan(value) or std.math.isInf(value) or value == 0) return value;
+    var buffer: [24]u8 = undefined;
+    const decimal = nyShortest(@abs(value), &buffer);
+    const keep = decimal.point + std.math.clamp(places, -1000, 1000);
+    if (keep >= decimal.digits.len) return value;
+    if (keep < 0) return if (value < 0) -0.0 else 0.0;
+    var kept: i64 = if (keep == 0) 0 else std.fmt.parseInt(i64, decimal.digits[0..@intCast(keep)], 10) catch unreachable;
+    if (decimal.digits[@intCast(keep)] >= '5') kept += 1;
+    var text: [48]u8 = undefined;
+    const rounded = std.fmt.parseFloat(f64, std.fmt.bufPrint(&text, "{d}e{d}", .{ kept, decimal.point - keep }) catch unreachable) catch unreachable;
+    return if (value < 0) -rounded else rounded;
+}
+
 /// Structural equality over every supported value type.
 fn nyEqual(left: anytype, right: @TypeOf(left)) bool {
     const T = @TypeOf(left);
@@ -723,3 +1022,75 @@ fn nyEncode(out: *std.Io.Writer, value: anytype) !void {
     }
 }
 """
+
+    /// The simple (one-to-one) case mapping the C# backend's NyText.ToLower/ToUpper apply: .NET's
+    /// invariant mapping per code point, except U+0130 -> i, U+0131 -> I and U+00DF -> U+1E9E.
+    let private mapCase (lower: bool) (code: int) =
+        if code < 0x10000 then
+            let unit = char code
+            if lower then (if code = 0x130 then 0x69 else int (System.Char.ToLowerInvariant unit))
+            elif code = 0x131 then 0x49
+            elif code = 0xDF then 0x1E9E
+            else int (System.Char.ToUpperInvariant unit)
+        else
+            let rune = System.Text.Rune code
+            (if lower then System.Text.Rune.ToLowerInvariant rune else System.Text.Rune.ToUpperInvariant rune).Value
+
+    /// Runs of mapped code points { first, last, step, delta }: every step-th code point from first
+    /// to last maps to itself plus delta. Runs take consecutive mapped code points, so a step-2 run
+    /// skips only unmapped ones, runs never overlap and a binary search over `first` finds the only
+    /// candidate.
+    let private caseRuns (lower: bool) =
+        let mapped =
+            [| for code in 0 .. 0x10FFFF do
+                 if code < 0xD800 || code > 0xDFFF then
+                     let target = mapCase lower code
+                     if target <> code then code, target - code |]
+        let runs = ResizeArray<string>()
+        let mutable index = 0
+        while index < mapped.Length do
+            let first, delta = mapped[index]
+            let mutable last = first
+            let mutable step = 1
+            if index + 1 < mapped.Length then
+                let next, nextDelta = mapped[index + 1]
+                if nextDelta = delta && next - first = 2 then step <- 2
+            while index + 1 < mapped.Length
+                  && fst mapped[index + 1] = last + step
+                  && snd mapped[index + 1] = delta do
+                index <- index + 1
+                last <- last + step
+            index <- index + 1
+            runs.Add $".{{ {first}, {last}, {step}, {delta} }}"
+        System.String.Join(", ", runs)
+
+    /// Zig case mapping, emitted only for a program that maps case.
+    let caseMapping =
+        lazy
+            ("const ny_lower_runs = [_][4]i32{ " + caseRuns true + " };\n"
+             + "const ny_upper_runs = [_][4]i32{ " + caseRuns false + " };\n"
+             + """
+fn nyMapCase(text: []const u8, runs: []const [4]i32) []const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var view = std.unicode.Utf8View.initUnchecked(text);
+    var points = view.iterator();
+    while (points.nextCodepoint()) |point| {
+        const code: i32 = point;
+        var low: usize = 0;
+        var high: usize = runs.len;
+        while (low < high) {
+            const middle = (low + high) / 2;
+            if (runs[middle][0] <= code) low = middle + 1 else high = middle;
+        }
+        var mapped = code;
+        if (low > 0) {
+            const run = runs[low - 1];
+            if (code <= run[1] and @mod(code - run[0], run[2]) == 0) mapped = code + run[3];
+        }
+        var buffer: [4]u8 = undefined;
+        const size = std.unicode.utf8Encode(@intCast(mapped), &buffer) catch unreachable;
+        out.appendSlice(nyAllocator(), buffer[0..size]) catch nyOom();
+    }
+    return out.items;
+}
+""")
