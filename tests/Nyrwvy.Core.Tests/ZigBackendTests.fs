@@ -63,7 +63,6 @@ module ZigBackendTests =
                 $"""{{"kind":"conditional","condition":{{"kind":"int64LessThan","left":{p "n"},"right":{{"kind":"int64Literal","value":1}}}},"whenTrue":{p "acc"},"whenFalse":{{"kind":"directCall","function":"sum","arguments":[{{"parameter":"n","value":{{"kind":"int64WrappingSubtract","left":{p "n"},"right":{{"kind":"int64Literal","value":1}}}}}},{{"parameter":"acc","value":{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{p "n"}}}}}]}}}}"""
             create session "sum" [ "n", int64Type; "acc", int64Type ] int64Type sumBody
             create session "sumTo" [ "n", int64Type ] int64Type ($"""{{"kind":"directCall","function":"sum","arguments":[{{"parameter":"n","value":{p "n"}}},{{"parameter":"acc","value":{{"kind":"int64Literal","value":0}}}}]}}""")
-            create session "toFloat" [ "n", int64Type ] """{"kind":"primitive","primitive":"float64"}""" ($"""{{"kind":"int64ToFloat64","value":{p "n"}}}""")
             let edges = [ Int64.MinValue; -7L; -1L; 0L; 1L; 3L; 64L; Int64.MaxValue ]
             let cases =
                 [ for kind in operations @ [ "int64ShiftLeft"; "int64ShiftRight"; "less" ] do
@@ -78,6 +77,8 @@ module ZigBackendTests =
                 Assert.True(zig.GetProperty("ok").GetBoolean(), zig.ToString())
                 Assert.Equal(csharp.GetProperty("result").GetProperty("actual").ToString(), zig.GetProperty("result").GetProperty("actual").ToString())
             Assert.Equal("500000500000", (run session "zig" "sumTo" [ int64 1000000L ]).GetProperty("result").GetProperty("actual").GetProperty("value").ToString())
+            // Created last: a snapshot the backend cannot emit whole builds one runner per entry.
+            create session "toFloat" [ "n", int64Type ] """{"kind":"primitive","primitive":"float64"}""" ($"""{{"kind":"int64ToFloat64","value":{p "n"}}}""")
             let unsupported = run session "zig" "toFloat" [ int64 3L ]
             Assert.False(unsupported.GetProperty("ok").GetBoolean())
             Assert.Equal("RunBackendUnsupported", unsupported.GetProperty("error").GetProperty("code").GetString())
