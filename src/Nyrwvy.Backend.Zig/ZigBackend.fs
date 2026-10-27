@@ -4,11 +4,12 @@ open System
 open System.Collections.Generic
 open System.Text
 
-/// Emits Zig source from Execution IR. The supported slice covers Int64, Bool, Unit and String
-/// values, Option, Result, List and declared Product and Union types (generic ones included),
-/// their operations, list callbacks, direct calls and every block terminator; anything else is
-/// reported as unsupported instead of emitted. Generic functions and types are instantiated per
-/// use (monomorphized), since a Zig function cannot infer a type parameter from a runtime value.
+/// Emits Zig source from Execution IR. The supported slice covers Int64, Bool, Unit, String
+/// (every text operation) and Float64 values, Option, Result, List and declared Product and
+/// Union types (generic ones included), their operations, list callbacks, direct calls and every
+/// block terminator; anything else is reported as unsupported instead of emitted. Generic functions
+/// and types are instantiated per use (monomorphized), since a Zig function cannot infer a type
+/// parameter from a runtime value.
 [<RequireQualifiedAccess>]
 module ZigBackend =
     let private identifier (prefix: string) (raw: string) =
@@ -75,6 +76,10 @@ module ZigBackend =
         | TypeRef.Primitive PrimitiveType.Float64 -> Some "f64"
         | TypeRef.Primitive PrimitiveType.Bytes -> Some "NyBytes"
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ item ]) -> inner item |> Option.map (fun item -> "?" + item)
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, []) -> Some "NyFailure"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) -> Some "*NyScope"
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.Task, [ item ]) -> inner item |> Option.map (fun item -> "*NyTask(" + item + ")")
+        | TypeRef.BuiltinGeneric(BuiltinGenericType.OneShot, [ item ]) -> inner item |> Option.map (fun item -> "*NyOneShot(" + item + ")")
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Set, [ item ]) -> inner item |> Option.map (fun item -> "NySet(" + item + ")")
         | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ key; value ]) ->
             match inner key, inner value with
@@ -92,6 +97,12 @@ module ZigBackend =
         // A capability value's type is declared by whoever binds the capability (a runPure runner's
         // fakes for now), with one method per operation.
         | TypeRef.Capability capabilityId when Set.contains capabilityId capabilities -> Some(capabilityName capabilityId)
+        | TypeRef.Function(parameters, result) ->
+            let parts = (result :: parameters) |> List.map inner
+            if List.forall Option.isSome parts then
+                let parts = parts |> List.map Option.get
+                Some("*const fn (" + String.Join(", ", List.tail parts) + ") " + List.head parts)
+            else None
         | _ -> None
 
     /// The Zig type of a supported value type of a program.
@@ -123,7 +134,10 @@ module ZigBackend =
           /// parameter and the given result type.
           Call: FunctionId -> (ParameterId * TypeRef) list -> TypeRef -> string
           Parameters: FunctionId -> (ParameterId * TypeRef) list
-          OperationParameters: CapabilityOperationId -> CapabilityParameterId list }
+          OperationParameters: CapabilityOperationId -> CapabilityParameterId list
+          OperationResult: CapabilityOperationId -> TypeRef
+          /// Whether a function may end with a host failure, so its calls need `try`.
+          MayFail: FunctionId -> bool }
 
     let private itemType (typeRef: TypeRef) =
         match typeRef with
@@ -162,6 +176,27 @@ module ZigBackend =
             let name = context.Call functionId (arguments |> List.map (fun (id, _, typeRef) -> id, typeRef)) result
             name + "(" + String.Join(", ", arguments |> List.map (fun (_, expression, _) -> expression)) + ")"
         let block (body: string) = assign ("blk: { " + body + " }")
+        let attempt (functionId: FunctionId) (call: string) = if context.MayFail functionId then "try " + call else call
+        /// A callback run later, on another thread: the values it reads travel in `c`.
+        let deferred (call: string) (captured: string list) =
+            let captured = List.distinct captured
+            let inner = captured |> List.fold (fun (text: string) name -> text.Replace(name, "c." + name)) call
+            ".{ " + String.Join(", ", captured |> List.map (fun name -> "." + name + " = " + name)) + " }", inner
+        let argumentOf (typeRef: TypeRef) index =
+            match typeRef with
+            | TypeRef.BuiltinGeneric(_, arguments) -> List.item index arguments
+            | other -> invalidOp $"Expected a generic type, got {other}."
+        let unit = TypeRef.Primitive PrimitiveType.Unit
+        /// A comparison callback as a Zig function value: bound values travel in `c`, the two
+        /// compared items are `l` and `r`.
+        let comparator (functionId: FunctionId) (bindings: ExecutionCallArgument list) (item: TypeRef) (first: string) (second: string) =
+            let call = callback functionId bindings [ first, item; second, item ] (TypeRef.Primitive PrimitiveType.Bool)
+            let captured = bindings |> List.map (fun binding -> v binding.ValueId) |> List.distinct
+            // Zig forbids shadowing the outer locals, so the call reads them from `c` (value names
+            // have one fixed length, so no name is a prefix of another).
+            let inner = captured |> List.fold (fun (text: string) name -> text.Replace(name, "c." + name)) call
+            let context = ".{ " + String.Join(", ", captured |> List.map (fun name -> "." + name + " = " + name)) + " }"
+            context, "struct { fn less(c: anytype, l: " + zig item + ", r: " + zig item + ") bool { _ = &c; return " + inner + "; } }.less"
         let mapTypes (mapValue: ExecutionValueId) =
             match context.ValueType mapValue with
             | TypeRef.BuiltinGeneric(BuiltinGenericType.Map, [ key; value ]) -> key, value
@@ -358,12 +393,132 @@ module ZigBackend =
         | ExecutionInstructionKind.CapabilityInvoke(capability, operationId, arguments) ->
             let byParameter = arguments |> List.map (fun argument -> argument.TargetCapabilityParameterId, argument.ValueId) |> Map.ofList
             let rendered = context.OperationParameters operationId |> List.map (fun id -> v (Map.find id byParameter))
-            assign (v capability + "." + operationName operationId + "(" + String.Join(", ", rendered) + ")")
+            assign ("try " + v capability + "." + operationName operationId + "(" + String.Join(", ", rendered) + ")")
+        | ExecutionInstructionKind.ExceptionCatch(body, bodyBindings, handler, handlerBindings) ->
+            let result = instruction.Result.Type
+            let bodyCall = callback body bodyBindings [ "NyUnit{}", TypeRef.Primitive PrimitiveType.Unit ] result
+            if not (context.MayFail body) then assign bodyCall
+            else
+                let handlerCall = callback handler handlerBindings [ "failure", TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, []) ] result
+                assign (bodyCall + " catch blk: { const failure = ny_failure; break :blk " + attempt handler handlerCall + "; }")
+        | ExecutionInstructionKind.ExceptionRethrow(value, resultType) -> assign ("try nyRethrow(" + zig resultType + ", " + v value + ")")
+        | ExecutionInstructionKind.ExceptionMessage value -> assign (v value + ".message")
+        | ExecutionInstructionKind.ExceptionIsCancellation value -> assign (v value + ".cancelled")
+        | ExecutionInstructionKind.UseResource(acquire, releaser, releaseOperation, body, bindings) ->
+            // Release runs once acquisition succeeded: on Ok and Err exits, and before a failure of the
+            // body propagates (a release failure then is ignored). A body Err wins over a release Err.
+            let resource = match context.ValueType acquire with TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ ok; _ ]) -> ok | other -> other
+            let bodyCall = callback body bindings [ "resource", resource ] instruction.Result.Type
+            let release = v releaser + "." + operationName releaseOperation + "(resource)"
+            let guarded =
+                if context.MayFail body then bodyCall + " catch { const saved = ny_failure; _ = " + release + " catch {}; ny_failure = saved; return error.NyFailure; }"
+                else bodyCall
+            let finish =
+                match context.OperationResult releaseOperation with
+                | TypeRef.BuiltinGeneric(BuiltinGenericType.Result, _) ->
+                    "const released = try " + release + "; if (outcome == .ok and released == .err) break :blk .{ .err = released.err }; break :blk outcome;"
+                | _ -> "_ = try " + release + "; break :blk outcome;"
+            block ("const acquired = " + v acquire + "; if (acquired == .err) break :blk .{ .err = acquired.err }; const resource = acquired.ok; const outcome = " + guarded + "; " + finish)
+        | ExecutionInstructionKind.ListSortBy(source, lessThan, bindings) ->
+            let context, less = comparator lessThan bindings (itemType (context.ValueType source)) "l" "r"
+            assign ("nySortBy(" + elementOf source + ", " + v source + ", " + context + ", " + less + ")")
+        | ExecutionInstructionKind.ListMinBy(source, lessThan, bindings) ->
+            let context, less = comparator lessThan bindings (itemType (context.ValueType source)) "l" "r"
+            assign ("nyBestBy(" + elementOf source + ", " + v source + ", " + context + ", " + less + ")")
+        | ExecutionInstructionKind.ListMaxBy(source, lessThan, bindings) ->
+            // The best is replaced when lessThan(best, item): the same comparator with the items swapped.
+            let context, less = comparator lessThan bindings (itemType (context.ValueType source)) "r" "l"
+            assign ("nyBestBy(" + elementOf source + ", " + v source + ", " + context + ", " + less + ")")
+        | ExecutionInstructionKind.FunctionReference functionId ->
+            match instruction.Result.Type with
+            | TypeRef.Function(parameters, result) ->
+                let ids = context.Parameters functionId |> List.map fst
+                assign ("&" + context.Call functionId (List.zip ids parameters) result)
+            | other -> invalidOp $"Expected a function type, got {other}."
+        | ExecutionInstructionKind.FunctionInvoke(target, arguments) ->
+            assign (v target + "(" + String.Join(", ", arguments |> List.map v) + ")")
+        | ExecutionInstructionKind.CancellationRequested -> assign "nyCancellationRequested()"
+        | ExecutionInstructionKind.CancellationShield(body, bindings) ->
+            let call = callback body bindings [ "NyUnit{}", unit ] instruction.Result.Type
+            block ("const saved = ny_token; ny_token = null; defer ny_token = saved; break :blk " + attempt body call + ";")
+        | ExecutionInstructionKind.TaskScope(body, bindings) ->
+            let call = callback body bindings [ "scope", TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, []) ] instruction.Result.Type
+            let guarded =
+                if context.MayFail body then call + " catch { const saved = ny_failure; nyScopeClose(scope, true) catch {}; ny_failure = saved; return error.NyFailure; }"
+                else call
+            block ("const scope = nyScopeOpen(); const outcome = " + guarded + "; try nyScopeClose(scope, false); break :blk outcome;")
+        | ExecutionInstructionKind.TaskStart(scope, worker, bindings, item) ->
+            let work = argumentOf instruction.Result.Type 0
+            let call = callback worker bindings [ v item, context.ValueType item ] work
+            let captured, inner = deferred call (v item :: (bindings |> List.map (fun binding -> v binding.ValueId)))
+            let result = (if context.MayFail worker then "NyError!" else "") + zig work
+            block ("const captured = " + captured + "; break :blk nyStartTask(" + zig work + ", " + v scope + ", NyJob(@TypeOf(captured), " + result + ", struct { fn call(c: anytype) " + result + " { return " + attempt worker inner + "; } }.call){ .c = captured });")
+        | ExecutionInstructionKind.TaskWait(tasks, mode, limit) ->
+            let work = argumentOf (itemType (context.ValueType tasks)) 0
+            let all = match mode with TaskWaitMode.All -> "true" | TaskWaitMode.Any -> "false"
+            assign ("try nyTaskWait(" + zig work + ", " + v tasks + ", " + all + ", " + (limit |> Option.map v |> Option.defaultValue "null") + ")")
+        | ExecutionInstructionKind.TaskCancel task -> block (v task + ".base.cancel.cancel(); break :blk NyUnit{};")
+        | ExecutionInstructionKind.OneShotCreate(scope, valueType) -> assign ("nyOneShotCreate(" + zig valueType + ", " + v scope + ")")
+        | ExecutionInstructionKind.OneShotComplete(cell, value) -> assign ("nyOneShotComplete(" + zig (argumentOf (context.ValueType cell) 0) + ", " + v cell + ", " + v value + ")")
+        | ExecutionInstructionKind.OneShotWait(cell, limit) ->
+            assign ("try nyOneShotWait(" + zig (argumentOf (context.ValueType cell) 0) + ", " + v cell + ", " + (limit |> Option.map v |> Option.defaultValue "null") + ")")
+        | ExecutionInstructionKind.ParallelAll(source, worker, bindings) ->
+            let element = itemType (context.ValueType source)
+            let values, error = argumentOf instruction.Result.Type 0, argumentOf instruction.Result.Type 1
+            let outcome = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ itemType values; error ])
+            let call = callback worker bindings [ "item", element ] outcome
+            let captured, inner = deferred call (bindings |> List.map (fun binding -> v binding.ValueId))
+            assign ("try nyParallelAll(" + zig element + ", " + zig (itemType values) + ", " + zig error + ", " + v source + ", " + captured + ", struct { fn call(c: anytype, item: " + zig element + ") NyError!" + zig outcome + " { _ = &c; return " + attempt worker inner + "; } }.call)")
+        | ExecutionInstructionKind.ListEffectFold(source, seed, folder, bindings) ->
+            let state = context.ValueType seed
+            let element = itemType (context.ValueType source)
+            if instruction.Result.Type = state then
+                let call = callback folder bindings [ "state", state; "item", element ] state
+                block ("var state = " + v seed + "; for (" + v source + ") |item| state = " + attempt folder call + "; break :blk state;")
+            else
+                // The folder returns Result<S, E>: the fold stops at the first Err.
+                let call = callback folder bindings [ "state.ok", state; "item", element ] instruction.Result.Type
+                block ("var state: " + zig instruction.Result.Type + " = .{ .ok = " + v seed + " }; for (" + v source + ") |item| { if (state == .err) break; state = " + attempt folder call + "; } break :blk state;")
+        | ExecutionInstructionKind.Int64CheckedAdd(left, right) -> assign ("nyChecked(@addWithOverflow(" + v left + ", " + v right + "))")
+        | ExecutionInstructionKind.Int64CheckedSubtract(left, right) -> assign ("nyChecked(@subWithOverflow(" + v left + ", " + v right + "))")
+        | ExecutionInstructionKind.Int64CheckedMultiply(left, right) -> assign ("nyChecked(@mulWithOverflow(" + v left + ", " + v right + "))")
+        | ExecutionInstructionKind.Int64ToHexString source -> assign ("nyInt64ToHexString(" + v source + ")")
+        | ExecutionInstructionKind.StringParseInt64 source -> assign ("nyStringParseInt64(" + v source + ")")
+        | ExecutionInstructionKind.StringParseInt64Hex source -> assign ("nyStringParseInt64Hex(" + v source + ")")
+        | ExecutionInstructionKind.Float64ToString source -> assign ("nyFloat64ToString(" + v source + ")")
+        | ExecutionInstructionKind.StringParseFloat64 source -> assign ("nyStringParseFloat64(" + v source + ")")
+        | ExecutionInstructionKind.Float64Round(value, digits) -> assign ("nyFloat64Round(" + v value + ", " + v digits + ")")
+        | ExecutionInstructionKind.StringSlice(text, start, finish) -> assign ("nyStringSlice(" + v text + ", " + v start + ", " + v finish + ")")
+        | ExecutionInstructionKind.StringContains(text, value) -> assign ("std.mem.indexOf(u8, " + v text + ", " + v value + ") != null")
+        | ExecutionInstructionKind.StringIndexOf(text, value, from) -> assign ("nyStringIndexOf(" + v text + ", " + v value + ", " + v from + ")")
+        | ExecutionInstructionKind.StringLastIndexOf(text, value) -> assign ("nyStringLastIndexOfBefore(" + v text + ", " + v value + ", std.math.maxInt(i64))")
+        | ExecutionInstructionKind.StringLastIndexOfBefore(text, value, finish) -> assign ("nyStringLastIndexOfBefore(" + v text + ", " + v value + ", " + v finish + ")")
+        | ExecutionInstructionKind.StringSpan(text, set, from) -> assign ("nyStringSpan(" + v text + ", " + v set + ", " + v from + ")")
+        | ExecutionInstructionKind.StringSpanBack(text, set, finish) -> assign ("nyStringSpanBack(" + v text + ", " + v set + ", " + v finish + ")")
+        | ExecutionInstructionKind.StringStartsWith(text, prefix) -> assign ("std.mem.startsWith(u8, " + v text + ", " + v prefix + ")")
+        | ExecutionInstructionKind.StringEndsWith(text, suffix) -> assign ("std.mem.endsWith(u8, " + v text + ", " + v suffix + ")")
+        | ExecutionInstructionKind.StringSplit(text, separator) -> assign ("nyStringSplit(" + v text + ", " + v separator + ")")
+        | ExecutionInstructionKind.StringSplitLines(text, breaks) -> assign ("nyStringSplitLines(" + v text + ", " + v breaks + ")")
+        | ExecutionInstructionKind.StringReplace(text, pattern, replacement) -> assign ("nyStringReplace(" + v text + ", " + v pattern + ", " + v replacement + ")")
+        | ExecutionInstructionKind.StringTrim source -> assign ("nyStringTrimEnd(nyStringTrimStart(" + v source + "))")
+        | ExecutionInstructionKind.StringTrimStart source -> assign ("nyStringTrimStart(" + v source + ")")
+        | ExecutionInstructionKind.StringTrimEnd source -> assign ("nyStringTrimEnd(" + v source + ")")
+        | ExecutionInstructionKind.StringJoin(list, separator) -> assign ("nyStringJoin(" + v list + ", " + v separator + ")")
+        | ExecutionInstructionKind.StringLessThan(left, right) -> assign ("std.mem.lessThan(u8, " + v left + ", " + v right + ")")
+        | ExecutionInstructionKind.StringCodePoints source -> assign ("nyStringCodePoints(" + v source + ")")
+        | ExecutionInstructionKind.StringFromCodePoint source -> assign ("nyStringFromCodePoint(" + v source + ")")
+        | ExecutionInstructionKind.StringToCodePoint source -> assign ("nyStringToCodePoint(" + v source + ")")
+        | ExecutionInstructionKind.StringUtf8ByteCount source -> assign ("@as(i64, @intCast(" + v source + ".len))")
+        | ExecutionInstructionKind.StringEncodeUtf8 source -> assign ("nyStringEncodeUtf8(" + v source + ")")
+        | ExecutionInstructionKind.StringDecodeUtf8Lossy source -> assign ("nyStringDecodeUtf8Lossy(" + v source + ")")
+        | ExecutionInstructionKind.StringRepeat(text, count) -> assign ("nyStringRepeat(" + v text + ", " + v count + ")")
+        | ExecutionInstructionKind.StringToLower source -> assign ("nyMapCase(" + v source + ", &ny_lower_runs)")
+        | ExecutionInstructionKind.StringToUpper source -> assign ("nyMapCase(" + v source + ", &ny_upper_runs)")
         | ExecutionInstructionKind.DirectCall(functionId, arguments) ->
             let byParameter = arguments |> List.map (fun argument -> argument.TargetParameterId, argument.ValueId) |> Map.ofList
             let parameters = context.Parameters functionId |> List.map fst
             let name = context.Call functionId (parameters |> List.map (fun id -> id, context.ValueType (Map.find id byParameter))) instruction.Result.Type
-            assign (name + "(" + String.Join(", ", parameters |> List.map (fun id -> v (Map.find id byParameter))) + ")")
+            assign (attempt functionId (name + "(" + String.Join(", ", parameters |> List.map (fun id -> v (Map.find id byParameter))) + ")"))
         | _ -> None
 
     let private caseName (value: obj) =
@@ -395,7 +550,8 @@ module ZigBackend =
         let parameters =
             fn.Parameters
             |> List.map (fun parameter -> parameterName parameter.SemanticParameterId + ": " + zig parameter.Value.Type)
-        line ("fn " + name + "(" + String.Join(", ", parameters) + ") " + zig fn.ResultType + " {")
+        let failure = if context.MayFail fn.SemanticFunctionId then "NyError!" else ""
+        line ("fn " + name + "(" + String.Join(", ", parameters) + ") " + failure + zig fn.ResultType + " {")
         let values =
             valuesOf fn
             |> List.distinctBy (fun value -> value.Id)
@@ -500,6 +656,45 @@ module ZigBackend =
             program.Capabilities
             |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id, operation.Parameters |> List.map (fun parameter -> parameter.Id)))
             |> Map.ofList
+        // A function may fail when it invokes a capability, rethrows, uses a resource, or calls (or
+        // handles failures with) a function that may fail; pure callbacks never fail.
+        let mayFail =
+            let direct (fn: ExecutionFunction) =
+                fn.Blocks |> List.exists (fun block ->
+                    block.Instructions |> List.exists (fun instruction ->
+                        match instruction.Kind with
+                        | ExecutionInstructionKind.CapabilityInvoke _
+                        | ExecutionInstructionKind.ExceptionRethrow _
+                        | ExecutionInstructionKind.UseResource _
+                        // Waiting can fail when every task is blocked; a scope or join rethrows a task's failure.
+                        | ExecutionInstructionKind.TaskScope _
+                        | ExecutionInstructionKind.TaskWait _
+                        | ExecutionInstructionKind.OneShotWait _
+                        | ExecutionInstructionKind.ParallelAll _ -> true
+                        | _ -> false))
+            let callees (fn: ExecutionFunction) =
+                fn.Blocks |> List.collect (fun block ->
+                    block.Instructions |> List.collect (fun instruction ->
+                        match instruction.Kind with
+                        | ExecutionInstructionKind.DirectCall(callee, _) -> [ callee ]
+                        | ExecutionInstructionKind.ExceptionCatch(_, _, handler, _) -> [ handler ]
+                        | ExecutionInstructionKind.CancellationShield(body, _) -> [ body ]
+                        | ExecutionInstructionKind.ListEffectFold(_, _, folder, _) -> [ folder ]
+                        | _ -> []))
+            let mutable failing = program.Functions |> List.filter direct |> List.map (fun fn -> fn.SemanticFunctionId) |> Set.ofList
+            let mutable changed = true
+            while changed do
+                let next =
+                    program.Functions
+                    |> List.filter (fun fn -> callees fn |> List.exists (fun callee -> Set.contains callee failing))
+                    |> List.fold (fun state fn -> Set.add fn.SemanticFunctionId state) failing
+                changed <- next.Count <> failing.Count
+                failing <- next
+            failing
+        let operationResults =
+            program.Capabilities
+            |> List.collect (fun capability -> capability.Operations |> List.map (fun operation -> operation.Id, operation.ResultType))
+            |> Map.ofList
         let zigOf typeRef =
             match zigType types capabilities record typeRef with
             | Some text -> Some text
@@ -521,6 +716,16 @@ module ZigBackend =
             instanceName functionId typeArguments
         let builder = StringBuilder()
         builder.Append("// Generated by the Nyrwvy Zig backend.\n\n").Append(ZigRuntime.runtime).Append('\n') |> ignore
+        let mapsCase =
+            program.Functions
+            |> List.exists (fun fn ->
+                fn.Blocks |> List.exists (fun block ->
+                    block.Instructions |> List.exists (fun instruction ->
+                        match instruction.Kind with
+                        | ExecutionInstructionKind.StringToLower _
+                        | ExecutionInstructionKind.StringToUpper _ -> true
+                        | _ -> false)))
+        if mapsCase then builder.Append(ZigRuntime.caseMapping.Value).Append('\n') |> ignore
         let bodies = StringBuilder()
         for fn in program.Functions |> List.filter (fun fn -> List.isEmpty fn.TypeParameters) do
             if functionInstances.Add((fn.SemanticFunctionId, [])) then pending.Enqueue((fn.SemanticFunctionId, []))
@@ -534,7 +739,9 @@ module ZigBackend =
                   ValueType = fun id -> Map.find id valueTypes
                   Call = call
                   Parameters = parametersOf
-                  OperationParameters = fun id -> Map.find id operationParameters }
+                  OperationParameters = fun id -> Map.find id operationParameters
+                  OperationResult = fun id -> Map.find id operationResults
+                  MayFail = fun id -> Set.contains id mayFail }
             for value in valuesOf fn do zigOf value.Type |> ignore
             zigOf fn.ResultType |> ignore
             let unsupported =
@@ -581,7 +788,7 @@ module ZigBackend =
                     let recorded = operation.Parameters |> List.map (fun parameter -> identifier "a_" (StableId.value parameter.Id))
                     let keyed = operation.Parameters |> List.sortBy (fun parameter -> StableId.value parameter.Id) |> List.map (fun parameter -> identifier "a_" (StableId.value parameter.Id))
                     let scripts = identifier "ny_scripts_" (StableId.value operation.Id)
-                    line ("    pub fn " + operationName operation.Id + "(self: @This()" + String.concat "" (parameters |> List.map (fun item -> ", " + item)) + ") " + result + " {")
+                    line ("    pub fn " + operationName operation.Id + "(self: @This()" + String.concat "" (parameters |> List.map (fun item -> ", " + item)) + ") NyError!" + result + " {")
                     line ("        nyRecordCall(self.site + " + string index + ", .{ " + String.Join(", ", recorded) + " });")
                     line ("        return nyRespond(" + result + ", &" + scripts + "[self.fake], .{ " + String.Join(", ", keyed) + " });")
                     line "    }"

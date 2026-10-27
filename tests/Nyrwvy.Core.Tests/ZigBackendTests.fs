@@ -78,8 +78,8 @@ module ZigBackendTests =
                 Assert.Equal(csharp.GetProperty("result").GetProperty("actual").ToString(), zig.GetProperty("result").GetProperty("actual").ToString())
             Assert.Equal("500000500000", (run session "zig" "sumTo" [ int64 1000000L ]).GetProperty("result").GetProperty("actual").GetProperty("value").ToString())
             // Created last: a snapshot the backend cannot emit whole builds one runner per entry.
-            create session "shout" [ "text", stringType ] stringType ($"""{{"kind":"stringToUpper","value":{p "text"}}}""")
-            let unsupported = run session "zig" "shout" [ "\"a\"" ]
+            create session "toBits" [ "n", int64Type ] """{"kind":"primitive","primitive":"bits32"}""" ($"""{{"kind":"bits32FromInt64","value":{p "n"}}}""")
+            let unsupported = run session "zig" "toBits" [ int64 3L ]
             Assert.False(unsupported.GetProperty("ok").GetBoolean())
             Assert.Equal("RunBackendUnsupported", unsupported.GetProperty("error").GetProperty("code").GetString())
         finally Directory.Delete(dir, true)
@@ -294,4 +294,299 @@ module ZigBackendTests =
             compare [ ordered ""; "\"k\"" ]
             compare [ keyed; "\"ä 😀\"" ]
             compare [ keyed; "\"other\"" ]
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs sorting, min and max by, and function values and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let ints = $"""{{"kind":"builtinGeneric","generic":"list","arguments":[{int64Type}]}}"""
+            let optionInt = $"""{{"kind":"builtinGeneric","generic":"option","arguments":[{int64Type}]}}"""
+            let modulo name = $"""{{"kind":"int64FloorModulo","left":{p name},"right":{{"kind":"int64Literal","value":10}}}}"""
+            // Orders by the last digit only, so equal keys show stability; `descending` comes from context.
+            create session "before" [ "descending", boolType; "left", int64Type; "right", int64Type ] boolType
+                ($"""{{"kind":"conditional","condition":{p "descending"},"whenTrue":{{"kind":"int64LessThan","left":{modulo "right"},"right":{modulo "left"}}},"whenFalse":{{"kind":"int64LessThan","left":{modulo "left"},"right":{modulo "right"}}}}}""")
+            create session "sorted" [ "xs", ints; "down", boolType ] ints ($"""{{"kind":"listSortBy","source":{p "xs"},"function":"before","context":[{{"parameter":"descending","value":{p "down"}}}]}}""")
+            create session "smallest" [ "xs", ints ] optionInt ($"""{{"kind":"listMinBy","source":{p "xs"},"function":"before","context":[{{"parameter":"descending","value":{{"kind":"boolLiteral","value":false}}}}]}}""")
+            create session "largest" [ "xs", ints ] optionInt ($"""{{"kind":"listMaxBy","source":{p "xs"},"function":"before","context":[{{"parameter":"descending","value":{{"kind":"boolLiteral","value":false}}}}]}}""")
+            let unary = $"""{{"kind":"function","parameters":[{int64Type}],"resultType":{int64Type}}}"""
+            create session "twice" [ "x", int64Type ] int64Type ($"""{{"kind":"int64WrappingMultiply","left":{p "x"},"right":{{"kind":"int64Literal","value":2}}}}""")
+            create session "apply" [ "f", unary; "x", int64Type ] int64Type ($"""{{"kind":"functionInvoke","functionValue":{p "f"},"arguments":[{{"kind":"functionInvoke","functionValue":{p "f"},"arguments":[{p "x"}]}}]}}""")
+            create session "quadruple" [ "x", int64Type ] int64Type ($"""{{"kind":"directCall","function":"apply","arguments":[{{"parameter":"f","value":{{"kind":"functionReference","function":"twice"}}}},{{"parameter":"x","value":{p "x"}}}]}}""")
+            for xs in [ "[]"; "[7]"; "[13,2,23,5,42,3,12,33]" ] do
+                for down in [ "true"; "false" ] do agree session "sorted" [ xs; down ]
+                agree session "smallest" [ xs ]
+                agree session "largest" [ xs ]
+            for x in [ "3"; "-9223372036854775808" ] do agree session "quadruple" [ x ]
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs exception boundaries and resources and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let commitResult (response: JsonElement) =
+                Assert.True(response.GetProperty("ok").GetBoolean(), response.ToString())
+                let proposalId = response.GetProperty("result").GetProperty("proposalId").GetString()
+                Assert.True((execute session ($"""{{"id":"m","op":"commit","proposalId":"{proposalId}"}}""")).GetProperty("ok").GetBoolean())
+            commitResult (execute session """{"id":"e","op":"simulateCreateEffect","exported":true,"displayName":"io"}""")
+            let unitType = """{"kind":"primitive","primitive":"unit"}"""
+            let resultOf ok = $"""{{"kind":"builtinGeneric","generic":"result","arguments":[{ok},{stringType}]}}"""
+            commitResult (execute session ($"""{{"id":"c","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Files","operations":[{{"displayName":"open","parameters":[],"resultType":{resultOf int64Type},"effect":"io"}},{{"displayName":"read","parameters":[{{"displayName":"handle","type":{int64Type}}}],"resultType":{resultOf stringType},"effect":"io"}},{{"displayName":"close","parameters":[{{"displayName":"handle","type":{int64Type}}}],"resultType":{resultOf unitType},"effect":"io"}}]}}"""))
+            let filesType = """{"kind":"capability","name":"Files"}"""
+            let exceptionType = """{"kind":"builtinGeneric","generic":"exception","arguments":[]}"""
+            let effectful name (parameters: (string * string) list) result body =
+                let parameters = parameters |> List.map (fun (name, kind) -> $"""{{"displayName":"{name}","type":{kind}}}""") |> String.concat ","
+                commitResult (execute session ($"""{{"id":"f","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{parameters}],"resultType":{result},"requiredEffects":["io"],"body":{body}}}"""))
+            let invoke operation (arguments: string) = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "files"},"capability":"Files","operation":"{operation}","arguments":[{arguments}]}}"""
+            effectful "readBody" [ "files", filesType; "handle", int64Type ] (resultOf stringType) (invoke "read" ($"""{{"parameter":"handle","value":{p "handle"}}}"""))
+            effectful "withFile" [ "files", filesType ] (resultOf stringType)
+                ($"""{{"kind":"useResource","acquire":{invoke "open" ""},"releaseCapability":{p "files"},"capability":"Files","releaseOperation":"close","body":"readBody","context":[{{"parameter":"files","value":{p "files"}}}]}}""")
+            effectful "attempt" [ "files", filesType; "start", unitType ] (resultOf stringType) ($"""{{"kind":"directCall","function":"withFile","arguments":[{{"parameter":"files","value":{p "files"}}}]}}""")
+            create session "recover" [ "failure", exceptionType ] (resultOf stringType) ($"""{{"kind":"resultErr","okType":{stringType},"error":{{"kind":"stringConcat","left":{{"kind":"stringLiteral","value":"caught: "}},"right":{{"kind":"exceptionMessage","value":{p "failure"}}}}}}}""")
+            effectful "rethrowCancellation" [ "failure", exceptionType ] (resultOf stringType)
+                ($"""{{"kind":"conditional","condition":{{"kind":"exceptionIsCancellation","value":{p "failure"}}},"whenTrue":{{"kind":"exceptionRethrow","value":{p "failure"},"resultType":{resultOf stringType}}},"whenFalse":{{"kind":"resultErr","okType":{stringType},"error":{{"kind":"exceptionMessage","value":{p "failure"}}}}}}}""")
+            effectful "rethrowAll" [ "failure", exceptionType ] (resultOf stringType) ($"""{{"kind":"exceptionRethrow","value":{p "failure"},"resultType":{resultOf stringType}}}""")
+            for handler in [ "recover"; "rethrowCancellation"; "rethrowAll" ] do
+                effectful ("guarded_" + handler) [ "files", filesType ] (resultOf stringType)
+                    ($"""{{"kind":"exceptionCatch","body":"attempt","bodyContext":[{{"parameter":"files","value":{p "files"}}}],"handler":"{handler}","handlerContext":[]}}""")
+            let typed kind (value: string) = if kind = "unit" then """{"kind":"unit"}""" else $"""{{"kind":"{kind}","value":{value}}}"""
+            let primitive kind = $"""{{"kind":"primitive","primitive":"{kind}"}}"""
+            let ok kind (value: string) = $"""{{"kind":"return","value":{{"kind":"result","okType":{primitive kind},"errorType":{stringType},"isOk":true,"value":{typed kind value}}}}}"""
+            let err kind = $"""{{"kind":"return","value":{{"kind":"result","okType":{primitive kind},"errorType":{stringType},"isOk":false,"value":{{"kind":"string","value":"no"}}}}}}"""
+            let throw = """{"kind":"throw","message":"disk ✗"}"""
+            let files openResponse readResponses closeResponses =
+                $"""{{"kind":"fakeCapability","capability":"Files","operations":[{{"operation":"open","responses":[{openResponse}]}},{{"operation":"read","responses":[{readResponses}]}},{{"operation":"close","responses":[{closeResponses}]}}]}}"""
+            let scripts =
+                [ files (ok "int64" "\"7\"") (ok "string" "\"text\"") (ok "unit" "\"unit\"")
+                  files (err "int64") "" ""
+                  files (ok "int64" "\"7\"") throw (ok "unit" "\"unit\"")
+                  files (ok "int64" "\"7\"") throw throw
+                  files (ok "int64" "\"7\"") (ok "string" "\"text\"") (err "unit")
+                  files (ok "int64" "\"7\"") (err "string") (err "unit")
+                  files throw "" "" ]
+            let compare name (arguments: string list) =
+                let csharp = run session "csharp" name arguments
+                let zig = run session "zig" name arguments
+                Assert.True(csharp.GetProperty("ok").GetBoolean() = zig.GetProperty("ok").GetBoolean(), csharp.ToString() + "\n" + zig.ToString())
+                if csharp.GetProperty("ok").GetBoolean() then
+                    Assert.Equal(csharp.GetProperty("result").GetProperty("actual").ToString(), zig.GetProperty("result").GetProperty("actual").ToString())
+                    Assert.Equal(csharp.GetProperty("result").GetProperty("calls").ToString(), zig.GetProperty("result").GetProperty("calls").ToString())
+                else
+                    if not (csharp.GetProperty("error").TryGetProperty("failureKind") |> fst) then failwith (csharp.ToString() + "\n" + zig.ToString())
+                    for property in [ "code"; "message"; "failureKind"; "exceptionType"; "calls" ] do
+                        Assert.Equal(csharp.GetProperty("error").GetProperty(property).ToString(), zig.GetProperty("error").GetProperty(property).ToString())
+            for script in scripts do
+                for name in [ "withFile"; "guarded_recover"; "guarded_rethrowCancellation"; "guarded_rethrowAll" ] do compare name [ script ]
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs tasks under the virtual clock and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let commitResult (response: JsonElement) =
+                Assert.True(response.GetProperty("ok").GetBoolean(), response.ToString())
+                let proposalId = response.GetProperty("result").GetProperty("proposalId").GetString()
+                Assert.True((execute session ($"""{{"id":"m","op":"commit","proposalId":"{proposalId}"}}""")).GetProperty("ok").GetBoolean())
+            commitResult (execute session """{"id":"e","op":"simulateCreateEffect","exported":true,"displayName":"io"}""")
+            commitResult (execute session ($"""{{"id":"c","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Svc","operations":[{{"displayName":"work","parameters":[{{"displayName":"n","type":{int64Type}}}],"resultType":{int64Type},"effect":"io"}},{{"displayName":"hold","parameters":[],"resultType":{int64Type},"effect":"io"}}]}}"""))
+            let svcType = """{"kind":"capability","name":"Svc"}"""
+            let generic name (arguments: string list) = $"""{{"kind":"builtinGeneric","generic":"{name}","arguments":[{String.Join(",", arguments)}]}}"""
+            let outcome = generic "result" [ int64Type; stringType ]
+            let taskType = generic "task" [ outcome ]
+            let scopeType = generic "taskScope" []
+            let waited = generic "list" [ generic "option" [ outcome ] ]
+            let effectful name (parameters: (string * string) list) result body =
+                let parameters = parameters |> List.map (fun (name, kind) -> $"""{{"displayName":"{name}","type":{kind}}}""") |> String.concat ","
+                commitResult (execute session ($"""{{"id":"f","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{parameters}],"resultType":{result},"requiredEffects":["io"],"body":{body}}}"""))
+            let value depth = $"""{{"kind":"patternReference","scopeDepth":{depth},"slot":"value"}}"""
+            let svc operation (arguments: string) = $"""{{"kind":"capabilityInvoke","capabilityValue":{p "svc"},"capability":"Svc","operation":"{operation}","arguments":[{arguments}]}}"""
+            let ok x = $"""{{"kind":"resultOk","errorType":{stringType},"value":{x}}}"""
+            let bind x body = $"""{{"kind":"bind","value":{x},"body":{body}}}"""
+            let ctx = $"""[{{"parameter":"svc","value":{p "svc"}}}]"""
+            effectful "job" [ "svc", svcType; "n", int64Type ] outcome (bind (svc "work" ($"""{{"parameter":"n","value":{p "n"}}}""")) (ok (value 0)))
+            effectful "holder" [ "svc", svcType; "n", int64Type ] outcome (bind (svc "hold" "") (ok ($"""{{"kind":"int64WrappingAdd","left":{value 0},"right":{p "n"}}}""")))
+            effectful "fanOut" [ "svc", svcType; "xs", generic "list" [ int64Type ] ] (generic "result" [ generic "list" [ int64Type ]; stringType ])
+                ($"""{{"kind":"parallelAll","source":{p "xs"},"worker":"job","context":{ctx}}}""")
+            let start worker item = $"""{{"kind":"taskStart","scope":{p "scope"},"worker":"{worker}","item":{{"kind":"int64Literal","value":{item}}},"context":{ctx}}}"""
+            let tasks depths = $"""{{"kind":"listConstruct","itemType":{taskType},"items":[{String.Join(",", depths |> List.map value)}]}}"""
+            let some x = $"""{{"kind":"optionSome","value":{x}}}"""
+            effectful "raceBody" [ "svc", svcType; "scope", scopeType ] (generic "result" [ waited; stringType ])
+                (bind (start "job" 1) (bind (start "job" 2) (bind ($"""{{"kind":"taskWait","tasks":{tasks [ 1; 0 ]},"mode":"any","limit":{some "{\"kind\":\"int64Literal\",\"value\":25}"}}}""") (ok (value 0)))))
+            effectful "race" [ "svc", svcType ] (generic "result" [ waited; stringType ]) ($"""{{"kind":"taskScope","body":"raceBody","context":{ctx}}}""")
+            effectful "cancelBody" [ "svc", svcType; "scope", scopeType ] (generic "result" [ waited; stringType ])
+                (bind (start "holder" 7) (bind ($"""{{"kind":"taskCancel","task":{value 0}}}""") (bind ($"""{{"kind":"taskWait","tasks":{tasks [ 1 ]},"mode":"all"}}""") (ok (value 0)))))
+            effectful "cancelled" [ "svc", svcType ] (generic "result" [ waited; stringType ]) ($"""{{"kind":"taskScope","body":"cancelBody","context":{ctx}}}""")
+            effectful "shieldBody" [ "svc", svcType; "start", """{"kind":"primitive","primitive":"unit"}""" ] outcome
+                (bind (svc "work" ($"""{{"parameter":"n","value":{{"kind":"int64Literal","value":5}}}}""")) (ok ($"""{{"kind":"conditional","condition":{{"kind":"cancellationRequested"}},"whenTrue":{{"kind":"int64Literal","value":-1}},"whenFalse":{value 0}}}""")))
+            effectful "shielded" [ "svc", svcType ] outcome ($"""{{"kind":"cancellationShield","body":"shieldBody","context":{ctx}}}""")
+            effectful "addWork" [ "svc", svcType; "acc", int64Type; "n", int64Type ] int64Type (bind (svc "work" ($"""{{"parameter":"n","value":{p "n"}}}""")) ($"""{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{value 0}}}"""))
+            effectful "sumWork" [ "svc", svcType; "xs", generic "list" [ int64Type ] ] int64Type ($"""{{"kind":"listEffectFold","source":{p "xs"},"seed":{{"kind":"int64Literal","value":0}},"function":"addWork","context":{ctx}}}""")
+            let response (n: int) (delay: int option) =
+                let delayed = delay |> Option.map (fun d -> $""","delayMillis":"{d}" """) |> Option.defaultValue ""
+                $"""{{"kind":"return","value":{{"kind":"int64","value":"{n}"}}{delayed}}}"""
+            let fake (work: string list) (hold: string list) =
+                $"""{{"kind":"fakeCapability","capability":"Svc","operations":[{{"operation":"work","responses":[{String.Join(",", work)}]}},{{"operation":"hold","responses":[{String.Join(",", hold)}]}}]}}"""
+            let awaiting = """{"kind":"awaitCancellation","value":{"kind":"int64","value":100}}""".Replace("\"value\":100", "\"value\":\"100\"")
+            let compare name (arguments: string list) =
+                let csharp = run session "csharp" name arguments
+                let zig = run session "zig" name arguments
+                Assert.True(csharp.GetProperty("ok").GetBoolean() = zig.GetProperty("ok").GetBoolean(), csharp.ToString() + "\n" + zig.ToString())
+                if csharp.GetProperty("ok").GetBoolean() then
+                    Assert.Equal(csharp.GetProperty("result").GetProperty("actual").ToString(), zig.GetProperty("result").GetProperty("actual").ToString())
+                    Assert.Equal(csharp.GetProperty("result").GetProperty("calls").ToString(), zig.GetProperty("result").GetProperty("calls").ToString())
+                else
+                    if not (csharp.GetProperty("error").TryGetProperty("failureKind") |> fst) then failwith (csharp.ToString() + "\n" + zig.ToString())
+                    for property in [ "code"; "message"; "failureKind"; "exceptionType"; "calls" ] do
+                        Assert.Equal(csharp.GetProperty("error").GetProperty(property).ToString(), zig.GetProperty("error").GetProperty(property).ToString())
+            compare "fanOut" [ fake [ response 10 (Some 30); response 20 (Some 10); response 30 None ] []; "[1,2,3]" ]
+            compare "fanOut" [ fake [ response 10 (Some 5) ] []; "[1,2]" ]
+            compare "race" [ fake [ response 10 (Some 40); response 20 (Some 20) ] [] ]
+            compare "race" [ fake [ response 10 (Some 40); response 20 (Some 30) ] [] ]
+            compare "cancelled" [ fake [] [ awaiting ] ]
+            compare "cancelled" [ fake [] [] ]
+            compare "shielded" [ fake [ response 4 (Some 3) ] [] ]
+            compare "sumWork" [ fake [ response 1 None; response 2 None; response 3 None ] []; "[1,2,3]" ]
+            // One-shot hand-offs, failures surfacing from tasks, a Result-returning effectful fold, and a deadlock.
+            let optionInt = generic "option" [ int64Type ]
+            let handed = generic "result" [ optionInt; stringType ]
+            let create = $"""{{"kind":"oneShotCreate","scope":{p "scope"},"valueType":{int64Type}}}"""
+            let waitCell limit = $"""{{"kind":"oneShotWait","cell":{value 0}{limit}}}"""
+            effectful "handoffBody" [ "svc", svcType; "scope", scopeType ] handed
+                (bind create (bind ($"""{{"kind":"oneShotComplete","cell":{value 0},"value":{{"kind":"int64Literal","value":5}}}}""") (bind ($"""{{"kind":"oneShotWait","cell":{value 1}}}""") (ok (value 0)))))
+            effectful "handoff" [ "svc", svcType ] handed ($"""{{"kind":"taskScope","body":"handoffBody","context":{ctx}}}""")
+            let limited = some "{\"kind\":\"int64Literal\",\"value\":10}"
+            effectful "timeoutBody" [ "svc", svcType; "scope", scopeType ] handed (bind create (bind (waitCell (",\"limit\":" + limited)) (ok (value 0))))
+            effectful "timeout" [ "svc", svcType ] handed ($"""{{"kind":"taskScope","body":"timeoutBody","context":{ctx}}}""")
+            effectful "stuckBody" [ "svc", svcType; "scope", scopeType ] handed (bind create (bind (waitCell "") (ok (value 0))))
+            effectful "stuck" [ "svc", svcType ] handed ($"""{{"kind":"taskScope","body":"stuckBody","context":{ctx}}}""")
+            effectful "failWaitBody" [ "svc", svcType; "scope", scopeType ] (generic "result" [ waited; stringType ])
+                (bind (start "job" 1) (bind ($"""{{"kind":"taskWait","tasks":{tasks [ 0 ]},"mode":"all"}}""") (ok (value 0))))
+            effectful "failWait" [ "svc", svcType ] (generic "result" [ waited; stringType ]) ($"""{{"kind":"taskScope","body":"failWaitBody","context":{ctx}}}""")
+            effectful "failCloseBody" [ "svc", svcType; "scope", scopeType ] outcome (bind (start "job" 1) (bind (start "job" 2) (ok "{\"kind\":\"int64Literal\",\"value\":0}")))
+            effectful "failClose" [ "svc", svcType ] outcome ($"""{{"kind":"taskScope","body":"failCloseBody","context":{ctx}}}""")
+            let added = ok ($"""{{"kind":"int64WrappingAdd","left":{p "acc"},"right":{value 0}}}""")
+            effectful "addChecked" [ "svc", svcType; "acc", int64Type; "n", int64Type ] outcome
+                (bind (svc "work" ($"""{{"parameter":"n","value":{p "n"}}}""")) ($"""{{"kind":"conditional","condition":{{"kind":"int64LessThan","left":{value 0},"right":{{"kind":"int64Literal","value":0}}}},"whenTrue":{{"kind":"resultErr","okType":{int64Type},"error":{{"kind":"stringLiteral","value":"negative"}}}},"whenFalse":{added}}}"""))
+            effectful "sumChecked" [ "svc", svcType; "xs", generic "list" [ int64Type ] ] outcome ($"""{{"kind":"listEffectFold","source":{p "xs"},"seed":{{"kind":"int64Literal","value":0}},"function":"addChecked","context":{ctx}}}""")
+            let throws = """{"kind":"throw","message":"task ✗"}"""
+            compare "handoff" [ fake [] [] ]
+            compare "timeout" [ fake [] [] ]
+            compare "stuck" [ fake [] [] ]
+            compare "failWait" [ fake [ throws ] [] ]
+            compare "failClose" [ fake [ response 1 (Some 5); throws ] [] ]
+            compare "failClose" [ fake [ throws; response 2 None ] [] ]
+            compare "sumChecked" [ fake [ response 1 None; response -2 None; response 3 None ] []; "[1,2,3]" ]
+            compare "sumChecked" [ fake [ response 1 None; response 2 None ] []; "[1,2]" ]
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs String search, split and join and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let st = [ "s", stringType; "t", stringType ]
+            let sti = st @ [ "i", int64Type ]
+            let optionInt = $"""{{"kind":"builtinGeneric","generic":"option","arguments":[{int64Type}]}}"""
+            let texts = $"""{{"kind":"builtinGeneric","generic":"list","arguments":[{stringType}]}}"""
+            create session "slice" [ "s", stringType; "i", int64Type; "j", int64Type ] stringType ($"""{{"kind":"stringSlice","value":{p "s"},"start":{p "i"},"end":{p "j"}}}""")
+            create session "indexOf" sti optionInt ($"""{{"kind":"stringIndexOf","value":{p "s"},"substring":{p "t"},"from":{p "i"}}}""")
+            create session "lastBefore" sti optionInt ($"""{{"kind":"stringLastIndexOfBefore","value":{p "s"},"substring":{p "t"},"end":{p "i"}}}""")
+            create session "span" sti int64Type ($"""{{"kind":"stringSpan","value":{p "s"},"set":{p "t"},"from":{p "i"}}}""")
+            create session "spanBack" sti int64Type ($"""{{"kind":"stringSpanBack","value":{p "s"},"set":{p "t"},"end":{p "i"}}}""")
+            create session "lastIndexOf" st optionInt ($"""{{"kind":"stringLastIndexOf","value":{p "s"},"substring":{p "t"}}}""")
+            create session "contains" st boolType ($"""{{"kind":"stringContains","value":{p "s"},"substring":{p "t"}}}""")
+            create session "startsWith" st boolType ($"""{{"kind":"stringStartsWith","value":{p "s"},"prefix":{p "t"}}}""")
+            create session "endsWith" st boolType ($"""{{"kind":"stringEndsWith","value":{p "s"},"suffix":{p "t"}}}""")
+            create session "less" st boolType ($"""{{"kind":"stringLessThan","left":{p "s"},"right":{p "t"}}}""")
+            create session "split" st texts ($"""{{"kind":"stringSplit","value":{p "s"},"separator":{p "t"}}}""")
+            create session "lines" st texts ($"""{{"kind":"stringSplitLines","value":{p "s"},"breaks":{p "t"}}}""")
+            create session "replace" st stringType ($"""{{"kind":"stringReplace","value":{p "s"},"pattern":{p "t"},"replacement":{{"kind":"stringLiteral","value":"<😀>"}}}}""")
+            create session "join" [ "xs", texts; "t", stringType ] stringType ($"""{{"kind":"stringJoin","list":{p "xs"},"separator":{p "t"}}}""")
+            let strings = [ "\"\""; "\"aXbXXc\""; "\"héllo wörld\""; "\"a😀b😀\""; "\"x\\r\\ny\\n\\u2028z\\r\""; "\"€uro€\"" ]
+            let patterns = [ "\"\""; "\"X\""; "\"😀\""; "\"ö\""; "\"\\r\\n\\u2028\""; "\"€\""; "\"lo wö\"" ]
+            for s in strings do
+                for i in [ "-1"; "0"; "2"; "100" ] do
+                    for j in [ "-1"; "1"; "3"; "100" ] do agree session "slice" [ s; i; j ]
+                for t in patterns @ strings do
+                    for name in [ "lastIndexOf"; "contains"; "startsWith"; "endsWith"; "less"; "split"; "lines"; "replace" ] do agree session name [ s; t ]
+                for t in patterns do
+                    for i in [ "-1"; "0"; "2"; "100" ] do
+                        for name in [ "indexOf"; "lastBefore"; "span"; "spanBack" ] do agree session name [ s; t; i ]
+            for xs in [ "[]"; "[\"\"]"; "[\"a\",\"\",\"😀\"]" ] do
+                for t in [ "\"\""; "\", \"" ] do agree session "join" [ xs; t ]
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs case mapping, trimming, code points and UTF-8 and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let unary kind = $"""{{"kind":"{kind}","value":{p "s"}}}"""
+            for kind in [ "stringToLower"; "stringToUpper"; "stringTrim"; "stringTrimStart"; "stringTrimEnd"; "stringEncodeUtf8"; "stringDecodeUtf8Lossy" ] do
+                create session kind [ "s", stringType ] stringType (unary kind)
+            create session "codePoints" [ "s", stringType ] ($"""{{"kind":"builtinGeneric","generic":"list","arguments":[{stringType}]}}""") (unary "stringCodePoints")
+            create session "byteCount" [ "s", stringType ] int64Type (unary "stringUtf8ByteCount")
+            create session "ord" [ "s", stringType ] ($"""{{"kind":"builtinGeneric","generic":"option","arguments":[{int64Type}]}}""") (unary "stringToCodePoint")
+            create session "repeat" [ "s", stringType; "n", int64Type ] stringType ($"""{{"kind":"stringRepeat","text":{p "s"},"count":{p "n"}}}""")
+            let chr value = $"""{{"kind":"optionGetOrDefault","option":{{"kind":"stringFromCodePoint","value":{value}}},"default":{{"kind":"stringLiteral","value":"-"}}}}"""
+            create session "chr" [ "n", int64Type ] stringType (chr (p "n"))
+            // Every code point in [a, b), lowered and uppered; the chunks below cover every cased one.
+            let all = $"""{{"kind":"stringJoin","list":{{"kind":"listMap","source":{{"kind":"listRange","start":{p "a"},"end":{p "b"}}},"function":"chr"}},"separator":{{"kind":"stringLiteral","value":""}}}}"""
+            create session "cases" [ "a", int64Type; "b", int64Type ] stringType
+                ($"""{{"kind":"stringConcat","left":{{"kind":"stringToLower","value":{all}}},"right":{{"kind":"stringToUpper","value":{all}}}}}""")
+            let strings =
+                [ "\"\""; "\"  \\t a b \\u00a0\\u3000\\n\""; "\"\\u200bx\\u200b\""; "\"Straße İstanbul ıi ΣΑΣ σς \\u212a k ǅ\""; "\"😀𐐷𐐏\""
+                  "\"\\u00c0\\u00ff\\u0080\\u00e2\\u0082\\u00ac\""; "\"\\u00ed\\u00a0\\u0080A\""; "\"\\u00f0\\u009f\\u0098\""; "\"\\u0100\\u00e2\\u0082\"" ]
+            for s in strings do
+                for kind in [ "stringToLower"; "stringToUpper"; "stringTrim"; "stringTrimStart"; "stringTrimEnd"; "stringEncodeUtf8"; "stringDecodeUtf8Lossy"; "codePoints"; "byteCount"; "ord" ] do
+                    agree session kind [ s ]
+                for n in [ "-1"; "0"; "3" ] do agree session "repeat" [ s; n ]
+            for s in [ "\"a\""; "\"😀\""; "\"é\"" ] do agree session "ord" [ s ]
+            for n in [ "-1"; "0"; "65"; "55296"; "57343"; "128512"; "1114111"; "1114112" ] do agree session "chr" [ n ]
+            // A result holds at most 65536 code units, and no code point above U+1EFFF has a case mapping.
+            for start in 0 .. 16000 .. 0x1F000 do agree session "cases" [ string start; string (start + 16000) ]
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Zig runs number text, Float64 rounding and checked Int64 and agrees with the C# backend`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> unwrap
+            let float = """{"kind":"primitive","primitive":"float64"}"""
+            let option item = $"""{{"kind":"builtinGeneric","generic":"option","arguments":[{item}]}}"""
+            let unary kind name = $"""{{"kind":"{kind}","value":{p name}}}"""
+            create session "hex" [ "n", int64Type ] stringType (unary "int64ToHexString" "n")
+            create session "parse" [ "s", stringType ] (option int64Type) (unary "stringParseInt64" "s")
+            create session "parseHex" [ "s", stringType ] (option int64Type) (unary "stringParseInt64Hex" "s")
+            create session "parseFloat" [ "s", stringType ] (option float) (unary "stringParseFloat64" "s")
+            create session "show" [ "x", float ] stringType (unary "float64ToString" "x")
+            create session "round" [ "x", float; "n", int64Type ] float ($"""{{"kind":"float64Round","value":{p "x"},"digits":{p "n"}}}""")
+            for kind in [ "int64CheckedAdd"; "int64CheckedSubtract"; "int64CheckedMultiply" ] do
+                create session kind [ "a", int64Type; "b", int64Type ] (option int64Type) (binary kind)
+            let edges = [ Int64.MinValue; -255L; -1L; 0L; 2L; 255L; 3037000500L; Int64.MaxValue ]
+            for a in edges do
+                agree session "hex" [ int64 a ]
+                for b in edges do
+                    for kind in [ "int64CheckedAdd"; "int64CheckedSubtract"; "int64CheckedMultiply" ] do agree session kind [ int64 a; int64 b ]
+            let numbers =
+                [ ""; "-"; "0"; "-0"; "007"; "+1"; " 1"; "1_0"; "12a"; "١"; "FFff"; "0x10"; "7fffffffffffffff"; "-8000000000000000"; "8000000000000000"
+                  "10000000000000000"; "9223372036854775807"; "9223372036854775808"; "-9223372036854775808"; "-9223372036854775809"
+                  "0.1"; "1e400"; "-1e-400"; "1E+2"; ".5"; "5."; "1e"; "00.5"; "1e99999999999999999999"; "NaN"; "inf"; "1.0e-5"; "2.675" ]
+            for text in numbers do
+                for name in [ "parse"; "parseHex"; "parseFloat" ] do agree session name [ JsonSerializer.Serialize text ]
+            let floats =
+                [ "0.1"; "1e16"; "1e17"; "1e-5"; "0.0001"; "\"-0\""; "\"NaN\""; "\"Infinity\""; "\"-Infinity\""; "5e-324"; "1.7976931348623157e308"
+                  "2.675"; "0.5"; "1.5"; "-2.5"; "123.456"; "100"; "1250"; "-0.004"; "1e22"; "1e23"; "123456789012345680"; "0.30000000000000004" ]
+            for x in floats do
+                agree session "show" [ x ]
+                for n in [ "-1001"; "-2"; "0"; "1"; "2"; "15"; "400" ] do agree session "round" [ x; n ]
         finally Directory.Delete(dir, true)

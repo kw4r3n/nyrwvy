@@ -1207,8 +1207,18 @@ module PureRun =
         let program = whole |> Option.defaultValue reach
         // One runner serves every runnable entry of the snapshot, so a session builds once per
         // snapshot; a program the backend cannot emit whole falls back to this entry's reach.
+        // Function values, exceptions and task handles are not run values, so an entry taking or
+        // returning one is not dispatched.
+        let rec mentionsFunction typeRef =
+            match typeRef with
+            | TypeRef.Function _
+            | TypeRef.BuiltinGeneric((BuiltinGenericType.Task | BuiltinGenericType.OneShot | BuiltinGenericType.TaskScope | BuiltinGenericType.Exception), _) -> true
+            | TypeRef.Named(_, arguments)
+            | TypeRef.BuiltinGeneric(_, arguments) -> List.exists mentionsFunction arguments
+            | _ -> false
         let runnable (program: ExecutionProgram) (candidate: ExecutionFunction) =
             List.isEmpty candidate.TypeParameters
+            && not (candidate.ResultType :: (candidate.Parameters |> List.map (fun parameter -> parameter.Value.Type)) |> List.exists mentionsFunction)
             && candidate.ResultType :: (candidate.Parameters |> List.map (fun parameter -> parameter.Value.Type))
                |> List.forall (ZigBackend.typeOf program >> Option.isSome)
         let withFakes (program: ExecutionProgram) =
@@ -1220,8 +1230,20 @@ module PureRun =
             | Error _ ->
                 let reach = ExecutionCallGraph.forEntry reach fn.Id
                 withFakes reach |> Result.map (fun source -> reach, source, reach.Functions |> List.filter (fun item -> item.SemanticFunctionId = fn.Id))
+        // As on the C# backend, waiting fake responses need a program that uses the concurrency runtime.
+        let waitingResponses =
+            arguments |> List.exists (function
+                | PureRunValue.FakeCapability(_, operations) ->
+                    operations |> List.exists (fun operation ->
+                        PureRunFakeOperation.responses operation |> List.exists (function
+                            | PureRunFakeResponse.AwaitCancellation _
+                            | PureRunFakeResponse.Delayed _ -> true
+                            | _ -> false))
+                | _ -> false)
         match emitted with
         | Error problems -> unsupported problems
+        | Ok _ when waitingResponses && not (CSharpBackend.usesConcurrencyRuntime (ExecutionCallGraph.forEntry reach fn.Id)) ->
+            Error(diagnostic "RunBindingShapeMismatch" "awaitCancellation and delayMillis responses need a program that uses ParallelAll, a task construct or CancellationRequested.")
         | Ok(program, source, entries) ->
             let zigType typeRef = (ZigBackend.typeOf program typeRef).Value
             let dispatch (entry: ExecutionFunction) =
@@ -1240,7 +1262,7 @@ module PureRun =
                         | other -> $"        const a{index} = nyDecode({zigType other}, &tokens);\n")
                 $"    if (std.mem.eql(u8, entry, \"{name}\")) {{\n"
                 + String.concat "" decoded
-                + "        try nyEncode(&value.writer, " + name + "(" + String.Join(", ", entry.Parameters |> List.mapi (fun index _ -> $"a{index}")) + "));\n"
+                + "        try nyEncode(&value.writer, nyValue(" + name + "(" + String.Join(", ", entry.Parameters |> List.mapi (fun index _ -> $"a{index}")) + ")));\n"
                 + "    }\n"
             let runner =
                 source
@@ -1254,6 +1276,7 @@ module PureRun =
                 + "    var writer = std.Io.File.stdout().writer(init.io, &buffer);\n"
                 + "    const out = &writer.interface;\n"
                 + "    ny_out = out;\n"
+                + "    ny_io = init.io;\n"
                 + "    ny_calls = .init(nyAllocator());\n"
                 + "    var value: std.Io.Writer.Allocating = .init(nyAllocator());\n"
                 + String.concat "" (entries |> List.sortBy (fun entry -> StableId.value entry.SemanticFunctionId) |> List.map dispatch)

@@ -66,6 +66,7 @@ Most probes in this section are *porting probes*: a slice of an existing program
 
 ## Project review and follow-ups
 
+- [Nyrwvyの欠点 — 確認用資料（2026-10-27）](limitations-review-20261027.md): 現行の制約、過去の観測・計測、利用上の影響を分けたレビュー資料。新たな実行検証は含まない。
 - [Project review 2026-09-22](project-review-20260922.md) and its [prioritized follow-ups](project-review-follow-ups-20260922.md)
 - [Pinned-dependency review follow-ups](pinned-dependency-review-follow-ups.md)
 - [Retained dependency pins (#209)](retained-dependency-pins.md)

@@ -7,6 +7,30 @@ module ZigRuntime =
 
 const NyUnit = struct {};
 
+/// A host failure: a per-task abort with a kind (`cancelled` or a fault) and a message. A function
+/// that may fail returns `NyError!T` and leaves the failure in `ny_failure`; allocation failure and
+/// stack overflow are fatal panics instead.
+const NyFailure = struct { type_name: []const u8, message: []const u8, exhausted: bool = false, cancelled: bool = false };
+const NyError = error{NyFailure};
+threadlocal var ny_failure: NyFailure = undefined;
+
+fn nyRethrow(comptime T: type, failure: NyFailure) NyError!T {
+    ny_failure = failure;
+    return error.NyFailure;
+}
+
+fn nyFail(exception_type: []const u8, message: []const u8, exhausted: bool) NyError {
+    ny_failure = .{ .type_name = exception_type, .message = message, .exhausted = exhausted };
+    return error.NyFailure;
+}
+
+fn NyPayload(comptime T: type) type {
+    return switch (@typeInfo(T)) {
+        .error_union => |info| info.payload,
+        else => T,
+    };
+}
+
 fn NyResult(comptime Ok: type, comptime Err: type) type {
     return union(enum) { ok: Ok, err: Err };
 }
@@ -66,6 +90,432 @@ fn nyConcat(left: []const u8, right: []const u8) []const u8 {
     @memcpy(joined[0..left.len], left);
     @memcpy(joined[left.len..], right);
     return joined;
+}
+
+// Concurrency follows the C# runtime under its deterministic virtual clock: one thread runs at a time;
+// when it blocks or finishes, the next resumes: an elapsed delay by (deadline, start order), else a
+// thread that can continue (new, ready, or timed out) by start order, else time jumps to the earliest
+// deadline. With nothing able to resume, every waiter fails as the C# clock's waiters do.
+var ny_io: std.Io = undefined;
+var ny_gate: std.Io.Mutex = .init;
+var ny_turn: std.Io.Condition = .init;
+var ny_running: usize = 1;
+var ny_next_order: u64 = 1;
+var ny_now: i64 = 0;
+var ny_waiters: std.ArrayList(*NyWaiter) = .empty;
+threadlocal var ny_order: u64 = 0;
+
+const NyWaiter = struct {
+    ready: *const fn (*const anyopaque) bool,
+    context: *const anyopaque,
+    due: ?i64,
+    order: u64,
+    is_delay: bool,
+    released: bool = false,
+    failed: bool = false,
+};
+
+fn nyAlways(_: *const anyopaque) bool {
+    return true;
+}
+
+fn nyNever(_: *const anyopaque) bool {
+    return false;
+}
+
+fn nyDeadline(millis: i64) i64 {
+    const span = @max(millis, 0);
+    return if (span >= std.math.maxInt(i64) - ny_now) std.math.maxInt(i64) else ny_now + span;
+}
+
+/// The waiter with the earliest deadline among those `matches` accepts; delays first, then start order.
+fn nyEarliest(comptime matches: fn (*NyWaiter) bool) ?*NyWaiter {
+    var earliest: ?*NyWaiter = null;
+    for (ny_waiters.items) |waiter| {
+        if (!matches(waiter)) continue;
+        if (earliest) |best| {
+            const key = .{ waiter.due.?, @as(u8, if (waiter.is_delay) 0 else 1), waiter.order };
+            const other = .{ best.due.?, @as(u8, if (best.is_delay) 0 else 1), best.order };
+            if (key[0] < other[0] or (key[0] == other[0] and (key[1] < other[1] or (key[1] == other[1] and key[2] < other[2])))) earliest = waiter;
+        } else earliest = waiter;
+    }
+    return earliest;
+}
+
+fn nyElapsedDelay(waiter: *NyWaiter) bool {
+    return waiter.is_delay and waiter.due.? <= ny_now;
+}
+
+fn nyHasDue(waiter: *NyWaiter) bool {
+    return waiter.due != null;
+}
+
+fn nySchedule() void {
+    if (ny_running > 0 or ny_waiters.items.len == 0) return;
+    var next = nyEarliest(nyElapsedDelay);
+    if (next == null) {
+        for (ny_waiters.items) |waiter| {
+            if ((waiter.ready(waiter.context) or (waiter.due != null and waiter.due.? <= ny_now)) and (next == null or waiter.order < next.?.order)) next = waiter;
+        }
+    }
+    if (next == null) {
+        next = nyEarliest(nyHasDue);
+        if (next == null) {
+            // Nothing can ever resume: fail every waiter instead of hanging.
+            for (ny_waiters.items) |waiter| {
+                waiter.failed = true;
+                waiter.released = true;
+                ny_running += 1;
+            }
+            ny_waiters.clearRetainingCapacity();
+            ny_turn.broadcast(ny_io);
+            return;
+        }
+        ny_now = next.?.due.?;
+    }
+    for (ny_waiters.items, 0..) |waiter, index| {
+        if (waiter == next.?) {
+            _ = ny_waiters.orderedRemove(index);
+            break;
+        }
+    }
+    next.?.released = true;
+    ny_running += 1;
+    ny_turn.broadcast(ny_io);
+}
+
+const ny_deadlock: NyFailure = .{ .type_name = "System.InvalidOperationException", .message = "Every task is blocked and no delay is pending, so the program cannot continue." };
+
+fn nyDeadlock() NyError {
+    ny_failure = ny_deadlock;
+    return error.NyFailure;
+}
+
+/// Blocks until `ready` holds or `millis` of virtual time have passed; true when ready.
+fn nyBlock(ready: *const fn (*const anyopaque) bool, context: *const anyopaque, millis: ?i64, is_delay: bool) NyError!bool {
+    ny_gate.lockUncancelable(ny_io);
+    const waiter = nyAllocator().create(NyWaiter) catch @panic("out of memory");
+    waiter.* = .{ .ready = ready, .context = context, .due = if (millis) |value| nyDeadline(value) else null, .order = ny_order, .is_delay = is_delay };
+    ny_waiters.append(nyAllocator(), waiter) catch @panic("out of memory");
+    ny_running -= 1;
+    nySchedule();
+    while (!waiter.released) ny_turn.waitUncancelable(ny_io, &ny_gate);
+    ny_gate.unlock(ny_io);
+    if (waiter.failed) return nyDeadlock();
+    return ready(context);
+}
+
+/// Registers a task that has not started; it runs once scheduled.
+fn nyEnter() *NyWaiter {
+    ny_gate.lockUncancelable(ny_io);
+    defer ny_gate.unlock(ny_io);
+    const waiter = nyAllocator().create(NyWaiter) catch @panic("out of memory");
+    waiter.* = .{ .ready = nyAlways, .context = undefined, .due = null, .order = ny_next_order, .is_delay = false };
+    ny_next_order += 1;
+    ny_waiters.append(nyAllocator(), waiter) catch @panic("out of memory");
+    return waiter;
+}
+
+/// Called first on a task's own thread: waits for its turn and takes on its start order.
+fn nyStart(ticket: *NyWaiter) bool {
+    ny_order = ticket.order;
+    ny_gate.lockUncancelable(ny_io);
+    while (!ticket.released) ny_turn.waitUncancelable(ny_io, &ny_gate);
+    ny_gate.unlock(ny_io);
+    return !ticket.failed;
+}
+
+fn nyExit() void {
+    ny_gate.lockUncancelable(ny_io);
+    ny_running -= 1;
+    nySchedule();
+    ny_gate.unlock(ny_io);
+}
+
+/// A cancellation source. Cancelling flags it, closes the hand-offs of a scope it belongs to, and
+/// cancels the sources linked to it, synchronously. `null` is the token that is never cancelled.
+const NyCancel = struct {
+    cancelled: bool = false,
+    children: std.ArrayList(*NyCancel) = .empty,
+    scope: ?*NyScope = null,
+
+    fn cancel(self: *NyCancel) void {
+        if (self.cancelled) return;
+        self.cancelled = true;
+        if (self.scope) |scope| scope.closeHandoffs();
+        for (self.children.items) |child| child.cancel();
+    }
+};
+
+threadlocal var ny_token: ?*NyCancel = null;
+
+fn nyLinked(parent: ?*NyCancel) *NyCancel {
+    const source = nyAllocator().create(NyCancel) catch @panic("out of memory");
+    source.* = .{};
+    if (parent) |owner| {
+        owner.children.append(nyAllocator(), source) catch @panic("out of memory");
+        if (owner.cancelled) source.cancel();
+    }
+    return source;
+}
+
+fn nyCancellationRequested() bool {
+    return if (ny_token) |token| token.cancelled else false;
+}
+
+const NyTaskBase = struct {
+    done: bool = false,
+    failed: bool = false,
+    failure: NyFailure = undefined,
+    cancel: *NyCancel,
+};
+
+fn NyTask(comptime W: type) type {
+    return struct { base: NyTaskBase, value: W = undefined };
+}
+
+const NyOneShotState = enum { pending, completed, closed };
+
+const NyScope = struct {
+    cancel: *NyCancel,
+    tasks: std.ArrayList(*NyTaskBase) = .empty,
+    handoffs: std.ArrayList(*NyOneShotState) = .empty,
+    closed: bool = false,
+    handoffs_closed: bool = false,
+
+    fn closeHandoffs(self: *NyScope) void {
+        if (self.handoffs_closed) return;
+        self.handoffs_closed = true;
+        for (self.handoffs.items) |state| {
+            if (state.* == .pending) state.* = .closed;
+        }
+    }
+};
+
+fn nyScopeOpen() *NyScope {
+    const scope = nyAllocator().create(NyScope) catch @panic("out of memory");
+    scope.* = .{ .cancel = nyLinked(ny_token) };
+    scope.cancel.scope = scope;
+    if (scope.cancel.cancelled) scope.closeHandoffs();
+    return scope;
+}
+
+fn nyAllDone(context: *const anyopaque) bool {
+    const tasks: *const []const *NyTaskBase = @ptrCast(@alignCast(context));
+    for (tasks.*) |task| if (!task.done) return false;
+    return true;
+}
+
+fn nyAnyDone(context: *const anyopaque) bool {
+    const tasks: *const []const *NyTaskBase = @ptrCast(@alignCast(context));
+    for (tasks.*) |task| if (task.done) return true;
+    return false;
+}
+
+fn nyWaitAll(tasks: []const *NyTaskBase) NyError!void {
+    if (tasks.len == 0) return;
+    const held = nyAllocator().create([]const *NyTaskBase) catch @panic("out of memory");
+    held.* = tasks;
+    _ = try nyBlock(nyAllDone, @ptrCast(held), null, false);
+}
+
+/// Closes a scope on its body's exit: closes hand-offs, cancels and joins its tasks, and, when the
+/// body itself did not fail, fails with the earliest-started failed task's failure.
+fn nyScopeClose(scope: *NyScope, body_failed: bool) NyError!void {
+    scope.closeHandoffs();
+    scope.closed = true;
+    const tasks = nyListOf(*NyTaskBase, scope.tasks.items);
+    scope.cancel.cancel();
+    try nyWaitAll(tasks);
+    if (body_failed) return;
+    for (tasks) |task| {
+        if (task.failed) {
+            ny_failure = task.failure;
+            return error.NyFailure;
+        }
+    }
+}
+
+/// Starts `job.run()` as a task of `scope` (or runs it at once, cancelled, when the scope is closed).
+fn nyStartTask(comptime W: type, scope: *NyScope, job: anytype) *NyTask(W) {
+    const task = nyAllocator().create(NyTask(W)) catch @panic("out of memory");
+    task.* = .{ .base = .{ .cancel = nyLinked(scope.cancel) } };
+    const Job = @TypeOf(job);
+    const held = nyAllocator().create(Job) catch @panic("out of memory");
+    held.* = job;
+    if (scope.closed) {
+        task.base.cancel.cancel();
+        const saved = ny_token;
+        ny_token = task.base.cancel;
+        nyRunJob(W, task, held);
+        ny_token = saved;
+        return task;
+    }
+    scope.tasks.append(nyAllocator(), &task.base) catch @panic("out of memory");
+    const ticket = nyEnter();
+    const thread = std.Thread.spawn(.{}, nyTaskThread(W, Job), .{ task, held, ticket }) catch @panic("cannot start a task");
+    thread.detach();
+    return task;
+}
+
+fn nyRunJob(comptime W: type, task: *NyTask(W), job: anytype) void {
+    const outcome = job.run();
+    if (@typeInfo(@TypeOf(outcome)) == .error_union) {
+        if (outcome) |value| task.value = value else |_| {
+            task.base.failed = true;
+            task.base.failure = ny_failure;
+        }
+    } else task.value = outcome;
+    task.base.done = true;
+}
+
+fn nyTaskThread(comptime W: type, comptime Job: type) fn (*NyTask(W), *Job, *NyWaiter) void {
+    return struct {
+        fn run(task: *NyTask(W), job: *Job, ticket: *NyWaiter) void {
+            if (!nyStart(ticket)) {
+                // The clock failed every waiter: the task fails before it starts.
+                task.base.failed = true;
+                task.base.failure = ny_deadlock;
+                task.base.done = true;
+            } else {
+                ny_token = task.base.cancel;
+                nyRunJob(W, task, job);
+            }
+            nyExit();
+        }
+    }.run;
+}
+
+const NyTaskWaitContext = struct { tasks: []const *NyTaskBase };
+
+/// The listed tasks' results in input order, `null` for one still running, after waiting for any or
+/// all of them (or `limit` of virtual time). A failed finished task fails the wait.
+fn nyTaskWait(comptime W: type, tasks: []const *NyTask(W), all: bool, limit: ?i64) NyError![]const ?W {
+    if (tasks.len == 0) return &.{};
+    const bases = nyAlloc(*NyTaskBase, tasks.len);
+    for (tasks, 0..) |task, index| bases[index] = &task.base;
+    const held = nyAllocator().create([]const *NyTaskBase) catch @panic("out of memory");
+    held.* = bases;
+    _ = try nyBlock(if (all) nyAllDone else nyAnyDone, @ptrCast(held), if (limit) |value| @max(value, 0) else null, false);
+    const out = nyAlloc(?W, tasks.len);
+    for (tasks, 0..) |task, index| {
+        if (task.base.done and task.base.failed) {
+            ny_failure = task.base.failure;
+            return error.NyFailure;
+        }
+        out[index] = if (task.base.done) task.value else null;
+    }
+    return out;
+}
+
+fn NyOneShot(comptime T: type) type {
+    return struct { state: NyOneShotState, value: T = undefined, scope: *NyScope };
+}
+
+fn nyOneShotCreate(comptime T: type, scope: *NyScope) *NyOneShot(T) {
+    const cell = nyAllocator().create(NyOneShot(T)) catch @panic("out of memory");
+    cell.* = .{ .state = if (scope.handoffs_closed) .closed else .pending, .scope = scope };
+    scope.handoffs.append(nyAllocator(), &cell.state) catch @panic("out of memory");
+    return cell;
+}
+
+fn nyOneShotComplete(comptime T: type, cell: *NyOneShot(T), value: T) bool {
+    if (cell.state != .pending or cell.scope.handoffs_closed) return false;
+    cell.value = value;
+    cell.state = .completed;
+    return true;
+}
+
+fn NyOneShotWaitContext(comptime T: type) type {
+    return struct {
+        cell: *NyOneShot(T),
+        token: ?*NyCancel,
+
+        fn ready(context: *const anyopaque) bool {
+            const self: *const @This() = @ptrCast(@alignCast(context));
+            return self.cell.state != .pending or (if (self.token) |token| token.cancelled else false);
+        }
+    };
+}
+
+fn nyOneShotWait(comptime T: type, cell: *NyOneShot(T), limit: ?i64) NyError!?T {
+    const context = nyAllocator().create(NyOneShotWaitContext(T)) catch @panic("out of memory");
+    context.* = .{ .cell = cell, .token = ny_token };
+    _ = try nyBlock(NyOneShotWaitContext(T).ready, @ptrCast(context), limit, false);
+    return if (cell.state == .completed) cell.value else null;
+}
+
+fn nyCancelledContext(context: *const anyopaque) bool {
+    const token: *const ?*NyCancel = @ptrCast(@alignCast(context));
+    return if (token.*) |source| source.cancelled else false;
+}
+
+/// A fake's await-cancellation response: blocks until the caller's token is cancelled.
+fn nyAwaitCancellation() NyError!void {
+    const held = nyAllocator().create(?*NyCancel) catch @panic("out of memory");
+    held.* = ny_token;
+    _ = try nyBlock(nyCancelledContext, @ptrCast(held), null, false);
+}
+
+/// ParallelAll: runs `worker(item)` for every item as tasks sharing one cancellation source linked to
+/// the caller's; a worker's Err or failure cancels the others. The first failure by index fails the
+/// call, else the lowest-index Err is the result, else the Ok values in index order.
+/// A task's work: `body` applied to the values the starting instruction captured.
+fn NyJob(comptime C: type, comptime R: type, comptime body: anytype) type {
+    return struct {
+        c: C,
+
+        fn run(job: *const @This()) R {
+            return body(job.c);
+        }
+    };
+}
+
+fn nyParallelAll(comptime T: type, comptime U: type, comptime E: type, items: []const T, context: anytype, comptime worker: anytype) NyError!NyResult([]const U, E) {
+    const Outcome = NyResult(U, E);
+    const shared = nyLinked(ny_token);
+    const tasks = nyAlloc(*NyTask(Outcome), items.len);
+    const bases = nyAlloc(*NyTaskBase, items.len);
+    const Job = struct {
+        item: T,
+        context: @TypeOf(context),
+        shared: *NyCancel,
+
+        fn run(job: *const @This()) NyError!Outcome {
+            const outcome = worker(job.context, job.item) catch |failure| {
+                job.shared.cancel();
+                return failure;
+            };
+            if (outcome == .err) job.shared.cancel();
+            return outcome;
+        }
+    };
+    for (items, 0..) |item, index| {
+        const task = nyAllocator().create(NyTask(Outcome)) catch @panic("out of memory");
+        task.* = .{ .base = .{ .cancel = shared } };
+        const job = nyAllocator().create(Job) catch @panic("out of memory");
+        job.* = .{ .item = item, .context = context, .shared = shared };
+        tasks[index] = task;
+        bases[index] = &task.base;
+        const ticket = nyEnter();
+        const thread = std.Thread.spawn(.{}, nyTaskThread(Outcome, Job), .{ task, job, ticket }) catch @panic("cannot start a task");
+        thread.detach();
+    }
+    try nyWaitAll(bases);
+    for (tasks) |task| {
+        if (task.base.failed) {
+            ny_failure = task.base.failure;
+            return error.NyFailure;
+        }
+    }
+    const values = nyAlloc(U, items.len);
+    for (tasks, 0..) |task, index| {
+        switch (task.value) {
+            .ok => |value| values[index] = value,
+            .err => |failure| return .{ .err = failure },
+        }
+    }
+    return .{ .ok = values };
 }
 
 // Lists are immutable slices. shortcut: every update copies (O(n)); a persistent vector, as the C#
@@ -325,6 +775,338 @@ fn nyBytesToLatin1(bytes: NyBytes) []const u8 {
     return out.items;
 }
 
+/// The language's sort: a top-down merge sort; a list of 0 or 1 items is returned as is, the
+/// first length / 2 items and the rest are sorted, then merged taking the right head only when
+/// less(right head, left head) holds.
+fn nySortBy(comptime T: type, list: []const T, context: anytype, comptime less: anytype) []const T {
+    if (list.len <= 1) return list;
+    const half = list.len / 2;
+    const left = nySortBy(T, list[0..half], context, less);
+    const right = nySortBy(T, list[half..], context, less);
+    const out = nyAlloc(T, list.len);
+    var l: usize = 0;
+    var r: usize = 0;
+    for (out) |*slot| {
+        if (l < left.len and (r >= right.len or !less(context, right[r], left[l]))) {
+            slot.* = left[l];
+            l += 1;
+        } else {
+            slot.* = right[r];
+            r += 1;
+        }
+    }
+    return out;
+}
+
+/// The first best item: a later item replaces it only when better(context, item, best) holds.
+fn nyBestBy(comptime T: type, list: []const T, context: anytype, comptime better: anytype) ?T {
+    if (list.len == 0) return null;
+    var best = list[0];
+    for (list[1..]) |item| {
+        if (better(context, item, best)) best = item;
+    }
+    return best;
+}
+
+// Text positions count code points. A String is valid UTF-8, so a byte-level match of a String
+// always starts and ends on code-point boundaries and byte order is code-point order.
+fn nyOom() noreturn {
+    @panic("out of memory");
+}
+
+fn nyWidth(text: []const u8, offset: usize) usize {
+    return std.unicode.utf8ByteSequenceLength(text[offset]) catch unreachable;
+}
+
+/// The byte offset of a code-point position clamped to [0, length].
+fn nyOffsetOf(text: []const u8, position: i64) usize {
+    var offset: usize = 0;
+    var reached: i64 = 0;
+    while (reached < position and offset < text.len) : (reached += 1) offset += nyWidth(text, offset);
+    return offset;
+}
+
+fn nyPositionOf(text: []const u8, offset: usize) i64 {
+    return nyStringLength(text[0..offset]);
+}
+
+/// Whether the code point at the start of `point` (one whole code point) is in `set`.
+fn nyInSet(set: []const u8, point: []const u8) bool {
+    return std.mem.indexOf(u8, set, point) != null;
+}
+
+fn nyStringSlice(text: []const u8, start: i64, end: i64) []const u8 {
+    const from = nyOffsetOf(text, start);
+    const to = if (end > start) nyOffsetOf(text, end) else from;
+    return text[from..to];
+}
+
+fn nyStringIndexOf(text: []const u8, value: []const u8, from: i64) ?i64 {
+    const offset = nyOffsetOf(text, from);
+    if (value.len == 0) return nyPositionOf(text, offset);
+    return if (std.mem.indexOfPos(u8, text, offset, value)) |found| nyPositionOf(text, found) else null;
+}
+
+/// The last match that ends at or before code-point position `end`.
+fn nyStringLastIndexOfBefore(text: []const u8, value: []const u8, end: i64) ?i64 {
+    const offset = nyOffsetOf(text, end);
+    if (value.len == 0) return nyPositionOf(text, offset);
+    return if (std.mem.lastIndexOf(u8, text[0..offset], value)) |found| nyPositionOf(text, found) else null;
+}
+
+fn nyStringSpan(text: []const u8, set: []const u8, from: i64) i64 {
+    var offset = nyOffsetOf(text, from);
+    var position = nyPositionOf(text, offset);
+    if (set.len == 0) return position;
+    while (offset < text.len) : (position += 1) {
+        const next = offset + nyWidth(text, offset);
+        if (!nyInSet(set, text[offset..next])) break;
+        offset = next;
+    }
+    return position;
+}
+
+fn nyStringSpanBack(text: []const u8, set: []const u8, end: i64) i64 {
+    var offset = nyOffsetOf(text, end);
+    var position = nyPositionOf(text, offset);
+    if (set.len == 0) return position;
+    while (offset > 0) : (position -= 1) {
+        var previous = offset - 1;
+        while (text[previous] & 0xC0 == 0x80) previous -= 1;
+        if (!nyInSet(set, text[previous..offset])) break;
+        offset = previous;
+    }
+    return position;
+}
+
+fn nyStringSplit(text: []const u8, separator: []const u8) []const []const u8 {
+    if (separator.len == 0) return nyListOf([]const u8, &.{text});
+    var pieces: std.ArrayList([]const u8) = .empty;
+    var parts = std.mem.splitSequence(u8, text, separator);
+    while (parts.next()) |piece| pieces.append(nyAllocator(), piece) catch nyOom();
+    return pieces.items;
+}
+
+/// Lines split at code points of `breaks`; "\r\n" is one break when both are members, and a final
+/// break adds no trailing empty line (Python splitlines).
+fn nyStringSplitLines(text: []const u8, breaks: []const u8) []const []const u8 {
+    if (text.len == 0) return &.{};
+    if (breaks.len == 0) return nyListOf([]const u8, &.{text});
+    const crlf = nyInSet(breaks, "\r") and nyInSet(breaks, "\n");
+    var lines: std.ArrayList([]const u8) = .empty;
+    var start: usize = 0;
+    var offset: usize = 0;
+    while (offset < text.len) {
+        var next = offset + nyWidth(text, offset);
+        if (nyInSet(breaks, text[offset..next])) {
+            lines.append(nyAllocator(), text[start..offset]) catch nyOom();
+            if (crlf and text[offset] == '\r' and next < text.len and text[next] == '\n') next += 1;
+            start = next;
+        }
+        offset = next;
+    }
+    if (start < text.len) lines.append(nyAllocator(), text[start..]) catch nyOom();
+    return lines.items;
+}
+
+fn nyStringReplace(text: []const u8, pattern: []const u8, replacement: []const u8) []const u8 {
+    if (pattern.len == 0) return text;
+    return std.mem.replaceOwned(u8, nyAllocator(), text, pattern, replacement) catch nyOom();
+}
+
+/// The Unicode White_Space property (.NET char.IsWhiteSpace); every member is in the BMP.
+fn nyIsWhiteSpace(point: []const u8) bool {
+    const code = std.unicode.utf8Decode(point) catch unreachable;
+    return switch (code) {
+        0x09...0x0D, 0x20, 0x85, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 => true,
+        else => false,
+    };
+}
+
+fn nyStringTrimStart(text: []const u8) []const u8 {
+    var start: usize = 0;
+    while (start < text.len) {
+        const next = start + nyWidth(text, start);
+        if (!nyIsWhiteSpace(text[start..next])) break;
+        start = next;
+    }
+    return text[start..];
+}
+
+fn nyStringTrimEnd(text: []const u8) []const u8 {
+    var end = text.len;
+    while (end > 0) {
+        var previous = end - 1;
+        while (text[previous] & 0xC0 == 0x80) previous -= 1;
+        if (!nyIsWhiteSpace(text[previous..end])) break;
+        end = previous;
+    }
+    return text[0..end];
+}
+
+fn nyStringJoin(list: []const []const u8, separator: []const u8) []const u8 {
+    return std.mem.join(nyAllocator(), separator, list) catch nyOom();
+}
+
+fn nyStringCodePoints(text: []const u8) []const []const u8 {
+    const points = nyAlloc([]const u8, @intCast(nyStringLength(text)));
+    var offset: usize = 0;
+    for (points) |*point| {
+        const next = offset + nyWidth(text, offset);
+        point.* = text[offset..next];
+        offset = next;
+    }
+    return points;
+}
+
+/// Python chr limited to Unicode scalar values.
+fn nyStringFromCodePoint(code: i64) ?[]const u8 {
+    if (code < 0 or code > 0x10FFFF or (code >= 0xD800 and code <= 0xDFFF)) return null;
+    const out = nyAlloc(u8, 4);
+    return out[0 .. std.unicode.utf8Encode(@intCast(code), out) catch unreachable];
+}
+
+/// Python ord: exactly one code point.
+fn nyStringToCodePoint(text: []const u8) ?i64 {
+    if (text.len == 0 or nyWidth(text, 0) != text.len) return null;
+    return std.unicode.utf8Decode(text) catch unreachable;
+}
+
+/// UTF-8 bytes as one code point U+0000..U+00FF each.
+fn nyStringEncodeUtf8(text: []const u8) []const u8 {
+    return nyBytesToLatin1(.{ .data = text });
+}
+
+/// The inverse: code points as bytes (above U+00FF reads as 0xFF), decoded with one U+FFFD per
+/// maximal ill-formed subpart, as .NET and Python's decode("utf-8", "replace") do.
+fn nyStringDecodeUtf8Lossy(text: []const u8) []const u8 {
+    return std.fmt.allocPrint(nyAllocator(), "{f}", .{std.unicode.fmtUtf8(nyBytesFromLatin1(text).data)}) catch nyOom();
+}
+
+/// Python text * count; a result longer than a .NET string (2^31 - 1 UTF-16 units) fails as the
+/// C# backend's allocation does.
+fn nyStringRepeat(text: []const u8, count: i64) []const u8 {
+    if (count <= 0 or text.len == 0) return "";
+    const units = std.unicode.calcUtf16LeLen(text) catch unreachable;
+    if (count > @divTrunc(std.math.maxInt(i32), @as(i64, @intCast(units)))) nyOom();
+    const out = nyAlloc(u8, text.len * @as(usize, @intCast(count)));
+    var at: usize = 0;
+    while (at < out.len) : (at += text.len) @memcpy(out[at..][0..text.len], text);
+    return out;
+}
+
+/// Python format(value, "x").
+fn nyInt64ToHexString(value: i64) []const u8 {
+    return std.fmt.allocPrint(nyAllocator(), "{s}{x}", .{ if (value < 0) "-" else "", @abs(value) }) catch nyOom();
+}
+
+/// Only '-'? ASCII digits; the Int64 range is then enforced by parseInt.
+fn nyStringParseInt64(text: []const u8) ?i64 {
+    const start: usize = if (text.len > 0 and text[0] == '-') 1 else 0;
+    if (text.len == start) return null;
+    for (text[start..]) |c| if (c < '0' or c > '9') return null;
+    return std.fmt.parseInt(i64, text, 10) catch null;
+}
+
+/// Only '-'? ASCII hex digits of either case; the magnitude must be at most 2^63 - 1, or 2^63 when
+/// negative.
+fn nyStringParseInt64Hex(text: []const u8) ?i64 {
+    const negative = text.len > 0 and text[0] == '-';
+    const start: usize = if (negative) 1 else 0;
+    if (text.len == start) return null;
+    var magnitude: u64 = 0;
+    for (text[start..]) |c| {
+        const digit = std.fmt.charToDigit(c, 16) catch return null;
+        if (magnitude > std.math.maxInt(u64) >> 4) return null;
+        magnitude = (magnitude << 4) + digit;
+    }
+    if (magnitude > @as(u64, if (negative) 1 << 63 else (1 << 63) - 1)) return null;
+    return if (negative) 0 -% @as(i64, @bitCast(magnitude)) else @intCast(magnitude);
+}
+
+fn nyChecked(result: anytype) ?i64 {
+    return if (result[1] == 0) result[0] else null;
+}
+
+/// The shortest round-trip decimal digits of a positive finite value, without leading or trailing
+/// zeros, and the point position: value = 0.d1d2... * 10^point.
+const NyDecimal = struct { digits: []const u8, point: i64 };
+
+fn nyShortest(magnitude: f64, digits: *[24]u8) NyDecimal {
+    var buffer: [32]u8 = undefined;
+    // "{e}" is "d.ddde±x" (or "de±x") with the shortest digits.
+    const text = std.fmt.bufPrint(&buffer, "{e}", .{magnitude}) catch unreachable;
+    const mark = std.mem.indexOfScalar(u8, text, 'e').?;
+    digits[0] = text[0];
+    const count = if (mark > 1) mark - 1 else 1;
+    if (mark > 1) @memcpy(digits[1..count], text[2..mark]);
+    const exponent = std.fmt.parseInt(i64, text[mark + 1 ..], 10) catch unreachable;
+    return .{ .digits = digits[0..count], .point = exponent + 1 };
+}
+
+/// Python repr(float): exponent notation when point <= -4 or > 16, with a signed exponent of at
+/// least two digits, otherwise fixed notation with at least one fractional digit.
+fn nyFloat64ToString(value: f64) []const u8 {
+    if (std.math.isNan(value)) return "nan";
+    if (std.math.isInf(value)) return if (value > 0) "inf" else "-inf";
+    if (value == 0) return if (std.math.signbit(value)) "-0.0" else "0.0";
+    var buffer: [24]u8 = undefined;
+    const decimal = nyShortest(@abs(value), &buffer);
+    const digits = decimal.digits;
+    const sign = if (value < 0) "-" else "";
+    const zeros = "0000000000000000";
+    const point = decimal.point;
+    const text = if (point <= -4 or point > 16)
+        std.fmt.allocPrint(nyAllocator(), "{s}{c}{s}{s}e{s}{d:0>2}", .{ sign, digits[0], if (digits.len > 1) "." else "", digits[1..], if (point - 1 < 0) "-" else "+", @abs(point - 1) })
+    else if (point <= 0)
+        std.fmt.allocPrint(nyAllocator(), "{s}0.{s}{s}", .{ sign, zeros[0..@intCast(-point)], digits })
+    else if (point >= digits.len)
+        std.fmt.allocPrint(nyAllocator(), "{s}{s}{s}.0", .{ sign, digits, zeros[0 .. @as(usize, @intCast(point)) - digits.len] })
+    else
+        std.fmt.allocPrint(nyAllocator(), "{s}{s}.{s}", .{ sign, digits[0..@intCast(point)], digits[@intCast(point)..] });
+    return text catch nyOom();
+}
+
+/// Python float(text) on the JSON number grammar only; parseFloat is correctly rounded and gives a
+/// signed infinity on overflow and a signed zero on underflow.
+fn nyStringParseFloat64(text: []const u8) ?f64 {
+    var index: usize = if (text.len > 0 and text[0] == '-') 1 else 0;
+    if (!nySkipDigits(text, &index)) return null;
+    if (index < text.len and text[index] == '.') {
+        index += 1;
+        if (!nySkipDigits(text, &index)) return null;
+    }
+    if (index < text.len and (text[index] == 'e' or text[index] == 'E')) {
+        index += 1;
+        if (index < text.len and (text[index] == '+' or text[index] == '-')) index += 1;
+        if (!nySkipDigits(text, &index)) return null;
+    }
+    if (index != text.len) return null;
+    return std.fmt.parseFloat(f64, text) catch unreachable;
+}
+
+fn nySkipDigits(text: []const u8, index: *usize) bool {
+    const start = index.*;
+    while (index.* < text.len and text[index.*] >= '0' and text[index.*] <= '9') index.* += 1;
+    return index.* > start;
+}
+
+/// Round(value, digits) rounds the shortest round-trip decimal text half away from zero at `digits`
+/// places and reads the result back: 2.675 to 2 places is 2.68 although the binary64 is below it.
+fn nyFloat64Round(value: f64, places: i64) f64 {
+    if (std.math.isNan(value) or std.math.isInf(value) or value == 0) return value;
+    var buffer: [24]u8 = undefined;
+    const decimal = nyShortest(@abs(value), &buffer);
+    const keep = decimal.point + std.math.clamp(places, -1000, 1000);
+    if (keep >= decimal.digits.len) return value;
+    if (keep < 0) return if (value < 0) -0.0 else 0.0;
+    var kept: i64 = if (keep == 0) 0 else std.fmt.parseInt(i64, decimal.digits[0..@intCast(keep)], 10) catch unreachable;
+    if (decimal.digits[@intCast(keep)] >= '5') kept += 1;
+    var text: [48]u8 = undefined;
+    const rounded = std.fmt.parseFloat(f64, std.fmt.bufPrint(&text, "{d}e{d}", .{ kept, decimal.point - keep }) catch unreachable) catch unreachable;
+    return if (value < 0) -rounded else rounded;
+}
+
 /// Structural equality over every supported value type.
 fn nyEqual(left: anytype, right: @TypeOf(left)) bool {
     const T = @TypeOf(left);
@@ -478,11 +1260,26 @@ fn nyDecode(comptime T: type, tokens: *NyTokens) T {
 // Scripted fakes, as the C# runner's: a script is one ordered queue, or one queue per argument key.
 fn NyResponse(comptime R: type) type {
     // Kind: 0 return, 1 throw, 2 await cancellation, 3 delay.
-    return struct { kind: u8, value: R = undefined, message: []const u8 = "" };
+    return struct { kind: u8, value: R = undefined, message: []const u8 = "", delay: i64 = 0, inner: ?*const NyResponse(R) = null };
 }
 
 fn NyScript(comptime R: type) type {
     return struct { keyed: bool, keys: []const []const u8, queues: []const []const NyResponse(R), next: []usize };
+}
+
+fn nyReadResponse(comptime R: type, tokens: *NyTokens) NyResponse(R) {
+    const kind = std.fmt.parseInt(u8, tokens.next(), 10) catch @panic("bad response token");
+    return switch (kind) {
+        0, 2 => .{ .kind = kind, .value = nyDecode(R, tokens) },
+        1 => .{ .kind = 1, .message = nyDecodeText(tokens.next()) },
+        3 => blk: {
+            const delay = std.fmt.parseInt(i64, tokens.next(), 10) catch @panic("bad delay token");
+            const inner = nyAllocator().create(NyResponse(R)) catch @panic("out of memory");
+            inner.* = nyReadResponse(R, tokens);
+            break :blk .{ .kind = 3, .delay = delay, .inner = inner };
+        },
+        else => @panic("bad response token"),
+    };
 }
 
 fn nyReadScript(comptime R: type, tokens: *NyTokens) NyScript(R) {
@@ -496,15 +1293,7 @@ fn nyReadScript(comptime R: type, tokens: *NyTokens) NyScript(R) {
         // A key token is "k" and the argument tokens joined by commas.
         if (keyed) keys[index] = tokens.next()[1..];
         const responses = nyAlloc(NyResponse(R), std.fmt.parseInt(usize, tokens.next(), 10) catch @panic("bad script token"));
-        for (responses) |*response| {
-            const kind = std.fmt.parseInt(u8, tokens.next(), 10) catch @panic("bad response token");
-            response.* = switch (kind) {
-                0 => .{ .kind = 0, .value = nyDecode(R, tokens) },
-                1 => .{ .kind = 1, .message = nyDecodeText(tokens.next()) },
-                // Waiting responses belong to task programs, which this backend does not run yet.
-                else => @panic("unsupported fake response"),
-            };
-        }
+        for (responses) |*response| response.* = nyReadResponse(R, tokens);
         queues[index] = responses;
     }
     return .{ .keyed = keyed, .keys = keys, .queues = queues, .next = next };
@@ -616,19 +1405,29 @@ fn nyTokens(w: *std.Io.Writer, first: *bool, value: anytype) !void {
     }
 }
 
-fn nyFail(exception_type: []const u8, message: []const u8, exhausted: bool) noreturn {
-    nyFailWrite(exception_type, message, exhausted) catch {};
+
+/// Ends the run with the envelope of a failure no ExceptionCatch handled.
+fn nyUncaught() noreturn {
+    nyUncaughtWrite() catch {};
     std.process.exit(0);
 }
 
-fn nyFailWrite(exception_type: []const u8, message: []const u8, exhausted: bool) !void {
-    try ny_out.print("[\"exception\",\"{s}\",", .{exception_type});
-    try nyEncodeText(ny_out, message);
-    try ny_out.print(",[],[{s}],{},\"fault\"]\n", .{ ny_calls.written(), exhausted });
+fn nyUncaughtWrite() !void {
+    try ny_out.print("[\"exception\",\"{s}\",", .{ny_failure.type_name});
+    try nyEncodeText(ny_out, ny_failure.message);
+    try ny_out.print(",[],[{s}],{},\"{s}\"]\n", .{ ny_calls.written(), ny_failure.exhausted, if (ny_failure.cancelled) "cancelled" else "fault" });
     try ny_out.flush();
 }
 
-fn nyRespond(comptime R: type, script: *NyScript(R), arguments: anytype) R {
+/// An entry's result, or the end of the run when the entry failed.
+fn nyValue(value: anytype) NyPayload(@TypeOf(value)) {
+    return switch (@typeInfo(@TypeOf(value))) {
+        .error_union => value catch nyUncaught(),
+        else => value,
+    };
+}
+
+fn nyRespond(comptime R: type, script: *NyScript(R), arguments: anytype) NyError!R {
     var selected: usize = 0;
     if (script.keyed) {
         var key: std.Io.Writer.Allocating = .init(nyAllocator());
@@ -636,14 +1435,27 @@ fn nyRespond(comptime R: type, script: *NyScript(R), arguments: anytype) R {
         inline for (@typeInfo(@TypeOf(arguments)).@"struct".field_names) |name| nyTokens(&key.writer, &first, @field(arguments, name)) catch @panic("out of memory");
         selected = for (script.keys, 0..) |candidate, index| {
             if (std.mem.eql(u8, candidate, key.written())) break index;
-        } else nyFail("FakeArgumentsUnmatchedException", "No fake case matches the complete call arguments.", false);
+        } else return nyFail("FakeArgumentsUnmatchedException", "No fake case matches the complete call arguments.", false);
     }
     const position = script.next[selected];
-    if (position >= script.queues[selected].len) nyFail("FakeResponsesExhaustedException", "The fake operation has no scripted response left for this call.", true);
+    if (position >= script.queues[selected].len) return nyFail("FakeResponsesExhaustedException", "The fake operation has no scripted response left for this call.", true);
     script.next[selected] += 1;
-    const response = script.queues[selected][position];
-    if (response.kind == 1) nyFail("FakeCapabilityException", response.message, false);
-    return response.value;
+    var response: *const NyResponse(R) = &script.queues[selected][position];
+    while (true) {
+        switch (response.kind) {
+            0 => return response.value,
+            1 => return nyFail("FakeCapabilityException", response.message, false),
+            2 => {
+                try nyAwaitCancellation();
+                return response.value;
+            },
+            else => {
+                // A delay is not interrupted by cancellation; then the inner response applies.
+                _ = try nyBlock(nyNever, undefined, response.delay, true);
+                response = response.inner.?;
+            },
+        }
+    }
 }
 
 fn nyEncode(out: *std.Io.Writer, value: anytype) !void {
@@ -723,3 +1535,75 @@ fn nyEncode(out: *std.Io.Writer, value: anytype) !void {
     }
 }
 """
+
+    /// The simple (one-to-one) case mapping the C# backend's NyText.ToLower/ToUpper apply: .NET's
+    /// invariant mapping per code point, except U+0130 -> i, U+0131 -> I and U+00DF -> U+1E9E.
+    let private mapCase (lower: bool) (code: int) =
+        if code < 0x10000 then
+            let unit = char code
+            if lower then (if code = 0x130 then 0x69 else int (System.Char.ToLowerInvariant unit))
+            elif code = 0x131 then 0x49
+            elif code = 0xDF then 0x1E9E
+            else int (System.Char.ToUpperInvariant unit)
+        else
+            let rune = System.Text.Rune code
+            (if lower then System.Text.Rune.ToLowerInvariant rune else System.Text.Rune.ToUpperInvariant rune).Value
+
+    /// Runs of mapped code points { first, last, step, delta }: every step-th code point from first
+    /// to last maps to itself plus delta. Runs take consecutive mapped code points, so a step-2 run
+    /// skips only unmapped ones, runs never overlap and a binary search over `first` finds the only
+    /// candidate.
+    let private caseRuns (lower: bool) =
+        let mapped =
+            [| for code in 0 .. 0x10FFFF do
+                 if code < 0xD800 || code > 0xDFFF then
+                     let target = mapCase lower code
+                     if target <> code then code, target - code |]
+        let runs = ResizeArray<string>()
+        let mutable index = 0
+        while index < mapped.Length do
+            let first, delta = mapped[index]
+            let mutable last = first
+            let mutable step = 1
+            if index + 1 < mapped.Length then
+                let next, nextDelta = mapped[index + 1]
+                if nextDelta = delta && next - first = 2 then step <- 2
+            while index + 1 < mapped.Length
+                  && fst mapped[index + 1] = last + step
+                  && snd mapped[index + 1] = delta do
+                index <- index + 1
+                last <- last + step
+            index <- index + 1
+            runs.Add $".{{ {first}, {last}, {step}, {delta} }}"
+        System.String.Join(", ", runs)
+
+    /// Zig case mapping, emitted only for a program that maps case.
+    let caseMapping =
+        lazy
+            ("const ny_lower_runs = [_][4]i32{ " + caseRuns true + " };\n"
+             + "const ny_upper_runs = [_][4]i32{ " + caseRuns false + " };\n"
+             + """
+fn nyMapCase(text: []const u8, runs: []const [4]i32) []const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var view = std.unicode.Utf8View.initUnchecked(text);
+    var points = view.iterator();
+    while (points.nextCodepoint()) |point| {
+        const code: i32 = point;
+        var low: usize = 0;
+        var high: usize = runs.len;
+        while (low < high) {
+            const middle = (low + high) / 2;
+            if (runs[middle][0] <= code) low = middle + 1 else high = middle;
+        }
+        var mapped = code;
+        if (low > 0) {
+            const run = runs[low - 1];
+            if (code <= run[1] and @mod(code - run[0], run[2]) == 0) mapped = code + run[3];
+        }
+        var buffer: [4]u8 = undefined;
+        const size = std.unicode.utf8Encode(@intCast(mapped), &buffer) catch unreachable;
+        out.appendSlice(nyAllocator(), buffer[0..size]) catch nyOom();
+    }
+    return out.items;
+}
+""")
