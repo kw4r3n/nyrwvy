@@ -142,5 +142,5 @@ Owner choice (2026-10-27): steps 2 and 3 follow the Zig backend; the order is 1,
 1. Restate the contract: §2, §4 and the specification text above, with C# still the only backend. Done: §4 ([decision](../decisions/string-scalar-values.md)) and §2 ([decision](../decisions/host-failure-kinds.md); the explicit token argument moves to the binding ABI).
 2. The waiting and task-binding properties (§3, §7) in the graph and validator.
 3. Mapping tables and the generator on the C# backend. Acceptance: snap's `Native.cs` and its other hand-written binding code are generated.
-4. `runPure` with a backend parameter, the parity command, and the saved cases as the conformance suite.
-5. A second backend, JS or Zig, chosen then.
+4. `runPure` with a backend parameter, the parity command, and the saved cases as the conformance suite. Started: `runPure` takes `backend` (`csharp` or `zig`); the workspace declaration of targets and the parity command are still to do.
+5. A second backend: Zig (owner choice). Started with Int64, Bool and Unit functions, direct calls and tail self calls (`src/Nyrwvy.Backend.Zig`), checked against the C# backend; widened step by step.

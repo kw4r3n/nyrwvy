@@ -1,6 +1,7 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
+    <Project Path="src/Nyrwvy.Backend.Zig/Nyrwvy.Backend.Zig.fsproj" />
     <Project Path="src/Nyrwvy.Execution/Nyrwvy.Execution.fsproj" />
     <Project Path="src/Nyrwvy.Backend.CSharp/Nyrwvy.Backend.CSharp.fsproj" />
     <Project Path="src/Nyrwvy.Viewer/Nyrwvy.Viewer.fsproj" />

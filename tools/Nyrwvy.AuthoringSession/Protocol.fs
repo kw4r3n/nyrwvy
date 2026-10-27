@@ -2009,7 +2009,7 @@ module AuthoringProtocol =
                 let functionKey = if names.IsSome then "function" else "functionId"
                 ensureFields
                     $"{op} request"
-                    [ "id"; "op"; functionKey; "arguments"; "expected"; "hostSources" ]
+                    [ "id"; "op"; functionKey; "arguments"; "expected"; "hostSources"; "backend" ]
                     [ "id"; "op"; functionKey; "arguments" ]
                     root
                 let functionId =
@@ -2034,7 +2034,13 @@ module AuthoringProtocol =
                     |> Option.defaultValue []
                 // Both run operations report the same output: exact IDs plus display names beside them.
                 let runNames = runNames (names |> Option.defaultWith session.Declarations)
-                match PureRun.runWithHost session functionId arguments expected hostSources with
+                let backend =
+                    match tryProperty "backend" root |> Option.map (fun value -> value.ValueKind, (if value.ValueKind = JsonValueKind.String then value.GetString() else null)) with
+                    | None
+                    | Some(_, "csharp") -> PureRunBackend.CSharp
+                    | Some(_, "zig") -> PureRunBackend.Zig
+                    | Some _ -> fail "backend must be \"csharp\" or \"zig\"."
+                match PureRun.runWithHostOn backend session functionId arguments expected hostSources with
                 | Ok result ->
                     success requestId
                         (objectValue

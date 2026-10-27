@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <Compile Include="ZigBackend.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
+    <ProjectReference Include="../Nyrwvy.Execution/Nyrwvy.Execution.fsproj" />
+  </ItemGroup>
+</Project>
