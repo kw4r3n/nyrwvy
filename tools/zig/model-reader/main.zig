@@ -1175,6 +1175,11 @@ fn idKey(id: Str) []const u8 {
     return std.mem.sliceAsBytes(id);
 }
 
+/// The ID back from an `idKey`.
+fn keyId(key: []const u8) Str {
+    return @as([*]const u16, @ptrCast(@alignCast(key.ptr)))[0 .. key.len / 2];
+}
+
 const Set = std.StringArrayHashMapUnmanaged(void);
 const Count = struct { id: Str, count: usize = 0 };
 const Counts = std.StringArrayHashMapUnmanaged(Count);
@@ -1356,6 +1361,545 @@ fn typeParameterDeclarations(comptime what: []const u8, label: Str, declarations
         if (entry.count > 1) add("DuplicateTypeParameterName", cat(&.{ L(what ++ " "), label, L(" declares type parameter '"), entry.id, L("' more than once.") }));
     }
     if (countBy(ids).count() != ids.len) add("DuplicateTypeParameterId", cat(&.{ L(what ++ " "), label, L(" declares one type parameter more than once.") }));
+}
+
+// ---------------------------------------------------------------- type references (slice 3b)
+
+/// A decoded `TypeRef`. `name` is the primitive or generic wire name, or the type, capability or
+/// type parameter ID; a function type keeps its parameters in `args` and its result in `result`.
+const TypeKind = enum { primitive, named, function, type_parameter, capability, generic };
+const TypeRef = struct {
+    kind: TypeKind,
+    name: Str = &.{},
+    args: []const TypeRef = &.{},
+    result: ?*const TypeRef = null,
+
+    fn isGeneric(self: TypeRef, comptime name: []const u8) bool {
+        return self.kind == .generic and isName(self.name, name);
+    }
+    fn isPrimitive(self: TypeRef, comptime name: []const u8) bool {
+        return self.kind == .primitive and isName(self.name, name);
+    }
+};
+
+fn typeRefOf(element: Value) TypeRef {
+    const kind = str(element, "kind");
+    if (isName(kind, "primitive")) return .{ .kind = .primitive, .name = str(element, "primitive") };
+    if (isName(kind, "named")) return .{ .kind = .named, .name = str(element, "typeId"), .args = typeRefsOf(arrayOf(element, "arguments")) };
+    if (isName(kind, "typeParameter")) return .{ .kind = .type_parameter, .name = str(element, "typeParameterId") };
+    if (isName(kind, "capability")) return .{ .kind = .capability, .name = str(element, "capabilityId") };
+    if (isName(kind, "builtinGeneric")) return .{ .kind = .generic, .name = str(element, "generic"), .args = typeRefsOf(arrayOf(element, "arguments")) };
+    return .{ .kind = .function, .args = typeRefsOf(arrayOf(element, "parameters")), .result = boxed(typeRefOf(get(element, "resultType"))) };
+}
+
+fn typeRefsOf(elements: []const Value) []const TypeRef {
+    const out = a.alloc(TypeRef, elements.len) catch oom();
+    for (elements, out) |element, *t| t.* = typeRefOf(element);
+    return out;
+}
+
+fn boxed(t: TypeRef) *const TypeRef {
+    const p = a.create(TypeRef) catch oom();
+    p.* = t;
+    return p;
+}
+
+fn builtin(comptime name: []const u8, args: []const TypeRef) TypeRef {
+    return .{ .kind = .generic, .name = L(name), .args = a.dupe(TypeRef, args) catch oom() };
+}
+
+/// Structural equality, as F# compares `TypeRef` values.
+fn typeEql(left: TypeRef, right: TypeRef) bool {
+    if (left.kind != right.kind or !same(left.name, right.name) or left.args.len != right.args.len) return false;
+    for (left.args, right.args) |l, r| if (!typeEql(l, r)) return false;
+    if (left.result) |l| return typeEql(l.*, right.result.?.*);
+    return true;
+}
+
+/// A text that identifies a type reference structurally, for sets keyed by types.
+fn typeKey(t: TypeRef, out: *List(u8)) void {
+    out.append(a, "pnftcg"[@intFromEnum(t.kind)]) catch oom();
+    out.appendSlice(a, idKey(t.name)) catch oom();
+    out.append(a, '(') catch oom();
+    for (t.args) |arg| typeKey(arg, out);
+    if (t.result) |r| typeKey(r.*, out);
+    out.append(a, ')') catch oom();
+}
+
+/// The type references directly below one (`Function`: parameters, then the result).
+fn typeArgs(t: TypeRef) []const TypeRef {
+    if (t.result) |r| {
+        var out: List(TypeRef) = .empty;
+        out.appendSlice(a, t.args) catch oom();
+        out.append(a, r.*) catch oom();
+        return out.items;
+    }
+    return t.args;
+}
+
+/// `TypeParameters.occurring`: distinct, in first-occurrence order.
+fn occurringIds(t: TypeRef, out: *Set) void {
+    if (t.kind == .type_parameter) out.put(a, idKey(t.name), {}) catch oom();
+    for (typeArgs(t)) |arg| occurringIds(arg, out);
+}
+
+const Substitution = std.StringArrayHashMapUnmanaged(TypeRef);
+
+/// `TypeParameters.substitute`.
+fn substitute(substitution: *const Substitution, t: TypeRef) TypeRef {
+    if (t.kind == .type_parameter) return substitution.get(idKey(t.name)) orelse t;
+    var out = t;
+    const args = a.alloc(TypeRef, t.args.len) catch oom();
+    for (t.args, args) |arg, *d| d.* = substitute(substitution, arg);
+    out.args = args;
+    if (t.result) |r| out.result = boxed(substitute(substitution, r.*));
+    return out;
+}
+
+/// `TypeParameters.ofArguments`: the declared parameters zipped with the arguments; the last of a duplicated ID wins.
+fn ofArguments(type_entity: Value, arguments: []const TypeRef) Substitution {
+    const declared = arrayOf(type_entity, "typeParameters");
+    var substitution: Substitution = .empty;
+    const n = @min(declared.len, arguments.len);
+    for (declared[0..n], arguments[0..n]) |declaration, argument| substitution.put(a, idKey(str(declaration, "typeParameterId")), argument) catch oom();
+    return substitution;
+}
+
+/// `TypeParameters.instantiate`: a field type seen through a reference with these arguments.
+fn instantiate(type_entity: Value, arguments: []const TypeRef, field_type: TypeRef) TypeRef {
+    if (arrayOf(type_entity, "typeParameters").len == 0) return field_type;
+    const substitution = ofArguments(type_entity, arguments);
+    return substitute(&substitution, field_type);
+}
+
+/// `TaskTypes.occurs` for builtin generics with these wire names.
+fn occursGeneric(t: TypeRef, comptime names: []const []const u8) bool {
+    if (t.kind == .generic and inNames(t.name, names)) return true;
+    for (typeArgs(t)) |arg| if (occursGeneric(arg, names)) return true;
+    return false;
+}
+
+fn mentionsScope(t: TypeRef) bool {
+    return occursGeneric(t, &.{"taskScope"});
+}
+
+fn mentionsTaskTypes(t: TypeRef) bool {
+    return occursGeneric(t, &.{ "exception", "oneShot", "task", "taskScope" });
+}
+
+/// The declared types a type reference names, with their arguments, outermost first
+/// (`Function`: the result before the parameters).
+fn namedIn(t: TypeRef, out: *List(TypeRef)) void {
+    if (t.kind == .named) out.append(a, t) catch oom();
+    if (t.result) |r| namedIn(r.*, out);
+    for (t.args) |arg| namedIn(arg, out);
+}
+
+var types_by_id: std.StringArrayHashMapUnmanaged(Value) = .empty;
+var all_types: []const Value = &.{};
+var capability_ids: Set = .empty;
+/// `TypeParameters.names`: types before functions, the last declaration of an ID wins.
+var type_parameter_names: std.StringArrayHashMapUnmanaged(Str) = .empty;
+
+/// `TaskTypes.bearingWith`: the type mentions what `mentions` looks for, or reaches a declared
+/// type whose instantiated fields do; each (type, arguments) pair is inspected once.
+fn bearingWith(mentions: *const fn (TypeRef) bool, t: TypeRef, visited: *Set) bool {
+    if (mentions(t)) return true;
+    var named_list: List(TypeRef) = .empty;
+    namedIn(t, &named_list);
+    for (named_list.items) |n| {
+        var key: List(u8) = .empty;
+        typeKey(n, &key);
+        if ((visited.getOrPut(a, key.items) catch oom()).found_existing) continue;
+        const type_entity = types_by_id.get(idKey(n.name)) orelse continue;
+        for (fieldsOf(type_entity)) |field| {
+            if (bearingWith(mentions, instantiate(type_entity, n.args, typeRefOf(get(field, "type"))), visited)) return true;
+        }
+    }
+    return false;
+}
+
+/// `TaskTypes.bearing`.
+fn bearing(t: TypeRef) bool {
+    var visited: Set = .empty;
+    return bearingWith(&mentionsTaskTypes, t, &visited);
+}
+
+fn asciiUnits(bytes: []const u8) Str {
+    const out = a.alloc(u16, bytes.len) catch oom();
+    for (bytes, out) |b, *u| u.* = b;
+    return out;
+}
+
+fn number(n: anytype) Str {
+    return asciiUnits(fmt("{d}", .{n}));
+}
+
+fn joinTypes(types: []const TypeRef, render: *const fn (TypeRef) Str) Str {
+    var out: List(u16) = .empty;
+    for (types, 0..) |t, i| {
+        if (i > 0) out.appendSlice(a, L(", ")) catch oom();
+        out.appendSlice(a, render(t)) catch oom();
+    }
+    return out.items;
+}
+
+/// The first declared type with this ID (`List.tryFind`).
+fn firstType(type_id: Str) ?Value {
+    for (all_types) |type_entity| if (same(str(type_entity, "id"), type_id)) return type_entity;
+    return null;
+}
+
+const primitive_names = [_][2][]const u8{ .{ "string", "String" }, .{ "bool", "Bool" }, .{ "unit", "Unit" }, .{ "int64", "Int64" }, .{ "float64", "Float64" }, .{ "bits32", "Bits32" }, .{ "bytes", "Bytes" } };
+const generic_names = [_][2][]const u8{ .{ "option", "Option" }, .{ "result", "Result" }, .{ "map", "Map" }, .{ "list", "List" }, .{ "set", "Set" }, .{ "oneShot", "OneShot" }, .{ "task", "Task" }, .{ "exception", "Exception" }, .{ "taskScope", "TaskScope" } };
+
+/// The F# case name of a primitive or builtin generic (`string primitive`, `{kind}`).
+fn caseName(t: TypeRef) Str {
+    for (if (t.kind == .primitive) &primitive_names else &generic_names) |pair| if (isName(t.name, pair[0])) return asciiUnits(pair[1]);
+    unreachable;
+}
+
+fn typeParameterName(id: Str) Str {
+    return type_parameter_names.get(idKey(id)) orelse id;
+}
+
+/// `EquatableTypes.describeIn` with the snapshot's type parameter names.
+fn describeType(t: TypeRef) Str {
+    return switch (t.kind) {
+        .primitive => caseName(t),
+        .named => blk: {
+            const name = if (firstType(t.name)) |type_entity| str(type_entity, "displayName") else t.name;
+            break :blk if (t.args.len == 0) name else cat(&.{ name, L("<"), joinTypes(t.args, &describeType), L(">") });
+        },
+        .capability => cat(&.{ L("capability '"), t.name, L("'") }),
+        .function => cat(&.{ L("("), joinTypes(t.args, &describeType), L(") -> "), describeType(t.result.?.*) }),
+        .generic => if (t.isGeneric("taskScope")) L("TaskScope") else cat(&.{ caseName(t), L("<"), joinTypes(t.args, &describeType), L(">") }),
+        .type_parameter => typeParameterName(t.name),
+    };
+}
+
+const NotEquatable = struct { path: []const Str, offending: TypeRef };
+
+fn notEquatableAt(path: *List(Str), step: Str, t: TypeRef, visited: *Set) ?NotEquatable {
+    path.append(a, step) catch oom();
+    defer _ = path.pop();
+    return firstNotEquatableAt(path, t, visited);
+}
+
+/// `EquatableTypes.firstNotEquatable`: the path to the first part that is not equatable.
+fn firstNotEquatableAt(path: *List(Str), t: TypeRef, visited: *Set) ?NotEquatable {
+    switch (t.kind) {
+        .primitive => if (!t.isPrimitive("float64")) return null,
+        .function, .capability, .type_parameter => {},
+        .generic => if (!inNames(t.name, &.{ "exception", "oneShot", "task", "taskScope" })) {
+            for (t.args, 0..) |arg, i| {
+                const step = if (t.isGeneric("list")) L("List item") else if (t.isGeneric("set")) L("Set item") else if (t.isGeneric("option")) L("Option value") else if (t.isGeneric("map"))
+                    (if (i == 0) L("Map key") else L("Map value"))
+                else if (i == 0) L("Result ok") else L("Result err");
+                if (notEquatableAt(path, step, arg, visited)) |found| return found;
+            }
+            return null;
+        },
+        .named => {
+            var key: List(u8) = .empty;
+            typeKey(t, &key);
+            if ((visited.getOrPut(a, key.items) catch oom()).found_existing) return null;
+            const type_entity = types_by_id.get(idKey(t.name)) orelse return null;
+            const type_name = str(type_entity, "displayName");
+            if (isName(str(type_entity, "kind"), "product")) {
+                for (arrayOf(type_entity, "fields")) |field| {
+                    if (notEquatableAt(path, cat(&.{ type_name, L("."), str(field, "displayName") }), instantiate(type_entity, t.args, typeRefOf(get(field, "type"))), visited)) |found| return found;
+                }
+            } else for (arrayOf(type_entity, "variants")) |variant| {
+                for (arrayOf(variant, "fields")) |field| {
+                    if (notEquatableAt(path, cat(&.{ type_name, L("."), str(variant, "displayName"), L("."), str(field, "displayName") }), instantiate(type_entity, t.args, typeRefOf(get(field, "type"))), visited)) |found| return found;
+                }
+            }
+            return null;
+        },
+    }
+    return .{ .path = a.dupe(Str, path.items) catch oom(), .offending = t };
+}
+
+fn firstNotEquatable(t: TypeRef) ?NotEquatable {
+    var path: List(Str) = .empty;
+    var visited: Set = .empty;
+    return firstNotEquatableAt(&path, t, &visited);
+}
+
+fn isEquatable(t: TypeRef) bool {
+    return firstNotEquatable(t) == null;
+}
+
+/// `EquatableTypes.explainIn`.
+fn explainEquatable(t: TypeRef) Str {
+    const found = firstNotEquatable(t) orelse return cat(&.{ describeType(t), L(" is equatable.") });
+    const reason = switch (found.offending.kind) {
+        .primitive => L("Float64 is not equatable because of NaN; compare with Float64Equal"),
+        .function => L("function values are not equatable"),
+        .generic => L("runtime handles and scopes are not equatable"),
+        .capability => L("capability values are not equatable"),
+        .type_parameter => L("type parameters are never equatable, because nothing constrains their type arguments, so a Set item or Map key type must be concrete"),
+        .named => unreachable,
+    };
+    var location: List(u16) = .empty;
+    for (found.path, 0..) |step, i| {
+        location.appendSlice(a, if (i == 0) L(" at ") else L(" -> ")) catch oom();
+        location.appendSlice(a, step) catch oom();
+    }
+    return cat(&.{ describeType(t), L(" is not equatable: "), describeType(found.offending), location.items, L("; "), reason, L(".") });
+}
+
+/// `validateTypeRef`. It uses the outer `add`, so no function prefix even inside a graph.
+fn validateTypeRef(context: Str, t: TypeRef) void {
+    switch (t.kind) {
+        .primitive, .type_parameter => {},
+        .function => for (typeArgs(t)) |arg| validateTypeRef(context, arg),
+        .named => {
+            if (types_by_id.get(idKey(t.name))) |type_entity| {
+                const declared = arrayOf(type_entity, "typeParameters").len;
+                if (declared != t.args.len)
+                    add("NamedTypeArityMismatch", cat(&.{ context, L(" uses "), str(type_entity, "displayName"), L(" with "), number(t.args.len), L(" type arguments; exactly "), number(declared), L(" are required.") }));
+            } else add("UnknownNamedType", cat(&.{ context, L(" references unknown type '"), t.name, L("'.") }));
+            for (t.args) |arg| if (mentionsScope(arg)) {
+                add("TaskTypeInDeclaredType", cat(&.{ context, L(" passes TaskScope as a type argument; a task scope cannot be stored in a declared type.") }));
+                break;
+            };
+            for (t.args) |arg| validateTypeRef(context, arg);
+        },
+        .capability => if (!capability_ids.contains(idKey(t.name)))
+            add("UnknownCapabilityType", cat(&.{ context, L(" references unknown capability '"), t.name, L("'.") })),
+        .generic => {
+            const n = t.args.len;
+            if (t.isGeneric("exception")) {
+                if (n != 0) add("BuiltinGenericArityMismatch", cat(&.{ context, L(" uses Exception with type arguments; none are allowed.") }));
+                return;
+            }
+            if (t.isGeneric("taskScope")) {
+                if (n != 0) add("BuiltinGenericArityMismatch", cat(&.{ context, L(" uses TaskScope with "), number(n), L(" type arguments; none are allowed.") }));
+                return;
+            }
+            const required: usize = if (t.isGeneric("result") or t.isGeneric("map")) 2 else 1;
+            if (n != required) {
+                if (t.isGeneric("oneShot"))
+                    add("BuiltinGenericArityMismatch", cat(&.{ context, L(" uses OneShot with "), number(n), L(" arguments; exactly 1 is required.") }))
+                else
+                    add("BuiltinGenericArityMismatch", cat(&.{ context, L(" uses "), caseName(t), L(" with "), number(n), L(" type arguments; exactly "), number(required), if (required == 1) L(" is required.") else L(" are required.") }));
+            } else if (t.isGeneric("set") and !isEquatable(t.args[0])) {
+                add("SetItemTypeNotEquatable", cat(&.{ context, L(" uses a Set whose item type is not equatable: "), explainEquatable(t.args[0]) }));
+            } else if (t.isGeneric("map") and !isEquatable(t.args[0])) {
+                add("MapKeyTypeNotEquatable", cat(&.{ context, L(" uses a Map whose key type is not equatable: "), explainEquatable(t.args[0]) }));
+            }
+            if (t.isGeneric("oneShot")) {
+                for (t.args) |arg| if (mentionsScope(arg)) {
+                    add("OneShotScopePayloadUnsupported", cat(&.{ context, L(" cannot hide a TaskScope inside a OneShot payload.") }));
+                    break;
+                };
+            }
+            for (t.args) |arg| validateTypeRef(context, arg);
+        },
+    }
+}
+
+fn validateTypeOf(context: Str, element: Value) void {
+    validateTypeRef(context, typeRefOf(element));
+}
+
+/// A node's own type arguments; none when omitted.
+fn typeArgumentsOf(node: Value) []const TypeRef {
+    return typeRefsOf(arrayOf(node, "typeArguments"));
+}
+
+/// `variantsById` (the last of a duplicated ID wins): the owning type of each variant.
+var variant_owners: std.StringArrayHashMapUnmanaged(Str) = .empty;
+
+/// The 11 `validateTypeRef` sites of `validateGraph`, each on its node alone.
+fn validateNodeTypeRefs(node: Value) void {
+    const kind = str(node, "kind");
+    const id = str(node, "id");
+    if (isName(kind, "listEmpty")) {
+        validateTypeOf(cat(&.{ L("ListEmpty node '"), id, L("' item type") }), get(node, "itemType"));
+    } else if (isName(kind, "setEmpty")) {
+        validateTypeRef(cat(&.{ L("SetEmpty node '"), id, L("' type") }), builtin("set", &.{typeRefOf(get(node, "itemType"))}));
+    } else if (isName(kind, "mapEmpty")) {
+        validateTypeRef(cat(&.{ L("MapEmpty node '"), id, L("' type") }), builtin("map", &.{ typeRefOf(get(node, "keyType")), typeRefOf(get(node, "valueType")) }));
+    } else if (isName(kind, "listConstruct")) {
+        validateTypeOf(cat(&.{ L("ListConstruct node '"), id, L("' item type") }), get(node, "itemType"));
+    } else if (isName(kind, "exceptionRethrow")) {
+        validateTypeOf(L("ExceptionRethrow result"), get(node, "resultType"));
+    } else if (isName(kind, "oneShotCreate")) {
+        validateTypeRef(L("OneShotCreate payload"), builtin("oneShot", &.{typeRefOf(get(node, "valueType"))}));
+    } else if (isName(kind, "productConstruct")) {
+        // Only for a declared Product (`Some({ Kind = Product _ })`).
+        const type_id = str(node, "typeId");
+        const type_entity = types_by_id.get(idKey(type_id)) orelse return;
+        if (isName(str(type_entity, "kind"), "product"))
+            validateTypeRef(cat(&.{ L("Product node '"), id, L("'") }), .{ .kind = .named, .name = type_id, .args = typeArgumentsOf(node) });
+    } else if (isName(kind, "unionConstruct")) {
+        const owner = variant_owners.get(idKey(str(node, "variantId"))) orelse return;
+        validateTypeRef(cat(&.{ L("Union node '"), id, L("'") }), .{ .kind = .named, .name = owner, .args = typeArgumentsOf(node) });
+    } else if (isName(kind, "optionNone")) {
+        validateTypeOf(cat(&.{ L("Option.None node '"), id, L("'") }), get(node, "itemType"));
+    } else if (isName(kind, "resultOk")) {
+        validateTypeOf(cat(&.{ L("Result.Ok node '"), id, L("' error type") }), get(node, "errorType"));
+    } else if (isName(kind, "resultErr")) {
+        validateTypeOf(cat(&.{ L("Result.Err node '"), id, L("' ok type") }), get(node, "okType"));
+    }
+}
+
+/// `SemanticNodeShape.payloadTypeRefs`: the types a node states in its own payload (the `type`
+/// and `targs` properties of model_kinds.txt).
+fn payloadTypeRefs(node: Value, out: *List(TypeRef)) void {
+    for (node.object) |member| {
+        if (isName(member.name, "typeArguments")) {
+            out.appendSlice(a, typeRefsOf(member.value.array)) catch oom();
+        } else if (inNames(member.name, &.{ "itemType", "keyType", "valueType", "resultType", "okType", "errorType" })) {
+            out.append(a, typeRefOf(member.value)) catch oom();
+        }
+    }
+}
+
+/// `SemanticNodeShape.directValueReferences`: every `…NodeId` property, the node lists
+/// (`itemNodeIds`, a function invoke's `arguments`) and the values of context, argument and field
+/// bindings. Every other ID property of model_kinds.txt names a declaration, not a node.
+fn directValueReferences(node: Value, out: *List(Str)) void {
+    for (node.object) |member| {
+        const name = member.name;
+        if (name.len > 6 and isName(name[name.len - 6 ..], "NodeId") and member.value == .string) {
+            out.append(a, member.value.string) catch oom();
+        } else if (inNames(name, &.{ "itemNodeIds", "arguments", "context", "bodyContext", "handlerContext", "fields" }) and member.value == .array) {
+            for (member.value.array) |item| switch (item) {
+                .string => |s| out.append(a, s) catch oom(),
+                .object => out.append(a, str(item, "valueNodeId")) catch oom(),
+                else => {},
+            };
+        }
+    }
+}
+
+/// `SemanticNodeShape.dependencies`: direct references and what nested graphs reference from outside themselves.
+fn dependencies(node: Value, out: *List(Str)) void {
+    directValueReferences(node, out);
+    for (nestedScopes(node)) |scope| {
+        const nodes = arrayOf(scope.graph, "nodes");
+        const local = idSet(nodes);
+        for (nodes) |inner| {
+            var deps: List(Str) = .empty;
+            dependencies(inner, &deps);
+            for (deps.items) |dep| if (!local.contains(idKey(dep))) out.append(a, dep) catch oom();
+        }
+    }
+}
+
+/// `hasDependencyCycle` over `nodesById` (the last node of a duplicated ID wins); a reference to
+/// an unknown node is no edge.
+fn hasDependencyCycle(nodes: []const Value) bool {
+    const nodes_by_id = byId(nodes);
+    // 0 unvisited, 1 on the path, 2 finished.
+    const state = a.alloc(u8, nodes_by_id.count()) catch oom();
+    @memset(state, 0);
+    const Frame = struct { index: usize, deps: []const Str, next: usize = 0 };
+    var frames: List(Frame) = .empty;
+    for (0..nodes_by_id.count()) |root| {
+        if (state[root] != 0) continue;
+        var index = root;
+        while (true) {
+            var deps: List(Str) = .empty;
+            dependencies(nodes_by_id.values()[index], &deps);
+            state[index] = 1;
+            frames.append(a, .{ .index = index, .deps = deps.items }) catch oom();
+            const next: ?usize = descend: while (frames.items.len > 0) {
+                const top = &frames.items[frames.items.len - 1];
+                if (top.next == top.deps.len) {
+                    state[top.index] = 2;
+                    _ = frames.pop();
+                    continue;
+                }
+                const dep = top.deps[top.next];
+                top.next += 1;
+                const at = nodes_by_id.getIndex(idKey(dep)) orelse continue;
+                if (state[at] == 1) return true;
+                if (state[at] == 0) break :descend at;
+            } else null;
+            index = next orelse break;
+        }
+    }
+    return false;
+}
+
+/// The prefix the per-function loop's `add` gives a message.
+fn inFunction(function: Value) Str {
+    return cat(&.{ L("In function "), describe(str(function, "displayName"), str(function, "id")), L(": ") });
+}
+
+/// The rules of slice 3b: type references of declarations and nodes, undeclared type parameters,
+/// task types in declared types and at capability boundaries, and graph dependency cycles.
+fn validateTypeReferences(types: []const Value, operations: []const Value, functions: []const Value) void {
+    for (types) |type_entity| {
+        for (fieldsOf(type_entity)) |field| validateTypeOf(cat(&.{ L("Field "), describe(str(field, "displayName"), str(field, "id")) }), get(field, "type"));
+    }
+    for (operations) |operation| {
+        const label = describe(str(operation, "displayName"), str(operation, "id"));
+        for (arrayOf(operation, "parameters")) |parameter| validateTypeOf(cat(&.{ L("Capability parameter "), describe(str(parameter, "displayName"), str(parameter, "id")) }), get(parameter, "type"));
+        validateTypeOf(cat(&.{ L("Capability operation "), label, L(" result") }), get(operation, "resultType"));
+        if (tryProperty("failureType", operation)) |failure| validateTypeOf(cat(&.{ L("Capability operation "), label, L(" failure") }), failure);
+    }
+    for (types) |type_entity| {
+        const declared = idSetOf(arrayOf(type_entity, "typeParameters"));
+        for (fieldsOf(type_entity)) |field| {
+            const field_label = describe(str(field, "displayName"), str(field, "id"));
+            const field_type = typeRefOf(get(field, "type"));
+            var ids: Set = .empty;
+            occurringIds(field_type, &ids);
+            for (ids.keys()) |key| if (!declared.contains(key))
+                add("TypeParameterNotDeclared", cat(&.{ L("Field "), field_label, L(" uses type parameter '"), typeParameterName(keyId(key)), L("', which its type "), describe(str(type_entity, "displayName"), str(type_entity, "id")), L(" does not declare.") }));
+            if (mentionsScope(field_type))
+                add("TaskTypeInDeclaredType", cat(&.{ L("Field "), field_label, L(" uses TaskScope; a task scope cannot be stored in a declared type.") }));
+        }
+    }
+    for (operations) |operation| {
+        var bears = bearing(typeRefOf(get(operation, "resultType")));
+        for (arrayOf(operation, "parameters")) |parameter| bears = bears or bearing(typeRefOf(get(parameter, "type")));
+        if (tryProperty("failureType", operation)) |failure| bears = bears or bearing(typeRefOf(failure));
+        if (bears) add("TaskTypeAtCapabilityBoundary", cat(&.{ L("Capability operation "), describe(str(operation, "displayName"), str(operation, "id")), L(" uses Task, OneShot or TaskScope, directly or through a declared type, which cannot cross a capability boundary.") }));
+    }
+
+    for (functions) |function| {
+        const label = describe(str(function, "displayName"), str(function, "id"));
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        var bindings: List(Value) = .empty;
+        collectBindings(get(function, "body"), &bindings);
+
+        const declared = idSetOf(arrayOf(function, "typeParameters"));
+        var mentioned: List(TypeRef) = .empty;
+        mentioned.append(a, typeRefOf(get(function, "resultType"))) catch oom();
+        for (arrayOf(function, "parameters")) |parameter| mentioned.append(a, typeRefOf(get(parameter, "type"))) catch oom();
+        for (bindings.items) |binding| mentioned.append(a, typeRefOf(get(binding, "type"))) catch oom();
+        for (nodes.items) |node| payloadTypeRefs(node, &mentioned);
+        for (mentioned.items) |t| {
+            var ids: Set = .empty;
+            occurringIds(t, &ids);
+            for (ids.keys()) |key| if (!declared.contains(key))
+                add("TypeParameterNotDeclared", cat(&.{ L("Function "), label, L(" uses type parameter '"), typeParameterName(keyId(key)), L("' that it does not declare.") }));
+        }
+
+        validateTypeOf(cat(&.{ L("Function "), label, L(" result") }), get(function, "resultType"));
+        for (arrayOf(function, "parameters")) |parameter| validateTypeOf(cat(&.{ L("Parameter "), describe(str(parameter, "displayName"), str(parameter, "id")) }), get(parameter, "type"));
+        for (bindings.items) |binding| validateTypeOf(cat(&.{ L("Pattern binding '"), str(binding, "id"), L("'") }), get(binding, "type"));
+
+        // `validateGraph` visits each node of each nested graph once, as `collectNodes` does.
+        for (nodes.items) |node| validateNodeTypeRefs(node);
+        if (hasDependencyCycle(nodes.items))
+            add("GraphNodeDependencyCycle", cat(&.{ inFunction(function), L("Function "), label, L(" contains a cycle between value-producing graph nodes.") }));
+    }
+}
+
+/// The declared type parameter IDs.
+fn idSetOf(declarations: []const Value) Set {
+    var set: Set = .empty;
+    for (declarations) |declaration| set.put(a, idKey(str(declaration, "typeParameterId")), {}) catch oom();
+    return set;
 }
 
 const NodeOwner = struct { owner: Str, node: Value };
@@ -1545,6 +2089,17 @@ fn validate(root: Value) void {
                 add("InvalidObligationResolutionValue", cat(&.{ L("Resolved obligation '"), id, L("' references a value node outside the call's owning function.") }));
         }
     }
+
+    types_by_id = byId(types);
+    all_types = types;
+    capability_ids = idSet(capabilities);
+    type_parameter_names = .empty;
+    for ([_][]const Value{ types, functions }) |declared| for (declared) |owner| for (arrayOf(owner, "typeParameters")) |declaration|
+        type_parameter_names.put(a, idKey(str(declaration, "typeParameterId")), str(declaration, "displayName")) catch oom();
+    variant_owners = .empty;
+    for (types) |type_entity| for (arrayOf(type_entity, "variants")) |variant|
+        variant_owners.put(a, idKey(str(variant, "id")), str(type_entity, "id")) catch oom();
+    validateTypeReferences(types, operations.items, functions);
 
     std.mem.sort(Issue, issues.items, {}, issueLess);
 }
