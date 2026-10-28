@@ -21,6 +21,18 @@ module ZigLoweringTests =
         Assert.Equal(1, validations SnapshotCodec.readUnvalidated)
 
     [<Fact>]
+    let ``the writer's JSON of a validated snapshot counts as validated for the Zig lowering`` () =
+        let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-validated-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            // A new session's snapshot was never read by the Zig validator, so its JSON comes from the writer.
+            use session = AuthoringSession.createNew (Path.Combine(dir, "graph.json")) |> ZigModelReaderSupport.unwrap
+            let json, validated = (session.ExecutionContext None |> ZigModelReaderSupport.unwrap).ModelJson () |> ZigModelReaderSupport.unwrap
+            Assert.True(validated)
+            Assert.NotEmpty(json)
+        finally Directory.Delete(dir, true)
+
+    [<Fact>]
     let ``instruction_kinds.txt lists every node kind that lowers to an instruction`` () =
         let rows = File.ReadAllLines(ZigModelReaderSupport.toolFile "instruction_kinds.txt") |> Array.map (fun line -> line.Split('|')[0]) |> Set.ofArray
         let handwritten = set [ "parameterReference"; "patternReference"; "abort"; "conditional"; "boolAnd"; "boolOr"; "matchUnion"; "bind"; "matchOption"; "matchResult" ]

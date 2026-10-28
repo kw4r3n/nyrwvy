@@ -93,8 +93,9 @@ type internal AuthoringExecutionContext =
       /// The execution program of the whole committed snapshot, for a backend that builds once per
       /// snapshot; None for a proposal's candidate snapshot.
       ProjectAll: (unit -> Result<ExecutionProgram, AuthoringSessionError>) option
-      /// The JSON of the snapshot `Project` projects, for the Zig lowering, and whether the Zig
-      /// validator accepted these bytes (`model-reader --execution-ir --validated` may then skip it).
+      /// The JSON of the snapshot `Project` projects, for the Zig lowering, and whether it is known
+      /// valid (`model-reader --execution-ir --validated` may then skip validation): bytes the Zig
+      /// validator accepted, or the writer's JSON of a snapshot F# validated (the writer validates).
       ModelJson: unit -> Result<string * bool, SnapshotCodecError>
       /// The session's long-lived runner process for compiled programs.
       Worker: PureRunWorker }
@@ -1981,7 +1982,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                   ProjectAll = None
                   ModelJson = fun () ->
                     use _scope = SnapshotComputationScope.Start()
-                    SnapshotCodec.serialize snapshot |> Result.map (fun json -> json, false)
+                    SnapshotCodec.serialize snapshot |> Result.map (fun json -> json, true)
                   Worker = worker })
         this.VerifyPersistedSource()
         |> Result.bind (fun () ->
@@ -1997,13 +1998,14 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                       ModelJson =
                         let current = workspace
                         fun () ->
-                            // The lowering check keeps comparing on the writer's JSON, as before.
+                            // The lowering check keeps comparing on the writer's JSON, as before (runPure
+                            // then never passes `--validated`).
                             let check = not (String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_LOWERING_CHECK"))
                             match SessionStorage.workspaceJson.TryGetValue current with
                             | true, json when not check -> Ok(json, true)
                             | _ ->
                                 use _scope = SnapshotComputationScope.Start()
-                                AgentWorkspace.serializeCurrentSnapshot current |> Result.map (fun json -> json, false)
+                                AgentWorkspace.serializeCurrentSnapshot current |> Result.map (fun json -> json, true)
                       Worker = worker })
             | Some id ->
                 this.PendingProposalView id
