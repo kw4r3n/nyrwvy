@@ -33,3 +33,36 @@ Breakdown for Rhifill, after:
 - Process spawn: 0.8.
 
 The open on the Zig path is still slower than F#, because the Zig validator (41) is slower than the F# one (16–19). The validator hotspot work is the next change. The F# column varies by up to about 20% between runs on the larger input.
+
+## Zig validator hotspots (2026-10-28)
+
+The changes, with outputs unchanged:
+- the requirement table indexed per node kind;
+- messages built only for a mismatch;
+- kind lists split at compile time;
+- an ASCII fast path in the JSON parser;
+- dependencies and observability memoised per node in the effect-order search (reused by the lowering);
+- no canonical text written when only the shape is read.
+
+| | before (#535) | after | F# |
+|---|---|---|---|
+| task-outcomes: open | 13.4 | 12.4 | 11.3–13.1 |
+| task-outcomes: to Zig source | 11.6 | 10.1 | 10.1–12.5 |
+| Rhifill: open | 70.5 | 53.3 | 38.4–71.9 |
+| Rhifill: to Zig source | 63.7 | 50.1 | 71.0–74.7 |
+| Rhifill: `model-reader --validate` | 41.0 | 23.5 | 16–20 (`validate` alone, without the 7 ms Snapshot build) |
+| Rhifill: `model-reader --execution-ir --validated` | 41.4 | 27.5 | — |
+
+For Rhifill's validation, before (in ms):
+
+| step | ms |
+|---|---|
+| parse | 6.5 |
+| shape and canonical text | 7 |
+| `scalarRules` | 4.5 |
+| effect order | 4.3 |
+| type references | 2.7 |
+| resolvers | 2.6 |
+| other graph rules | 5 |
+
+After the changes: parse 2.6–3.3, shape about 1, `scalarRules` 0.7. The F# open column varied from 38 to 72 ms across runs on the same input; within one run the Zig path is now ahead on both rows for Rhifill.
