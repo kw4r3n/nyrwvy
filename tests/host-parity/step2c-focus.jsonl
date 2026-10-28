@@ -1,0 +1,8 @@
+{"id":"b","op":"bindingScopes"}
+{"id":"b","op":"bindingScopes","nodeId":"n"}
+{"id":"b","op":"bindingScopes","function":"f","functionId":"x","nodeId":"n"}
+{"id":"b","op":"bindingScopes","functionId":"missing","nodeId":"n"}
+{"id":"b","op":"bindingScopes","functionId":" ","nodeId":"n"}
+{"id":"b","op":"bindingScopes","function":"nosuch","nodeId":"n"}
+{"id":"b","op":"bindingScopes","function":"nosuch","nodeId":7}
+{"id":"b","op":"bindingScopes","functionId":"missing","nodeId":"n","x":1}

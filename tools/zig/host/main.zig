@@ -180,6 +180,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, line: []const u8) !void {
         .{ "search", query.search },
         .{ "references", query.references },
         .{ "unreferenced", query.unreferenced },
+        .{ "bindingScopes", query.bindingScopes },
     };
     for (queries) |entry| if (std.mem.eql(u8, op, entry[0])) {
         var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .model = canonical(), .provenance = if (selection) |d| d.provenance else null };

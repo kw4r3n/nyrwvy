@@ -39,7 +39,7 @@ fn contains(keys: []const []const u8, key: []const u8) bool {
 
 /// A type in wire notation (`typeRefIn`); a type parameter occurrence gets its `displayName`
 /// when `names` (the declaration's `typeParameters`) lists it.
-fn typeRef(out: *Writer, value: Value, names: []const Value) !void {
+pub fn typeRef(out: *Writer, value: Value, names: []const Value) !void {
     const kind = model.decoded(model.property(value, "kind").?);
     var first = true;
     try out.writeByte('{');

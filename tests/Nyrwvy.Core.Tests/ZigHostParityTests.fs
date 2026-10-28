@@ -120,6 +120,11 @@ module ZigHostParityTests =
                   yield $"""{{"id":"r","op":"references","kind":"{item.Kind}","{item.Kind}":{{"id":{quote item.Id},"ownership":"{ownership}"}}}}"""
               for source in item.Sources do
                   yield $"""{{"id":"r","op":"references","kind":"{item.Kind}","{item.Kind}":{{"id":{quote item.Id},"dependencySnapshotId":{quote source.SnapshotId}}}}}"""
+          for item in declarations.Functions do
+              for node in ValueGraph.collectNodes item.Body |> List.truncate 60 do
+                  yield $"""{{"id":"b","op":"bindingScopes","functionId":{quote (id item.Id)},"nodeId":{quote (id node.Id)}}}"""
+              yield $"""{{"id":"b","op":"bindingScopes","function":{quote item.DisplayName},"nodeId":{quote (id item.Body.ResultNodeId)}}}"""
+              yield $"""{{"id":"b","op":"bindingScopes","function":{quote item.DisplayName},"nodeId":"missing"}}"""
           yield """{"id":"u","op":"unreferenced"}"""
           for item in declarations.Functions |> List.truncate 3 do
               yield $"""{{"id":"u","op":"unreferenced","roots":[{quote item.DisplayName}]}}""" ]

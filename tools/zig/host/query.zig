@@ -785,3 +785,144 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
     }
     try out.writeByte('}');
 }
+
+// ---------------------------------------------------------------- bindingScopes
+
+/// `BindingFrame`: a nested scope that binds (Bool operands and branches open none).
+const Frame = struct { owner: Value, role: []const u8, variants: []const Value = &.{}, bindings: []const Binding };
+/// A frame's binding: its slot (`field` with the source field, `value` or `error`) and pattern.
+const Binding = struct { slot: []const u8, field: ?Value = null, pattern: Value };
+
+fn kindIs(node: Value, comptime kind: []const u8) bool {
+    const units = model.decoded(model.property(node, "kind").?);
+    if (units.len != kind.len) return false;
+    for (units, kind) |unit, c| if (unit != c) return false;
+    return true;
+}
+
+/// `WireEncodeCommon.bindingFrames` up to the node `wanted`: its enclosing frames, innermost first.
+fn framesAt(a: Allocator, graph: Value, enclosing: []const Frame, wanted: Str) !?[]const Frame {
+    for (model.arrayItems(graph, "nodes")) |node| {
+        if (std.mem.eql(u16, model.decoded(model.property(node, "id").?), wanted)) return enclosing;
+        const Nested = struct { graph: Value, frame: ?Frame };
+        var nested: std.ArrayList(Nested) = .empty;
+        const field = struct {
+            fn f(n: Value, key: []const u8) Value {
+                return model.property(n, key).?;
+            }
+        }.f;
+        const one = struct {
+            fn f(al: Allocator, slot: []const u8, pattern: Value) ![]const Binding {
+                return al.dupe(Binding, &.{.{ .slot = slot, .pattern = pattern }});
+            }
+        }.f;
+        if (kindIs(node, "conditional")) {
+            try nested.appendSlice(a, &.{ .{ .graph = field(node, "whenTrue"), .frame = null }, .{ .graph = field(node, "whenFalse"), .frame = null } });
+        } else if (kindIs(node, "boolAnd") or kindIs(node, "boolOr")) {
+            try nested.append(a, .{ .graph = field(node, "right"), .frame = null });
+        } else if (kindIs(node, "matchUnion")) {
+            for (model.arrayItems(node, "arms")) |arm| {
+                var bindings: std.ArrayList(Binding) = .empty;
+                for (model.arrayItems(arm, "fieldBindings")) |item|
+                    try bindings.append(a, .{ .slot = "field", .field = field(item, "sourceFieldId"), .pattern = field(item, "binding") });
+                const variants = if (model.property(arm, "variantId")) |single| try a.dupe(Value, &.{single}) else model.arrayItems(arm, "variantIds");
+                try nested.append(a, .{ .graph = field(arm, "body"), .frame = .{ .owner = node, .role = "unionArm", .variants = variants, .bindings = bindings.items } });
+            }
+        } else if (kindIs(node, "bind")) {
+            const body = field(node, "boundBody");
+            try nested.append(a, .{ .graph = field(body, "body"), .frame = .{ .owner = node, .role = "bind", .bindings = try one(a, "value", field(body, "valueBinding")) } });
+        } else if (kindIs(node, "matchOption")) {
+            const some = field(node, "someArm");
+            try nested.append(a, .{ .graph = field(some, "body"), .frame = .{ .owner = node, .role = "optionSome", .bindings = try one(a, "value", field(some, "valueBinding")) } });
+            try nested.append(a, .{ .graph = field(node, "noneBody"), .frame = .{ .owner = node, .role = "optionNone", .bindings = &.{} } });
+        } else if (kindIs(node, "matchResult")) {
+            const ok_arm = field(node, "okArm");
+            const err_arm = field(node, "errArm");
+            try nested.append(a, .{ .graph = field(ok_arm, "body"), .frame = .{ .owner = node, .role = "resultOk", .bindings = try one(a, "value", field(ok_arm, "valueBinding")) } });
+            try nested.append(a, .{ .graph = field(err_arm, "body"), .frame = .{ .owner = node, .role = "resultErr", .bindings = try one(a, "error", field(err_arm, "errorBinding")) } });
+        }
+        for (nested.items) |scope| {
+            const frames = if (scope.frame) |frame| try std.mem.concat(a, Frame, &.{ &.{frame}, enclosing }) else enclosing;
+            if (try framesAt(a, scope.graph, frames, wanted)) |found| return found;
+        }
+    }
+    return null;
+}
+
+/// The display name of a visible type's variant or field with ID `id` (`variants` or `fields`).
+fn memberName(r: *const Request, comptime variants: bool, id: Str) !?Value {
+    for (try visible(r, "type")) |item| {
+        if (!variants) for (model.arrayItems(item, "fields")) |f| if (same(f, id)) return f;
+        for (model.arrayItems(item, "variants")) |variant| {
+            if (variants and same(variant, id)) return variant;
+            if (!variants) for (model.arrayItems(variant, "fields")) |f| if (same(f, id)) return f;
+        }
+    }
+    return null;
+}
+
+/// `bindingScopes`: the frames visible at one node of a function, innermost first.
+pub fn bindingScopes(r: *Request, out: *Writer) Fail!void {
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "bindingScopes request", &.{ "id", "op", "function", "functionId", "nodeId" }, &.{ "id", "op", "nodeId" })) |message| return r.fail("{s}", .{message});
+    const by_name, const by_id = .{ r.root.get("function") != null, r.root.get("functionId") != null };
+    if (by_name == by_id) return r.fail("bindingScopes requires exactly one of function and functionId.", .{});
+    const function = if (by_name) try resolve(r, "function", r.root, "function", &.{"function"}) else blk: {
+        const wanted = try exactId(r, "functionId");
+        for (try visible(r, "function")) |item| if (std.mem.eql(u8, idOf(item), wanted)) break :blk item;
+        return r.fail("No function has the ID '{s}'.", .{wanted});
+    };
+    const node_id = try exactId(r, "nodeId");
+    const frames = try framesAt(r.a, model.property(function, "body").?, &.{}, try utf16(r.a, node_id)) orelse
+        return r.fail("Function '{s}' has no node '{s}'.", .{ nameOf(function), node_id });
+    const names = model.arrayItems(function, "typeParameters");
+    try out.writeAll("{\"functionId\":");
+    try writeId(out, model.decoded(model.property(function, "id").?));
+    try out.writeAll(",\"nodeId\":");
+    try writeId(out, try utf16(r.a, node_id));
+    try out.writeAll(",\"frames\":[");
+    for (frames, 0..) |frame, depth| {
+        if (depth > 0) try out.writeByte(',');
+        try out.print("{{\"scopeDepth\":{d},\"ownerNodeId\":", .{depth});
+        try writeId(out, model.decoded(model.property(frame.owner, "id").?));
+        try out.print(",\"role\":\"{s}\"", .{frame.role});
+        if (frame.variants.len > 0) {
+            try out.writeAll(",\"variantIds\":[");
+            var known = true;
+            for (frame.variants, 0..) |variant, index| {
+                if (index > 0) try out.writeByte(',');
+                try writeId(out, model.decoded(variant));
+                known = known and try memberName(r, true, model.decoded(variant)) != null;
+            }
+            try out.writeByte(']');
+            if (known) {
+                try out.writeAll(",\"variants\":[");
+                for (frame.variants, 0..) |variant, index| {
+                    if (index > 0) try out.writeByte(',');
+                    try model.writeString(out, model.decoded(model.property((try memberName(r, true, model.decoded(variant))).?, "displayName").?));
+                }
+                try out.writeByte(']');
+            }
+        }
+        try out.writeAll(",\"bindings\":[");
+        for (frame.bindings, 0..) |binding, index| {
+            if (index > 0) try out.writeByte(',');
+            try out.print("{{\"slot\":\"{s}\"", .{binding.slot});
+            if (binding.field) |source| {
+                try out.writeAll(",\"fieldId\":");
+                try writeId(out, model.decoded(source));
+                if (try memberName(r, false, model.decoded(source))) |f| try writeNamed(out, "field", f);
+            }
+            try out.writeAll(",\"bindingId\":");
+            try writeId(out, model.decoded(model.property(binding.pattern, "id").?));
+            try out.writeAll(",\"type\":");
+            try wire.typeRef(out, model.property(binding.pattern, "type").?, names);
+            if (model.property(binding.pattern, "displayName")) |display| {
+                try out.writeAll(",\"displayName\":");
+                try model.writeString(out, model.decoded(display));
+            }
+            try out.writeByte('}');
+        }
+        try out.writeAll("]}");
+    }
+    try out.writeAll("]}");
+}
