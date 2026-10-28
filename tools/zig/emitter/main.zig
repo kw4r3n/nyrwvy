@@ -252,24 +252,35 @@ fn allConcrete(items: []const *const Type) bool {
 /// `prefix` and then `raw` with every UTF-16 unit that is not an ASCII letter or digit as `_`.
 fn identifier(prefix: []const u8, raw: []const u8) []const u8 {
     var out: List(u8) = .empty;
-    out.appendSlice(a, prefix) catch oom();
+    out.ensureTotalCapacityPrecise(a, prefix.len + 2 * raw.len) catch oom();
+    out.appendSliceAssumeCapacity(prefix);
     var view = std.unicode.Utf8View.initUnchecked(raw);
     var points = view.iterator();
     while (points.nextCodepoint()) |point| {
-        if (point < 0x80 and std.ascii.isAlphanumeric(@intCast(point))) push(u8, &out, @intCast(point)) else {
-            push(u8, &out, '_');
-            if (point >= 0x10000) push(u8, &out, '_');
+        if (point < 0x80 and std.ascii.isAlphanumeric(@intCast(point))) out.appendAssumeCapacity(@intCast(point)) else {
+            out.appendAssumeCapacity('_');
+            if (point >= 0x10000) out.appendAssumeCapacity('_');
         }
     }
     return out.items;
 }
 
+// Value and block identifiers by ID: each is written many times.
+var value_names: std.StringHashMapUnmanaged([]const u8) = .empty;
+var block_names: std.StringHashMapUnmanaged([]const u8) = .empty;
+
+fn memoName(memo: *std.StringHashMapUnmanaged([]const u8), prefix: []const u8, id: []const u8) []const u8 {
+    const entry = memo.getOrPut(a, id) catch oom();
+    if (!entry.found_existing) entry.value_ptr.* = identifier(prefix, id);
+    return entry.value_ptr.*;
+}
+
 fn v(id: []const u8) []const u8 {
-    return identifier("v_", id);
+    return memoName(&value_names, "v_", id);
 }
 
 fn blockName(id: []const u8) []const u8 {
-    return identifier("b_", id);
+    return memoName(&block_names, "b_", id);
 }
 
 fn fieldName(id: []const u8) []const u8 {
@@ -1322,6 +1333,12 @@ fn instructionExpression(b: *Body, kind: Kind) []const u8 {
     };
 }
 
+/// A line of several parts, appended without joining them first.
+fn lineCat(out: *List(u8), parts: []const []const u8) void {
+    for (parts) |part| out.appendSlice(a, part) catch oom();
+    push(u8, out, '\n');
+}
+
 fn line(out: *List(u8), text: []const u8) void {
     out.appendSlice(a, text) catch oom();
     push(u8, out, '\n');
@@ -1335,23 +1352,24 @@ fn emitFunction(out: *List(u8), name: []const u8, fn_: Function, lines: []const 
     var parameters: List([]const u8) = .empty;
     for (fn_.parameters) |parameter| push([]const u8, &parameters, cat(&.{ identifier("p_", parameter.id), ": ", zigOf(parameter.value.type).? }));
     const failure = if (failing(fn_.id)) "NyError!" else "";
-    line(out, cat(&.{ "fn ", name, "(", join(", ", parameters.items), ") ", failure, zigOf(fn_.result).?, " {" }));
+    lineCat(out, &.{ "fn ", name, "(", join(", ", parameters.items), ") ", failure, zigOf(fn_.result).?, " {" });
     // Every value is a function-level variable, so blocks can assign it in any order; `_ = &x`
     // keeps Zig from rejecting a value that some path never reads.
     var values: List(Value) = .empty;
-    outer: for (valuesOf(fn_)) |value| {
-        for (values.items) |seen| if (eql(seen.id, value.id)) continue :outer;
+    var seen = std.StringHashMap(void).init(a);
+    for (valuesOf(fn_)) |value| {
+        if ((seen.getOrPut(value.id) catch oom()).found_existing) continue;
         push(Value, &values, value);
     }
     byId(Value, values.items, valueKey);
     for (values.items) |value| {
-        line(out, cat(&.{ "    var ", v(value.id), ": ", zigOf(value.type).?, " = undefined;" }));
-        line(out, cat(&.{ "    _ = &", v(value.id), ";" }));
+        lineCat(out, &.{ "    var ", v(value.id), ": ", zigOf(value.type).?, " = undefined;" });
+        lineCat(out, &.{ "    _ = &", v(value.id), ";" });
     }
-    for (fn_.parameters) |parameter| line(out, cat(&.{ "    ", v(parameter.value.id), " = ", identifier("p_", parameter.id), ";" }));
+    for (fn_.parameters) |parameter| lineCat(out, &.{ "    ", v(parameter.value.id), " = ", identifier("p_", parameter.id), ";" });
     var names: List([]const u8) = .empty;
     for (fn_.blocks) |b| push([]const u8, &names, blockName(b.id));
-    line(out, cat(&.{ "    const Block = enum { ", join(", ", names.items), " };" }));
+    lineCat(out, &.{ "    const Block = enum { ", join(", ", names.items), " };" });
     // Blocks become prongs of a labeled switch; a jump is `continue :body .target`. Zig rejects an
     // unused label, so a function whose blocks never jump gets none.
     var jumps = false;
@@ -1359,41 +1377,41 @@ fn emitFunction(out: *List(u8), name: []const u8, fn_: Function, lines: []const 
         const kind = str(b.terminator, "kind");
         if (!eql(kind, "return") and !eql(kind, "abort")) jumps = true;
     }
-    line(out, cat(&.{ "    ", if (jumps) "body: " else "", "switch (Block.", blockName(fn_.entry), ") {" }));
+    lineCat(out, &.{ "    ", if (jumps) "body: " else "", "switch (Block.", blockName(fn_.entry), ") {" });
     var next: usize = 0;
     for (fn_.blocks) |b| {
-        line(out, cat(&.{ "        .", blockName(b.id), " => {" }));
+        lineCat(out, &.{ "        .", blockName(b.id), " => {" });
         for (b.instructions) |_| {
-            line(out, cat(&.{ "            ", lines[next] }));
+            lineCat(out, &.{ "            ", lines[next] });
             next += 1;
         }
         const t = b.terminator;
         const kind = str(t, "kind");
         if (eql(kind, "return")) {
-            line(out, cat(&.{ "            return ", v(str(t, "valueId")), ";" }));
+            lineCat(out, &.{ "            return ", v(str(t, "valueId")), ";" });
         } else if (eql(kind, "abort")) {
-            line(out, cat(&.{ "            return .{ .err = ", v(str(t, "errorValueId")), " };" }));
+            lineCat(out, &.{ "            return .{ .err = ", v(str(t, "errorValueId")), " };" });
         } else if (eql(kind, "jump")) {
             var pairs: List([2][]const u8) = .empty;
             const arguments = a.dupe(json.Value, arr(t, "arguments")) catch oom();
             byId(json.Value, arguments, targetValueKey);
             for (arguments) |argument| push([2][]const u8, &pairs, .{ str(argument.object, "targetValueId"), str(argument.object, "valueId") });
             assignAll(out, pairs.items);
-            line(out, cat(&.{ "            continue :body .", blockName(str(t, "blockId")), ";" }));
+            lineCat(out, &.{ "            continue :body .", blockName(str(t, "blockId")), ";" });
         } else if (eql(kind, "branch")) {
-            line(out, cat(&.{ "            if (", v(str(t, "conditionValueId")), ") continue :body .", blockName(str(t, "whenTrue")), ";" }));
-            line(out, cat(&.{ "            continue :body .", blockName(str(t, "whenFalse")), ";" }));
+            lineCat(out, &.{ "            if (", v(str(t, "conditionValueId")), ") continue :body .", blockName(str(t, "whenTrue")), ";" });
+            lineCat(out, &.{ "            continue :body .", blockName(str(t, "whenFalse")), ";" });
         } else if (eql(kind, "matchOption")) {
-            line(out, cat(&.{ "            if (", v(str(t, "inputValueId")), " != null) continue :body .", blockName(str(t, "someBlock")), ";" }));
-            line(out, cat(&.{ "            continue :body .", blockName(str(t, "noneBlock")), ";" }));
+            lineCat(out, &.{ "            if (", v(str(t, "inputValueId")), " != null) continue :body .", blockName(str(t, "someBlock")), ";" });
+            lineCat(out, &.{ "            continue :body .", blockName(str(t, "noneBlock")), ";" });
         } else if (eql(kind, "matchResult")) {
-            line(out, cat(&.{ "            if (", v(str(t, "inputValueId")), " == .ok) continue :body .", blockName(str(t, "okBlock")), ";" }));
-            line(out, cat(&.{ "            continue :body .", blockName(str(t, "errBlock")), ";" }));
+            lineCat(out, &.{ "            if (", v(str(t, "inputValueId")), " == .ok) continue :body .", blockName(str(t, "okBlock")), ";" });
+            lineCat(out, &.{ "            continue :body .", blockName(str(t, "errBlock")), ";" });
         } else if (eql(kind, "matchUnion")) {
-            line(out, cat(&.{ "            switch (", v(str(t, "inputValueId")), ".*) {" }));
+            lineCat(out, &.{ "            switch (", v(str(t, "inputValueId")), ".*) {" });
             const targets = a.dupe(json.Value, arr(t, "targets")) catch oom();
             byId(json.Value, targets, variantKey);
-            for (targets) |target| line(out, cat(&.{ "                .", variantName(str(target.object, "variantId")), " => continue :body .", blockName(str(target.object, "blockId")), "," }));
+            for (targets) |target| lineCat(out, &.{ "                .", variantName(str(target.object, "variantId")), " => continue :body .", blockName(str(target.object, "blockId")), "," });
             line(out, "            }");
         } else if (eql(kind, "tailCall")) {
             var pairs: List([2][]const u8) = .empty;
@@ -1403,7 +1421,7 @@ fn emitFunction(out: *List(u8), name: []const u8, fn_: Function, lines: []const 
                 }
             }
             assignAll(out, pairs.items);
-            line(out, cat(&.{ "            continue :body .", blockName(fn_.entry), ";" }));
+            lineCat(out, &.{ "            continue :body .", blockName(fn_.entry), ";" });
         } else std.debug.panic("unknown terminator {s}", .{kind});
         line(out, "        },");
     }
@@ -1434,15 +1452,15 @@ fn emitType(out: *List(u8), declaration: Declaration, args: []const *const Type)
     for (declaration.type_parameters, args) |id, arg| map.put(id, arg) catch oom();
     const name = typeName(declaration.id, args);
     if (declaration.product) |fields| {
-        line(out, cat(&.{ "const ", name, " = struct { ", fieldTypes(&map, fields), " };" }));
+        lineCat(out, &.{ "const ", name, " = struct { ", fieldTypes(&map, fields), " };" });
     } else {
-        line(out, cat(&.{ "const ", name, " = union(enum) {" }));
+        lineCat(out, &.{ "const ", name, " = union(enum) {" });
         var ids: List([]const u8) = .empty;
         for (declaration.variants) |variant| {
-            line(out, cat(&.{ "    ", variantName(variant.id), ": struct { ", fieldTypes(&map, variant.fields), " }," }));
+            lineCat(out, &.{ "    ", variantName(variant.id), ": struct { ", fieldTypes(&map, variant.fields), " }," });
             push([]const u8, &ids, cat(&.{ "\"", variant.id, "\"" }));
         }
-        line(out, cat(&.{ "    pub const ny_ids = [_][]const u8{ ", join(", ", ids.items), " };" }));
+        lineCat(out, &.{ "    pub const ny_ids = [_][]const u8{ ", join(", ", ids.items), " };" });
         line(out, "};");
     }
     line(out, "");
@@ -1703,7 +1721,7 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(64);
     }
     const text = try std.Io.Dir.cwd().readFileAlloc(init.io, args[1], a, .unlimited);
-    const root = (try json.parseFromSliceLeaky(json.Value, a, text, .{})).object;
+    const root = (try parseJson(text)).object;
 
     declarations = .init(a);
     for (arr(root, "types")) |item| {
@@ -1769,4 +1787,139 @@ pub fn main(init: std.process.Init) !void {
     }
     try out.flush();
     std.process.exit(2);
+}
+
+// ---------------------------------------------------------------- JSON
+
+/// The IR as `std.json.Value`, parsed directly: objects get their exact capacity and strings
+/// without escapes stay slices of the input, which `parseFromSliceLeaky` does not do for maps.
+const Reader = struct {
+    s: []const u8,
+    i: usize = 0,
+    scratch: List(json.Value) = .empty,
+    names: List([]const u8) = .empty,
+
+    fn space(r: *Reader) void {
+        while (r.i < r.s.len and (r.s[r.i] == ' ' or r.s[r.i] == '\t' or r.s[r.i] == '\n' or r.s[r.i] == '\r')) r.i += 1;
+    }
+
+    fn expect(r: *Reader, c: u8) !void {
+        r.space();
+        if (r.i >= r.s.len or r.s[r.i] != c) return error.SyntaxError;
+        r.i += 1;
+    }
+
+    fn peek(r: *Reader) !u8 {
+        r.space();
+        if (r.i >= r.s.len) return error.UnexpectedEndOfInput;
+        return r.s[r.i];
+    }
+
+    fn value(r: *Reader) anyerror!json.Value {
+        switch (try r.peek()) {
+            '{' => {
+                r.i += 1;
+                const base = r.scratch.items.len;
+                if (try r.peek() == '}') r.i += 1 else while (true) {
+                    if (try r.peek() != '"') return error.SyntaxError;
+                    push([]const u8, &r.names, try r.string());
+                    try r.expect(':');
+                    const item = try r.value();
+                    push(json.Value, &r.scratch, item);
+                    const c = try r.peek();
+                    r.i += 1;
+                    if (c == '}') break;
+                    if (c != ',') return error.SyntaxError;
+                }
+                var map: json.ObjectMap = .empty;
+                const count = r.scratch.items.len - base;
+                map.ensureTotalCapacity(a, count) catch oom();
+                const names = r.names.items[r.names.items.len - count ..];
+                for (names, r.scratch.items[base..]) |name, item| {
+                    const entry = map.getOrPutAssumeCapacity(name);
+                    if (entry.found_existing) return error.DuplicateField;
+                    entry.value_ptr.* = item;
+                }
+                r.scratch.shrinkRetainingCapacity(base);
+                r.names.shrinkRetainingCapacity(r.names.items.len - count);
+                return .{ .object = map };
+            },
+            '[' => {
+                r.i += 1;
+                const base = r.scratch.items.len;
+                if (try r.peek() == ']') r.i += 1 else while (true) {
+                    const item = try r.value();
+                    push(json.Value, &r.scratch, item);
+                    const c = try r.peek();
+                    r.i += 1;
+                    if (c == ']') break;
+                    if (c != ',') return error.SyntaxError;
+                }
+                var array = json.Array.init(a);
+                array.appendSlice(r.scratch.items[base..]) catch oom();
+                r.scratch.shrinkRetainingCapacity(base);
+                return .{ .array = array };
+            },
+            '"' => return .{ .string = try r.string() },
+            't' => return r.literal("true", .{ .bool = true }),
+            'f' => return r.literal("false", .{ .bool = false }),
+            'n' => return r.literal("null", .null),
+            '-', '0'...'9' => {
+                const start = r.i;
+                if (r.s[r.i] == '-') r.i += 1;
+                if (r.i < r.s.len and r.s[r.i] == '0') r.i += 1 else try r.digits();
+                if (r.i < r.s.len and r.s[r.i] == '.') {
+                    r.i += 1;
+                    try r.digits();
+                }
+                if (r.i < r.s.len and (r.s[r.i] == 'e' or r.s[r.i] == 'E')) {
+                    r.i += 1;
+                    if (r.i < r.s.len and (r.s[r.i] == '+' or r.s[r.i] == '-')) r.i += 1;
+                    try r.digits();
+                }
+                return json.Value.parseFromNumberSlice(r.s[start..r.i]);
+            },
+            else => return error.SyntaxError,
+        }
+    }
+
+    fn digits(r: *Reader) !void {
+        if (!(r.i < r.s.len and std.ascii.isDigit(r.s[r.i]))) return error.SyntaxError;
+        while (r.i < r.s.len and std.ascii.isDigit(r.s[r.i])) r.i += 1;
+    }
+
+    fn literal(r: *Reader, word: []const u8, result: json.Value) !json.Value {
+        if (!std.mem.startsWith(u8, r.s[r.i..], word)) return error.SyntaxError;
+        r.i += word.len;
+        return result;
+    }
+
+    fn string(r: *Reader) ![]const u8 {
+        r.i += 1;
+        const start = r.i;
+        while (r.i < r.s.len) : (r.i += 1) {
+            const c = r.s[r.i];
+            if (c == '"') {
+                r.i += 1;
+                return r.s[start .. r.i - 1];
+            }
+            if (c == '\\' or c < 0x20) break;
+        } else return error.UnexpectedEndOfInput;
+        // With escapes: the whole string through std.json, which decodes them.
+        var end = r.i;
+        while (end < r.s.len and r.s[end] != '"') end += if (r.s[end] == '\\') 2 else 1;
+        if (end >= r.s.len) return error.UnexpectedEndOfInput;
+        r.i = end + 1;
+        return try json.parseFromSliceLeaky([]const u8, a, r.s[start - 1 .. r.i], .{});
+    }
+};
+
+fn parseJson(source: []const u8) !json.Value {
+    // Strings without escapes stay unchecked slices, so the whole input is checked once here.
+    if (!std.unicode.utf8ValidateSlice(source)) return error.InvalidUtf8;
+    var reader: Reader = .{ .s = source };
+    const root = try reader.value();
+    reader.space();
+    if (reader.i != source.len) return error.SyntaxError;
+    return root;
 }
