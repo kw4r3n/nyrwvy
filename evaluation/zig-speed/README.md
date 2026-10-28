@@ -164,3 +164,60 @@ The reading:
 - **Startup dominates.** A new host takes about 0.6 s to its first reply. Of that, the runtime start is about 30 ms and the open itself 31–35 ms when warm in-process, of which the Zig toolchain is at most the validator's part (see "A resolved snapshot validated in Zig" above). The remaining ~550 ms was not split further. It is most likely the session code running for the first time in a fresh process (JIT and type initialisation). The background runPure warm-up does not delay the first reply.
 - **Per-request work is small.** Reads take 0–3 ms. A proposal with its review takes 43–64 ms, and its commit 22–35 ms. Neither split was measured between Zig tools and F# session logic.
 - **runPure on Rhifill is C#-bound, not Zig-bound.** The first run of an entry takes 0.4–0.6 s (C# emit and compile), on top of a 1.3 s warm-up the host hides in the background. A repeat takes 7–12 ms. For comparison, the Zig route's lowering and emitter for the whole merged model take 27 and 13 ms (the rows above), but this workspace does not use them.
+
+## F# and Zig on equal terms (2026-10-28)
+
+The same three tasks, from the same JSON files, in both languages:
+- `validate` is `model-reader --validate` against `SnapshotCodec.deserialize`.
+- `lower` is `model-reader --execution-ir` (it validates first) against deserialize, `TypedSemanticIr.project`, `ExecutionIr.lower` and `ExecutionIrSerializer.serialize`.
+- `emit` is the Zig `emitter` on the IR JSON against `ZigBackend.runner` on the lowered program.
+
+The F# side is `fsbench/` (`fsbench <task> <snapshot.json> [runs|check]`). The Zig side is the tools' `--bench <runs>` mode. Each run starts from a fresh arena and fresh globals, and must give the first run's output.
+
+Outputs are byte-identical across languages and builds: the IR, the task-outcomes runner source, and the validation verdict. The one exception is Rhifill's `emit` under AOT; see below. On Rhifill both emitters do the whole pass and then reject the capability types (the earlier "Rhifill: emitter" rows measured the same rejection).
+
+Builds:
+- Zig: `zig build-exe main.zig -O ReleaseSafe`, as `ZigTools` builds it.
+- F#, JIT: `dotnet publish evaluation/zig-speed/fsbench/FsBench.fsproj -c Release -r linux-x64 --self-contained false`.
+- F#, ReadyToRun: the same plus `-p:PublishReadyToRun=true`.
+- F#, Native AOT: `-p:PublishAot=true -p:TreatWarningsAsErrors=false -p:JsonSerializerIsReflectionEnabledByDefault=true` (see below).
+
+Inputs: task-outcomes (61 KiB of model JSON) and Rhifill's merged model (453 KiB). hyperfine was not installed, so a Python loop times the runs. All numbers are in ms, from two runs at a 1-minute load of about 4.
+
+**Cold:** one process per task, from spawn to exit, median of 15, interleaved. Spawning `/bin/true` takes 0.45. F#'s `emit` includes the lowering, because F# has no IR reader. Compare it with Zig's lower + emit: 10 ms for task-outcomes, 59 ms for Rhifill.
+
+| | Zig | F# JIT | F# ReadyToRun | F# AOT |
+|---|---|---|---|---|
+| task-outcomes validate | 4.1 | 335 | 162 | 9.3 |
+| task-outcomes lower | 7.2 | 505 | 232 | 17.4 |
+| task-outcomes (lower+)emit | 2.9 | 510 | 231 | 15.5 |
+| Rhifill validate | 25 | 478 | 282 | 47 |
+| Rhifill lower | 46 | 765 | 450 | 90 |
+| Rhifill (lower+)emit | 13.7 | 787 | 475 | 104 |
+
+**Warm:** in-process, inputs in memory, median of N runs after N warm-up runs (N = 300 for task-outcomes, 100 for Rhifill). One warm-up run is not enough for the JIT. After 30 runs, F# validate of task-outcomes still took 8–9 ms, against 2.4 after 300. Zig's `emit` includes parsing the 1 MB IR JSON, about 4 ms on Rhifill; F#'s does not.
+
+| | Zig | F# JIT | F# ReadyToRun | F# AOT |
+|---|---|---|---|---|
+| task-outcomes validate | 2.7 | 2.0–2.5 | 2.6–3.0 | 2.2–2.3 |
+| task-outcomes lower | 5.3–5.5 | 5.5–5.9 | 5.6–5.7 | 5.5–5.7 |
+| task-outcomes emit | 1.8 | 1.3 | 1.4–1.6 | 1.4 |
+| Rhifill validate | 22.8–23.7 | 26.6–28.0 | 26.1–26.5 | 28.6–29.4 |
+| Rhifill lower | 41.4–42.5 | 60.1–60.6 | 61.9–62.4 | 68.1–68.4 |
+| Rhifill emit | 12.3–12.6 | 13.8–13.9 | 15.0–15.3 | 15.2 |
+
+**AuthoringSession host start:** `open --snapshot <s> --read-only` to its first `status` reply, median of 9, same flags as above.
+
+| | JIT | ReadyToRun | AOT |
+|---|---|---|---|
+| task-outcomes.nyrec | 493 | 276 | 49 |
+| Rhifill (resolved workspace) | 741–756 | 501–513 | fails |
+
+Reading:
+- **Most of the gap is architecture, not language.** Warm, on the same work, the small input is a draw: F# is up to 25% faster on validate and emit, and the two are even on lower. On Rhifill, Zig is 1.15× faster on validate, 1.4× on lower, and 1.1× on emit (more once its JSON parse is taken out). Cold, the F# JIT process costs 330–790 ms where Zig costs 3–46 ms. Nearly all of that is runtime start and JIT, which the warm rows show is not the work itself.
+- **ReadyToRun about halves cold F#. Native AOT brings it to about 2× Zig** (9–104 ms), and starts the host in 49 ms instead of 493.
+- **Native AOT does not work as is.**
+  - The build fails under `TreatWarningsAsErrors`: about 830 trim/AOT warnings, nearly all from `ExecutionIrSerializer` calling the reflection-based `JsonSerializer.Serialize<string>`. That call also throws at run time unless reflection serialization is switched back on.
+  - F# `printf` needs generic code that AOT does not generate. `printfn "%.2f"` throws, so fsbench writes its numbers with `Console.WriteLine`.
+  - `%A` prints records without their fields. Rhifill's emitter problems read "capability operation type Capability" without the ID, so their text differs from JIT. The record reader also builds its error placement from `%A` text (`RecordCodec.readModel`).
+  - The AOT host opens task-outcomes but fails on Rhifill with `DependencyFailure: Invalid dependency manifest or source path.`, a `NotSupportedException` caught at `Session.fs:1054`. Not traced; probably the same `printf` family.
