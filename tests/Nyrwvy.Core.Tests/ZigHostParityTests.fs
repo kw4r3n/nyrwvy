@@ -36,8 +36,11 @@ module ZigHostParityTests =
     /// Exit code, stderr and stdout lines of a host run to the end of `requests`.
     let private run zig arguments (requests: string list) =
         use host = start zig arguments
-        for request in requests do host.StandardInput.Write(request + "\n")
-        host.StandardInput.Close()
+        // A host that fails to start may exit before reading its input.
+        try
+            for request in requests do host.StandardInput.Write(request + "\n")
+            host.StandardInput.Close()
+        with :? IOException -> ()
         let output = host.StandardOutput.ReadToEndAsync()
         let errors = host.StandardError.ReadToEnd()
         host.WaitForExit()
@@ -138,3 +141,111 @@ module ZigHostParityTests =
                     Assert.False(File.Exists stray, "The Zig host left a temporary of an interrupted write.")
                     Assert.True(File.Exists foreign, "The Zig host removed a file outside the temporary pattern.")
                 File.WriteAllText(stray, ""))
+
+    /// One sidecar member, as `PinnedDependency.embed` writes it, or by path for a legacy selection.
+    let private memberOf (dependency: Snapshot) (content: (string * string) option) (path: string) =
+        let fingerprint = SnapshotFingerprint.compute dependency |> unwrap |> SnapshotFingerprint.value
+        let item = JsonObject()
+        item["fingerprint"] <- JsonValue.Create fingerprint
+        item["path"] <- JsonValue.Create path
+        item["snapshotId"] <- JsonValue.Create(StableId.value dependency.Id)
+        content |> Option.iter (fun (key, text) -> item[key] <- JsonValue.Create text)
+        item
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host opens resolved snapshots as the F# host does`` () =
+        withDirectory (fun dir ->
+            // Record text needs UUIDs.
+            let names = Collections.Generic.Dictionary<string, SnapshotId>()
+            let dependencyId name =
+                match names.TryGetValue name with
+                | true, id -> id
+                | _ ->
+                    let id = StableId.tryCreate<SnapshotTag> $"01a20000-0000-7000-8000-{names.Count:D12}" |> unwrap
+                    names[name] <- id
+                    id
+            let asDependency name (snapshot: Snapshot) = { snapshot with Id = dependencyId name; ParentId = None; Obligations = [] }
+            let originals =
+                Directory.GetFiles(Path.Combine(ZigModelReaderSupport.root (), "examples"), "*.nyrec", SearchOption.AllDirectories)
+                |> Array.toList |> List.map (File.ReadAllText >> RecordCodec.deserialize >> unwrap)
+            let mutable cases = 0
+            let outcomes = Collections.Generic.HashSet<string>()
+            let check (name: string) (write: string -> unit) =
+                let path = Path.Combine(dir, name)
+                write path
+                for readOnly in [ true; false ] do
+                    let arguments = [ "open"; "--snapshot"; path ] @ (if readOnly then [ "--read-only" ] else [])
+                    let shown (code, errors, (lines: string list)) = $"{code} {comparable errors} {comparable (String.Join(' ', lines))}"
+                    let request = [ """{"id":"s","op":"status"}""" ]
+                    let fsharpRun = run false arguments request
+                    let fsharp, zig = shown fsharpRun, shown (run true arguments request)
+                    Assert.True((fsharp = zig), $"{name}:\n F#:  {fsharp}\n Zig: {zig}")
+                    // The accepted forms open; every other case fails to start.
+                    let opens = [ "embedded-"; "by-path-"; "set-" ] |> List.exists name.StartsWith && not (name.StartsWith "set-conflict")
+                    let code, errors, _ = fsharpRun
+                    Assert.True((code = (if opens then 0 else 2)), $"{name}: exit {code} {errors}")
+                    if not opens then outcomes.Add(Regex.Replace(name, "-[0-9]+\\..*", "") + ": " + errors.Substring(0, min 60 errors.Length)) |> ignore
+                cases <- cases + 1
+            let sidecar (path: string) (members: JsonObject list) =
+                let manifest = match members with [ single ] -> single | _ -> JsonObject(dict [ "dependencies", JsonArray(members |> List.map (fun m -> m :> JsonNode) |> List.toArray) :> JsonNode ])
+                File.WriteAllText(path + ".dependency.json", manifest.ToJsonString())
+            for index, original in List.indexed originals do
+                let dependency = asDependency $"single-{index}" { original with Functions = [] }
+                let local = { original with Types = []; Effects = []; Capabilities = [] }
+                let json, records = SnapshotCodec.serializeResolved dependency local |> unwrap, RecordCodec.serializeResolved dependency local |> unwrap
+                let embedded = memberOf dependency (Some("snapshotJson", SnapshotCodec.serialize dependency |> unwrap)) "/provenance/only.json"
+                let embeddedRecords = memberOf dependency (Some("snapshotRecords", RecordCodec.serialize dependency |> unwrap)) "/provenance/only.nyrec"
+                let accepted (name: string) (text: string) members =
+                    check name (fun path -> File.WriteAllText(path, text); sidecar path members)
+                accepted $"embedded-{index}.json" json [ embedded ]
+                accepted $"embedded-{index}.nyrec" records [ embeddedRecords ]
+                // A legacy selection names the dependency's file.
+                let source = Path.Combine(dir, $"library-{index}.json")
+                File.WriteAllText(source, SnapshotCodec.serialize dependency |> unwrap)
+                accepted $"by-path-{index}.json" json [ memberOf dependency None source ]
+                // A dependency set: the dependency and a library of one type, each valid alone; and a
+                // copy of the dependency with one type renamed, which collides.
+                let first = asDependency $"set-a-{index}" dependency
+                let extra =
+                    { Snapshot.empty (dependencyId $"set-b-{index}") with
+                        Types =
+                            [ { Id = StableId.createForTesting<TypeTag> $"zig-host-extra-{index}"; DisplayName = "Extra"; Exported = true; TypeParameters = []
+                                Kind = SemanticTypeKind.Product [ { Id = StableId.createForTesting<FieldTag> $"zig-host-extra-value-{index}"; DisplayName = "value"; Type = TypeRef.Primitive PrimitiveType.Int64 } ] } ] }
+                let embed (item: Snapshot) = memberOf item (Some("snapshotJson", SnapshotCodec.serialize item |> unwrap)) "/provenance/set.json"
+                let combined = DependencyGraph.combine [ first; extra ] |> unwrap
+                accepted $"set-{index}.json" (SnapshotCodec.serializeResolved combined local |> unwrap) [ embed first; embed extra ]
+                match first.Types with
+                | head :: rest ->
+                    let renamed = asDependency $"set-c-{index}" { first with Types = { head with DisplayName = head.DisplayName + "Other" } :: rest }
+                    accepted $"set-conflict-{index}.json" (SnapshotCodec.serializeResolved combined local |> unwrap) [ embed first; embed renamed ]
+                | [] -> ()
+                // A local document at an older version than a construct its dependency uses (Bytes, 23).
+                let bytes =
+                    { Id = StableId.createForTesting<TypeTag> $"zig-host-bytes-{index}"; DisplayName = "Raw"; Exported = true; TypeParameters = []
+                      Kind = SemanticTypeKind.Product [ { Id = StableId.createForTesting<FieldTag> $"zig-host-bytes-value-{index}"; DisplayName = "data"; Type = TypeRef.Primitive PrimitiveType.Bytes } ] }
+                let withBytes = asDependency $"bytes-{index}" { dependency with Types = bytes :: dependency.Types }
+                let older = (SnapshotCodec.serializeResolved withBytes local |> unwrap).Replace("\"schemaVersion\":24", "\"schemaVersion\":21")
+                accepted $"embedded-older-{index}.json" older [ embed withBytes ]
+                // Failures: the manifest, its fields and its content, the marker, and the recovery hints.
+                let edited (change: JsonObject -> unit) = let copy = JsonNode.Parse(embedded.ToJsonString()).AsObject() in change copy; copy
+                check $"duplicate-{index}.json" (fun path -> File.WriteAllText(path, json); File.WriteAllText(path + ".dependency.json", "{\"path\":\"/x\"," + embedded.ToJsonString().Substring 1))
+                check $"syntax-{index}.json" (fun path -> File.WriteAllText(path, json); File.WriteAllText(path + ".dependency.json", "{oops"))
+                accepted $"fields-{index}.json" json [ edited (fun m -> m.Remove "path" |> ignore) ]
+                accepted $"blank-{index}.json" json [ edited (fun m -> m["fingerprint"] <- JsonValue.Create " ") ]
+                accepted $"number-{index}.json" json [ edited (fun m -> m["path"] <- JsonValue.Create 1) ]
+                accepted $"empty-{index}.json" json [ edited (fun m -> m["snapshotJson"] <- JsonValue.Create "") ]
+                accepted $"changed-{index}.json" json [ edited (fun m -> m["fingerprint"] <- JsonValue.Create "sha256:00") ]
+                accepted $"unavailable-{index}.json" json [ memberOf dependency None (Path.Combine(dir, "absent.json")) ]
+                accepted $"lone-set-{index}.json" json [ JsonObject(dict [ "dependencies", JsonArray([| embedded.DeepClone() |]) :> JsonNode ]) ]
+                accepted $"bare-set-{index}.json" json [ memberOf dependency None source; memberOf dependency None source ]
+                accepted $"marker-{index}.json" (Regex.Replace(json, "\"digest\":\"(.)", fun m -> "\"digest\":\"" + (if m.Groups[1].Value = "0" then "1" else "0"))) [ embedded ]
+                // An interrupted replacement (the previous sidecar matches) and an interrupted first addition.
+                check $"previous-{index}.json" (fun path ->
+                    File.WriteAllText(path, json)
+                    File.WriteAllText(path + ".dependency.json", (edited (fun m -> m["fingerprint"] <- JsonValue.Create "sha256:00")).ToJsonString())
+                    File.WriteAllText(path + ".dependency.json.previous", embedded.ToJsonString()))
+                check $"standalone-{index}.json" (fun path ->
+                    File.WriteAllText(path, SnapshotCodec.serialize original |> unwrap)
+                    sidecar path [ embedded ])
+            Assert.True(cases > 40, $"{cases} cases")
+            Assert.True(outcomes.Count >= 12 && outcomes |> Seq.exists (fun line -> line.Contains "Dependencies declare"), String.Join("\n", outcomes)))

@@ -1270,49 +1270,212 @@ pub const Fingerprints = struct { snapshot: []const u8, semantic: []const u8, ca
 // the caller passes a validated snapshot (the host fingerprints only what it opened), and no
 // normalization of a valid snapshot has been seen to fail. Revisit if the parity test ever differs.
 fn fingerprints(source: []const u8) Failure!Fingerprints {
+    return fingerprintsOf(try parseDocument(source));
+}
+
+fn fingerprintsOf(root: Value) Failure!Fingerprints {
     defer {
         write_version = null;
         neutral = false;
     }
-    _ = try canonicalJson(source);
+    _ = try canonicalOf(root);
     var required = first_supported;
     for (rows.items, used) |row, is_used| if (is_used and row.minimum > required) {
         required = row.minimum;
     };
     write_version = required;
-    try collectTypeParameterNames(parsed_root);
-    const canonical = try canonicalJson(source);
+    try collectTypeParameterNames(root);
+    const canonical = try canonicalOf(root);
     neutral = true;
-    try collectTypeParameterNames(parsed_root);
-    const normalized = try canonicalJson(source);
+    try collectTypeParameterNames(root);
+    const normalized = try canonicalOf(root);
     return .{ .snapshot = hashIn("nayamnyam.snapshot-fingerprint.v6", canonical), .semantic = hashIn("nayamnyam.semantic-fingerprint.v6", normalized), .canonical = canonical, .normalized = normalized };
 }
 
 /// One snapshot document as the session host reads it: what `--validate` prints, line by line,
 /// and on acceptance its two fingerprints. `allocator` holds the result.
-pub const DocumentRead = struct { lines: []const u8, fingerprints: ?Fingerprints };
+pub const DocumentRead = struct {
+    lines: []const u8,
+    fingerprints: ?Fingerprints = null,
+    /// The current-version canonical text and `SnapshotCodec.dependencyDigest`, for a document
+    /// accepted as a dependency.
+    canonical: []const u8 = "",
+    digest: []const u8 = "",
+    /// Its snapshot ID, whether an obligation is open (`ensureCompleteDependency`), and the subjects a
+    /// resolved local's records may name (`RecordCodec.dependencySubjects`, `domain:uuid`).
+    id: []const u8 = "",
+    open_obligations: bool = false,
+    subjects: []const []const u8 = &.{},
+};
+
+/// `RecordCodec.dependencySubjects`: the declarations and their members.
+fn subjectsOf(root: Value) []const []const u8 {
+    var out: List([]const u8) = .empty;
+    const subject = struct {
+        fn subject(list: *List([]const u8), domain: []const u8, item: Value, key: []const u8) void {
+            list.append(a, fmt("{s}:{s}", .{ domain, text(str(item, key)) })) catch oom();
+        }
+    }.subject;
+    for (arrayOf(root, "types")) |t| {
+        subject(&out, "type", t, "id");
+        for (arrayOf(t, "typeParameters")) |p| subject(&out, "type-parameter", p, "typeParameterId");
+        for (arrayOf(t, "fields")) |f| subject(&out, "field", f, "id");
+        for (arrayOf(t, "variants")) |v| {
+            subject(&out, "variant", v, "id");
+            for (arrayOf(v, "fields")) |f| subject(&out, "field", f, "id");
+        }
+    }
+    for (arrayOf(root, "effects")) |e| subject(&out, "effect", e, "id");
+    for (arrayOf(root, "capabilities")) |c| {
+        subject(&out, "capability", c, "id");
+        for (arrayOf(c, "operations")) |o| {
+            subject(&out, "operation", o, "id");
+            for (arrayOf(o, "parameters")) |p| subject(&out, "capability-parameter", p, "id");
+        }
+    }
+    for (arrayOf(root, "functions")) |f| {
+        subject(&out, "function", f, "id");
+        for (arrayOf(f, "typeParameters")) |p| subject(&out, "type-parameter", p, "typeParameterId");
+        for (arrayOf(f, "parameters")) |p| subject(&out, "parameter", p, "id");
+    }
+    return out.items;
+}
+
+/// `DependencyGraph.combine` over current-version canonical texts: every declaration once, in
+/// first-occurrence order, when its content (its canonical text) is the same wherever it occurs.
+pub const Combined = union(enum) {
+    text: []const u8,
+    /// The first identity with different content, and the display name each member gives it.
+    conflict: struct { kind: []const u8, id: []const u8, names: []const ?[]const u8 },
+};
+
+pub fn combine(allocator: std.mem.Allocator, members: []const []const u8, combined_id: []const u8) Combined {
+    a = allocator;
+    resetState();
+    const roots = a.alloc(Value, members.len) catch oom();
+    for (members, roots) |member, *root| root.* = parseDocument(member) catch unreachable;
+    var out: List(u8) = .empty;
+    out.print(a, "{{\"schemaVersion\":{d},\"snapshotId\":{s}", .{ current, quotedAscii(combined_id) }) catch oom();
+    const groups = [_]struct { []const u8, []const u8, *const fn (Value) Failure!Keyed }{
+        .{ "types", "type", readType },             .{ "effects", "effect", readEffect },
+        .{ "capabilities", "capability", readCapability }, .{ "functions", "function", readFunction },
+        .{ "obligations", "obligation", readObligation },
+    };
+    for (groups) |group| {
+        var seen: std.StringArrayHashMapUnmanaged([]const u8) = .empty;
+        for (roots) |root| for (arrayOf(root, group[0])) |item| {
+            const keyed = group[2](item) catch unreachable;
+            const id = text(keyed.key);
+            if (seen.get(id)) |existing| {
+                if (std.mem.eql(u8, existing, keyed.text)) continue;
+                const names = a.alloc(?[]const u8, roots.len) catch oom();
+                for (roots, names) |other, *name| {
+                    name.* = null;
+                    for (arrayOf(other, group[0])) |candidate| if (std.mem.eql(u8, text(str(candidate, "id")), id)) {
+                        name.* = if (tryProperty("displayName", candidate) != null) text(str(candidate, "displayName")) else null;
+                    };
+                }
+                return .{ .conflict = .{ .kind = group[1], .id = id, .names = names } };
+            }
+            seen.put(a, id, keyed.text) catch oom();
+        };
+        out.print(a, ",\"{s}\":[", .{group[0]}) catch oom();
+        for (seen.values(), 0..) |item, index| {
+            if (index > 0) out.append(a, ',') catch oom();
+            out.appendSlice(a, item) catch oom();
+        }
+        out.append(a, ']') catch oom();
+    }
+    out.append(a, '}') catch oom();
+    return .{ .text = out.items };
+}
 pub fn readDocument(allocator: std.mem.Allocator, source: []const u8) DocumentRead {
     a = allocator;
-    if (!tables_loaded) loadTables();
-    tables_loaded = true;
+    resetState();
     var out: std.Io.Writer.Allocating = .init(a);
     emit_text = false;
     const read = canonicalJson(source);
     emit_text = true;
     if (read) |_| {
-        validate(parsed_root);
+        const root = parsed_root;
+        validate(root);
         printIssues(&out.writer) catch oom();
-        if (issues.items.len > 0) return .{ .lines = out.written(), .fingerprints = null };
-        return .{ .lines = out.written(), .fingerprints = fingerprints(source) catch null };
-    } else |e| switch (e) {
-        error.Json => out.writer.print("error InvalidJson: {s}\n", .{message}) catch oom(),
-        error.Shape => out.writer.print("error InvalidShape: {s}\n", .{message}) catch oom(),
-        error.Version => out.writer.print("error UnsupportedSchemaVersion: {d}\n", .{declared_version}) catch oom(),
-        error.Legacy => out.writer.print("skip legacy schema {d}\n", .{declared_version}) catch oom(),
-    }
-    return .{ .lines = out.written(), .fingerprints = null };
+        if (issues.items.len > 0) return .{ .lines = out.written() };
+        const found = fingerprintsOf(root) catch return .{ .lines = out.written() };
+        var open = false;
+        for (arrayOf(root, "obligations")) |obligation| open = open or isName(str(obligation, "status"), "open");
+        return .{
+            .lines = out.written(),
+            .fingerprints = found,
+            .canonical = canonicalOf(root) catch "",
+            .digest = fmt("{s}", .{std.fmt.bytesToHex(sha256(found.canonical), .lower)}),
+            .id = text(decodeString(str(root, "snapshotId")) catch unreachable),
+            .open_obligations = open,
+            .subjects = subjectsOf(root),
+        };
+    } else |e| printFailure(&out.writer, e);
+    return .{ .lines = out.written() };
 }
-var tables_loaded = false;
+
+fn sha256(bytes: []const u8) [32]u8 {
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(bytes, &digest, .{});
+    return digest;
+}
+
+fn printFailure(out: *std.Io.Writer, e: Failure) void {
+    switch (e) {
+        error.Json => out.print("error InvalidJson: {s}\n", .{message}) catch oom(),
+        error.Shape => out.print("error InvalidShape: {s}\n", .{message}) catch oom(),
+        error.Version => out.print("error UnsupportedSchemaVersion: {d}\n", .{declared_version}) catch oom(),
+        error.Legacy => out.print("skip legacy schema {d}\n", .{declared_version}) catch oom(),
+    }
+}
+
+/// A resolved document as the session host reads it (`SnapshotCodec.deserializeResolved`): the
+/// local document with its marker checked against the dependency's ID and digest, then the merged
+/// model, the dependency's declarations first, validated and fingerprinted. `dependency` is the
+/// dependency's current-version canonical text (`DocumentRead.canonical`).
+pub fn readResolvedDocument(allocator: std.mem.Allocator, dependency: []const u8, dependency_id: []const u8, dependency_digest: []const u8, source: []const u8) DocumentRead {
+    a = allocator;
+    resetState();
+    var out: std.Io.Writer.Allocating = .init(a);
+    const dependency_root = parseDocument(dependency) catch unreachable;
+    resolved_input = true;
+    expected_marker = .{ .id = utf16Of(dependency_id), .digest = utf16Of(dependency_digest) };
+    emit_text = false;
+    const read = canonicalJson(source);
+    emit_text = true;
+    resolved_input = false;
+    expected_marker = null;
+    _ = read catch |e| {
+        printFailure(&out.writer, e);
+        return .{ .lines = out.written() };
+    };
+    var members: List(Member) = .empty;
+    for (parsed_root.object) |member| {
+        if (isName(member.name, "dependency")) continue;
+        var value = member.value;
+        inline for (.{ "types", "effects", "capabilities", "functions", "obligations" }) |name| {
+            if (isName(member.name, name)) value = .{ .array = std.mem.concat(a, Value, &.{ arrayOf(dependency_root, name), member.value.array }) catch oom() };
+        }
+        // The merged model is not a document: only the local one's version bounds its constructs,
+        // and the dependency's text is at the current version.
+        if (isName(member.name, "schemaVersion")) value = .{ .number = fmt("{d}", .{current}) };
+        members.append(a, .{ .name = member.name, .value = value }) catch oom();
+    }
+    const merged: Value = .{ .object = members.items };
+    const id = text(decodeString(str(parsed_root, "snapshotId")) catch unreachable);
+    validate(merged);
+    printIssues(&out.writer) catch oom();
+    if (issues.items.len > 0) return .{ .lines = out.written() };
+    return .{ .lines = out.written(), .fingerprints = fingerprintsOf(merged) catch null, .id = id };
+}
+
+/// ASCII or UTF-8 text as UTF-16 units.
+fn utf16Of(utf8: []const u8) Str {
+    return std.unicode.utf8ToUtf16LeAlloc(a, utf8) catch oom();
+}
 
 /// `FingerprintHash.sha256`: the domain is frozen; it is part of every reviewed fingerprint.
 fn hashIn(domain: []const u8, canonical: []const u8) []const u8 {
@@ -1325,15 +1488,27 @@ fn hashIn(domain: []const u8, canonical: []const u8) []const u8 {
 
 /// `SnapshotCodec.toCanonicalJson` for a schema from the first record version on.
 fn canonicalJson(source: []const u8) Failure![]const u8 {
+    return canonicalOf(try parseDocument(source));
+}
+
+/// The dependency a resolved document must name (`SnapshotCodec.readDocument`): its snapshot ID and
+/// the SHA-256 of its minimum-version canonical text. Null when the caller checks the marker.
+var expected_marker: ?struct { id: Str, digest: Str } = null;
+
+fn canonicalOf(root: Value) Failure![]const u8 {
     @memset(used, false);
-    const root = try parseDocument(source);
     parsed_root = root;
     const top = [_][]const u8{ "schemaVersion", "snapshotId", "types", "effects", "capabilities", "functions", "obligations" };
-    // A resolved snapshot's marker; the caller (F#) checks it against the dependency.
-    if (resolved_input)
-        try ensureProperties("Snapshot", &(top ++ [_][]const u8{"dependency"}), &(top ++ [_][]const u8{ "parentSnapshotId", "dependency" }), root)
-    else
-        try ensureProperties("Snapshot", &top, &(top ++ [_][]const u8{"parentSnapshotId"}), root);
+    if (resolved_input) {
+        try ensureProperties("Resolved snapshot", &(top ++ [_][]const u8{"dependency"}), &(top ++ [_][]const u8{ "parentSnapshotId", "dependency" }), root);
+        const marker = try requireProperty("dependency", root);
+        try ensureProperties("Dependency marker", &.{ "snapshotId", "digest" }, &.{ "snapshotId", "digest" }, marker);
+        if (expected_marker) |expected| {
+            const id = try readString("snapshotId", marker);
+            const digest = try readString("digest", marker);
+            if (!std.mem.eql(u16, id, expected.id) or !std.mem.eql(u16, digest, expected.digest)) return invalidShape("Dependency selection does not match the local snapshot.");
+        }
+    } else try ensureProperties("Snapshot", &top, &(top ++ [_][]const u8{"parentSnapshotId"}), root);
     declared_version = try readInt32("schemaVersion", root);
     if (declared_version < first_supported or declared_version > current) return error.Version;
     if (declared_version < first_record) return error.Legacy;
@@ -5733,6 +5908,55 @@ fn printIssues(out: *std.Io.Writer) !void {
     try out.writeAll("end\n");
 }
 
+/// Every global back to its initial value and the tables loaded again: a fresh state for the
+/// next document in one process (`--bench`, the session host).
+fn resetState() void {
+    message = "";
+    declared_version = 0;
+    emit_text = true;
+    rows = .empty;
+    used = &.{};
+    first_supported = 0;
+    first_record = 0;
+    current = 0;
+    wait_row = null;
+    bytes_row = null;
+    kinds = .empty;
+    issues = .empty;
+    parsed_root = .json_null;
+    effect_names = .empty;
+    types_by_id = .empty;
+    all_types = &.{};
+    capability_ids = .empty;
+    type_parameter_names = .empty;
+    variant_owners = .empty;
+    functions_by_id = .empty;
+    operations_by_id = .empty;
+    product_fields_by_id = .empty;
+    product_field_owners = .empty;
+    all_capabilities = &.{};
+    requirements_by_kind = null;
+    variants_by_id = .empty;
+    operation_owners = .empty;
+    open_obligation_pairs = .empty;
+    order_depth = 0;
+    dependencies_memo = .empty;
+    observable_memo = .empty;
+    observable_functions = .empty;
+    one_shot_requirements = .empty;
+    task_bound_capabilities = .empty;
+    validated_input = false;
+    lowering_failure = "";
+    instruction_names = .empty;
+    resolved_input = false;
+    write_version = null;
+    neutral = false;
+    legacy_names = .empty;
+    expected_marker = null;
+    loadTables();
+    loadInstructionNames();
+}
+
 /// `--bench <runs> --validate|--execution-ir <in.json>`: the median of `runs` in-process runs after
 /// `runs` warm-up runs, in ms, on stderr, with the input read once; each run starts from a fresh arena and
 /// fresh state (the tables are loaded before the clock starts), and must give the first run's output.
@@ -5744,46 +5968,7 @@ fn bench(io: std.Io, runs: usize, lowering: bool, path: []const u8) !void {
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
         a = arena.allocator();
-        message = "";
-        declared_version = 0;
-        emit_text = true;
-        rows = .empty;
-        used = &.{};
-        first_supported = 0;
-        first_record = 0;
-        current = 0;
-        wait_row = null;
-        bytes_row = null;
-        kinds = .empty;
-        issues = .empty;
-        parsed_root = .json_null;
-        effect_names = .empty;
-        types_by_id = .empty;
-        all_types = &.{};
-        capability_ids = .empty;
-        type_parameter_names = .empty;
-        variant_owners = .empty;
-        functions_by_id = .empty;
-        operations_by_id = .empty;
-        product_fields_by_id = .empty;
-        product_field_owners = .empty;
-        all_capabilities = &.{};
-        requirements_by_kind = null;
-        variants_by_id = .empty;
-        operation_owners = .empty;
-        open_obligation_pairs = .empty;
-        order_depth = 0;
-        dependencies_memo = .empty;
-        observable_memo = .empty;
-        observable_functions = .empty;
-        one_shot_requirements = .empty;
-        task_bound_capabilities = .empty;
-        validated_input = false;
-        lowering_failure = "";
-        instruction_names = .empty;
-        resolved_input = false;
-        loadTables();
-        loadInstructionNames();
+        resetState();
         var out: std.Io.Writer.Allocating = .init(a);
         const start = std.Io.Timestamp.now(io, .awake);
         emit_text = false;

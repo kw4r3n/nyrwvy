@@ -136,12 +136,12 @@ type ZigSpeed(output: ITestOutputHelper) =
                 host.StandardError.ReadToEnd() |> ignore
                 host.WaitForExit())
             let openReadOnly = median (fun () -> (AuthoringSession.openReadOnly path |> ok).Close())
+            let zigHost = ZigTools.tool "host" |> Result.mapError (fun (code, message) -> $"{code}: {message}") |> ok
             row "start" [ "host spawn to status reply", spawned "1"; "same, warm-up off", spawned "0"; "host usage exit", usage; "in-process openReadOnly", openReadOnly ]
-            // The Zig host (tools/zig/host) and the F# host on the merged model as a plain snapshot,
-            // since the Zig host does not read a dependency sidecar yet (docs/decisions/zig-session-host.md, 1c).
+            row "start, Zig host" [ "spawn to status reply", medianOf (fun () -> spawnWith zigHost [ "open"; "--snapshot"; path; "--read-only" ] "1") ]
+            // Both hosts on the merged model as a plain snapshot (no sidecar).
             let merged = Path.Combine(dir, "merged.json")
             (using (AuthoringSession.openReadOnly path |> ok) (fun session -> File.WriteAllText(merged, (session.ExecutionContext None |> ok).ModelJson () |> ok |> fst)))
-            let zigHost = ZigTools.tool "host" |> Result.mapError (fun (code, message) -> $"{code}: {message}") |> ok
             let onMerged = [ "open"; "--snapshot"; merged; "--read-only" ]
             row "start, merged model" [ "zig host", medianOf (fun () -> spawnWith zigHost onMerged "1"); "F# host", medianOf (fun () -> spawnWith "dotnet" (dll :: onMerged) "1") ]
             use session = AuthoringSession.openExisting path |> ok
