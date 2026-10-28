@@ -150,6 +150,13 @@ The standing rule from 2026-10-28: once the Zig path beats F# on `evaluation/zig
 - **The check.** Under `NYRWVY_ZIG_READER_CHECK` both readers run, and the merged models are compared.
 - **Not covered.** A resolved record (`.nyrec`) still reads with F#. Its snapshot-reader step needs the dependency's subjects (`--dependency`), which the session does not pass yet.
 
+## Session timings as input for the next step (2026-10-28)
+
+`evaluation/zig-speed/README.md` ("Where an AuthoringSession spends its time on Rhifill") times the session host on Rhifill, as input for choosing between (a) stopping the port at the toolchain (reader, validator, lowering, emitter) and (b) porting the whole session to a long-running Zig process. Not decided here. The measured facts:
+- A new host takes about 0.6 s to its first reply. Most of it is not yet attributed, most likely first-run JIT of the session code; the runtime start is about 30 ms and the open about 33 ms.
+- Requests on an open session take 0–3 ms for reads, about 45 ms for a proposal and about 23 ms for a commit.
+- Rhifill's runPure is on the C# backend, where the first run of an entry costs 0.4–0.6 s of C# emit and compile and a repeat about 8 ms.
+
 ## F# and Zig on equal terms (measured 2026-10-28, no decision)
 
 `evaluation/zig-speed` ("F# and Zig on equal terms") times validate, lower and emit in both languages: from the same JSON, as a cold process, and warm in-process. Warm, task-outcomes is a draw (F# up to 25% faster on validate and emit), and Zig is 1.1–1.4× faster on Rhifill. Cold, a JIT F# process costs 330–790 ms against Zig's 3–46 ms, ReadyToRun about half that, and Native AOT 9–104 ms. So most of the earlier gap came from F# process start and JIT, not from the work itself. Native AOT needs changes before it is usable: reflection-based JSON in `ExecutionIrSerializer`, F# `printf`/`%A` (wrong or throwing under AOT), and the host's Rhifill open. These numbers are input to the open question of whether a mixed F#/Zig runtime is acceptable; nothing is routed differently.

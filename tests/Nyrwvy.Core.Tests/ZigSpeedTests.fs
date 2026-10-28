@@ -88,3 +88,78 @@ type ZigSpeed(output: ITestOutputHelper) =
                 let openResolved = median (fun () -> (AuthoringSession.openReadOnly path |> ok).Close())
                 row "Rhifill resolved open" [ "as read", openResolved ]
         finally Directory.Delete(dir, true)
+
+    /// Where an AuthoringSession spends its time on Rhifill: the host process an agent starts, then
+    /// single requests through `executeLine`, the per-line entry `serve` runs (the host minus stdio).
+    [<Fact; Trait("Suite", "Benchmark")>]
+    member _.``ZigSpeed: AuthoringSession ops on Rhifill`` () =
+        match Environment.GetEnvironmentVariable "NYRWVY_SPEED_RHIFILL" with
+        | null | "" -> output.WriteLine "NYRWVY_SPEED_RHIFILL is unset; skipped."
+        | source ->
+        let dir = Path.Combine(ZigTools.cache, "speed-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            // The workspace and its sidecars (not its lock), so commit writes only the copy.
+            let path = Path.Combine(dir, Path.GetFileName source)
+            for file in Directory.GetFiles(Path.GetDirectoryName(Path.GetFullPath source), Path.GetFileName source + "*") do
+                if not (file.EndsWith ".lock") then File.Copy(file, Path.Combine(dir, Path.GetFileName file))
+            let row (name: string) (cells: (string * float) list) =
+                output.WriteLine(name.PadRight 22 + String.Join("  ", cells |> List.map (fun (k, v) -> $"{k} {v:F1}")))
+            let time f = let watch = Stopwatch.StartNew() in f (); watch.Elapsed.TotalMilliseconds
+            // As tools/nyrwvy-agent/authoring.ts launches the host for a read session.
+            let dll = Path.Combine(ZigModelReaderSupport.root (), "tools", "Nyrwvy.AuthoringSession", "bin", "Release", "net10.0", "Nyrwvy.AuthoringSession.dll")
+            if not (File.Exists dll) then failwithf "%s is not built (dotnet build -c Release)" dll
+            let spawn (warmup: string) =
+                let info = ProcessStartInfo("dotnet", [ dll; "open"; "--snapshot"; path; "--read-only" ])
+                info.Environment["NYRWVY_RUNPURE_WARMUP"] <- warmup
+                info.RedirectStandardInput <- true
+                info.RedirectStandardOutput <- true
+                info.RedirectStandardError <- true
+                let watch = Stopwatch.StartNew()
+                use host = Process.Start info
+                host.StandardInput.WriteLine """{"id":"s","op":"status"}"""
+                host.StandardInput.Flush()
+                let reply = host.StandardOutput.ReadLine()
+                let elapsed = watch.Elapsed.TotalMilliseconds
+                host.StandardInput.Close()
+                host.WaitForExit()
+                if isNull reply || not (reply.Contains "\"ok\":true") then failwithf "host: %s %s" reply (host.StandardError.ReadToEnd())
+                elapsed
+            let spawned warmup = ([| for _ in 0 .. runs -> spawn warmup |] |> Array.skip 1 |> Array.sort)[runs / 2]
+            // The same host given no arguments prints its usage and exits: the runtime start alone.
+            let usage = median (fun () ->
+                let info = ProcessStartInfo("dotnet", [ dll ])
+                info.RedirectStandardError <- true
+                use host = Process.Start info
+                host.StandardError.ReadToEnd() |> ignore
+                host.WaitForExit())
+            let openReadOnly = median (fun () -> (AuthoringSession.openReadOnly path |> ok).Close())
+            row "start" [ "host spawn to status reply", spawned "1"; "same, warm-up off", spawned "0"; "host usage exit", usage; "in-process openReadOnly", openReadOnly ]
+            use session = AuthoringSession.openExisting path |> ok
+            let request line =
+                use reply = Text.Json.JsonDocument.Parse(AuthoringProtocol.executeLine session line)
+                if not (reply.RootElement.GetProperty("ok").GetBoolean()) then failwithf "%s -> %s" line (reply.RootElement.GetRawText())
+                reply.RootElement.GetProperty("result").Clone()
+            let status = median (fun () -> request """{"id":"s","op":"status"}""" |> ignore)
+            let read = median (fun () -> request """{"id":"r","op":"readFunction","function":"actionName"}""" |> ignore)
+            let search = median (fun () -> request """{"id":"q","op":"search","text":"binding"}""" |> ignore)
+            row "read ops" [ "status", status; "readFunction", read; "search", search ]
+            // Rhifill's case actionName-focus_left. The host warms the worker in the background at start.
+            let run = """{"id":"p","op":"runPureByName","function":"actionName","arguments":[4],"expected":"focus_left"}"""
+            let warm = time (fun () -> PureRun.warm session.PureRunWorker)
+            let first = time (fun () -> request run |> ignore)
+            let repeated = median (fun () -> request run |> ignore)
+            // Rhifill declares only csharp (the Zig backend refuses its capability operation types), so no Zig tool runs here.
+            row "runPure (csharp)" [ "warm-up", warm; "first (once)", first; "repeated", repeated ]
+            // Each round proposes a new one-literal function and commits it, so the copy grows by one function a round.
+            let rounds =
+                [| for round in 0 .. runs ->
+                     let mutable proposal = ""
+                     let simulate = time (fun () ->
+                         let line = $"""{{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"speed{round}","parameters":[],"resultType":{{"kind":"primitive","primitive":"int64"}},"requiredEffects":[],"body":{{"kind":"int64Literal","value":1}}}}"""
+                         proposal <- (request line).GetProperty("proposalId").GetString())
+                     simulate, time (fun () -> request $"""{{"id":"m","op":"commit","proposalId":"{proposal}"}}""" |> ignore) |]
+                |> Array.skip 1
+            let mid (values: float[]) = (Array.sort values)[runs / 2]
+            row "mutation" [ "simulateCreateFunction", rounds |> Array.map fst |> mid; "commit", rounds |> Array.map snd |> mid ]
+        finally Directory.Delete(dir, true)
