@@ -5523,9 +5523,85 @@ fn printIssues(out: *std.Io.Writer) !void {
     try out.writeAll("end\n");
 }
 
+/// `--bench <runs> --validate|--execution-ir <in.json>`: the median of `runs` in-process runs after
+/// `runs` warm-up runs, in ms, on stderr, with the input read once; each run starts from a fresh arena and
+/// fresh state (the tables are loaded before the clock starts), and must give the first run's output.
+fn bench(io: std.Io, runs: usize, lowering: bool, path: []const u8) !void {
+    const input = try std.Io.Dir.cwd().readFileAlloc(io, path, std.heap.page_allocator, .unlimited);
+    var first: ?[]const u8 = null;
+    const times = try std.heap.page_allocator.alloc(i96, runs);
+    for (0..2 * runs) |run| {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        a = arena.allocator();
+        message = "";
+        declared_version = 0;
+        emit_text = true;
+        rows = .empty;
+        used = &.{};
+        first_supported = 0;
+        first_record = 0;
+        current = 0;
+        wait_row = null;
+        bytes_row = null;
+        kinds = .empty;
+        issues = .empty;
+        parsed_root = .json_null;
+        effect_names = .empty;
+        types_by_id = .empty;
+        all_types = &.{};
+        capability_ids = .empty;
+        type_parameter_names = .empty;
+        variant_owners = .empty;
+        functions_by_id = .empty;
+        operations_by_id = .empty;
+        product_fields_by_id = .empty;
+        product_field_owners = .empty;
+        all_capabilities = &.{};
+        requirements_by_kind = null;
+        variants_by_id = .empty;
+        operation_owners = .empty;
+        open_obligation_pairs = .empty;
+        order_depth = 0;
+        dependencies_memo = .empty;
+        observable_memo = .empty;
+        observable_functions = .empty;
+        one_shot_requirements = .empty;
+        task_bound_capabilities = .empty;
+        validated_input = false;
+        lowering_failure = "";
+        instruction_names = .empty;
+        resolved_input = false;
+        loadTables();
+        loadInstructionNames();
+        var out: std.Io.Writer.Allocating = .init(a);
+        const start = std.Io.Timestamp.now(io, .awake);
+        emit_text = false;
+        const read = canonicalJson(input);
+        emit_text = true;
+        if (read) |_| {
+            if (lowering) {
+                try out.writer.writeAll(executionIr(parsed_root) catch lowering_failure);
+            } else {
+                validate(parsed_root);
+                try printIssues(&out.writer);
+            }
+        } else |_| try out.writer.writeAll(message);
+        const took = start.durationTo(std.Io.Timestamp.now(io, .awake)).toNanoseconds();
+        if (first) |expected| {
+            if (!std.mem.eql(u8, expected, out.written())) @panic("a bench run gave another output");
+        } else first = try std.heap.page_allocator.dupe(u8, out.written());
+        if (run >= runs) times[run - runs] = took;
+    }
+    std.mem.sort(i96, times, {}, std.sort.asc(i96));
+    std.debug.print("{d:.2}\n", .{@as(f64, @floatFromInt(times[runs / 2])) / 1e6});
+}
+
 pub fn main(init: std.process.Init) !void {
     a = init.arena.allocator();
     var args = try init.minimal.args.toSlice(a);
+    if (args.len == 5 and std.mem.eql(u8, args[1], "--bench"))
+        return bench(init.io, try std.fmt.parseInt(usize, args[2], 10), std.mem.eql(u8, args[3], "--execution-ir"), args[4]);
     const validating = args.len >= 2 and std.mem.eql(u8, args[1], "--validate");
     const lowering = args.len >= 2 and std.mem.eql(u8, args[1], "--execution-ir");
     // `--execution-ir --validated <in> <out> <entry> ...`: the inputs already passed `--validate`.

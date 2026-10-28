@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The F# side of the equal-conditions comparison (../README.md): one task per process, or a warm loop. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
+    <ProjectReference Include="../../../src/Nyrwvy.Execution/Nyrwvy.Execution.fsproj" />
+    <ProjectReference Include="../../../src/Nyrwvy.Backend.Zig/Nyrwvy.Backend.Zig.fsproj" />
+  </ItemGroup>
+</Project>
