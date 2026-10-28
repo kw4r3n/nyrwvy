@@ -233,9 +233,9 @@ module DeclarationVisibilityTests =
         let snapshot = declarations false
         let focus = SemanticQuery.focusFunction snapshot (id<FunctionTag> "function-identity") |> unwrap "focus" |> ViewerProjection.focus
         Assert.False(focus.Function.Exported)
-        Assert.Contains("Visibility: private", ViewerHtml.renderFocusDocument focus)
+        Assert.Contains("Visibility: private", ViewerRendering.focus focus)
         let exported = SemanticQuery.focusFunction (declarations true) (id<FunctionTag> "function-identity") |> unwrap "focus" |> ViewerProjection.focus
-        Assert.Contains("Visibility: exported", ViewerHtml.renderFocusDocument exported)
+        Assert.Contains("Visibility: exported", ViewerRendering.focus exported)
 
     // ---- Dependencies --------------------------------------------------------------------------
 

@@ -28,7 +28,7 @@ module AssemblyBoundaryTests =
         let semanticAssembly = typeof<Snapshot>.Assembly
         let executionAssembly = typeof<TypedSemanticProgram>.Assembly
         let backendAssembly = typeof<CSharpArtifact>.Assembly
-        let viewerAssembly = typeof<ViewerArtifact>.Assembly
+        let viewerAssembly = typeof<ViewerTarget>.Assembly
 
         let actual =
             [ assemblyName semanticAssembly
@@ -77,6 +77,6 @@ module AssemblyBoundaryTests =
 
     [<Fact>]
     let ``viewer depends on semantics but not execution or backend`` () =
-        let assembly = typeof<ViewerArtifact>.Assembly
+        let assembly = typeof<ViewerTarget>.Assembly
         requireReference "Nyrwvy.Semantics" assembly
         forbidReferences [ "Nyrwvy.Execution"; "Nyrwvy.Backend.CSharp" ] assembly

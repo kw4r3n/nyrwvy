@@ -1,2 +1,4 @@
 # Preserve the exact authenticated compressed offline input bytes on checkout.
 examples/offline-session-replay/fixtures/retained-inputs/**/*.gz binary
+# The viewer asset carries the hash of its own script, so its bytes must not change on checkout.
+src/Nyrwvy.Viewer/viewer.html text eol=lf

@@ -2,7 +2,7 @@
   <ItemGroup>
     <Compile Include="ViewerModel.fs" />
     <Compile Include="ViewerHtml.fs" />
-    <Compile Include="ViewerArtifact.fs" />
+    <EmbeddedResource Include="viewer.html" LogicalName="Nyrwvy.Viewer.viewer.html" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />

@@ -84,7 +84,7 @@ module FunctionValueTests =
             let referenceNode = ValueGraph.collectNodes focused.Function.Body |> List.find (fun node -> match node.Kind with SemanticNodeKind.FunctionReference _ -> true | _ -> false)
             Assert.Equal(Some(TypeRef.Function([ TypeRef.Primitive PrimitiveType.String ], TypeRef.Primitive PrimitiveType.Bool)), focused.NodeTypes |> List.find (fun n -> n.NodeId = referenceNode.Id) |> fun n -> n.Type)
             Assert.Empty(focused.BodyEffectRequirements.EffectIds)
-            let html = focused |> ViewerProjection.focus |> ViewerHtml.renderFocusDocument
+            let html = focused |> ViewerProjection.focus |> ViewerRendering.focus
             Assert.Contains("references function", html)
             Assert.Contains(StableId.value (find session "hasA").Id, html)
             let typed = TypedSemanticIr.project snapshot |> unwrap

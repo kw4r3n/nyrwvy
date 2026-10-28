@@ -373,7 +373,7 @@ module FunctionAbortTests =
             let boundary = Assert.Single focus.Aborts
             Assert.Equal(fn.Id, boundary.OwnerFunctionId)
             Assert.Equal(Some textType, boundary.ErrorType)
-            let html = ViewerProjection.focus focus |> ViewerHtml.renderFocusDocument
+            let html = ViewerProjection.focus focus |> ViewerRendering.focus
             Assert.Contains("Function abort boundaries", html)
             Assert.Contains(target, html)
             let before = File.ReadAllText path

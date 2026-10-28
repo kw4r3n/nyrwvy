@@ -176,7 +176,7 @@ module BytesTests =
             Assert.Equal<ValueDependencyRole list>(
                 [ ValueDependencyRole.Source; ValueDependencyRole.Index; ValueDependencyRole.Item ],
                 set.ValueDependencies |> List.map (fun item -> item.Role))
-            let html = ViewerHtml.renderFocusDocument viewer
+            let html = ViewerRendering.focus viewer
             for label in [ "bytes slice"; "bytes from latin-1"; "bytes to latin-1" ] do Assert.Contains(label, html)
             session.Close()
             let encoded = File.ReadAllText path

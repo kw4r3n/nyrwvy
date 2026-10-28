@@ -161,7 +161,7 @@ module ViewerArtifactTests =
             if not (File.Exists outputPath) then
                 failwith "Viewer export CLI did not create the requested HTML file."
 
-            let html = File.ReadAllText(outputPath, Encoding.UTF8)
+            let html = File.ReadAllText(outputPath, Encoding.UTF8) |> ViewerRendering.page
             if not (OperatingSystem.IsWindows()) then Assert.Equal(privateMode, File.GetUnixFileMode outputPath)
             if not (html.Contains("Function Focus", StringComparison.Ordinal)) then
                 failwith "Exported HTML does not contain the Focus viewer heading."
@@ -248,7 +248,7 @@ module ViewerArtifactTests =
                               "--function-id"; StableId.value fixture.MainFunctionId; "--output"; output ])
                     Assert.True((code = 0), stdout + stderr)
                     Assert.Equal(source, File.ReadAllText snapshot)
-                    Assert.Contains("Function Focus", File.ReadAllText output)
+                    Assert.Contains("Function Focus", File.ReadAllText output |> ViewerRendering.page)
                     Assert.Null(FileInfo(output).LinkTarget)
                 Assert.Empty(Directory.GetFiles(root, "*.tmp"))
             finally
@@ -335,7 +335,7 @@ module ViewerArtifactTests =
                 send session ($"""{{"id":"view","op":"viewFunction","functionId":"{StableId.value fixture.MainFunctionId}","output":{JsonSerializer.Serialize explicitPath}}}""")
             Assert.True(byId.RootElement.GetProperty("ok").GetBoolean(), byId.RootElement.ToString())
             Assert.Equal(explicitPath, byId.RootElement.GetProperty("result").GetProperty("path").GetString())
-            Assert.Contains("Function Focus", File.ReadAllText(explicitPath, Encoding.UTF8))
+            Assert.Contains("Function Focus", File.ReadAllText(explicitPath, Encoding.UTF8) |> ViewerRendering.page)
 
             use notHtml = send session ($"""{{"id":"view","op":"viewFunction","function":"main","output":{JsonSerializer.Serialize path}}}""")
             Assert.False(notHtml.RootElement.GetProperty("ok").GetBoolean())
@@ -407,7 +407,7 @@ module ViewerArtifactTests =
             Assert.Equal("changeReview", result.GetProperty("kind").GetString())
             let written = result.GetProperty("path").GetString()
             Assert.Equal(Path.Combine(root, ViewerFile.defaultDirectoryName), Path.GetDirectoryName written)
-            File.ReadAllText(written, Encoding.UTF8)
+            File.ReadAllText(written, Encoding.UTF8) |> ViewerRendering.page
         try
             use session = AuthoringSession.createNew path |> unwrap
             use created =
@@ -471,7 +471,7 @@ module ViewerArtifactTests =
                 AuthoringProtocol.executeLine session ($"""{{"id":"view","op":"viewProposal","proposalId":"{proposalId}"}}""")
                 |> JsonDocument.Parse
             Assert.True(page.RootElement.GetProperty("ok").GetBoolean(), page.RootElement.ToString())
-            let content = File.ReadAllText(page.RootElement.GetProperty("result").GetProperty("path").GetString(), Encoding.UTF8)
+            let content = File.ReadAllText(page.RootElement.GetProperty("result").GetProperty("path").GetString(), Encoding.UTF8) |> ViewerRendering.page
             Assert.Contains("<h1>Change Review</h1>", content)
             Assert.Contains("validate_user → check_user", content)
             Assert.DoesNotContain("The base snapshot is no longer the committed state", content)
@@ -490,7 +490,7 @@ module ViewerArtifactTests =
                 AuthoringProtocol.executeLine session ($"""{{"id":"stale","op":"viewProposal","proposalId":"{proposalId}"}}""")
                 |> JsonDocument.Parse
             Assert.True(stale.RootElement.GetProperty("ok").GetBoolean(), stale.RootElement.ToString())
-            let staleContent = File.ReadAllText(stale.RootElement.GetProperty("result").GetProperty("path").GetString())
+            let staleContent = File.ReadAllText(stale.RootElement.GetProperty("result").GetProperty("path").GetString()) |> ViewerRendering.page
             Assert.Contains("The base snapshot is no longer the committed state", staleContent)
             Assert.Contains("validate_user → check_user", staleContent)
             Assert.DoesNotContain("verify_user", staleContent)

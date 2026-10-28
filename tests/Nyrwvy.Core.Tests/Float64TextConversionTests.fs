@@ -203,7 +203,7 @@ module Float64TextConversionTests =
                 let node = viewer.Graph.Nodes |> List.find (fun item -> item.Id = fn.Body.ResultNodeId)
                 Assert.Equal(role, node.Role)
                 Assert.Equal<ValueDependencyRole list>([ ValueDependencyRole.Source ], node.ValueDependencies |> List.map (fun item -> item.Role))
-                Assert.Contains(label, ViewerHtml.renderFocusDocument viewer)
+                Assert.Contains(label, ViewerRendering.focus viewer)
         finally
             if Directory.Exists root then Directory.Delete(root, true)
 

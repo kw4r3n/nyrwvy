@@ -62,7 +62,7 @@ module EffectRequirementsTests =
             Assert.Equal(1, creationReview.GetProperty("createdFunction").GetProperty("requiredEffects").GetArrayLength())
             Assert.Equal(0, creationReview.GetProperty("bodyEffectRequirements").GetProperty("effectIds").GetArrayLength())
             let projected = session.FocusFunction fixture.ReportFunctionId |> unwrap |> ViewerProjection.focus
-            let html = ViewerHtml.renderFocusDocument projected
+            let html = ViewerRendering.focus projected
             Assert.Contains("Declared required effects", html)
             Assert.Contains("Body effect requirements (derived)", html)
             Assert.Contains(StableId.value fixture.ConsoleWriteLineOperationId, html)

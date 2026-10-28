@@ -202,7 +202,7 @@ module DeclarationCleanupTests =
         Assert.Equal(unusedOperationId, removed.OperationId)
         Assert.Equal<CapabilityParameterId list>([ unusedParameterId ], removed.RemovedParameterIds)
         Assert.Empty(review.ResultingChange.Diff.CapabilitiesRemoved)
-        let document = review.ResultingChange |> ViewerProjection.changeReview |> ViewerHtml.renderChangeReviewDocument
+        let document = review.ResultingChange |> ViewerProjection.changeReview |> ViewerRendering.changeReview
         Assert.Contains("unused &lt;operation&gt;", document)
         Assert.Contains(StableId.value unusedParameterId, document)
         let next = AgentWorkflow.commit ws proposal |> function

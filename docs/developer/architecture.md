@@ -122,7 +122,7 @@ Consumes Execution IR plus an explicit backend profile and emits deterministic C
 
 ### `Nyrwvy.Viewer`
 
-Consumes semantic query/review projections and renders human-facing Focus and Change Review artifacts. Viewer state is not semantic state.
+Holds the viewer model (the projection of a Focus or Change Review) and the viewer page: one fixed HTML/CSS/JavaScript asset (`viewer.html`) that renders the viewer data embedded in it. The session host encodes the model as that data (`ViewerData`, beside the wire encoders in `Nyrwvy.AuthoringSession`), so a host in another language writes the same page by writing the same JSON. Viewer state is not semantic state.
 
 ### `Nyrwvy.Tools.*`
 
@@ -217,6 +217,8 @@ See [Nyason and storage direction](../concepts/nyason-and-storage.md) and the [s
 The viewer is a query/projection client rather than a mutable source editor. The established view contracts include focused semantic slices and Change Review.
 
 A person opens a Function Focus page in two ways: `tools/Nyrwvy.ViewerExport focus` from a snapshot file (by `--function-id` or exact display name with `--function`), or `nyrwvy_view` / `viewFunction` from an open authoring session, which writes the page for the committed state and returns its path. A Change Review page of a pending proposal is written by `nyrwvy_view` with `proposalId` (`viewProposal`); proposals exist only inside a session, so `tools/Nyrwvy.ViewerExport` has no Change Review command.
+
+Every page is the same asset with the view's data, a JSON object (`view`: `functionFocus`, `changeReview` or `proposalReview`), in a `<script type="application/json">` element. The data's encoder escapes `<`, so no name or literal in it can end that element. The page's own script renders the data, HTML-encoding every text it takes from it, and its Content-Security-Policy runs no other script (the asset carries the hash of its own script; `ViewerTests` checks it). Until 2026-10-29 the session generated each page as HTML without script; the asset renders the same markup.
 
 Change Review preserves both:
 

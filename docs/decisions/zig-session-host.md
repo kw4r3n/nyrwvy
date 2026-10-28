@@ -80,9 +80,10 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
      - Every request's `detail` (and `structuredReview` for a full review) is checked before its operation, as F#'s `encodeProposal` does.
      - Until 2d, the Zig host answers `UnsupportedOperation` for `readFunction` at `full` and for a function with a Bytes update (its `copiedUpdates` need the Execution IR).
      - Parity: `step2c-focus.jsonl`, and the generated queries ask `bindingScopes` at every node and compact `readFunction` of every function. They also run on the all-kinds snapshots, the milestone-zero graph with an open obligation, and a long literal, and they check that the F# replies show aborts, waits, open obligations, frames and truncated literals.
-   - **2d. `readFunction` at `outline` and `full`, `copiedUpdates`; `viewFunction` (open: whether the Viewer's HTML is ported or the operation leaves the protocol).**
+   - **2d. `readFunction` at `outline` and `full`, `copiedUpdates`.**
      - `outline` (done) follows `WireOutline.focus`: the compact focus and one line per node from the result node through operands and nested bodies, operands named from the visible declarations, cut before the reply passes 16384 bytes. The model reader exposes the node shape it already had (`operandIdsOf`, `scopesOf`, `functionIdsOf`).
      - Parity: the generated queries ask `outline` of every function; a 400-node chain passes the byte budget and caps the indent, and a literal cut inside a surrogate pair keeps its lone surrogate escaped.
+   - **Viewer data.** The viewer page is one fixed asset that renders viewer data embedded as JSON (decided 2026-10-29, [page format](../developer/architecture.md#human-review-and-projections)), so the Zig host ports no HTML: it writes `viewFunction`'s data byte for byte as `ViewerData` does and embeds it in the same asset, and `viewProposal` and `verifyChange` follow with the proposals of step 3. Parity compares the written pages.
    - **2e. `executionReadiness`.**
 3. **First write path, 4–6K.**
    - `simulateCreateFunction(ByName)` and `simulateReplaceBody(ByName)`: expression recipes (inference and materialization), the structural transaction, and the proposal review.
@@ -117,7 +118,7 @@ The MCP and agent adapters (`tools/nyrwvy-mcp`, `tools/nyrwvy-agent`) get one se
 3. Tag the last commit with the F# host, for example `fsharp-host-final`, and push the tag, so that the F# version stays on the remote (the user's idea: mark F# deprecated, cut a tag, keep it on the remote).
 4. Before removal, record the corpus responses of the F# host as golden files. After removal, the Zig host is tested against the goldens instead of a live F# host.
 5. A following PR removes the F# projects and the `NYRWVY_ZIG_*_CHECK` modes.
-6. Legacy migration (schemas 9–20) and `Nyrwvy.Viewer` stay in the F# tag only; they are not ported (decided 2026-10-28).
+6. Legacy migration (schemas 9–20) stays in the F# tag only; it is not ported (decided 2026-10-28). The viewer is not ported either: its page is a fixed asset, and the Zig host writes its data (step 2).
 
 ## Accepted differences
 

@@ -98,7 +98,7 @@ module Float64ConversionTests =
             let node = viewer.Graph.Nodes |> List.find (fun item -> item.Id = fn.Body.ResultNodeId)
             Assert.Equal(ViewerNodeRole.Operation "Int64ToFloat64", node.Role)
             Assert.Equal<ValueDependencyRole list>([ ValueDependencyRole.Source ], node.ValueDependencies |> List.map (fun item -> item.Role))
-            Assert.Contains("int64 to float64", ViewerHtml.renderFocusDocument viewer)
+            Assert.Contains("int64 to float64", ViewerRendering.focus viewer)
             session.Close()
             let encoded = File.ReadAllText path
             Assert.Contains("\"kind\":\"int64ToFloat64\"", encoded)

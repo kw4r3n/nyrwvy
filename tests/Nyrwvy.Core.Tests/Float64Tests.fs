@@ -289,7 +289,7 @@ module Float64Tests =
                 | _ -> false)
             zeroFocus.Graph.Nodes
 
-        let html = ViewerHtml.renderFocusDocument zeroFocus
+        let html = ViewerRendering.focus zeroFocus
         Assert.Contains("Float64 equal", html)
         Assert.Contains("Float64 literal 0x8000000000000000", html)
         Assert.Contains("<code>Float64</code>", html)

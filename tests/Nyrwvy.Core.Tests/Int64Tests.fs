@@ -195,7 +195,7 @@ module Int64Tests =
         Assert.Equal(ViewerNodeRole.Operation "Int64WrappingAdd", resultNode.Role)
         Assert.Equal(Some int64Type, resultNode.Type)
 
-        let html = ViewerHtml.renderFocusDocument viewer
+        let html = ViewerRendering.focus viewer
         Assert.Contains("Int64 wrapping add", html)
         Assert.Contains("<code>Int64</code>", html)
 
