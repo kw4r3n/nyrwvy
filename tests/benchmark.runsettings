@@ -3,5 +3,9 @@
   <RunConfiguration>
     <!-- Benchmarks, run by hand (evaluation/zig-speed/README.md); neither suite runs them. -->
     <TestCaseFilter>Suite=Benchmark</TestCaseFilter>
+    <!-- The Zig routes are opt-in (docs/decisions/zig-tools.md); the benchmark times them. -->
+    <EnvironmentVariables>
+      <NYRWVY_ZIG_TOOLS>1</NYRWVY_ZIG_TOOLS>
+    </EnvironmentVariables>
   </RunConfiguration>
 </RunSettings>

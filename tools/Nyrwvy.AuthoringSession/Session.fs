@@ -670,7 +670,8 @@ module internal SessionStorage =
     let private dependencyJson = Runtime.CompilerServices.ConditionalWeakTable<Snapshot, string>()
 
     /// Decodes `source` in the record form or strict JSON, resolved against `dependency` when given.
-    /// The Zig reader decides an unresolved source and a resolved JSON source (see `ZigSnapshotReader`;
+    /// With the Zig tools enabled (`ZigTools.enabled`; by default the F# reader reads every source),
+    /// the Zig reader decides an unresolved source and a resolved JSON source (see `ZigSnapshotReader`;
     /// F# still checks the dependency marker and reads the local model); the F# reader reads a
     /// resolved record, a legacy schema, a dependency at another schema version, and every source when
     /// `NYRWVY_SNAPSHOT_READER=fsharp` or the Zig tools cannot be built or run (noted once on stderr).
@@ -679,7 +680,8 @@ module internal SessionStorage =
     let decodeWith (record: bool) (dependency: Snapshot option) (source: string): Result<Snapshot, AuthoringSessionError> =
         let check = not (String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_READER_CHECK"))
         let routed =
-            ZigSnapshotReader.routes (Environment.GetEnvironmentVariable "NYRWVY_SNAPSHOT_READER") record dependency
+            ZigTools.enabled ()
+            && ZigSnapshotReader.routes (Environment.GetEnvironmentVariable "NYRWVY_SNAPSHOT_READER") record dependency
             && (check || zigUnavailable = 0)
         let dependencyText =
             if not routed then None
