@@ -221,3 +221,14 @@ Reading:
   - F# `printf` needs generic code that AOT does not generate. `printfn "%.2f"` throws, so fsbench writes its numbers with `Console.WriteLine`.
   - `%A` prints records without their fields. Rhifill's emitter problems read "capability operation type Capability" without the ID, so their text differs from JIT. The record reader also builds its error placement from `%A` text (`RecordCodec.readModel`).
   - The AOT host opens task-outcomes but fails on Rhifill with `DependencyFailure: Invalid dependency manifest or source path.`, a `NotSupportedException` caught at `Session.fs:1054`. Not traced; probably the same `printf` family.
+
+## The Zig session host's start (2026-10-28)
+
+The row "start, merged model" of `ZigSpeed: AuthoringSession ops on Rhifill` spawns each host on Rhifill's merged model as a plain snapshot, read-only, and times spawn to the first `status` reply. The Zig host does not read a dependency sidecar yet (docs/decisions/zig-session-host.md, 1c). Median of 9 runs, three runs each, ms:
+
+| | Zig host | F# host |
+|---|---|---|
+| start, merged model | 55.5, 55.0, 54.8 | 506.4, 502.5, 505.6 |
+
+The Zig host reads, validates and fingerprints the model in that time: about 23 ms validation and about 30 ms for the two fingerprints (three passes of the canonical writer). The F# host on the resolved workspace itself takes 600–610 ms.
+

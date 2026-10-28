@@ -1,0 +1,5 @@
+{"id":"s","op":"status"}
+{"id":"s","op":"status","extra":1}
+{"id":"s","op":"status","b":1,"a":[{"x":1,"x":2}]}
+{"id":"a","op":"status","id":"b"}
+{"op":"status","id":"<é>"}

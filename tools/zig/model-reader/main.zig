@@ -1261,7 +1261,7 @@ fn neutralObligations(root: Value) Failure![]const u8 {
     return plainArray(out);
 }
 
-const Fingerprints = struct { snapshot: []const u8, semantic: []const u8, canonical: []const u8, normalized: []const u8 };
+pub const Fingerprints = struct { snapshot: []const u8, semantic: []const u8, canonical: []const u8, normalized: []const u8 };
 
 /// `SnapshotFingerprint` and `SemanticFingerprint` of a valid snapshot document: SHA-256 over the
 /// domain, a NUL and `SnapshotCodec.serializeCanonical`'s text, which is written at the smallest
@@ -1287,6 +1287,32 @@ fn fingerprints(source: []const u8) Failure!Fingerprints {
     const normalized = try canonicalJson(source);
     return .{ .snapshot = hashIn("nayamnyam.snapshot-fingerprint.v6", canonical), .semantic = hashIn("nayamnyam.semantic-fingerprint.v6", normalized), .canonical = canonical, .normalized = normalized };
 }
+
+/// One snapshot document as the session host reads it: what `--validate` prints, line by line,
+/// and on acceptance its two fingerprints. `allocator` holds the result.
+pub const DocumentRead = struct { lines: []const u8, fingerprints: ?Fingerprints };
+pub fn readDocument(allocator: std.mem.Allocator, source: []const u8) DocumentRead {
+    a = allocator;
+    if (!tables_loaded) loadTables();
+    tables_loaded = true;
+    var out: std.Io.Writer.Allocating = .init(a);
+    emit_text = false;
+    const read = canonicalJson(source);
+    emit_text = true;
+    if (read) |_| {
+        validate(parsed_root);
+        printIssues(&out.writer) catch oom();
+        if (issues.items.len > 0) return .{ .lines = out.written(), .fingerprints = null };
+        return .{ .lines = out.written(), .fingerprints = fingerprints(source) catch null };
+    } else |e| switch (e) {
+        error.Json => out.writer.print("error InvalidJson: {s}\n", .{message}) catch oom(),
+        error.Shape => out.writer.print("error InvalidShape: {s}\n", .{message}) catch oom(),
+        error.Version => out.writer.print("error UnsupportedSchemaVersion: {d}\n", .{declared_version}) catch oom(),
+        error.Legacy => out.writer.print("skip legacy schema {d}\n", .{declared_version}) catch oom(),
+    }
+    return .{ .lines = out.written(), .fingerprints = null };
+}
+var tables_loaded = false;
 
 /// `FingerprintHash.sha256`: the domain is frozen; it is part of every reviewed fingerprint.
 fn hashIn(domain: []const u8, canonical: []const u8) []const u8 {

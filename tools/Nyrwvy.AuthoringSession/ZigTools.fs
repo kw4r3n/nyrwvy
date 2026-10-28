@@ -95,21 +95,40 @@ module internal ZigTools =
         || [ "NYRWVY_ZIG_READER_CHECK"; "NYRWVY_ZIG_LOWERING_CHECK"; "NYRWVY_ZIG_EMITTER_CHECK" ]
            |> List.exists (Environment.GetEnvironmentVariable >> String.IsNullOrEmpty >> not)
 
+    // The tools a tool imports as modules (`@import("model_reader")` for `tools/zig/model-reader`).
+    let private imports = dict [ "host", [ "model-reader"; "snapshot-reader" ] ]
+
     /// A Zig tool (`tools/zig/<name>` beside mise.toml), built once per process into the cache,
-    /// keyed by a hash of every file in its directory.
+    /// keyed by a hash of every file in its directory and in the directories it imports.
     let tool (name: string) =
         lock tools (fun () ->
             match tools.TryGetValue name with
             | true, path -> Ok path
             | _ ->
                 try
-                    let sources = Path.Combine(directory.Value, "tools", "zig", name)
+                    let source tool = Path.Combine(directory.Value, "tools", "zig", tool)
+                    let sources = source name
+                    let imported = match imports.TryGetValue name with | true, tools -> tools | _ -> []
                     let text =
-                        Directory.GetFiles sources
-                        |> Array.sortWith (fun x y -> String.CompareOrdinal(x, y))
-                        |> Array.map (fun file -> Path.GetFileName file + "\u0000" + File.ReadAllText file)
-                        |> String.concat "\u0000"
-                    let target = Path.Combine(cache, name + "-" + (sha256Hex text).Substring(0, 32))
+                        name :: imported
+                        |> List.map (fun tool ->
+                            Directory.GetFiles(source tool)
+                            |> Array.sortWith (fun x y -> String.CompareOrdinal(x, y))
+                            |> Array.map (fun file -> Path.GetFileName file + "\u0000" + File.ReadAllText file)
+                            |> String.concat "\u0000")
+                        |> String.concat "\u0000\u0000"
+                    let moduleName (tool: string) = tool.Replace('-', '_')
+                    // `-O` is a per-module option: it applies to the module defined after it.
+                    let roots =
+                        if imported.IsEmpty then [ Path.Combine(sources, "main.zig"); "-O"; "ReleaseSafe" ]
+                        else
+                            [ yield! [ "-O"; "ReleaseSafe" ]
+                              for tool in imported do yield! [ "--dep"; moduleName tool ]
+                              yield "-Mroot=" + Path.Combine(sources, "main.zig")
+                              for tool in imported do yield! [ "-O"; "ReleaseSafe"; $"-M{moduleName tool}=" + Path.Combine(source tool, "main.zig") ] ]
+                    // The build options are part of the key, so a build made with other options is not reused.
+                    let options = String.Join(" ", roots |> List.map (fun arg -> if arg.Contains "main.zig" then Path.GetFileName(Path.GetDirectoryName arg) else arg))
+                    let target = Path.Combine(cache, name + "-" + (sha256Hex (text + "\u0000" + options)).Substring(0, 32))
                     let built = Path.Combine(target, name)
                     let result =
                         if File.Exists built then Ok()
@@ -119,8 +138,7 @@ module internal ZigTools =
                             // Built under a fresh name and moved, so another process never runs a partial file.
                             let partial = built + "." + Guid.NewGuid().ToString("N")
                             launch (executable ()) $"Zig {name} build" directory.Value
-                                [ "build-exe"; Path.Combine(sources, "main.zig"); "-O"; "ReleaseSafe"
-                                  "--cache-dir"; Path.Combine(cache, "cache"); "-femit-bin=" + partial ] 300000
+                                (("build-exe" :: roots) @ [ "--cache-dir"; Path.Combine(cache, "cache"); "-femit-bin=" + partial ]) 300000
                             |> Result.bind (fun (code, output, errors) ->
                                 if code = 0 && File.Exists partial then
                                     File.Move(partial, built, true)

@@ -1210,6 +1210,21 @@ fn arm(block: *List(*Record), m: *Record, x: *Record) RecordError!void {
     w.end('}');
 }
 
+/// One record text as the session host reads it: the protocol line (`ok`, `deferred …` or
+/// `error …`, as `main` prints it) and the writer's JSON unless the line is an error. `allocator`
+/// holds the result; `external` names the dependency's subjects (empty without one).
+pub fn readRecords(allocator: std.mem.Allocator, input: []const u8) struct { line: []const u8, json: ?[]const u8 } {
+    a = allocator;
+    if (!kinds_loaded) loadKinds();
+    kinds_loaded = true;
+    text = if (std.unicode.utf8ValidateSlice(input)) input else fmt("{f}", .{std.unicode.fmtUtf8(input)});
+    if (decode()) |json| {
+        const line = if (deferred) |d| fmt("deferred {d}:{d}: {s}", .{ d.line, d.column, d.message }) else "ok";
+        return .{ .line = line, .json = json };
+    } else |_| return .{ .line = if (depth_exceeded) fmt("error MaximumDepthExceeded: {d}", .{max_json_depth}) else fmt("error {d}:{d}: {s}", .{ failure.line, failure.column, failure.message }), .json = null };
+}
+var kinds_loaded = false;
+
 pub fn main(init: std.process.Init) !void {
     a = init.arena.allocator();
     const args = try init.minimal.args.toSlice(a);
