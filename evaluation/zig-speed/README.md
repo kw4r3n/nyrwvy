@@ -108,3 +108,14 @@ This is now faster than opening Rhifill's merged model as a plain snapshot (abou
 ## The writer's JSON of a validated snapshot counts as validated (2026-10-28)
 
 runPure passed `--validated` only for bytes the Zig validator accepted. The writer's JSON of a snapshot F# validated now counts too. This covers a resolved snapshot, which F# reads, and a proposal's candidate. On Rhifill's merged model, the whole lowering took 45.1 ms with `model-reader --execution-ir` and 27.5 ms with `--execution-ir --validated` (median of 13, with the same IR). That is the saving on the first runPure of a resolved Rhifill. The check modes still run without the flag.
+
+## Building the F# model while the Zig validator runs (2026-10-28)
+
+On the Zig-decided read, the F# Snapshot was built from the JSON only after `model-reader --validate` returned. The build now starts on another task as soon as the JSON is known. The verdict then decides whether the built model is used. Under the reader check the build stays `readUnvalidated`, as before. Three interleaved runs each, ms:
+
+| | before | after | F# only |
+|---|---|---|---|
+| task-outcomes: open, Zig-decided | 11.5, 11.7, 11.5 | 7.7, 7.4, 7.4 | 11.1–11.4 |
+| Rhifill merged model: open, Zig-decided | 59.0, 54.9, 59.8 | 41.5, 42.0, 35.2 | 44.3–83.3 |
+
+The Zig-decided open is now faster than the F# reader on both inputs. A resolved snapshot still reads with F# (31–34 ms for Rhifill; this change does not touch it).
