@@ -1503,6 +1503,11 @@ pub fn arrayItems(element: Value, name: []const u8) []const Value {
     return arrayOf(element, name);
 }
 
+/// Makes `allocator` (a request's arena) hold what the reader's helpers allocate from now on.
+pub fn useAllocator(allocator: std.mem.Allocator) void {
+    a = allocator;
+}
+
 pub fn utf8(units: Str) []const u8 {
     return text(units);
 }

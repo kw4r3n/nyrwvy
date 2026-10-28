@@ -104,6 +104,8 @@ fn requiredString(a: std.mem.Allocator, root: std.json.ObjectMap, name: []const 
 
 /// One request line to its response line, as `AuthoringProtocol.executeLine` answers it.
 fn execute(a: std.mem.Allocator, out: *std.Io.Writer, line: []const u8) !void {
+    // The model reader's helpers allocate from the request's arena, not a freed earlier one.
+    model_reader.useAllocator(a);
     if (std.mem.trim(u8, line, " \t\r\n").len == 0) return failure(out, null, "ProtocolError", "Empty request line; expected one JSON object.");
     // The F# message carries .NET's parser text after this prefix; the parity test compares the prefix.
     if (tooDeep(line)) return failure(out, null, "ProtocolError", "Invalid JSON: maximum depth exceeded.");
