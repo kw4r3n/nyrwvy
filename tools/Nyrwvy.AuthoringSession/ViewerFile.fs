@@ -173,7 +173,7 @@ module ViewerFile =
             | [] -> Ok(List.rev acc)
             | functionId :: rest ->
                 match SemanticQuery.focusFunction proposed functionId with
-                | Error error -> Error $"Proposed focus of function:{StableId.value functionId} failed: %A{error}"
+                | Error error -> Error $"Proposed focus of function:{StableId.value functionId} failed: {(Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(error, typeof<SemanticQueryError>) |> fst).Name}"
                 | Ok after ->
                     let before = if view.BaseIsCommitted then committedFocus functionId else None
                     let item: ViewerProposalFunction =

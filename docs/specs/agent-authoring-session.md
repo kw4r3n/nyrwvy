@@ -172,6 +172,9 @@ No reply field is a language runtime's printed form of a value; the fields that 
 - A failure wrapped by `WorkflowSimulationFailure`, `StructuralSimulationFailure`, `TypeDeclarationSimulationFailure`, `EffectDeclarationSimulationFailure`, `CapabilityDeclarationSimulationFailure`, `SemanticProjectionFailure`, `ExecutionLoweringFailure` or `BackendFailure` without its own message has the wrapped failure's case name as `message` (for example `IncompatibleNativeBinding`), without its payload.
 - A value dependency (`valueDependencies` of a node summary, and a `nodeDependency` use) has `role`, the case name (`Value`, `LeftOperand`, `ListItem`, …); `ListItem` and `FunctionArgument` add `index`, `CallArgument` and `CapabilityArgument` add `parameterId`, and `FieldValue` adds `fieldId`.
 - A node of the full review with `structuredReview: false` has `kind`, the node kind's case name (`Call`, `ListContains`, …), the name the structural summaries use.
+- A proposed function a view or `verifyChange` cannot focus is named in `ViewWriteFailed` by its query failure's case name.
+
+The parity checks (`NYRWVY_ZIG_*_CHECK`), which only the F# host has, still print the mismatching values in F#'s form.
 
 Unknown properties that would change request meaning are rejected rather than ignored. Duplicate property names in request objects, including nested recipes and declarations, are rejected as `ProtocolError` rather than resolved by first- or last-value precedence.
 
