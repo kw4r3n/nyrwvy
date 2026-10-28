@@ -35,4 +35,4 @@ The revisit condition below was met by the Zig port of the lowering: its parity 
 
 ## Revisit conditions
 
-Revisit if full validation should adopt the runtime rule as well (for example at a schema bump that already requires migrating stored graphs), or if a new node kind's ordering classification cannot be expressed through the shared view.
+The first condition, full validation adopting the runtime rule, was met on 2026-10-28 (amendment above). Revisit if a new node kind's ordering classification cannot be expressed through the shared view.
