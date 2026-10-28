@@ -81,9 +81,9 @@ fn oneLine(reason: []const u8) []const u8 {
 
 /// Strings stay UTF-16 code units, as .NET holds them: ordering, lengths and the writer's escapes
 /// are per unit, and a lone surrogate escape survives where the F# reader keeps one.
-const Str = []const u16;
-const Member = struct { name: Str, value: Value };
-const Value = union(enum) {
+pub const Str = []const u16;
+pub const Member = struct { name: Str, value: Value };
+pub const Value = union(enum) {
     json_null,
     json_true,
     json_false,
@@ -1297,6 +1297,8 @@ fn fingerprintsOf(root: Value) Failure!Fingerprints {
 pub const DocumentRead = struct {
     lines: []const u8,
     fingerprints: ?Fingerprints = null,
+    /// The model read (for a resolved document, the merged one), in document order.
+    root: Value = .json_null,
     /// The current-version canonical text and `SnapshotCodec.dependencyDigest`, for a document
     /// accepted as a dependency.
     canonical: []const u8 = "",
@@ -1407,6 +1409,7 @@ pub fn readDocument(allocator: std.mem.Allocator, source: []const u8) DocumentRe
         return .{
             .lines = out.written(),
             .fingerprints = found,
+            .root = root,
             .canonical = canonicalOf(root) catch "",
             .digest = fmt("{s}", .{std.fmt.bytesToHex(sha256(found.canonical), .lower)}),
             .id = text(decodeString(str(root, "snapshotId")) catch unreachable),
@@ -1469,12 +1472,71 @@ pub fn readResolvedDocument(allocator: std.mem.Allocator, dependency: []const u8
     validate(merged);
     printIssues(&out.writer) catch oom();
     if (issues.items.len > 0) return .{ .lines = out.written() };
-    return .{ .lines = out.written(), .fingerprints = fingerprintsOf(merged) catch null, .id = id };
+    return .{ .lines = out.written(), .fingerprints = fingerprintsOf(merged) catch null, .id = id, .root = merged };
 }
 
 /// ASCII or UTF-8 text as UTF-16 units.
-fn utf16Of(utf8: []const u8) Str {
-    return std.unicode.utf8ToUtf16LeAlloc(a, utf8) catch oom();
+fn utf16Of(bytes: []const u8) Str {
+    return std.unicode.utf8ToUtf16LeAlloc(a, bytes) catch oom();
+}
+
+// ---------------------------------------------------------------- for the session host
+
+/// A model in the writer's canonical order (`SnapshotCodec.serialize`): declarations and their
+/// members sorted by ID, as the host's encoders list them. `allocator` holds the result.
+pub fn canonicalRoot(allocator: std.mem.Allocator, root: Value) Value {
+    a = allocator;
+    emit_text = true;
+    return parseDocument(canonicalOf(root) catch unreachable) catch unreachable;
+}
+
+/// A string property's value (the parse keeps escapes).
+pub fn decoded(value: Value) Str {
+    return decodeString(value.string) catch unreachable;
+}
+
+pub fn property(element: Value, name: []const u8) ?Value {
+    return tryProperty(name, element);
+}
+
+pub fn arrayItems(element: Value, name: []const u8) []const Value {
+    return arrayOf(element, name);
+}
+
+pub fn utf8(units: Str) []const u8 {
+    return text(units);
+}
+
+/// A JSON string as the F# writers escape it (`escapeUnit`), straight to `out`.
+pub fn writeString(out: *std.Io.Writer, units: Str) !void {
+    try out.writeByte('"');
+    for (units) |unit| switch (unit) {
+        8 => try out.writeAll("\\b"),
+        9 => try out.writeAll("\\t"),
+        10 => try out.writeAll("\\n"),
+        12 => try out.writeAll("\\f"),
+        13 => try out.writeAll("\\r"),
+        '\\' => try out.writeAll("\\\\"),
+        0x20...0x21, 0x23...0x25, 0x28...0x2A, 0x2C...0x3B, 0x3D, 0x3F...0x5B, 0x5D...0x5F, 0x61...0x7E => try out.writeByte(@intCast(unit)),
+        else => try out.print("\\u{X:0>4}", .{unit}),
+    };
+    try out.writeByte('"');
+}
+
+/// The `kind:id` keys of a model's functions, types, effects and capabilities, and those of the
+/// ones it does not export (`PinnedDependency.visible`).
+pub fn declarationKeys(allocator: std.mem.Allocator, root: Value) struct { all: []const []const u8, hidden: []const []const u8 } {
+    a = allocator;
+    var all: List([]const u8) = .empty;
+    var hidden: List([]const u8) = .empty;
+    for ([_][2][]const u8{ .{ "functions", "function" }, .{ "types", "type" }, .{ "effects", "effect" }, .{ "capabilities", "capability" } }) |group| {
+        for (arrayOf(root, group[0])) |item| {
+            const key = fmt("{s}:{s}", .{ group[1], text(decoded(get(item, "id"))) });
+            all.append(a, key) catch oom();
+            if (tryProperty("exported", item) == null) hidden.append(a, key) catch oom();
+        }
+    }
+    return .{ .all = all.items, .hidden = hidden.items };
 }
 
 /// `FingerprintHash.sha256`: the domain is frozen; it is part of every reviewed fingerprint.

@@ -1,6 +1,6 @@
 # Zig session host
 
-Status: accepted 2026-10-28 (owner: "OK, go ahead with recommends"). Steps 0 and 1 (1a, 1b, 1c) done. Background: [zig-tools.md](zig-tools.md), section "Direction: a whole Zig session host".
+Status: accepted 2026-10-28 (owner: "OK, go ahead with recommends"). Steps 0, 1 and 2a done. Background: [zig-tools.md](zig-tools.md), section "Direction: a whole Zig session host".
 
 Goal: a separate executable, `nyrwvy-host` built from `tools/zig/`, that speaks the same JSONL protocol as the F# host (`Nyrwvy.AuthoringSession open …`). It reaches parity step by step and then replaces the F# host in one switch. Rules:
 - The Zig host never calls F#.
@@ -22,6 +22,8 @@ Goal: a separate executable, `nyrwvy-host` built from `tools/zig/`, that speaks 
 In total about 45K lines of F#, of which about 12K are already covered by about 8.7K lines of Zig. The rest is estimated at 25–35K lines of Zig.
 
 ## In-memory layout
+
+Decided at step 3, the first write path: steps 1 and 2 only read, and their encoders read the model reader's tree (UTF-16 strings, its index maps). The sketch below is the starting point.
 
 The current tools work on `std.json.Value` trees. That is fine for one pass, but not for a long-lived host that edits models. The host gets a typed model:
 - **IDs.** Every `domain:uuid` is interned once into a `u32` per domain (types, functions, nodes, fields, …). The UUID text is kept in a side table for the wire and the writer, so maps become arrays indexed by ID.
@@ -61,7 +63,15 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
      - The model reader keeps its state in globals; `resetState` (also `--bench`'s) starts each document afresh, so one process reads several.
      - `ZigHostParityTests` opens every example split into a dependency and a local part in each form: JSON, records, by path, a set, a colliding set. It also covers ten broken sidecars or markers and both hints, read-only and writable, and compares exit code, stderr and the `status` reply. It checks that the accepted forms open, that the others fail, and that at least twelve distinct failures occur, the collision among them.
      - `ZigSpeed`: the Zig host opens Rhifill's resolved workspace in 47.2–47.9 ms against the F# host's 605.2–606.2.
-2. **Read-only requests, 3–4K.** `declarations`, `readFunction`, `viewFunction`, `search`, `references`, `unreferenced`, `executionReadiness`, `bindingScopes`, `proposals`, `readProposal`, `viewProposal`. This is mostly the wire encoders (WireEncode, WireOutline, WireGraph).
+2. **Read-only requests, in four PRs.** The encoders (`tools/zig/host/wire.zig`) read the model reader's tree of the open model in canonical order. Its strings are UTF-16 units, so ordering and escaping already follow .NET.
+   - **2a. `dependency`, `declarations`, `proposals`, 0.4K (done).**
+     - `declarations` follows `WireEncodeCommon.declarations`: the provenance of each visible declaration (local, or imported with the members that provide it), then the functions' signatures, the types, the effects and the capabilities. Imported declarations the dependency does not export are left out.
+     - `dependency` follows `PinnedDependency.describe`: an anonymous record, so its fields come in name order. Each member gives its path, ID, fingerprint and storage, and a set gives a `dependencies` list.
+     - `proposals` is empty until simulate exists. `readProposal` and `viewProposal` read their input as F# does and answer `ProposalNotFound`.
+     - Parity: `step2a-declarations.jsonl` on every example and a JSON snapshot. The resolved-snapshot test also asks `declarations` and `dependency` on every form.
+   - **2b. `search`, `references`, `unreferenced`.** A references `role` is F#'s `%A` text (`dependencyRole`); whether to reproduce it or redefine the field is the owner's decision.
+   - **2c. `readFunction`, `viewFunction`, `bindingScopes`.**
+   - **2d. `executionReadiness`.**
 3. **First write path, 4–6K.**
    - `simulateCreateFunction(ByName)` and `simulateReplaceBody(ByName)`: expression recipes (inference and materialization), the structural transaction, and the proposal review.
    - `commit` and `reject`: the writer for both formats, atomic writes and history.
