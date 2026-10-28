@@ -66,3 +66,20 @@ For Rhifill's validation, before (in ms):
 | other graph rules | 5 |
 
 After the changes: parse 2.6–3.3, shape about 1, `scalarRules` 0.7. The F# open column varied from 38 to 72 ms across runs on the same input; within one run the Zig path is now ahead on both rows for Rhifill.
+
+## Zig emitter hotspots (2026-10-28)
+
+For Rhifill's whole program (a 1 MB IR), the emitter spent about 8 ms parsing JSON, 3 ms on instruction lines, 3.5 ms declaring values and 2.5 ms on the rest of each function body. The changes, with outputs unchanged:
+- a direct JSON reader that builds the same `std.json.Value`, giving each object its exact capacity and keeping strings without escapes as slices of the input; the input's UTF-8 is checked once;
+- value and block identifiers memoised by ID, and built with their capacity reserved;
+- body lines appended part by part instead of joined first;
+- values deduplicated with a set instead of a quadratic scan.
+
+| | before | after |
+|---|---|---|
+| task-outcomes: emitter | 4.4 | 3.6 |
+| task-outcomes: to Zig source | 10.1 | 9.2 |
+| Rhifill: emitter | 22.7 | 14.2 |
+| Rhifill: to Zig source | 54.1 | 44.4 |
+
+The JSON parse went from about 8 ms to 4 ms. Old and new emitters gave byte-identical output on 166 IRs: the whole programs and every entry of Rhifill and the repository examples. The extended emitter check compares against the F# emitter.
