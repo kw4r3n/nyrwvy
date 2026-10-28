@@ -678,16 +678,19 @@ module internal SessionStorage =
     /// no fallback.
     let decodeWith (record: bool) (dependency: Snapshot option) (source: string): Result<Snapshot, AuthoringSessionError> =
         let check = not (String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_READER_CHECK"))
+        let routed =
+            ZigSnapshotReader.routes (Environment.GetEnvironmentVariable "NYRWVY_SNAPSHOT_READER") record dependency
+            && (check || zigUnavailable = 0)
         let dependencyText =
-            dependency |> Option.map (fun imported ->
-                match dependencyJson.TryGetValue imported with
-                | true, text -> Ok text
-                | _ ->
-                    use _scope = SnapshotComputationScope.Start()
-                    SnapshotCodec.serialize imported |> Result.map (fun text -> dependencyJson.AddOrUpdate(imported, text); text))
-        if not (ZigSnapshotReader.routes (Environment.GetEnvironmentVariable "NYRWVY_SNAPSHOT_READER") record dependency)
-           || (not check && zigUnavailable <> 0)
-           || (match dependencyText with Some(Error _) -> true | _ -> false) then
+            if not routed then None
+            else
+                dependency |> Option.map (fun imported ->
+                    match dependencyJson.TryGetValue imported with
+                    | true, text -> Ok text
+                    | _ ->
+                        use _scope = SnapshotComputationScope.Start()
+                        SnapshotCodec.serialize imported |> Result.map (fun text -> dependencyJson.AddOrUpdate(imported, text); text))
+        if not routed || (match dependencyText with Some(Error _) -> true | _ -> false) then
             decodeFSharp record dependency source
         else
             // Under the check, F# builds the model without trusting the Zig verdict.
