@@ -78,9 +78,11 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
      - `bindingScopes` walks the body's binding frames as `WireEncodeCommon.bindingFrames` does.
      - Compact `readFunction` follows `SemanticQuery.focusFunction` and `compactFocus`: the effect requirements, the wait path, the aborts (with the error node's inferred type, from the model reader's node typing), callers, callees, open obligations and the literals. The model reader derives these facts (`focusOf`).
      - Every request's `detail` (and `structuredReview` for a full review) is checked before its operation, as F#'s `encodeProposal` does.
-     - Until 2d, the Zig host answers `UnsupportedOperation` for `readFunction` at `outline` or `full` and for a function with a Bytes update (its `copiedUpdates` need the Execution IR).
+     - Until 2d, the Zig host answers `UnsupportedOperation` for `readFunction` at `full` and for a function with a Bytes update (its `copiedUpdates` need the Execution IR).
      - Parity: `step2c-focus.jsonl`, and the generated queries ask `bindingScopes` at every node and compact `readFunction` of every function. They also run on the all-kinds snapshots, the milestone-zero graph with an open obligation, and a long literal, and they check that the F# replies show aborts, waits, open obligations, frames and truncated literals.
    - **2d. `readFunction` at `outline` and `full`, `copiedUpdates`.**
+     - `outline` (done) follows `WireOutline.focus`: the compact focus and one line per node from the result node through operands and nested bodies, operands named from the visible declarations, cut before the reply passes 16384 bytes. The model reader exposes the node shape it already had (`operandIdsOf`, `scopesOf`, `functionIdsOf`).
+     - Parity: the generated queries ask `outline` of every function; a 400-node chain passes the byte budget and caps the indent, and a literal cut inside a surrogate pair keeps its lone surrogate escaped.
    - **Viewer data.** The viewer page is one fixed asset that renders viewer data embedded as JSON (decided 2026-10-29, [page format](../developer/architecture.md#human-review-and-projections)), so the Zig host ports no HTML: it writes `viewFunction`'s data byte for byte as `ViewerData` does and embeds it in the same asset, and `viewProposal` and `verifyChange` follow with the proposals of step 3. Parity compares the written pages.
    - **2e. `executionReadiness`.**
 3. **First write path, 4–6K.**

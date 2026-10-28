@@ -1512,6 +1512,27 @@ pub fn utf8(units: Str) []const u8 {
     return text(units);
 }
 
+/// `SemanticNodeShape.nestedScopes` of a node.
+pub fn scopesOf(node: Value) []const Scope {
+    return nestedScopes(node);
+}
+
+/// `SemanticNodeShape.directValueReferences` of a node, decoded, in operand order (`operandsOf` keeps them raw).
+pub fn operandIdsOf(node: Value) []const Str {
+    var raw: List(Str) = .empty;
+    directValueReferences(node, &raw);
+    for (raw.items) |*id| id.* = dec(id.*);
+    return raw.items;
+}
+
+/// The IDs `SemanticNodeShape.functionReferences` names, decoded, in payload order.
+pub fn functionIdsOf(node: Value) []const Str {
+    const references = functionReferences(node);
+    const ids = a.alloc(Str, references.len) catch oom();
+    for (references, ids) |reference, *id| id.* = dec(reference.function_id);
+    return ids;
+}
+
 /// A JSON string as the F# writers escape it (`escapeUnit`), straight to `out`.
 pub fn writeString(out: *std.Io.Writer, units: Str) !void {
     try out.writeByte('"');
@@ -2166,7 +2187,7 @@ fn blankNames(code: []const u8, comptime what: []const u8, values: []const Value
 }
 
 /// `SemanticNodeShape.nestedScopes`: the pattern bindings and graph of each nested scope.
-const Scope = struct { bindings: []const Value, graph: Value };
+pub const Scope = struct { bindings: []const Value, graph: Value };
 
 fn one(value: Value) []const Value {
     return a.dupe(Value, &.{value}) catch oom();

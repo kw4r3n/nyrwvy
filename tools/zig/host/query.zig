@@ -1000,7 +1000,8 @@ fn literals(r: *Request, out: *Writer, function: Value) !void {
     try out.writeByte(']');
 }
 
-/// `readFunction` at `detail: "compact"`: `WireEncodeCommon.compactFocus` and the literals.
+/// `readFunction` at `detail: "compact"` (`WireEncodeCommon.compactFocus` and the literals) or
+/// `"outline"` (`WireOutline.focus`).
 pub fn readFunction(r: *Request, out: *Writer) Fail!void {
     if (try fieldProblem(r.a, r.line, &.{}, r.root, "readFunction request", &.{ "id", "op", "function", "functionId", "detail" }, &.{ "id", "op" })) |message| return r.fail("{s}", .{message});
     const detail = if (r.root.get("detail") != null) try requiredString(r, r.root, "detail") else "full";
@@ -1019,14 +1020,25 @@ pub fn readFunction(r: *Request, out: *Writer) Fail!void {
         return error.Rejected;
     };
     const nodes = model.bodyNodes(r.a, function);
-    // shortcut: outline, full and Bytes copy plans are ported in the next step; until then the Zig host refuses them.
+    // shortcut: full and Bytes copy plans are ported in the next steps; until then the Zig host refuses them.
     const updates = for (nodes) |node| {
         if (kindIs(node, "bytesSet") or kindIs(node, "bytesAppend")) break true;
     } else false;
-    if (!std.mem.eql(u8, detail, "compact") or updates) {
-        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host reads functions only at detail compact, and without Bytes updates, so far." };
+    if (std.mem.eql(u8, detail, "full") or updates) {
+        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host reads functions only at detail compact or outline, and without Bytes updates, so far." };
         return error.Rejected;
     }
+    // The compact focus, open at its end, so each detail appends its own fields.
+    var compact: Writer.Allocating = .init(r.a);
+    try compactFocus(r, &compact.writer, function, wanted, nodes);
+    if (std.mem.eql(u8, detail, "outline")) return outline(r, out, compact.written(), function, nodes);
+    try out.writeAll(compact.written());
+    try out.writeAll(",\"literals\":");
+    try literals(r, out, function);
+    try out.writeByte('}');
+}
+
+fn compactFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: []const Value) !void {
     const focus = model.focusOf(r.a, r.model, function);
     try out.writeAll("{\"snapshotId\":");
     try @import("root").writeString(out, r.snapshot_id);
@@ -1103,10 +1115,192 @@ pub fn readFunction(r: *Request, out: *Writer) Fail!void {
         try writeId(out, model.decoded(model.property(obligation.item, "parameterId").?));
         try out.writeByte('}');
     }
-    try out.writeAll("],\"literals\":");
-    try literals(r, out, function);
-    try out.writeByte('}');
+    try out.writeByte(']');
 }
+
+// ---------------------------------------------------------------- outline
+
+fn isKind(kind: Str, comptime name: []const u8) bool {
+    if (kind.len != name.len) return false;
+    for (kind, name) |unit, c| if (unit != c) return false;
+    return true;
+}
+
+const Outline = struct {
+    r: *Request,
+    names: std.StringHashMapUnmanaged(Str) = .empty,
+    nodes: std.StringHashMapUnmanaged(Value) = .empty,
+    seen: std.StringHashMapUnmanaged(void) = .empty,
+    lines: std.ArrayList([]const u8) = .empty,
+    /// The reply's bytes with the lines so far, `outlineTruncated: false` and the budget.
+    size: usize,
+    truncated: bool = false,
+
+    const max_bytes = 16384;
+    const Scope = struct { depth: usize, bindings: []const Value };
+
+    fn add(self: *Outline, item: Value) !void {
+        try self.names.put(self.r.a, model.utf8(model.decoded(model.property(item, "id").?)), model.decoded(model.property(item, "displayName").?));
+    }
+
+    fn named(self: *Outline, id: Str) Str {
+        return self.names.get(model.utf8(id)) orelse id;
+    }
+
+    fn idAt(node: Value, name: []const u8) Str {
+        return model.decoded(model.property(node, name).?);
+    }
+
+    /// A pattern binding's display name, or `fallback` when it has none.
+    fn bindingName(binding: Value, fallback: ?Str) ?Str {
+        return if (model.property(binding, "displayName")) |name| model.decoded(name) else fallback;
+    }
+
+    fn addLine(self: *Outline, line: []const u16) !void {
+        if (self.truncated) return;
+        var encoded: Writer.Allocating = .init(self.r.a);
+        try model.writeString(&encoded.writer, line);
+        const grown = self.size + encoded.written().len + @as(usize, if (self.lines.items.len > 0) 1 else 0);
+        if (grown > max_bytes) {
+            self.truncated = true;
+            // `true` is one byte shorter than `false`.
+            self.size -= 1;
+            return;
+        }
+        self.size = grown;
+        try self.lines.append(self.r.a, encoded.written());
+    }
+
+    fn visit(self: *Outline, depth: usize, scopes: []const Scope, id: Str) !void {
+        if (self.truncated) return;
+        const a = self.r.a;
+        var line: std.ArrayList(u16) = .empty;
+        try line.appendNTimes(a, ' ', @as(usize, @min(depth, 64)) * 2);
+        if ((try self.seen.getOrPut(a, model.utf8(id))).found_existing) {
+            for ("ref ") |c| try line.append(a, c);
+            try line.appendSlice(a, id);
+            return self.addLine(line.items);
+        }
+        const node = self.nodes.get(model.utf8(id)).?;
+        const kind = model.decoded(model.property(node, "kind").?);
+        if (isKind(kind, "parameterReference")) {
+            for ("parameter") |c| try line.append(a, c);
+        } else try line.appendSlice(a, kind);
+        try line.append(a, ' ');
+        try line.appendSlice(a, id);
+        var detail: std.ArrayList(Str) = .empty;
+        try self.operands(&detail, node, kind, scopes);
+        for (detail.items) |item| {
+            try line.append(a, ' ');
+            try line.appendSlice(a, item);
+        }
+        try self.addLine(line.items);
+        for (model.operandIdsOf(node)) |child| try self.visit(depth + 1, scopes, child);
+        for (model.scopesOf(node)) |scope| {
+            var nested: std.ArrayList(Scope) = .empty;
+            if (scope.bindings.len > 0) {
+                try nested.append(a, .{ .depth = 0, .bindings = scope.bindings });
+                for (scopes) |outer| try nested.append(a, .{ .depth = outer.depth + 1, .bindings = outer.bindings });
+            } else try nested.appendSlice(a, scopes);
+            try self.visit(depth + 1, nested.items, idAt(scope.graph, "resultNodeId"));
+        }
+    }
+
+    fn text(self: *Outline, ascii: []const u8) !Str {
+        const units = try self.r.a.alloc(u16, ascii.len);
+        for (ascii, units) |c, *unit| unit.* = c;
+        return units;
+    }
+
+    /// The operands `WireOutline.focus` names after a node's kind and ID.
+    fn operands(self: *Outline, out: *std.ArrayList(Str), node: Value, kind: Str, scopes: []const Scope) !void {
+        const a = self.r.a;
+        if (isKind(kind, "parameterReference")) {
+            try out.append(a, self.named(idAt(node, "parameterId")));
+        } else if (isKind(kind, "patternReference")) {
+            const wanted = idAt(node, "patternBindingId");
+            for (scopes) |scope| for (scope.bindings) |binding| if (std.mem.eql(u16, idAt(binding, "id"), wanted)) {
+                try out.append(a, try self.text(try std.fmt.allocPrint(a, "scopeDepth={d}", .{scope.depth})));
+                try out.append(a, bindingName(binding, try self.text("value")).?);
+                return;
+            };
+            try out.append(a, wanted);
+        } else if (isKind(kind, "stringLiteral")) {
+            // The first 64 UTF-16 units, as a JSON string literal.
+            const value = model.decoded(model.property(node, "value").?);
+            const shown = if (value.len > 64) try std.mem.concat(a, u16, &.{ value[0..64], &.{0x2026} }) else value;
+            var literal: Writer.Allocating = .init(a);
+            try model.writeString(&literal.writer, shown);
+            try out.append(a, try self.text(literal.written()));
+        } else if (isKind(kind, "int64Literal")) {
+            switch (model.property(node, "value").?) {
+                .number => |digits| try out.append(a, try self.text(digits)),
+                else => |value| try out.append(a, model.decoded(value)),
+            }
+        } else if (isKind(kind, "boolLiteral")) {
+            try out.append(a, try self.text(if (model.property(node, "value").? == .json_true) "true" else "false"));
+        } else if (isKind(kind, "float64Literal")) {
+            try out.append(a, idAt(node, "bits"));
+        } else if (isKind(kind, "fieldAccess")) {
+            try out.append(a, self.named(idAt(node, "fieldId")));
+        } else if (isKind(kind, "unionConstruct")) {
+            try out.append(a, self.named(idAt(node, "variantId")));
+        } else if (isKind(kind, "productConstruct") or isKind(kind, "productUpdate")) {
+            try out.append(a, self.named(idAt(node, "typeId")));
+        } else if (isKind(kind, "capabilityInvoke")) {
+            try out.append(a, self.named(idAt(node, "operationId")));
+        } else if (isKind(kind, "bind")) {
+            const binding = model.property(model.property(node, "boundBody").?, "valueBinding").?;
+            try out.append(a, bindingName(binding, try self.text("value")).?);
+        } else if (isKind(kind, "matchOption")) {
+            const binding = model.property(model.property(node, "someArm").?, "valueBinding").?;
+            if (bindingName(binding, null)) |name| try out.append(a, name);
+        } else if (isKind(kind, "matchResult")) {
+            if (bindingName(model.property(model.property(node, "okArm").?, "valueBinding").?, null)) |name| try out.append(a, name);
+            if (bindingName(model.property(model.property(node, "errArm").?, "errorBinding").?, null)) |name| try out.append(a, name);
+        } else if (isKind(kind, "matchUnion")) {
+            for (model.arrayItems(node, "arms")) |arm| {
+                if (model.property(arm, "variantId")) |variant| {
+                    try out.append(a, self.named(model.decoded(variant)));
+                } else for (model.arrayItems(arm, "variantIds")) |variant| try out.append(a, self.named(model.decoded(variant)));
+            }
+        } else for (model.functionIdsOf(node)) |function_id| try out.append(a, self.named(function_id));
+    }
+};
+
+/// `WireOutline.focus`: the compact focus and a bounded outline, one line per node from the result
+/// node through operands and nested bodies, cut before the reply passes 16384 bytes.
+fn outline(r: *Request, out: *Writer, compact: []const u8, function: Value, nodes: []const Value) !void {
+    const tail_false = "],\"outlineTruncated\":false,\"outlineMaxBytes\":16384}";
+    var o: Outline = .{ .r = r, .size = compact.len + ",\"outline\":[".len + tail_false.len };
+    for (model.arrayItems(function, "parameters")) |parameter| try o.add(parameter);
+    for (try visible(r, "function")) |item| {
+        try o.add(item);
+        for (model.arrayItems(item, "parameters")) |parameter| try o.add(parameter);
+    }
+    for (try visible(r, "type")) |item| {
+        try o.add(item);
+        for (model.arrayItems(item, "fields")) |field| try o.add(field);
+        for (model.arrayItems(item, "variants")) |variant| {
+            try o.add(variant);
+            for (model.arrayItems(variant, "fields")) |field| try o.add(field);
+        }
+    }
+    for (try visible(r, "capability")) |item| {
+        try o.add(item);
+        for (model.arrayItems(item, "operations")) |operation| try o.add(operation);
+    }
+    for (nodes) |node| try o.nodes.put(r.a, model.utf8(Outline.idAt(node, "id")), node);
+    try o.visit(0, &.{}, Outline.idAt(model.property(function, "body").?, "resultNodeId"));
+    try out.writeAll(compact);
+    try out.writeAll(",\"outline\":[");
+    for (o.lines.items, 0..) |line, index| {
+        if (index > 0) try out.writeByte(',');
+        try out.writeAll(line);
+    }
+    try out.writeAll(if (o.truncated) "],\"outlineTruncated\":true,\"outlineMaxBytes\":16384}" else tail_false);
+}
+
 
 fn kindIsField(item: Value, name: []const u8, comptime expected: []const u8) bool {
     const value = model.property(item, name) orelse return false;
