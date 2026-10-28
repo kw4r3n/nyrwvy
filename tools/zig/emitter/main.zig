@@ -1713,14 +1713,8 @@ fn variantDeclKey(item: Variant) []const u8 {
     return item.id;
 }
 
-pub fn main(init: std.process.Init) !void {
-    a = init.arena.allocator();
-    const args = try init.minimal.args.toSlice(a);
-    if (args.len != 2 and args.len != 3) {
-        std.debug.print("usage: emitter <execution-ir.json> [entry-function-id]\n", .{});
-        std.process.exit(64);
-    }
-    const text = try std.Io.Dir.cwd().readFileAlloc(init.io, args[1], a, .unlimited);
+/// The emitter's whole output for the IR `text`, or null with `problems` set.
+fn emitAll(text: []const u8, entry: ?[]const u8) !?[]const u8 {
     const root = (try parseJson(text)).object;
 
     declarations = .init(a);
@@ -1766,16 +1760,25 @@ pub fn main(init: std.process.Init) !void {
     type_instances = .init(a);
     function_instances = .init(a);
     computeMayFail();
+    const source = emit(ordered) orelse return null;
+    const fakes = fakeCapabilities() orelse return null;
+    return std.mem.concat(a, u8, &.{ source, fakes, runnerMain(ordered, entry) }) catch oom();
+}
 
+pub fn main(init: std.process.Init) !void {
+    a = init.arena.allocator();
+    const args = try init.minimal.args.toSlice(a);
+    if (args.len == 4 and std.mem.eql(u8, args[1], "--bench")) return bench(init.io, try std.fmt.parseInt(usize, args[2], 10), args[3]);
+    if (args.len != 2 and args.len != 3) {
+        std.debug.print("usage: emitter <execution-ir.json> [entry-function-id] | emitter --bench <runs> <execution-ir.json>\n", .{});
+        std.process.exit(64);
+    }
+    const text = try std.Io.Dir.cwd().readFileAlloc(init.io, args[1], a, .unlimited);
     var buffer: [65536]u8 = undefined;
     var writer = std.Io.File.stdout().writer(init.io, &buffer);
     const out = &writer.interface;
-    const source = emit(ordered);
-    const fakes = if (source != null) fakeCapabilities() else null;
-    if (fakes) |text_fakes| {
-        try out.writeAll(source.?);
-        try out.writeAll(text_fakes);
-        try out.writeAll(runnerMain(ordered, if (args.len == 3) args[2] else null));
+    if (try emitAll(text, if (args.len == 3) args[2] else null)) |program| {
+        try out.writeAll(program);
         try out.flush();
         return;
     }
@@ -1787,6 +1790,33 @@ pub fn main(init: std.process.Init) !void {
     }
     try out.flush();
     std.process.exit(2);
+}
+
+/// `--bench <runs> <ir>`: the median of `runs` in-process runs after `runs` warm-up runs, in ms, on stderr,
+/// with the IR read once; each run starts from a fresh arena and fresh state, and must give the first run's output.
+fn bench(io: std.Io, runs: usize, path: []const u8) !void {
+    const text = try std.Io.Dir.cwd().readFileAlloc(io, path, std.heap.page_allocator, .unlimited);
+    var first: ?[]const u8 = null;
+    const times = try std.heap.page_allocator.alloc(i96, runs);
+    for (0..2 * runs) |run| {
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        a = arena.allocator();
+        value_names = .empty;
+        block_names = .empty;
+        problems = .empty;
+        type_order = .empty;
+        pending = .empty;
+        const start = std.Io.Timestamp.now(io, .awake);
+        const output = (try emitAll(text, null)) orelse try std.mem.join(a, "\n", problems.items);
+        const took = start.durationTo(std.Io.Timestamp.now(io, .awake)).toNanoseconds();
+        if (first) |expected| {
+            if (!std.mem.eql(u8, expected, output)) @panic("a bench run gave another output");
+        } else first = try std.heap.page_allocator.dupe(u8, output);
+        if (run >= runs) times[run - runs] = took;
+    }
+    std.mem.sort(i96, times, {}, std.sort.asc(i96));
+    std.debug.print("{d:.2}\n", .{@as(f64, @floatFromInt(times[runs / 2])) / 1e6});
 }
 
 // ---------------------------------------------------------------- JSON
