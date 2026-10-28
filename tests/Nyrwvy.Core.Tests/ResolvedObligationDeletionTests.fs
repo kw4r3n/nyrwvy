@@ -138,8 +138,9 @@ module ResolvedObligationDeletionTests =
             let id=result.GetProperty("proposalId").GetString()
             let view=session.PendingProposalView id |> unwrap
             let _,artifact=ViewerFile.writeProposalReview path None view (fun target -> session.FocusFunction target |> Result.toOption) |> unwrap
-            Assert.Contains("Retired resolved obligation",artifact.Content)
-            for expected in [old.Id |> StableId.value;old.OriginTransactionId |> StableId.value;old.CallNodeId |> StableId.value;old.ParameterId |> StableId.value] do Assert.Contains(expected,artifact.Content)
+            let content=ViewerRendering.page artifact.Content
+            Assert.Contains("Retired resolved obligation",content)
+            for expected in [old.Id |> StableId.value;old.OriginTransactionId |> StableId.value;old.CallNodeId |> StableId.value;old.ParameterId |> StableId.value] do Assert.Contains(expected,content)
             Assert.Equal(SnapshotCodec.serialize before |> unwrap,File.ReadAllText path)
             session.Commit(id,CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
             session.Close()

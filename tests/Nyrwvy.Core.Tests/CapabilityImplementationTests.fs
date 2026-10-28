@@ -92,7 +92,7 @@ module CapabilityImplementationTests =
             Assert.Equal(2, focus.Callees.Length)
             Assert.Contains(focus.Callees, fun site -> site.CalleeFunctionId = (find session "ten").Id)
             Assert.Empty(focus.BodyEffectRequirements.EffectIds)
-            let html = ViewerProjection.focus focus |> ViewerHtml.renderFocusDocument
+            let html = ViewerProjection.focus focus |> ViewerRendering.focus
             Assert.Contains("capability construction", html)
             Assert.Contains(StableId.value (find session "ten").Id, html)
             use inspected = send session ($"""{{"id":"read","op":"readFunction","functionId":"{StableId.value low.Id}"}}""")

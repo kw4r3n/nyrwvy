@@ -219,7 +219,7 @@ module ListTests =
             |> ViewerProjection.focus
         Assert.Contains(ViewerNodeRole.Operation "ListEmpty", emptyViewer.Graph.Nodes |> List.map (fun node -> node.Role))
 
-        let html = ViewerHtml.renderFocusDocument viewer
+        let html = ViewerRendering.focus viewer
         Assert.Contains("List construct", html)
         Assert.Contains("List append item", html)
         Assert.Contains("List concat", html)

@@ -363,7 +363,7 @@ module ListHigherOrderTests =
                 relation.Kind = ViewerRelationKind.CallsFunction
                 && relation.Target = ViewerTarget.Function fixture.PositiveFunctionId
         )
-        let html = ViewerHtml.renderFocusDocument viewer
+        let html = ViewerRendering.focus viewer
         Assert.Contains("List map", html)
         Assert.Contains("List filter", html)
         Assert.Contains("List any", html)

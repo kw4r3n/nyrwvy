@@ -2010,12 +2010,11 @@ module AuthoringProtocol =
                               "caseEntryFunctionIds", evidence.Observations |> List.map (fun item -> item.Case.FunctionId) |> List.distinct |> List.map (StableId.value >> box) |> arrayValue
                               "affectedFunctionIds", evidence.AffectedFunctionIds |> List.map (StableId.value >> box) |> arrayValue
                               "cases", evidence.Observations |> List.map encodeCase |> arrayValue ]
-                    let json = System.Text.Json.JsonSerializer.Serialize(encoded, System.Text.Json.JsonSerializerOptions(WriteIndented = true, MaxDepth = WireJson.responseMaxJsonDepth))
                     let output = tryProperty "output" root |> Option.map (fun _ -> requiredString "output" root)
                     match session.PendingProposalView evidence.ProposalId with
                     | Error error -> sessionFailure requestId error
                     | Ok view ->
-                        match ViewerFile.writeVerificationReview session.Path output view (fun id -> session.FocusFunction id |> Result.toOption) evidence json with
+                        match ViewerFile.writeVerificationReview session.Path output view (fun id -> session.FocusFunction id |> Result.toOption) encoded with
                         | Error message -> failure requestId (objectValue [ "code", box "ViewWriteFailed"; "message", box message ])
                         | Ok(path, _) -> success requestId (objectValue [ "evidence", encoded; "reviewPath", box path ])
             | "runPure" | "runPureByName" as op ->

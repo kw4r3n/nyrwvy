@@ -175,7 +175,7 @@ module ProductUpdateTests =
             let updateNode = viewer.Graph.Nodes |> List.find (fun item -> item.Role = ViewerNodeRole.Operation "ProductUpdate")
             Assert.Equal(ValueDependencyRole.Source, updateNode.ValueDependencies.Head.Role)
             Assert.Equal(3, updateNode.ValueDependencies.Length)
-            Assert.Contains("product update", ViewerHtml.renderFocusDocument viewer)
+            Assert.Contains("product update", ViewerRendering.focus viewer)
             session.Close()
             let encoded = File.ReadAllText path
             Assert.Contains("\"kind\":\"productUpdate\"", encoded)

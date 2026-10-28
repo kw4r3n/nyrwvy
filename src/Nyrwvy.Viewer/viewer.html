@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="generator" content="Nyrwvy viewer">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-/Fh6g5tjaaljbusmT4CFetgny1QPzh4TS4nNv9+Q2ZE='">
+  <title>Nyrwvy viewer</title>
+  <style>
+    :root { font-family: ui-sans-serif, system-ui, sans-serif; color-scheme: light dark; }
+    body { max-width: 1180px; margin: 0 auto; padding: 1.5rem; line-height: 1.45; }
+    header, section, article, details { border: 1px solid CanvasText; border-radius: .55rem; padding: .8rem; margin: .75rem 0; }
+    .graph { margin-left: .5rem; }
+    .nodes { display: grid; gap: .65rem; }
+    .node { border-left: .4rem solid CanvasText; padding-left: .8rem; }
+    .branch { margin-left: 1rem; border-left: .2rem dashed CanvasText; padding-left: .75rem; }
+    .status, .missing { font-weight: 700; }
+    code { overflow-wrap: anywhere; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid CanvasText; padding: .35rem .5rem; text-align: left; vertical-align: top; }
+    ul { padding-left: 1.3rem; }
+  </style>
+</head>
+<body>
+<noscript><p>This page renders its embedded viewer data with JavaScript.</p></noscript>
+<script type="application/json" id="nyrwvy-data">@DATA@</script>
+<script>
+"use strict";
+// Renders the embedded viewer data (written by the session host) as the page body. Every text
+// from the data is HTML-encoded, so names and literals never become markup.
+var NyrwvyViewer = (function () {
+  function Writer() { this.lines = []; this.indent = 0; }
+  Writer.prototype.line = function (text) {
+    this.lines.push((text.length > 0 ? "  ".repeat(this.indent) : "") + text + "\n");
+  };
+  Writer.prototype.push = function () { this.indent++; };
+  Writer.prototype.pop = function () { this.indent--; };
+  Writer.prototype.toString = function () { return this.lines.join(""); };
+
+  // As .NET's WebUtility.HtmlEncode: Latin-1 supplement and supplementary characters as numeric references.
+  function html(value) {
+    var out = "";
+    for (var i = 0; i < value.length; i++) {
+      var c = value.charCodeAt(i);
+      if (c === 60) out += "&lt;";
+      else if (c === 62) out += "&gt;";
+      else if (c === 34) out += "&quot;";
+      else if (c === 39) out += "&#39;";
+      else if (c === 38) out += "&amp;";
+      else if (c >= 160 && c < 256) out += "&#" + c + ";";
+      else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < value.length && value.charCodeAt(i + 1) >= 0xDC00 && value.charCodeAt(i + 1) <= 0xDFFF) {
+        out += "&#" + value.codePointAt(i) + ";";
+        i++;
+      } else if (c >= 0xD800 && c <= 0xDFFF) out += "�";
+      else out += value[i];
+    }
+    return out;
+  }
+  function code(value) { return "<code>" + html(value) + "</code>"; }
+  function sortById(items) { return items.slice().sort(function (a, b) { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }); }
+  function visibility(exported) { return exported ? "exported" : "private"; }
+  function namesOf(lists) {
+    var names = new Map();
+    lists.forEach(function (list) { (list || []).forEach(function (item) { names.set(item.typeParameterId, item.displayName); }); });
+    return names;
+  }
+
+  var primitives = { string: "String", bool: "Bool", unit: "Unit", int64: "Int64", float64: "Float64", bits32: "Bits32", bytes: "Bytes" };
+  var generics = {
+    option: ["Option", 1], result: ["Result", 2], map: ["Map", 2], list: ["List", 1], set: ["Set", 1],
+    oneShot: ["OneShot", 1], task: ["Task", 1], exception: ["Exception", 0], taskScope: ["TaskScope", 0]
+  };
+  function typeText(names, type) {
+    var text = function (item) { return typeText(names, item); };
+    switch (type.kind) {
+      case "primitive": return primitives[type.primitive];
+      case "named": return "type:" + type.typeId + (type.arguments && type.arguments.length > 0 ? "<" + type.arguments.map(text).join(", ") + ">" : "");
+      case "capability": return "capability:" + type.capabilityId;
+      case "function": return "(" + type.parameters.map(text).join(", ") + ") -> " + text(type.resultType);
+      case "typeParameter": return names.has(type.typeParameterId) ? names.get(type.typeParameterId) : type.typeParameterId;
+      case "builtinGeneric":
+        var generic = generics[type.generic];
+        if (type.arguments.length !== generic[1]) return generic[0] + "<invalid-arity:" + type.arguments.length + ">";
+        return generic[1] === 0 ? generic[0] : generic[0] + "<" + type.arguments.map(text).join(", ") + ">";
+    }
+    throw new Error("Unknown type kind " + type.kind);
+  }
+
+  var relationLabels = {
+    CallsFunction: ["calls function", "function"], ReferencesFunction: ["references function", "function"],
+    ReadsParameter: ["reads parameter", "parameter"], ReadsPatternBinding: ["reads pattern binding", "pattern-binding"],
+    InvokesCapabilityOperation: ["invokes capability operation", "capability-operation"],
+    ConstructsType: ["constructs type", "type"], AccessesField: ["accesses field", "field"],
+    ConstructsVariant: ["constructs variant", "variant"], BranchCondition: ["branch condition", "node"],
+    MatchInput: ["match input", "node"], BindInput: ["evaluate before body", "node"]
+  };
+  var dependencyLabels = {
+    Value: "value", Error: "error", Substring: "substring", SliceStart: "slice start", TaskScope: "task scope",
+    Limit: "limit", Index: "index", Key: "key", Amount: "amount", SliceEnd: "slice end", SearchFrom: "search from",
+    CharacterSet: "character set", Prefix: "prefix", Suffix: "suffix", Separator: "separator", Replacement: "replacement",
+    LeftOperand: "left operand", RightOperand: "right operand", Source: "source", Item: "item",
+    FunctionValue: "function value", CapabilityValue: "capability value", BranchCondition: "branch condition",
+    MatchInput: "match input", BindInput: "evaluate before body"
+  };
+  function dependencyLabel(dependency) {
+    switch (dependency.role) {
+      case "ListItem": return "list item [" + dependency.index + "]";
+      case "FunctionArgument": return "function argument " + dependency.index;
+      case "CallArgument": return "call argument parameter:" + dependency.parameterId;
+      case "CapabilityArgument": return "capability argument capability-parameter:" + dependency.parameterId;
+      case "FieldValue": return "field value field:" + dependency.fieldId;
+    }
+    return dependencyLabels[dependency.role];
+  }
+
+  // The label of an operation whose established wording differs from the one derivedOperationLabel
+  // gives its kind name. A new builtin needs no entry: it is labelled from its name.
+  var operationLabels = {
+    ParameterReference: "parameter reference", PatternReference: "pattern reference", UnitLiteral: "unit literal",
+    StringIsEmpty: "string is empty", Int64ToString: "int64 to string", Int64ToHexString: "int64 to hex string",
+    StringParseInt64: "parse int64", StringParseInt64Hex: "parse hex int64", Float64ToString: "float64 to string",
+    StringParseFloat64: "parse float64", StringCodePoints: "code points", StringToLower: "to lower",
+    StringToUpper: "to upper", StringDecodeUtf8Lossy: "UTF-8 decode (replace)", StringEncodeUtf8: "UTF-8 encode",
+    Float64RoundToInt64: "round to int64", Float64FloorToInt64: "floor to int64", Float64Sqrt: "square root",
+    Float64Abs: "absolute value", Float64Negate: "negate", Float64Floor: "floor", Float64Ceiling: "ceiling",
+    Float64Truncate: "truncate", StringUtf8ByteCount: "utf-8 byte count", StringFromCodePoint: "from code point",
+    StringToCodePoint: "to code point", StringLength: "string length", StringSlice: "string slice",
+    StringContains: "string contains", StringIndexOf: "string index of", StringSpan: "string span",
+    StringSpanBack: "string span back", StringLastIndexOf: "string last index of",
+    StringStartsWith: "string starts with", StringEndsWith: "string ends with", StringSplit: "string split",
+    StringSplitLines: "string split lines", StringReplace: "string replace", StringTrim: "trim whitespace",
+    StringTrimStart: "trim leading whitespace", StringTrimEnd: "trim trailing whitespace", StringJoin: "string join",
+    StringEqual: "string equal", StringLessThan: "string less than", ValueEqual: "value equal",
+    StringConcat: "string concat", Int64BitAnd: "Int64 bitwise and", Int64BitOr: "Int64 bitwise or",
+    Int64BitXor: "Int64 bitwise xor", Int64ShiftRight: "Int64 arithmetic shift right", Float64IsNaN: "Float64 is NaN",
+    Int64ToFloat64: "int64 to float64", Int64BitNot: "Int64 bitwise not", Bits32FromInt64: "bits32 from int64",
+    Bits32ToInt64: "bits32 to int64", Bits32Xor: "bits32 xor", Bits32And: "bits32 and", Bits32Or: "bits32 or",
+    Bits32Not: "bits32 not", Bits32Add: "bits32 add", Bits32RotateRight: "bits32 rotate right",
+    Bits32ShiftRight: "bits32 shift right", Bits32ShiftLeft: "bits32 shift left", BytesEmpty: "bytes empty",
+    BytesFill: "bytes fill", BytesLength: "bytes length", BytesGet: "bytes get", BytesSet: "bytes set",
+    BytesAppend: "bytes append", BytesConcat: "bytes concat", BytesSlice: "bytes slice",
+    BytesFromLatin1: "bytes from latin-1", BytesToLatin1: "bytes to latin-1", MapUnion: "Map union (right wins)",
+    UseResource: "use resource", ParallelAll: "parallel all", CancellationRequested: "cancellation requested",
+    ExceptionCatch: "exception catch", ExceptionIsCancellation: "exception is cancellation",
+    ExceptionMessage: "exception message", ExceptionRethrow: "exception rethrow",
+    CancellationShield: "cancellation shield", TaskScope: "task scope", TaskStart: "task start",
+    OneShotCreate: "one-shot create", OneShotComplete: "one-shot complete (first value)",
+    OneShotWait: "one-shot wait", TaskCancel: "task cancel", ResultMapErr: "Result map error",
+    FunctionReference: "function reference", FunctionInvoke: "function invocation", DirectCall: "direct call",
+    CapabilityInvoke: "capability invoke", ProductConstruct: "product construct", FieldAccess: "field access",
+    ProductUpdate: "product update", UnionConstruct: "union construct", OptionNone: "Option.None",
+    OptionSome: "Option.Some", ResultOk: "Result.Ok", Abort: "Abort (function exit)", ResultErr: "Result.Err",
+    BoolNot: "bool not", BoolAnd: "bool and", BoolOr: "bool or", Conditional: "conditional",
+    MatchUnion: "union match", Bind: "bind once", MatchOption: "Option match", MatchResult: "Result match"
+  };
+  function isUpper(c) { return c >= "A" && c <= "Z"; }
+  function isLower(c) { return c >= "a" && c <= "z"; }
+  function isDigit(c) { return c >= "0" && c <= "9"; }
+  // "ListMinBy" -> "List min by": the kind name split at its word boundaries, the first word kept
+  // as written (a type name, mostly) and the rest lowercased.
+  function derivedOperationLabel(kind) {
+    var words = [], current = "";
+    for (var i = 0; i < kind.length; i++) {
+      var c = kind[i];
+      var startsWord = i > 0 && isUpper(c) &&
+        (isLower(kind[i - 1]) || isDigit(kind[i - 1]) || (isUpper(kind[i - 1]) && i + 1 < kind.length && isLower(kind[i + 1])));
+      if (startsWord) { words.push(current); current = ""; }
+      current += c;
+    }
+    words.push(current);
+    return words.map(function (word, index) { return index === 0 ? word : word.toLowerCase(); }).join(" ");
+  }
+  function hex4(c) { return "\\u" + c.toString(16).toUpperCase().padStart(4, "0"); }
+  var escaped = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+  function escapeStringLiteral(value) {
+    var out = "";
+    for (var i = 0; i < value.length; i++) {
+      var c = value.charCodeAt(i);
+      if (c === 92) out += "\\\\";
+      else if (c >= 0xD800 && c <= 0xDBFF && i + 1 < value.length && value.charCodeAt(i + 1) >= 0xDC00 && value.charCodeAt(i + 1) <= 0xDFFF) {
+        out += value[i] + value[i + 1];
+        i++;
+      } else if ((c >= 0xD800 && c <= 0xDFFF) || escaped.test(value[i])) out += hex4(c);
+      else out += value[i];
+    }
+    return out;
+  }
+  function roleLabel(role) {
+    switch (role.kind) {
+      case "stringLiteral": return "string literal “" + escapeStringLiteral(role.value) + "”";
+      case "boolLiteral": return "bool literal " + (role.value ? "true" : "false");
+      case "int64Literal": return "Int64 literal " + role.value;
+      case "float64Literal": return "Float64 literal 0x" + role.bits;
+      case "taskWait": return "task wait (" + role.mode + ")";
+      case "capabilityConstruct":
+        return "capability construction " + role.capabilityId + " (" +
+          role.implementations.map(function (item) { return item.operationId + " -> " + item.functionId; }).join("; ") + ")";
+      case "operation":
+        return Object.prototype.hasOwnProperty.call(operationLabels, role.operation) ? operationLabels[role.operation] : derivedOperationLabel(role.operation);
+    }
+    throw new Error("Unknown node role " + role.kind);
+  }
+  var branchLabels = {
+    WhenTrue: "when true", WhenFalse: "when false", BindBody: "body after input", OptionSome: "Option.Some",
+    OptionNone: "Option.None", ResultOk: "Result.Ok", ResultErr: "Result.Err", RightOperand: "right operand"
+  };
+  function branchLabel(branch) {
+    if (branch.role === "UnionVariant") return "variant " + branch.variantIds.map(function (id) { return "variant:" + id; }).join(" | ");
+    return branchLabels[branch.role];
+  }
+  function obligationList(ids) { return ids.map(function (id) { return "obligation:" + id; }).join(", "); }
+  function changeReadinessLabel(readiness) {
+    switch (readiness.kind) {
+      case "complete": return "complete — lowering may proceed if backend readiness also passes";
+      case "incomplete": return "incomplete — blocking obligations: " + obligationList(readiness.obligationIds);
+      case "invalid": return "invalid — " + readiness.issues.map(function (issue) { return issue.code + ": " + issue.message; }).join(" | ");
+    }
+    throw new Error("Unknown readiness " + readiness.kind);
+  }
+  // JSON indented as .NET writes it, every character outside printable ASCII escaped, so a
+  // bidirectional override or other invisible character in the data stays visible.
+  function indentedJson(value) {
+    return JSON.stringify(value, null, 2).replace(/[^\x20-\x7E\n]/g, function (c) { return hex4(c.charCodeAt(0)); });
+  }
+  function transactionReadinessLabel(readiness) {
+    return readiness.kind === "semanticallyReady" ? "semantically ready" : "incomplete — blocking obligations: " + obligationList(readiness.obligationIds);
+  }
+
+  function emitParameters(w, names, parameters) {
+    w.line("<table>");
+    w.line("<thead><tr><th>Parameter</th><th>Type</th><th>Stable ID</th></tr></thead>");
+    w.line("<tbody>");
+    w.push();
+    parameters.forEach(function (parameter) {
+      w.line("<tr><td>" + html(parameter.displayName) + "</td><td>" + code(typeText(names, parameter.type)) +
+        "</td><td>" + code("parameter:" + parameter.id) + "</td></tr>");
+    });
+    w.pop();
+    w.line("</tbody>");
+    w.line("</table>");
+  }
+  function emitRequiredEffects(w, effects) {
+    var text = effects.length === 0 ? "None." :
+      effects.slice().sort().map(function (id) { return code("effect:" + id); }).join(", ");
+    w.line("<p>Declared required effects: " + text + "</p>");
+  }
+  function emitBodyEffects(w, report) {
+    w.line("<section><h2>Body effect requirements (derived)</h2>");
+    if (report.evidence.length === 0) w.line("<p>No resolved nominal effect requirements.</p>");
+    else {
+      w.line("<ul>");
+      report.evidence.forEach(function (item) {
+        var source = item.source.kind === "functionContract" ? "function:" + item.source.functionId : "capability-operation:" + item.source.operationId;
+        w.line("<li>" + code("effect:" + item.effectId) + " at " + code("node:" + item.nodeId) + " from " + code(source) + "</li>");
+      });
+      w.line("</ul>");
+    }
+    report.unresolvedFunctionIds.forEach(function (id) { w.line("<p>Unresolved function contract: " + code("function:" + id) + "</p>"); });
+    report.unresolvedOperationIds.forEach(function (id) { w.line("<p>Unresolved operation contract: " + code("capability-operation:" + id) + "</p>"); });
+    w.line("</section>");
+  }
+  function emitCallSites(w, heading, sites, endpoint) {
+    w.line("<section>");
+    w.line("<h3>" + html(heading) + "</h3>");
+    if (sites.length === 0) w.line("<p>None.</p>");
+    else {
+      w.line("<ul>");
+      sites.forEach(function (site) { w.line("<li>" + code("function:" + site[endpoint]) + " via " + code("node:" + site.callNodeId) + "</li>"); });
+      w.line("</ul>");
+    }
+    w.line("</section>");
+  }
+  function emitGraph(w, names, graph) {
+    w.line("<section class=\"graph\" aria-label=\"value graph\">");
+    w.line("<p>Graph result: " + code("node:" + graph.resultNodeId) + "</p>");
+    w.line("<div class=\"nodes\">");
+    w.push();
+    graph.nodes.forEach(function (node) {
+      w.line("<article class=\"node\">");
+      w.line("<h4>" + html(roleLabel(node.role)) + "</h4>");
+      w.line("<p>Stable ID: " + code("node:" + node.id) + "</p>");
+      if (node.type !== null) w.line("<p>Type: " + code(typeText(names, node.type)) + "</p>");
+      else w.line("<p>Type: <strong>unknown / not derivable</strong></p>");
+      if (node.relations.length > 0) {
+        w.line("<ul aria-label=\"node relations\">");
+        node.relations.forEach(function (relation) {
+          var label = relationLabels[relation.kind];
+          w.line("<li>" + html(label[0]) + ": " + code(label[1] + ":" + relation.id) + "</li>");
+        });
+        w.line("</ul>");
+      }
+      if (node.valueDependencies.length > 0) {
+        w.line("<ul aria-label=\"value dependencies\">");
+        node.valueDependencies.forEach(function (dependency) {
+          w.line("<li>" + html(dependencyLabel(dependency)) + ": " + code("node:" + dependency.nodeId) + "</li>");
+        });
+        w.line("</ul>");
+      }
+      node.branches.forEach(function (branch) {
+        w.line("<section class=\"branch\">");
+        w.line("<h5>Branch: " + html(branchLabel(branch)) + "</h5>");
+        if (branch.bindings.length > 0) {
+          w.line("<ul aria-label=\"branch bindings\">");
+          branch.bindings.forEach(function (binding) {
+            var sourceField = binding.sourceFieldId !== null ? "; source field " + code("field:" + binding.sourceFieldId) : "";
+            w.line("<li>" + html(binding.displayName !== null ? binding.displayName : "(unnamed)") + " — " +
+              code("pattern-binding:" + binding.id) + "; type " + code(typeText(names, binding.type)) + sourceField + "</li>");
+          });
+          w.line("</ul>");
+        }
+        emitGraph(w, names, branch.graph);
+        w.line("</section>");
+      });
+      w.line("</article>");
+    });
+    w.pop();
+    w.line("</div>");
+    w.line("</section>");
+  }
+  function emitTypeEntity(w, type) {
+    var names = namesOf([type.typeParameters]);
+    w.line("<details><summary>" + html(type.displayName) + " — " + code("type:" + type.id) + " — " + visibility(type.exported) + "</summary>");
+    if (type.typeKind.kind === "product") {
+      w.line("<p>Product fields</p><ul>");
+      sortById(type.typeKind.fields).forEach(function (field) {
+        w.line("<li>" + html(field.displayName) + ": " + code(typeText(names, field.type)) + " — " + code("field:" + field.id) + "</li>");
+      });
+    } else {
+      w.line("<p>Union variants</p><ul>");
+      sortById(type.typeKind.variants).forEach(function (variant) {
+        w.line("<li>" + html(variant.displayName) + " — " + code("variant:" + variant.id) + "</li>");
+      });
+    }
+    w.line("</ul>");
+    w.line("</details>");
+  }
+  function emitCapability(w, capability) {
+    var names = new Map();
+    w.line("<details><summary>" + html(capability.displayName) + " — " + code("capability:" + capability.id) + " — " +
+      visibility(capability.exported) + (capability.taskBound ? " — task-bound" : "") + "</summary><ul>");
+    sortById(capability.operations).forEach(function (operation) {
+      w.line("<li>" + html(operation.displayName) + " — " + code("capability-operation:" + operation.id) +
+        "; result " + code(typeText(names, operation.resultType)) + "; effect " + code("effect:" + operation.effectId) +
+        (operation.mayWait ? "; may wait" : "") + "</li>");
+    });
+    w.line("</ul></details>");
+  }
+  function emitEffects(w, effects) {
+    w.line("<ul>");
+    effects.forEach(function (effect) {
+      w.line("<li>" + html(effect.displayName) + " — " + code("effect:" + effect.id) + " — " + visibility(effect.exported) + "</li>");
+    });
+    w.line("</ul>");
+  }
+  function emitFocusBody(w, model) {
+    var names = namesOf([model.function.typeParameters]
+      .concat(model.relatedFunctionSignatures.map(function (item) { return item.typeParameters; }))
+      .concat(model.referencedTypes.map(function (item) { return item.typeParameters; })));
+    var fn = model.function;
+    w.line("<header>");
+    w.line("<h1>Function Focus — " + html(fn.displayName) + "</h1>");
+    w.line("<p>Snapshot: " + code("snapshot:" + model.snapshotId) + "</p>");
+    w.line("<p>Function: " + code("function:" + fn.id) + "</p>");
+    w.line("<p>Visibility: " + visibility(fn.exported) + "</p>");
+    if (model.mustNotWait) w.line("<p>Must not wait</p>");
+    if (model.waitPath !== null) w.line("<p>May wait: " + html(model.waitPath) + "</p>");
+    w.line("<p>Result type: " + code(typeText(names, fn.resultType)) + "</p>");
+    w.line("</header>");
+    w.line("<section><h2>Signature</h2>");
+    emitParameters(w, names, fn.parameters);
+    emitRequiredEffects(w, fn.requiredEffects);
+    w.line("</section>");
+    emitBodyEffects(w, model.bodyEffectRequirements);
+    if (model.aborts.length > 0) {
+      w.line("<section><h2>Function abort boundaries</h2>");
+      model.aborts.forEach(function (boundary) {
+        w.line("<p>Abort " + code(boundary.nodeId) + " exits function " + code(boundary.ownerFunctionId) + " with error " +
+          code(boundary.errorNodeId) + " : " + code(boundary.errorType !== null ? typeText(names, boundary.errorType) : "unknown") + ".</p>");
+        var ids = function (values) { return values.map(code).join(", "); };
+        w.line("<p>Enclosing controls: " + ids(boundary.enclosingControlNodeIds) + ". Dependent continuations: " + ids(boundary.dependentContinuationNodeIds) + ".</p>");
+      });
+      w.line("</section>");
+    }
+    emitCallSites(w, "Direct callers", model.callers, "callerFunctionId");
+    emitCallSites(w, "Direct callees", model.callees, "calleeFunctionId");
+    w.line("<section><h3>Blocking obligations</h3>");
+    if (model.openObligations.length === 0) w.line("<p>None.</p>");
+    else {
+      w.line("<ul>");
+      model.openObligations.forEach(function (item) {
+        w.line("<li>" + code("obligation:" + item.obligationId) + " — missing argument for " + code("parameter:" + item.parameterId) +
+          " at " + code("node:" + item.callNodeId) + "; origin " + code("transaction:" + item.originTransactionId) + "</li>");
+      });
+      w.line("</ul>");
+    }
+    w.line("</section>");
+    var missing = [["function", model.missingFunctionIds], ["type", model.missingTypeIds], ["capability", model.missingCapabilityIds], ["effect", model.missingEffectIds]];
+    if (missing.some(function (entry) { return entry[1].length > 0; })) {
+      w.line("<section class=\"missing\"><h3>Unresolved declarations</h3><ul>");
+      missing.forEach(function (entry) { entry[1].forEach(function (id) { w.line("<li>" + code(entry[0] + ":" + id) + "</li>"); }); });
+      w.line("</ul></section>");
+    }
+    w.line("<section><h2>Structured graph</h2>");
+    emitGraph(w, names, model.graph);
+    w.line("</section>");
+    w.line("<section>");
+    w.line("<h3>Referenced declarations</h3>");
+    w.line("<h4>Types</h4>");
+    if (model.referencedTypes.length === 0) w.line("<p>None.</p>");
+    model.referencedTypes.forEach(function (type) { emitTypeEntity(w, type); });
+    w.line("<h4>Capabilities</h4>");
+    if (model.referencedCapabilities.length === 0) w.line("<p>None.</p>");
+    model.referencedCapabilities.forEach(function (capability) { emitCapability(w, capability); });
+    w.line("<h4>Effects</h4>");
+    if (model.referencedEffects.length === 0) w.line("<p>None.</p>");
+    else emitEffects(w, model.referencedEffects);
+    w.line("</section>");
+    w.line("<details><summary>Related function signatures</summary>");
+    model.relatedFunctionSignatures.forEach(function (signature) {
+      w.line("<article><h4>" + html(signature.displayName) + "</h4>");
+      w.line("<p>" + code("function:" + signature.id) + "</p>");
+      emitParameters(w, names, signature.parameters);
+      w.line("<p>Result: " + code(typeText(names, signature.resultType)) + "</p>");
+      emitRequiredEffects(w, signature.requiredEffects);
+      w.line("</article>");
+    });
+    w.line("</details>");
+  }
+
+  var renameLabels = {
+    field: ["field", "field:"], variant: ["variant", "variant:"], parameter: ["parameter", "parameter:"],
+    effect: ["effect", "effect:"], capability: ["capability", "capability:"],
+    capabilityOperation: ["capability operation", "capability-operation:"],
+    capabilityParameter: ["capability parameter", "capability-parameter:"], type: ["type", ""], "function": ["function", ""]
+  };
+  var renameOwners = [["ownerTypeId", "type:"], ["ownerVariantId", "variant:"], ["ownerFunctionId", "function:"], ["ownerCapabilityId", "capability:"], ["ownerOperationId", "capability-operation:"]];
+  function emitDiff(w, names, diff) {
+    w.line("<section><h2>Semantic change summary</h2>");
+    w.line("<h3>Renames</h3><ul>");
+    diff.renames.forEach(function (rename) {
+      var label = renameLabels[rename.kind];
+      var owners = renameOwners.filter(function (owner) { return rename[owner[0]] !== undefined; })
+        .map(function (owner) { return code(owner[1] + rename[owner[0]]); });
+      var scope = owners.length === 0 ? "" : " of " + owners.join(" / ");
+      w.line("<li>" + label[0] + " " + code(label[1] + rename.id) + scope + ": " + html(rename.oldDisplayName) + " → " + html(rename.newDisplayName) + "</li>");
+    });
+    w.line("</ul>");
+    if (diff.visibilityChanges) {
+      w.line("<h3>Visibility changes</h3><ul>");
+      diff.visibilityChanges.forEach(function (item) {
+        w.line("<li>" + html(item.kind) + " " + code(item.id) + " " + html(item.displayName) + ": now " + visibility(item.exported) + "</li>");
+      });
+      w.line("</ul>");
+    }
+    if (diff.attributeChanges) {
+      w.line("<h3>Wait and task-binding changes</h3><ul>");
+      diff.attributeChanges.forEach(function (item) {
+        w.line("<li>" + html(item.attribute) + " " + code(item.id) + " " + html(item.displayName) + ": now " + (item.value ? "true" : "false") + "</li>");
+      });
+      w.line("</ul>");
+    }
+    if (diff.parametersRemoved) {
+      w.line("<h3>Parameters removed</h3><ul>");
+      diff.parametersRemoved.forEach(function (item) {
+        w.line("<li>" + code("function:" + item.ownerFunctionId) + " removed " + html(item.displayName) + " — " + code("parameter:" + item.parameterId));
+        item.affectedCallNodeIds.forEach(function (id) { w.line("; call " + code("node:" + id) + " lost its argument"); });
+        if (item.retiredObligations.length > 0) {
+          w.line("<ul>");
+          item.retiredObligations.forEach(function (obligation) {
+            w.line("<li>Retired " + obligation.status.kind + " obligation " + code("obligation:" + obligation.obligationId) + "; call " + code("node:" + obligation.callNodeId) + "</li>");
+          });
+          w.line("</ul>");
+        }
+        w.line("</li>");
+      });
+      w.line("</ul>");
+    }
+    if (diff.unionVariantsRemoved) {
+      w.line("<h3>Union variants removed</h3><ul>");
+      diff.unionVariantsRemoved.forEach(function (item) {
+        w.line("<li>" + code("type:" + item.ownerTypeId) + " removed " + html(item.displayName) + " — " + code("variant:" + item.variantId));
+        item.removedFieldIds.forEach(function (id) { w.line("; removed " + code("field:" + id)); });
+        item.affectedMatchNodeIds.forEach(function (id) { w.line("; match " + code("node:" + id) + " pruned"); });
+        w.line("</li>");
+      });
+      w.line("</ul>");
+    }
+    w.line("<h3>Parameters added</h3><ul>");
+    diff.parametersAdded.forEach(function (item) {
+      w.line("<li>" + code("function:" + item.ownerFunctionId) + " added " + html(item.displayName) + " — " +
+        code("parameter:" + item.parameterId) + "; type " + code(typeText(names, item.type)) + "</li>");
+    });
+    w.line("</ul>");
+    w.line("<h3>Capability operations removed</h3><ul>");
+    diff.capabilityOperationsRemoved.forEach(function (item) {
+      w.line("<li>" + code("capability:" + item.ownerCapabilityId) + " removed " + html(item.displayName) + " — " + code("capability-operation:" + item.operationId));
+      item.removedParameterIds.forEach(function (id) { w.line("; removed " + code("capability-parameter:" + id)); });
+      w.line("</li>");
+    });
+    w.line("</ul>");
+    w.line("<h3>Required effects changed</h3><ul>");
+    diff.requiredEffectsChanged.forEach(function (change) {
+      w.line("<li>" + code("function:" + change.functionId) + " " + change.kind + " required effect " + code("effect:" + change.effectId) + "</li>");
+    });
+    w.line("</ul>");
+    w.line("<h3>Functions removed</h3><ul>");
+    diff.functionsRemoved.forEach(function (item) {
+      w.line("<li>" + html(item.displayName) + " — " + code("function:" + item.functionId));
+      var retired = item.retiredObligations || [];
+      if (retired.length > 0) {
+        w.line("<ul>");
+        retired.forEach(function (obligation) {
+          w.line("<li>Retired resolved obligation " + code("obligation:" + obligation.obligationId) + "; call " + code("node:" + obligation.callNodeId) +
+            "; parameter " + code("parameter:" + obligation.parameterId) + "; origin " + code("transaction:" + obligation.originTransactionId));
+          if (obligation.status.kind === "resolved")
+            w.line("; resolved in " + code("transaction:" + obligation.status.transactionId) + " with " + code("node:" + obligation.status.valueNodeId));
+          w.line("</li>");
+        });
+        w.line("</ul>");
+      }
+      w.line("</li>");
+    });
+    w.line("</ul>");
+    w.line("<h3>Arguments attached</h3><ul>");
+    diff.argumentsAttached.forEach(function (item) {
+      w.line("<li>" + code("node:" + item.callNodeId) + ": " + code("parameter:" + item.parameterId) + " ← " + code("node:" + item.valueNodeId) + "</li>");
+    });
+    w.line("</ul>");
+    w.line("<h3>Obligations created</h3><ul>");
+    diff.obligationsCreated.forEach(function (item) {
+      w.line("<li>" + code("obligation:" + item.obligationId) + " for " + code("node:" + item.callNodeId) + " / " + code("parameter:" + item.parameterId) + "</li>");
+    });
+    w.line("</ul>");
+    w.line("<h3>Obligations resolved</h3><ul>");
+    diff.obligationsResolved.forEach(function (item) {
+      w.line("<li>" + code("obligation:" + item.obligationId) + " resolved with " + code("node:" + item.valueNodeId) + "</li>");
+    });
+    w.line("</ul></section>");
+  }
+  function emitStaleBaseWarning(w, baseIsCommitted) {
+    if (!baseIsCommitted) w.line("<p class=\"status\">The base snapshot is no longer the committed state; committed focus is not shown.</p>");
+  }
+
+  function renderChangeReview(w, data) {
+    w.line("<header><h1>Change Review</h1>");
+    w.line("<p>Transaction: " + code("transaction:" + data.transactionId) + "</p>");
+    w.line("<p>Base snapshot: " + code("snapshot:" + data.baseSnapshotId) + "</p>");
+    w.line("<p>Proposed snapshot: " + code("snapshot:" + data.proposedSnapshotId) + "</p>");
+    emitStaleBaseWarning(w, data.baseIsCommitted);
+    w.line("<p class=\"status\">Readiness: " + html(changeReadinessLabel(data.readiness)) + "</p></header>");
+    // The affected functions' focus views name the type parameters an added parameter may use.
+    var names = namesOf([].concat.apply([], data.functionFocus.map(function (focus) {
+      return [focus.function.typeParameters].concat(focus.relatedFunctionSignatures.map(function (item) { return item.typeParameters; }));
+    })));
+    emitDiff(w, names, data.diff);
+    w.line("<section><h2>Affected stable identities</h2><ul>");
+    data.affectedFunctionIds.forEach(function (id) { w.line("<li>" + code("function:" + id) + "</li>"); });
+    data.affectedTypeIds.forEach(function (id) { w.line("<li>" + code("type:" + id) + "</li>"); });
+    w.line("</ul></section>");
+    w.line("<section><h2>Affected function focus</h2>");
+    data.functionFocus.forEach(function (focus) {
+      w.line("<article>");
+      emitFocusBody(w, focus);
+      w.line("</article>");
+    });
+    w.line("</section>");
+  }
+
+  // The banner of a verifyChange report: counts by status, and which affected functions the cases enter directly.
+  function verificationBanner(evidence) {
+    var count = function (status) { return evidence.cases.filter(function (item) { return item.status === status; }).length; };
+    var counterexamples = count("counterexample"), unknown = count("unknown");
+    var summary = counterexamples > 0 ? "counterexample" : unknown > 0 ? "unknown" : "tested agreement / explicit intended results; no proof";
+    var entries = new Set(evidence.cases.map(function (item) { return item.functionId; }));
+    var affected = new Set(evidence.affectedFunctionIds);
+    var explicitAffected = Array.from(entries).filter(function (id) { return affected.has(id); }).length;
+    var coverage = "Impact: " + affected.size + " affected function(s). Explicit case entry points: " + entries.size + "; " + explicitAffected +
+      " affected function(s) directly targeted, " + (affected.size - explicitAffected) +
+      " without a direct case. This counts requested entry points, not dynamic coverage or proof that callers were exercised.";
+    return "<p class=\"status\">Behavioral verification: " + summary + "</p><p>" + counterexamples + " counterexample(s), " + unknown + " unknown, " +
+      count("tested-agreement") + " tested agreement, " + count("intended-change-tested") +
+      " intended result(s). Explicit cases only; this historical report does not gate commit.</p><p>" + coverage + "</p>";
+  }
+
+  function renderProposalReview(w, data) {
+    var verification = data.verification;
+    w.line("<header><h1>Change Review — " + html(data.proposalKind) + "</h1>");
+    w.line("<p>Pending proposal: " + code("transaction:" + data.transactionId) + ". Nothing is published until it is committed.</p>");
+    w.line("<p>Base snapshot: " + code("snapshot:" + data.baseSnapshotId) + "</p>");
+    w.line("<p>Proposed snapshot: " + code("snapshot:" + data.proposedSnapshotId) + "</p>");
+    emitStaleBaseWarning(w, data.baseIsCommitted);
+    w.line("<p class=\"status\">" + (verification ? "Structural readiness: " : "Readiness: ") + html(transactionReadinessLabel(data.readiness)) + "</p>" +
+      (verification ? verificationBanner(verification) : "") + "</header>");
+    w.line("<section><h2>Functions created or rewritten</h2>");
+    if (data.changedFunctions.length === 0) w.line("<p>None.</p>");
+    data.changedFunctions.forEach(function (item) {
+      var status = item.committed !== null ? "changed" : data.baseIsCommitted ? "created" : "proposed";
+      w.line("<article><h2>" + html(item.proposed.function.displayName) + " — " + status + " " + code("function:" + item.proposed.function.id) + "</h2>");
+      if (item.committed !== null) {
+        w.line("<details><summary>Committed</summary>");
+        emitFocusBody(w, item.committed);
+        w.line("</details>");
+        w.line("<details open><summary>Proposed</summary>");
+        emitFocusBody(w, item.proposed);
+        w.line("</details>");
+      } else emitFocusBody(w, item.proposed);
+      w.line("</article>");
+    });
+    w.line("</section>");
+    if (data.declaredTypes.length > 0 || data.declaredCapabilities.length > 0 || data.declaredEffects.length > 0) {
+      w.line("<section><h2>Declarations created or updated</h2>");
+      if (data.declaredTypes.length > 0) {
+        w.line("<h3>Types</h3>");
+        data.declaredTypes.forEach(function (type) { emitTypeEntity(w, type); });
+      }
+      if (data.declaredCapabilities.length > 0) {
+        w.line("<h3>Capabilities</h3>");
+        data.declaredCapabilities.forEach(function (capability) { emitCapability(w, capability); });
+      }
+      if (data.declaredEffects.length > 0) {
+        w.line("<h3>Effects</h3>");
+        emitEffects(w, data.declaredEffects);
+      }
+      w.line("</section>");
+    }
+    w.line("<section><h2>Engine review</h2>");
+    w.line("<p>The complete requested change and resulting diff in the session's structured review format.</p>");
+    w.line("<pre><code>" + html(indentedJson(data.engineReview)) + "</code></pre>");
+    w.line("</section>");
+    if (verification)
+      w.line("<section><h2>Change verification</h2><p>Explicit cases only. Tested agreement is not proof. This saved report is historical evidence for the fingerprints below; rerun verifyChange after editing.</p><pre>" +
+        html(indentedJson(verification)) + "</pre></section>");
+  }
+
+  // The page title and body markup of one viewer data object.
+  function render(data) {
+    var w = new Writer();
+    var title;
+    switch (data.view) {
+      case "functionFocus": title = "Nyrwvy Focus — " + data.focus.function.displayName; emitFocusBody(w, data.focus); break;
+      case "changeReview": title = "Nyrwvy Change Review"; renderChangeReview(w, data); break;
+      case "proposalReview": title = "Nyrwvy Change Review — " + data.proposalKind; renderProposalReview(w, data); break;
+      default: throw new Error("Unknown view " + data.view);
+    }
+    return { title: title, body: w.toString() };
+  }
+
+  if (typeof document !== "undefined") {
+    var page = render(JSON.parse(document.getElementById("nyrwvy-data").textContent));
+    document.title = page.title;
+    document.body.innerHTML = page.body;
+  }
+  return { render: render };
+})();
+</script>
+</body>
+</html>

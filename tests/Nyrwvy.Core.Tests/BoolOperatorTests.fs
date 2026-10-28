@@ -195,7 +195,7 @@ module BoolOperatorTests =
             Assert.Equal(ValueDependencyRole.LeftOperand, (List.exactlyOne andNode.ValueDependencies).Role)
             Assert.Contains((List.exactlyOne andNode.Branches).Graph.Nodes, fun node -> node.Role = ViewerNodeRole.Operation "BoolNot")
             Assert.Contains(viewer.Graph.Nodes, fun node -> node.Role = ViewerNodeRole.Operation "BoolOr")
-            let html = ViewerHtml.renderFocusDocument viewer
+            let html = ViewerRendering.focus viewer
             Assert.Contains("bool and", html)
             Assert.Contains("right operand", html)
             session.Close()

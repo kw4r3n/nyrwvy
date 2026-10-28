@@ -3,7 +3,6 @@ namespace Nyrwvy.Tools.AuthoringSession
 open System
 open System.IO
 open System.Text
-open System.Text.Json
 open Nyrwvy.Core
 
 /// Writes human-facing viewer HTML for the committed state or a pending proposal. The file
@@ -121,11 +120,9 @@ module ViewerFile =
         writeArtifact snapshotPath requested (ViewerArtifact.ofFocus focus)
 
     let private engineReview (proposal: AuthoringProposal) =
-        let options = JsonSerializerOptions(MaxDepth = WireJson.responseMaxJsonDepth, WriteIndented = true)
-        // Keep every review detail in the durable HTML, without recursively printing nested
+        // Keep every review detail in the durable page, without recursively printing nested
         // graphs again inside each node's debug string.
-        let complete = WireEncode.proposalWith "full" WireGraph.functionEntity WireGraph.focus proposal
-        JsonSerializer.Serialize(complete, options)
+        WireJson.serialize (WireEncode.proposalWith "full" WireGraph.functionEntity WireGraph.focus proposal)
 
     let private proposalKind (review: AuthoringProposalReview) =
         match review with
@@ -164,6 +161,7 @@ module ViewerFile =
         | AuthoringProposalReview.Batch item -> item.Readiness
 
     let private proposalReview
+        verification
         (view: AuthoringPendingProposalView)
         (proposed: Snapshot)
         (committedFocus: FunctionId -> FunctionFocusView option)
@@ -183,7 +181,7 @@ module ViewerFile =
         functions [] view.FunctionIds
         |> Result.map (fun functions ->
             let review = view.Proposal.Review
-            ViewerArtifact.ofProposalReview
+            ViewerArtifact.ofProposalReviewWith verification
                 { TransactionId = view.TransactionId
                   ProposalKind = proposalKind review
                   BaseSnapshotId = view.BaseSnapshotId
@@ -214,35 +212,14 @@ module ViewerFile =
         let artifact =
             match view.Proposal.Review, view.ProposedSnapshot with
             | AuthoringProposalReview.Operations item, _ -> Ok(ViewerArtifact.ofChangeReviewWithBaseState view.BaseIsCommitted item.ResultingChange)
-            | _, Some proposed -> proposalReview view proposed committedFocus
+            | _, Some proposed -> proposalReview None view proposed committedFocus
             | _, None -> Error "The proposal has no proposed snapshot to render."
         artifact |> Result.bind (writeArtifact snapshotPath requested)
 
-    /// One review artifact contains the structural proposal and the computed behavioral evidence.
-    let writeVerificationReview snapshotPath requested (view: AuthoringPendingProposalView) committedFocus (evidence: ChangeVerificationEvidence) evidenceJson =
-        let artifact =
-            match view.ProposedSnapshot with
-            | Some proposed -> proposalReview view proposed committedFocus
-            | None -> Error "Candidate verification is unsupported for this proposal."
-        artifact |> Result.bind (fun artifact ->
-            let evidenceSection = "<section><h2>Change verification</h2><p>Explicit cases only. Tested agreement is not proof. This saved report is historical evidence for the fingerprints below; rerun verifyChange after editing.</p><pre>" + System.Net.WebUtility.HtmlEncode(evidenceJson) + "</pre></section>"
-            let counts = evidence.Observations |> List.countBy (fun item -> item.Status) |> Map.ofList
-            let count status = Map.tryFind status counts |> Option.defaultValue 0
-            let counterexamples, unknown = count "counterexample", count "unknown"
-            let summary =
-                if counterexamples > 0 then "counterexample"
-                elif unknown > 0 then "unknown"
-                else "tested agreement / explicit intended results; no proof"
-            let agreement, intended = count "tested-agreement", count "intended-change-tested"
-            let entries = evidence.Observations |> List.map (fun item -> item.Case.FunctionId) |> Set.ofList
-            let affected = evidence.AffectedFunctionIds |> Set.ofList
-            let explicitAffected = Set.intersect entries affected |> Set.count
-            let coverage = $"Impact: {Set.count affected} affected function(s). Explicit case entry points: {Set.count entries}; {explicitAffected} affected function(s) directly targeted, {Set.count affected - explicitAffected} without a direct case. This counts requested entry points, not dynamic coverage or proof that callers were exercised."
-            let banner = $"<p class=\"status\">Behavioral verification: {summary}</p><p>{counterexamples} counterexample(s), {unknown} unknown, {agreement} tested agreement, {intended} intended result(s). Explicit cases only; this historical report does not gate commit.</p><p>" + coverage + "</p>"
-            let content =
-                artifact.Content
-                    .Replace("<p class=\"status\">Readiness:", "<p class=\"status\">Structural readiness:")
-                    .Replace("</body>", evidenceSection + "</body>")
-            // Only the page header: each function focus on the page closes a header of its own.
-            let content = content.Insert(content.IndexOf("</header>", StringComparison.Ordinal), banner)
-            writeArtifact snapshotPath requested { artifact with Content = content })
+    /// One review artifact contains the structural proposal and the computed behavioral evidence
+    /// (`evidence`, the verifyChange reply's evidence object).
+    let writeVerificationReview snapshotPath requested (view: AuthoringPendingProposalView) committedFocus (evidence: obj) =
+        match view.ProposedSnapshot with
+        | Some proposed -> proposalReview (Some evidence) view proposed committedFocus
+        | None -> Error "Candidate verification is unsupported for this proposal."
+        |> Result.bind (writeArtifact snapshotPath requested)

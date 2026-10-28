@@ -20,6 +20,12 @@ module ChangeVerificationTests =
             run session
         finally Directory.Delete(root, true)
 
+    /// The parts of a verifyChange evidence object the review page reads.
+    let private verificationReport (evidence: ChangeVerificationEvidence) : obj =
+        box
+            {| cases = evidence.Observations |> List.map (fun item -> {| functionId = StableId.value item.Case.FunctionId; status = item.Status |})
+               affectedFunctionIds = evidence.AffectedFunctionIds |> List.map StableId.value |}
+
     let private sample: ChangeVerificationCase =
         { Label = "preserve result"
           FunctionId = StableId.createForTesting<FunctionTag> "verification-missing"
@@ -193,13 +199,14 @@ module ChangeVerificationTests =
                         Status = status
                         Baseline = Error(PureRunError.Unsupported("fixture", "presentation only"))
                         Candidate = Error(PureRunError.Unsupported("fixture", "presentation only")) } ] }
-            let _, artifact = ViewerFile.writeVerificationReview session.Path None view (fun _ -> None) evidence "{}" |> unwrap
-            let header = artifact.Content.Split("</header>")[0]
+            let _, artifact = ViewerFile.writeVerificationReview session.Path None view (fun _ -> None) (verificationReport evidence) |> unwrap
+            let content = ViewerRendering.page artifact.Content
+            let header = content.Split("</header>")[0]
             Assert.Contains("Structural readiness: semantically ready", header)
             Assert.Contains("Behavioral verification: " + expectedSummary, header)
             // The page also closes one header per function focus; the banner belongs to the page's only.
-            Assert.True(artifact.Content.Split("</header>").Length > 2)
-            Assert.Equal(2, artifact.Content.Split("Behavioral verification:").Length)
+            Assert.True(content.Split("</header>").Length > 2)
+            Assert.Equal(2, content.Split("Behavioral verification:").Length)
             Assert.DoesNotContain("class=\"status\">Readiness:", header)
             Assert.Contains("does not gate commit", header)
             Assert.Contains("Explicit case entry points: 1", header)
@@ -370,8 +377,9 @@ module ChangeVerificationTests =
                   BaselineFingerprint = "baseline"; CandidateFingerprint = "candidate"
                   AffectedFunctionIds = [ sample.FunctionId; other ]
                   Observations = [ { Case = sample; Status = "tested-agreement"; Baseline = Ok(result PureRunValue.Unit []); Candidate = Ok(result PureRunValue.Unit []) } ] }
-            let _, artifact = ViewerFile.writeVerificationReview session.Path None view (fun _ -> None) evidence "{}" |> unwrap
-            let header = artifact.Content.Split("</header>")[0]
+            let _, artifact = ViewerFile.writeVerificationReview session.Path None view (fun _ -> None) (verificationReport evidence) |> unwrap
+            let content = ViewerRendering.page artifact.Content
+            let header = content.Split("</header>")[0]
             Assert.Contains("Impact: 2 affected function(s)", header)
             Assert.Contains("1 affected function(s) directly targeted, 1 without a direct case", header)
             Assert.Contains("not dynamic coverage", header))
