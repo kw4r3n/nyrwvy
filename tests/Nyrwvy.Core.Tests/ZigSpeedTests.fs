@@ -109,8 +109,8 @@ type ZigSpeed(output: ITestOutputHelper) =
             // As tools/nyrwvy-agent/authoring.ts launches the host for a read session.
             let dll = Path.Combine(ZigModelReaderSupport.root (), "tools", "Nyrwvy.AuthoringSession", "bin", "Release", "net10.0", "Nyrwvy.AuthoringSession.dll")
             if not (File.Exists dll) then failwithf "%s is not built (dotnet build -c Release)" dll
-            let spawn (warmup: string) =
-                let info = ProcessStartInfo("dotnet", [ dll; "open"; "--snapshot"; path; "--read-only" ])
+            let spawnWith (file: string) (arguments: string list) (warmup: string) =
+                let info = ProcessStartInfo(file, arguments)
                 info.Environment["NYRWVY_RUNPURE_WARMUP"] <- warmup
                 info.RedirectStandardInput <- true
                 info.RedirectStandardOutput <- true
@@ -125,7 +125,9 @@ type ZigSpeed(output: ITestOutputHelper) =
                 host.WaitForExit()
                 if isNull reply || not (reply.Contains "\"ok\":true") then failwithf "host: %s %s" reply (host.StandardError.ReadToEnd())
                 elapsed
-            let spawned warmup = ([| for _ in 0 .. runs -> spawn warmup |] |> Array.skip 1 |> Array.sort)[runs / 2]
+            let spawn = spawnWith "dotnet" [ dll; "open"; "--snapshot"; path; "--read-only" ]
+            let medianOf (f: unit -> float) = ([| for _ in 0 .. runs -> f () |] |> Array.skip 1 |> Array.sort)[runs / 2]
+            let spawned warmup = medianOf (fun () -> spawn warmup)
             // The same host given no arguments prints its usage and exits: the runtime start alone.
             let usage = median (fun () ->
                 let info = ProcessStartInfo("dotnet", [ dll ])
@@ -135,6 +137,13 @@ type ZigSpeed(output: ITestOutputHelper) =
                 host.WaitForExit())
             let openReadOnly = median (fun () -> (AuthoringSession.openReadOnly path |> ok).Close())
             row "start" [ "host spawn to status reply", spawned "1"; "same, warm-up off", spawned "0"; "host usage exit", usage; "in-process openReadOnly", openReadOnly ]
+            // The Zig host (tools/zig/host) and the F# host on the merged model as a plain snapshot,
+            // since the Zig host does not read a dependency sidecar yet (docs/decisions/zig-session-host.md, 1c).
+            let merged = Path.Combine(dir, "merged.json")
+            (using (AuthoringSession.openReadOnly path |> ok) (fun session -> File.WriteAllText(merged, (session.ExecutionContext None |> ok).ModelJson () |> ok |> fst)))
+            let zigHost = ZigTools.tool "host" |> Result.mapError (fun (code, message) -> $"{code}: {message}") |> ok
+            let onMerged = [ "open"; "--snapshot"; merged; "--read-only" ]
+            row "start, merged model" [ "zig host", medianOf (fun () -> spawnWith zigHost onMerged "1"); "F# host", medianOf (fun () -> spawnWith "dotnet" (dll :: onMerged) "1") ]
             use session = AuthoringSession.openExisting path |> ok
             let request line =
                 use reply = Text.Json.JsonDocument.Parse(AuthoringProtocol.executeLine session line)

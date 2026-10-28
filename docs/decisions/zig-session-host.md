@@ -1,6 +1,6 @@
 # Zig session host
 
-Status: accepted 2026-10-28 (owner: "OK, go ahead with recommends"). Step 0 in progress. Background: [zig-tools.md](zig-tools.md), section "Direction: a whole Zig session host".
+Status: accepted 2026-10-28 (owner: "OK, go ahead with recommends"). Steps 0, 1a and 1b done. Background: [zig-tools.md](zig-tools.md), section "Direction: a whole Zig session host".
 
 Goal: a separate executable, `nyrwvy-host` built from `tools/zig/`, that speaks the same JSONL protocol as the F# host (`Nyrwvy.AuthoringSession open …`). It reaches parity step by step and then replaces the F# host in one switch. Rules:
 - The Zig host never calls F#.
@@ -45,13 +45,13 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
      - The reader marks the rows that depend on a payload: a timed TaskWait, a shared MatchUnion arm, type arguments, generic types, builtin generics, private declarations and non-derived function type parameters.
      - Two more passes of the canonical writer then produce the minimum-version text and the semantic normalization.
      - The extended test `ZigFingerprintTests` compares both fingerprints with F# on every example, the all-kinds corpus, the milestone-zero fixture (obligations) and three generic cases.
-   - **1b. Host open and status, 1.5–2.5K.**
-     - Turn the tools into modules that share one model and one build (`ZigTools` hashes every directory a tool imports). The existing tools stay as thin entry points.
-     - `open` and `status` for unresolved `.json` and `.nyrec`, read-only and writable.
-     - The `<path>.lock` file, held with `flock` as .NET's `FileShare.None` does, so both hosts exclude each other; the temporary-file sweep.
-     - Startup errors on stderr with exit code 2, compared with the F# host. `status.build` is masked, since it names each host's own build.
-     - A host row in `ZigSpeed`.
-     - Legacy schemas 9–20 are rejected with a message that names the tagged F# host for migration (not ported).
+   - **1b. Host open and status, 0.5K (done).**
+     - The model and snapshot readers are imported by the host as modules. Each exposes one entry point: `readDocument`, the `--validate` lines plus the fingerprints, and `readRecords`, the record line plus the JSON. `ZigTools` builds a tool with its imports (`-M`); the cache key covers every imported file and the build options.
+     - `-O` is a per-module option. Placed once at the end, it left the imported modules in Debug: the host took 420 ms instead of 55.
+     - `open` covers unresolved `.json` and `.nyrec`, read-only or writable. The steps follow `openUsing`: the file check, the symbolic-link check, `<path>.lock` held with `flock` (as .NET's `FileShare.None` holds it, so each host locks the other out), the temporary-file sweep, the dependency marker without a sidecar, then the readers' verdict worded as `WireEncode.describeCodecError`. `status` reports `pendingProposalCount` 0 and `build` `nyrwvy-zig-host`.
+     - A sidecar makes the Zig host refuse to start until 1c. A legacy schema is refused with a message naming the migration on the F# host.
+     - `ZigHostParityTests` runs every transcript against each example snapshot and a JSON one. It compares nine failing startups (missing file, syntax, shape, version, an invalid model, a JSON or record marker without a sidecar, two record errors), read-only and writable, by stderr line and exit code. It also covers the lock both ways and the sweep. `status.build` and .NET's JSON parser text are masked.
+     - `ZigSpeed` row "start, merged model": Zig host 55 ms, F# host 505 ms, spawn to the first `status` reply on Rhifill's merged model (three runs: 54.8–55.5 against 502.5–506.4).
    - **1c. Dependencies, 1–2K.** The dependency sidecar (single, sets, embedded or by path, fingerprint check), the recovery hints of an interrupted replacement, and resolved `.json` and `.nyrec` sources (the record path needs the dependency's subjects, which #543 had and which closed with it).
 2. **Read-only requests, 3–4K.** `declarations`, `readFunction`, `viewFunction`, `search`, `references`, `unreferenced`, `executionReadiness`, `bindingScopes`, `proposals`, `readProposal`, `viewProposal`. This is mostly the wire encoders (WireEncode, WireOutline, WireGraph).
 3. **First write path, 4–6K.**
