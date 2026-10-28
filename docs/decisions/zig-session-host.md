@@ -39,10 +39,20 @@ The current tools work on `std.json.Value` trees. That is fine for one pass, but
 Each step is one or a few PRs. The sizes are rough Zig line counts.
 
 0. **Host skeleton and parity harness, 0.2K (done).** `tools/zig/host` reads one request per line and answers in the F# envelope: blank and malformed lines, a missing or non-string `id` or `op`, and `UnsupportedOperation` for every operation. Its JSON strings are escaped as `JavaScriptEncoder.Default` does. The extended test `ZigHostParityTests` feeds each transcript in `tests/host-parity` to both hosts and compares the responses byte for byte; only .NET's parser text after `Invalid JSON:` is compared by prefix. The shared library and the `ZigSpeed` host row move to step 1, which has their first user: until the host opens a snapshot, there is nothing to share or to time. (The F# host has no `close` operation; the end of input closes it.)
-1. **Open, 2–3K, with the shared library, 1–2K.**
-   - Turn the three tools into modules that share one model and one build (`ZigTools` hashes every directory a tool imports). The existing tools stay as thin entry points, so their parity tests keep running. Add a host row to `ZigSpeed`.
-   - `open` for `.json` and `.nyrec`, read-only and writable, with locks, the dependency sidecar (resolved local), the backends sidecar, and fingerprints.
-   - Legacy schemas 9–20 are rejected with a message that names the tagged F# host for migration (not ported).
+1. **Open, in three PRs.**
+   - **1a. Fingerprints, 0.3K (done).** `status` reports `snapshotFingerprint` and `semanticFingerprint`, and a dependency sidecar stores the first. Both are SHA-256 over `SnapshotCodec.serializeCanonical`, which writes at the smallest version holding every construct the snapshot uses (`SnapshotSchema.required`). Most snapshots need less than 21, and below 21 the writer has no `exported` markers, omits a function's implied type parameter list and names each type parameter occurrence. `model-reader --fingerprints` computes both values:
+     - `schema_minimums.txt` now holds every construct row.
+     - The reader marks the rows that depend on a payload: a timed TaskWait, a shared MatchUnion arm, type arguments, generic types, builtin generics, private declarations and non-derived function type parameters.
+     - Two more passes of the canonical writer then produce the minimum-version text and the semantic normalization.
+     - The extended test `ZigFingerprintTests` compares both fingerprints with F# on every example, the all-kinds corpus, the milestone-zero fixture (obligations) and three generic cases.
+   - **1b. Host open and status, 1.5–2.5K.**
+     - Turn the tools into modules that share one model and one build (`ZigTools` hashes every directory a tool imports). The existing tools stay as thin entry points.
+     - `open` and `status` for unresolved `.json` and `.nyrec`, read-only and writable.
+     - The `<path>.lock` file, held with `flock` as .NET's `FileShare.None` does, so both hosts exclude each other; the temporary-file sweep.
+     - Startup errors on stderr with exit code 2, compared with the F# host. `status.build` is masked, since it names each host's own build.
+     - A host row in `ZigSpeed`.
+     - Legacy schemas 9–20 are rejected with a message that names the tagged F# host for migration (not ported).
+   - **1c. Dependencies, 1–2K.** The dependency sidecar (single, sets, embedded or by path, fingerprint check), the recovery hints of an interrupted replacement, and resolved `.json` and `.nyrec` sources (the record path needs the dependency's subjects, which #543 had and which closed with it).
 2. **Read-only requests, 3–4K.** `declarations`, `readFunction`, `viewFunction`, `search`, `references`, `unreferenced`, `executionReadiness`, `bindingScopes`, `proposals`, `readProposal`, `viewProposal`. This is mostly the wire encoders (WireEncode, WireOutline, WireGraph).
 3. **First write path, 4–6K.**
    - `simulateCreateFunction(ByName)` and `simulateReplaceBody(ByName)`: expression recipes (inference and materialization), the structural transaction, and the proposal review.

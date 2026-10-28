@@ -43,23 +43,28 @@ module ZigModelReaderSupport =
 
     let allKindsJson () = RecordCodecAllKindsTests.allKindSnapshots () |> List.map (SnapshotCodec.serialize >> unwrap)
 
-    /// `schema_minimums.txt`: the supported versions, then the construct rows the record schemas can
-    /// fail (minimum above the first record version), in table order, with their node kinds.
+    /// `schema_minimums.txt`: the supported versions, then every construct row in table order, with
+    /// the node kinds that always need it. The features a kind needs only in some forms (a timed
+    /// TaskWait, a shared MatchUnion arm, a construct with type arguments) list no kinds, since the
+    /// corpus need not show the other forms; the model reader marks those itself, as it marks the
+    /// rows of types and declarations.
     let minimumsText () =
         let snapshots = RecordCodecAllKindsTests.allKindSnapshots ()
+        let nodes = snapshots |> List.collect (fun snapshot -> snapshot.Functions |> List.collect (fun fn -> ValueGraph.collectNodes fn.Body))
+        let kindName (node: SemanticNode) = let name = SemanticNodeKind.name node.Kind in string (Char.ToLowerInvariant name[0]) + name.Substring 1
+        let byPayload = set [ SnapshotSchemaFeature.TimedTaskWait; SnapshotSchemaFeature.SharedUnionMatchArm; SnapshotSchemaFeature.GenericTypes ]
         let kindsOf feature =
-            snapshots
-            |> List.collect (fun snapshot -> snapshot.Functions |> List.collect (fun fn -> ValueGraph.collectNodes fn.Body))
-            |> List.filter (fun node -> SnapshotSchema.featureOfNodeKind node.Kind = Some feature)
-            |> List.map (fun node -> let name = SemanticNodeKind.name node.Kind in string (Char.ToLowerInvariant name[0]) + name.Substring 1)
-            |> List.distinct
+            if byPayload.Contains feature then [] else
+            nodes
+            |> List.groupBy kindName
+            |> List.filter (fun (_, group) -> group |> List.forall (fun node -> SnapshotSchema.featureOfNodeKind node.Kind = Some feature))
+            |> List.map fst
             |> List.sortWith (fun x y -> String.CompareOrdinal(x, y))
         let versions = SnapshotSchema.supported |> List.map (fun version -> version.Json)
         Assert.Equal<int list>([ List.min versions .. List.max versions ], versions)
         [ yield $"versions {List.min versions} {SnapshotSchema.firstRecord.Json} {SnapshotSchema.current.Json}"
           for feature, minimum, name in SnapshotSchema.minimumVersions do
-              if minimum.Json > SnapshotSchema.firstRecord.Json then
-                  yield $"{minimum.Json}|{feature}|{name}|" + String.Join(" ", kindsOf feature) ]
+              yield $"{minimum.Json}|{feature}|{name}|" + String.Join(" ", kindsOf feature) ]
         |> List.map (fun line -> line + "\n")
         |> String.concat ""
 
