@@ -1,0 +1,787 @@
+//! The name-based read operations (`search`, `references`, `unreferenced`) and the request
+//! input they share with F#'s `WireInput` and `WireSymbolic`: field checks, exact IDs and
+//! declaration selectors.
+const std = @import("std");
+const model = @import("model_reader");
+const wire = @import("wire.zig");
+const case_runs = @import("case_runs.zig");
+
+const Value = model.Value;
+const Str = model.Str;
+const Writer = std.Io.Writer;
+const Allocator = std.mem.Allocator;
+
+/// A request this module rejects: the reply's error code and message.
+pub const Rejection = struct { code: []const u8, message: []const u8 };
+pub const Answer = union(enum) { result: []const u8, rejected: Rejection };
+
+const Fail = anyerror;
+
+/// The request being answered, and where a rejection's text goes.
+pub const Request = struct {
+    a: Allocator,
+    line: []const u8,
+    root: std.json.ObjectMap,
+    /// The open model in canonical order and the selected dependency's provenance.
+    model: Value,
+    provenance: ?wire.Provenance,
+    rejection: Rejection = .{ .code = "", .message = "" },
+
+    fn fail(self: *Request, comptime format: []const u8, args: anytype) Fail {
+        self.rejection = .{ .code = "ProtocolError", .message = try std.fmt.allocPrint(self.a, format, args) };
+        return error.Rejected;
+    }
+};
+
+/// `String.CompareOrdinal` of UTF-8 text: UTF-16 unit order, where a supplementary code point
+/// (a surrogate pair) sorts below U+E000..U+FFFF.
+fn ordinal(_: void, x: []const u8, y: []const u8) bool {
+    var xs = std.unicode.Utf8View.initUnchecked(x).iterator();
+    var ys = std.unicode.Utf8View.initUnchecked(y).iterator();
+    const unit = struct {
+        fn f(c: u21) u21 {
+            return if (c >= 0x10000) 0xD800 + ((c - 0x10000) >> 10) else c;
+        }
+    }.f;
+    while (true) {
+        const p = xs.nextCodepoint() orelse return ys.nextCodepoint() != null;
+        const q = ys.nextCodepoint() orelse return false;
+        if (p == q) continue;
+        if (unit(p) != unit(q)) return unit(p) < unit(q);
+        return p < q;
+    }
+}
+
+/// `WireInput.ensureFields` of the object at `path` below the request root: duplicate names
+/// first, then the unknown and the missing ones, each sorted.
+pub fn fieldProblem(a: Allocator, line: []const u8, path: []const []const u8, object: std.json.ObjectMap, context: []const u8, fields: []const []const u8, required: []const []const u8) !?[]const u8 {
+    if (try duplicateNames(a, line, path)) return "JSON object contains duplicate property names.";
+    var unknown: std.ArrayList([]const u8) = .empty;
+    for (object.keys()) |key| {
+        for (fields) |field| {
+            if (std.mem.eql(u8, key, field)) break;
+        } else try unknown.append(a, key);
+    }
+    var missing: std.ArrayList([]const u8) = .empty;
+    for (required) |field| if (object.get(field) == null) try missing.append(a, field);
+    std.mem.sort([]const u8, unknown.items, {}, ordinal);
+    std.mem.sort([]const u8, missing.items, {}, ordinal);
+    if (unknown.items.len > 0) return try std.fmt.allocPrint(a, "{s} contains unsupported properties: {s}. Allowed: {s}.", .{ context, try std.mem.join(a, ", ", unknown.items), try std.mem.join(a, ", ", fields) });
+    if (missing.items.len > 0) return try std.fmt.allocPrint(a, "{s} is missing required properties: {s}.", .{ context, try std.mem.join(a, ", ", missing.items) });
+    return null;
+}
+
+/// Whether the request object (`path` empty) or the object value of its property `path[0]`
+/// names a property twice. The parse keeps the last occurrence of a name, so the last such
+/// property is the one checked.
+fn duplicateNames(a: Allocator, line: []const u8, path: []const []const u8) !bool {
+    std.debug.assert(path.len <= 1);
+    const target: usize = path.len + 1;
+    var scanner = std.json.Scanner.initCompleteInput(a, line);
+    var names: std.StringHashMapUnmanaged(void) = .empty;
+    var duplicate = false;
+    // Per open container: whether it is an object, and whether its next string is a name.
+    var objects: std.ArrayList(bool) = .empty;
+    var expecting_name = false;
+    var selected = path.len == 0;
+    var follows_step = false;
+    while (true) {
+        const token = try scanner.nextAlloc(a, .alloc_always);
+        const value_follows = follows_step;
+        follows_step = false;
+        switch (token) {
+            .end_of_document => return duplicate,
+            .object_begin, .array_begin => {
+                const object = token == .object_begin;
+                try objects.append(a, object);
+                if (object and objects.items.len == target and (path.len == 0 or value_follows)) {
+                    selected = true;
+                    names = .empty;
+                    duplicate = false;
+                } else if (objects.items.len == target) selected = false;
+                expecting_name = object;
+                continue;
+            },
+            .object_end, .array_end => _ = objects.pop(),
+            .allocated_string => |text| if (expecting_name) {
+                if (objects.items.len == target and selected) {
+                    if ((try names.fetchPut(a, text, {})) != null) duplicate = true;
+                } else if (path.len == 1 and objects.items.len == 1) follows_step = std.mem.eql(u8, text, path[0]);
+                expecting_name = false;
+                continue;
+            },
+            else => {},
+        }
+        expecting_name = objects.items.len > 0 and objects.items[objects.items.len - 1];
+    }
+}
+
+fn requiredString(r: *Request, object: std.json.ObjectMap, name: []const u8) Fail![]const u8 {
+    const value = object.get(name) orelse return r.fail("Missing required property '{s}'.", .{name});
+    if (value != .string) return r.fail("Property '{s}' must be a JSON string.", .{name});
+    return value.string;
+}
+
+// ---------------------------------------------------------------- text
+
+fn utf16(a: Allocator, text: []const u8) ![]const u16 {
+    return std.unicode.utf8ToUtf16LeAlloc(a, text) catch |e| switch (e) {
+        error.OutOfMemory => error.OutOfMemory,
+        else => &.{},
+    };
+}
+
+/// The code points of UTF-16 text; a lone surrogate stands for itself.
+fn points(a: Allocator, units: []const u16) ![]u21 {
+    var out: std.ArrayList(u21) = .empty;
+    var i: usize = 0;
+    while (i < units.len) : (i += 1) {
+        const unit = units[i];
+        if (unit >= 0xD800 and unit <= 0xDBFF and i + 1 < units.len and units[i + 1] >= 0xDC00 and units[i + 1] <= 0xDFFF) {
+            try out.append(a, 0x10000 + ((@as(u21, unit) - 0xD800) << 10) + (units[i + 1] - 0xDC00));
+            i += 1;
+        } else try out.append(a, unit);
+    }
+    return out.items;
+}
+
+/// One code point through the .NET invariant case runs (`ZigRuntime.caseRunTables`).
+fn mapPoint(point: u21, runs: []const [4]i32) u21 {
+    const code: i32 = point;
+    var low: usize = 0;
+    var high: usize = runs.len;
+    while (low < high) {
+        const middle = (low + high) / 2;
+        if (runs[middle][0] <= code) low = middle + 1 else high = middle;
+    }
+    if (low > 0) {
+        const run = runs[low - 1];
+        if (code <= run[1] and @mod(code - run[0], run[2]) == 0) return @intCast(code + run[3]);
+    }
+    return point;
+}
+
+/// `String.Contains(text, StringComparison.OrdinalIgnoreCase)`: both sides upper-cased by code point.
+// shortcut: .NET's ordinal casing is taken to be the invariant simple upper case; the parity transcript checks non-ASCII cases.
+fn containsIgnoringCase(a: Allocator, haystack: []const u16, needle: []const u16) !bool {
+    const h = try points(a, haystack);
+    const n = try points(a, needle);
+    for (h) |*p| p.* = mapPoint(p.*, &case_runs.upper);
+    for (n) |*p| p.* = mapPoint(p.*, &case_runs.upper);
+    return std.mem.indexOf(u21, h, n) != null;
+}
+
+/// `String.ToLowerInvariant`.
+fn lowered(a: Allocator, units: []const u16) ![]const u16 {
+    var out: std.ArrayList(u16) = .empty;
+    for (try points(a, units)) |point| {
+        const mapped = mapPoint(point, &case_runs.lower);
+        if (mapped >= 0x10000) {
+            const v = mapped - 0x10000;
+            try out.appendSlice(a, &.{ @intCast(0xD800 + (v >> 10)), @intCast(0xDC00 + (v & 0x3ff)) });
+        } else try out.append(a, @intCast(mapped));
+    }
+    return out.items;
+}
+
+/// `Char.IsWhiteSpace`.
+fn isWhiteSpace(unit: u16) bool {
+    return switch (unit) {
+        0x09...0x0D, 0x20, 0x85, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 => true,
+        else => false,
+    };
+}
+
+fn isBlank(units: []const u16) bool {
+    for (units) |unit| if (!isWhiteSpace(unit)) return false;
+    return true;
+}
+
+/// `editDistance` of `WireSymbolic` (UTF-16 units).
+fn editDistance(a: Allocator, x: []const u16, y: []const u16) !usize {
+    var previous = try a.alloc(usize, y.len + 1);
+    for (previous, 0..) |*cell, j| cell.* = j;
+    var current = try a.alloc(usize, y.len + 1);
+    for (1..x.len + 1) |i| {
+        current[0] = i;
+        for (1..y.len + 1) |j| {
+            const substitution = previous[j - 1] + @intFromBool(x[i - 1] != y[j - 1]);
+            current[j] = @min(substitution, @min(previous[j], current[j - 1]) + 1);
+        }
+        std.mem.swap([]usize, &previous, &current);
+    }
+    return previous[y.len];
+}
+
+fn quotedList(a: Allocator, names: []const []const u8) ![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    for (names, 0..) |name, index| {
+        if (index > 0) try out.appendSlice(a, ", ");
+        try out.print(a, "'{s}'", .{name});
+    }
+    return out.items;
+}
+
+/// `candidateHint`: every name when there are few, otherwise the closest few.
+fn candidateHint(a: Allocator, wanted_name: []const u8, all: []const []const u8) ![]const u8 {
+    var names: std.ArrayList([]const u8) = .empty;
+    for (all) |name| {
+        if (name.len == 0) continue;
+        for (names.items) |seen| {
+            if (std.mem.eql(u8, seen, name)) break;
+        } else try names.append(a, name);
+    }
+    if (names.items.len == 0) return "";
+    if (names.items.len <= 10) return std.fmt.allocPrint(a, " Available: {s}.", .{try quotedList(a, names.items)});
+    const wanted = try lowered(a, try utf16(a, wanted_name));
+    const Close = struct { name: []const u8, distance: usize };
+    var close: std.ArrayList(Close) = .empty;
+    for (names.items) |name| {
+        const lower = try lowered(a, try utf16(a, name));
+        const distance = try editDistance(a, wanted, lower);
+        if (distance <= @max(2, wanted.len / 3) or (wanted.len >= 3 and (std.mem.indexOf(u16, lower, wanted) != null or std.mem.indexOf(u16, wanted, lower) != null)))
+            try close.append(a, .{ .name = name, .distance = distance });
+    }
+    std.mem.sort(Close, close.items, {}, struct {
+        fn less(_: void, x: Close, y: Close) bool {
+            return x.distance < y.distance;
+        }
+    }.less);
+    if (close.items.len == 0) return "";
+    var shown: std.ArrayList([]const u8) = .empty;
+    for (close.items[0..@min(3, close.items.len)]) |item| try shown.append(a, item.name);
+    return std.fmt.allocPrint(a, " Did you mean {s}?", .{try quotedList(a, shown.items)});
+}
+
+// ---------------------------------------------------------------- declarations
+
+fn nameOf(item: Value) []const u8 {
+    return model.utf8(model.decoded(model.property(item, "displayName").?));
+}
+
+fn idOf(item: Value) []const u8 {
+    return model.utf8(model.decoded(model.property(item, "id").?));
+}
+
+fn contains(keys: []const []const u8, key: []const u8) bool {
+    for (keys) |k| if (std.mem.eql(u8, k, key)) return true;
+    return false;
+}
+
+fn hidden(r: *const Request) []const []const u8 {
+    return if (r.provenance) |p| p.hidden else &.{};
+}
+
+/// The `kind` declarations of `AuthoringDeclarations`: the model's, less the hidden imports.
+fn visible(r: *const Request, kind: []const u8) ![]const Value {
+    const group = if (std.mem.eql(u8, kind, "function")) "functions" else if (std.mem.eql(u8, kind, "type")) "types" else if (std.mem.eql(u8, kind, "effect")) "effects" else "capabilities";
+    var out: std.ArrayList(Value) = .empty;
+    for (model.arrayItems(r.model, group)) |item| {
+        if (!contains(hidden(r), try std.fmt.allocPrint(r.a, "{s}:{s}", .{ kind, idOf(item) }))) try out.append(r.a, item);
+    }
+    return out.items;
+}
+
+/// The members of the selected dependency that provide `kind:id`; none for a local declaration.
+fn sources(r: *const Request, kind: []const u8, id: []const u8) ![]const wire.Provenance.Member {
+    const p = r.provenance orelse return &.{};
+    const key = try std.fmt.allocPrint(r.a, "{s}:{s}", .{ kind, id });
+    var out: std.ArrayList(wire.Provenance.Member) = .empty;
+    for (p.members) |member| if (contains(member.keys, key)) try out.append(r.a, member);
+    return out.items;
+}
+
+fn exactOne(r: *Request, label: []const u8, wanted: []const u8, items: []const Value) Fail!Value {
+    var found: ?Value = null;
+    var count: usize = 0;
+    var names: std.ArrayList([]const u8) = .empty;
+    for (items) |item| {
+        try names.append(r.a, nameOf(item));
+        if (std.mem.eql(u8, nameOf(item), wanted)) {
+            found = item;
+            count += 1;
+        }
+    }
+    if (count == 1) return found.?;
+    if (count == 0) return r.fail("Unknown {s} '{s}'.{s}", .{ label, wanted, try candidateHint(r.a, wanted, names.items) });
+    return r.fail("Ambiguous {s} '{s}'.", .{ label, wanted });
+}
+
+/// `JsonSerializer.Serialize` of a string.
+fn stringOf(a: Allocator, text: []const u8) ![]const u8 {
+    var out: Writer.Allocating = .init(a);
+    try @import("root").writeString(&out.writer, text);
+    return out.written();
+}
+
+/// `WireSymbolic.resolveSelector` of the property `key` of `object` (at `path`).
+fn resolve(r: *Request, kind: []const u8, object: std.json.ObjectMap, key: []const u8, path: []const []const u8) Fail!Value {
+    const items = try visible(r, kind);
+    const selector = object.get(key) orelse return r.fail("Missing required property '{s}'.", .{key});
+    if (selector == .string) return exactOne(r, kind, selector.string, items);
+    if (selector != .object) return r.fail("Expected a JSON object.", .{});
+    const fields = &.{ "id", "name", "dependencySnapshotId", "ownership" };
+    if (try fieldProblem(r.a, r.line, path, selector.object, try std.fmt.allocPrint(r.a, "{s} selector", .{kind}), fields, &.{})) |message| return r.fail("{s}", .{message});
+    var guards: [4]?[]const u8 = .{ null, null, null, null };
+    inline for (fields, 0..) |field, index| {
+        if (selector.object.get(field) != null) guards[index] = try requiredString(r, selector.object, field);
+    }
+    const id, const wanted_name, const dependency, const ownership = guards;
+    if (id == null and wanted_name == null) return r.fail("A declaration selector needs id or name.", .{});
+    if (ownership) |owned| if (!std.mem.eql(u8, owned, "local") and !std.mem.eql(u8, owned, "imported")) return r.fail("Selector ownership must be local or imported.", .{});
+    var candidates: std.ArrayList(Value) = .empty;
+    for (items) |item| {
+        const provided = try sources(r, kind, idOf(item));
+        if (id) |wanted| if (!std.mem.eql(u8, idOf(item), wanted)) continue;
+        if (wanted_name) |wanted| if (!std.mem.eql(u8, nameOf(item), wanted)) continue;
+        if (dependency) |pin| {
+            for (provided) |member| {
+                if (std.mem.eql(u8, member.id, pin)) break;
+            } else continue;
+        }
+        if (ownership) |owned| if ((provided.len == 0) != std.mem.eql(u8, owned, "local")) continue;
+        try candidates.append(r.a, item);
+    }
+    if (candidates.items.len == 1) return candidates.items[0];
+    if (candidates.items.len > 1) return r.fail("Ambiguous {s} selector; specify an exact id or a providing dependencySnapshotId.", .{kind});
+    // Advice never participates in resolution.
+    var related: std.ArrayList(Value) = .empty;
+    for (items) |item| {
+        if (id) |wanted| {
+            if (std.mem.eql(u8, idOf(item), wanted)) try related.append(r.a, item);
+        } else if (std.mem.eql(u8, nameOf(item), wanted_name.?)) try related.append(r.a, item);
+    }
+    std.mem.sort(Value, related.items, {}, struct {
+        fn less(_: void, x: Value, y: Value) bool {
+            return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt;
+        }
+    }.less);
+    var advice: std.ArrayList([]const u8) = .empty;
+    for (related.items[0..@min(5, related.items.len)]) |item| {
+        const provided = try sources(r, kind, idOf(item));
+        const owner = if (provided.len == 0) "local" else "imported";
+        var pins: std.ArrayList([]const u8) = .empty;
+        for (provided) |member| try pins.append(r.a, member.id);
+        std.mem.sort([]const u8, pins.items, {}, ordinal);
+        var mismatched: std.ArrayList([]const u8) = .empty;
+        if (wanted_name) |wanted| if (!std.mem.eql(u8, wanted, nameOf(item))) try mismatched.append(r.a, "name");
+        if (dependency) |pin| if (!contains(pins.items, pin)) try mismatched.append(r.a, "dependencySnapshotId");
+        if (ownership) |owned| if (!std.mem.eql(u8, owned, owner)) try mismatched.append(r.a, "ownership");
+        const omitted_pins = if (pins.items.len > 5) try std.fmt.allocPrint(r.a, " (+{d} more)", .{pins.items.len - 5}) else "";
+        try advice.append(r.a, try std.fmt.allocPrint(r.a, "id={s}, name={s}, ownership={s}, providing pins=[{s}]{s}, mismatched guards=[{s}]", .{
+            idOf(item),                                                 try stringOf(r.a, nameOf(item)),            owner,
+            try std.mem.join(r.a, ", ", pins.items[0..@min(5, pins.items.len)]), omitted_pins, try std.mem.join(r.a, ", ", mismatched.items),
+        }));
+    }
+    const omitted = if (related.items.len > 5) try std.fmt.allocPrint(r.a, " (+{d} more candidates)", .{related.items.len - 5}) else "";
+    const context = if (advice.items.len == 0) "" else try std.fmt.allocPrint(r.a, " Current candidates (advice only): {s}{s}.", .{ try std.mem.join(r.a, "; ", advice.items), omitted });
+    return r.fail("No current {s} matches the explicit declaration selector; inspect declarations and its provenance.{s}", .{ kind, context });
+}
+
+/// `WireInput.id`: an exact ID property, valid as `StableId.tryCreate` requires.
+fn exactId(r: *Request, key: []const u8) Fail![]const u8 {
+    const value = try requiredString(r, r.root, key);
+    const units = try utf16(r.a, value);
+    if (isBlank(units)) return r.fail("{s} is not a valid stable ID: BlankValue.", .{key});
+    if (std.mem.indexOfAny(u8, value, "\r\n") != null) return r.fail("{s} is not a valid stable ID: ContainsLineBreak.", .{key});
+    return value;
+}
+
+// ---------------------------------------------------------------- search
+
+/// `WireEncode.search`: declarations whose display name contains `text` and string literals
+/// that contain it, both ignoring case.
+pub fn search(r: *Request, out: *Writer) Fail!void {
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "search request", &.{ "id", "op", "text", "limit" }, &.{ "id", "op", "text" })) |message| return r.fail("{s}", .{message});
+    const text = try requiredString(r, r.root, "text");
+    const needle = try utf16(r.a, text);
+    if (isBlank(needle)) return r.fail("text must not be empty.", .{});
+    var limit: i64 = 50;
+    if (r.root.get("limit")) |value| {
+        limit = switch (value) {
+            .integer => |number| if (number >= std.math.minInt(i32) and number <= std.math.maxInt(i32)) number else return r.fail("limit must be a JSON Int32.", .{}),
+            else => return r.fail("limit must be a JSON Int32.", .{}),
+        };
+    }
+    if (limit < 1 or limit > 200) return r.fail("limit must be 1..200.", .{});
+    var matches: std.ArrayList([]const u8) = .empty;
+    const hit = struct {
+        fn f(a: Allocator, value: Value, n: []const u16) !bool {
+            return containsIgnoringCase(a, model.decoded(value), n);
+        }
+    }.f;
+    const named = struct {
+        fn f(a: Allocator, kind: []const u8, key: []const u8, item: Value) ![]const u8 {
+            var entry: Writer.Allocating = .init(a);
+            try entry.writer.print("{{\"kind\":\"{s}\",\"name\":", .{kind});
+            try model.writeString(&entry.writer, model.decoded(model.property(item, "displayName").?));
+            try entry.writer.print(",\"{s}\":", .{key});
+            try model.writeString(&entry.writer, model.decoded(model.property(item, "id").?));
+            try entry.writer.writeByte('}');
+            return entry.written();
+        }
+    }.f;
+    const groups = [_][3][]const u8{ .{ "function", "function", "functionId" }, .{ "type", "type", "typeId" }, .{ "effect", "effect", "effectId" } };
+    for (groups) |group| for (try visible(r, group[0])) |item| {
+        if (try hit(r.a, model.property(item, "displayName").?, needle)) try matches.append(r.a, try named(r.a, group[1], group[2], item));
+    };
+    for (try visible(r, "capability")) |item| {
+        if (try hit(r.a, model.property(item, "displayName").?, needle)) try matches.append(r.a, try named(r.a, "capability", "capabilityId", item));
+        for (model.arrayItems(item, "operations")) |operation| if (try hit(r.a, model.property(operation, "displayName").?, needle)) {
+            var entry: Writer.Allocating = .init(r.a);
+            try entry.writer.writeAll("{\"kind\":\"capabilityOperation\",\"capability\":");
+            try model.writeString(&entry.writer, model.decoded(model.property(item, "displayName").?));
+            try entry.writer.writeAll(",\"name\":");
+            try model.writeString(&entry.writer, model.decoded(model.property(operation, "displayName").?));
+            try entry.writer.writeAll(",\"operationId\":");
+            try model.writeString(&entry.writer, model.decoded(model.property(operation, "id").?));
+            try entry.writer.writeByte('}');
+            try matches.append(r.a, entry.written());
+        };
+    }
+    for (try visible(r, "function")) |function| for (model.bodyNodes(r.a, function)) |node| {
+        if (!std.mem.eql(u16, model.decoded(model.property(node, "kind").?), &.{ 's', 't', 'r', 'i', 'n', 'g', 'L', 'i', 't', 'e', 'r', 'a', 'l' })) continue;
+        const value = model.decoded(model.property(node, "value").?);
+        if (!try containsIgnoringCase(r.a, value, needle)) continue;
+        var entry: Writer.Allocating = .init(r.a);
+        try entry.writer.writeAll("{\"kind\":\"stringLiteral\",\"function\":");
+        try model.writeString(&entry.writer, model.decoded(model.property(function, "displayName").?));
+        try entry.writer.writeAll(",\"functionId\":");
+        try model.writeString(&entry.writer, model.decoded(model.property(function, "id").?));
+        try entry.writer.writeAll(",\"nodeId\":");
+        try model.writeString(&entry.writer, model.decoded(model.property(node, "id").?));
+        try entry.writer.writeAll(",\"value\":");
+        try model.writeString(&entry.writer, if (value.len <= 120) value else try std.mem.concat(r.a, u16, &.{ value[0..120], &.{0x2026} }));
+        try entry.writer.writeByte('}');
+        try matches.append(r.a, entry.written());
+    };
+    try out.writeAll("{\"text\":");
+    try model.writeString(out, needle);
+    try out.print(",\"totalCount\":{d},\"matches\":[", .{matches.items.len});
+    try out.writeAll(try std.mem.join(r.a, ",", matches.items[0..@min(matches.items.len, @as(usize, @intCast(limit)))]));
+    try out.writeAll("]}");
+}
+
+// ---------------------------------------------------------------- references
+
+const Subject = struct { kind: []const u8, id: []const u8 };
+
+/// `referenceSubject`: the subject by its exact ID key or by display names.
+fn subjectOf(r: *Request) Fail!Subject {
+    const kind = try requiredString(r, r.root, "kind");
+    const has = struct {
+        fn f(object: std.json.ObjectMap, key: []const u8) bool {
+            return object.get(key) != null;
+        }
+    }.f;
+    const Form = struct { exact: []const []const u8, names: []const []const u8 };
+    const forms = [_]struct { []const u8, Form }{
+        .{ "function", .{ .exact = &.{"functionId"}, .names = &.{"function"} } },
+        .{ "type", .{ .exact = &.{"typeId"}, .names = &.{"type"} } },
+        .{ "effect", .{ .exact = &.{"effectId"}, .names = &.{"effect"} } },
+        .{ "capability", .{ .exact = &.{"capabilityId"}, .names = &.{"capability"} } },
+        .{ "capabilityOperation", .{ .exact = &.{"operationId"}, .names = &.{ "capability", "operation" } } },
+        .{ "variant", .{ .exact = &.{"variantId"}, .names = &.{ "type", "variant" } } },
+        .{ "field", .{ .exact = &.{"fieldId"}, .names = if (has(r.root, "variant")) &.{ "type", "variant", "field" } else &.{ "type", "field" } } },
+    };
+    const form = for (forms) |entry| {
+        if (std.mem.eql(u8, entry[0], kind)) break entry[1];
+    } else return r.fail("Unsupported references subject kind '{s}'; use function, type, variant, field, effect, capability or capabilityOperation.", .{kind});
+    // `exactly`: the fields, then exactly one complete form.
+    var allowed: std.ArrayList([]const u8) = .empty;
+    try allowed.appendSlice(r.a, &.{ "id", "op", "kind" });
+    try allowed.appendSlice(r.a, form.exact);
+    try allowed.appendSlice(r.a, form.names);
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, try std.fmt.allocPrint(r.a, "references request for a {s}", .{kind}), allowed.items, &.{ "id", "op", "kind" })) |message| return r.fail("{s}", .{message});
+    var exact = true;
+    for (form.exact) |key| exact = exact and has(r.root, key);
+    var named = true;
+    for (form.names) |key| named = named and has(r.root, key);
+    var present: usize = 0;
+    for (allowed.items[3..]) |key| present += @intFromBool(has(r.root, key));
+    if (exact == named or present > (if (exact) form.exact.len else form.names.len))
+        return r.fail("A references request for a {s} names its subject by exactly one of {s} (exact) and {s} (display names).", .{ kind, try std.mem.join(r.a, ", ", form.exact), try std.mem.join(r.a, ", ", form.names) });
+    if (exact) return .{ .kind = kind, .id = try exactId(r, form.exact[0]) };
+    const is = struct {
+        fn f(x: []const u8, comptime y: []const u8) bool {
+            return std.mem.eql(u8, x, y);
+        }
+    }.f;
+    if (is(kind, "function") or is(kind, "type") or is(kind, "effect") or is(kind, "capability"))
+        return .{ .kind = kind, .id = idOf(try resolve(r, kind, r.root, kind, &.{kind})) };
+    if (is(kind, "capabilityOperation")) {
+        const owner = try resolve(r, "capability", r.root, "capability", &.{"capability"});
+        const label = try std.fmt.allocPrint(r.a, "operation on {s}", .{nameOf(owner)});
+        return .{ .kind = kind, .id = idOf(try exactOne(r, label, try requiredString(r, r.root, "operation"), model.arrayItems(owner, "operations"))) };
+    }
+    // F# reads each display name before the member lookup that uses it.
+    const owner = try resolve(r, "type", r.root, "type", &.{"type"});
+    const union_type = model.property(owner, "variants") != null;
+    if (is(kind, "variant") or has(r.root, "variant")) {
+        const variant_name = try requiredString(r, r.root, "variant");
+        if (!union_type) return r.fail("Type '{s}' is not a union type.", .{nameOf(owner)});
+        const variant = try exactOne(r, try std.fmt.allocPrint(r.a, "variant on {s}", .{nameOf(owner)}), variant_name, model.arrayItems(owner, "variants"));
+        if (is(kind, "variant")) return .{ .kind = kind, .id = idOf(variant) };
+        return .{ .kind = kind, .id = idOf(try exactOne(r, try std.fmt.allocPrint(r.a, "field on variant {s}", .{nameOf(variant)}), try requiredString(r, r.root, "field"), model.arrayItems(variant, "fields"))) };
+    }
+    const field_name = try requiredString(r, r.root, "field");
+    if (union_type) return r.fail("Type '{s}' is not a product type.", .{nameOf(owner)});
+    return .{ .kind = kind, .id = idOf(try exactOne(r, try std.fmt.allocPrint(r.a, "field on {s}", .{nameOf(owner)}), field_name, model.arrayItems(owner, "fields"))) };
+}
+
+fn writeId(out: *Writer, units: Str) !void {
+    try model.writeString(out, units);
+}
+
+/// `"displayName"` of a visible `kind` declaration.
+fn visibleNamed(r: *const Request, kind: []const u8, id: Str) !?Value {
+    for (try visible(r, kind)) |item| if (std.mem.eql(u16, model.decoded(model.property(item, "id").?), id)) return item;
+    return null;
+}
+
+fn writeNamed(out: *Writer, field: []const u8, item: Value) !void {
+    try out.print(",\"{s}\":", .{field});
+    try model.writeString(out, model.decoded(model.property(item, "displayName").?));
+}
+
+fn same(item: Value, id: Str) bool {
+    return std.mem.eql(u16, model.decoded(model.property(item, "id").?), id);
+}
+
+/// `WireEncode.references`.
+pub fn references(r: *Request, out: *Writer) Fail!void {
+    const subject = try subjectOf(r);
+    const id = try utf16(r.a, subject.id);
+    const found = model.referencesTo(r.a, r.model, subject.kind, id) orelse {
+        r.rejection = .{ .code = "SemanticQueryFailure", .message = try std.fmt.allocPrint(r.a, "No {s} has the ID '{s}'.", .{ subject.kind, subject.id }) };
+        return error.Rejected;
+    };
+    try out.print("{{\"subject\":{{\"kind\":\"{s}\",\"id\":", .{subject.kind});
+    try writeId(out, id);
+    const kind = subject.kind;
+    if (std.mem.eql(u8, kind, "variant") or std.mem.eql(u8, kind, "field")) {
+        for (try visible(r, "type")) |item| {
+            for (model.arrayItems(item, "fields")) |field| if (std.mem.eql(u8, kind, "field") and same(field, id)) {
+                try writeNamed(out, "displayName", field);
+                try out.writeAll(",\"ownerTypeId\":");
+                try writeId(out, model.decoded(model.property(item, "id").?));
+                try writeNamed(out, "ownerDisplayName", item);
+                break;
+            };
+            for (model.arrayItems(item, "variants")) |variant| {
+                if (std.mem.eql(u8, kind, "variant") and same(variant, id)) {
+                    try writeNamed(out, "displayName", variant);
+                    try out.writeAll(",\"ownerTypeId\":");
+                    try writeId(out, model.decoded(model.property(item, "id").?));
+                    try writeNamed(out, "ownerDisplayName", item);
+                }
+                for (model.arrayItems(variant, "fields")) |field| if (std.mem.eql(u8, kind, "field") and same(field, id)) {
+                    try writeNamed(out, "displayName", field);
+                    try out.writeAll(",\"ownerTypeId\":");
+                    try writeId(out, model.decoded(model.property(item, "id").?));
+                    try writeNamed(out, "ownerDisplayName", item);
+                    try out.writeAll(",\"ownerVariantId\":");
+                    try writeId(out, model.decoded(model.property(variant, "id").?));
+                    try writeNamed(out, "ownerVariantDisplayName", variant);
+                };
+            }
+        }
+    } else if (std.mem.eql(u8, kind, "capabilityOperation")) {
+        for (try visible(r, "capability")) |item| for (model.arrayItems(item, "operations")) |operation| if (same(operation, id)) {
+            try writeNamed(out, "displayName", operation);
+            try out.writeAll(",\"ownerCapabilityId\":");
+            try writeId(out, model.decoded(model.property(item, "id").?));
+            try writeNamed(out, "ownerDisplayName", item);
+        };
+    } else if (try visibleNamed(r, kind, id)) |item| try writeNamed(out, "displayName", item);
+    try out.print("}},\"count\":{d},\"references\":[", .{found.len});
+    for (found, 0..) |reference, index| {
+        if (index > 0) try out.writeByte(',');
+        const owner_kind = @tagName(reference.owner);
+        try out.print("{{\"ownerKind\":\"{s}\",\"ownerId\":", .{owner_kind});
+        try writeId(out, reference.owner_id);
+        if (try visibleNamed(r, owner_kind, reference.owner_id)) |item| try writeNamed(out, "ownerDisplayName", item);
+        const site = reference.site;
+        const op = ",\"operationId\":";
+        switch (site.tag) {
+            .parameter_type => {
+                try out.writeAll(",\"site\":\"parameterType\",\"parameterId\":");
+                try writeId(out, site.a.?);
+            },
+            .result_type => try out.writeAll(",\"site\":\"resultType\""),
+            .required_effect => try out.writeAll(",\"site\":\"requiredEffect\""),
+            .field_type => {
+                try out.writeAll(",\"site\":\"fieldType\",\"fieldId\":");
+                try writeId(out, site.b);
+                if (site.a) |variant| {
+                    try out.writeAll(",\"variantId\":");
+                    try writeId(out, variant);
+                }
+            },
+            .operation_parameter_type => {
+                try out.writeAll(",\"site\":\"operationParameterType\"" ++ op);
+                try writeId(out, site.a.?);
+                try out.writeAll(",\"parameterId\":");
+                try writeId(out, site.b);
+            },
+            .operation_result_type, .operation_failure_type, .operation_effect => {
+                try out.print(",\"site\":\"{s}\"" ++ op, .{switch (site.tag) {
+                    .operation_result_type => "operationResultType",
+                    .operation_failure_type => "operationFailureType",
+                    else => "operationEffect",
+                }});
+                try writeId(out, site.a.?);
+            },
+            .node => {
+                try out.writeAll(",\"site\":\"node\",\"nodeId\":");
+                try writeId(out, site.a.?);
+                try out.print(",\"role\":\"{s}\"", .{site.role});
+            },
+        }
+        try out.writeByte('}');
+    }
+    try out.writeAll("]}");
+}
+
+// ---------------------------------------------------------------- unreferenced
+
+const Key = struct { kind: []const u8, id: Str };
+
+fn keyEql(x: Key, y: Key) bool {
+    return std.mem.eql(u8, x.kind, y.kind) and std.mem.eql(u16, x.id, y.id);
+}
+
+/// `unreferenced` of `AuthoringProtocol`: the local functions, capability operations and types
+/// nothing else refers to, or that `roots` (function names) do not reach.
+pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "unreferenced request", &.{ "id", "op", "roots" }, &.{ "id", "op" })) |message| return r.fail("{s}", .{message});
+    var root_names: ?[]const []const u8 = null;
+    if (r.root.get("roots")) |value| {
+        if (value != .array) return r.fail("Property 'roots' must be a JSON array.", .{});
+        var names: std.ArrayList([]const u8) = .empty;
+        for (value.array.items) |item| {
+            if (item != .string) return r.fail("roots entries must be function names.", .{});
+            try names.append(r.a, item.string);
+        }
+        root_names = names.items;
+    }
+    const functions = try visible(r, "function");
+    const types = try visible(r, "type");
+    const capabilities = try visible(r, "capability");
+    const Subject_ = struct { key: Key, kind: []const u8 };
+    var subjects: std.ArrayList(Subject_) = .empty;
+    const decodedId = struct {
+        fn f(item: Value) Str {
+            return model.decoded(model.property(item, "id").?);
+        }
+    }.f;
+    for (functions) |item| try subjects.append(r.a, .{ .key = .{ .kind = "function", .id = decodedId(item) }, .kind = "function" });
+    for (types) |item| try subjects.append(r.a, .{ .key = .{ .kind = "type", .id = decodedId(item) }, .kind = "type" });
+    for (capabilities) |item| for (model.arrayItems(item, "operations")) |operation|
+        try subjects.append(r.a, .{ .key = .{ .kind = "operation", .id = decodedId(operation) }, .kind = "capabilityOperation" });
+    for (capabilities) |item| try subjects.append(r.a, .{ .key = .{ .kind = "capability", .id = decodedId(item) }, .kind = "capability" });
+    const Edge = struct { owner: Key, target: Key };
+    var edges: std.ArrayList(Edge) = .empty;
+    for (subjects.items) |subject| {
+        const found = model.referencesTo(r.a, r.model, subject.kind, subject.key.id) orelse continue;
+        for (found) |reference| {
+            const owner: Key = switch (reference.owner) {
+                .function => .{ .kind = "function", .id = reference.owner_id },
+                .type => .{ .kind = "type", .id = reference.owner_id },
+                .capability => switch (reference.site.tag) {
+                    .operation_parameter_type, .operation_result_type, .operation_failure_type, .operation_effect => .{ .kind = "operation", .id = reference.site.a.? },
+                    else => .{ .kind = "capability", .id = reference.owner_id },
+                },
+            };
+            try edges.append(r.a, .{ .owner = owner, .target = subject.key });
+        }
+    }
+    var roots: std.ArrayList(Key) = .empty;
+    if (root_names) |names| for (names) |wanted| {
+        var match: ?Value = null;
+        var count: usize = 0;
+        for (functions) |item| if (std.mem.eql(u8, nameOf(item), wanted)) {
+            match = item;
+            count += 1;
+        };
+        if (count == 0) return r.fail("Unknown function '{s}'.", .{wanted});
+        if (count > 1) return r.fail("Ambiguous function '{s}'.", .{wanted});
+        try roots.append(r.a, .{ .kind = "function", .id = decodedId(match.?) });
+    };
+    // The keys that stay: unreferenced by anything but themselves, or unreachable from the roots.
+    var marked: std.ArrayList(Key) = .empty;
+    if (root_names == null) {
+        for (edges.items) |edge| if (!keyEql(edge.owner, edge.target)) try marked.append(r.a, edge.target);
+    } else {
+        var frontier = roots;
+        while (frontier.pop()) |item| {
+            const seen = for (marked.items) |m| {
+                if (keyEql(m, item)) break true;
+            } else false;
+            if (seen) continue;
+            try marked.append(r.a, item);
+            for (edges.items) |edge| if (keyEql(edge.owner, item)) try frontier.append(r.a, edge.target);
+        }
+    }
+    const keep = struct {
+        fn f(m: []const Key, key: Key) bool {
+            for (m) |item| if (keyEql(item, key)) return false;
+            return true;
+        }
+    }.f;
+    const Row = struct { sort: []const Str, item: Value, owner: ?Value = null };
+    const rowLess = struct {
+        fn less(_: void, x: Row, y: Row) bool {
+            for (x.sort, y.sort) |p, q| switch (std.mem.order(u16, p, q)) {
+                .lt => return true,
+                .gt => return false,
+                .eq => {},
+            };
+            return false;
+        }
+    }.less;
+    const local = struct {
+        fn f(req: *const Request, kind: []const u8, item: Value) !bool {
+            return (try sources(req, kind, idOf(item))).len == 0;
+        }
+    }.f;
+    const displayName = struct {
+        fn f(item: Value) Str {
+            return model.decoded(model.property(item, "displayName").?);
+        }
+    }.f;
+    var unused_functions: std.ArrayList(Row) = .empty;
+    for (functions) |item| if (try local(r, "function", item) and keep(marked.items, .{ .kind = "function", .id = decodedId(item) }))
+        try unused_functions.append(r.a, .{ .sort = try r.a.dupe(Str, &.{ displayName(item), decodedId(item) }), .item = item });
+    var unused_operations: std.ArrayList(Row) = .empty;
+    for (capabilities) |capability| if (try local(r, "capability", capability)) for (model.arrayItems(capability, "operations")) |operation| {
+        if (keep(marked.items, .{ .kind = "operation", .id = decodedId(operation) }))
+            try unused_operations.append(r.a, .{ .sort = try r.a.dupe(Str, &.{ displayName(operation), displayName(capability), decodedId(operation) }), .item = operation, .owner = capability });
+    };
+    var unused_types: std.ArrayList(Row) = .empty;
+    for (types) |item| if (try local(r, "type", item) and keep(marked.items, .{ .kind = "type", .id = decodedId(item) }))
+        try unused_types.append(r.a, .{ .sort = try r.a.dupe(Str, &.{ displayName(item), decodedId(item) }), .item = item });
+    inline for (.{ &unused_functions, &unused_operations, &unused_types }) |rows| std.mem.sort(Row, rows.items, {}, rowLess);
+    const lists = [_]struct { []const u8, []const Row }{ .{ "functions", unused_functions.items }, .{ "operations", unused_operations.items }, .{ "types", unused_types.items } };
+    try out.writeByte('{');
+    for (lists, 0..) |list, index| {
+        if (index > 0) try out.writeByte(',');
+        try out.print("\"{s}\":[", .{list[0]});
+        for (list[1], 0..) |row, at| {
+            if (at > 0) try out.writeByte(',');
+            try out.writeByte('{');
+            if (row.owner) |capability| {
+                try out.writeAll("\"capabilityId\":");
+                try writeId(out, decodedId(capability));
+                try writeNamed(out, "capability", capability);
+                try out.writeByte(',');
+            }
+            try out.writeAll("\"id\":");
+            try writeId(out, decodedId(row.item));
+            try writeNamed(out, "name", row.item);
+            try out.writeByte('}');
+        }
+        try out.writeByte(']');
+    }
+    try out.writeByte('}');
+}

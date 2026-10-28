@@ -1539,6 +1539,231 @@ pub fn declarationKeys(allocator: std.mem.Allocator, root: Value) struct { all: 
     return .{ .all = all.items, .hidden = hidden.items };
 }
 
+/// One site of `SemanticQuery.references`. `a`/`b` are the case's IDs in field order (FieldType's
+/// optional variant is `a`), `role` a node's role; `ReferenceSite`'s structural order is
+/// tag, then `a` (none first), `b` and `role`, each ordinal.
+pub const Site = struct { tag: SiteTag, a: ?Str = null, b: Str = &.{}, role: []const u8 = "" };
+pub const SiteTag = enum(u8) { parameter_type, result_type, required_effect, field_type, operation_parameter_type, operation_result_type, operation_failure_type, operation_effect, node };
+pub const OwnerKind = enum(u8) { function, type, capability };
+pub const Reference = struct { owner: OwnerKind, owner_id: Str, site: Site };
+
+fn sameId(raw: Str, id: Str) bool {
+    return std.mem.eql(u16, decodeString(raw) catch unreachable, id);
+}
+
+fn memberIds(items: []const Value, comptime name: []const u8) []const Str {
+    var out: List(Str) = .empty;
+    for (items) |item| for (arrayOf(item, name)) |member| out.append(a, decoded(get(member, "id"))) catch oom();
+    return out.items;
+}
+
+fn containsId(ids: []const Str, raw: Str) bool {
+    for (ids) |id| if (sameId(raw, id)) return true;
+    return false;
+}
+
+fn typeMentions(t: TypeRef, kind: TypeKind, id: Str) bool {
+    if (t.kind == kind and sameId(t.name, id)) return true;
+    for (t.args) |arg| if (typeMentions(arg, kind, id)) return true;
+    if (t.result) |result| return typeMentions(result.*, kind, id);
+    return false;
+}
+
+fn orderOptional(x: ?Str, y: ?Str) std.math.Order {
+    if (x == null) return if (y == null) .eq else .lt;
+    if (y == null) return .gt;
+    return std.mem.order(u16, x.?, y.?);
+}
+
+fn referenceLess(_: void, x: Reference, y: Reference) bool {
+    if (x.owner != y.owner) return @intFromEnum(x.owner) < @intFromEnum(y.owner);
+    var o = std.mem.order(u16, x.owner_id, y.owner_id);
+    if (o == .eq) o = std.math.order(@intFromEnum(x.site.tag), @intFromEnum(y.site.tag));
+    if (o == .eq) o = orderOptional(x.site.a, y.site.a);
+    if (o == .eq) o = std.mem.order(u16, x.site.b, y.site.b);
+    if (o == .eq) o = std.mem.order(u8, x.site.role, y.site.role);
+    return o == .lt;
+}
+
+/// `SemanticQuery.references` over the model's tree: every site referring to the `kind` subject
+/// with ID `id`, or null when no such subject is declared (`SubjectNotFound`).
+pub fn referencesTo(allocator: std.mem.Allocator, root: Value, kind: []const u8, id: Str) ?[]const Reference {
+    a = allocator;
+    const types = arrayOf(root, "types");
+    const capabilities = arrayOf(root, "capabilities");
+    const is = struct {
+        fn f(k: []const u8, comptime name: []const u8) bool {
+            return std.mem.eql(u8, k, name);
+        }
+    }.f;
+    // The variants, fields and operations whose use refers to the subject.
+    var variants: []const Str = &.{};
+    var fields: []const Str = &.{};
+    var operations: []const Str = &.{};
+    var declared = false;
+    if (is(kind, "function") or is(kind, "type") or is(kind, "effect") or is(kind, "capability")) {
+        const group = if (is(kind, "function")) "functions" else if (is(kind, "type")) "types" else if (is(kind, "effect")) "effects" else "capabilities";
+        for (arrayOf(root, group)) |item| if (sameId(str(item, "id"), id)) {
+            declared = true;
+            if (is(kind, "type")) {
+                variants = memberIds(&.{item}, "variants");
+                var all: List(Str) = .empty;
+                for (arrayOf(item, "fields")) |field| all.append(a, decoded(get(field, "id"))) catch oom();
+                all.appendSlice(a, memberIds(arrayOf(item, "variants"), "fields")) catch oom();
+                fields = all.items;
+            } else if (is(kind, "capability")) operations = memberIds(&.{item}, "operations");
+        };
+    } else if (is(kind, "variant")) {
+        for (types) |item| for (arrayOf(item, "variants")) |variant| if (sameId(str(variant, "id"), id)) {
+            declared = true;
+        };
+        variants = a.dupe(Str, &.{id}) catch oom();
+    } else if (is(kind, "field")) {
+        for (types) |item| {
+            for (arrayOf(item, "fields")) |field| if (sameId(str(field, "id"), id)) {
+                declared = true;
+            };
+            for (arrayOf(item, "variants")) |variant| for (arrayOf(variant, "fields")) |field| if (sameId(str(field, "id"), id)) {
+                declared = true;
+            };
+        }
+        fields = a.dupe(Str, &.{id}) catch oom();
+    } else if (is(kind, "capabilityOperation")) {
+        for (capabilities) |item| for (arrayOf(item, "operations")) |operation| if (sameId(str(operation, "id"), id)) {
+            declared = true;
+        };
+        operations = a.dupe(Str, &.{id}) catch oom();
+    }
+    if (!declared) return null;
+    const mention_kind: ?TypeKind = if (is(kind, "type")) .named else if (is(kind, "capability")) .capability else null;
+    const mentions = struct {
+        fn f(mk: ?TypeKind, subject: Str, t: Value) bool {
+            return if (mk) |k| typeMentions(typeRefOf(t), k, subject) else false;
+        }
+    }.f;
+    const effect = is(kind, "effect");
+    var out: List(Reference) = .empty;
+    for (arrayOf(root, "functions")) |function| {
+        const owner = decoded(get(function, "id"));
+        const addSite = struct {
+            fn f(list: *List(Reference), o: Str, site: Site) void {
+                list.append(a, .{ .owner = .function, .owner_id = o, .site = site }) catch oom();
+            }
+        }.f;
+        for (arrayOf(function, "parameters")) |parameter|
+            if (mentions(mention_kind, id, get(parameter, "type"))) addSite(&out, owner, .{ .tag = .parameter_type, .a = decoded(get(parameter, "id")) });
+        if (mentions(mention_kind, id, get(function, "resultType"))) addSite(&out, owner, .{ .tag = .result_type });
+        if (effect) for (arrayOf(function, "requiredEffects")) |required| if (sameId(required.string, id)) {
+            addSite(&out, owner, .{ .tag = .required_effect });
+            break;
+        };
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        for (nodes.items) |node| {
+            var roles: List([]const u8) = .empty;
+            if (is(kind, "function")) for (functionReferences(node)) |reference| if (sameId(reference.function_id, id)) roles.append(a, switch (reference.role) {
+                .direct_call => "directCall",
+                .pure_callback, .effect_callback => "callback",
+                .worker => "worker",
+                .body => "body",
+                .function_value => "functionValue",
+                .implementation => "implementation",
+            }) catch oom();
+            var payload: List(TypeRef) = .empty;
+            payloadTypeRefs(node, &payload);
+            if (mention_kind) |k| for (payload.items) |t| if (typeMentions(t, k, id)) {
+                roles.append(a, "typeArgument") catch oom();
+                break;
+            };
+            const node_kind = str(node, "kind");
+            const binds = struct {
+                fn f(n: Value, ids: []const Str) bool {
+                    for (arrayOf(n, "fields")) |binding| if (containsId(ids, str(binding, "targetFieldId"))) return true;
+                    return false;
+                }
+            }.f;
+            const constructs = is(kind, "type") and tryProperty("typeId", node) != null and sameId(str(node, "typeId"), id);
+            if (isName(node_kind, "productConstruct")) {
+                if (constructs or binds(node, fields)) roles.append(a, "construct") catch oom();
+            } else if (isName(node_kind, "unionConstruct")) {
+                if (containsId(variants, str(node, "variantId")) or binds(node, fields)) roles.append(a, "construct") catch oom();
+            } else if (isName(node_kind, "productUpdate")) {
+                if (constructs or binds(node, fields)) roles.append(a, "productUpdate") catch oom();
+            } else if (isName(node_kind, "fieldAccess")) {
+                if (containsId(fields, str(node, "fieldId"))) roles.append(a, "fieldAccess") catch oom();
+            } else if (isName(node_kind, "matchUnion")) {
+                var matched = false;
+                var bound = false;
+                for (arrayOf(node, "arms")) |arm| {
+                    if (tryProperty("variantId", arm)) |single| matched = matched or containsId(variants, single.string);
+                    for (arrayOf(arm, "variantIds")) |variant| matched = matched or containsId(variants, variant.string);
+                    for (arrayOf(arm, "fieldBindings")) |binding| bound = bound or containsId(fields, str(binding, "sourceFieldId"));
+                }
+                if (matched) roles.append(a, "match") catch oom();
+                if (bound) roles.append(a, "patternBinding") catch oom();
+            } else if (isName(node_kind, "capabilityConstruct")) {
+                if (is(kind, "capability") and sameId(str(node, "capabilityId"), id)) roles.append(a, "capabilityConstruct") catch oom();
+                for (arrayOf(node, "implementations")) |implementation| if (containsId(operations, str(implementation, "operationId"))) {
+                    roles.append(a, "implementation") catch oom();
+                    break;
+                };
+            } else if (isName(node_kind, "capabilityInvoke")) {
+                if (containsId(operations, str(node, "operationId"))) roles.append(a, "invoke") catch oom();
+            } else if (isName(node_kind, "useResource")) {
+                if (containsId(operations, str(node, "releaseOperationId"))) roles.append(a, "release") catch oom();
+            }
+            if (mention_kind != null) {
+                var bound = false;
+                for (nestedScopes(node)) |scope| for (scope.bindings) |binding| {
+                    bound = bound or mentions(mention_kind, id, get(binding, "type"));
+                };
+                if (bound) roles.append(a, "patternBinding") catch oom();
+            }
+            const node_id = decoded(get(node, "id"));
+            for (roles.items, 0..) |role, index| {
+                const seen = for (roles.items[0..index]) |earlier| {
+                    if (std.mem.eql(u8, earlier, role)) break true;
+                } else false;
+                if (!seen) addSite(&out, owner, .{ .tag = .node, .a = node_id, .role = role });
+            }
+        }
+    }
+    for (types) |item| {
+        const owner = decoded(get(item, "id"));
+        for (arrayOf(item, "fields")) |field| if (mentions(mention_kind, id, get(field, "type")))
+            out.append(a, .{ .owner = .type, .owner_id = owner, .site = .{ .tag = .field_type, .b = decoded(get(field, "id")) } }) catch oom();
+        for (arrayOf(item, "variants")) |variant| for (arrayOf(variant, "fields")) |field| if (mentions(mention_kind, id, get(field, "type")))
+            out.append(a, .{ .owner = .type, .owner_id = owner, .site = .{ .tag = .field_type, .a = decoded(get(variant, "id")), .b = decoded(get(field, "id")) } }) catch oom();
+    }
+    for (capabilities) |item| {
+        const owner = decoded(get(item, "id"));
+        for (arrayOf(item, "operations")) |operation| {
+            const op = decoded(get(operation, "id"));
+            const at = struct {
+                fn f(list: *List(Reference), o: Str, site: Site) void {
+                    list.append(a, .{ .owner = .capability, .owner_id = o, .site = site }) catch oom();
+                }
+            }.f;
+            for (arrayOf(operation, "parameters")) |parameter| if (mentions(mention_kind, id, get(parameter, "type")))
+                at(&out, owner, .{ .tag = .operation_parameter_type, .a = op, .b = decoded(get(parameter, "id")) });
+            if (mentions(mention_kind, id, get(operation, "resultType"))) at(&out, owner, .{ .tag = .operation_result_type, .a = op });
+            if (tryProperty("failureType", operation)) |failure| if (failure != .json_null and mentions(mention_kind, id, failure))
+                at(&out, owner, .{ .tag = .operation_failure_type, .a = op });
+            if (effect and sameId(str(operation, "effectId"), id)) at(&out, owner, .{ .tag = .operation_effect, .a = op });
+        }
+    }
+    std.mem.sort(Reference, out.items, {}, referenceLess);
+    return out.items;
+}
+
+/// `ValueGraph.collectNodes` of a function body.
+pub fn bodyNodes(allocator: std.mem.Allocator, function: Value) []const Value {
+    a = allocator;
+    var nodes: List(Value) = .empty;
+    collectNodes(get(function, "body"), &nodes);
+    return nodes.items;
+}
+
 /// `FingerprintHash.sha256`: the domain is frozen; it is part of every reviewed fingerprint.
 fn hashIn(domain: []const u8, canonical: []const u8) []const u8 {
     var hash = std.crypto.hash.sha2.Sha256.init(.{});

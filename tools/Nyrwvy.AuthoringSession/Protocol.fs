@@ -1521,7 +1521,13 @@ module AuthoringProtocol =
                 ensureFields "search request" [ "id"; "op"; "text"; "limit" ] [ "id"; "op"; "text" ] root
                 let text = requiredString "text" root
                 if text.Trim() = "" then WireInput.fail "text must not be empty."
-                let limit = tryProperty "limit" root |> Option.map (fun item -> item.GetInt32()) |> Option.defaultValue 50
+                let limit =
+                    match tryProperty "limit" root with
+                    | None -> 50
+                    | Some item ->
+                        match item.ValueKind = JsonValueKind.Number, (if item.ValueKind = JsonValueKind.Number then item.TryGetInt32() else (false, 0)) with
+                        | true, (true, number) -> number
+                        | _ -> WireInput.fail "limit must be a JSON Int32."
                 if limit < 1 || limit > 200 then WireInput.fail "limit must be 1..200."
                 success requestId (WireEncode.search (session.Declarations()) text limit)
             | "readProposal" ->

@@ -31,11 +31,11 @@ module ZigRuntime =
     /// to last maps to itself plus delta. Runs take consecutive mapped code points, so a step-2 run
     /// skips only unmapped ones, runs never overlap and a binary search over `first` finds the only
     /// candidate.
-    let private caseRuns (lower: bool) =
+    let private runsOf (map: int -> int) =
         let mapped =
             [| for code in 0 .. 0x10FFFF do
                  if code < 0xD800 || code > 0xDFFF then
-                     let target = mapCase lower code
+                     let target = map code
                      if target <> code then code, target - code |]
         let runs = ResizeArray<string>()
         let mutable index = 0
@@ -54,6 +54,20 @@ module ZigRuntime =
             index <- index + 1
             runs.Add $".{{ {first}, {last}, {step}, {delta} }}"
         System.String.Join(", ", runs)
+
+    let private caseRuns (lower: bool) = runsOf (mapCase lower)
+
+    /// .NET's own mappings for the Zig session host (`tools/zig/host/case_runs.zig`): `lower` is
+    /// `ToLowerInvariant` per code point, `upper` the invariant upper case where
+    /// `StringComparison.OrdinalIgnoreCase` takes it as equal, as `search` and name hints compare.
+    let caseRunTables =
+        lazy
+            (let text code = System.Text.Rune(code: int).ToString()
+             let lower code = (System.Text.Rune.ToLowerInvariant(System.Text.Rune(code: int))).Value
+             let upper code =
+                 let target = (System.Text.Rune.ToUpperInvariant(System.Text.Rune(code: int))).Value
+                 if System.String.Equals(text code, text target, System.StringComparison.OrdinalIgnoreCase) then target else code
+             "pub const lower = [_][4]i32{ " + runsOf lower + " };\n" + "pub const upper = [_][4]i32{ " + runsOf upper + " };\n")
 
     /// Zig case mapping, emitted only for a program that maps case.
     let caseMapping =
