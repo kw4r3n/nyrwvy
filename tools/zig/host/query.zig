@@ -1020,17 +1020,22 @@ pub fn readFunction(r: *Request, out: *Writer) Fail!void {
         return error.Rejected;
     };
     const nodes = model.bodyNodes(r.a, function);
-    // shortcut: full and Bytes copy plans are ported in the next steps; until then the Zig host refuses them.
+    // shortcut: Bytes copy plans are ported in the next step; until then the Zig host refuses them.
     const updates = for (nodes) |node| {
         if (kindIs(node, "bytesSet") or kindIs(node, "bytesAppend")) break true;
     } else false;
-    if (std.mem.eql(u8, detail, "full") or updates) {
-        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host reads functions only at detail compact or outline, and without Bytes updates, so far." };
+    if (updates) {
+        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host reads functions only without Bytes updates, so far." };
         return error.Rejected;
     }
     // The compact focus, open at its end, so each detail appends its own fields.
     var compact: Writer.Allocating = .init(r.a);
-    try compactFocus(r, &compact.writer, function, wanted, nodes);
+    const full = std.mem.eql(u8, detail, "full");
+    try compactFocus(r, &compact.writer, function, wanted, nodes, full);
+    if (full) {
+        try out.writeAll(compact.written());
+        return out.writeByte('}');
+    }
     if (std.mem.eql(u8, detail, "outline")) return outline(r, out, compact.written(), function, nodes);
     try out.writeAll(compact.written());
     try out.writeAll(",\"literals\":");
@@ -1038,12 +1043,13 @@ pub fn readFunction(r: *Request, out: *Writer) Fail!void {
     try out.writeByte('}');
 }
 
-fn compactFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: []const Value) !void {
+/// `focusFields`: compact (the function summarized) or, for `full`, with the structured body and the node types.
+fn compactFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: []const Value, full: bool) !void {
     const focus = model.focusOf(r.a, r.model, function);
     try out.writeAll("{\"snapshotId\":");
     try @import("root").writeString(out, r.snapshot_id);
     try out.writeAll(",\"function\":");
-    try wire.functionSummary(out, function, nodes.len);
+    if (full) try wire.functionEntity(out, function) else try wire.functionSummary(out, function, nodes.len);
     const requirements = focus.requirements;
     try out.writeAll(",\"bodyEffectRequirements\":{\"effectIds\":");
     try writeIds(out, requirements.effects);
@@ -1083,6 +1089,17 @@ fn compactFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: 
         try out.writeAll(",\"dependentContinuationNodeIds\":");
         try writeIds(out, item.dependents);
         try out.writeByte('}');
+    }
+    if (full) {
+        try out.writeAll("],\"nodeTypes\":[");
+        for (focus.node_types, 0..) |item, index| {
+            if (index > 0) try out.writeByte(',');
+            try out.writeAll("{\"nodeId\":");
+            try writeId(out, item.id);
+            try out.writeAll(",\"type\":");
+            if (item.type) |t| try wire.typeRef(out, t, model.arrayItems(function, "typeParameters")) else try out.writeAll("null");
+            try out.writeByte('}');
+        }
     }
     try out.writeAll("],\"callers\":");
     try writeSites(out, focus.callers);

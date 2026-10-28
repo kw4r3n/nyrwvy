@@ -293,3 +293,184 @@ pub fn declarations(a: std.mem.Allocator, out: *Writer, root: Value, provenance:
     }
     try out.writeByte('}');
 }
+
+// ---------------------------------------------------------------- structured graph
+
+/// One node kind's wire form (`WireGraph.kind`): its wire kind and, in wire order, each field's
+/// wire name, snapshot property and shape (graph_kinds.txt).
+const GraphKind = struct { name: []const u8, fields: []const GraphField };
+const GraphField = struct { name: []const u8, source: []const u8, shape: []const u8 };
+
+var graph_kinds: ?std.StringHashMapUnmanaged(GraphKind) = null;
+
+fn graphKinds() std.StringHashMapUnmanaged(GraphKind) {
+    if (graph_kinds) |kinds| return kinds;
+    const a = std.heap.page_allocator;
+    var kinds: std.StringHashMapUnmanaged(GraphKind) = .empty;
+    var lines = std.mem.tokenizeScalar(u8, @embedFile("graph_kinds.txt"), '\n');
+    while (lines.next()) |line| {
+        if (line[0] == '#') continue;
+        var parts = std.mem.splitScalar(u8, line, '|');
+        const kind = parts.next().?;
+        const name = parts.next().?;
+        var fields: std.ArrayList(GraphField) = .empty;
+        var items = std.mem.tokenizeScalar(u8, parts.next().?, ' ');
+        while (items.next()) |item| {
+            var pieces = std.mem.splitScalar(u8, item, ':');
+            fields.append(a, .{ .name = pieces.next().?, .source = pieces.next().?, .shape = pieces.next().? }) catch @panic("out of memory");
+        }
+        kinds.put(a, kind, .{ .name = name, .fields = fields.items }) catch @panic("out of memory");
+    }
+    graph_kinds = kinds;
+    return kinds;
+}
+
+fn is(text: []const u8, name: []const u8) bool {
+    return std.mem.eql(u8, text, name);
+}
+
+/// A pattern binding: its ID, display name (null when it has none) and type.
+fn binding(out: *Writer, value: Value, names: []const Value) !void {
+    try out.writeAll("{\"id\":");
+    try string(out, model.property(value, "id").?);
+    try out.writeAll(",\"displayName\":");
+    if (model.property(value, "displayName")) |name| try string(out, name) else try out.writeAll("null");
+    try out.writeAll(",\"type\":");
+    try typeRef(out, model.property(value, "type").?, names);
+    try out.writeByte('}');
+}
+
+/// Bindings of one target each (`argumentList` and `fields`), already in target order.
+fn targets(out: *Writer, items: []const Value, source: []const u8, name: []const u8) !void {
+    try out.writeByte('[');
+    for (items, 0..) |item, index| {
+        if (index > 0) try out.writeByte(',');
+        try out.print("{{\"{s}\":", .{name});
+        try string(out, model.property(item, source).?);
+        try out.writeAll(",\"valueNodeId\":");
+        try string(out, model.property(item, "valueNodeId").?);
+        try out.writeByte('}');
+    }
+    try out.writeByte(']');
+}
+
+fn arm(out: *Writer, value: Value, comptime binding_name: []const u8, names: []const Value) !void {
+    try out.writeAll("{\"" ++ binding_name ++ "\":");
+    try binding(out, model.property(value, binding_name).?, names);
+    try out.writeAll(",\"body\":");
+    try graph(out, model.property(value, "body").?, names);
+    try out.writeByte('}');
+}
+
+/// `WireGraph.graph`: the result node and the nodes in ID order (the model's order).
+fn graph(out: *Writer, value: Value, names: []const Value) anyerror!void {
+    try out.writeAll("{\"resultNodeId\":");
+    try string(out, model.property(value, "resultNodeId").?);
+    try out.writeAll(",\"nodes\":[");
+    for (model.arrayItems(value, "nodes"), 0..) |node, index| {
+        if (index > 0) try out.writeByte(',');
+        try out.writeAll("{\"id\":");
+        try string(out, model.property(node, "id").?);
+        try out.writeAll(",\"kind\":");
+        try graphNode(out, node, names);
+        try out.writeByte('}');
+    }
+    try out.writeAll("]}");
+}
+
+/// `WireGraph.kind`: a node's payload in its wire kind's fields.
+fn graphNode(out: *Writer, node: Value, names: []const Value) !void {
+    const kind = graphKinds().get(model.utf8(model.decoded(model.property(node, "kind").?))).?;
+    try out.print("{{\"kind\":\"{s}\"", .{kind.name});
+    for (kind.fields) |f| {
+        const value = model.property(node, f.source);
+        const shape = f.shape;
+        // Optional payloads are omitted, as the model omits them.
+        if (value == null) continue;
+        try out.print(",\"{s}\":", .{f.name});
+        const v = value.?;
+        if (is(shape, "id") or is(shape, "optid") or is(shape, "bits") or is(shape, "mode") or is(shape, "lit")) {
+            try string(out, v);
+        } else if (is(shape, "ids")) {
+            try out.writeByte('[');
+            for (v.array, 0..) |item, index| {
+                if (index > 0) try out.writeByte(',');
+                try string(out, item);
+            }
+            try out.writeByte(']');
+        } else if (is(shape, "type")) {
+            try typeRef(out, v, names);
+        } else if (is(shape, "targs")) {
+            try typeRefs(out, v.array, names);
+        } else if (is(shape, "graph")) {
+            try graph(out, v, names);
+        } else if (is(shape, "varm")) {
+            try arm(out, v, "valueBinding", names);
+        } else if (is(shape, "errarm")) {
+            try arm(out, v, "errorBinding", names);
+        } else if (is(shape, "args") or is(shape, "ctx")) {
+            try targets(out, v.array, "targetParameterId", "parameterId");
+        } else if (is(shape, "capargs")) {
+            try targets(out, v.array, "targetCapabilityParameterId", "capabilityParameterId");
+        } else if (is(shape, "fields")) {
+            try targets(out, v.array, "targetFieldId", "fieldId");
+        } else if (is(shape, "bool")) {
+            try out.writeAll(if (v == .json_true) "true" else "false");
+        } else if (is(shape, "int")) {
+            switch (v) {
+                .number => |digits| try out.print("\"{s}\"", .{digits}),
+                else => try string(out, v),
+            }
+        } else if (is(shape, "impls")) {
+            try out.writeByte('[');
+            for (v.array, 0..) |item, index| {
+                if (index > 0) try out.writeByte(',');
+                try out.writeAll("{\"operationId\":");
+                try string(out, model.property(item, "operationId").?);
+                try out.writeAll(",\"functionId\":");
+                try string(out, model.property(item, "functionId").?);
+                try out.writeByte('}');
+            }
+            try out.writeByte(']');
+        } else if (is(shape, "arms")) {
+            try out.writeByte('[');
+            for (v.array, 0..) |item, index| {
+                if (index > 0) try out.writeByte(',');
+                if (model.property(item, "variantId")) |variant| {
+                    try out.writeAll("{\"variantId\":");
+                    try string(out, variant);
+                } else {
+                    try out.writeAll("{\"variantIds\":[");
+                    for (model.arrayItems(item, "variantIds"), 0..) |variant, i| {
+                        if (i > 0) try out.writeByte(',');
+                        try string(out, variant);
+                    }
+                    try out.writeByte(']');
+                }
+                try out.writeAll(",\"fieldBindings\":[");
+                for (model.arrayItems(item, "fieldBindings"), 0..) |field_binding, i| {
+                    if (i > 0) try out.writeByte(',');
+                    try out.writeAll("{\"fieldId\":");
+                    try string(out, model.property(field_binding, "sourceFieldId").?);
+                    try out.writeAll(",\"binding\":");
+                    try binding(out, model.property(field_binding, "binding").?, names);
+                    try out.writeByte('}');
+                }
+                try out.writeAll("],\"body\":");
+                try graph(out, model.property(item, "body").?, names);
+                try out.writeByte('}');
+            }
+            try out.writeByte(']');
+        } else std.debug.panic("graph_kinds.txt: unknown shape '{s}'", .{shape});
+    }
+    try out.writeByte('}');
+}
+
+/// `WireGraph.functionEntity`: the signature and the structured body.
+pub fn functionEntity(out: *Writer, item: Value) !void {
+    try out.writeByte('{');
+    try signature(out, item);
+    try out.writeAll(",\"body\":");
+    try graph(out, model.property(item, "body").?, model.arrayItems(item, "typeParameters"));
+    try out.writeByte('}');
+}
