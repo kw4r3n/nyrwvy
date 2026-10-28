@@ -93,8 +93,9 @@ type internal AuthoringExecutionContext =
       /// The execution program of the whole committed snapshot, for a backend that builds once per
       /// snapshot; None for a proposal's candidate snapshot.
       ProjectAll: (unit -> Result<ExecutionProgram, AuthoringSessionError>) option
-      /// The canonical JSON of the snapshot `Project` projects, for the Zig lowering.
-      ModelJson: unit -> Result<string, SnapshotCodecError>
+      /// The JSON of the snapshot `Project` projects, for the Zig lowering, and whether the Zig
+      /// validator accepted these bytes (`model-reader --execution-ir --validated` may then skip it).
+      ModelJson: unit -> Result<string * bool, SnapshotCodecError>
       /// The session's long-lived runner process for compiled programs.
       Worker: PureRunWorker }
 
@@ -639,6 +640,13 @@ module internal SessionStorage =
     // Set once the Zig reader could not be built or run: the process then reads with F#.
     let mutable private zigUnavailable = 0
 
+    /// The JSON the Zig validator accepted for a Snapshot read from it (see `decodeWith`).
+    let zigValidatedJson = Runtime.CompilerServices.ConditionalWeakTable<Snapshot, string>()
+
+    /// A workspace opened from such JSON, holding the Snapshot read from it: runPure lowers those
+    /// bytes without validating them again.
+    let workspaceJson = Runtime.CompilerServices.ConditionalWeakTable<AgentWorkspace, string>()
+
     /// Decodes `source` in the record form or strict JSON, resolved against `dependency` when given.
     /// The Zig reader decides an unresolved source (see `ZigSnapshotReader`); the F# reader reads a
     /// resolved one, a legacy schema, and every source when `NYRWVY_SNAPSHOT_READER=fsharp` or the Zig
@@ -664,7 +672,12 @@ module internal SessionStorage =
                     match verdict with
                     | ZigSnapshotReader.Verdict.Rejected error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
                     // F# builds the model Zig accepted; its error, if any, is a parity bug and keeps an unvalidated model out.
-                    | _ -> SnapshotCodec.readUnvalidated json |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                    | _ when check -> SnapshotCodec.readUnvalidated json |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                    // Validated once, by Zig: the Snapshot is recorded as valid and keeps its bytes for runPure.
+                    | _ ->
+                        SnapshotCodec.readZigValidated json
+                        |> Result.map (fun snapshot -> zigValidatedJson.AddOrUpdate(snapshot, json); snapshot)
+                        |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
                 if check then ZigSnapshotReader.compare zig (decodeFSharp record dependency source) else zig
 
     /// Decodes `source` in the form `path` persists.
@@ -1968,7 +1981,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                   ProjectAll = None
                   ModelJson = fun () ->
                     use _scope = SnapshotComputationScope.Start()
-                    SnapshotCodec.serialize snapshot
+                    SnapshotCodec.serialize snapshot |> Result.map (fun json -> json, false)
                   Worker = worker })
         this.VerifyPersistedSource()
         |> Result.bind (fun () ->
@@ -1984,8 +1997,13 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                       ModelJson =
                         let current = workspace
                         fun () ->
-                            use _scope = SnapshotComputationScope.Start()
-                            AgentWorkspace.serializeCurrentSnapshot current
+                            // The lowering check keeps comparing on the writer's JSON, as before.
+                            let check = not (String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_LOWERING_CHECK"))
+                            match SessionStorage.workspaceJson.TryGetValue current with
+                            | true, json when not check -> Ok(json, true)
+                            | _ ->
+                                use _scope = SnapshotComputationScope.Start()
+                                AgentWorkspace.serializeCurrentSnapshot current |> Result.map (fun json -> json, false)
                       Worker = worker })
             | Some id ->
                 this.PendingProposalView id
@@ -2020,6 +2038,11 @@ module AuthoringSession =
             (match dependency with
              | None -> AgentWorkspace.create snapshot
              | Some imported -> AgentWorkspace.createResolved imported snapshot)
+            |> Result.map (fun workspace ->
+                match dependency, SessionStorage.zigValidatedJson.TryGetValue snapshot with
+                | None, (true, json) -> SessionStorage.workspaceJson.AddOrUpdate(workspace, json)
+                | _ -> ()
+                workspace)
             |> Result.mapError AuthoringSessionError.WorkspaceValidationFailure
 
     let private openUsing (path: string) readOnly pin sourceOverride: Result<AuthoringSession, AuthoringSessionError> =

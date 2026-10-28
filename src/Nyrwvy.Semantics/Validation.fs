@@ -2885,4 +2885,13 @@ module SnapshotValidator =
         |> List.ofSeq
 
     let private validateCached = SnapshotComputationScope.Memoize("validation", validateUncached, retain = true)
-    let validate (snapshot: Snapshot): ValidationIssue list = validateCached snapshot
+
+    // Snapshots read from JSON the Zig validator accepted (`SnapshotCodec.readZigValidated`).
+    let private zigValidated = System.Runtime.CompilerServices.ConditionalWeakTable<Snapshot, obj>()
+
+    let internal assumeValid (snapshot: Snapshot) = zigValidated.AddOrUpdate(snapshot, null)
+
+    let validate (snapshot: Snapshot): ValidationIssue list =
+        match zigValidated.TryGetValue snapshot with
+        | true, _ -> []
+        | _ -> validateCached snapshot
