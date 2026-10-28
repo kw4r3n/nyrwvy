@@ -194,6 +194,15 @@ const Parser = struct {
                 return units.items;
             }
             if (c < 0x20) return invalidJson("control character in a string");
+            if (c < 0x80 and c != '\\') {
+                // A run of plain ASCII, appended at once.
+                var end = p.i + 1;
+                while (end < p.s.len and p.s[end] >= 0x20 and p.s[end] < 0x80 and p.s[end] != '"' and p.s[end] != '\\') end += 1;
+                const run = units.addManyAsSlice(a, end - p.i) catch oom();
+                for (run, p.s[p.i..end]) |*unit, byte| unit.* = byte;
+                p.i = end;
+                continue;
+            }
             if (c == '\\') {
                 p.i += 1;
                 if (p.i >= p.s.len) return invalidJson("invalid escape");
@@ -289,7 +298,12 @@ fn escapeUnit(out: *List(u8), unit: u16) void {
     }
 }
 
+/// False while only the shape of a document is read (`--validate`, `--execution-ir`): the reader's
+/// checks run, but the canonical text it would write, and the sorting for it, are skipped.
+var emit_text = true;
+
 fn quoted(units: Str) []const u8 {
+    if (!emit_text) return "";
     var out: List(u8) = .empty;
     out.append(a, '"') catch oom();
     for (units) |unit| escapeUnit(&out, unit);
@@ -298,6 +312,7 @@ fn quoted(units: Str) []const u8 {
 }
 
 fn quotedAscii(name: []const u8) []const u8 {
+    if (!emit_text) return "";
     return fmt("\"{s}\"", .{name});
 }
 
@@ -306,6 +321,7 @@ const Obj = struct {
     buf: List(u8) = .empty,
 
     fn put(self: *Obj, key: []const u8, value: []const u8) void {
+        if (!emit_text) return;
         self.buf.append(a, if (self.buf.items.len == 0) '{' else ',') catch oom();
         self.buf.print(a, "\"{s}\":{s}", .{ key, value }) catch oom();
     }
@@ -315,6 +331,7 @@ const Obj = struct {
     }
 
     fn done(self: *Obj) []const u8 {
+        if (!emit_text) return "";
         if (self.buf.items.len == 0) return "{}";
         self.buf.append(a, '}') catch oom();
         return self.buf.items;
@@ -322,6 +339,7 @@ const Obj = struct {
 };
 
 fn array(items: []const []const u8) []const u8 {
+    if (!emit_text) return "";
     var out: List(u8) = .empty;
     out.append(a, '[') catch oom();
     for (items, 0..) |item, index| {
@@ -344,6 +362,7 @@ fn keyedLess(_: void, left: Keyed, right: Keyed) bool {
 }
 
 fn sortedArray(items: []Keyed) []const u8 {
+    if (!emit_text) return "";
     std.mem.sort(Keyed, items, {}, keyedLess);
     const texts = a.alloc([]const u8, items.len) catch oom();
     for (items, texts) |item, *t| t.* = item.text;
@@ -351,6 +370,7 @@ fn sortedArray(items: []Keyed) []const u8 {
 }
 
 fn plainArray(items: []const Keyed) []const u8 {
+    if (!emit_text) return "";
     const texts = a.alloc([]const u8, items.len) catch oom();
     for (items, texts) |item, *t| t.* = item.text;
     return array(texts);
@@ -2614,18 +2634,40 @@ fn caseNameOf(kind: Str) Str {
     return out;
 }
 
+// The `requirements` rows per node kind, in table order (a kind listed twice in a row counts twice).
+var requirements_by_kind: ?std.StringHashMapUnmanaged([]const usize) = null;
+
+fn requirementsOf(kind: []const u8) []const usize {
+    if (requirements_by_kind == null) {
+        var map: std.StringHashMapUnmanaged(List(usize)) = .empty;
+        for (requirements, 0..) |r, index| {
+            var listed = std.mem.tokenizeScalar(u8, r.kinds, ' ');
+            while (listed.next()) |name| {
+                const entry = map.getOrPut(a, name) catch oom();
+                if (!entry.found_existing) entry.value_ptr.* = .empty;
+                entry.value_ptr.append(a, index) catch oom();
+            }
+        }
+        var out: std.StringHashMapUnmanaged([]const usize) = .empty;
+        var it = map.iterator();
+        while (it.next()) |entry| out.put(a, entry.key_ptr.*, entry.value_ptr.items) catch oom();
+        requirements_by_kind = out;
+    }
+    return requirements_by_kind.?.get(kind) orelse &.{};
+}
+
 /// The table's requirements on one node, then `ValueEqual`.
 fn scalarRules(node: Value) void {
     const kind = text(str(node, "kind"));
     var references: List(Str) = .empty;
     directValueReferences(node, &references);
-    for (requirements) |r| {
-        var kinds_listed = std.mem.tokenizeScalar(u8, r.kinds, ' ');
-        while (kinds_listed.next()) |listed| {
-            if (!std.mem.eql(u8, listed, kind)) continue;
-            const name = if (r.name.len == 0) caseNameOf(str(node, "kind")) else asciiUnits(r.name);
-            requireNodeType(r.code, cat(&.{ name, L(" node '"), str(node, "id"), L("' "), asciiUnits(r.tail) }), requiredType(r.type), references.items[r.operand]);
-        }
+    for (requirementsOf(kind)) |index| {
+        const r = requirements[index];
+        // The message is built only for a mismatch: most nodes have none.
+        const actual = nodeType(references.items[r.operand]) orelse continue;
+        if (typeEql(actual, requiredType(r.type))) continue;
+        const name = if (r.name.len == 0) caseNameOf(str(node, "kind")) else asciiUnits(r.name);
+        addIn(r.code, cat(&.{ name, L(" node '"), str(node, "id"), L("' "), asciiUnits(r.tail) }));
     }
     if (std.mem.eql(u8, kind, "valueEqual")) {
         const left = nodeType(references.items[0]);
@@ -2687,8 +2729,14 @@ fn requireMapKey(node: Value, key_type: TypeRef, id: Str) void {
 }
 
 fn kindIs(kind: []const u8, comptime names: []const u8) bool {
-    var it = std.mem.tokenizeScalar(u8, names, ' ');
-    while (it.next()) |name| if (std.mem.eql(u8, name, kind)) return true;
+    const listed = comptime blk: {
+        @setEvalBranchQuota(100 * names.len + 1000);
+        var out: []const []const u8 = &.{};
+        var it = std.mem.tokenizeScalar(u8, names, ' ');
+        while (it.next()) |name| out = out ++ [_][]const u8{name};
+        break :blk out;
+    };
+    inline for (listed) |name| if (std.mem.eql(u8, name, kind)) return true;
     return false;
 }
 
@@ -3752,21 +3800,6 @@ fn invokedOperation(node: Value) ?Str {
     return null;
 }
 
-/// `GraphOrder.nodeObservable` with `semanticView`: Abort and the intrinsically effectful kinds
-/// except ParallelAll, a call, effect callback, worker or body of an observable function, or an
-/// observable node in a nested graph.
-fn nodeObservable(node: Value, observable: *const Set) bool {
-    const kind = text(str(node, "kind"));
-    if (std.mem.eql(u8, kind, "abort")) return true;
-    if (!std.mem.eql(u8, kind, "parallelAll") and kindIs(kind, effectful_kinds)) return true;
-    for (functionReferences(node)) |reference| switch (reference.role) {
-        .direct_call, .effect_callback, .worker, .body => if (observable.contains(idKey(reference.function_id))) return true,
-        else => {},
-    };
-    for (nestedScopes(node)) |scope| for (arrayOf(scope.graph, "nodes")) |inner| if (nodeObservable(inner, observable)) return true;
-    return false;
-}
-
 const Edges = std.StringArrayHashMapUnmanaged([]const Str);
 
 /// `dependsOn` of `tryUnorderedPair`: `goal` is reachable from `start` (or is it).
@@ -3782,15 +3815,62 @@ fn dependsOn(edges: *const Edges, start: Str, goal: Str) bool {
     return false;
 }
 
+// Per call of `unorderedEffects` on a function body, by node identity: nested graphs are searched
+// again at each level, and these facts depend only on the node (and the observable set).
+var order_depth: usize = 0;
+var dependencies_memo: std.AutoHashMapUnmanaged(usize, []const Str) = .empty;
+var observable_memo: std.AutoHashMapUnmanaged(usize, bool) = .empty;
+
+fn nodeKey(node: Value) usize {
+    return @intFromPtr(node.object.ptr);
+}
+
+fn memoDependencies(node: Value) []const Str {
+    if (dependencies_memo.get(nodeKey(node))) |deps| return deps;
+    var deps: List(Str) = .empty;
+    directValueReferences(node, &deps);
+    for (nestedScopes(node)) |scope| {
+        const inner_nodes = arrayOf(scope.graph, "nodes");
+        const local = idSet(inner_nodes);
+        for (inner_nodes) |inner| for (memoDependencies(inner)) |dep| if (!local.contains(idKey(dep))) deps.append(a, dep) catch oom();
+    }
+    dependencies_memo.put(a, nodeKey(node), deps.items) catch oom();
+    return deps.items;
+}
+
+/// `GraphOrder.nodeObservable` with `semanticView`: Abort and the intrinsically effectful kinds
+/// except ParallelAll, a call, effect callback, worker or body of an observable function, or an
+/// observable node in a nested graph.
+fn nodeObservable(node: Value, observable: *const Set) bool {
+    if (observable_memo.get(nodeKey(node))) |known| return known;
+    const kind = text(str(node, "kind"));
+    const result = blk: {
+        if (std.mem.eql(u8, kind, "abort")) break :blk true;
+        if (!std.mem.eql(u8, kind, "parallelAll") and kindIs(kind, effectful_kinds)) break :blk true;
+        for (functionReferences(node)) |reference| switch (reference.role) {
+            .direct_call, .effect_callback, .worker, .body => if (observable.contains(idKey(reference.function_id))) break :blk true,
+            else => {},
+        };
+        for (nestedScopes(node)) |scope| for (arrayOf(scope.graph, "nodes")) |inner| if (nodeObservable(inner, observable)) break :blk true;
+        break :blk false;
+    };
+    observable_memo.put(a, nodeKey(node), result) catch oom();
+    return result;
+}
+
 /// `GraphOrder.tryUnorderedEffects`: the first unordered observable pair of the graph's own nodes,
 /// else of its nested graphs in order.
 fn unorderedEffects(nodes: []const Value, observable: *const Set, by_id: bool) ?[2]Str {
+    if (order_depth == 0) {
+        dependencies_memo.clearRetainingCapacity();
+        observable_memo.clearRetainingCapacity();
+    }
+    order_depth += 1;
+    defer order_depth -= 1;
     var edges: Edges = .empty;
     var effectful: List(Str) = .empty;
     for (nodes) |node| {
-        var deps: List(Str) = .empty;
-        dependencies(node, &deps);
-        edges.put(a, idKey(str(node, "id")), deps.items) catch oom();
+        edges.put(a, idKey(str(node, "id")), memoDependencies(node)) catch oom();
         if (nodeObservable(node, observable)) effectful.append(a, str(node, "id")) catch oom();
     }
     // `tryUnorderedPair` without its fast path (a topological walk), which only skips this search
@@ -5011,11 +5091,11 @@ const Lowering = struct {
 
     /// `ExecutionIrAnalysis.dependencies`: direct references and nested free references, distinct and sorted.
     fn dependenciesOf(node: Value) []const Str {
-        var all: List(Str) = .empty;
-        dependencies(node, &all);
+        // The effect-order check of this function, which runs first, filled the memo.
+        const all = memoDependencies(node);
         var seen: Set = .empty;
         var out: List(Str) = .empty;
-        for (all.items) |id| if (!seen.contains(idKey(id))) {
+        for (all) |id| if (!seen.contains(idKey(id))) {
             seen.put(a, idKey(id), {}) catch oom();
             out.append(a, id) catch oom();
         };
@@ -5432,7 +5512,10 @@ pub fn main(init: std.process.Init) !void {
     var index: usize = if (validating or typing) 2 else 1;
     while (index < args.len) : (index += if (validating) 1 else if (typing) 3 else 2) {
         const input = try std.Io.Dir.cwd().readFileAlloc(init.io, args[index], a, .unlimited);
-        if (canonicalJson(input)) |json| {
+        emit_text = !(validating or typing);
+        const read = canonicalJson(input);
+        emit_text = true;
+        if (read) |json| {
             if (typing) {
                 const entry = args[index + 2];
                 const root = if (std.mem.eql(u8, entry, "-")) parsed_root else selectEntry(parsed_root, try std.unicode.utf8ToUtf16LeAlloc(a, entry));
