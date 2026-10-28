@@ -519,9 +519,18 @@ module internal ZigSnapshotReader =
                     | _ ->
                         // The model is built from the JSON while the validator runs; it is used only if accepted.
                         let text = if record then File.ReadAllText json else source
-                        let model = Threading.Tasks.Task.Run(fun () -> build text)
+                        // Its own thread with the main thread's 8 MB stack: the reader recurses to the JSON depth limit.
+                        let mutable built = Unchecked.defaultof<Choice<'model, exn>>
+                        let worker = Threading.Thread((fun () -> built <- (try Choice1Of2(build text) with error -> Choice2Of2 error)), 8 * 1024 * 1024)
+                        worker.Start()
+                        let model =
+                            lazy (
+                                worker.Join()
+                                match built with
+                                | Choice1Of2 model -> model
+                                | Choice2Of2 error -> Runtime.ExceptionServices.ExceptionDispatchInfo.Throw error; Unchecked.defaultof<_>)
                         run "model-reader" [ "--validate"; (if record then json else input) ]
-                        |> Result.map (fun lines -> line, lines, text, lazy model.Result))
+                        |> Result.map (fun lines -> line, lines, text, model))
                 |> Result.bind (fun (line, lines, text, model) -> verdict line lines |> Result.map (fun verdict -> verdict, text, model))
             finally
                 File.Delete input
