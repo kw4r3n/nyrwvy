@@ -176,7 +176,7 @@ module ZigHostParityTests =
                 for readOnly in [ true; false ] do
                     let arguments = [ "open"; "--snapshot"; path ] @ (if readOnly then [ "--read-only" ] else [])
                     let shown (code, errors, (lines: string list)) = $"{code} {comparable errors} {comparable (String.Join(' ', lines))}"
-                    let request = [ """{"id":"s","op":"status"}""" ]
+                    let request = [ """{"id":"s","op":"status"}"""; """{"id":"d","op":"declarations"}"""; """{"id":"e","op":"dependency"}""" ]
                     let fsharpRun = run false arguments request
                     let fsharp, zig = shown fsharpRun, shown (run true arguments request)
                     Assert.True((fsharp = zig), $"{name}:\n F#:  {fsharp}\n Zig: {zig}")

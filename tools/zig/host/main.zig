@@ -7,10 +7,22 @@
 const std = @import("std");
 const model_reader = @import("model_reader");
 const snapshot_reader = @import("snapshot_reader");
+const wire = @import("wire.zig");
 
-/// The open snapshot: what `status` reports.
+/// The open snapshot: what `status` reports, the model (merged with the dependency, if any) and
+/// the selected dependency. All live in `startup`.
 var snapshot_id: []const u8 = "";
 var fingerprints: model_reader.Fingerprints = undefined;
+var model_root: model_reader.Value = .json_null;
+var canonical_model: ?model_reader.Value = null;
+var selection: ?Dependency = null;
+var startup: std.mem.Allocator = undefined;
+
+/// The model in canonical order, built on first use.
+fn canonical() model_reader.Value {
+    if (canonical_model == null) canonical_model = model_reader.canonicalRoot(startup, model_root);
+    return canonical_model.?;
+}
 
 // `WireInput.requestMaxJsonDepth`: 3 + 3 * 256 + 64.
 const max_depth = 835;
@@ -107,7 +119,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, line: []const u8) !void {
         else => return e,
     };
     if (std.mem.eql(u8, op, "status")) {
-        if (try fieldProblem(a, line, parsed.object, "status request", &.{ "id", "op" })) |message| return failure(out, id, "ProtocolError", message);
+        if (try fieldProblem(a, line, parsed.object, "status request", &.{ "id", "op" }, &.{ "id", "op" })) |message| return failure(out, id, "ProtocolError", message);
         try out.writeAll("{\"id\":");
         try writeString(out, id);
         try out.writeAll(",\"ok\":true,\"result\":{\"snapshotId\":");
@@ -119,12 +131,63 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, line: []const u8) !void {
         // `build` names each host's own build; the parity test masks it.
         return out.writeAll(",\"pendingProposalCount\":0,\"build\":\"nyrwvy-zig-host\"}}");
     }
+    const plain = [_][]const u8{ "dependency", "declarations", "proposals" };
+    for (plain) |name| if (std.mem.eql(u8, op, name)) {
+        if (try fieldProblem(a, line, parsed.object, try std.fmt.allocPrint(a, "{s} request", .{op}), &.{ "id", "op" }, &.{ "id", "op" })) |message| return failure(out, id, "ProtocolError", message);
+        try success(out, id);
+        if (std.mem.eql(u8, op, "dependency")) {
+            // `PinnedDependency.describe`: an anonymous record, so its fields in name order.
+            try out.writeAll("{\"selection\":");
+            if (selection) |dependency| {
+                const members = dependency.provenance.members;
+                if (dependency.set) try out.writeAll("{\"dependencies\":[");
+                for (members, 0..) |member, index| {
+                    if (index > 0) try out.writeByte(',');
+                    try out.writeAll("{\"fingerprint\":");
+                    try writeString(out, member.fingerprint);
+                    try out.writeAll(",\"path\":");
+                    try writeString(out, member.path);
+                    try out.writeAll(",\"snapshotId\":");
+                    try writeString(out, member.id);
+                    try out.writeAll(if (member.embedded) ",\"storage\":\"embedded\"}" else ",\"storage\":\"legacySource\"}");
+                }
+                if (dependency.set) try out.writeAll("]}");
+            } else try out.writeAll("null");
+            try out.writeAll("}");
+        } else if (std.mem.eql(u8, op, "declarations")) {
+            try wire.declarations(a, out, canonical(), if (selection) |d| d.provenance else null);
+        } else try out.writeAll("{\"count\":0,\"proposals\":[]}");
+        return out.writeByte('}');
+    };
+    // No proposal exists until simulate is ported: these answer `ProposalNotFound` once their input reads.
+    if (std.mem.eql(u8, op, "readProposal") or std.mem.eql(u8, op, "viewProposal")) {
+        const read = std.mem.eql(u8, op, "readProposal");
+        const allowed: []const []const u8 = if (read) &.{ "id", "op", "proposalId", "path", "offset", "limit", "structuredReview" } else &.{ "id", "op", "proposalId", "output" };
+        if (try fieldProblem(a, line, parsed.object, try std.fmt.allocPrint(a, "{s} request", .{op}), allowed, &.{ "id", "op", "proposalId" })) |message| return failure(out, id, "ProtocolError", message);
+        const optional = if (read) "path" else "output";
+        if (parsed.object.get(optional) != null) _ = requiredString(a, parsed.object, optional, &problem) catch |e| switch (e) {
+            Problem.Protocol => return failure(out, id, "ProtocolError", problem),
+            else => return e,
+        };
+        const proposal = requiredString(a, parsed.object, "proposalId", &problem) catch |e| switch (e) {
+            Problem.Protocol => return failure(out, id, "ProtocolError", problem),
+            else => return e,
+        };
+        return failure(out, id, "ProposalNotFound", try std.fmt.allocPrint(a, "No pending proposal has the ID '{s}'; it was committed, rejected, or discarded when its session closed.", .{proposal}));
+    }
     return failure(out, id, "UnsupportedOperation", try std.fmt.allocPrint(a, "Unsupported operation '{s}'.", .{op}));
 }
 
-/// `WireInput.ensureFields` with every allowed field required: duplicate root names first, then
+/// `{"id":…,"ok":true,"result":` (the caller writes the result and the closing brace).
+fn success(out: *std.Io.Writer, id: []const u8) !void {
+    try out.writeAll("{\"id\":");
+    try writeString(out, id);
+    try out.writeAll(",\"ok\":true,\"result\":");
+}
+
+/// `WireInput.ensureFields`: duplicate root names first, then
 /// the unknown and the missing ones, each sorted.
-fn fieldProblem(a: std.mem.Allocator, line: []const u8, root: std.json.ObjectMap, context: []const u8, fields: []const []const u8) !?[]const u8 {
+fn fieldProblem(a: std.mem.Allocator, line: []const u8, root: std.json.ObjectMap, context: []const u8, fields: []const []const u8, required: []const []const u8) !?[]const u8 {
     if (try duplicateRootNames(a, line)) return "JSON object contains duplicate property names.";
     var unknown: std.ArrayList([]const u8) = .empty;
     for (root.keys()) |key| {
@@ -133,7 +196,7 @@ fn fieldProblem(a: std.mem.Allocator, line: []const u8, root: std.json.ObjectMap
         } else try unknown.append(a, key);
     }
     var missing: std.ArrayList([]const u8) = .empty;
-    for (fields) |field| if (root.get(field) == null) try missing.append(a, field);
+    for (required) |field| if (root.get(field) == null) try missing.append(a, field);
     const ordinal = struct {
         fn less(_: void, x: []const u8, y: []const u8) bool {
             return std.mem.order(u8, x, y) == .lt;
@@ -298,6 +361,8 @@ fn open(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only: bool) !v
     };
     snapshot_id = read.id;
     fingerprints = read.fingerprints.?;
+    model_root = read.root;
+    startup = a;
 }
 
 /// A startup failure on its way to stderr: the line `WireEncode.startupMessage` prints.
@@ -316,6 +381,7 @@ fn exists(io: std.Io, path: []const u8) bool {
 /// The snapshot read with its sidecar's dependency, or unresolved without one.
 fn openSource(io: std.Io, a: std.mem.Allocator, path: []const u8, record: bool, source: []const u8) Startup!model_reader.DocumentRead {
     const dependency = try loadSidecar(io, a, try std.mem.concat(a, u8, &.{ path, ".dependency.json" }));
+    selection = dependency;
     if (dependency == null and bound(a, record, source)) return fail(a, "DependencyFailure: The dependency sidecar '{s}.dependency.json' is missing. Restore the exact sidecar that belongs to this snapshot; pinning a new version cannot recover a lost selection.", .{path});
     return readSource(a, record, source, dependency);
 }
@@ -334,7 +400,7 @@ fn bound(a: std.mem.Allocator, record: bool, source: []const u8) bool {
 }
 
 /// A dependency as the local snapshot resolves against it.
-const Dependency = struct { canonical: []const u8, id: []const u8, digest: []const u8, fingerprint: []const u8, subjects: []const []const u8 };
+const Dependency = struct { canonical: []const u8, id: []const u8, digest: []const u8, fingerprint: []const u8, subjects: []const []const u8, provenance: wire.Provenance, set: bool = false };
 
 /// A source decoded (`SessionStorage.decodeWith`): records first through the snapshot reader, then
 /// the model reader, unresolved or against `dependency`; a rejection becomes the startup line.
@@ -358,10 +424,18 @@ fn readSource(a: std.mem.Allocator, record: bool, source: []const u8, dependency
 }
 
 /// `SessionStorage.decodeCompleteDependency`: a dependency source decoded, with no open obligation.
-fn decodeDependency(a: std.mem.Allocator, record: bool, source: []const u8) Startup!Dependency {
+/// `path` and `embedded` are the manifest's (`SourcePath`, `IsEmbedded`).
+fn decodeDependency(a: std.mem.Allocator, record: bool, source: []const u8, path: []const u8, embedded: bool) Startup!Dependency {
     const read = try readSource(a, record, source, null);
     if (read.open_obligations) return fail(a, "DependencyFailure: The selected dependency has open obligations; complete it before pinning.", .{});
-    return .{ .canonical = read.canonical, .id = read.id, .digest = read.digest, .fingerprint = read.fingerprints.?.snapshot, .subjects = read.subjects };
+    const keys = model_reader.declarationKeys(a, read.root);
+    const own = try a.alloc(wire.Provenance.Member, 1);
+    own[0] = .{ .id = read.id, .fingerprint = read.fingerprints.?.snapshot, .keys = keys.all, .path = path, .embedded = embedded };
+    return dependencyOf(read, own, keys.hidden);
+}
+
+fn dependencyOf(read: model_reader.DocumentRead, members: []const wire.Provenance.Member, hidden: []const []const u8) Dependency {
+    return .{ .canonical = read.canonical, .id = read.id, .digest = read.digest, .fingerprint = read.fingerprints.?.snapshot, .subjects = read.subjects, .provenance = .{ .members = members, .hidden = hidden } };
 }
 
 /// `PinnedDependency.loadFrom`: null without a sidecar; one member, or a set of at least two
@@ -429,7 +503,7 @@ fn loadMember(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap) St
             else => return fail(a, invalid, .{}),
         };
         if (std.mem.trim(u8, content, " \t\r\n").len == 0) return fail(a, "DependencyFailure: The embedded dependency is missing.", .{});
-        break :blk try decodeDependency(a, std.mem.eql(u8, key, "snapshotRecords"), content);
+        break :blk try decodeDependency(a, std.mem.eql(u8, key, "snapshotRecords"), content, values[0].?, true);
     } else blk: {
         const source_path = values[0].?;
         if (!std.fs.path.isAbsolute(source_path) or !exists(io, source_path))
@@ -439,7 +513,7 @@ fn loadMember(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap) St
         const content: []const u8 = if (std.unicode.utf8ValidateSlice(unmarked)) unmarked else std.fmt.allocPrint(a, "{f}", .{std.unicode.fmtUtf8(unmarked)}) catch return fail(a, "out of memory", .{});
         const record = std.mem.endsWith(u8, source_path, ".nyrec");
         if (bound(a, record, content)) return fail(a, "DependencyFailure: The dependency sidecar '{s}.dependency.json' is missing. Restore the exact sidecar that belongs to this snapshot; pinning a new version cannot recover a lost selection.", .{source_path});
-        break :blk try decodeDependency(a, record, content);
+        break :blk try decodeDependency(a, record, content, source_path, false);
     };
     if (!std.mem.eql(u8, dependency.fingerprint, values[1].?) or !std.mem.eql(u8, dependency.id, values[2].?))
         return fail(a, "DependencyFailure: The selected dependency version changed. Pin only accepts the exact previously selected content, not an upgrade.", .{});
@@ -477,24 +551,28 @@ fn combineMembers(a: std.mem.Allocator, members: []const Dependency) Startup!Dep
         },
         .text => |combined| {
             const read = try readSource(a, false, combined, null);
-            return .{ .canonical = read.canonical, .id = read.id, .digest = read.digest, .fingerprint = read.fingerprints.?.snapshot, .subjects = read.subjects };
+            var sources: std.ArrayList(wire.Provenance.Member) = .empty;
+            for (members) |member| try sources.append(a, member.provenance.members[0]);
+            var dependency = dependencyOf(read, sources.items, model_reader.declarationKeys(a, read.root).hidden);
+            dependency.set = true;
+            return dependency;
         },
     }
 }
 
 pub fn main(init: std.process.Init) !void {
-    const startup = init.arena.allocator();
-    const all = try init.minimal.args.toSlice(startup);
+    const process_arena = init.arena.allocator();
+    const all = try init.minimal.args.toSlice(process_arena);
     // `CommandLine.parse`: `--allow-host-sources` anywhere, then exactly one of the open forms.
     var args: std.ArrayList([]const u8) = .empty;
-    for (all[1..]) |arg| if (!std.mem.eql(u8, arg, "--allow-host-sources")) try args.append(startup, arg);
+    for (all[1..]) |arg| if (!std.mem.eql(u8, arg, "--allow-host-sources")) try args.append(process_arena, arg);
     const forms = args.items.len >= 3 and std.mem.eql(u8, args.items[0], "open") and std.mem.eql(u8, args.items[1], "--snapshot");
     const read_only = forms and args.items.len == 4 and std.mem.eql(u8, args.items[3], "--read-only");
     if (!forms or !(args.items.len == 3 or read_only)) {
         std.debug.print("{s}", .{usage});
         std.process.exit(2);
     }
-    try open(init.io, startup, args.items[2], read_only);
+    try open(init.io, process_arena, args.items[2], read_only);
 
     var in_buffer: [1 << 16]u8 = undefined;
     var reader = std.Io.File.stdin().reader(init.io, &in_buffer);

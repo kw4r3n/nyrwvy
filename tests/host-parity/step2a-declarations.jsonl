@@ -1,0 +1,14 @@
+{"id":"d","op":"declarations"}
+{"id":"d","op":"declarations","x":1}
+{"id":"e","op":"dependency"}
+{"id":"p","op":"proposals"}
+{"id":"p","op":"proposals","detail":"full"}
+{"id":"r","op":"readProposal","proposalId":"missing"}
+{"id":"r","op":"readProposal"}
+{"id":"r","op":"readProposal","proposalId":3}
+{"id":"r","op":"readProposal","proposalId":"x","path":7}
+{"id":"r","op":"readProposal","proposalId":"x","offset":"a","limit":2,"structuredReview":false}
+{"id":"r","op":"readProposal","proposalId":"<é>","bogus":true}
+{"id":"v","op":"viewProposal","proposalId":"missing"}
+{"id":"v","op":"viewProposal","proposalId":"x","output":false}
+{"id":"v","op":"viewProposal"}
