@@ -1330,21 +1330,29 @@ module PureRun =
             | Some(Ok program) -> Ok program
             | Some(Error error) -> Error(PureRunError.SessionFailure error)
             | None -> Error(diagnostic "RunIoFailure" "No whole program for a proposal's snapshot.")
-        match lowerIr context (Some fn.Id) reach with
-        | Error error -> Error error
-        | Ok reachIr ->
         // One runner serves every runnable entry of the snapshot, so a session builds once per
         // snapshot; a program the backend cannot emit whole falls back to this entry's reach. A
         // proposal's snapshot, or one whose whole program does not lower, starts from the reach.
-        let wholeIr =
-            if context.ProjectAll.IsNone then None
-            else lowerIr context None whole |> Result.toOption
-        let first, firstReference = match wholeIr with Some ir -> ir, whole | None -> reachIr, reach
         let emitted =
-            zigEmit first firstReference None
-            |> Result.bind (function
-                | Ok runner -> Ok(Ok runner)
-                | Error _ -> zigEmit reachIr reach (Some fn.Id))
+            if not (ZigTools.enabled ()) then
+                // The default: the F# lowering and the F# emitter.
+                reach ()
+                |> Result.map (fun reachProgram ->
+                    let first = (if context.ProjectAll.IsNone then None else whole () |> Result.toOption) |> Option.defaultValue reachProgram
+                    match ZigBackend.runner first None with
+                    | Ok runner -> Ok runner
+                    | Error _ -> ZigBackend.runner reachProgram (Some fn.Id))
+            else
+                lowerIr context (Some fn.Id) reach
+                |> Result.bind (fun reachIr ->
+                    let wholeIr =
+                        if context.ProjectAll.IsNone then None
+                        else lowerIr context None whole |> Result.toOption
+                    let first, firstReference = match wholeIr with Some ir -> ir, whole | None -> reachIr, reach
+                    zigEmit first firstReference None
+                    |> Result.bind (function
+                        | Ok runner -> Ok(Ok runner)
+                        | Error _ -> zigEmit reachIr reach (Some fn.Id)))
         // As on the C# backend, waiting fake responses need a program that uses the concurrency runtime.
         let waitingResponses =
             arguments |> List.exists (function

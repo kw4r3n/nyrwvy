@@ -157,6 +157,13 @@ The standing rule from 2026-10-28: once the Zig path beats F# on `evaluation/zig
 - Requests on an open session take 0–3 ms for reads, about 45 ms for a proposal and about 23 ms for a commit.
 - Rhifill's runPure is on the C# backend, where the first run of an entry costs 0.4–0.6 s of C# emit and compile and a repeat about 8 ms.
 
+## Direction: a whole Zig session host, no mixed runtime (decided 2026-10-28)
+
+The owner chose to port the whole session to Zig rather than keep a mixed F#/Zig runtime. The equal-terms measurement showed that most of the gap was F# process start and JIT, and that warm work is close in both languages. A process that runs F# and spawns Zig tools for some steps keeps two implementations live on the same path. So:
+- **Default path is F# only.** The session's reader, validator, lowering and emitter are F# unless `NYRWVY_ZIG_TOOLS=1` is set (`ZigTools.enabled`). runPure's Zig *backend* (compiling and running the generated Zig) is a run target, not a tool, and is unchanged; with the tools off its source comes from the F# lowering and `ZigBackend.runner`.
+- **Parity modes stay.** Any `NYRWVY_ZIG_*_CHECK` variable also enables the Zig routes, so the extended suite (`tests/extended.runsettings`) still runs both and fails on any difference. `tests/benchmark.runsettings` sets `NYRWVY_ZIG_TOOLS=1`, so `ZigSpeed` keeps timing the Zig routes.
+- **The standing rule above (switch a path to Zig once it is faster) is withdrawn.** The Zig tools become the base of a separate Zig session host. That host reaches parity with the F# host step by step, and then replaces it in one switch. The F# host is then marked deprecated and kept on the remote under a tag. The plan is a separate document.
+
 ## Revisit conditions
 
 Retire the F# emitter (and the check) once the Zig emitter has run unchanged through several backend slices. The F# snapshot reader can be retired only together with the legacy schemas 9 to 20, which Zig does not read; that needs its own decision.
