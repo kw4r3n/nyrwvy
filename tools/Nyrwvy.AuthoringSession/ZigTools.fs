@@ -87,6 +87,14 @@ module internal ZigTools =
 
     let private tools = Collections.Generic.Dictionary<string, string>()
 
+    /// Whether the session's paths use the Zig tools (reader, validator, lowering, emitter): only when
+    /// `NYRWVY_ZIG_TOOLS=1` or a `NYRWVY_ZIG_*_CHECK` parity mode is set. By default every path is F#,
+    /// so that F# and Zig are not mixed at run time (docs/decisions/zig-tools.md).
+    let enabled () =
+        Environment.GetEnvironmentVariable "NYRWVY_ZIG_TOOLS" = "1"
+        || [ "NYRWVY_ZIG_READER_CHECK"; "NYRWVY_ZIG_LOWERING_CHECK"; "NYRWVY_ZIG_EMITTER_CHECK" ]
+           |> List.exists (Environment.GetEnvironmentVariable >> String.IsNullOrEmpty >> not)
+
     /// A Zig tool (`tools/zig/<name>` beside mise.toml), built once per process into the cache,
     /// keyed by a hash of every file in its directory.
     let tool (name: string) =
