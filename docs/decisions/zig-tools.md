@@ -131,7 +131,7 @@ runPure's Zig route gets its Execution IR from `model-reader --execution-ir` ins
 - **Known limits** (Opus review, 2026-10-28): under check mode a mismatch on the whole program only drops to the entry's IR, as the session's check did before; with only the emitter check on, a whole program that Zig lowers and F# does not is an error instead of a drop to the entry; a commit landing between the context's creation and the run makes Zig lower the context's snapshot while the F# references read the new one, which only the checks can notice; the waiting-response check always projects the entry in F#.
 - **Out of scope.** The C# backend's route, which needs the F# program; resolved sources on the read path.
 
-## Validating each model once (design, 2026-10-28)
+## Validating each model once (done, 2026-10-28)
 
 The speed measurement of #534 showed the Zig path paying for validation three times where once is enough. Opening a snapshot runs the Zig validator on its bytes, then `SemanticWorkspace.create` runs the F# validator on the Snapshot built from them. Every runPure context writes the snapshot with the F# writer (which looks up or runs validation) and `model-reader --execution-ir` validates it again for readiness. The changes below make each model validated once on the default path. The check modes keep comparing exactly as now.
 
