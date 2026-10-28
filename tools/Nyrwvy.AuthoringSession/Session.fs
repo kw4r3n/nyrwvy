@@ -93,6 +93,8 @@ type internal AuthoringExecutionContext =
       /// The execution program of the whole committed snapshot, for a backend that builds once per
       /// snapshot; None for a proposal's candidate snapshot.
       ProjectAll: (unit -> Result<ExecutionProgram, AuthoringSessionError>) option
+      /// The canonical JSON of the snapshot `Project` projects, for the Zig lowering.
+      ModelJson: unit -> Result<string, SnapshotCodecError>
       /// The session's long-lived runner process for compiled programs.
       Worker: PureRunWorker }
 
@@ -1964,6 +1966,9 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure)
                     |> ZigLowering.check (fun () -> SnapshotCodec.serialize snapshot) (Some entry)
                   ProjectAll = None
+                  ModelJson = fun () ->
+                    use _scope = SnapshotComputationScope.Start()
+                    SnapshotCodec.serialize snapshot
                   Worker = worker })
         this.VerifyPersistedSource()
         |> Result.bind (fun () ->
@@ -1976,6 +1981,11 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                       Declarations = this.Declarations()
                       Project = this.ProjectEntryExecution
                       ProjectAll = Some this.ProjectAllExecution
+                      ModelJson =
+                        let current = workspace
+                        fun () ->
+                            use _scope = SnapshotComputationScope.Start()
+                            AgentWorkspace.serializeCurrentSnapshot current
                       Worker = worker })
             | Some id ->
                 this.PendingProposalView id
