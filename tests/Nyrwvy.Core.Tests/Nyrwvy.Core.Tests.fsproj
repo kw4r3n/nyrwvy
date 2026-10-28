@@ -5,6 +5,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Utf16Literal.fs" />
+    <Compile Include="ViewerRendering.fs" />
     <Compile Include="TestGraph.fs" />
     <Compile Include="MilestoneZeroGraph.fs" />
     <Compile Include="FoundationTests.fs" />

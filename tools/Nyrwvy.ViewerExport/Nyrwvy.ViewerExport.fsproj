@@ -8,6 +8,6 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
-    <ProjectReference Include="../../src/Nyrwvy.Viewer/Nyrwvy.Viewer.fsproj" />
+    <ProjectReference Include="../Nyrwvy.AuthoringSession/Nyrwvy.AuthoringSession.fsproj" />
   </ItemGroup>
 </Project>

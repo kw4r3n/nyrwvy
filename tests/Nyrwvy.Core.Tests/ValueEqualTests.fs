@@ -206,7 +206,7 @@ module ValueEqualTests =
             let node = viewer.Graph.Nodes |> List.find (fun item -> item.Id = named.Body.ResultNodeId)
             Assert.Equal(ViewerNodeRole.Operation "ValueEqual", node.Role)
             Assert.Equal<ValueDependencyRole list>([ ValueDependencyRole.LeftOperand; ValueDependencyRole.RightOperand ], node.ValueDependencies |> List.map (fun item -> item.Role))
-            Assert.Contains("value equal", ViewerHtml.renderFocusDocument viewer)
+            Assert.Contains("value equal", ViewerRendering.focus viewer)
             session.Close()
             let encoded = File.ReadAllText path
             Assert.Contains("\"kind\":\"valueEqual\"", encoded)

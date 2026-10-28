@@ -153,7 +153,7 @@ module ExceptionBoundaryTests =
             Assert.Contains($"\"schemaVersion\":{TypedSemanticIrSerializer.schemaVersion}", TypedSemanticIrSerializer.serialize typed)
             Assert.Contains("exceptionIsCancellation", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
             Assert.Contains($"\"schemaVersion\":{ExecutionIrSerializer.schemaVersion}", ExecutionIr.lower typed |> unwrap |> ExecutionIrSerializer.serialize)
-            let viewer = SemanticQuery.focusFunction original fn.Id |> unwrap |> ViewerProjection.focus |> ViewerHtml.renderFocusDocument
+            let viewer = SemanticQuery.focusFunction original fn.Id |> unwrap |> ViewerProjection.focus |> ViewerRendering.focus
             Assert.Contains("exception is cancellation", viewer)
             let source = (session.EmitCSharp CSharpBackendProfile.empty |> unwrap).Source
             Assert.Contains(".SourceException is System.OperationCanceledException", source)

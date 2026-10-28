@@ -26,6 +26,7 @@
     <Compile Include="WireOutline.fs" />
     <Compile Include="WireProposalProjection.fs" />
     <Compile Include="WireEncode.fs" />
+    <Compile Include="ViewerArtifact.fs" />
     <Compile Include="WireProtocolAdapters.fs" />
     <Compile Include="ConfinedDirectory.fs" />
     <Compile Include="ViewerFile.fs" />

@@ -47,7 +47,7 @@ module ViewerTests =
               AffectedFunctionIds = [ model.Function.FunctionId ]
               AffectedTypeIds = []
               FunctionFocus = [ model ] }
-        [ ViewerHtml.renderFocusDocument model; ViewerHtml.renderChangeReviewDocument review ]
+        [ ViewerRendering.focus model; ViewerRendering.changeReview review ]
 
     let private assertDependencyList (items: string list) (document: string) =
         let expected =
@@ -294,7 +294,7 @@ module ViewerTests =
             failwith "Viewer output changed when only nonsemantic root node serialization order changed."
 
     [<Fact>]
-    let ``viewer HTML escapes display metadata and emits no script execution surface`` () =
+    let ``viewer escapes display metadata and runs no script but its own`` () =
         let fixture = MilestoneZeroGraph.create ()
         let maliciousName = "<script>alert('viewer')</script>&"
         let functions =
@@ -306,7 +306,7 @@ module ViewerTests =
                     functionEntity)
         let snapshot = { fixture.Snapshot with Functions = functions }
         let source = SemanticQuery.focusFunction snapshot fixture.ValidateFunctionId |> unwrap
-        let document = source |> ViewerProjection.focus |> ViewerHtml.renderFocusDocument
+        let document = source |> ViewerProjection.focus |> ViewerRendering.focus
 
         if document.Contains(maliciousName, StringComparison.Ordinal) then
             failwith "Viewer emitted unescaped display metadata."
@@ -316,6 +316,18 @@ module ViewerTests =
             failwith "Viewer unexpectedly emitted a script element."
         if document.Contains("innerHTML", StringComparison.OrdinalIgnoreCase) then
             failwith "Viewer unexpectedly relies on innerHTML."
+
+        // The page holds the names only inside its JSON data, which escapes `<`, so no name can end
+        // that element or open another; its policy runs only the asset's own script.
+        let page = source |> ViewerProjection.focus |> ViewerData.ofFocus |> ViewerHtml.page
+        let asset = ViewerHtml.asset.Value
+        let dataStart = page.IndexOf("id=\"nyrwvy-data\">", StringComparison.Ordinal) + 17
+        Assert.DoesNotContain("<", page.Substring(dataStart, page.IndexOf("</script>", dataStart, StringComparison.Ordinal) - dataStart))
+        Assert.Equal(asset.Split("<script").Length, page.Split("<script").Length)
+        let codeStart = asset.IndexOf("<script>", StringComparison.Ordinal) + 8
+        let code = asset.Substring(codeStart, asset.IndexOf("</script>", codeStart, StringComparison.Ordinal) - codeStart)
+        let hash = Convert.ToBase64String(Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes code))
+        Assert.Contains($"script-src 'sha256-{hash}'", asset)
 
     [<Fact>]
     let ``string literal labels escape bidi overrides and line breaks`` () =
@@ -328,15 +340,31 @@ module ViewerTests =
               Relations = []
               ValueDependencies = []
               Branches = [] }
-        let document = ViewerHtml.renderFocusDocument { model with Graph = { Nodes = [ node ]; ResultNodeId = node.Id } }
+        let document = ViewerRendering.focus { model with Graph = { Nodes = [ node ]; ResultNodeId = node.Id } }
         Assert.Contains("a\\u202Eb\\u000Ac", document)
         Assert.False(document.Contains('\u202E'), "The raw bidi override reached the page.")
+        // The engine review the page prints keeps it escaped too.
+        let review: ViewerProposalReviewModel =
+            { TransactionId = StableId.createForTesting<TransactionTag> "transaction-label-spoof"
+              ProposalKind = "createFunction"
+              BaseSnapshotId = model.SnapshotId
+              ProposedSnapshotId = model.SnapshotId
+              BaseIsCommitted = true
+              Readiness = TransactionReadiness.SemanticallyReady
+              ChangedFunctions = []
+              DeclaredTypes = []
+              DeclaredEffects = []
+              DeclaredCapabilities = []
+              EngineReview = """{"value":"a\u202Eb"}""" }
+        let page = review |> ViewerData.ofProposalReview None |> ViewerHtml.page |> ViewerRendering.page
+        Assert.Contains("a\\u202Eb", page)
+        Assert.False(page.Contains('\u202E'), "The raw bidi override reached the engine review.")
 
     [<Fact>]
     let ``focus HTML exposes stable IDs and textual branch labels`` () =
         let fixture = MilestoneZeroGraph.create ()
         let model = focus fixture fixture.ValidateFunctionId
-        let document = ViewerHtml.renderFocusDocument model
+        let document = ViewerRendering.focus model
 
         for expected in
             [ StableId.value fixture.ValidateFunctionId
@@ -349,8 +377,8 @@ module ViewerTests =
     [<Fact>]
     let ``focus HTML distinguishes required effects from referenced declarations`` () =
         let fixture = MilestoneZeroGraph.create ()
-        let pureDocument = focus fixture fixture.ValidateFunctionId |> ViewerHtml.renderFocusDocument
-        let effectfulDocument = focus fixture fixture.MainFunctionId |> ViewerHtml.renderFocusDocument
+        let pureDocument = focus fixture fixture.ValidateFunctionId |> ViewerRendering.focus
+        let effectfulDocument = focus fixture fixture.MainFunctionId |> ViewerRendering.focus
         let effectText = "<p>Declared required effects: <code>effect:" + StableId.value fixture.ConsoleEffectId + "</code></p>"
 
         Assert.Contains("<p>Declared required effects: None.</p>", pureDocument)
@@ -383,7 +411,7 @@ module ViewerTests =
                 ChangeReviewQuery.project simulation
                 |> unwrap
                 |> ViewerProjection.changeReview
-                |> ViewerHtml.renderChangeReviewDocument
+                |> ViewerRendering.changeReview
             let expected =
                 "<li><code>function:" + StableId.value fixture.ValidateFunctionId
                 + "</code> " + verb + " required effect <code>effect:"
@@ -417,7 +445,7 @@ module ViewerTests =
             | Rejected diagnostics -> failwithf "Unexpected transaction rejection: %A" diagnostics
 
         let review = ChangeReviewQuery.project simulation |> unwrap
-        let document = review |> ViewerProjection.changeReview |> ViewerHtml.renderChangeReviewDocument
+        let document = review |> ViewerProjection.changeReview |> ViewerRendering.changeReview
 
         for expected in
             [ "Readiness: incomplete"
@@ -441,7 +469,7 @@ module ViewerTests =
                   Relations = []
                   ValueDependencies = []
                   Branches = [] }
-            ViewerHtml.renderFocusDocument { model with Graph = { Nodes = [ node ]; ResultNodeId = node.Id } }
+            ViewerRendering.focus { model with Graph = { Nodes = [ node ]; ResultNodeId = node.Id } }
         // A builtin added to SemanticNodeKind needs no viewer entry: its label derives from the kind name.
         for case in Microsoft.FSharp.Reflection.FSharpType.GetUnionCases(typeof<SemanticNodeKind>) do
             let label = Text.RegularExpressions.Regex.Match(render case.Name, "<h4>([^<]*)</h4>").Groups[1].Value

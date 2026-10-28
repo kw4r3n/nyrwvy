@@ -96,7 +96,7 @@ module Int64DivisionTests =
             let remainder = find session "remainder"
             let roleOf (fn: SemanticFunction) =
                 let viewer = session.FocusFunction fn.Id |> unwrap |> ViewerProjection.focus
-                (viewer.Graph.Nodes |> List.find (fun node -> node.Id = fn.Body.ResultNodeId)).Role, ViewerHtml.renderFocusDocument viewer
+                (viewer.Graph.Nodes |> List.find (fun node -> node.Id = fn.Body.ResultNodeId)).Role, ViewerRendering.focus viewer
             let divideRole, divideHtml = roleOf quotient
             let moduloRole, moduloHtml = roleOf remainder
             Assert.Equal(ViewerNodeRole.Operation "Int64FloorDivide", divideRole)

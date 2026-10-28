@@ -187,7 +187,7 @@ module ListSortByTests =
             let viewer = session.FocusFunction named.Id |> unwrap |> ViewerProjection.focus
             let node = viewer.Graph.Nodes |> List.find (fun item -> item.Id = named.Body.ResultNodeId)
             Assert.Equal(ViewerNodeRole.Operation "ListSortBy", node.Role)
-            Assert.Contains("List sort by", ViewerHtml.renderFocusDocument viewer)
+            Assert.Contains("List sort by", ViewerRendering.focus viewer)
             let lessFn = find session "lessByName"
             let lessViewer = session.FocusFunction lessFn.Id |> unwrap |> ViewerProjection.focus
             let lessNode = lessViewer.Graph.Nodes |> List.find (fun item -> item.Id = lessFn.Body.ResultNodeId)
@@ -308,7 +308,7 @@ module ListSortByTests =
             let viewer = session.FocusFunction named.Id |> unwrap |> ViewerProjection.focus
             let node = viewer.Graph.Nodes |> List.find (fun item -> item.Id = named.Body.ResultNodeId)
             Assert.Equal(ViewerNodeRole.Operation "ListMinBy", node.Role)
-            Assert.Contains("List min by", ViewerHtml.renderFocusDocument viewer)
+            Assert.Contains("List min by", ViewerRendering.focus viewer)
             session.Close()
             let encoded = File.ReadAllText path
             Assert.Contains("\"kind\":\"listMinBy\"", encoded)

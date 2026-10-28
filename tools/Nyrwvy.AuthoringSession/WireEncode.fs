@@ -251,7 +251,7 @@ module internal WireEncode =
               "requiredEffectsChanged",
                 value.FunctionRequiredEffectsChanged |> List.map requiredEffectChange |> arrayValue ]
 
-    let private semanticDiff (value: SemanticDiff) = objectValue (semanticDiffFields value @ conditionalDiffFields value)
+    let semanticDiff (value: SemanticDiff) = objectValue (semanticDiffFields value @ conditionalDiffFields value)
 
     let private bodyDiff (value: FunctionBodyReplacementDiff) =
         objectValue

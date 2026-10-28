@@ -160,7 +160,7 @@ module Bits32Tests =
             let viewer = session.FocusFunction fn.Id |> unwrap |> ViewerProjection.focus
             let rotate = viewer.Graph.Nodes |> List.find (fun item -> item.Role = ViewerNodeRole.Operation "Bits32RotateRight")
             Assert.Equal<ValueDependencyRole list>([ ValueDependencyRole.Source; ValueDependencyRole.Amount ], rotate.ValueDependencies |> List.map (fun item -> item.Role))
-            let html = ViewerHtml.renderFocusDocument viewer
+            let html = ViewerRendering.focus viewer
             for label in [ "bits32 rotate right"; "bits32 shift left"; "bits32 to int64" ] do Assert.Contains(label, html)
             session.Close()
             let encoded = File.ReadAllText path
