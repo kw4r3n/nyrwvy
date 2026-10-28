@@ -206,10 +206,8 @@ value-dependent continuation IDs. These continuations describe graph dependence,
 not a proof of runtime reachability. HTML Focus and Change Review expose the same
 boundary facts. Recipe discovery is shared by the MCP and OpenCode tool hosts.
 
-Abort-bearing functions must pass the shared dependency-order rule during
-snapshot validation, including deserialize and publication. Proposals hold every
-added or edited function, with or without Abort, to the runtime ordering rule
-([derived runtime ordering](runtime-ordering.md)); full validation keeps the
-historical rule so earlier snapshots still open.
+Every function, with or without Abort, must pass the runtime ordering rule
+([derived runtime ordering](runtime-ordering.md)) during snapshot validation,
+including deserialize, proposals and publication.
 A control that may abort counts as observable for ordering without becoming a
 nominal EffectId. Invalid branches and undeclared effects are still validated.

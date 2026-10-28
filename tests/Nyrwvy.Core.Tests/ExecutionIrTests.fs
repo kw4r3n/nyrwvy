@@ -140,7 +140,7 @@ module ExecutionIrTests =
     [<InlineData(1, false)>]
     [<InlineData(36, false)>]
     [<InlineData(36, true)>]
-    let ``lowering promptly distinguishes independent and ordered effects through a shared DAG`` sharedNodeCount ordered =
+    let ``validation and lowering promptly distinguish independent and ordered effects through a shared DAG`` sharedNodeCount ordered =
         let fixture = MilestoneZeroGraph.create ()
         let operation =
             fixture.Snapshot.Capabilities
@@ -212,38 +212,40 @@ module ExecutionIrTests =
                                 Nodes = functionEntity.Body.Nodes @ orderNodes @ extraTextNodes @ [ extraInvokeNode ] } })
 
         let snapshot = { fixture.Snapshot with Functions = functions }
-        Assert.Empty(SnapshotValidator.validate snapshot)
-
-        let typedProgram =
-            match TypedSemanticIr.project snapshot with
-            | Ok value -> value
-            | Error error -> failwithf "Unexpected Typed Semantic IR error: %A" error
-
+        // Validation applies the rule lowering enforces, so the unordered pair is refused there.
         let stopwatch = System.Diagnostics.Stopwatch.StartNew()
-        let result = ExecutionIr.lower typedProgram
+        let issues = SnapshotValidator.validate snapshot
         stopwatch.Stop()
-        Assert.True(stopwatch.Elapsed < System.TimeSpan.FromSeconds 5.0, sprintf "Lowering took %O" stopwatch.Elapsed)
-
-        match ordered, result with
-        | false, Error(ExecutionIrError.AmbiguousEffectOrder(functionId, first, second)) ->
-            Assert.Equal(fixture.MainFunctionId, functionId)
-            Assert.Equal<Set<GraphNodeId>>(
-                Set.ofList [ main.Body.ResultNodeId; extraInvokeNodeId ],
-                Set.ofList [ first; second ]
-            )
-        | true, Ok execution ->
-            let loweredMain = functionById fixture.MainFunctionId execution
-            let entry = loweredMain.Blocks |> List.find (fun block -> block.Id = loweredMain.EntryBlockId)
-            let effects =
-                entry.Instructions
-                |> List.choose (fun instruction ->
-                    match instruction.Kind with
-                    | ExecutionInstructionKind.DirectCall(functionId, _) when functionId = fixture.ReportFunctionId ->
-                        Some instruction.OriginNodeId
-                    | ExecutionInstructionKind.CapabilityInvoke _ -> Some instruction.OriginNodeId
-                    | _ -> None)
-            Assert.Equal<GraphNodeId list>([ main.Body.ResultNodeId; extraInvokeNodeId ], effects)
-        | _ -> failwithf "Unexpected lowering result (ordered = %b): %A" ordered result
+        Assert.True(stopwatch.Elapsed < System.TimeSpan.FromSeconds 5.0, sprintf "Validation took %O" stopwatch.Elapsed)
+        if not ordered then
+            let issue = Assert.Single(issues)
+            Assert.Equal("AmbiguousEffectOrder", issue.Code)
+            Assert.Contains($"'{StableId.value main.Body.ResultNodeId}'", issue.Message)
+            Assert.Contains($"'{StableId.value extraInvokeNodeId}'", issue.Message)
+        else
+            Assert.Empty(issues)
+            let typedProgram =
+                match TypedSemanticIr.project snapshot with
+                | Ok value -> value
+                | Error error -> failwithf "Unexpected Typed Semantic IR error: %A" error
+            let stopwatch = System.Diagnostics.Stopwatch.StartNew()
+            let result = ExecutionIr.lower typedProgram
+            stopwatch.Stop()
+            Assert.True(stopwatch.Elapsed < System.TimeSpan.FromSeconds 5.0, sprintf "Lowering took %O" stopwatch.Elapsed)
+            match result with
+            | Ok execution ->
+                let loweredMain = functionById fixture.MainFunctionId execution
+                let entry = loweredMain.Blocks |> List.find (fun block -> block.Id = loweredMain.EntryBlockId)
+                let effects =
+                    entry.Instructions
+                    |> List.choose (fun instruction ->
+                        match instruction.Kind with
+                        | ExecutionInstructionKind.DirectCall(functionId, _) when functionId = fixture.ReportFunctionId ->
+                            Some instruction.OriginNodeId
+                        | ExecutionInstructionKind.CapabilityInvoke _ -> Some instruction.OriginNodeId
+                        | _ -> None)
+                Assert.Equal<GraphNodeId list>([ main.Body.ResultNodeId; extraInvokeNodeId ], effects)
+            | Error error -> failwithf "Unexpected lowering error: %A" error
 
     [<Theory>]
     [<InlineData(false)>]

@@ -1977,7 +1977,7 @@ module Transaction =
                 // declaration's name in its scope. Pre-existing duplicates are left alone.
                 let duplicate = renames |> List.tryPick (duplicateRename proposed)
 
-                match SnapshotValidator.validateProposal baseSnapshot proposed, duplicate with
+                match SnapshotValidator.validate proposed, duplicate with
                 | issue :: _, _ -> reject "InvalidProposedSnapshot" $"{issue.Code}: {issue.Message}"
                 | [], Some message -> reject "DuplicateDisplayName" message
                 | [], None ->

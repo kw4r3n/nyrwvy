@@ -366,6 +366,22 @@ module ZigValidatorSupport =
                       if key.EndsWith "FunctionId" || key.EndsWith "OperationId" || key = "fieldId" || key = "variantId" || key = "parameterId" || key = "patternBindingId" || key = "capabilityId" then
                           (node[key] <- s (string node["id"]); changed <- true)
               changed)
+          "OneShotComplete completes with a value of another type",
+          (fun root ->
+              let mutable changed = false
+              for container in ZigModelReaderSupport.containers root do
+                  match container with
+                  | :? JsonObject as graph when graph.ContainsKey "nodes" && (graph["nodes"] :? JsonArray) ->
+                      let nodes = graph["nodes"] :?> JsonArray
+                      for item in List.ofSeq nodes do
+                          match item with
+                          | :? JsonObject as node when string node["kind"] = "oneShotComplete" ->
+                              node["valueNodeId"] <- s "oneshot-text"
+                              nodes.Add(literalNode "oneshot-text" "string")
+                              changed <- true
+                          | _ -> ()
+                  | _ -> ()
+              changed)
           // Slice 3c: literals of each type as every operand, graph results and scopes.
           for literal in [ "string"; "int64"; "bool"; "float64"; "unit" ] do
               $"every operand is a {literal} literal",

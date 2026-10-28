@@ -214,7 +214,8 @@ module FunctionAbortTests =
             let withNodes nodes = { scoped with Body = { scoped.Body with Nodes = nodes } }
             // One acquisition handed to two scopes would be released twice.
             let twice = { useNode with Id = StableId.createForTesting<GraphNodeTag> "use-resource-twice" }
-            Assert.Equal<string list>([ "UseResourceAcquireShared"; "UseResourceAcquireShared" ], codes (withNodes (scoped.Body.Nodes @ [ twice ])))
+            // The two scopes are also unordered effects.
+            Assert.Equal<string list>([ "AmbiguousEffectOrder"; "UseResourceAcquireShared"; "UseResourceAcquireShared" ], codes (withNodes (scoped.Body.Nodes @ [ twice ])))
             // Any other consumer breaks the guarantee, in the same graph or in a branch.
             let peek: SemanticNode = { Id = StableId.createForTesting<GraphNodeTag> "use-resource-peek"; Kind = SemanticNodeKind.ValueEqual(acquireId, acquireId) }
             Assert.Equal<string list>([ "UseResourceAcquireShared" ], codes (withNodes (scoped.Body.Nodes @ [ peek ])))
@@ -422,7 +423,7 @@ module FunctionAbortTests =
             let outcome = session.SimulateCreateFunction(request session "ambiguous" [ "io", capType ] (result textType) [ effect.Id ] ambiguous)
             Assert.True(Result.isError outcome)
             Assert.Contains("AmbiguousEffectOrder", sprintf "%A" outcome)
-            Assert.Contains("sequence them with bind so one runs first", sprintf "%A" outcome))
+            Assert.Contains("Sequence them with Bind", sprintf "%A" outcome))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``generic abort pure function values and union matches retain their own invocation boundaries`` () =
@@ -460,7 +461,7 @@ module FunctionAbortTests =
                 Assert.Equal(errText expected, (PureRun.run session all.Id [ PureRunValue.Bool condition ] None |> unwrap).Actual))
 
     [<Fact>]
-    let ``proposals reject a hidden intrinsic helper beside local abort while legacy snapshots stay reopenable`` () =
+    let ``proposals and full validation reject a hidden intrinsic helper beside local abort`` () =
         withSession (fun session path ->
             let ambient = create session "ambient" [] boolType [] ExpressionRecipe.CancellationRequested
             let hop = create session "hop" [] boolType [] (ExpressionRecipe.DirectCall(ambient.Id, []))
@@ -476,9 +477,9 @@ module FunctionAbortTests =
             Assert.True(Result.isError rejected)
             Assert.Contains("AmbiguousEffectOrder", sprintf "%A" rejected)
             Assert.Equal<byte>(before, File.ReadAllBytes path)
-            // A snapshot published under the historical abort-only rule: the caller was admitted
-            // while its helper was pure, and the helper became intrinsically effectful outside the
-            // proposal path. Full validation, and so reopening, keeps accepting it.
+            // A snapshot whose caller was admitted while its helper was pure, and whose helper became
+            // intrinsically effectful outside the proposal path, no longer validates (and so no longer
+            // opens): full validation applies the runtime rule too.
             let pureHop = create session "pureHop" [] boolType [] (ExpressionRecipe.BoolLiteral true)
             let legacy = create session "legacy" [] (result textType) [] (unsequenced pureHop.Id)
             let published = snapshot path
@@ -486,32 +487,9 @@ module FunctionAbortTests =
                 published.Functions |> List.find (fun fn -> fn.Id = pureHop.Id) |> fun fn ->
                     { fn with Body = { fn.Body with Nodes = [ { Id = fn.Body.ResultNodeId; Kind = SemanticNodeKind.DirectCall(ambient.Id, []) } ] } }
             let historical = { published with Functions = published.Functions |> List.map (fun fn -> if fn.Id = pureHop.Id then tamperedHop else fn) }
-            Assert.Empty(SnapshotValidator.validate historical)
-            session.Close()
-            File.WriteAllText(path, SnapshotCodec.serialize historical |> unwrap)
-            use reopened = AuthoringSession.openExisting path |> unwrap
-            Assert.Equal(legacy.Id, (find reopened "legacy").Id)
-            match reopened.ProjectExecution() with
-            | Error(AuthoringSessionError.ExecutionLoweringFailure(ExecutionIrError.AmbiguousEffectOrder(owner, _, _))) -> Assert.Equal(legacy.Id, owner)
-            | other -> failwithf "A hidden intrinsic helper was lowered beside local Abort: %A" other
-            // Proposals that leave the legacy function untouched still publish.
-            create reopened "unrelated" [] boolType [] (ExpressionRecipe.BoolLiteral false) |> ignore
-            // Edits to the legacy function are held to the runtime rule: an ambiguous edit is
-            // rejected and an ordered repair publishes and lowers.
-            let status = reopened.Status() |> unwrap
-            let still: AgentReplaceFunctionBodyWithExpressionRecipe =
-                { TargetFunctionId = legacy.Id
-                  ExpectedBaseSnapshotId = status.SnapshotId
-                  ExpectedCurrentResultNodeId = legacy.Body.ResultNodeId
-                  Replacement = unsequenced hop.Id }
-            let stillRejected = reopened.SimulateReplaceBody still
-            Assert.True(Result.isError stillRejected)
-            Assert.Contains("AmbiguousEffectOrder", sprintf "%A" stillRejected)
-            let edit = { still with Replacement = ExpressionRecipe.Bind(ExpressionRecipe.DirectCall(hop.Id, []), abort "stop") }
-            let proposal = reopened.SimulateReplaceBody edit |> unwrap
-            publish reopened proposal
-            let execution = reopened.ProjectExecution() |> unwrap
-            Assert.Contains(execution.Functions, fun fn -> fn.SemanticFunctionId = legacy.Id))
+            let issue = Assert.Single(SnapshotValidator.validate historical)
+            Assert.Equal("AmbiguousEffectOrder", issue.Code)
+            Assert.Contains(StableId.value legacy.Id, issue.Message))
 
     [<Fact>]
     let ``abort free callers of intrinsic helpers are ordered at proposal time including callee changes`` () =
