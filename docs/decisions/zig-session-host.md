@@ -63,7 +63,7 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
      - The model reader keeps its state in globals; `resetState` (also `--bench`'s) starts each document afresh, so one process reads several.
      - `ZigHostParityTests` opens every example split into a dependency and a local part in each form: JSON, records, by path, a set, a colliding set. It also covers ten broken sidecars or markers and both hints, read-only and writable, and compares exit code, stderr and the `status` reply. It checks that the accepted forms open, that the others fail, and that at least twelve distinct failures occur, the collision among them.
      - `ZigSpeed`: the Zig host opens Rhifill's resolved workspace in 47.2–47.9 ms against the F# host's 605.2–606.2.
-2. **Read-only requests, in four PRs.** The encoders (`tools/zig/host/wire.zig`) read the model reader's tree of the open model in canonical order. Its strings are UTF-16 units, so ordering and escaping already follow .NET.
+2. **Read-only requests, in five PRs.** The encoders (`tools/zig/host/wire.zig`) read the model reader's tree of the open model in canonical order. Its strings are UTF-16 units, so ordering and escaping already follow .NET.
    - **2a. `dependency`, `declarations`, `proposals`, 0.4K (done).**
      - `declarations` follows `WireEncodeCommon.declarations`: the provenance of each visible declaration (local, or imported with the members that provide it), then the functions' signatures, the types, the effects and the capabilities. Imported declarations the dependency does not export are left out.
      - `dependency` follows `PinnedDependency.describe`: an anonymous record, so its fields come in name order. Each member gives its path, ID, fingerprint and storage, and a set gives a `dependencies` list.
@@ -74,8 +74,14 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
      - `search` compares as `OrdinalIgnoreCase` and name hints lower-case as `ToLowerInvariant`, through code point runs F# generates from .NET (`tools/zig/host/case_runs.zig`; a fast test fails when it is stale). A `limit` that is not a JSON Int32 is now `ProtocolError` `limit must be a JSON Int32.` in both hosts; F# used to answer `SessionError` or `InternalError` with .NET's text.
      - `unreferenced` builds the same reference edges between the visible declarations.
      - Parity: `step2b-queries.jsonl` (error forms, non-ASCII search) on every example and a JSON snapshot, and requests built from each snapshot's declarations: every declaration and member by ID, by name and by selector, with ownership and pin guards, searches and `unreferenced` with roots. The resolved-snapshot test asks the same on every form that opens, so hidden imports and provenance guards are covered.
-   - **2c. `readFunction`, `viewFunction`, `bindingScopes`.**
-   - **2d. `executionReadiness`.**
+   - **2c. `bindingScopes` and compact `readFunction`, 0.9K (done).**
+     - `bindingScopes` walks the body's binding frames as `WireEncodeCommon.bindingFrames` does.
+     - Compact `readFunction` follows `SemanticQuery.focusFunction` and `compactFocus`: the effect requirements, the wait path, the aborts (with the error node's inferred type, from the model reader's node typing), callers, callees, open obligations and the literals. The model reader derives these facts (`focusOf`).
+     - Every request's `detail` (and `structuredReview` for a full review) is checked before its operation, as F#'s `encodeProposal` does.
+     - Until 2d, the Zig host answers `UnsupportedOperation` for `readFunction` at `outline` or `full` and for a function with a Bytes update (its `copiedUpdates` need the Execution IR).
+     - Parity: `step2c-focus.jsonl`, and the generated queries ask `bindingScopes` at every node and compact `readFunction` of every function. They also run on the all-kinds snapshots, the milestone-zero graph with an open obligation, and a long literal, and they check that the F# replies show aborts, waits, open obligations, frames and truncated literals.
+   - **2d. `readFunction` at `outline` and `full`, `copiedUpdates`; `viewFunction` (open: whether the Viewer's HTML is ported or the operation leaves the protocol).**
+   - **2e. `executionReadiness`.**
 3. **First write path, 4–6K.**
    - `simulateCreateFunction(ByName)` and `simulateReplaceBody(ByName)`: expression recipes (inference and materialization), the structural transaction, and the proposal review.
    - `commit` and `reject`: the writer for both formats, atomic writes and history.

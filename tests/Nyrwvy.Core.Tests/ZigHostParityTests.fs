@@ -125,6 +125,15 @@ module ZigHostParityTests =
                   yield $"""{{"id":"b","op":"bindingScopes","functionId":{quote (id item.Id)},"nodeId":{quote (id node.Id)}}}"""
               yield $"""{{"id":"b","op":"bindingScopes","function":{quote item.DisplayName},"nodeId":{quote (id item.Body.ResultNodeId)}}}"""
               yield $"""{{"id":"b","op":"bindingScopes","function":{quote item.DisplayName},"nodeId":"missing"}}"""
+              // Bytes copy plans (`copiedUpdates`) come with the Execution IR in the next step.
+              let updatesBytes =
+                  ValueGraph.collectNodes item.Body |> List.exists (fun node ->
+                      match node.Kind with
+                      | SemanticNodeKind.BytesSet _ | SemanticNodeKind.BytesAppend _ -> true
+                      | _ -> false)
+              if not updatesBytes then
+                  yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)},"detail":"compact"}}"""
+                  yield $"""{{"id":"f","op":"readFunction","function":{quote item.DisplayName},"detail":"compact"}}"""
           yield """{"id":"u","op":"unreferenced"}"""
           for item in declarations.Functions |> List.truncate 3 do
               yield $"""{{"id":"u","op":"unreferenced","roots":[{quote item.DisplayName}]}}""" ]
@@ -138,12 +147,48 @@ module ZigHostParityTests =
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host answers queries built from each snapshot as the F# host does`` () =
         withDirectory (fun dir ->
-            for snapshot in snapshots dir do
+            // The examples lack some constructs (aborts, waits, open obligations); the all-kinds snapshots have them.
+            let constructed =
+                let fixture = MilestoneZeroGraph.create ()
+                // An open obligation: a parameter added with the call site left missing.
+                let incomplete =
+                    Transaction.simulate fixture.Snapshot
+                        { Id = StableId.createForTesting<TransactionTag> "zig-host-add-policy"
+                          BaseSnapshotId = fixture.Snapshot.Id
+                          ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "zig-host-incomplete"
+                          Operations =
+                            [ AddFunctionParameter
+                                { TargetFunctionId = fixture.ValidateFunctionId
+                                  NewParameterId = StableId.createForTesting<ParameterTag> "zig-host-policy"
+                                  NewParameterDisplayName = "policy"
+                                  NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
+                                  CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, StableId.createForTesting<ObligationTag> "zig-host-obligation") ] } ] }
+                    |> function Proposed simulation -> simulation.ProposedSnapshot | Rejected diagnostics -> failwithf "%A" diagnostics
+                // A literal longer than the summaries show, with a surrogate pair at the cut.
+                let long =
+                    let node = StableId.createForTesting<GraphNodeTag> "zig-host-long-literal"
+                    let text = "long" + String.replicate 251 "a" + "😀" + String.replicate 200 "b"
+                    { Snapshot.empty (StableId.createForTesting<SnapshotTag> "zig-host-long") with
+                        Functions =
+                          [ { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "zig-host-long"; DisplayName = "long"
+                              TypeParameters = []; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.String; RequiredEffects = []
+                              Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.StringLiteral text } ]; ResultNodeId = node } } ] }
+                RecordCodecAllKindsTests.allKindSnapshots () @ [ fixture.Snapshot; incomplete; long ]
+                |> List.mapi (fun index snapshot ->
+                    let path = Path.Combine(dir, $"kinds-{index}.json")
+                    File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap)
+                    path)
+            let answered = Text.StringBuilder()
+            for snapshot in snapshots dir @ constructed do
                 use session = AuthoringSession.openReadOnly snapshot |> unwrap
                 let requests = queries session
                 let code, errors, answers = run true [ "open"; "--snapshot"; snapshot; "--read-only" ] requests
                 Assert.True((code = 0), errors)
-                sameAnswers (Path.GetFileName snapshot) (requests |> List.map (AuthoringProtocol.executeLine session)) answers requests)
+                let fsharp = requests |> List.map (AuthoringProtocol.executeLine session)
+                fsharp |> List.iter (answered.Append >> ignore)
+                sameAnswers (Path.GetFileName snapshot) fsharp answers requests
+            for shown in [ "\"aborts\":[{"; "\"mayWait\":true"; "\"openObligations\":[{"; "\"frames\":[{"; "\"variants\":["; "\"slot\":\"field\""; "\"evidence\":[{"; "\"references\":[{"; "\"role\":\"patternBinding\""; "\"truncated\":true" ] do
+                Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it."))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host fails to start as the F# host does`` () =

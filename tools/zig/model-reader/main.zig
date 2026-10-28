@@ -1764,6 +1764,226 @@ pub fn bodyNodes(allocator: std.mem.Allocator, function: Value) []const Value {
     return nodes.items;
 }
 
+/// The facts `SemanticQuery.focusFunction` derives for one function; IDs decoded.
+pub const NodeTypeOf = struct { id: Str, type: ?Value };
+pub const Evidence = struct { effect: Str, node: Str, operation: bool, source: Str };
+pub const BodyRequirements = struct { effects: []const Str, evidence: []const Evidence, unresolved_functions: []const Str, unresolved_operations: []const Str };
+pub const CallSite = struct { caller: Str, node: Str, callee: Str };
+pub const Abort = struct { node: Str, error_node: Str, error_type: ?Value, enclosing: []const Str, dependents: []const Str };
+pub const Focus = struct { node_types: []const NodeTypeOf, requirements: BodyRequirements, wait_path: ?Str, aborts: []const Abort, callers: []const CallSite, callees: []const CallSite };
+
+fn dec(raw: Str) Str {
+    return decodeString(raw) catch unreachable;
+}
+
+fn orderStr(x: Str, y: Str) std.math.Order {
+    return std.mem.order(u16, x, y);
+}
+
+fn lessDecoded(_: void, x: Str, y: Str) bool {
+    return orderStr(x, y) == .lt;
+}
+
+/// Sorted and distinct.
+fn sortedSet(items: []Str) []const Str {
+    std.mem.sort(Str, items, {}, lessDecoded);
+    var out: List(Str) = .empty;
+    for (items) |item| if (out.items.len == 0 or !std.mem.eql(u16, out.items[out.items.len - 1], item)) out.append(a, item) catch oom();
+    return out.items;
+}
+
+/// A type in the model's JSON form, for the wire's type encoder.
+pub fn typeValue(t: TypeRef) Value {
+    var members: List(Member) = .empty;
+    const put = struct {
+        fn f(list: *List(Member), comptime name: []const u8, value: Value) void {
+            list.append(a, .{ .name = L(name), .value = value }) catch oom();
+        }
+    }.f;
+    const values = struct {
+        fn f(ts: []const TypeRef) Value {
+            const out = a.alloc(Value, ts.len) catch oom();
+            for (ts, out) |item, *v| v.* = typeValue(item);
+            return .{ .array = out };
+        }
+    }.f;
+    switch (t.kind) {
+        .primitive => {
+            put(&members, "kind", .{ .string = L("primitive") });
+            put(&members, "primitive", .{ .string = t.name });
+        },
+        .named => {
+            put(&members, "kind", .{ .string = L("named") });
+            put(&members, "typeId", .{ .string = t.name });
+            if (t.args.len > 0) put(&members, "arguments", values(t.args));
+        },
+        .type_parameter => {
+            put(&members, "kind", .{ .string = L("typeParameter") });
+            put(&members, "typeParameterId", .{ .string = t.name });
+        },
+        .capability => {
+            put(&members, "kind", .{ .string = L("capability") });
+            put(&members, "capabilityId", .{ .string = t.name });
+        },
+        .generic => {
+            put(&members, "kind", .{ .string = L("builtinGeneric") });
+            put(&members, "generic", .{ .string = t.name });
+            put(&members, "arguments", values(t.args));
+        },
+        .function => {
+            put(&members, "kind", .{ .string = L("function") });
+            put(&members, "parameters", values(t.args));
+            put(&members, "resultType", typeValue(t.result.?.*));
+        },
+    }
+    return .{ .object = members.items };
+}
+
+/// `SemanticQuery.focusFunction`'s derived facts for `function` of `root` (the session's model).
+pub fn focusOf(allocator: std.mem.Allocator, root: Value, function: Value) Focus {
+    a = allocator;
+    prepareContext(root);
+    var resolver = Resolver.init(function);
+    var nodes: List(Value) = .empty;
+    collectNodes(get(function, "body"), &nodes);
+    var node_types: List(NodeTypeOf) = .empty;
+    for (nodes.items) |node| node_types.append(a, .{ .id = dec(str(node, "id")), .type = if (resolver.nodeType(str(node, "id"))) |t| typeValue(t) else null }) catch oom();
+    std.mem.sort(NodeTypeOf, node_types.items, {}, struct {
+        fn less(_: void, x: NodeTypeOf, y: NodeTypeOf) bool {
+            return orderStr(x.id, y.id) == .lt;
+        }
+    }.less);
+    // `EffectRequirements.derive`.
+    var evidence: List(Evidence) = .empty;
+    var unresolved_functions: List(Str) = .empty;
+    var unresolved_operations: List(Str) = .empty;
+    for (nodes.items) |node| {
+        const node_id = dec(str(node, "id"));
+        for (functionReferences(node)) |reference| if (isInvoked(reference.role)) {
+            if (functions_by_id.get(idKey(reference.function_id))) |target| {
+                for (arrayOf(target, "requiredEffects")) |effect| evidence.append(a, .{ .effect = dec(effect.string), .node = node_id, .operation = false, .source = dec(reference.function_id) }) catch oom();
+            } else unresolved_functions.append(a, dec(reference.function_id)) catch oom();
+        };
+        if (invokedOperation(node)) |operation_id| {
+            if (operations_by_id.get(idKey(operation_id))) |operation| {
+                evidence.append(a, .{ .effect = dec(str(operation, "effectId")), .node = node_id, .operation = true, .source = dec(operation_id) }) catch oom();
+            } else unresolved_operations.append(a, dec(operation_id)) catch oom();
+        }
+    }
+    std.mem.sort(Evidence, evidence.items, {}, struct {
+        fn less(_: void, x: Evidence, y: Evidence) bool {
+            var o = orderStr(x.effect, y.effect);
+            if (o == .eq) o = orderStr(x.node, y.node);
+            if (o == .eq) o = std.math.order(@intFromBool(x.operation), @intFromBool(y.operation));
+            if (o == .eq) o = orderStr(x.source, y.source);
+            return o == .lt;
+        }
+    }.less);
+    var distinct: List(Evidence) = .empty;
+    var effects: List(Str) = .empty;
+    for (evidence.items) |item| {
+        if (distinct.items.len > 0) {
+            const last = distinct.items[distinct.items.len - 1];
+            if (std.mem.eql(u16, last.effect, item.effect) and std.mem.eql(u16, last.node, item.node) and last.operation == item.operation and std.mem.eql(u16, last.source, item.source)) continue;
+        }
+        distinct.append(a, item) catch oom();
+        effects.append(a, item.effect) catch oom();
+    }
+    // `Waiting.derive` and `Waiting.describe`.
+    const capabilities = arrayOf(root, "capabilities");
+    const functions = arrayOf(root, "functions");
+    const waits = deriveWaiting(capabilities, functions);
+    const wait_path: ?Str = if (waits.get(idKey(str(function, "id")))) |path| dec(describeWait(capabilities, functions, path)) else null;
+    // `abortBoundaries`.
+    var dependents: std.StringArrayHashMapUnmanaged(List(Str)) = .empty;
+    for (nodes.items) |node| {
+        var reads: List(Str) = .empty;
+        directValueReferences(node, &reads);
+        for (reads.items) |read| {
+            const entry = dependents.getOrPut(a, idKey(read)) catch oom();
+            if (!entry.found_existing) entry.value_ptr.* = .empty;
+            entry.value_ptr.append(a, str(node, "id")) catch oom();
+        }
+    }
+    var aborts: List(Abort) = .empty;
+    const Walk = struct {
+        fn visit(graph: Value, parents: []const Str, deps: *const std.StringArrayHashMapUnmanaged(List(Str)), types: []const NodeTypeOf, out: *List(Abort)) void {
+            for (arrayOf(graph, "nodes")) |node| {
+                if (isName(str(node, "kind"), "abort")) {
+                    var found: Set = .empty;
+                    var pending: List(Str) = .empty;
+                    found.put(a, idKey(str(node, "id")), {}) catch oom();
+                    pending.append(a, str(node, "id")) catch oom();
+                    for (parents) |parent| {
+                        found.put(a, idKey(parent), {}) catch oom();
+                        pending.append(a, parent) catch oom();
+                    }
+                    const seeds = found.count();
+                    var continuation: List(Str) = .empty;
+                    while (pending.pop()) |id| if (deps.get(idKey(id))) |list| for (list.items) |dependent| {
+                        if ((found.getOrPut(a, idKey(dependent)) catch oom()).found_existing) continue;
+                        continuation.append(a, dec(dependent)) catch oom();
+                        pending.append(a, dependent) catch oom();
+                    };
+                    _ = seeds;
+                    const error_node = dec(str(node, "errorNodeId"));
+                    const error_type = for (types) |item| {
+                        if (std.mem.eql(u16, item.id, error_node)) break item.type;
+                    } else null;
+                    var enclosing: List(Str) = .empty;
+                    for (parents) |parent| enclosing.append(a, dec(parent)) catch oom();
+                    out.append(a, .{ .node = dec(str(node, "id")), .error_node = error_node, .error_type = error_type, .enclosing = enclosing.items, .dependents = sortedSet(continuation.items) }) catch oom();
+                } else {
+                    const inner = std.mem.concat(a, Str, &.{ &.{str(node, "id")}, parents }) catch oom();
+                    for (nestedScopes(node)) |scope| visit(scope.graph, inner, deps, types, out);
+                }
+            }
+        }
+    };
+    Walk.visit(get(function, "body"), &.{}, &dependents, node_types.items, &aborts);
+    std.mem.sort(Abort, aborts.items, {}, struct {
+        fn less(_: void, x: Abort, y: Abort) bool {
+            return orderStr(x.node, y.node) == .lt;
+        }
+    }.less);
+    // `callSites`, then the ones into and out of this function.
+    const self_id = dec(str(function, "id"));
+    var callers: List(CallSite) = .empty;
+    var callees: List(CallSite) = .empty;
+    for (functions) |owner| {
+        var owned: List(Value) = .empty;
+        collectNodes(get(owner, "body"), &owned);
+        const owner_id = dec(str(owner, "id"));
+        for (owned.items) |node| {
+            var targets: List(Str) = .empty;
+            for (functionReferences(node)) |reference| targets.append(a, dec(reference.function_id)) catch oom();
+            for (sortedSet(targets.items)) |callee| {
+                const site: CallSite = .{ .caller = owner_id, .node = dec(str(node, "id")), .callee = callee };
+                if (std.mem.eql(u16, callee, self_id)) callers.append(a, site) catch oom();
+                if (std.mem.eql(u16, owner_id, self_id)) callees.append(a, site) catch oom();
+            }
+        }
+    }
+    const siteLess = struct {
+        fn less(_: void, x: CallSite, y: CallSite) bool {
+            var o = orderStr(x.caller, y.caller);
+            if (o == .eq) o = orderStr(x.node, y.node);
+            if (o == .eq) o = orderStr(x.callee, y.callee);
+            return o == .lt;
+        }
+    }.less;
+    std.mem.sort(CallSite, callers.items, {}, siteLess);
+    std.mem.sort(CallSite, callees.items, {}, siteLess);
+    return .{
+        .node_types = node_types.items,
+        .requirements = .{ .effects = sortedSet(effects.items), .evidence = distinct.items, .unresolved_functions = sortedSet(unresolved_functions.items), .unresolved_operations = sortedSet(unresolved_operations.items) },
+        .wait_path = wait_path,
+        .aborts = aborts.items,
+        .callers = callers.items,
+        .callees = callees.items,
+    };
+}
+
 /// `FingerprintHash.sha256`: the domain is frozen; it is part of every reviewed fingerprint.
 fn hashIn(domain: []const u8, canonical: []const u8) []const u8 {
     var hash = std.crypto.hash.sha2.Sha256.init(.{});

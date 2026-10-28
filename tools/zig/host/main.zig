@@ -119,6 +119,15 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, line: []const u8) !void {
         Problem.Protocol => return failure(out, id, "ProtocolError", problem),
         else => return e,
     };
+    // `encodeProposal` reads `detail` (and, for a full review, `structuredReview`) of every request before its operation.
+    if (parsed.object.get("detail")) |detail| {
+        const text = if (detail == .string) detail.string else "";
+        const full = std.mem.eql(u8, text, "full");
+        if (!full and !std.mem.eql(u8, text, "compact") and !(std.mem.eql(u8, op, "readFunction") and std.mem.eql(u8, text, "outline")))
+            return failure(out, id, "ProtocolError", "detail must be \"compact\" or \"full\".");
+        if (full) if (parsed.object.get("structuredReview")) |value| if (value != .bool)
+            return failure(out, id, "ProtocolError", "Property 'structuredReview' must be a JSON boolean.");
+    }
     if (std.mem.eql(u8, op, "status")) {
         if (try fieldProblem(a, line, parsed.object, "status request", &.{ "id", "op" }, &.{ "id", "op" })) |message| return failure(out, id, "ProtocolError", message);
         try out.writeAll("{\"id\":");
@@ -181,9 +190,10 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, line: []const u8) !void {
         .{ "references", query.references },
         .{ "unreferenced", query.unreferenced },
         .{ "bindingScopes", query.bindingScopes },
+        .{ "readFunction", query.readFunction },
     };
     for (queries) |entry| if (std.mem.eql(u8, op, entry[0])) {
-        var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .model = canonical(), .provenance = if (selection) |d| d.provenance else null };
+        var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .model = canonical(), .provenance = if (selection) |d| d.provenance else null, .snapshot_id = snapshot_id };
         var result: std.Io.Writer.Allocating = .init(a);
         entry[1](&request, &result.writer) catch |e| switch (e) {
             error.Rejected => return failure(out, id, request.rejection.code, request.rejection.message),
