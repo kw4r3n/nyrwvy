@@ -1259,7 +1259,7 @@ module PureRun =
         | None ->
             // The tool runs outside the lock; two runs of one entry at once both lower it.
             match context.ModelJson () with
-            | Error error -> Error $"the snapshot does not serialize: %A{error}"
+            | Error error -> Error $"the snapshot does not serialize: {(Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(error, typeof<SnapshotCodecError>) |> fst).Name}"
             | Ok(json, validated) ->
                 // Bytes the Zig validator accepted are not validated again, except under the check,
                 // which compares the tool's full readiness with F#'s.

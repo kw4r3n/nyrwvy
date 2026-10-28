@@ -100,7 +100,7 @@ module internal WireEncodeCommon =
             |> List.map (fun node ->
                 objectValue
                     [ "id", box (StableId.value node.Id)
-                      "kind", runString (sprintf "%A" node.Kind) ])
+                      "kind", box (SemanticNodeKind.name node.Kind) ])
         objectValue
             (signatureFields value
              @ [ "body",
@@ -228,8 +228,15 @@ module internal WireEncodeCommon =
             let cut = if Char.IsHighSurrogate value[summaryStringLimit - 1] && Char.IsLowSurrogate value[summaryStringLimit] then summaryStringLimit - 1 else summaryStringLimit
             objectValue [ "kind", box "string"; "value", runString (value.Substring(0, cut)); "truncated", box true; "length", box value.Length ]
 
-    /// Value-dependency roles are fieldless or carry one index/ID; the case text is their wire name.
-    let dependencyRole (role: ValueDependencyRole) = sprintf "%A" role
+    /// A value dependency's `role` (the case name) and, for the cases that carry one, its index or ID.
+    let dependencyRole (role: ValueDependencyRole) : (string * obj) list =
+        match role with
+        | ValueDependencyRole.ListItem index -> [ "role", box "ListItem"; "index", box index ]
+        | ValueDependencyRole.FunctionArgument index -> [ "role", box "FunctionArgument"; "index", box index ]
+        | ValueDependencyRole.CallArgument id -> [ "role", box "CallArgument"; "parameterId", box (StableId.value id) ]
+        | ValueDependencyRole.CapabilityArgument id -> [ "role", box "CapabilityArgument"; "parameterId", box (StableId.value id) ]
+        | ValueDependencyRole.FieldValue id -> [ "role", box "FieldValue"; "fieldId", box (StableId.value id) ]
+        | other -> [ "role", box (Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(other, typeof<ValueDependencyRole>) |> fst).Name ]
 
     let nodeSummary (value: StructuralNodeSummary) =
         objectValue
@@ -240,9 +247,7 @@ module internal WireEncodeCommon =
               "valueDependencies",
                 value.ValueDependencies
                 |> List.map (fun dependency ->
-                    objectValue
-                        [ "role", box (dependencyRole dependency.Role)
-                          "nodeId", box (StableId.value dependency.NodeId) ])
+                    objectValue (dependencyRole dependency.Role @ [ "nodeId", box (StableId.value dependency.NodeId) ]))
                 |> arrayValue
               "parameterId", optional value.ParameterId (StableId.value >> box)
               "functionId", optional value.FunctionId (StableId.value >> box)
@@ -283,7 +288,10 @@ module internal WireEncodeCommon =
             | NestedGraphRole.OptionNone -> "optionNone", []
             | NestedGraphRole.ResultOk -> "resultOk", []
             | NestedGraphRole.ResultErr -> "resultErr", []
-            | other -> sprintf "%A" other, []
+            | NestedGraphRole.WhenTrue -> "whenTrue", []
+            | NestedGraphRole.WhenFalse -> "whenFalse", []
+            | NestedGraphRole.BoolAndRight -> "boolAndRight", []
+            | NestedGraphRole.BoolOrRight -> "boolOrRight", []
         [ "scopeDepth", box depth
           "ownerNodeId", box (StableId.value frame.OwnerNodeId)
           "role", box role ]

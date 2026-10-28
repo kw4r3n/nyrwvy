@@ -19,8 +19,7 @@ module CompactSimulateReplyTests =
     let private boolLiteral value = $"""{{"kind":"boolLiteral","value":{value}}}"""
     let private conditional condition whenTrue whenFalse =
         $"""{{"kind":"conditional","condition":{condition},"whenTrue":{whenTrue},"whenFalse":{whenFalse}}}"""
-    // 3 * depth + 1 nodes, nested depth regions deep: the old debug-string echo repeated
-    // every nested region inside each enclosing node.
+    // 3 * depth + 1 nodes, nested depth regions deep.
     let private nestedBody depth =
         let mutable body = boolLiteral "false"
         for _ in 1 .. depth do
@@ -68,7 +67,7 @@ module CompactSimulateReplyTests =
             use structured = send session (create "nested" ",\"detail\":\"full\",\"structuredReview\":true" (nestedBody 12))
             let structuredBody = (result structured).GetProperty("review").GetProperty("createdFunction").GetProperty("body")
             Assert.Contains("\"kind\":\"conditional\"", structuredBody.GetProperty("nodes").GetRawText())
-            Assert.True(compact.RootElement.GetRawText().Length * 10 < full.RootElement.GetRawText().Length)
+            Assert.True(compact.RootElement.GetRawText().Length < full.RootElement.GetRawText().Length)
             // structuredReview alone does not bring the graph back.
             use structuredCompact = send session (create "nested" ",\"structuredReview\":true" (nestedBody 12))
             Assert.Equal("compact", (result structuredCompact).GetProperty("detail").GetString())
@@ -253,6 +252,16 @@ module CompactSimulateReplyTests =
             Assert.StartsWith("node-", item.GetProperty("nodeId").GetString())
 
     [<Fact>]
+    let ``value dependency roles and wrapped failures are fixed strings`` () =
+        let fields role = WireEncodeCommon.dependencyRole role |> List.map (fun (name, value) -> $"{name}={value}") |> String.concat ","
+        Assert.Equal("role=Value", fields ValueDependencyRole.Value)
+        Assert.Equal("role=ListItem,index=2", fields (ValueDependencyRole.ListItem 2))
+        Assert.Equal("role=CallArgument,parameterId=p", fields (ValueDependencyRole.CallArgument(StableId.createForTesting<ParameterTag> "p")))
+        Assert.Equal("role=FieldValue,fieldId=f", fields (ValueDependencyRole.FieldValue(StableId.createForTesting<FieldTag> "f")))
+        let error = AuthoringSessionError.BackendFailure(CSharpBackendError.MissingCapabilityBinding(StableId.createForTesting<CapabilityOperationTag> "op"))
+        Assert.Equal("BackendFailure: MissingCapabilityBinding", WireEncode.startupMessage error)
+
+    [<Fact>]
     let ``large full node text pages preserve UTF16 and cannot bypass the page byte bound`` () =
         withSession (fun session ->
             let literal = String.replicate 3000 "測定😀"
@@ -263,12 +272,14 @@ module CompactSimulateReplyTests =
             let proposalId = (result response).GetProperty("proposalId").GetString()
             let pending = session.PendingProposalView proposalId |> unwrap
             use full = WireEncode.proposal pending.Proposal |> WireJson.serialize |> JsonDocument.Parse
-            let expected = full.RootElement.GetProperty("review").GetProperty("createdFunction").GetProperty("body").GetProperty("nodes").[0].GetProperty("kind").GetString()
+            // The debug encoding names the kind only; the literal pages through the structured one.
+            Assert.Equal("StringLiteral", full.RootElement.GetProperty("review").GetProperty("createdFunction").GetProperty("body").GetProperty("nodes").[0].GetProperty("kind").GetString())
+            let expected = literal
             let collected = Text.StringBuilder()
             let mutable offset = 0
             let mutable finished = false
             while not finished do
-                use page = send session ($"""{{"id":"text-page","op":"readProposal","proposalId":"{proposalId}","structuredReview":false,"path":"/review/createdFunction/body/nodes/0/kind","offset":{offset},"limit":1024}}""")
+                use page = send session ($"""{{"id":"text-page","op":"readProposal","proposalId":"{proposalId}","path":"/review/createdFunction/body/nodes/0/kind/value","offset":{offset},"limit":1024}}""")
                 let value = result page
                 Assert.True(Text.Encoding.UTF8.GetByteCount(value.GetRawText()) <= WireProposalProjection.pageMaxBytes)
                 let part = value.GetProperty("value").GetString()
@@ -278,8 +289,8 @@ module CompactSimulateReplyTests =
                 let next = value.GetProperty("nextOffset")
                 if next.ValueKind = JsonValueKind.Null then finished <- true else offset <- next.GetInt32()
             Assert.Equal(expected, collected.ToString())
-            // The default object/node page is bounded too; its oversized debug kind is explicit.
-            use nodePage = send session ($"""{{"id":"node-page","op":"readProposal","proposalId":"{proposalId}","structuredReview":false,"path":"/review/createdFunction/body/nodes","limit":1}}""")
+            // The default object/node page is bounded too; its oversized literal is explicit.
+            use nodePage = send session ($"""{{"id":"node-page","op":"readProposal","proposalId":"{proposalId}","path":"/review/createdFunction/body/nodes","limit":1}}""")
             Assert.True(Text.Encoding.UTF8.GetByteCount((result nodePage).GetRawText()) <= WireProposalProjection.pageMaxBytes)
             Assert.True((result nodePage).GetProperty("projection").GetProperty("requiresDetailedReview").GetBoolean())
             let expectedNodeId = full.RootElement.GetProperty("review").GetProperty("createdFunction").GetProperty("body").GetProperty("nodes").[0].GetProperty("id").GetString()

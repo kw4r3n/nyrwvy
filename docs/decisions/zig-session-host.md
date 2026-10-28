@@ -69,7 +69,7 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
      - `dependency` follows `PinnedDependency.describe`: an anonymous record, so its fields come in name order. Each member gives its path, ID, fingerprint and storage, and a set gives a `dependencies` list.
      - `proposals` is empty until simulate exists. `readProposal` and `viewProposal` read their input as F# does and answer `ProposalNotFound`.
      - Parity: `step2a-declarations.jsonl` on every example and a JSON snapshot. The resolved-snapshot test also asks `declarations` and `dependency` on every form.
-   - **2b. `search`, `references`, `unreferenced`.** A references `role` is F#'s `%A` text (`dependencyRole`); whether to reproduce it or redefine the field is the owner's decision.
+   - **2b. `search`, `references`, `unreferenced`.** A references `role` is the fixed string the protocol defines (case name plus `index`, `parameterId` or `fieldId`); the owner chose to redefine every field that was F#'s `%A` text rather than reproduce it ([protocol](../specs/agent-authoring-session.md#json-lines-process-protocol)).
    - **2c. `readFunction`, `viewFunction`, `bindingScopes`.**
    - **2d. `executionReadiness`.**
 3. **First write path, 4–6K.**
