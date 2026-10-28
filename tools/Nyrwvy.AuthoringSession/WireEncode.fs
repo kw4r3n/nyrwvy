@@ -734,6 +734,8 @@ module internal WireEncode =
                   "nodeId", box (StableId.value nodeId)
                   "capabilityId", box (StableId.value capabilityId)
                   "operationId", box (StableId.value operationId) ])
+        | AuthoringSessionError.BackendFailure(CSharpBackendError.IncompatibleNativeBinding(operationId, reason)) ->
+            "BackendFailure", $"IncompatibleNativeBinding: {reason}", Some(objectValue [ "operationId", box (StableId.value operationId) ])
         | AuthoringSessionError.BackendFailure other -> "BackendFailure", caseName other, None
         | AuthoringSessionError.DependencyFailure message -> "DependencyFailure", message, None
         | AuthoringSessionError.MigrationRejected message -> "MigrationRejected", message, None
