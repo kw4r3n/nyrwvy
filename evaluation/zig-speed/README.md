@@ -94,3 +94,13 @@ For Rhifill's whole program (a 1 MB IR), the emitter spent about 8 ms parsing JS
 | Rhifill: to Zig source | 54.1 | 44.4 |
 
 The JSON parse went from about 8 ms to 4 ms. Old and new emitters gave byte-identical output on 166 IRs: the whole programs and every entry of Rhifill and the repository examples. The extended emitter check compares against the F# emitter.
+
+## A resolved snapshot validated once (2026-10-28)
+
+Opening a resolved snapshot (one with a dependency sidecar, read by F#) validated the merged model twice: the reader validated it, and the workspace validated a second merge of the same two snapshots. The reader now keeps the merged model it validated, and `resolveDependency` of the same local snapshot and dependency object returns it. The `ZigSpeed` row "Rhifill resolved open" times `openReadOnly` on the resolved workspace itself; three interleaved runs each:
+
+| | before | after |
+|---|---|---|
+| Rhifill resolved open | 51.2, 57.0, 52.5 | 36.3, 36.7, 33.5 |
+
+This is now faster than opening Rhifill's merged model as a plain snapshot (about 60 ms on the Zig path, 50–70 ms on F#).
