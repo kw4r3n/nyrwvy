@@ -1180,11 +1180,11 @@ module PureRun =
     /// A Zig tool (`tools/zig/<name>`), built once per process (see `ZigTools.tool`).
     let zigTool (name: string) = ZigTools.tool name |> Result.mapError (fun (code, message) -> diagnostic code message)
 
-    /// The complete runPure runner for the program from the Zig emitter (see `ZigBackend.runner`), or
-    /// the constructs it does not support. With `NYRWVY_ZIG_EMITTER_CHECK` set (the extended tests
-    /// set it), the F# emitter's output must match byte for byte.
-    let zigEmit (program: ExecutionProgram) (entry: FunctionId option) : Result<Result<string, string list>, PureRunError> =
-        let ir = ExecutionIrSerializer.serialize program
+    /// The complete runPure runner for an Execution IR text from the Zig emitter (see
+    /// `ZigBackend.runner`), or the constructs it does not support. With `NYRWVY_ZIG_EMITTER_CHECK`
+    /// set (the extended tests set it), the F# emitter's output on `reference ()`, the F# program of
+    /// the same IR, must match byte for byte.
+    let zigEmit (ir: string) (reference: unit -> Result<ExecutionProgram, PureRunError>) (entry: FunctionId option) : Result<Result<string, string list>, PureRunError> =
         zigTool "emitter"
         |> Result.bind (fun emitter ->
             let input = Path.Combine(zigCache, "ir-" + Guid.NewGuid().ToString("N") + ".json")
@@ -1205,6 +1205,8 @@ module PureRun =
             match Environment.GetEnvironmentVariable "NYRWVY_ZIG_EMITTER_CHECK" with
             | null | "" -> Ok emitted
             | _ ->
+                reference ()
+                |> Result.bind (fun program ->
                 let reference = ZigBackend.runner program entry
                 match emitted, reference with
                 | Ok zig, Ok fsharp when zig <> fsharp ->
@@ -1214,7 +1216,79 @@ module PureRun =
                     Error(diagnostic "RunBackendMismatch" $"The Zig emitter differs from the F# emitter at line {index + 1}: Zig `{at left}`, F# `{at right}`.")
                 | Ok _, Error problems -> Error(diagnostic "RunBackendMismatch" ("Only the F# emitter rejects the program: " + String.Join(", ", problems) + "."))
                 | Error problems, Ok _ -> Error(diagnostic "RunBackendMismatch" ("Only the Zig emitter rejects the program: " + String.Join(", ", problems) + "."))
-                | _ -> Ok emitted)
+                | _ -> Ok emitted))
+
+    // Set once `model-reader` could not be built or run: the process then lowers with F#.
+    let mutable private loweringUnavailable = 0
+    // The Zig lowerings of one snapshot (the last fingerprint seen), by entry ("-" for the whole).
+    let private lowered = Collections.Generic.Dictionary<string, string option>()
+    let mutable private loweredFingerprint = ""
+
+    /// `model-reader --execution-ir` on the context's snapshot: `Ok(Some ir)`, `Ok None` when the
+    /// lowering reports an error (the F# projection then decides), or the reason the tool did not run.
+    let private zigLower (context: AuthoringExecutionContext) (entry: FunctionId option) : Result<string option, string> =
+        let target = entry |> Option.map StableId.value |> Option.defaultValue "-"
+        let cached =
+            lock lowered (fun () ->
+                if loweredFingerprint <> context.Fingerprint then
+                    lowered.Clear()
+                    loweredFingerprint <- context.Fingerprint
+                match lowered.TryGetValue target with
+                | true, ir -> Some ir
+                | _ -> None)
+        match cached with
+        | Some ir -> Ok ir
+        | None ->
+            // The tool runs outside the lock; two runs of one entry at once both lower it.
+            match context.ModelJson () with
+            | Error error -> Error $"the snapshot does not serialize: %A{error}"
+            | Ok json ->
+                let stem = Path.Combine(zigCache, "lower-" + Guid.NewGuid().ToString("N"))
+                let result =
+                    try
+                        createPrivateDirectory zigCache
+                        File.WriteAllText(stem + ".json", json, Text.UTF8Encoding false)
+                        ZigSnapshotReader.run "model-reader" [ "--execution-ir"; stem + ".json"; stem + ".out.json"; target ]
+                        |> Result.bind (function
+                            | [ "ok" ] -> Ok(Some(File.ReadAllText(stem + ".out.json")))
+                            | [ line ] when line.StartsWith("error ", StringComparison.Ordinal) -> Ok None
+                            | lines -> Error("lines outside the protocol: " + String.Join(" | ", lines)))
+                    with
+                    | :? IOException as error -> Error("RunIoFailure: " + error.Message)
+                    | :? UnauthorizedAccessException as error -> Error("RunIoFailure: " + error.Message)
+                for file in [ stem + ".json"; stem + ".out.json" ] do
+                    try File.Delete file with _ -> ()
+                result |> Result.map (fun ir ->
+                    lock lowered (fun () -> if loweredFingerprint = context.Fingerprint then lowered[target] <- ir)
+                    ir)
+
+    /// The Execution IR text of `entry` (or of the whole snapshot) from the Zig lowering; `fsharp` is
+    /// the same program from the F# lowering, which decides when Zig reports an error, serves when
+    /// `model-reader` cannot run (sticky for a build or launch failure, noted once on stderr) and,
+    /// with `NYRWVY_ZIG_LOWERING_CHECK` set, must give the same text.
+    let private lowerIr context entry (fsharp: unit -> Result<ExecutionProgram, PureRunError>) : Result<string, PureRunError> =
+        let check = not (String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_LOWERING_CHECK"))
+        let what = match entry with Some id -> $"entry {StableId.value id}" | None -> "the whole snapshot"
+        let mismatch (text: string) = Error(diagnostic "RunBackendMismatch" $"The Zig lowering of {what} {text}.")
+        let zig = if not check && loweringUnavailable <> 0 then Error "unavailable" else zigLower context entry
+        match zig with
+        | Error problem when check -> mismatch $"could not run: {problem}"
+        | Error problem ->
+            // Only a tool that cannot be built or started sticks; anything else belongs to this run.
+            let sticky = problem.StartsWith("RunProcessFailure", StringComparison.Ordinal) || problem.StartsWith("RunStartupFailure", StringComparison.Ordinal)
+            if sticky && Threading.Interlocked.Exchange(&loweringUnavailable, 1) = 0 then
+                eprintfn "nyrwvy: the Zig lowering is unavailable (%s); runPure lowers with F#." problem
+            fsharp () |> Result.map ExecutionIrSerializer.serialize
+        | Ok None ->
+            match fsharp () with
+            | Ok program when check -> mismatch "fails where the F# lowering succeeds" |> Result.map (fun () -> ExecutionIrSerializer.serialize program)
+            | result -> result |> Result.map ExecutionIrSerializer.serialize
+        | Ok(Some ir) when check ->
+            match fsharp () with
+            | Ok program when ExecutionIrSerializer.serialize program = ir -> Ok ir
+            | Ok _ -> mismatch "differs from the F# lowering"
+            | Error _ -> mismatch "succeeds where the F# lowering fails"
+        | Ok(Some ir) -> Ok ir
 
     /// Runs the entry on the Zig backend: emits the program and a runner that reads argument tokens
     /// from its command line and prints the same envelope the C# runner does.
@@ -1227,20 +1301,28 @@ module PureRun =
         let declarations = context.Declarations
         let unsupported (problems: string list) =
             Error(diagnostic "RunBackendUnsupported" ("The Zig backend does not yet support: " + String.Join(", ", problems |> List.truncate 8) + "."))
-        let whole = context.ProjectAll |> Option.bind (fun project -> project () |> Result.toOption)
-        match context.Project fn.Id |> Result.mapError PureRunError.SessionFailure with
+        // The F# programs: the fallback, the reference of the checks, and the source of the errors.
+        let reach () = context.Project fn.Id |> Result.mapError PureRunError.SessionFailure
+        let whole () =
+            match context.ProjectAll |> Option.map (fun project -> project ()) with
+            | Some(Ok program) -> Ok program
+            | Some(Error error) -> Error(PureRunError.SessionFailure error)
+            | None -> Error(diagnostic "RunIoFailure" "No whole program for a proposal's snapshot.")
+        match lowerIr context (Some fn.Id) reach with
         | Error error -> Error error
-        | Ok reach ->
-        let program = whole |> Option.defaultValue reach
+        | Ok reachIr ->
         // One runner serves every runnable entry of the snapshot, so a session builds once per
-        // snapshot; a program the backend cannot emit whole falls back to this entry's reach.
+        // snapshot; a program the backend cannot emit whole falls back to this entry's reach. A
+        // proposal's snapshot, or one whose whole program does not lower, starts from the reach.
+        let wholeIr =
+            if context.ProjectAll.IsNone then None
+            else lowerIr context None whole |> Result.toOption
+        let first, firstReference = match wholeIr with Some ir -> ir, whole | None -> reachIr, reach
         let emitted =
-            zigEmit program None
+            zigEmit first firstReference None
             |> Result.bind (function
-                | Ok runner -> Ok(Ok(program, runner))
-                | Error _ ->
-                    let reach = ExecutionCallGraph.forEntry reach fn.Id
-                    zigEmit reach (Some fn.Id) |> Result.map (Result.map (fun runner -> reach, runner)))
+                | Ok runner -> Ok(Ok runner)
+                | Error _ -> zigEmit reachIr reach (Some fn.Id))
         // As on the C# backend, waiting fake responses need a program that uses the concurrency runtime.
         let waitingResponses =
             arguments |> List.exists (function
@@ -1254,25 +1336,33 @@ module PureRun =
         match emitted with
         | Error error -> Error error
         | Ok(Error problems) -> unsupported problems
-        | Ok(Ok _) when waitingResponses && not (CSharpBackend.usesConcurrencyRuntime (ExecutionCallGraph.forEntry reach fn.Id)) ->
+        | Ok(Ok _) when waitingResponses && not (reach () |> Result.map (fun program -> CSharpBackend.usesConcurrencyRuntime (ExecutionCallGraph.forEntry program fn.Id)) |> Result.defaultValue true) ->
             Error(diagnostic "RunBindingShapeMismatch" "awaitCancellation and delayMillis responses need a program that uses ParallelAll, a task construct or CancellationRequested.")
-        | Ok(Ok(program, runner)) ->
+        | Ok(Ok runner) ->
             let hash = Convert.ToHexString(Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes runner)).Substring(0, 32)
             let directory = Path.Combine(zigCache, hash)
             let executable = Path.Combine(directory, "runner")
             let tokens = ResizeArray<string>()
             arguments |> List.iter (function
                 | PureRunValue.FakeCapability(capabilityId, script) ->
-                    let capability = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
+                    let capability = declarations.Capabilities |> List.find (fun item -> item.Id = capabilityId)
                     fakeInput declarations.Types (capability.Operations |> List.map (fun operation -> operation.Id) |> List.sortBy StableId.value) script tokens
                 | value -> inputTokens declarations.Types tokens value)
             let sites =
                 List.zip fn.Parameters arguments |> List.collect (fun (parameter, value) ->
                     match value with
                     | PureRunValue.FakeCapability(capabilityId, _) ->
-                        let capability = program.Capabilities |> List.find (fun item -> item.Id = capabilityId)
+                        let capability = declarations.Capabilities |> List.find (fun item -> item.Id = capabilityId)
                         capability.Operations |> List.sortBy (fun operation -> StableId.value operation.Id)
-                        |> List.map (fun operation -> { ParameterId = parameter.Id; Operation = operation })
+                        |> List.map (fun operation ->
+                            // The operation as the Execution IR declares it (`ExecutionIrDeclarations.projectCapability`).
+                            let lowered: ExecutionCapabilityOperation =
+                                { Id = operation.Id
+                                  Parameters = operation.Parameters |> List.map (fun item -> ({ Id = item.Id; Type = item.Type }: ExecutionCapabilityParameter))
+                                  ResultType = operation.ResultType
+                                  FailureType = operation.FailureType
+                                  EffectId = operation.EffectId }
+                            { ParameterId = parameter.Id; Operation = lowered })
                     | _ -> [])
             try
                 let built =
@@ -1294,7 +1384,7 @@ module PureRun =
                     if code <> 0 then
                         let panic = errors.Split('\n') |> Array.tryFind (fun line -> line.StartsWith("panic: ", StringComparison.Ordinal))
                         Error(PureRunError.RuntimeFailure
-                                { SnapshotId = program.SourceSnapshotId
+                                { SnapshotId = context.SnapshotId
                                   FunctionId = fn.Id
                                   Kind = "fatal"
                                   ExceptionType = (if panic.IsSome then "ZigPanic" else "ZigCrash")
@@ -1307,7 +1397,7 @@ module PureRun =
                         |> Result.bind (function
                             | Envelope.Exception(kind, exceptionType, message, _, calls, exhausted) ->
                                 Error(PureRunError.RuntimeFailure
-                                        { SnapshotId = program.SourceSnapshotId
+                                        { SnapshotId = context.SnapshotId
                                           FunctionId = fn.Id
                                           Kind = kind
                                           ExceptionType = exceptionType
@@ -1317,7 +1407,7 @@ module PureRun =
                                           Calls = calls })
                             | Envelope.Limit message -> Error(diagnostic "RunProcessFailure" message)
                             | Envelope.Value(actual, calls) ->
-                                Ok { SnapshotId = program.SourceSnapshotId
+                                Ok { SnapshotId = context.SnapshotId
                                      FunctionId = fn.Id
                                      Actual = actual
                                      Expected = expected

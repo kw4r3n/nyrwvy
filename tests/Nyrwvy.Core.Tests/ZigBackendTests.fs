@@ -614,7 +614,7 @@ module ZigBackendTests =
             use session = AuthoringSession.openReadOnly path |> unwrap
             let program = session.ProjectExecution() |> unwrap
             for candidate, entry in (program, None) :: (program.Functions |> List.map (fun fn -> ExecutionCallGraph.forEntry program fn.SemanticFunctionId, Some fn.SemanticFunctionId)) do
-                match PureRun.zigEmit candidate entry with
+                match PureRun.zigEmit (ExecutionIrSerializer.serialize candidate) (fun () -> Ok candidate) entry with
                 | Ok(Ok _) -> emitted <- emitted + 1
                 | Ok(Error _) -> ()
                 | Error error -> failwithf "%s: %A" path error
