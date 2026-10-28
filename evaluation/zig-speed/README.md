@@ -104,3 +104,7 @@ Opening a resolved snapshot (one with a dependency sidecar, read by F#) validate
 | Rhifill resolved open | 51.2, 57.0, 52.5 | 36.3, 36.7, 33.5 |
 
 This is now faster than opening Rhifill's merged model as a plain snapshot (about 60 ms on the Zig path, 50–70 ms on F#).
+
+## The writer's JSON of a validated snapshot counts as validated (2026-10-28)
+
+runPure passed `--validated` only for bytes the Zig validator accepted. The writer's JSON of a snapshot F# validated now counts too. This covers a resolved snapshot, which F# reads, and a proposal's candidate. On Rhifill's merged model, the whole lowering took 45.1 ms with `model-reader --execution-ir` and 27.5 ms with `--execution-ir --validated` (median of 13, with the same IR). That is the saving on the first runPure of a resolved Rhifill. The check modes still run without the flag.
