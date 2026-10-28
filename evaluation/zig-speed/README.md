@@ -138,3 +138,12 @@ A resolved `.nyrec` read with F# only. It now goes through `snapshot-reader --de
 | Rhifill resolved open (JSON, unchanged) | 32.3, 30.9, 32.0 | 27.7, 30.5, 29.8 |
 
 The JSON row now also has the F# reader; in these runs it was not slower than the Zig route (#542 measured 30 against 33 ms). That route is unchanged here.
+
+Rerun with nothing else running (1-minute load about 4, falling from 16), ms:
+
+| | Zig route | F# reader |
+|---|---|---|
+| Rhifill .nyrec open | 44.1, 43.3, 44.5 | 55.3, 57.4, 54.9 |
+| Rhifill resolved open (JSON) | 31.7, 30.7, 31.2 | 27.7, 28.1, 29.2 |
+
+The `.nyrec` result holds. On resolved JSON the F# reader (`NYRWVY_SNAPSHOT_READER=fsharp`) is 2–4 ms faster in every run, so this is not noise. #542's "before" column was the overlapped read with F# validating the merged model, not the F# reader alone. That path is left as is here and reported for a decision.
