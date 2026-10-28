@@ -619,6 +619,21 @@ module ZigBackendTests =
                 | Ok(Error _) -> ()
                 | Error error -> failwithf "%s: %A" path error
         Assert.True(emitted > 0, "No repository program was emitted, so nothing was compared.")
+        // A repeated emission comes from the cache, and the check still compares it.
+        let program, ir =
+            snapshots |> Seq.pick (fun path ->
+                use session = AuthoringSession.openReadOnly path |> unwrap
+                let program = session.ProjectExecution() |> unwrap
+                let ir = ExecutionIrSerializer.serialize program
+                match PureRun.zigEmit ir (fun () -> Ok program) None with
+                | Ok(Ok _) when program.Functions.Length > 1 -> Some(program, ir)
+                | _ -> None)
+        let hits = PureRun.emitCacheHits
+        let other = { program with Functions = program.Functions |> List.truncate 1 }
+        match PureRun.zigEmit ir (fun () -> Ok other) None with
+        | Error error -> Assert.Contains("RunBackendMismatch", $"%A{error}")
+        | Ok _ -> failwith "A cached emission skipped the emitter check."
+        Assert.True(PureRun.emitCacheHits > hits, "The repeated emission did not come from the cache.")
 
     /// The instruction kinds no other Zig test reaches, so the emitter check covers them too.
     [<Fact; Trait("Suite", "Extended")>]
