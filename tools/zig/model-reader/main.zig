@@ -1119,7 +1119,11 @@ fn canonicalJson(source: []const u8) Failure![]const u8 {
     const root = try parseDocument(source);
     parsed_root = root;
     const top = [_][]const u8{ "schemaVersion", "snapshotId", "types", "effects", "capabilities", "functions", "obligations" };
-    try ensureProperties("Snapshot", &top, &(top ++ [_][]const u8{"parentSnapshotId"}), root);
+    // A resolved snapshot's marker; the caller (F#) checks it against the dependency.
+    if (resolved_input)
+        try ensureProperties("Snapshot", &(top ++ [_][]const u8{"dependency"}), &(top ++ [_][]const u8{ "parentSnapshotId", "dependency" }), root)
+    else
+        try ensureProperties("Snapshot", &top, &(top ++ [_][]const u8{"parentSnapshotId"}), root);
     declared_version = try readInt32("schemaVersion", root);
     if (declared_version < first_supported or declared_version > current) return error.Version;
     if (declared_version < first_record) return error.Legacy;
@@ -5480,6 +5484,40 @@ fn executionDeclaredType(declaration: Value) []const u8 {
 }
 
 /// One line per issue, then `end`; a message is escaped as the reader's errors are (`oneLine`).
+var resolved_input = false;
+
+/// `--validate --dependency <dependency.json> <local.json>`: the local snapshot resolved against its
+/// dependency, validated as `SnapshotCodec.deserializeResolved` validates it: the dependency's
+/// declarations first, then the local ones. F# checks the marker, its digest and the local construct
+/// minimums; a dependency at another schema version is left to F# (`skip`).
+fn validateResolved(io: std.Io, out: *std.Io.Writer, dependency_path: []const u8, local_path: []const u8) !void {
+    emit_text = false;
+    const dependency = try std.Io.Dir.cwd().readFileAlloc(io, dependency_path, a, .unlimited);
+    _ = canonicalJson(dependency) catch return out.print("skip dependency unreadable\n", .{});
+    const dependency_root = parsed_root;
+    const dependency_version = declared_version;
+    const local = try std.Io.Dir.cwd().readFileAlloc(io, local_path, a, .unlimited);
+    resolved_input = true;
+    _ = canonicalJson(local) catch |e| return switch (e) {
+        error.Json => out.print("error InvalidJson: {s}\n", .{message}),
+        error.Shape => out.print("error InvalidShape: {s}\n", .{message}),
+        error.Version => out.print("error UnsupportedSchemaVersion: {d}\n", .{declared_version}),
+        error.Legacy => out.print("skip legacy schema {d}\n", .{declared_version}),
+    };
+    if (declared_version != dependency_version) return out.print("skip dependency schema {d}\n", .{dependency_version});
+    var members: List(Member) = .empty;
+    for (parsed_root.object) |member| {
+        if (isName(member.name, "dependency")) continue;
+        var value = member.value;
+        inline for (.{ "types", "effects", "capabilities", "functions", "obligations" }) |name| {
+            if (isName(member.name, name)) value = .{ .array = std.mem.concat(a, Value, &.{ arrayOf(dependency_root, name), member.value.array }) catch oom() };
+        }
+        members.append(a, .{ .name = member.name, .value = value }) catch oom();
+    }
+    validate(.{ .object = members.items });
+    try printIssues(out);
+}
+
 fn printIssues(out: *std.Io.Writer) !void {
     for (issues.items) |issue| try out.print("issue {s}: {s}\n", .{ issue.code, oneLine(text(issue.message)) });
     try out.writeAll("end\n");
@@ -5509,6 +5547,10 @@ pub fn main(init: std.process.Init) !void {
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stdout().writer(init.io, &buffer);
     const out = &writer.interface;
+    if (validating and args.len == 5 and std.mem.eql(u8, args[2], "--dependency")) {
+        try validateResolved(init.io, out, args[3], args[4]);
+        return out.flush();
+    }
     var index: usize = if (validating or typing) 2 else 1;
     while (index < args.len) : (index += if (validating) 1 else if (typing) 3 else 2) {
         const input = try std.Io.Dir.cwd().readFileAlloc(init.io, args[index], a, .unlimited);

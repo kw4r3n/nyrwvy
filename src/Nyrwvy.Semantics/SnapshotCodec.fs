@@ -2815,6 +2815,19 @@ module SnapshotCodec =
     let readZigValidated (json: string): Result<Snapshot, SnapshotCodecError> =
         readUnvalidated json |> Result.map (fun snapshot -> SnapshotValidator.assumeValid snapshot; snapshot)
 
+    /// `deserializeResolved` without validating the merged model (the marker, its digest, the
+    /// schema version and the local construct minimums are checked): the local snapshot. With
+    /// `zigValidated`, the merged model is recorded as valid and kept for `resolveDependency`, for a
+    /// source the Zig validator (`model-reader --validate --dependency`) accepts.
+    let readResolvedUnvalidated (zigValidated: bool) (dependency: Snapshot) (json: string): Result<Snapshot, SnapshotCodecError> =
+        if isNull json then Error(SnapshotCodecError.InvalidJson "Snapshot JSON must not be null.")
+        else
+            readDocument (Some dependency) (fun () -> JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth))) (fun snapshot resolved ->
+                if zigValidated then
+                    SnapshotValidator.assumeValid resolved
+                    resolvedReads.AddOrUpdate(snapshot, (dependency, resolved))
+                Ok snapshot)
+
     /// The JSON the writer produces for the shape-decoded model, without semantic validation: the
     /// reference of the Zig model reader (tools/zig/model-reader). The writer normally runs on
     /// validated models; it may throw on one that is only shape-valid.
