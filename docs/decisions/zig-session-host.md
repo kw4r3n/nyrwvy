@@ -69,7 +69,11 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
      - `dependency` follows `PinnedDependency.describe`: an anonymous record, so its fields come in name order. Each member gives its path, ID, fingerprint and storage, and a set gives a `dependencies` list.
      - `proposals` is empty until simulate exists. `readProposal` and `viewProposal` read their input as F# does and answer `ProposalNotFound`.
      - Parity: `step2a-declarations.jsonl` on every example and a JSON snapshot. The resolved-snapshot test also asks `declarations` and `dependency` on every form.
-   - **2b. `search`, `references`, `unreferenced`.** A references `role` is the fixed string the protocol defines (case name plus `index`, `parameterId` or `fieldId`); the owner chose to redefine every field that was F#'s `%A` text rather than reproduce it ([protocol](../specs/agent-authoring-session.md#json-lines-process-protocol)).
+   - **2b. `search`, `references`, `unreferenced`, 1.1K (done).**
+     - `references` follows `SemanticQuery.references` (in the model reader, beside the node shapes it uses) and `WireEncode.references`. Its order was F#'s `%A` text of each site; it is now the structural order of `ReferenceSite` (case, then its IDs, ordinal), which both hosts produce. Subjects resolve by exact ID, display name or selector object (`id`, `name`, `dependencySnapshotId`, `ownership`), with the same advice and name hints.
+     - `search` compares as `OrdinalIgnoreCase` and name hints lower-case as `ToLowerInvariant`, through code point runs F# generates from .NET (`tools/zig/host/case_runs.zig`; a fast test fails when it is stale). A `limit` that is not a JSON Int32 is now `ProtocolError` `limit must be a JSON Int32.` in both hosts; F# used to answer `SessionError` or `InternalError` with .NET's text.
+     - `unreferenced` builds the same reference edges between the visible declarations.
+     - Parity: `step2b-queries.jsonl` (error forms, non-ASCII search) on every example and a JSON snapshot, and requests built from each snapshot's declarations: every declaration and member by ID, by name and by selector, with ownership and pin guards, searches and `unreferenced` with roots. The resolved-snapshot test asks the same on every form that opens, so hidden imports and provenance guards are covered.
    - **2c. `readFunction`, `viewFunction`, `bindingScopes`.**
    - **2d. `executionReadiness`.**
 3. **First write path, 4–6K.**

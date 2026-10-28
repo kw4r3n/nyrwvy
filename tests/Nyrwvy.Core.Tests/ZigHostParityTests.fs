@@ -3,6 +3,7 @@ namespace Nyrwvy.Core.Tests
 open System
 open System.Diagnostics
 open System.IO
+open System.Text.Json
 open System.Text.Json.Nodes
 open System.Text.RegularExpressions
 open Nyrwvy.Core
@@ -74,6 +75,70 @@ module ZigHostParityTests =
                     List.zip3 requests fsharp answers |> List.iteri (fun index (request, expected, actual) ->
                         if comparable expected <> comparable actual then
                             failwithf "%s on %s line %d: %s\n F#:  %s\n Zig: %s" (Path.GetFileName transcript) (Path.GetFileName snapshot) (index + 1) request expected actual))
+
+    /// `references`, `search` and `unreferenced` requests built from a session's own declarations:
+    /// every declaration and member by exact ID and by display names (as a string and as a
+    /// selector object), and searches for parts of their names.
+    let private queries (session: AuthoringSession) =
+        let declarations = session.Declarations()
+        let quote (text: string) = JsonSerializer.Serialize text
+        let id = StableId.value
+        let byName kind (key: string) name =
+            [ $"""{{"id":"r","op":"references","kind":"{kind}","{key}":{quote name}}}"""
+              $"""{{"id":"r","op":"references","kind":"{kind}","{key}":{{"name":{quote name}}}}}""" ]
+        let named kind exactKey (exact: string) (name: string) =
+            $"""{{"id":"r","op":"references","kind":"{kind}","{exactKey}":{quote exact}}}""" :: byName kind kind name
+        let parts (name: string) = [ name; name.ToUpperInvariant(); (if name.Length > 2 then name.Substring(1, 2) else name) ]
+        [ for item in declarations.Functions do
+              yield! named "function" "functionId" (id item.Id) item.DisplayName
+              yield! parts item.DisplayName |> List.map (fun text -> $"""{{"id":"q","op":"search","text":{quote text},"limit":3}}""")
+          for item in declarations.Types do
+              yield! named "type" "typeId" (id item.Id) item.DisplayName
+              match item.Kind with
+              | SemanticTypeKind.Product fields ->
+                  for field in fields do
+                      yield $"""{{"id":"r","op":"references","kind":"field","fieldId":{quote (id field.Id)}}}"""
+                      yield $"""{{"id":"r","op":"references","kind":"field","type":{quote item.DisplayName},"field":{quote field.DisplayName}}}"""
+                  yield $"""{{"id":"r","op":"references","kind":"variant","type":{quote item.DisplayName},"variant":"x"}}"""
+              | SemanticTypeKind.Union variants ->
+                  for variant in variants do
+                      yield $"""{{"id":"r","op":"references","kind":"variant","variantId":{quote (id variant.Id)}}}"""
+                      yield $"""{{"id":"r","op":"references","kind":"variant","type":{{"id":{quote (id item.Id)}}},"variant":{quote variant.DisplayName}}}"""
+                      for field in variant.Fields do
+                          yield $"""{{"id":"r","op":"references","kind":"field","fieldId":{quote (id field.Id)}}}"""
+                          yield $"""{{"id":"r","op":"references","kind":"field","type":{quote item.DisplayName},"variant":{quote variant.DisplayName},"field":{quote field.DisplayName}}}"""
+                  yield $"""{{"id":"r","op":"references","kind":"field","type":{quote item.DisplayName},"field":"x"}}"""
+          for item in declarations.Effects do yield! named "effect" "effectId" (id item.Id) item.DisplayName
+          for item in declarations.Capabilities do
+              yield! named "capability" "capabilityId" (id item.Id) item.DisplayName
+              for operation in item.Operations do
+                  yield $"""{{"id":"r","op":"references","kind":"capabilityOperation","operationId":{quote (id operation.Id)}}}"""
+                  yield $"""{{"id":"r","op":"references","kind":"capabilityOperation","capability":{quote item.DisplayName},"operation":{quote operation.DisplayName}}}"""
+                  yield! parts operation.DisplayName |> List.map (fun text -> $"""{{"id":"q","op":"search","text":{quote text}}}""")
+          for item in declarations.Provenance do
+              for ownership in [ "local"; "imported" ] do
+                  yield $"""{{"id":"r","op":"references","kind":"{item.Kind}","{item.Kind}":{{"id":{quote item.Id},"ownership":"{ownership}"}}}}"""
+              for source in item.Sources do
+                  yield $"""{{"id":"r","op":"references","kind":"{item.Kind}","{item.Kind}":{{"id":{quote item.Id},"dependencySnapshotId":{quote source.SnapshotId}}}}}"""
+          yield """{"id":"u","op":"unreferenced"}"""
+          for item in declarations.Functions |> List.truncate 3 do
+              yield $"""{{"id":"u","op":"unreferenced","roots":[{quote item.DisplayName}]}}""" ]
+
+    let private sameAnswers label (fsharp: string list) (zig: string list) (requests: string list) =
+        Assert.Equal(requests.Length, zig.Length)
+        List.zip3 requests fsharp zig |> List.iteri (fun index (request, expected, actual) ->
+            if comparable expected <> comparable actual then
+                failwithf "%s line %d: %s\n F#:  %s\n Zig: %s" label (index + 1) request expected actual)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host answers queries built from each snapshot as the F# host does`` () =
+        withDirectory (fun dir ->
+            for snapshot in snapshots dir do
+                use session = AuthoringSession.openReadOnly snapshot |> unwrap
+                let requests = queries session
+                let code, errors, answers = run true [ "open"; "--snapshot"; snapshot; "--read-only" ] requests
+                Assert.True((code = 0), errors)
+                sameAnswers (Path.GetFileName snapshot) (requests |> List.map (AuthoringProtocol.executeLine session)) answers requests)
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host fails to start as the F# host does`` () =
@@ -177,6 +242,9 @@ module ZigHostParityTests =
                     let arguments = [ "open"; "--snapshot"; path ] @ (if readOnly then [ "--read-only" ] else [])
                     let shown (code, errors, (lines: string list)) = $"{code} {comparable errors} {comparable (String.Join(' ', lines))}"
                     let request = [ """{"id":"s","op":"status"}"""; """{"id":"d","op":"declarations"}"""; """{"id":"e","op":"dependency"}""" ]
+                    let opened = match AuthoringSession.openReadOnly path with | Ok session -> Some session | Error _ -> None
+                    let request = request @ (opened |> Option.map queries |> Option.defaultValue [])
+                    opened |> Option.iter (fun session -> (session :> IDisposable).Dispose())
                     let fsharpRun = run false arguments request
                     let fsharp, zig = shown fsharpRun, shown (run true arguments request)
                     Assert.True((fsharp = zig), $"{name}:\n F#:  {fsharp}\n Zig: {zig}")

@@ -8,6 +8,7 @@ const std = @import("std");
 const model_reader = @import("model_reader");
 const snapshot_reader = @import("snapshot_reader");
 const wire = @import("wire.zig");
+const query = @import("query.zig");
 
 /// The open snapshot: what `status` reports, the model (merged with the dependency, if any) and
 /// the selected dependency. All live in `startup`.
@@ -32,7 +33,7 @@ const usage = "Usage: host open --snapshot <snapshot-path> [--read-only] [--allo
 /// A JSON string as `JsonSerializer` writes it with `JavaScriptEncoder.Default`: printable ASCII
 /// except `"&'+<>` and backtick, the short forms \b \t \n \f \r \\, and every other code point as
 /// uppercase UTF-16 \uXXXX escapes.
-fn writeString(out: *std.Io.Writer, text: []const u8) !void {
+pub fn writeString(out: *std.Io.Writer, text: []const u8) !void {
     try out.writeByte('"');
     var it = std.unicode.Utf8View.initUnchecked(text).iterator();
     while (it.nextCodepoint()) |c| switch (c) {
@@ -175,6 +176,22 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, line: []const u8) !void {
         };
         return failure(out, id, "ProposalNotFound", try std.fmt.allocPrint(a, "No pending proposal has the ID '{s}'; it was committed, rejected, or discarded when its session closed.", .{proposal}));
     }
+    const queries = [_]struct { []const u8, *const fn (*query.Request, *std.Io.Writer) anyerror!void }{
+        .{ "search", query.search },
+        .{ "references", query.references },
+        .{ "unreferenced", query.unreferenced },
+    };
+    for (queries) |entry| if (std.mem.eql(u8, op, entry[0])) {
+        var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .model = canonical(), .provenance = if (selection) |d| d.provenance else null };
+        var result: std.Io.Writer.Allocating = .init(a);
+        entry[1](&request, &result.writer) catch |e| switch (e) {
+            error.Rejected => return failure(out, id, request.rejection.code, request.rejection.message),
+            else => return e,
+        };
+        try success(out, id);
+        try out.writeAll(result.written());
+        return out.writeByte('}');
+    };
     return failure(out, id, "UnsupportedOperation", try std.fmt.allocPrint(a, "Unsupported operation '{s}'.", .{op}));
 }
 
@@ -185,56 +202,8 @@ fn success(out: *std.Io.Writer, id: []const u8) !void {
     try out.writeAll(",\"ok\":true,\"result\":");
 }
 
-/// `WireInput.ensureFields`: duplicate root names first, then
-/// the unknown and the missing ones, each sorted.
 fn fieldProblem(a: std.mem.Allocator, line: []const u8, root: std.json.ObjectMap, context: []const u8, fields: []const []const u8, required: []const []const u8) !?[]const u8 {
-    if (try duplicateRootNames(a, line)) return "JSON object contains duplicate property names.";
-    var unknown: std.ArrayList([]const u8) = .empty;
-    for (root.keys()) |key| {
-        for (fields) |field| {
-            if (std.mem.eql(u8, key, field)) break;
-        } else try unknown.append(a, key);
-    }
-    var missing: std.ArrayList([]const u8) = .empty;
-    for (required) |field| if (root.get(field) == null) try missing.append(a, field);
-    const ordinal = struct {
-        fn less(_: void, x: []const u8, y: []const u8) bool {
-            return std.mem.order(u8, x, y) == .lt;
-        }
-    }.less;
-    std.mem.sort([]const u8, unknown.items, {}, ordinal);
-    std.mem.sort([]const u8, missing.items, {}, ordinal);
-    if (unknown.items.len > 0) return try std.fmt.allocPrint(a, "{s} contains unsupported properties: {s}. Allowed: {s}.", .{ context, try std.mem.join(a, ", ", unknown.items), try std.mem.join(a, ", ", fields) });
-    if (missing.items.len > 0) return try std.fmt.allocPrint(a, "{s} is missing required properties: {s}.", .{ context, try std.mem.join(a, ", ", missing.items) });
-    return null;
-}
-
-/// Whether the request object names a property twice (the parse keeps the last).
-fn duplicateRootNames(a: std.mem.Allocator, line: []const u8) !bool {
-    var scanner = std.json.Scanner.initCompleteInput(a, line);
-    var names: std.StringHashMapUnmanaged(void) = .empty;
-    var depth: usize = 0;
-    var expecting_name = false;
-    while (true) {
-        const token = try scanner.nextAlloc(a, .alloc_always);
-        switch (token) {
-            .end_of_document => return false,
-            .object_begin => {
-                depth += 1;
-                expecting_name = depth == 1;
-                continue;
-            },
-            .array_begin => depth += 1,
-            .object_end, .array_end => depth -= 1,
-            .allocated_string => |name| if (depth == 1 and expecting_name) {
-                if ((try names.fetchPut(a, name, {})) != null) return true;
-                expecting_name = false;
-                continue;
-            },
-            else => {},
-        }
-        expecting_name = depth == 1;
-    }
+    return query.fieldProblem(a, line, &.{}, root, context, fields, required);
 }
 
 /// The startup failure as `WireEncode.startupMessage` words it; the process exits with 2.

@@ -374,7 +374,7 @@ module SemanticQuery =
             (snapshot.Functions |> List.sortBy (fun item -> StableId.value item.Id) |> List.collect functionSites)
             @ (snapshot.Types |> List.sortBy (fun item -> StableId.value item.Id) |> List.collect typeSites)
             @ (snapshot.Capabilities |> List.sortBy (fun item -> StableId.value item.Id) |> List.collect capabilitySites)
-            |> List.sortBy (fun reference -> ownerKey reference, sprintf "%A" reference.Site)
+            |> List.sortBy (fun reference -> ownerKey reference, reference.Site)
             |> Ok
 
     type private DeclarationClosure =

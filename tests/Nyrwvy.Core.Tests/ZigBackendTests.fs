@@ -599,6 +599,8 @@ module ZigBackendTests =
             if File.Exists(Path.Combine(directory.FullName, "Nyrwvy.slnx")) then directory.FullName else root directory.Parent
         let file = Path.Combine(root (DirectoryInfo AppContext.BaseDirectory), "tools", "zig", "emitter", "case_mapping.zig")
         Assert.True((ZigRuntime.caseMapping.Value = File.ReadAllText file), "tools/zig/emitter/case_mapping.zig is stale.")
+        let host = Path.Combine(root (DirectoryInfo AppContext.BaseDirectory), "tools", "zig", "host", "case_runs.zig")
+        Assert.True((ZigRuntime.caseRunTables.Value = File.ReadAllText host), "tools/zig/host/case_runs.zig is stale.")
 
     /// Every repository snapshot, whole and per entry, emits the same Zig from the Zig emitter as from
     /// the F# one (the extended settings turn the comparison on), or both reject it.
