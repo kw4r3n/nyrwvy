@@ -2,3 +2,35 @@ versions 9 21 24
 24|WaitAttributes|A waiting operation, task-bound capability or must-not-wait function|
 23|Bytes|Bytes|bytesAppend bytesConcat bytesEmpty bytesFill bytesFromLatin1 bytesGet bytesLength bytesSet bytesSlice bytesToLatin1
 22|ListScan|ListScan|listScan
+21|DeclaredFunctionTypeParameters|Declared function type parameters|
+21|DeclarationVisibility|A private declaration|
+20|SetCallbacks|SetFold, SetFilter and SetMap|setFilter setFold setMap
+20|ListMaxBy|ListMaxBy|listMaxBy
+20|Float64FloorModulo|Float64FloorModulo|float64FloorModulo
+20|StringLastIndexOfBefore|StringLastIndexOfBefore|stringLastIndexOfBefore
+19|OptionResultAccessors|Option and Result accessors|optionIsSome optionOkOr resultErrValue resultGetOrDefault resultIsOk resultOkValue
+19|ListContains|ListContains|listContains
+19|StringEncodeUtf8|StringEncodeUtf8|stringEncodeUtf8
+18|GenericTypes|Generic Product and Union types|
+17|ExceptionIsCancellation|Exception cancellation classification|exceptionIsCancellation
+17|StringReplaceAndTrim|StringReplace and StringTrim|stringReplace stringTrim stringTrimEnd stringTrimStart
+17|ListZipWithAndFlatMap|ListZipWith and ListFlatMap|listFlatMap listZipWith
+17|OptionResultCombinators|Option and Result combinators|optionAndThen optionGetOrDefault optionMap resultAndThen resultMap resultMapErr
+16|ExceptionBoundary|Host exception boundary|exceptionCatch exceptionMessage exceptionRethrow
+15|CancellationShield|Lexical cancellation shield|cancellationShield
+14|OneShot|Scoped one-shot handoff|oneShotComplete oneShotCreate oneShotWait
+10|CapabilityConstruct|Capability construction|capabilityConstruct
+11|FunctionAbort|Function abort|abort
+12|TimedTaskWait|Timed TaskWait|
+13|CheckedInt64Arithmetic|Checked Int64 arithmetic|int64CheckedAdd int64CheckedMultiply int64CheckedSubtract
+13|SharedUnionMatchArm|A MatchUnion arm with several variants|
+13|StringToUpper|StringToUpper|stringToUpper
+13|Float64Round|Float64Round|float64Round
+13|Map|Map|mapContainsKey mapEmpty mapFilter mapFold mapFromList mapGet mapGetOrDefault mapInsert mapKeys mapMapValues mapRemove mapSize mapValues
+13|Set|Set|setContains setDifference setEmpty setFromList setInsert setIntersection setRemove setSize setToList setUnion
+13|ListMinBy|ListMinBy|listMinBy
+13|ListLastAndDropLast|ListLast and ListDropLast|listDropLast listLast
+13|ListIndexSearch|ListIndexOf, ListLastIndexOf and ListFindIndex|listFindIndex listIndexOf listLastIndexOf
+17|SetIsSubsetAndMapUnion|SetIsSubset and MapUnion|mapUnion setIsSubset
+17|Int64BitwiseAndFloat64MinMax|Int64 bitwise operations and shifts, Float64Min and Float64Max|float64Max float64Min int64BitAnd int64BitNot int64BitOr int64BitXor int64ShiftLeft int64ShiftRight
+17|ListPositionalUpdate|ListSetAt, ListInsertAt and ListRemoveAt|listInsertAt listRemoveAt listSetAt

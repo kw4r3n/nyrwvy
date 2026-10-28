@@ -23,8 +23,10 @@
 //!
 //! `model_kinds.txt` beside this file is the node reader table, one kind per line:
 //! `kind|context|name:shape ...|written names` (properties in reading order; the last field only
-//! when the writer's order differs). `schema_minimums.txt` holds the version rows above the first
-//! record schema, generated from `SnapshotSchema`; a fast test compares it.
+//! when the writer's order differs). `schema_minimums.txt` holds every construct row of
+//! `SnapshotSchema.minimumVersions`, generated from it; a fast test compares it. The rows above the
+//! first record version fail a document that declares less; all of them decide the version
+//! `--fingerprints` writes.
 const std = @import("std");
 
 const kind_table_text = @embedFile("model_kinds.txt");
@@ -579,6 +581,40 @@ var first_record: i32 = 0;
 var current: i32 = 0;
 var wait_row: ?usize = null;
 var bytes_row: ?usize = null;
+// The rows `SnapshotSchema.usedFeatures` marks from something other than a node's kind alone.
+var generic_row: ?usize = null;
+var visibility_row: ?usize = null;
+var declared_type_parameters_row: ?usize = null;
+var timed_wait_row: ?usize = null;
+var shared_arm_row: ?usize = null;
+var exception_row: ?usize = null;
+var one_shot_row: ?usize = null;
+var map_row: ?usize = null;
+var set_row: ?usize = null;
+
+// The forms of `SnapshotCodec.serializeCanonical`, which the fingerprints hash (see `fingerprints`):
+// the schema version written (null: the current one), the semantic fingerprint's normalization,
+// and below version 21 the type parameter names written at each occurrence, by ID.
+var write_version: ?i32 = null;
+var neutral = false;
+var legacy_names: std.StringHashMapUnmanaged(Str) = .empty;
+
+/// Below the first record version (21, also the first with declared visibility and function type
+/// parameter lists), the writer has no `exported` marker, omits a function's type parameter list
+/// and names each type parameter occurrence.
+fn legacyForm() bool {
+    return if (write_version) |version| version < first_record else false;
+}
+
+fn visibility(exported: ?[]const u8) ?[]const u8 {
+    if (exported == null) use(visibility_row);
+    return if (legacyForm()) null else exported;
+}
+
+/// A display name, or `SemanticFingerprint`'s placeholder.
+fn displayed(units: Str) Str {
+    return if (neutral) L("_") else units;
+}
 
 fn use(row: ?usize) void {
     if (row) |r| used[r] = true;
@@ -626,8 +662,11 @@ fn readTypeRef(element: Value) Failure![]const u8 {
         o.put("resultType", result);
     } else if (isName(kind, "typeParameter")) {
         try ensureProperties("Type parameter reference", &.{ "kind", "typeParameterId" }, &.{ "kind", "typeParameterId" }, element);
+        const id = try readId("typeParameterId", element);
         o.put("kind", "\"typeParameter\"");
-        o.put("typeParameterId", quoted(try readId("typeParameterId", element)));
+        o.put("typeParameterId", quoted(id));
+        // `TypeParameters.nameIn`: the ID text when no declaration names it.
+        if (legacyForm()) o.put("displayName", quoted(legacy_names.get(text(id)) orelse id));
     } else if (isName(kind, "capability")) {
         try ensureProperties("Capability type reference", &.{ "kind", "capabilityId" }, &.{ "kind", "capabilityId" }, element);
         o.put("kind", "\"capability\"");
@@ -636,6 +675,10 @@ fn readTypeRef(element: Value) Failure![]const u8 {
         try ensureProperties("Builtin generic type reference", &.{ "kind", "generic", "arguments" }, &.{ "kind", "generic", "arguments" }, element);
         const generic = try readString("generic", element);
         if (!oneOf(generic, &generics)) return invalidShape(fmt("Unsupported builtin generic type '{s}'.", .{text(generic)}));
+        if (isName(generic, "exception")) use(exception_row);
+        if (isName(generic, "oneShot")) use(one_shot_row);
+        if (isName(generic, "map")) use(map_row);
+        if (isName(generic, "set")) use(set_row);
         const arguments = try readTypeRefs("arguments", element);
         o.put("kind", "\"builtinGeneric\"");
         o.put("generic", quoted(generic));
@@ -651,6 +694,7 @@ fn readTypeArguments(name: []const u8, element: Value) Failure!?[]const u8 {
     const texts = a.alloc([]const u8, items.len) catch oom();
     for (items, texts) |item, *t| t.* = try readTypeRef(item);
     if (items.len == 0) return invalidShape(fmt("Property '{s}' must be omitted rather than empty.", .{name}));
+    use(generic_row);
     return array(texts);
 }
 
@@ -664,7 +708,7 @@ fn readTyped(context: []const u8, element: Value) Failure!Keyed {
     const type_ref = try readTypeRef(try requireProperty("type", element));
     var o: Obj = .{};
     o.put("id", quoted(id));
-    o.put("displayName", quoted(display));
+    o.put("displayName", quoted(displayed(display)));
     o.put("type", type_ref);
     return .{ .key = id, .text = o.done() };
 }
@@ -680,11 +724,12 @@ fn readTypeParameters(element: Value) Failure!?[]const u8 {
     if (tryProperty("typeParameters", element) == null) return null;
     const items = try readArray("typeParameters", element);
     const texts = a.alloc([]const u8, items.len) catch oom();
-    for (items, texts) |item, *t| {
+    for (items, texts, 0..) |item, *t, index| {
         try ensureProperties("Type parameter declaration", &.{ "typeParameterId", "displayName" }, &.{ "typeParameterId", "displayName" }, item);
         var o: Obj = .{};
         o.put("typeParameterId", quoted(try readId("typeParameterId", item)));
-        o.put("displayName", quoted(try readString("displayName", item)));
+        const display = try readString("displayName", item);
+        o.put("displayName", quoted(if (neutral) positionalName(index) else display));
         t.* = o.done();
     }
     if (items.len == 0) return invalidShape("Property 'typeParameters' must be omitted rather than empty.");
@@ -724,6 +769,16 @@ fn loadTables() void {
         row_kinds.append(a, fields.next().?) catch oom();
         if (std.mem.eql(u8, feature, "WaitAttributes")) wait_row = rows.items.len - 1;
         if (std.mem.eql(u8, feature, "Bytes")) bytes_row = rows.items.len - 1;
+        const special = [_]struct { []const u8, *?usize }{
+            .{ "GenericTypes", &generic_row },                .{ "DeclarationVisibility", &visibility_row },
+            .{ "DeclaredFunctionTypeParameters", &declared_type_parameters_row }, .{ "TimedTaskWait", &timed_wait_row },
+            .{ "SharedUnionMatchArm", &shared_arm_row },      .{ "ExceptionBoundary", &exception_row },
+            .{ "OneShot", &one_shot_row },                    .{ "Map", &map_row },
+            .{ "Set", &set_row },
+        };
+        for (special) |entry| if (std.mem.eql(u8, feature, entry[0])) {
+            entry[1].* = rows.items.len - 1;
+        };
     }
     used = a.alloc(bool, rows.items.len) catch oom();
 
@@ -814,7 +869,7 @@ fn readPatternBinding(element: Value) Failure![]const u8 {
     const type_ref = try readTypeRef(try requireProperty("type", element));
     var o: Obj = .{};
     o.put("id", quoted(id));
-    if (display) |d| o.put("displayName", quoted(d));
+    if (display) |d| if (!neutral) o.put("displayName", quoted(d));
     o.put("type", type_ref);
     return o.done();
 }
@@ -841,6 +896,7 @@ fn readUnionArm(element: Value) Failure!Keyed {
     } else if (several and !single) {
         variants = try readIdArray("variantIds", element);
         if (variants.len < 2) return invalidShape("Union match arm 'variantIds' must name at least two variants; one variant uses 'variantId'.");
+        use(shared_arm_row);
     } else return invalidShape("Union match arm requires exactly one of 'variantId' and 'variantIds'.");
     const items = try readArray("fieldBindings", element);
     const bindings = a.alloc(Keyed, items.len) catch oom();
@@ -916,6 +972,7 @@ fn readNode(element: Value) Failure!Keyed {
     const kind = kinds.get(kind_name) orelse return invalidShape(fmt("Unsupported graph node kind '{s}'.", .{kind_name}));
     try ensureProperties(kind.context, kind.required, kind.allowed, element);
     use(kind.row);
+    if (std.mem.eql(u8, kind_name, "taskWait") and tryProperty("limitNodeId", element) != null) use(timed_wait_row);
     var o: Obj = .{};
     o.put("id", quoted(id));
     o.put("kind", quoted(kind_units));
@@ -982,15 +1039,16 @@ fn readType(element: Value) Failure!Keyed {
             const fields = try readTypedArray("fields", "Field", item);
             var v: Obj = .{};
             v.put("id", quoted(variant_id));
-            v.put("displayName", quoted(variant_name));
+            v.put("displayName", quoted(displayed(variant_name)));
             v.put("fields", sortedArray(fields));
             variant.* = .{ .key = variant_id, .text = v.done() };
         }
     }
+    if (type_parameters != null) use(generic_row);
     var o: Obj = .{};
     o.put("id", quoted(id));
-    o.put("displayName", quoted(display));
-    o.putOptional("exported", exported);
+    o.put("displayName", quoted(displayed(display)));
+    o.putOptional("exported", visibility(exported));
     o.putOptional("typeParameters", type_parameters);
     o.put("kind", quoted(kind));
     o.put(members, sortedArray(listed));
@@ -1002,8 +1060,8 @@ fn readEffect(element: Value) Failure!Keyed {
     const id = try readId("id", element);
     var o: Obj = .{};
     o.put("id", quoted(id));
-    o.put("displayName", quoted(try readString("displayName", element)));
-    o.putOptional("exported", try readVisibility(element));
+    o.put("displayName", quoted(displayed(try readString("displayName", element))));
+    o.putOptional("exported", visibility(try readVisibility(element)));
     return .{ .key = id, .text = o.done() };
 }
 
@@ -1023,7 +1081,7 @@ fn readOperation(element: Value) Failure!Keyed {
     const may_wait = try readWaitMarker("mayWait", element);
     var o: Obj = .{};
     o.put("id", quoted(id));
-    o.put("displayName", quoted(display));
+    o.put("displayName", quoted(displayed(display)));
     o.put("parameters", plainArray(parameters));
     o.put("resultType", result);
     o.putOptional("failureType", failure_type);
@@ -1043,8 +1101,8 @@ fn readCapability(element: Value) Failure!Keyed {
     for (items, operations) |item, *operation| operation.* = try readOperation(item);
     var o: Obj = .{};
     o.put("id", quoted(id));
-    o.put("displayName", quoted(display));
-    o.putOptional("exported", exported);
+    o.put("displayName", quoted(displayed(display)));
+    o.putOptional("exported", visibility(exported));
     o.putOptional("taskBound", task_bound);
     o.put("operations", sortedArray(operations));
     return .{ .key = id, .text = o.done() };
@@ -1066,12 +1124,13 @@ fn readFunction(element: Value) Failure!Keyed {
     const result = try readTypeRef(try requireProperty("resultType", element));
     const effects = try readIdArray("requiredEffects", element);
     const body = try readGraph(try requireProperty("body", element));
+    if (!try derivedTypeParameters(element)) use(declared_type_parameters_row);
     var o: Obj = .{};
     o.put("id", quoted(id));
-    o.put("displayName", quoted(display));
-    o.putOptional("exported", exported);
+    o.put("displayName", quoted(displayed(display)));
+    o.putOptional("exported", visibility(exported));
     o.putOptional("mustNotWait", must_not_wait);
-    o.putOptional("typeParameters", type_parameters);
+    if (!legacyForm()) o.putOptional("typeParameters", type_parameters);
     o.put("parameters", plainArray(parameters));
     o.put("resultType", result);
     o.put("requiredEffects", sortedArray(effects));
@@ -1113,6 +1172,131 @@ fn readDeclarations(name: []const u8, root: Value, comptime reader: fn (Value) F
     return sortedArray(out);
 }
 
+/// `SemanticFingerprint.normalizeTypeParameters`: `_`, then `_1`, `_2`, ... by position.
+fn positionalName(index: usize) Str {
+    if (index == 0) return L("_");
+    const ascii = fmt("_{d}", .{index});
+    const units = a.alloc(u16, ascii.len) catch oom();
+    for (ascii, units) |c, *u| u.* = c;
+    return units;
+}
+
+/// `TypeParameters.occurring`: the type parameters of a type reference in first-occurrence order.
+fn occurringInOrder(type_ref: Value, out: *List(Str)) Failure!void {
+    const kind = str(type_ref, "kind");
+    if (isName(kind, "typeParameter")) {
+        const id = try decodeString(str(type_ref, "typeParameterId"));
+        for (out.items) |seen| if (std.mem.eql(u16, seen, id)) return;
+        out.append(a, id) catch oom();
+    } else if (isName(kind, "function")) {
+        for (arrayOf(type_ref, "parameters")) |item| try occurringInOrder(item, out);
+        try occurringInOrder(get(type_ref, "resultType"), out);
+    } else for (arrayOf(type_ref, "arguments")) |item| try occurringInOrder(item, out);
+}
+
+/// `TypeParameters.isDerived`: the declared list is the one the parameter types imply.
+fn derivedTypeParameters(function: Value) Failure!bool {
+    var implied: List(Str) = .empty;
+    for (arrayOf(function, "parameters")) |parameter| try occurringInOrder(get(parameter, "type"), &implied);
+    const declared = arrayOf(function, "typeParameters");
+    if (declared.len != implied.items.len) return false;
+    for (declared, implied.items) |item, id| if (!std.mem.eql(u16, try decodeString(str(item, "typeParameterId")), id)) return false;
+    return true;
+}
+
+/// `TypeParameters.names` (the declared names by ID, the last declaration winning), or under the
+/// normalization each declaration's positional names.
+fn collectTypeParameterNames(root: Value) Failure!void {
+    legacy_names = .empty;
+    for ([_][]const u8{ "types", "functions" }) |group| for (arrayOf(root, group)) |declaration| {
+        for (arrayOf(declaration, "typeParameters"), 0..) |item, index| {
+            const name = if (neutral) positionalName(index) else try decodeString(str(item, "displayName"));
+            legacy_names.put(a, text(try decodeString(str(item, "typeParameterId"))), name) catch oom();
+        }
+    };
+}
+
+/// `SemanticFingerprint.normalizeObligations`: sorted by call node, parameter and status, then
+/// numbered, with the transaction IDs neutral.
+fn neutralObligations(root: Value) Failure![]const u8 {
+    const Entry = struct { call: Str, parameter: Str, status: Str, value: ?Str };
+    const items = arrayOf(root, "obligations");
+    const entries = a.alloc(Entry, items.len) catch oom();
+    for (items, entries) |item, *entry| {
+        const resolved = isName(str(item, "status"), "resolved");
+        entry.* = .{
+            .call = try decodeString(str(item, "callNodeId")),
+            .parameter = try decodeString(str(item, "parameterId")),
+            .status = if (resolved) cat(&.{ L("resolved:"), try decodeString(str(item, "resolutionValueNodeId")) }) else L("open"),
+            .value = if (resolved) try decodeString(str(item, "resolutionValueNodeId")) else null,
+        };
+    }
+    std.mem.sort(Entry, entries, {}, struct {
+        fn less(_: void, x: Entry, y: Entry) bool {
+            for ([_][2]Str{ .{ x.call, y.call }, .{ x.parameter, y.parameter }, .{ x.status, y.status } }) |pair| switch (std.mem.order(u16, pair[0], pair[1])) {
+                .lt => return true,
+                .gt => return false,
+                .eq => {},
+            };
+            return false;
+        }
+    }.less);
+    const transaction = quoted(L("semantic-fingerprint-transaction"));
+    const out = a.alloc(Keyed, entries.len) catch oom();
+    for (entries, out, 0..) |entry, *o, index| {
+        const id = quotedAscii(fmt("semantic-fingerprint-obligation-{d:0>8}", .{index}));
+        var obj: Obj = .{};
+        obj.put("id", id);
+        obj.put("kind", "\"missingArgument\"");
+        obj.put("originTransactionId", transaction);
+        obj.put("callNodeId", quoted(entry.call));
+        obj.put("parameterId", quoted(entry.parameter));
+        if (entry.value) |value| {
+            obj.put("status", "\"resolved\"");
+            obj.put("resolutionTransactionId", transaction);
+            obj.put("resolutionValueNodeId", quoted(value));
+        } else obj.put("status", "\"open\"");
+        o.* = .{ .key = L("-"), .text = obj.done() };
+    }
+    return plainArray(out);
+}
+
+const Fingerprints = struct { snapshot: []const u8, semantic: []const u8, canonical: []const u8, normalized: []const u8 };
+
+/// `SnapshotFingerprint` and `SemanticFingerprint` of a valid snapshot document: SHA-256 over the
+/// domain, a NUL and `SnapshotCodec.serializeCanonical`'s text, which is written at the smallest
+/// version holding every construct the snapshot uses (`SnapshotSchema.required`).
+// shortcut: neither the snapshot nor its normalization is validated, as `serializeCanonical` does;
+// the caller passes a validated snapshot (the host fingerprints only what it opened), and no
+// normalization of a valid snapshot has been seen to fail. Revisit if the parity test ever differs.
+fn fingerprints(source: []const u8) Failure!Fingerprints {
+    defer {
+        write_version = null;
+        neutral = false;
+    }
+    _ = try canonicalJson(source);
+    var required = first_supported;
+    for (rows.items, used) |row, is_used| if (is_used and row.minimum > required) {
+        required = row.minimum;
+    };
+    write_version = required;
+    try collectTypeParameterNames(parsed_root);
+    const canonical = try canonicalJson(source);
+    neutral = true;
+    try collectTypeParameterNames(parsed_root);
+    const normalized = try canonicalJson(source);
+    return .{ .snapshot = hashIn("nayamnyam.snapshot-fingerprint.v6", canonical), .semantic = hashIn("nayamnyam.semantic-fingerprint.v6", normalized), .canonical = canonical, .normalized = normalized };
+}
+
+/// `FingerprintHash.sha256`: the domain is frozen; it is part of every reviewed fingerprint.
+fn hashIn(domain: []const u8, canonical: []const u8) []const u8 {
+    var hash = std.crypto.hash.sha2.Sha256.init(.{});
+    hash.update(domain);
+    hash.update(&.{0});
+    hash.update(canonical);
+    return fmt("sha256:{s}", .{std.fmt.bytesToHex(hash.finalResult(), .lower)});
+}
+
 /// `SnapshotCodec.toCanonicalJson` for a schema from the first record version on.
 fn canonicalJson(source: []const u8) Failure![]const u8 {
     @memset(used, false);
@@ -1138,14 +1322,14 @@ fn canonicalJson(source: []const u8) Failure![]const u8 {
         if (is_used and declared_version < row.minimum) return invalidShape(fmt("{s} requires snapshot schemaVersion {d}.", .{ row.name, row.minimum }));
     }
     var o: Obj = .{};
-    o.put("schemaVersion", fmt("{d}", .{current}));
-    o.put("snapshotId", quoted(snapshot_id));
-    o.putOptional("parentSnapshotId", parent);
+    o.put("schemaVersion", fmt("{d}", .{write_version orelse current}));
+    o.put("snapshotId", if (neutral) quoted(L("semantic-fingerprint-root")) else quoted(snapshot_id));
+    if (!neutral) o.putOptional("parentSnapshotId", parent);
     o.put("types", types);
     o.put("effects", effects);
     o.put("capabilities", capabilities);
     o.put("functions", functions);
-    o.put("obligations", obligations);
+    o.put("obligations", if (neutral) try neutralObligations(root) else obligations);
     return o.done();
 }
 
@@ -5615,7 +5799,7 @@ pub fn main(init: std.process.Init) !void {
     }
     const typing = lowering or args.len >= 2 and std.mem.eql(u8, args[1], "--typed-ir");
     if (if (validating) args.len < 3 else if (typing) args.len < 5 or (args.len - 2) % 3 != 0 else args.len < 3 or args.len % 2 == 0) {
-        std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...] | model-reader --validate <in.json> [<in.json> ...] | model-reader --typed-ir|--execution-ir <in.json> <out.json> <entry|-> [...]\n", .{});
+        std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...] | model-reader --validate <in.json> [<in.json> ...] | model-reader --typed-ir|--execution-ir <in.json> <out.json> <entry|-> [...] | model-reader --fingerprints <in.json> [<canonical.json> <normalized.json>]\n", .{});
         std.process.exit(64);
     }
     loadTables();
@@ -5623,6 +5807,21 @@ pub fn main(init: std.process.Init) !void {
     var buffer: [4096]u8 = undefined;
     var writer = std.Io.File.stdout().writer(init.io, &buffer);
     const out = &writer.interface;
+    // `--fingerprints <in.json> [<canonical.json> <normalized.json>]`: the two fingerprint lines of a
+    // valid snapshot, and optionally the texts they hash.
+    if (args.len >= 3 and std.mem.eql(u8, args[1], "--fingerprints")) {
+        const input = try std.Io.Dir.cwd().readFileAlloc(init.io, args[2], a, .unlimited);
+        const result = fingerprints(input) catch |e| {
+            try out.print("error {s}\n", .{@errorName(e)});
+            return out.flush();
+        };
+        if (args.len == 5) {
+            try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[3], .data = result.canonical });
+            try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[4], .data = result.normalized });
+        }
+        try out.print("snapshot {s}\nsemantic {s}\n", .{ result.snapshot, result.semantic });
+        return out.flush();
+    }
     if (validating and args.len == 5 and std.mem.eql(u8, args[2], "--dependency")) {
         try validateResolved(init.io, out, args[3], args[4]);
         return out.flush();
