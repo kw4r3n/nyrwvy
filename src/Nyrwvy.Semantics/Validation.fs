@@ -2886,12 +2886,13 @@ module SnapshotValidator =
 
     let private validateCached = SnapshotComputationScope.Memoize("validation", validateUncached, retain = true)
 
-    // Snapshots read from JSON the Zig validator accepted (`SnapshotCodec.readZigValidated`).
-    let private zigValidated = System.Runtime.CompilerServices.ConditionalWeakTable<Snapshot, obj>()
+    // Snapshots already found valid: read from JSON the Zig validator accepted
+    // (`SnapshotCodec.readZigValidated`), or the merged model of a resolved read.
+    let private knownValid = System.Runtime.CompilerServices.ConditionalWeakTable<Snapshot, obj>()
 
-    let internal assumeValid (snapshot: Snapshot) = zigValidated.AddOrUpdate(snapshot, null)
+    let internal assumeValid (snapshot: Snapshot) = knownValid.AddOrUpdate(snapshot, null)
 
     let validate (snapshot: Snapshot): ValidationIssue list =
-        match zigValidated.TryGetValue snapshot with
+        match knownValid.TryGetValue snapshot with
         | true, _ -> []
         | _ -> validateCached snapshot

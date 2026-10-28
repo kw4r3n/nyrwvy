@@ -1439,15 +1439,22 @@ module SnapshotCodec =
         | :? JsonException as error -> Error(SnapshotCodecError.InvalidJson error.Message)
         | :? FormatException as error -> Error(SnapshotCodecError.InvalidShape error.Message)
 
+    // The merged model a resolved read validated, by its local part and dependency, so the
+    // workspace built from the same two snapshots is not validated again.
+    let private resolvedReads = System.Runtime.CompilerServices.ConditionalWeakTable<Snapshot, Snapshot * Snapshot>()
+
     /// The imported declarations retain their original IDs; duplicate IDs are
     /// rejected by the ordinary snapshot validator before any local publication.
     let resolveDependency (dependency: Snapshot) (local: Snapshot): Snapshot =
-        { local with
-            Types = dependency.Types @ local.Types
-            Effects = dependency.Effects @ local.Effects
-            Capabilities = dependency.Capabilities @ local.Capabilities
-            Functions = dependency.Functions @ local.Functions
-            Obligations = dependency.Obligations @ local.Obligations }
+        match resolvedReads.TryGetValue local with
+        | true, (imported, merged) when obj.ReferenceEquals(imported, dependency) -> merged
+        | _ ->
+            { local with
+                Types = dependency.Types @ local.Types
+                Effects = dependency.Effects @ local.Effects
+                Capabilities = dependency.Capabilities @ local.Capabilities
+                Functions = dependency.Functions @ local.Functions
+                Obligations = dependency.Obligations @ local.Obligations }
 
     let private dependencyDigest (dependency: Snapshot): Result<string, SnapshotCodecError> =
         writeSnapshot None dependency
@@ -2778,7 +2785,11 @@ module SnapshotCodec =
     let private deserializeDocument (dependency: Snapshot option) (parse: unit -> JsonDocument): Result<Snapshot, SnapshotCodecError> =
         readDocument dependency parse (fun snapshot resolved ->
             match SnapshotValidator.validate resolved with
-            | [] -> Ok snapshot
+            | [] ->
+                dependency |> Option.iter (fun imported ->
+                    SnapshotValidator.assumeValid resolved
+                    resolvedReads.AddOrUpdate(snapshot, (imported, resolved)))
+                Ok snapshot
             | issues -> Error(SnapshotCodecError.InvalidSnapshot issues))
 
     let private deserializeUsing (dependency: Snapshot option) (json: string): Result<Snapshot, SnapshotCodecError> =

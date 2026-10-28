@@ -81,4 +81,10 @@ type ZigSpeed(output: ITestOutputHelper) =
                 row "    zig route" [ "ModelJson", zigModel; "model-reader lower", zigLower; "emitter", emit; "repeated runPure emit", emitRepeated ]
                 row "    fsharp route" [ "project+lower+ser", fsLower; "F# emitter", fsEmit ]
                 row "(3) tools" [ "model-reader validate", validate; "F# Snapshot build", build; "F# validate", fsValidate ]
+            match Environment.GetEnvironmentVariable "NYRWVY_SPEED_RHIFILL" with
+            | null | "" -> ()
+            | path ->
+                // The resolved workspace itself, with its dependency sidecar (last, as it changes the later rows' heap).
+                let openResolved = median (fun () -> (AuthoringSession.openReadOnly path |> ok).Close())
+                row "Rhifill resolved open" [ "as read", openResolved ]
         finally Directory.Delete(dir, true)

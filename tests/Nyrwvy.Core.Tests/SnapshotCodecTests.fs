@@ -71,6 +71,19 @@ module SnapshotCodecTests =
                     RequiredEffects = []
                     Body = body depth } ] }
 
+    [<Fact>]
+    let ``a resolved read's merged model is not validated again for its workspace`` () =
+        let dependency = Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-dependency")
+        let resolved = SnapshotCodec.serializeResolved dependency (deepSnapshot 20) |> unwrap
+        use scope = SnapshotComputationScope.Start(measure = true)
+        let local = SnapshotCodec.deserializeResolved dependency resolved |> unwrap
+        let merged = SnapshotCodec.resolveDependency dependency local
+        Assert.Empty(SnapshotValidator.validate merged)
+        Assert.Equal(1, scope.Measurements |> List.sumBy (fun item -> if item.Name = "validation" then item.Computations else 0))
+        // Another dependency object is another merge.
+        let other = Snapshot.empty (StableId.createForTesting<SnapshotTag> "snapshot-dependency")
+        Assert.NotSame(merged, SnapshotCodec.resolveDependency other local)
+
     [<Theory>]
     [<InlineData(20)>]
     [<InlineData(331)>]
