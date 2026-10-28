@@ -33,8 +33,23 @@ pub const Request = struct {
     }
 };
 
+/// `String.CompareOrdinal` of UTF-8 text: UTF-16 unit order, where a supplementary code point
+/// (a surrogate pair) sorts below U+E000..U+FFFF.
 fn ordinal(_: void, x: []const u8, y: []const u8) bool {
-    return std.mem.order(u8, x, y) == .lt;
+    var xs = std.unicode.Utf8View.initUnchecked(x).iterator();
+    var ys = std.unicode.Utf8View.initUnchecked(y).iterator();
+    const unit = struct {
+        fn f(c: u21) u21 {
+            return if (c >= 0x10000) 0xD800 + ((c - 0x10000) >> 10) else c;
+        }
+    }.f;
+    while (true) {
+        const p = xs.nextCodepoint() orelse return ys.nextCodepoint() != null;
+        const q = ys.nextCodepoint() orelse return false;
+        if (p == q) continue;
+        if (unit(p) != unit(q)) return unit(p) < unit(q);
+        return p < q;
+    }
 }
 
 /// `WireInput.ensureFields` of the object at `path` below the request root: duplicate names
