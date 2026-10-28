@@ -163,9 +163,10 @@ module ZigSnapshotReaderTests =
     [<Fact>]
     let ``The session's read path routes to the F# reader and maps the Zig readers' lines`` () =
         let dependency = Snapshot.empty (StableId.createForTesting<SnapshotTag> "zig-read-dependency")
-        Assert.True(ZigSnapshotReader.routes null None)
-        Assert.False(ZigSnapshotReader.routes "fsharp" None)
-        Assert.False(ZigSnapshotReader.routes null (Some dependency))
+        Assert.True(ZigSnapshotReader.routes null false None)
+        Assert.False(ZigSnapshotReader.routes "fsharp" false None)
+        Assert.True(ZigSnapshotReader.routes null false (Some dependency))
+        Assert.False(ZigSnapshotReader.routes null true (Some dependency))
         let verdict record model = ZigSnapshotReader.verdict record model |> unwrap
         let rejected error = ZigSnapshotReader.Verdict.Rejected error
         Assert.Equal(ZigSnapshotReader.Verdict.FSharpOnly, verdict None [ "skip legacy schema 20" ])
@@ -182,3 +183,41 @@ module ZigSnapshotReaderTests =
         Assert.Equal(rejected (SnapshotCodecError.InvalidShape "line 2, column 1: late"), verdict (Some "deferred 2:1: late") [ "end" ])
         Assert.True(Result.isError (ZigSnapshotReader.verdict None [ "issue A: x" ]))
         Assert.True(Result.isError (ZigSnapshotReader.verdict (Some "ok") []))
+
+    /// A resolved JSON snapshot is decided by `model-reader --validate --dependency` (F# reads the
+    /// marker and the local model); under the reader check every outcome must match the F# reader.
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig reader decides resolved JSON snapshots as the F# reader does`` () =
+        Assert.Equal("1", Environment.GetEnvironmentVariable "NYRWVY_ZIG_READER_CHECK")
+        let dependencyId = StableId.createForTesting<SnapshotTag> "zig-resolved-dependency"
+        let asDependency (snapshot: Snapshot) = { snapshot with Id = dependencyId; ParentId = None; Obligations = [] }
+        let snapshots =
+            Directory.GetFiles(Path.Combine(root (), "examples"), "*.nyrec", SearchOption.AllDirectories)
+            |> Array.toList |> List.map (File.ReadAllText >> RecordCodec.deserialize >> unwrap)
+            |> fun repository -> repository @ RecordCodecAllKindsTests.allKindSnapshots ()
+        let cases =
+            [ for snapshot in snapshots do
+                  let dependency = asDependency { snapshot with Functions = [] }
+                  let local = { snapshot with Types = []; Effects = []; Capabilities = [] }
+                  match SnapshotCodec.serializeResolved dependency local with
+                  | Error _ -> ()
+                  | Ok text ->
+                      yield dependency, text
+                      // The merged model invalid: a dependency type declared again locally.
+                      match dependency.Types with
+                      | first :: _ -> yield dependency, text.Replace("\"types\":[]", "\"types\":[" + Text.Json.JsonSerializer.Serialize(Text.Json.JsonDocument.Parse(SnapshotCodec.serialize dependency |> unwrap).RootElement.GetProperty("types")[0]) + "]")
+                      | [] -> ()
+                      // The marker's digest wrong, and an unknown top-level property.
+                      yield dependency, Regex.Replace(text, "\"digest\":\"(.)", fun m -> "\"digest\":\"" + (if m.Groups[1].Value = "0" then "1" else "0"))
+                      yield dependency, text.Replace("{\"schemaVersion\"", "{\"unexpected\":1,\"schemaVersion\"") ]
+        let outcomes = Collections.Generic.Dictionary<string, int>()
+        for dependency, text in cases do
+            let key =
+                match SessionStorage.decodeWith false (Some dependency) text with
+                | Ok _ -> "ok"
+                | Error(AuthoringSessionError.IoFailure message) -> failwithf "%s\n%s" message text
+                | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidSnapshot _)) -> "invalid"
+                | Error _ -> "other"
+            outcomes[key] <- (match outcomes.TryGetValue key with | true, n -> n + 1 | _ -> 1)
+        let count key = match outcomes.TryGetValue key with | true, n -> n | _ -> 0
+        Assert.True(count "ok" > 3 && count "invalid" > 1 && count "other" > 3, $"%A{outcomes}")

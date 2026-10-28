@@ -119,3 +119,11 @@ On the Zig-decided read, the F# Snapshot was built from the JSON only after `mod
 | Rhifill merged model: open, Zig-decided | 59.0, 54.9, 59.8 | 41.5, 42.0, 35.2 | 44.3–83.3 |
 
 The Zig-decided open is now faster than the F# reader on both inputs. A resolved snapshot still reads with F# (31–34 ms for Rhifill; this change does not touch it).
+
+## A resolved snapshot validated in Zig (2026-10-28)
+
+Under the standing rule (Zig only where it is faster), a resolved JSON snapshot's merged model is now validated by `model-reader --validate --dependency`. F# builds the local model and checks the marker at the same time (docs/decisions/zig-tools.md). Three interleaved runs each, ms:
+
+| | before (overlapped read, F# validates the merged model) | after (Zig validates it) |
+|---|---|---|
+| Rhifill resolved open | 33.5, 33.0, 31.2 | 30.2, 29.7, 30.1 |
