@@ -127,3 +127,40 @@ Under the standing rule (Zig only where it is faster), a resolved JSON snapshot'
 | | before (overlapped read, F# validates the merged model) | after (Zig validates it) |
 |---|---|---|
 | Rhifill resolved open | 33.5, 33.0, 31.2 | 30.2, 29.7, 30.1 |
+
+## Where an AuthoringSession spends its time on Rhifill (2026-10-28)
+
+Input for choosing between stopping the Zig port at the toolchain (reader, validator, lowering, emitter) and porting the whole session to a long-running Zig process (docs/decisions/zig-tools.md). The test `ZigSpeed: AuthoringSession ops on Rhifill` copies the resolved workspace and its sidecars (not the lock) into a temporary directory, so commit writes only the copy. It skips when `NYRWVY_SPEED_RHIFILL` is unset.
+
+How each row is measured:
+- **host spawn to status reply:** `dotnet Nyrwvy.AuthoringSession.dll open --snapshot <copy> --read-only`, as `tools/nyrwvy-agent/authoring.ts` launches a read session, from `Process.Start` to the first `status` reply on stdout. Median of 9 spawns after one, with the OS cache warm. "warm-up off" sets `NYRWVY_RUNPURE_WARMUP=0`.
+- **host usage exit:** the same host with no arguments, which prints its usage and exits, so this is the runtime start alone.
+- **in-process openReadOnly:** as in "Rhifill resolved open".
+- **Requests:** on one `openExisting` session through `AuthoringProtocol.executeLine`, the per-line entry the host's `serve` loop calls (the host without stdio).
+- **runPure:** Rhifill's case `actionName-focus_left`. Rhifill declares only the `csharp` backend, and the Zig backend refuses its capability operation types, so no Zig tool runs here. The rows:
+  - "warm-up" is `PureRun.warm` once, which the host starts in the background at launch;
+  - "first" is one measurement (C# emit and compile);
+  - "repeated" is the median, which takes the compiled assembly from the in-process cache.
+- **simulate and commit:** each of 10 rounds proposes a new function with one literal (`simulateCreateFunctionByName`) and commits it. The first round is dropped and the median of the other 9 is taken, so the copy grows by one small function a round.
+
+Seven runs, ms. The "warm-up off" and "usage exit" rows were added after the first runs, so those cells are empty. Run 3 ran while another session's tests loaded the machine, at a load average of about 30.
+
+| | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|
+| host spawn to status reply | 609 | 656 | 775 | 658 | 657 | 658 | 623 |
+| same, warm-up off | — | — | — | — | — | 673 | 625 |
+| host usage exit | — | — | — | — | 30.2 | 29.0 | 29.5 |
+| in-process openReadOnly | 33.1 | 31.2 | 45.8 | 32.4 | 32.8 | 35.0 | 31.2 |
+| status | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| readFunction | 1.4 | 1.4 | 2.8 | 1.4 | 1.5 | 1.5 | 1.3 |
+| search | 0.3 | 0.3 | 0.4 | 0.3 | 0.4 | 0.4 | 0.3 |
+| runPure warm-up (once) | 1315 | 1301 | 1437 | 1333 | 1365 | 1321 | 1308 |
+| runPure first (once) | 632 | 483 | 449 | 382 | 398 | 395 | 455 |
+| runPure repeated | 11.6 | 7.2 | 8.0 | 9.1 | 6.7 | 7.2 | 8.1 |
+| simulateCreateFunction | 64.0 | 44.7 | 50.2 | 47.8 | 45.1 | 44.1 | 43.1 |
+| commit | 35.2 | 22.3 | 27.5 | 23.5 | 23.6 | 22.6 | 22.2 |
+
+The reading:
+- **Startup dominates.** A new host takes about 0.6 s to its first reply. Of that, the runtime start is about 30 ms and the open itself 31–35 ms when warm in-process, of which the Zig toolchain is at most the validator's part (see "A resolved snapshot validated in Zig" above). The remaining ~550 ms was not split further. It is most likely the session code running for the first time in a fresh process (JIT and type initialisation). The background runPure warm-up does not delay the first reply.
+- **Per-request work is small.** Reads take 0–3 ms. A proposal with its review takes 43–64 ms, and its commit 22–35 ms. Neither split was measured between Zig tools and F# session logic.
+- **runPure on Rhifill is C#-bound, not Zig-bound.** The first run of an entry takes 0.4–0.6 s (C# emit and compile), on top of a 1.3 s warm-up the host hides in the background. A repeat takes 7–12 ms. For comparison, the Zig route's lowering and emitter for the whole merged model take 27 and 13 ms (the rows above), but this workspace does not use them.
