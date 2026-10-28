@@ -2798,6 +2798,12 @@ module SnapshotCodec =
         if isNull json then Error(SnapshotCodecError.InvalidJson "Snapshot JSON must not be null.")
         else readDocument None (fun () -> JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = maxJsonDepth))) (fun snapshot _ -> Ok snapshot)
 
+    /// `readUnvalidated` of JSON the Zig validator (`model-reader --validate`, kept in parity with
+    /// `SnapshotValidator` by the extended tests) has accepted as these same bytes: the Snapshot is
+    /// recorded as valid, so validating it again returns no issues without recomputing.
+    let readZigValidated (json: string): Result<Snapshot, SnapshotCodecError> =
+        readUnvalidated json |> Result.map (fun snapshot -> SnapshotValidator.assumeValid snapshot; snapshot)
+
     /// The JSON the writer produces for the shape-decoded model, without semantic validation: the
     /// reference of the Zig model reader (tools/zig/model-reader). The writer normally runs on
     /// validated models; it may throw on one that is only shape-valid.

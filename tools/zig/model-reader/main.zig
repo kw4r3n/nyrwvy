@@ -4169,8 +4169,55 @@ fn validateFunctionGraphs(functions: []const Value) void {
 const NodeOwner = struct { owner: Str, node: Value };
 const TypeParameterOwners = struct { id: Str, first: Str, shared: bool };
 
+/// The declaration tables and owners the rules and the node type resolver read, set from the
+/// parsed document (last-wins where the F# validator's `Map.ofList` is). `validate` sets them first;
+/// `--validated` sets only them.
+fn prepareContext(root: Value) void {
+    const types = arrayOf(root, "types");
+    const capabilities = arrayOf(root, "capabilities");
+    const functions = arrayOf(root, "functions");
+    var operations: List(Value) = .empty;
+    for (capabilities) |capability| operations.appendSlice(a, arrayOf(capability, "operations")) catch oom();
+    effect_names = byId(arrayOf(root, "effects"));
+    functions_by_id = byId(functions);
+    types_by_id = byId(types);
+    all_types = types;
+    capability_ids = idSet(capabilities);
+    type_parameter_names = .empty;
+    for ([_][]const Value{ types, functions }) |declared| for (declared) |owner| for (arrayOf(owner, "typeParameters")) |declaration|
+        type_parameter_names.put(a, idKey(str(declaration, "typeParameterId")), str(declaration, "displayName")) catch oom();
+    variant_owners = .empty;
+    variants_by_id = .empty;
+    for (types) |type_entity| for (arrayOf(type_entity, "variants")) |variant| {
+        variant_owners.put(a, idKey(str(variant, "id")), str(type_entity, "id")) catch oom();
+        variants_by_id.put(a, idKey(str(variant, "id")), variant) catch oom();
+    };
+    all_capabilities = capabilities;
+    operations_by_id = byId(operations.items);
+    operation_owners = .empty;
+    for (capabilities) |capability| for (arrayOf(capability, "operations")) |operation|
+        operation_owners.put(a, idKey(str(operation, "id")), str(capability, "id")) catch oom();
+    var product_fields: List(Value) = .empty;
+    product_field_owners = .empty;
+    for (types) |type_entity| if (isName(str(type_entity, "kind"), "product")) for (arrayOf(type_entity, "fields")) |field| {
+        product_fields.append(a, field) catch oom();
+        product_field_owners.put(a, idKey(str(field, "id")), type_entity) catch oom();
+    };
+    product_fields_by_id = byId(product_fields.items);
+    open_obligation_pairs = .empty;
+    for (arrayOf(root, "obligations")) |obligation| {
+        if (isName(str(obligation, "status"), "open"))
+            open_obligation_pairs.put(a, idKey(cat(&.{ str(obligation, "callNodeId"), L("\n"), str(obligation, "parameterId") })), {}) catch oom();
+    }
+    task_bound_capabilities = .empty;
+    for (capabilities) |capability| {
+        if (tryProperty("taskBound", capability) != null) task_bound_capabilities.put(a, idKey(str(capability, "id")), {}) catch oom();
+    }
+}
+
 fn validate(root: Value) void {
     issues.clearRetainingCapacity();
+    prepareContext(root);
     const types = arrayOf(root, "types");
     const effects = arrayOf(root, "effects");
     const capabilities = arrayOf(root, "capabilities");
@@ -4252,8 +4299,6 @@ fn validate(root: Value) void {
     }
 
     const effect_ids = idSet(effects);
-    effect_names = byId(effects);
-    functions_by_id = byId(functions);
 
     for (operations.items) |operation| {
         const effect_id = str(operation, "effectId");
@@ -4354,38 +4399,8 @@ fn validate(root: Value) void {
         }
     }
 
-    types_by_id = byId(types);
-    all_types = types;
-    capability_ids = idSet(capabilities);
-    type_parameter_names = .empty;
-    for ([_][]const Value{ types, functions }) |declared| for (declared) |owner| for (arrayOf(owner, "typeParameters")) |declaration|
-        type_parameter_names.put(a, idKey(str(declaration, "typeParameterId")), str(declaration, "displayName")) catch oom();
-    variant_owners = .empty;
-    variants_by_id = .empty;
-    for (types) |type_entity| for (arrayOf(type_entity, "variants")) |variant| {
-        variant_owners.put(a, idKey(str(variant, "id")), str(type_entity, "id")) catch oom();
-        variants_by_id.put(a, idKey(str(variant, "id")), variant) catch oom();
-    };
     validateTypeReferences(types, operations.items, functions);
 
-    all_capabilities = capabilities;
-    operations_by_id = byId(operations.items);
-    operation_owners = .empty;
-    for (capabilities) |capability| for (arrayOf(capability, "operations")) |operation|
-        operation_owners.put(a, idKey(str(operation, "id")), str(capability, "id")) catch oom();
-    var product_fields: List(Value) = .empty;
-    product_field_owners = .empty;
-    for (types) |type_entity| if (isName(str(type_entity, "kind"), "product")) for (arrayOf(type_entity, "fields")) |field| {
-        product_fields.append(a, field) catch oom();
-        product_field_owners.put(a, idKey(str(field, "id")), type_entity) catch oom();
-    };
-    product_fields_by_id = byId(product_fields.items);
-    open_obligation_pairs = .empty;
-    for (open_pairs.items) |pair| open_obligation_pairs.put(a, idKey(pair), {}) catch oom();
-    task_bound_capabilities = .empty;
-    for (capabilities) |capability| {
-        if (tryProperty("taskBound", capability) != null) task_bound_capabilities.put(a, idKey(str(capability, "id")), {}) catch oom();
-    }
     validateFunctionGraphs(functions);
     waitingRules(capabilities, functions);
 
@@ -4400,6 +4415,7 @@ fn validate(root: Value) void {
 // few `typedName` renames. See docs/decisions/zig-tools.md.
 
 const LoweringFailure = error{ Invalid, Incomplete, MissingNodeType };
+var validated_input = false;
 var lowering_failure: []const u8 = "";
 
 fn typedType(t: TypeRef) []const u8 {
@@ -4634,7 +4650,11 @@ const Ready = struct { function: Value, resolver: *Resolver };
 /// `SnapshotReadiness.evaluate`, then each function (by ID) with its resolver; `MissingNodeType`
 /// for the first function with a node the resolver cannot type.
 fn readyFunctions(root: Value) LoweringFailure![]Ready {
-    validate(root);
+    // `--validated`: the bytes passed the validator before, so only its context is prepared.
+    if (validated_input) {
+        issues.clearRetainingCapacity();
+        prepareContext(root);
+    } else validate(root);
     if (issues.items.len > 0) {
         lowering_failure = fmt("InvalidSnapshot: {d} issues", .{issues.items.len});
         return error.Invalid;
@@ -5387,9 +5407,18 @@ fn printIssues(out: *std.Io.Writer) !void {
 
 pub fn main(init: std.process.Init) !void {
     a = init.arena.allocator();
-    const args = try init.minimal.args.toSlice(a);
+    var args = try init.minimal.args.toSlice(a);
     const validating = args.len >= 2 and std.mem.eql(u8, args[1], "--validate");
     const lowering = args.len >= 2 and std.mem.eql(u8, args[1], "--execution-ir");
+    // `--execution-ir --validated <in> <out> <entry> ...`: the inputs already passed `--validate`.
+    validated_input = lowering and args.len >= 3 and std.mem.eql(u8, args[2], "--validated");
+    if (validated_input) {
+        const rest = try a.alloc(@TypeOf(args[0]), args.len - 1);
+        rest[0] = args[0];
+        rest[1] = args[1];
+        @memcpy(rest[2..], args[3..]);
+        args = rest;
+    }
     const typing = lowering or args.len >= 2 and std.mem.eql(u8, args[1], "--typed-ir");
     if (if (validating) args.len < 3 else if (typing) args.len < 5 or (args.len - 2) % 3 != 0 else args.len < 3 or args.len % 2 == 0) {
         std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...] | model-reader --validate <in.json> [<in.json> ...] | model-reader --typed-ir|--execution-ir <in.json> <out.json> <entry|-> [...]\n", .{});

@@ -184,6 +184,7 @@
     <Compile Include="ZigModelReaderTests.fs" />
     <Compile Include="ZigValidatorTests.fs" />
     <Compile Include="ZigLoweringTests.fs" />
+    <Compile Include="ZigSpeedTests.fs" />
     <Compile Include="BackendTargetsTests.fs" />
     <Compile Include="PureRunByNameTests.fs" />
     <Compile Include="PureRunPlainJsonTests.fs" />

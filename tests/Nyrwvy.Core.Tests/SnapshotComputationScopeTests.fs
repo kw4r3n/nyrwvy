@@ -137,5 +137,7 @@ module SnapshotComputationScopeTests =
             finally Directory.Delete(directory, true)
         let baseline = run false
         let reused = run true
-        Assert.True(baseline >= 10, $"Unexpected uncached workload: {baseline}")
+        // A base opened through the Zig reader is not validated again in F#, so the uncached count
+        // is lower with Zig (8 for "create") than with the F# reader (10 or more).
+        Assert.True(baseline >= 8, $"Unexpected uncached workload: {baseline}")
         Assert.True(reused <= 6 && reused < baseline, $"Validation passes: uncached={baseline}, reused={reused}")

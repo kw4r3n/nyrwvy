@@ -1242,13 +1242,17 @@ module PureRun =
             // The tool runs outside the lock; two runs of one entry at once both lower it.
             match context.ModelJson () with
             | Error error -> Error $"the snapshot does not serialize: %A{error}"
-            | Ok json ->
+            | Ok(json, validated) ->
+                // Bytes the Zig validator accepted are not validated again, except under the check,
+                // which compares the tool's full readiness with F#'s.
+                let check = not (String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_LOWERING_CHECK"))
+                let mode = if validated && not check then [ "--execution-ir"; "--validated" ] else [ "--execution-ir" ]
                 let stem = Path.Combine(zigCache, "lower-" + Guid.NewGuid().ToString("N"))
                 let result =
                     try
                         createPrivateDirectory zigCache
                         File.WriteAllText(stem + ".json", json, Text.UTF8Encoding false)
-                        ZigSnapshotReader.run "model-reader" [ "--execution-ir"; stem + ".json"; stem + ".out.json"; target ]
+                        ZigSnapshotReader.run "model-reader" (mode @ [ stem + ".json"; stem + ".out.json"; target ])
                         |> Result.bind (function
                             | [ "ok" ] -> Ok(Some(File.ReadAllText(stem + ".out.json")))
                             | [ line ] when line.StartsWith("error ", StringComparison.Ordinal) -> Ok None

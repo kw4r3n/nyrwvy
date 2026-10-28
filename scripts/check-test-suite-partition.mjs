@@ -18,9 +18,12 @@ assert.ok(process.argv.slice(2).every(arg => arg === "--node-only"), "Usage: nod
 if (!process.argv.includes("--node-only")) {
   const fast = discover("tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj", "tests/fast.runsettings")
   const extended = discover("Nyrwvy.slnx", "tests/extended.runsettings")
+  // Benchmarks (`Suite=Benchmark`) belong to neither suite; they are run by hand.
+  const benchmark = discover("tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj", "tests/benchmark.runsettings")
   const all = discover("Nyrwvy.slnx")
   assert.deepEqual([...fast].filter(name => extended.has(name)), [], "Fast and extended suites overlap")
-  assert.deepEqual([...new Set([...fast, ...extended])].sort(), [...all].sort(), "Some tests have no suite ownership")
+  assert.deepEqual([...benchmark].filter(name => fast.has(name) || extended.has(name)), [], "A benchmark runs in a suite")
+  assert.deepEqual([...new Set([...fast, ...extended, ...benchmark])].sort(), [...all].sort(), "Some tests have no suite ownership")
   console.log(`xUnit partition is disjoint and exhaustive: ${fast.size} fast, ${extended.size} extended.`)
 }
 const node = discoverNodeTests(cwd)

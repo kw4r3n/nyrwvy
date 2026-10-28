@@ -10,6 +10,17 @@ open Xunit.Abstractions
 
 module ZigLoweringTests =
     [<Fact>]
+    let ``a Snapshot read from Zig-validated JSON is not validated again`` () =
+        let json = ZigModelReaderSupport.allKindsJson () |> List.head
+        let validations read =
+            use scope = SnapshotComputationScope.Start(measure = true)
+            let snapshot = read json |> ZigModelReaderSupport.unwrap
+            Assert.Empty(SnapshotValidator.validate snapshot)
+            scope.Measurements |> List.sumBy (fun item -> if item.Name = "validation" then item.Computations else 0)
+        Assert.Equal(0, validations SnapshotCodec.readZigValidated)
+        Assert.Equal(1, validations SnapshotCodec.readUnvalidated)
+
+    [<Fact>]
     let ``instruction_kinds.txt lists every node kind that lowers to an instruction`` () =
         let rows = File.ReadAllLines(ZigModelReaderSupport.toolFile "instruction_kinds.txt") |> Array.map (fun line -> line.Split('|')[0]) |> Set.ofArray
         let handwritten = set [ "parameterReference"; "patternReference"; "abort"; "conditional"; "boolAnd"; "boolOr"; "matchUnion"; "bind"; "matchOption"; "matchResult" ]
@@ -78,13 +89,13 @@ type ZigLoweringComparison(output: ITestOutputHelper) =
                     inputs[text] <- path
                     path
             // In batches, within the argument list limit.
-            let lines =
-                cases |> List.indexed |> List.chunkBySize 1000 |> List.collect (fun batch ->
+            let run (mode: string list) (suffix: string) (selected: (int * _) list) =
+                selected |> List.chunkBySize 1000 |> List.collect (fun batch ->
                     let info = ProcessStartInfo(reader, RedirectStandardOutput = true)
-                    info.ArgumentList.Add mode
+                    for argument in mode do info.ArgumentList.Add argument
                     for index, (text, _, entry) in batch do
                         info.ArgumentList.Add(input text)
-                        info.ArgumentList.Add(Path.Combine(dir, $"{index}.out"))
+                        info.ArgumentList.Add(Path.Combine(dir, $"{index}{suffix}"))
                         info.ArgumentList.Add(match entry with Some id -> StableId.value id | None -> "-")
                     use child = Process.Start info
                     let lines = child.StandardOutput.ReadToEnd().Split('\n', StringSplitOptions.RemoveEmptyEntries)
@@ -92,6 +103,7 @@ type ZigLoweringComparison(output: ITestOutputHelper) =
                     Assert.Equal(0, child.ExitCode)
                     List.ofArray lines)
                 |> Array.ofList
+            let lines = run [ mode ] ".out" (List.indexed cases)
             Assert.Equal(cases.Length, lines.Length)
             let outcomes = Collections.Generic.Dictionary<string, int>()
             let mutable throws = 0
@@ -116,6 +128,22 @@ type ZigLoweringComparison(output: ITestOutputHelper) =
             Assert.True(count "ok" > 100 && count "error InvalidSnapshot" > 100 && count "error IncompleteSnapshot" > 0, "every outcome must occur")
             // A case where F# throws would compare nothing; none does on this corpus.
             Assert.Equal(0, throws)
+            if mode = "--execution-ir" then
+                // A model whose whole passes validation: no entry of it is invalid (readiness validates
+                // the selection), and `--validated` lowers each case to the same line and bytes.
+                let valid =
+                    cases |> List.indexed |> List.choose (fun (index, (text, _, entry)) ->
+                        if entry.IsNone && (lines[index] = "ok" || lines[index].StartsWith "error IncompleteSnapshot") then Some text else None)
+                    |> set
+                let selected = cases |> List.indexed |> List.filter (fun (_, (text, _, _)) -> valid.Contains text)
+                for index, (_, _, entry) in selected do
+                    Assert.False(lines[index].StartsWith "error InvalidSnapshot", $"case {index} (entry {entry}): an entry of a valid model is invalid: {lines[index]}")
+                let again = run [ mode; "--validated" ] ".v.out" selected
+                selected |> List.iteri (fun position (index, (_, _, entry)) ->
+                    Assert.True((lines[index] = again[position]), $"case {index} (entry {entry}): {lines[index]} without --validated, {again[position]} with it")
+                    if lines[index] = "ok" then
+                        Assert.True((File.ReadAllText(Path.Combine(dir, $"{index}.out")) = File.ReadAllText(Path.Combine(dir, $"{index}.v.out"))), $"case {index} (entry {entry}): --validated changes the IR"))
+                output.WriteLine($"{selected.Length} cases of {valid.Count} valid models again with --validated, identical")
         finally Directory.Delete(dir, true)
 
     [<Fact; Trait("Suite", "Extended")>]
@@ -123,3 +151,4 @@ type ZigLoweringComparison(output: ITestOutputHelper) =
 
     [<Fact; Trait("Suite", "Extended")>]
     member _.``The Zig Execution IR matches the F# lowering`` () = compare "--execution-ir" executionReference
+

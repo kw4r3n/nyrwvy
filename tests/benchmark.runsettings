@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <RunConfiguration>
+    <!-- Benchmarks, run by hand (evaluation/zig-speed/README.md); neither suite runs them. -->
+    <TestCaseFilter>Suite=Benchmark</TestCaseFilter>
+  </RunConfiguration>
+</RunSettings>
