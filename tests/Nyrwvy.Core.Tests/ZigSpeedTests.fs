@@ -63,6 +63,9 @@ type ZigSpeed(output: ITestOutputHelper) =
                 let lowered = launch modelReader (mode @ [ json; ir; "-" ])
                 let zigLower = median (fun () -> launch modelReader (mode @ [ json; ir; "-" ]) |> ignore)
                 let emit = median (fun () -> launch emitter [ ir ] |> ignore)
+                // runPure's emission, which a repeated run of the same IR takes from the cache.
+                let irText = File.ReadAllText ir
+                let emitRepeated = median (fun () -> PureRun.zigEmit irText (fun () -> failwith "no check") None |> ok |> ignore)
                 let fsLower = median (fun () -> session.ProjectExecution() |> ok |> ExecutionIrSerializer.serialize |> ignore)
                 let program = session.ProjectExecution() |> ok
                 let fsEmit = median (fun () -> ZigBackend.runner program None |> ignore)
@@ -75,7 +78,7 @@ type ZigSpeed(output: ITestOutputHelper) =
                 output.WriteLine($"-- {name}: {text.Length / 1024} KiB model JSON, lowering {lowered} ({String.Join(' ', mode)})")
                 row "(1) open" [ "zig-decided", openZig; "fsharp", openFs ]
                 row "(2) to Zig source" [ "zig", zigModel + zigLower + emit; "fsharp+zig-emitter", fsLower + emit; "fsharp", fsLower + fsEmit ]
-                row "    zig route" [ "ModelJson", zigModel; "model-reader lower", zigLower; "emitter", emit ]
+                row "    zig route" [ "ModelJson", zigModel; "model-reader lower", zigLower; "emitter", emit; "repeated runPure emit", emitRepeated ]
                 row "    fsharp route" [ "project+lower+ser", fsLower; "F# emitter", fsEmit ]
                 row "(3) tools" [ "model-reader validate", validate; "F# Snapshot build", build; "F# validate", fsValidate ]
         finally Directory.Delete(dir, true)

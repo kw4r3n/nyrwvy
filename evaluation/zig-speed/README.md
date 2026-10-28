@@ -67,6 +67,17 @@ For Rhifill's validation, before (in ms):
 
 After the changes: parse 2.6–3.3, shape about 1, `scalarRules` 0.7. The F# open column varied from 38 to 72 ms across runs on the same input; within one run the Zig path is now ahead on both rows for Rhifill.
 
+## Caching the emitter's output (2026-10-28)
+
+runPure cached the Zig lowering per snapshot but ran the Zig emitter on every call. The emitter's output is now cached by emitter build (its source hash), entry and IR hash. Under `NYRWVY_ZIG_EMITTER_CHECK` a cached output is still compared with the F# emitter on every call. Merging the lowering and the emitter into one process would have saved only the spawn and the IR file round trip (about 1–2 ms on Rhifill), so it was dropped for this.
+
+| | before | after |
+|---|---|---|
+| task-outcomes: runPure's emit, repeated | 4.4 | 0.1 |
+| Rhifill: runPure's emit, repeated | 22.6 | 0.9 |
+
+A repeated runPure of the same snapshot now skips both tools; the first run is unchanged (Rhifill: lowering 27.4, emitter 22.6). The remaining 0.9 ms is hashing the 1 MB IR.
+
 ## Zig emitter hotspots (2026-10-28)
 
 For Rhifill's whole program (a 1 MB IR), the emitter spent about 8 ms parsing JSON, 3 ms on instruction lines, 3.5 ms declaring values and 2.5 ms on the rest of each function body. The changes, with outputs unchanged:

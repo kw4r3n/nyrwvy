@@ -1180,27 +1180,45 @@ module PureRun =
     /// A Zig tool (`tools/zig/<name>`), built once per process (see `ZigTools.tool`).
     let zigTool (name: string) = ZigTools.tool name |> Result.mapError (fun (code, message) -> diagnostic code message)
 
+    // The Zig emitter's output by emitter build, entry and IR hash: a repeated run skips the emitter;
+    // the emitter check below still runs on every call.
+    let private emitCache = Collections.Generic.Dictionary<string, Result<string, string list>>()
+    let mutable internal emitCacheHits = 0
+
     /// The complete runPure runner for an Execution IR text from the Zig emitter (see
     /// `ZigBackend.runner`), or the constructs it does not support. With `NYRWVY_ZIG_EMITTER_CHECK`
     /// set (the extended tests set it), the F# emitter's output on `reference ()`, the F# program of
-    /// the same IR, must match byte for byte.
+    /// the same IR, must match byte for byte, also for a cached output.
     let zigEmit (ir: string) (reference: unit -> Result<ExecutionProgram, PureRunError>) (entry: FunctionId option) : Result<Result<string, string list>, PureRunError> =
         zigTool "emitter"
         |> Result.bind (fun emitter ->
-            let input = Path.Combine(zigCache, "ir-" + Guid.NewGuid().ToString("N") + ".json")
-            try
-                try
-                    File.WriteAllText(input, ir)
-                    launchProcess emitter "Zig emitter" zigCache (input :: (entry |> Option.map StableId.value |> Option.toList)) 60000
-                finally File.Delete input
-            with
-            | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
-            | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message))
-        |> Result.bind (fun (code, output, errors) ->
-            match code with
-            | 0 -> Ok(Ok output)
-            | 2 -> Ok(Error(output.Split('\n', StringSplitOptions.RemoveEmptyEntries) |> List.ofArray))
-            | _ -> Error(processFailure output errors))
+            // The tool's path holds the hash of its sources, so a changed emitter misses.
+            let key = emitter + "\n" + (entry |> Option.map StableId.value |> Option.defaultValue "-") + "\n" + Convert.ToHexString(Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes ir))
+            match lock emitCache (fun () -> match emitCache.TryGetValue key with | true, output -> Some output | _ -> None) with
+            | Some output ->
+                Threading.Interlocked.Increment(&emitCacheHits) |> ignore
+                Ok output
+            | None ->
+                let input = Path.Combine(zigCache, "ir-" + Guid.NewGuid().ToString("N") + ".json")
+                (try
+                    try
+                        File.WriteAllText(input, ir)
+                        launchProcess emitter "Zig emitter" zigCache (input :: (entry |> Option.map StableId.value |> Option.toList)) 60000
+                    finally File.Delete input
+                 with
+                 | :? IOException as error -> Error(diagnostic "RunIoFailure" error.Message)
+                 | :? UnauthorizedAccessException as error -> Error(diagnostic "RunIoFailure" error.Message))
+                |> Result.bind (fun (code, output, errors) ->
+                    match code with
+                    | 0 -> Ok(Ok output)
+                    | 2 -> Ok(Error(output.Split('\n', StringSplitOptions.RemoveEmptyEntries) |> List.ofArray))
+                    | _ -> Error(processFailure output errors))
+                |> Result.map (fun output ->
+                    lock emitCache (fun () ->
+                        // shortcut: a few snapshots' runners at most, cleared whole; an LRU if sessions alternate more.
+                        if emitCache.Count >= 8 then emitCache.Clear()
+                        emitCache[key] <- output)
+                    output))
         |> Result.bind (fun emitted ->
             match Environment.GetEnvironmentVariable "NYRWVY_ZIG_EMITTER_CHECK" with
             | null | "" -> Ok emitted
