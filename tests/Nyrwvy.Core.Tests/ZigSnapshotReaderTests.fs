@@ -162,11 +162,8 @@ module ZigSnapshotReaderTests =
 
     [<Fact>]
     let ``The session's read path routes to the F# reader and maps the Zig readers' lines`` () =
-        let dependency = Snapshot.empty (StableId.createForTesting<SnapshotTag> "zig-read-dependency")
-        Assert.True(ZigSnapshotReader.routes null false None)
-        Assert.False(ZigSnapshotReader.routes "fsharp" false None)
-        Assert.True(ZigSnapshotReader.routes null false (Some dependency))
-        Assert.False(ZigSnapshotReader.routes null true (Some dependency))
+        Assert.True(ZigSnapshotReader.routes null)
+        Assert.False(ZigSnapshotReader.routes "fsharp")
         let verdict record model = ZigSnapshotReader.verdict record model |> unwrap
         let rejected error = ZigSnapshotReader.Verdict.Rejected error
         Assert.Equal(ZigSnapshotReader.Verdict.FSharpOnly, verdict None [ "skip legacy schema 20" ])
@@ -184,10 +181,10 @@ module ZigSnapshotReaderTests =
         Assert.True(Result.isError (ZigSnapshotReader.verdict None [ "issue A: x" ]))
         Assert.True(Result.isError (ZigSnapshotReader.verdict (Some "ok") []))
 
-    /// A resolved JSON snapshot is decided by `model-reader --validate --dependency` (F# reads the
+    /// A resolved snapshot, JSON or records, is decided by `model-reader --validate --dependency` (F# reads the
     /// marker and the local model); under the reader check every outcome must match the F# reader.
     [<Fact; Trait("Suite", "Extended")>]
-    let ``The Zig reader decides resolved JSON snapshots as the F# reader does`` () =
+    let ``The Zig reader decides resolved snapshots as the F# reader does`` () =
         Assert.Equal("1", Environment.GetEnvironmentVariable "NYRWVY_ZIG_READER_CHECK")
         let dependencyId = StableId.createForTesting<SnapshotTag> "zig-resolved-dependency"
         let asDependency (snapshot: Snapshot) = { snapshot with Id = dependencyId; ParentId = None; Obligations = [] }
@@ -210,10 +207,13 @@ module ZigSnapshotReaderTests =
                       // The marker's digest wrong, and an unknown top-level property.
                       yield dependency, Regex.Replace(text, "\"digest\":\"(.)", fun m -> "\"digest\":\"" + (if m.Groups[1].Value = "0" then "1" else "0"))
                       yield dependency, text.Replace("{\"schemaVersion\"", "{\"unexpected\":1,\"schemaVersion\"") ]
+        // Each case also as records (the unknown property does not transcode): `snapshot-reader --dependency` first.
+        let records = cases |> List.choose (fun (dependency, text) -> try Some(dependency, RecordCodec.ofJson text) with _ -> None)
         let outcomes = Collections.Generic.Dictionary<string, int>()
-        for dependency, text in cases do
+        for record, (dependency, text) in List.map (fun case -> false, case) cases @ List.map (fun case -> true, case) records do
             let key =
-                match SessionStorage.decodeWith false (Some dependency) text with
+                (if record then "record " else "") +
+                match SessionStorage.decodeWith record (Some dependency) text with
                 | Ok _ -> "ok"
                 | Error(AuthoringSessionError.IoFailure message) -> failwithf "%s\n%s" message text
                 | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidSnapshot _)) -> "invalid"
@@ -221,3 +221,4 @@ module ZigSnapshotReaderTests =
             outcomes[key] <- (match outcomes.TryGetValue key with | true, n -> n + 1 | _ -> 1)
         let count key = match outcomes.TryGetValue key with | true, n -> n | _ -> 0
         Assert.True(count "ok" > 3 && count "invalid" > 1 && count "other" > 3, $"%A{outcomes}")
+        Assert.True(count "record ok" > 3 && count "record invalid" > 1 && count "record other" > 3, $"%A{outcomes}")

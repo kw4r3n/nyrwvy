@@ -86,5 +86,13 @@ type ZigSpeed(output: ITestOutputHelper) =
             | path ->
                 // The resolved workspace itself, with its dependency sidecar (last, as it changes the later rows' heap).
                 let openResolved = median (fun () -> (AuthoringSession.openReadOnly path |> ok).Close())
-                row "Rhifill resolved open" [ "as read", openResolved ]
+                let openResolvedFs = withReader "fsharp" (fun () -> median (fun () -> (AuthoringSession.openReadOnly path |> ok).Close()))
+                row "Rhifill resolved open" [ "as read", openResolved; "fsharp", openResolvedFs ]
+                // The same workspace as records, with the same sidecar.
+                let records = Path.Combine(dir, "rhifill.nyrec")
+                File.WriteAllText(records, RecordCodec.ofJson (File.ReadAllText path))
+                File.Copy(path + ".dependency.json", records + ".dependency.json", true)
+                let openRecords = median (fun () -> (AuthoringSession.openReadOnly records |> ok).Close())
+                let openRecordsFs = withReader "fsharp" (fun () -> median (fun () -> (AuthoringSession.openReadOnly records |> ok).Close()))
+                row "Rhifill .nyrec open" [ "as read", openRecords; "fsharp", openRecordsFs ]
         finally Directory.Delete(dir, true)

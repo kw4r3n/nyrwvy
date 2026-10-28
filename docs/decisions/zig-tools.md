@@ -148,7 +148,16 @@ The standing rule from 2026-10-28: once the Zig path beats F# on `evaluation/zig
 - **Errors.** F#'s errors in the local document come first, as in `deserializeResolved`. Zig reports only the merged model's issues; any other Zig rejection leaves the decision to F#.
 - **Reuse.** An accepted merged model is recorded as valid and kept for `resolveDependency`, so the workspace does not validate it again.
 - **The check.** Under `NYRWVY_ZIG_READER_CHECK` both readers run, and the merged models are compared.
-- **Not covered.** A resolved record (`.nyrec`) still reads with F#. Its snapshot-reader step needs the dependency's subjects (`--dependency`), which the session does not pass yet.
+- **Not covered.** A resolved record (`.nyrec`) still reads with F#. Its snapshot-reader step needs the dependency's subjects (`--dependency`), which the session does not pass yet. (Closed below.)
+
+## A resolved record read in Zig (done, 2026-10-28)
+
+A resolved `.nyrec` now takes the same route as a resolved JSON snapshot, after one more step: `snapshot-reader --dependency <subjects> <local.nyrec> <out.json>` turns the records into the writer's JSON, and `model-reader --validate --dependency` validates the merged model as above. No Zig changed: both tools already took `--dependency`. The F# side (`ZigSnapshotReader.read`) writes the subjects file, `RecordCodec.dependencySubjects` one per line, kept per dependency object next to its JSON. `ZigSnapshotReader.routes` now sends every source to Zig unless `NYRWVY_SNAPSHOT_READER=fsharp`; legacy schemas and other-version dependencies still come back as `skip`.
+- **Errors.** As for resolved JSON, only the merged model's issues are Zig's to report. A record-stage error or a deferred placement error of a resolved record goes to F#, which reports it in its own order; this costs a second read only on a rejected source.
+- **The check.** The extended resolved-snapshot test also runs each case as records (`RecordCodec.ofJson`, so a valid case, an invalid merged model and a wrong digest) under `NYRWVY_ZIG_READER_CHECK`.
+- **Speed.** Rhifill's resolved workspace as records opens in 43–49 ms on the Zig route against 54–55 ms with the F# reader (evaluation/zig-speed). Under the standing rule the path is Zig only.
+
+The read path has no F# work left except the local document's marker and shape, the model build, legacy schemas and the fallback.
 
 ## Revisit conditions
 

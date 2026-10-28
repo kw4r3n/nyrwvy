@@ -127,3 +127,14 @@ Under the standing rule (Zig only where it is faster), a resolved JSON snapshot'
 | | before (overlapped read, F# validates the merged model) | after (Zig validates it) |
 |---|---|---|
 | Rhifill resolved open | 33.5, 33.0, 31.2 | 30.2, 29.7, 30.1 |
+
+## A resolved record read in Zig (2026-10-28)
+
+A resolved `.nyrec` read with F# only. It now goes through `snapshot-reader --dependency`, then `model-reader --validate --dependency`, as a resolved JSON snapshot does. The row "Rhifill .nyrec open" opens Rhifill's resolved workspace transcoded to records (`RecordCodec.ofJson`), with the same sidecar. Three runs each, ms (another benchmark ran on the machine at the same time):
+
+| | Zig route | F# reader |
+|---|---|---|
+| Rhifill .nyrec open | 43.3, 43.2, 48.7 | 54.3, 54.6, 55.2 |
+| Rhifill resolved open (JSON, unchanged) | 32.3, 30.9, 32.0 | 27.7, 30.5, 29.8 |
+
+The JSON row now also has the F# reader; in these runs it was not slower than the Zig route (#542 measured 30 against 33 ms). That route is unchanged here.

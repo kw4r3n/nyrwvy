@@ -429,9 +429,8 @@ module internal ZigSnapshotReader =
         /// surrogate): only the F# reader reads it.
         | FSharpOnly
 
-    /// Whether the Zig reader decides: not for a record resolved against a dependency (only JSON is
-    /// resolved in Zig), and not when `NYRWVY_SNAPSHOT_READER` (`setting`) is `fsharp`.
-    let routes (setting: string) (record: bool) (dependency: Snapshot option) = setting <> "fsharp" && (dependency.IsNone || not record)
+    /// Whether the Zig reader decides: not when `NYRWVY_SNAPSHOT_READER` (`setting`) is `fsharp`.
+    let routes (setting: string) = setting <> "fsharp"
 
     // The model reader writes a backslash in a message as `\\` and a line break as `\n` (and `\r`).
     let private unescape (text: string) =
@@ -504,18 +503,23 @@ module internal ZigSnapshotReader =
 
     /// The Zig verdict on `source` and, when accepted, the JSON to build the model from; an error is
     /// a tool that could not be built or run. The source goes through owner-only temporary files in
-    /// the tool cache, deleted afterwards.
-    let read (record: bool) (source: string) (dependency: string option) (build: string -> 'model) : Result<Verdict * string * Lazy<'model>, string> =
+    /// the tool cache, deleted afterwards. `dependency` is the dependency's JSON and its subjects
+    /// (`RecordCodec.dependencySubjects`, one per line), which a resolved record may name.
+    let read (record: bool) (source: string) (dependency: (string * string) option) (build: string -> 'model) : Result<Verdict * string * Lazy<'model>, string> =
         let stem = Path.Combine(ZigTools.cache, "read-" + Guid.NewGuid().ToString("N"))
         let input = stem + (if record then ".nyrec" else ".json")
         let json = stem + ".out.json"
         let dependencyFile = stem + ".dependency.json"
+        let subjectsFile = stem + ".subjects"
         try
             try
                 ZigTools.createPrivateDirectory ZigTools.cache
                 File.WriteAllText(input, source, UTF8Encoding(false, true))
-                dependency |> Option.iter (fun text -> File.WriteAllText(dependencyFile, text, UTF8Encoding(false, true)))
-                (if record then run "snapshot-reader" [ input; json ] |> Result.map (fun lines -> Some(String.Join(" | ", lines))) else Ok None)
+                dependency |> Option.iter (fun (text, subjects) ->
+                    File.WriteAllText(dependencyFile, text, UTF8Encoding(false, true))
+                    if record then File.WriteAllText(subjectsFile, subjects, UTF8Encoding(false, true)))
+                let subjects = match dependency with Some _ -> [ "--dependency"; subjectsFile ] | None -> []
+                (if record then run "snapshot-reader" (subjects @ [ input; json ]) |> Result.map (fun lines -> Some(String.Join(" | ", lines))) else Ok None)
                 |> Result.bind (fun line ->
                     match line with
                     | Some text when text.StartsWith("error ", StringComparison.Ordinal) -> Ok(line, [], source, lazy (failwith "no model for a rejected record"))
@@ -540,6 +544,7 @@ module internal ZigSnapshotReader =
                 File.Delete input
                 File.Delete json
                 File.Delete dependencyFile
+                File.Delete subjectsFile
         with
         | :? EncoderFallbackException -> Ok(Verdict.FSharpOnly, source, lazy (failwith "no model for an F#-only source"))
         | :? IOException as error -> Error("RunIoFailure: " + error.Message)
@@ -666,20 +671,20 @@ module internal SessionStorage =
     /// bytes without validating them again.
     let workspaceJson = Runtime.CompilerServices.ConditionalWeakTable<AgentWorkspace, string>()
 
-    // A dependency's JSON at the current schema version, written once per dependency object.
-    let private dependencyJson = Runtime.CompilerServices.ConditionalWeakTable<Snapshot, string>()
+    // A dependency's JSON at the current schema version and its subjects, written once per dependency object.
+    let private dependencyJson = Runtime.CompilerServices.ConditionalWeakTable<Snapshot, string * string>()
 
     /// Decodes `source` in the record form or strict JSON, resolved against `dependency` when given.
-    /// The Zig reader decides an unresolved source and a resolved JSON source (see `ZigSnapshotReader`;
-    /// F# still checks the dependency marker and reads the local model); the F# reader reads a
-    /// resolved record, a legacy schema, a dependency at another schema version, and every source when
+    /// The Zig reader decides an unresolved source and a resolved one (see `ZigSnapshotReader`; for a
+    /// resolved source F# still checks the dependency marker and reads the local model); the F# reader
+    /// reads a legacy schema, a dependency at another schema version, and every source when
     /// `NYRWVY_SNAPSHOT_READER=fsharp` or the Zig tools cannot be built or run (noted once on stderr).
     /// With `NYRWVY_ZIG_READER_CHECK` set, both run, any difference is a `ReaderMismatch` and there is
     /// no fallback.
     let decodeWith (record: bool) (dependency: Snapshot option) (source: string): Result<Snapshot, AuthoringSessionError> =
         let check = not (String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_READER_CHECK"))
         let routed =
-            ZigSnapshotReader.routes (Environment.GetEnvironmentVariable "NYRWVY_SNAPSHOT_READER") record dependency
+            ZigSnapshotReader.routes (Environment.GetEnvironmentVariable "NYRWVY_SNAPSHOT_READER")
             && (check || zigUnavailable = 0)
         let dependencyText =
             if not routed then None
@@ -689,7 +694,10 @@ module internal SessionStorage =
                     | true, text -> Ok text
                     | _ ->
                         use _scope = SnapshotComputationScope.Start()
-                        SnapshotCodec.serialize imported |> Result.map (fun text -> dependencyJson.AddOrUpdate(imported, text); text))
+                        SnapshotCodec.serialize imported |> Result.map (fun text ->
+                            let entry = text, String.Join("\n", RecordCodec.dependencySubjects imported)
+                            dependencyJson.AddOrUpdate(imported, entry)
+                            entry))
         if not routed || (match dependencyText with Some(Error _) -> true | _ -> false) then
             decodeFSharp record dependency source
         else

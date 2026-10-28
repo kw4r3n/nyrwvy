@@ -402,7 +402,7 @@ module RecordCodec =
 
     /// The `domain:uuid` subjects a resolved local may reference without a record of its own: the
     /// dependency's declarations and their members (a call names the callee and its parameters).
-    let internal dependencySubjects (dependency: Snapshot) =
+    let dependencySubjects (dependency: Snapshot) =
         let set = HashSet<string>()
         let add domain (value: string) = set.Add(domain + ":" + value) |> ignore
         let addField (field: SemanticField) = add "field" (StableId.value field.Id)
