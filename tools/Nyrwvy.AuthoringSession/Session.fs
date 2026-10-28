@@ -504,7 +504,7 @@ module internal ZigSnapshotReader =
     /// The Zig verdict on `source` and, when accepted, the JSON to build the model from; an error is
     /// a tool that could not be built or run. The source goes through owner-only temporary files in
     /// the tool cache, deleted afterwards.
-    let read (record: bool) (source: string) : Result<Verdict * string, string> =
+    let read (record: bool) (source: string) (build: string -> 'model) : Result<Verdict * string * Lazy<'model>, string> =
         let stem = Path.Combine(ZigTools.cache, "read-" + Guid.NewGuid().ToString("N"))
         let input = stem + (if record then ".nyrec" else ".json")
         let json = stem + ".out.json"
@@ -515,15 +515,19 @@ module internal ZigSnapshotReader =
                 (if record then run "snapshot-reader" [ input; json ] |> Result.map (fun lines -> Some(String.Join(" | ", lines))) else Ok None)
                 |> Result.bind (fun line ->
                     match line with
-                    | Some text when text.StartsWith("error ", StringComparison.Ordinal) -> Ok(line, [])
-                    | _ -> run "model-reader" [ "--validate"; (if record then json else input) ] |> Result.map (fun lines -> line, lines))
-                |> Result.bind (fun (line, lines) -> verdict line lines)
-                |> Result.map (fun verdict -> verdict, (if verdict = Verdict.Accepted && record then File.ReadAllText json else source))
+                    | Some text when text.StartsWith("error ", StringComparison.Ordinal) -> Ok(line, [], source, lazy (failwith "no model for a rejected record"))
+                    | _ ->
+                        // The model is built from the JSON while the validator runs; it is used only if accepted.
+                        let text = if record then File.ReadAllText json else source
+                        let model = Threading.Tasks.Task.Run(fun () -> build text)
+                        run "model-reader" [ "--validate"; (if record then json else input) ]
+                        |> Result.map (fun lines -> line, lines, text, lazy model.Result))
+                |> Result.bind (fun (line, lines, text, model) -> verdict line lines |> Result.map (fun verdict -> verdict, text, model))
             finally
                 File.Delete input
                 File.Delete json
         with
-        | :? EncoderFallbackException -> Ok(Verdict.FSharpOnly, source)
+        | :? EncoderFallbackException -> Ok(Verdict.FSharpOnly, source, lazy (failwith "no model for an F#-only source"))
         | :? IOException as error -> Error("RunIoFailure: " + error.Message)
         | :? UnauthorizedAccessException as error -> Error("RunIoFailure: " + error.Message)
 
@@ -659,7 +663,9 @@ module internal SessionStorage =
            || (not check && zigUnavailable <> 0) then
             decodeFSharp record dependency source
         else
-            match ZigSnapshotReader.read record source with
+            // Under the check, F# builds the model without trusting the Zig verdict.
+            let build = if check then SnapshotCodec.readUnvalidated else SnapshotCodec.readZigValidated
+            match ZigSnapshotReader.read record source build with
             | Error problem when check -> Error(AuthoringSessionError.IoFailure $"ReaderMismatch: the Zig reader failed: {problem}")
             | Error problem ->
                 // A timeout or oversized output belongs to this source; only a build or launch failure sticks.
@@ -667,16 +673,17 @@ module internal SessionStorage =
                 if not perInput && Threading.Interlocked.Exchange(&zigUnavailable, 1) = 0 then
                     eprintfn "nyrwvy: the Zig snapshot reader is unavailable (%s); reading snapshots with the F# reader." problem
                 decodeFSharp record dependency source
-            | Ok(ZigSnapshotReader.Verdict.FSharpOnly, _) -> decodeFSharp record dependency source
-            | Ok(verdict, json) ->
+            | Ok(ZigSnapshotReader.Verdict.FSharpOnly, _, _) -> decodeFSharp record dependency source
+            | Ok(verdict, json, model) ->
                 let zig =
                     match verdict with
                     | ZigSnapshotReader.Verdict.Rejected error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
                     // F# builds the model Zig accepted; its error, if any, is a parity bug and keeps an unvalidated model out.
-                    | _ when check -> SnapshotCodec.readUnvalidated json |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+                    | _ when check -> model.Value |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
                     // Validated once, by Zig: the Snapshot is recorded as valid and keeps its bytes for runPure.
+                    // (A model built for a source Zig rejects is marked valid too, but dropped unseen.)
                     | _ ->
-                        SnapshotCodec.readZigValidated json
+                        model.Value
                         |> Result.map (fun snapshot -> zigValidatedJson.AddOrUpdate(snapshot, json); snapshot)
                         |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
                 if check then ZigSnapshotReader.compare zig (decodeFSharp record dependency source) else zig
