@@ -125,7 +125,7 @@ module ZigHostParityTests =
                   yield $"""{{"id":"b","op":"bindingScopes","functionId":{quote (id item.Id)},"nodeId":{quote (id node.Id)}}}"""
               yield $"""{{"id":"b","op":"bindingScopes","function":{quote item.DisplayName},"nodeId":{quote (id item.Body.ResultNodeId)}}}"""
               yield $"""{{"id":"b","op":"bindingScopes","function":{quote item.DisplayName},"nodeId":"missing"}}"""
-              // Bytes copy plans (`copiedUpdates`) come with the Execution IR in the next step.
+              // Bytes copy plans (`copiedUpdates`) and `full` come with the Execution IR in the next steps.
               let updatesBytes =
                   ValueGraph.collectNodes item.Body |> List.exists (fun node ->
                       match node.Kind with
@@ -134,6 +134,7 @@ module ZigHostParityTests =
               if not updatesBytes then
                   yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)},"detail":"compact"}}"""
                   yield $"""{{"id":"f","op":"readFunction","function":{quote item.DisplayName},"detail":"compact"}}"""
+                  yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)},"detail":"outline"}}"""
           yield """{"id":"u","op":"unreferenced"}"""
           for item in declarations.Functions |> List.truncate 3 do
               yield $"""{{"id":"u","op":"unreferenced","roots":[{quote item.DisplayName}]}}""" ]
@@ -164,15 +165,24 @@ module ZigHostParityTests =
                                   NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
                                   CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, StableId.createForTesting<ObligationTag> "zig-host-obligation") ] } ] }
                     |> function Proposed simulation -> simulation.ProposedSnapshot | Rejected diagnostics -> failwithf "%A" diagnostics
-                // A literal longer than the summaries show, with a surrogate pair at the cut.
+                // Literals longer than the summaries (256 units) and the outline (64 units) show, with a
+                // surrogate pair at each cut, and a body whose outline passes its byte budget.
                 let long =
-                    let node = StableId.createForTesting<GraphNodeTag> "zig-host-long-literal"
-                    let text = "long" + String.replicate 251 "a" + "😀" + String.replicate 200 "b"
+                    let fn name resultType (nodes: SemanticNode list) =
+                        { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> ("zig-host-" + name); DisplayName = name
+                          TypeParameters = []; Parameters = []; ResultType = TypeRef.Primitive resultType; RequiredEffects = []
+                          Body = { Nodes = nodes; ResultNodeId = (List.last nodes).Id } }
+                    let literal name text = fn name PrimitiveType.String [ { Id = StableId.createForTesting<GraphNodeTag> ("zig-host-" + name); Kind = SemanticNodeKind.StringLiteral text } ]
+                    let node index = StableId.createForTesting<GraphNodeTag> $"zig-host-wide-{index:D3}"
+                    let wide =
+                        fn "wide" PrimitiveType.Bool
+                            [ yield { Id = node 0; Kind = SemanticNodeKind.BoolLiteral true }
+                              for index in 1 .. 400 -> { Id = node index; Kind = SemanticNodeKind.BoolNot(node (index - 1)) } ]
                     { Snapshot.empty (StableId.createForTesting<SnapshotTag> "zig-host-long") with
                         Functions =
-                          [ { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "zig-host-long"; DisplayName = "long"
-                              TypeParameters = []; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.String; RequiredEffects = []
-                              Body = { Nodes = [ { Id = node; Kind = SemanticNodeKind.StringLiteral text } ]; ResultNodeId = node } } ] }
+                          [ literal "long" ("long" + String.replicate 251 "a" + "😀" + String.replicate 200 "b")
+                            literal "split" (String.replicate 63 "y" + "😀z")
+                            wide ] }
                 RecordCodecAllKindsTests.allKindSnapshots () @ [ fixture.Snapshot; incomplete; long ]
                 |> List.mapi (fun index snapshot ->
                     let path = Path.Combine(dir, $"kinds-{index}.json")
@@ -187,7 +197,7 @@ module ZigHostParityTests =
                 let fsharp = requests |> List.map (AuthoringProtocol.executeLine session)
                 fsharp |> List.iter (answered.Append >> ignore)
                 sameAnswers (Path.GetFileName snapshot) fsharp answers requests
-            for shown in [ "\"aborts\":[{"; "\"mayWait\":true"; "\"openObligations\":[{"; "\"frames\":[{"; "\"variants\":["; "\"slot\":\"field\""; "\"evidence\":[{"; "\"references\":[{"; "\"role\":\"patternBinding\""; "\"truncated\":true" ] do
+            for shown in [ "\"aborts\":[{"; "\"mayWait\":true"; "\"openObligations\":[{"; "\"frames\":[{"; "\"variants\":["; "\"slot\":\"field\""; "\"evidence\":[{"; "\"references\":[{"; "\"role\":\"patternBinding\""; "\"truncated\":true"; "\"outlineTruncated\":true"; "scopeDepth=1"; "\\\\uD83D\\\\u2026"; "ref " ] do
                 Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it."))
 
     [<Fact; Trait("Suite", "Extended")>]
