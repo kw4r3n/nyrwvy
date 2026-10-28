@@ -111,7 +111,7 @@ runPure passed `--validated` only for bytes the Zig validator accepted. The writ
 
 ## Building the F# model while the Zig validator runs (2026-10-28)
 
-On the Zig-decided read, the F# Snapshot was built from the JSON only after `model-reader --validate` returned. The build now starts on another task as soon as the JSON is known. The verdict then decides whether the built model is used. Under the reader check the build stays `readUnvalidated`, as before. Three interleaved runs each, ms:
+On the Zig-decided read, the F# Snapshot was built from the JSON only after `model-reader --validate` returned. The build now starts on its own thread (with an 8 MB stack, as the reader recurses) as soon as the JSON is known. The verdict then decides whether the built model is used. Under the reader check the build stays `readUnvalidated`, as before. Three interleaved runs each, ms:
 
 | | before | after | F# only |
 |---|---|---|---|
