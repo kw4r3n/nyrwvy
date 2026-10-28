@@ -1,6 +1,6 @@
 # Zig session host
 
-Status: accepted 2026-10-28 (owner: "OK, go ahead with recommends"). Steps 0, 1a and 1b done. Background: [zig-tools.md](zig-tools.md), section "Direction: a whole Zig session host".
+Status: accepted 2026-10-28 (owner: "OK, go ahead with recommends"). Steps 0 and 1 (1a, 1b, 1c) done. Background: [zig-tools.md](zig-tools.md), section "Direction: a whole Zig session host".
 
 Goal: a separate executable, `nyrwvy-host` built from `tools/zig/`, that speaks the same JSONL protocol as the F# host (`Nyrwvy.AuthoringSession open …`). It reaches parity step by step and then replaces the F# host in one switch. Rules:
 - The Zig host never calls F#.
@@ -52,7 +52,15 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
      - A sidecar makes the Zig host refuse to start until 1c. A legacy schema is refused with a message naming the migration on the F# host.
      - `ZigHostParityTests` runs every transcript against each example snapshot and a JSON one. It compares nine failing startups (missing file, syntax, shape, version, an invalid model, a JSON or record marker without a sidecar, two record errors), read-only and writable, by stderr line and exit code. It also covers the lock both ways and the sweep. `status.build` and .NET's JSON parser text are masked.
      - `ZigSpeed` row "start, merged model": Zig host 55 ms, F# host 505 ms, spawn to the first `status` reply on Rhifill's merged model (three runs: 54.8–55.5 against 502.5–506.4).
-   - **1c. Dependencies, 1–2K.** The dependency sidecar (single, sets, embedded or by path, fingerprint check), the recovery hints of an interrupted replacement, and resolved `.json` and `.nyrec` sources (the record path needs the dependency's subjects, which #543 had and which closed with it).
+   - **1c. Dependencies, 0.6K (done).** The dependency sidecar as `PinnedDependency.loadFrom` reads it.
+     - A single member, embedded (`snapshotJson`, `snapshotRecords`) or legacy by path, or a set of at least two embedded members.
+     - Each member is decoded, must have no open obligation, and its fingerprint and ID must be the recorded ones.
+     - A set is combined under the collision policy (`model_reader.combine`: one copy of an identity with the same canonical text, else the conflict with its providers) with the derived `dependency-set-` ID.
+     - The local document is read against the dependency (`readResolvedDocument`): the `Resolved snapshot` shape, the marker against the dependency's ID and digest (SHA-256 of its minimum-version text, 1a), then the merged model, the dependency's declarations first, validated and fingerprinted for `status`. A resolved record reads with the dependency's subjects (`RecordCodec.dependencySubjects`).
+     - On a failure the two recovery hints are checked: a matching `.dependency.json.previous` (an interrupted replacement) and a snapshot that reads without its sidecar (an interrupted first addition).
+     - The model reader keeps its state in globals; `resetState` (also `--bench`'s) starts each document afresh, so one process reads several.
+     - `ZigHostParityTests` opens every example split into a dependency and a local part in each form: JSON, records, by path, a set, a colliding set. It also covers ten broken sidecars or markers and both hints, read-only and writable, and compares exit code, stderr and the `status` reply. It checks that the accepted forms open, that the others fail, and that at least twelve distinct failures occur, the collision among them.
+     - `ZigSpeed`: the Zig host opens Rhifill's resolved workspace in 47.2–47.9 ms against the F# host's 605.2–606.2.
 2. **Read-only requests, 3–4K.** `declarations`, `readFunction`, `viewFunction`, `search`, `references`, `unreferenced`, `executionReadiness`, `bindingScopes`, `proposals`, `readProposal`, `viewProposal`. This is mostly the wire encoders (WireEncode, WireOutline, WireGraph).
 3. **First write path, 4–6K.**
    - `simulateCreateFunction(ByName)` and `simulateReplaceBody(ByName)`: expression recipes (inference and materialization), the structural transaction, and the proposal review.
@@ -88,6 +96,14 @@ The MCP and agent adapters (`tools/nyrwvy-mcp`, `tools/nyrwvy-agent`) get one se
 4. Before removal, record the corpus responses of the F# host as golden files. After removal, the Zig host is tested against the goldens instead of a live F# host.
 5. A following PR removes the F# projects and the `NYRWVY_ZIG_*_CHECK` modes.
 6. Legacy migration (schemas 9–20) and `Nyrwvy.Viewer` stay in the F# tag only; they are not ported (decided 2026-10-28).
+
+## Accepted differences
+
+These differences between the hosts are accepted. The parity tests do not cover them, and the switch does not wait for them:
+- **I/O failure text.** A file the host cannot read or lock prints `IoFailure: <Zig error name>` (for example `AccessDenied`). The F# host prints .NET's exception message. The code is the same, and the message names an OS condition the user resolves the same way.
+- **JSON parser text.** Invalid JSON in a request or a snapshot reports the Zig parser's text after `Invalid JSON:` or `The snapshot is not valid JSON:`, not .NET's. The code and the prefix are the same.
+- **Deep JSON in the marker check.** Before decoding, `requireSidecarForResolvedSource` parses a JSON snapshot with .NET's default depth (64) to look for the dependency marker. The Zig host has no depth limit there. A snapshot nested deeper than 64 levels with a marker and no sidecar reports the missing sidecar in Zig, while F# goes on to decode it (and the decode reports the marker as an unsupported property). Real snapshots do not nest that deep at their root.
+- **Legacy schemas.** Schemas 9 to 20, for a snapshot or a dependency, are refused with a message naming the migration on the last F# host (not ported).
 
 ## Open decisions
 

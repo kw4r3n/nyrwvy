@@ -1212,9 +1212,11 @@ fn arm(block: *List(*Record), m: *Record, x: *Record) RecordError!void {
 
 /// One record text as the session host reads it: the protocol line (`ok`, `deferred …` or
 /// `error …`, as `main` prints it) and the writer's JSON unless the line is an error. `allocator`
-/// holds the result; `external` names the dependency's subjects (empty without one).
-pub fn readRecords(allocator: std.mem.Allocator, input: []const u8) struct { line: []const u8, json: ?[]const u8 } {
+/// holds the result; `dependency_subjects` are the dependency's (`--dependency`), none without one.
+pub fn readRecords(allocator: std.mem.Allocator, input: []const u8, dependency_subjects: []const []const u8) struct { line: []const u8, json: ?[]const u8 } {
     a = allocator;
+    external = .empty;
+    for (dependency_subjects) |subject| external.put(a, subject, {}) catch oom();
     if (!kinds_loaded) loadKinds();
     kinds_loaded = true;
     text = if (std.unicode.utf8ValidateSlice(input)) input else fmt("{f}", .{std.unicode.fmtUtf8(input)});

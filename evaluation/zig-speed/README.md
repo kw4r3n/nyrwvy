@@ -224,11 +224,20 @@ Reading:
 
 ## The Zig session host's start (2026-10-28)
 
-The row "start, merged model" of `ZigSpeed: AuthoringSession ops on Rhifill` spawns each host on Rhifill's merged model as a plain snapshot, read-only, and times spawn to the first `status` reply. The Zig host does not read a dependency sidecar yet (docs/decisions/zig-session-host.md, 1c). Median of 9 runs, three runs each, ms:
+The row "start, merged model" of `ZigSpeed: AuthoringSession ops on Rhifill` spawns each host on Rhifill's merged model as a plain snapshot, read-only, and times spawn to the first `status` reply.  Median of 9 runs, three runs each, ms:
 
 | | Zig host | F# host |
 |---|---|---|
 | start, merged model | 55.5, 55.0, 54.8 | 506.4, 502.5, 505.6 |
 
 The Zig host reads, validates and fingerprints the model in that time: about 23 ms validation and about 30 ms for the two fingerprints (three passes of the canonical writer). The F# host on the resolved workspace itself takes 600–610 ms.
+
+With dependencies (1c), the row "start, Zig host" times the Zig host on the resolved workspace itself, with its sidecar. Three runs, ms:
+
+| | Zig host | F# host |
+|---|---|---|
+| start, resolved workspace | 47.9, 47.4, 47.2 | 605.2, 606.2, 605.4 |
+| start, merged model | 51.2, 52.1, 51.7 | 501.0, 502.9, 500.9 |
+
+The resolved workspace is the faster of the two for Zig: its local part is small, and the dependency (49 KiB) is read, validated and fingerprinted on its own.
 
