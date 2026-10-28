@@ -59,7 +59,7 @@ module internal WireEncode =
     let private affectedUse (value: AgentExpressionStructuralWorkflow.Targeted.Use) =
         match value with
         | AgentExpressionStructuralWorkflow.Targeted.Use.NodeDependency(consumerNodeId, role) ->
-            objectValue [ "kind", box "nodeDependency"; "consumerNodeId", box (StableId.value consumerNodeId); "role", box (dependencyRole role) ]
+            objectValue ([ "kind", box "nodeDependency"; "consumerNodeId", box (StableId.value consumerNodeId) ] @ dependencyRole role)
         | AgentExpressionStructuralWorkflow.Targeted.Use.GraphResult ownerNodeId ->
             objectValue [ "kind", box "graphResult"; "ownerNodeId", ownerNodeId |> Option.map (StableId.value >> box) |> Option.defaultValue null ]
 
@@ -680,6 +680,10 @@ module internal WireEncode =
 
     /// Code, message and optional details for every session error. Messages are worded for a
     /// reader without F# knowledge; the startup ones carry the recovery hint a first-time user needs.
+    /// A wrapped failure's case name, such as "MissingNodeValue": the fixed `message` of the failures
+    /// the wire has no text of its own for (docs/specs/agent-authoring-session.md).
+    let private caseName<'T> (value: 'T) = (Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(value, typeof<'T>) |> fst).Name
+
     let private describe (value: AuthoringSessionError) =
         match value with
         | AuthoringSessionError.SnapshotFileNotFound path ->
@@ -701,27 +705,27 @@ module internal WireEncode =
         | AuthoringSessionError.SessionInvalidated -> "SessionInvalidated", "The session was invalidated by external modification.", None
         | AuthoringSessionError.WorkflowSimulationFailure(AgentWorkflowError.SimulationRejected values) ->
             "SimulationRejected", "The requested operations were rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
-        | AuthoringSessionError.WorkflowSimulationFailure other -> "WorkflowSimulationFailure", sprintf "%A" other, None
+        | AuthoringSessionError.WorkflowSimulationFailure other -> "WorkflowSimulationFailure", caseName other, None
         | AuthoringSessionError.StructuralSimulationFailure(AgentStructuralWorkflowError.SimulationRejected values)
         | AuthoringSessionError.FieldTypeMigrationRepairMismatch(values, _, _) ->
             "SimulationRejected", "The structural request was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
-        | AuthoringSessionError.StructuralSimulationFailure other -> "StructuralSimulationFailure", sprintf "%A" other, None
+        | AuthoringSessionError.StructuralSimulationFailure other -> "StructuralSimulationFailure", caseName other, None
         | AuthoringSessionError.TypeDeclarationSimulationFailure(AgentTypeDeclarationWorkflowError.SimulationRejected values) ->
             "SimulationRejected", "The type declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
         | AuthoringSessionError.TypeDeclarationSimulationFailure other ->
-            "TypeDeclarationSimulationFailure", sprintf "%A" other, None
+            "TypeDeclarationSimulationFailure", caseName other, None
         | AuthoringSessionError.EffectDeclarationSimulationFailure(AgentEffectDeclarationWorkflowError.SimulationRejected values) ->
             "SimulationRejected", "The effect declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
         | AuthoringSessionError.EffectDeclarationSimulationFailure other ->
-            "EffectDeclarationSimulationFailure", sprintf "%A" other, None
+            "EffectDeclarationSimulationFailure", caseName other, None
         | AuthoringSessionError.CapabilityDeclarationSimulationFailure(AgentCapabilityDeclarationWorkflowError.SimulationRejected values) ->
             "SimulationRejected", "The capability declaration was rejected.", Some(objectValue [ "diagnostics", diagnostics values ])
         | AuthoringSessionError.CapabilityDeclarationSimulationFailure other ->
-            "CapabilityDeclarationSimulationFailure", sprintf "%A" other, None
+            "CapabilityDeclarationSimulationFailure", caseName other, None
         | AuthoringSessionError.CommitRejected values ->
             "CommitRejected", "The reviewed proposal could not be committed.", Some(objectValue [ "diagnostics", diagnostics values ])
-        | AuthoringSessionError.SemanticProjectionFailure other -> "SemanticProjectionFailure", sprintf "%A" other, None
-        | AuthoringSessionError.ExecutionLoweringFailure other -> "ExecutionLoweringFailure", sprintf "%A" other, None
+        | AuthoringSessionError.SemanticProjectionFailure other -> "SemanticProjectionFailure", caseName other, None
+        | AuthoringSessionError.ExecutionLoweringFailure other -> "ExecutionLoweringFailure", caseName other, None
         | AuthoringSessionError.BackendFailure(CSharpBackendError.ConcurrentCapabilityBindingRequired(functionId, nodeId, capabilityId, operationId)) ->
             "ConcurrentCapabilityBindingRequired",
             "An operation reachable from a ParallelAll or TaskStart worker requires a capability binding that supports concurrent calls.",
@@ -730,7 +734,7 @@ module internal WireEncode =
                   "nodeId", box (StableId.value nodeId)
                   "capabilityId", box (StableId.value capabilityId)
                   "operationId", box (StableId.value operationId) ])
-        | AuthoringSessionError.BackendFailure other -> "BackendFailure", sprintf "%A" other, None
+        | AuthoringSessionError.BackendFailure other -> "BackendFailure", caseName other, None
         | AuthoringSessionError.DependencyFailure message -> "DependencyFailure", message, None
         | AuthoringSessionError.MigrationRejected message -> "MigrationRejected", message, None
 

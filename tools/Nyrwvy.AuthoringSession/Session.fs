@@ -885,7 +885,8 @@ module internal SessionStorage =
                             | Ok() -> Error error
                             | Error rollback ->
                                 inconsistent <- true
-                                let text = function AuthoringSessionError.IoFailure message -> message | other -> $"%A{other}"
+                                // Replacements fail only with IoFailure; another case is named by its case name.
+                                let text = function AuthoringSessionError.IoFailure message -> message | other -> (Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(other, typeof<AuthoringSessionError>) |> fst).Name
                                 Error(AuthoringSessionError.IoFailure $"{text error} Restoring the previous dependency selection also failed: {text rollback} The previous sidecar is kept at '{previous}'."))
                 if not inconsistent then cleanupTemporary previous
                 result)
