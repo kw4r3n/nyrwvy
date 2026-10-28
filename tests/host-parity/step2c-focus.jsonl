@@ -1,0 +1,21 @@
+{"id":"b","op":"bindingScopes"}
+{"id":"b","op":"bindingScopes","nodeId":"n"}
+{"id":"b","op":"bindingScopes","function":"f","functionId":"x","nodeId":"n"}
+{"id":"b","op":"bindingScopes","functionId":"missing","nodeId":"n"}
+{"id":"b","op":"bindingScopes","functionId":" ","nodeId":"n"}
+{"id":"b","op":"bindingScopes","function":"nosuch","nodeId":"n"}
+{"id":"b","op":"bindingScopes","function":"nosuch","nodeId":7}
+{"id":"b","op":"bindingScopes","functionId":"missing","nodeId":"n","x":1}
+{"id":"f","op":"readFunction"}
+{"id":"f","op":"readFunction","functionId":"missing","detail":"compact"}
+{"id":"f","op":"readFunction","functionId":"missing","detail":"wide"}
+{"id":"f","op":"readFunction","functionId":"missing","detail":3}
+{"id":"f","op":"readFunction","function":"x","functionId":"y","detail":"compact"}
+{"id":"f","op":"readFunction","function":"nosuch","detail":"compact"}
+{"id":"f","op":"readFunction","functionId":"","detail":"compact"}
+{"id":"f","op":"readFunction","functionId":"missing","detail":"compact","extra":true}
+{"id":"s","op":"status","detail":"wide"}
+{"id":"s","op":"status","detail":"full","structuredReview":1}
+{"id":"s","op":"nosuch","detail":7}
+{"id":"s","op":"declarations","detail":"compact"}
+{"id":"f","op":"search","text":"a","detail":"outline"}

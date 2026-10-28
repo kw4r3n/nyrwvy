@@ -39,7 +39,7 @@ fn contains(keys: []const []const u8, key: []const u8) bool {
 
 /// A type in wire notation (`typeRefIn`); a type parameter occurrence gets its `displayName`
 /// when `names` (the declaration's `typeParameters`) lists it.
-fn typeRef(out: *Writer, value: Value, names: []const Value) !void {
+pub fn typeRef(out: *Writer, value: Value, names: []const Value) !void {
     const kind = model.decoded(model.property(value, "kind").?);
     var first = true;
     try out.writeByte('{');
@@ -137,9 +137,23 @@ fn identity(out: *Writer, first: *bool, item: Value) !void {
 
 /// `signatureFields`.
 fn function(out: *Writer, item: Value) !void {
+    try out.writeByte('{');
+    try signature(out, item);
+    try out.writeByte('}');
+}
+
+/// `functionSummary`: the signature with the body's result node and node count.
+pub fn functionSummary(out: *Writer, item: Value, node_count: usize) !void {
+    try out.writeByte('{');
+    try signature(out, item);
+    try out.writeAll(",\"body\":{\"resultNodeId\":");
+    try string(out, model.property(model.property(item, "body").?, "resultNodeId").?);
+    try out.print(",\"nodeCount\":{d}}}}}", .{node_count});
+}
+
+fn signature(out: *Writer, item: Value) !void {
     const names = model.arrayItems(item, "typeParameters");
     var first = true;
-    try out.writeByte('{');
     try identity(out, &first, item);
     if (model.property(item, "mustNotWait") != null) {
         try field(out, &first, "mustNotWait");
@@ -156,7 +170,7 @@ fn function(out: *Writer, item: Value) !void {
         if (index > 0) try out.writeByte(',');
         try string(out, effect);
     }
-    try out.writeAll("]}");
+    try out.writeByte(']');
 }
 
 /// `semanticType`.

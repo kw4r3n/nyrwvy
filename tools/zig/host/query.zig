@@ -25,6 +25,7 @@ pub const Request = struct {
     /// The open model in canonical order and the selected dependency's provenance.
     model: Value,
     provenance: ?wire.Provenance,
+    snapshot_id: []const u8 = "",
     rejection: Rejection = .{ .code = "", .message = "" },
 
     fn fail(self: *Request, comptime format: []const u8, args: anytype) Fail {
@@ -784,4 +785,334 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
         try out.writeByte(']');
     }
     try out.writeByte('}');
+}
+
+// ---------------------------------------------------------------- bindingScopes
+
+/// `BindingFrame`: a nested scope that binds (Bool operands and branches open none).
+const Frame = struct { owner: Value, role: []const u8, variants: []const Value = &.{}, bindings: []const Binding };
+/// A frame's binding: its slot (`field` with the source field, `value` or `error`) and pattern.
+const Binding = struct { slot: []const u8, field: ?Value = null, pattern: Value };
+
+fn kindIs(node: Value, comptime kind: []const u8) bool {
+    const units = model.decoded(model.property(node, "kind").?);
+    if (units.len != kind.len) return false;
+    for (units, kind) |unit, c| if (unit != c) return false;
+    return true;
+}
+
+/// `WireEncodeCommon.bindingFrames` up to the node `wanted`: its enclosing frames, innermost first.
+fn framesAt(a: Allocator, graph: Value, enclosing: []const Frame, wanted: Str) !?[]const Frame {
+    for (model.arrayItems(graph, "nodes")) |node| {
+        if (std.mem.eql(u16, model.decoded(model.property(node, "id").?), wanted)) return enclosing;
+        const Nested = struct { graph: Value, frame: ?Frame };
+        var nested: std.ArrayList(Nested) = .empty;
+        const field = struct {
+            fn f(n: Value, key: []const u8) Value {
+                return model.property(n, key).?;
+            }
+        }.f;
+        const one = struct {
+            fn f(al: Allocator, slot: []const u8, pattern: Value) ![]const Binding {
+                return al.dupe(Binding, &.{.{ .slot = slot, .pattern = pattern }});
+            }
+        }.f;
+        if (kindIs(node, "conditional")) {
+            try nested.appendSlice(a, &.{ .{ .graph = field(node, "whenTrue"), .frame = null }, .{ .graph = field(node, "whenFalse"), .frame = null } });
+        } else if (kindIs(node, "boolAnd") or kindIs(node, "boolOr")) {
+            try nested.append(a, .{ .graph = field(node, "right"), .frame = null });
+        } else if (kindIs(node, "matchUnion")) {
+            for (model.arrayItems(node, "arms")) |arm| {
+                var bindings: std.ArrayList(Binding) = .empty;
+                for (model.arrayItems(arm, "fieldBindings")) |item|
+                    try bindings.append(a, .{ .slot = "field", .field = field(item, "sourceFieldId"), .pattern = field(item, "binding") });
+                const variants = if (model.property(arm, "variantId")) |single| try a.dupe(Value, &.{single}) else model.arrayItems(arm, "variantIds");
+                try nested.append(a, .{ .graph = field(arm, "body"), .frame = .{ .owner = node, .role = "unionArm", .variants = variants, .bindings = bindings.items } });
+            }
+        } else if (kindIs(node, "bind")) {
+            const body = field(node, "boundBody");
+            try nested.append(a, .{ .graph = field(body, "body"), .frame = .{ .owner = node, .role = "bind", .bindings = try one(a, "value", field(body, "valueBinding")) } });
+        } else if (kindIs(node, "matchOption")) {
+            const some = field(node, "someArm");
+            try nested.append(a, .{ .graph = field(some, "body"), .frame = .{ .owner = node, .role = "optionSome", .bindings = try one(a, "value", field(some, "valueBinding")) } });
+            try nested.append(a, .{ .graph = field(node, "noneBody"), .frame = .{ .owner = node, .role = "optionNone", .bindings = &.{} } });
+        } else if (kindIs(node, "matchResult")) {
+            const ok_arm = field(node, "okArm");
+            const err_arm = field(node, "errArm");
+            try nested.append(a, .{ .graph = field(ok_arm, "body"), .frame = .{ .owner = node, .role = "resultOk", .bindings = try one(a, "value", field(ok_arm, "valueBinding")) } });
+            try nested.append(a, .{ .graph = field(err_arm, "body"), .frame = .{ .owner = node, .role = "resultErr", .bindings = try one(a, "error", field(err_arm, "errorBinding")) } });
+        }
+        for (nested.items) |scope| {
+            const frames = if (scope.frame) |frame| try std.mem.concat(a, Frame, &.{ &.{frame}, enclosing }) else enclosing;
+            if (try framesAt(a, scope.graph, frames, wanted)) |found| return found;
+        }
+    }
+    return null;
+}
+
+/// The display name of a visible type's variant or field with ID `id` (`variants` or `fields`).
+fn memberName(r: *const Request, comptime variants: bool, id: Str) !?Value {
+    for (try visible(r, "type")) |item| {
+        if (!variants) for (model.arrayItems(item, "fields")) |f| if (same(f, id)) return f;
+        for (model.arrayItems(item, "variants")) |variant| {
+            if (variants and same(variant, id)) return variant;
+            if (!variants) for (model.arrayItems(variant, "fields")) |f| if (same(f, id)) return f;
+        }
+    }
+    return null;
+}
+
+/// `bindingScopes`: the frames visible at one node of a function, innermost first.
+pub fn bindingScopes(r: *Request, out: *Writer) Fail!void {
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "bindingScopes request", &.{ "id", "op", "function", "functionId", "nodeId" }, &.{ "id", "op", "nodeId" })) |message| return r.fail("{s}", .{message});
+    const by_name, const by_id = .{ r.root.get("function") != null, r.root.get("functionId") != null };
+    if (by_name == by_id) return r.fail("bindingScopes requires exactly one of function and functionId.", .{});
+    const function = if (by_name) try resolve(r, "function", r.root, "function", &.{"function"}) else blk: {
+        const wanted = try exactId(r, "functionId");
+        for (try visible(r, "function")) |item| if (std.mem.eql(u8, idOf(item), wanted)) break :blk item;
+        return r.fail("No function has the ID '{s}'.", .{wanted});
+    };
+    const node_id = try exactId(r, "nodeId");
+    const frames = try framesAt(r.a, model.property(function, "body").?, &.{}, try utf16(r.a, node_id)) orelse
+        return r.fail("Function '{s}' has no node '{s}'.", .{ nameOf(function), node_id });
+    const names = model.arrayItems(function, "typeParameters");
+    try out.writeAll("{\"functionId\":");
+    try writeId(out, model.decoded(model.property(function, "id").?));
+    try out.writeAll(",\"nodeId\":");
+    try writeId(out, try utf16(r.a, node_id));
+    try out.writeAll(",\"frames\":[");
+    for (frames, 0..) |frame, depth| {
+        if (depth > 0) try out.writeByte(',');
+        try out.print("{{\"scopeDepth\":{d},\"ownerNodeId\":", .{depth});
+        try writeId(out, model.decoded(model.property(frame.owner, "id").?));
+        try out.print(",\"role\":\"{s}\"", .{frame.role});
+        if (frame.variants.len > 0) {
+            try out.writeAll(",\"variantIds\":[");
+            var known = true;
+            for (frame.variants, 0..) |variant, index| {
+                if (index > 0) try out.writeByte(',');
+                try writeId(out, model.decoded(variant));
+                known = known and try memberName(r, true, model.decoded(variant)) != null;
+            }
+            try out.writeByte(']');
+            if (known) {
+                try out.writeAll(",\"variants\":[");
+                for (frame.variants, 0..) |variant, index| {
+                    if (index > 0) try out.writeByte(',');
+                    try model.writeString(out, model.decoded(model.property((try memberName(r, true, model.decoded(variant))).?, "displayName").?));
+                }
+                try out.writeByte(']');
+            }
+        }
+        try out.writeAll(",\"bindings\":[");
+        for (frame.bindings, 0..) |binding, index| {
+            if (index > 0) try out.writeByte(',');
+            try out.print("{{\"slot\":\"{s}\"", .{binding.slot});
+            if (binding.field) |source| {
+                try out.writeAll(",\"fieldId\":");
+                try writeId(out, model.decoded(source));
+                if (try memberName(r, false, model.decoded(source))) |f| try writeNamed(out, "field", f);
+            }
+            try out.writeAll(",\"bindingId\":");
+            try writeId(out, model.decoded(model.property(binding.pattern, "id").?));
+            try out.writeAll(",\"type\":");
+            try wire.typeRef(out, model.property(binding.pattern, "type").?, names);
+            if (model.property(binding.pattern, "displayName")) |display| {
+                try out.writeAll(",\"displayName\":");
+                try model.writeString(out, model.decoded(display));
+            }
+            try out.writeByte('}');
+        }
+        try out.writeAll("]}");
+    }
+    try out.writeAll("]}");
+}
+
+// ---------------------------------------------------------------- readFunction
+
+fn writeIds(out: *Writer, ids: []const Str) !void {
+    try out.writeByte('[');
+    for (ids, 0..) |id, index| {
+        if (index > 0) try out.writeByte(',');
+        try writeId(out, id);
+    }
+    try out.writeByte(']');
+}
+
+fn writeSites(out: *Writer, sites: []const model.CallSite) !void {
+    try out.writeByte('[');
+    for (sites, 0..) |site, index| {
+        if (index > 0) try out.writeByte(',');
+        try out.writeAll("{\"callerFunctionId\":");
+        try writeId(out, site.caller);
+        try out.writeAll(",\"callNodeId\":");
+        try writeId(out, site.node);
+        try out.writeAll(",\"calleeFunctionId\":");
+        try writeId(out, site.callee);
+        try out.writeByte('}');
+    }
+    try out.writeByte(']');
+}
+
+/// `literals`: the String, Int64 and Bool literals of a body as `nodeLiteral` writes them.
+fn literals(r: *Request, out: *Writer, function: Value) !void {
+    try out.writeByte('[');
+    var count: usize = 0;
+    for (model.bodyNodes(r.a, function)) |node| {
+        const kind = model.decoded(model.property(node, "kind").?);
+        const is = struct {
+            fn f(units: Str, comptime name: []const u8) bool {
+                if (units.len != name.len) return false;
+                for (units, name) |unit, c| if (unit != c) return false;
+                return true;
+            }
+        }.f;
+        if (!is(kind, "stringLiteral") and !is(kind, "int64Literal") and !is(kind, "boolLiteral")) continue;
+        if (count > 0) try out.writeByte(',');
+        count += 1;
+        try out.writeAll("{\"nodeId\":");
+        try writeId(out, model.decoded(model.property(node, "id").?));
+        const value = model.property(node, "value").?;
+        if (is(kind, "boolLiteral")) {
+            try out.writeAll(if (value == .json_true) ",\"literal\":{\"kind\":\"bool\",\"value\":true}}" else ",\"literal\":{\"kind\":\"bool\",\"value\":false}}");
+        } else if (is(kind, "int64Literal")) {
+            try out.writeAll(",\"literal\":{\"kind\":\"int64\",\"value\":");
+            switch (value) {
+                .number => |digits| try out.print("\"{s}\"", .{digits}),
+                else => try writeId(out, model.decoded(value)),
+            }
+            try out.writeAll("}}");
+        } else {
+            const text = model.decoded(value);
+            const limit = 256;
+            try out.writeAll(",\"literal\":{\"kind\":\"string\",\"value\":");
+            if (text.len <= limit) {
+                try model.writeString(out, text);
+            } else {
+                // Never split a surrogate pair at the cut.
+                const cut: usize = if (text[limit - 1] >= 0xD800 and text[limit - 1] <= 0xDBFF and text[limit] >= 0xDC00 and text[limit] <= 0xDFFF) limit - 1 else limit;
+                try model.writeString(out, text[0..cut]);
+                try out.print(",\"truncated\":true,\"length\":{d}", .{text.len});
+            }
+            try out.writeAll("}}");
+        }
+    }
+    try out.writeByte(']');
+}
+
+/// `readFunction` at `detail: "compact"`: `WireEncodeCommon.compactFocus` and the literals.
+pub fn readFunction(r: *Request, out: *Writer) Fail!void {
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "readFunction request", &.{ "id", "op", "function", "functionId", "detail" }, &.{ "id", "op" })) |message| return r.fail("{s}", .{message});
+    const detail = if (r.root.get("detail") != null) try requiredString(r, r.root, "detail") else "full";
+    const details = [_][]const u8{ "compact", "outline", "full" };
+    for (details) |known| {
+        if (std.mem.eql(u8, known, detail)) break;
+    } else return r.fail("detail must be compact, outline or full.", .{});
+    const by_name, const by_id = .{ r.root.get("function") != null, r.root.get("functionId") != null };
+    if (by_name == by_id) return r.fail("readFunction requires exactly one of function and functionId.", .{});
+    const wanted = if (by_name) model.decoded(model.property(try resolve(r, "function", r.root, "function", &.{"function"}), "id").?) else try utf16(r.a, try exactId(r, "functionId"));
+    // `FocusFunction` reads the whole model, the dependency's private functions included.
+    const function = for (model.arrayItems(r.model, "functions")) |item| {
+        if (same(item, wanted)) break item;
+    } else {
+        r.rejection = .{ .code = "SemanticQueryFailure", .message = try std.fmt.allocPrint(r.a, "No function has the ID '{s}'.", .{model.utf8(wanted)}) };
+        return error.Rejected;
+    };
+    const nodes = model.bodyNodes(r.a, function);
+    // shortcut: outline, full and Bytes copy plans are ported in the next step; until then the Zig host refuses them.
+    const updates = for (nodes) |node| {
+        if (kindIs(node, "bytesSet") or kindIs(node, "bytesAppend")) break true;
+    } else false;
+    if (!std.mem.eql(u8, detail, "compact") or updates) {
+        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host reads functions only at detail compact, and without Bytes updates, so far." };
+        return error.Rejected;
+    }
+    const focus = model.focusOf(r.a, r.model, function);
+    try out.writeAll("{\"snapshotId\":");
+    try @import("root").writeString(out, r.snapshot_id);
+    try out.writeAll(",\"function\":");
+    try wire.functionSummary(out, function, nodes.len);
+    const requirements = focus.requirements;
+    try out.writeAll(",\"bodyEffectRequirements\":{\"effectIds\":");
+    try writeIds(out, requirements.effects);
+    try out.writeAll(",\"evidence\":[");
+    for (requirements.evidence, 0..) |item, index| {
+        if (index > 0) try out.writeByte(',');
+        try out.writeAll("{\"effectId\":");
+        try writeId(out, item.effect);
+        try out.writeAll(",\"nodeId\":");
+        try writeId(out, item.node);
+        try out.writeAll(if (item.operation) ",\"source\":{\"kind\":\"capabilityOperation\",\"operationId\":" else ",\"source\":{\"kind\":\"functionContract\",\"functionId\":");
+        try writeId(out, item.source);
+        try out.writeAll("}}");
+    }
+    try out.writeAll("],\"unresolvedFunctionIds\":");
+    try writeIds(out, requirements.unresolved_functions);
+    try out.writeAll(",\"unresolvedOperationIds\":");
+    try writeIds(out, requirements.unresolved_operations);
+    try out.writeByte('}');
+    if (focus.wait_path) |path| {
+        try out.writeAll(",\"mayWait\":true,\"waitPath\":");
+        try model.writeString(out, path);
+    }
+    try out.writeAll(",\"aborts\":[");
+    for (focus.aborts, 0..) |item, index| {
+        if (index > 0) try out.writeByte(',');
+        try out.writeAll("{\"ownerFunctionId\":");
+        try writeId(out, wanted);
+        try out.writeAll(",\"nodeId\":");
+        try writeId(out, item.node);
+        try out.writeAll(",\"errorNodeId\":");
+        try writeId(out, item.error_node);
+        try out.writeAll(",\"errorType\":");
+        if (item.error_type) |t| try wire.typeRef(out, t, &.{}) else try out.writeAll("null");
+        try out.writeAll(",\"enclosingControlNodeIds\":");
+        try writeIds(out, item.enclosing);
+        try out.writeAll(",\"dependentContinuationNodeIds\":");
+        try writeIds(out, item.dependents);
+        try out.writeByte('}');
+    }
+    try out.writeAll("],\"callers\":");
+    try writeSites(out, focus.callers);
+    try out.writeAll(",\"callees\":");
+    try writeSites(out, focus.callees);
+    // `getOpenObligations`: the open obligations whose call node the function owns.
+    const Obligation = struct { id: Str, item: Value };
+    var open: std.ArrayList(Obligation) = .empty;
+    for (model.arrayItems(r.model, "obligations")) |obligation| {
+        if (!kindIsField(obligation, "status", "open")) continue;
+        const call = model.decoded(model.property(obligation, "callNodeId").?);
+        for (nodes) |node| if (same(node, call)) {
+            try open.append(r.a, .{ .id = model.decoded(model.property(obligation, "id").?), .item = obligation });
+            break;
+        };
+    }
+    std.mem.sort(Obligation, open.items, {}, struct {
+        fn less(_: void, x: Obligation, y: Obligation) bool {
+            return std.mem.order(u16, x.id, y.id) == .lt;
+        }
+    }.less);
+    try out.writeAll(",\"openObligations\":[");
+    for (open.items, 0..) |obligation, index| {
+        if (index > 0) try out.writeByte(',');
+        try out.writeAll("{\"obligationId\":");
+        try writeId(out, obligation.id);
+        try out.writeAll(",\"callNodeId\":");
+        try writeId(out, model.decoded(model.property(obligation.item, "callNodeId").?));
+        try out.writeAll(",\"parameterId\":");
+        try writeId(out, model.decoded(model.property(obligation.item, "parameterId").?));
+        try out.writeByte('}');
+    }
+    try out.writeAll("],\"literals\":");
+    try literals(r, out, function);
+    try out.writeByte('}');
+}
+
+fn kindIsField(item: Value, name: []const u8, comptime expected: []const u8) bool {
+    const value = model.property(item, name) orelse return false;
+    if (value != .string) return false;
+    const units = model.decoded(value);
+    if (units.len != expected.len) return false;
+    for (units, expected) |unit, c| if (unit != c) return false;
+    return true;
 }
