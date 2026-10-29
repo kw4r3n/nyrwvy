@@ -19,6 +19,8 @@ pub const Answer = union(enum) { result: []const u8, rejected: Rejection };
 
 const Fail = anyerror;
 
+pub const Diagnostic = struct { code: []const u8 = "", message: []const u8 = "" };
+
 /// The request being answered, and where a rejection's text goes.
 pub const Request = struct {
     a: Allocator,
@@ -31,6 +33,8 @@ pub const Request = struct {
     /// The snapshot file, absolute, beside which views are written.
     snapshot_path: []const u8 = "",
     rejection: Rejection = .{ .code = "", .message = "" },
+    /// The diagnostic behind a `SimulationRejected` rejection, for a message appended to later.
+    diagnostic: Diagnostic = .{},
 
     pub fn fail(self: *Request, comptime format: []const u8, args: anytype) Fail {
         self.rejection = .{ .code = "ProtocolError", .message = try std.fmt.allocPrint(self.a, format, args) };
@@ -1598,6 +1602,7 @@ pub fn executionReadiness(r: *Request, out: *Writer) Fail!void {
 
 const recipe = @import("recipe.zig");
 const preflight = @import("preflight.zig");
+const infer = @import("infer.zig");
 
 /// The request's `typeParameters` list, or null when it gives none (the list is then derived).
 fn typeParameterNames(r: *Request, d: *recipe.Decoder, root: std.json.Value) Fail!?[]const []const u8 {
@@ -1619,8 +1624,7 @@ fn expectedSnapshotId(r: *Request, d: *recipe.Decoder, root: std.json.Value) Fai
 }
 
 /// `simulateCreateFunction`: the request read as `Protocol.fs` reads it, field by field in the
-/// order F# evaluates them, with each rejection, then the preflight.
-// shortcut: a request that passes the preflight is not simulated yet (inference comes in 3c-3b, materialization and the review in 3c-4).
+/// order F# evaluates them, with each rejection, then the preflight and the inference.
 pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
     _ = out;
     if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateCreateFunction request", &.{ "id", "op", "displayName", "exported", "mustNotWait", "typeParameters", "parameters", "resultType", "requiredEffects", "body", "structuredReview", "detail", "expectedSnapshotId" }, &.{ "id", "op", "displayName", "parameters", "resultType", "requiredEffects", "body" })) |message| return r.fail("{s}", .{message});
@@ -1647,12 +1651,12 @@ pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
     const body = root.object.getPtr("body").?;
     try recipe.resolveNames(&d, body, try recipe.rawProperty(r.a, r.line, "body"));
     const tree = try d.recipe("/body", body.*);
-    try preflight.run(r, .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree });
-    r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host checks simulateCreateFunction requests but does not infer their body types yet." };
-    return error.Rejected;
+    const creation: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
+    try preflight.run(r, creation);
+    try infer.run(r, creation);
 }
 
-/// `simulateCreateFunctionByName` as `functionCreationByName` reads it, then the preflight.
+/// `simulateCreateFunctionByName` as `functionCreationByName` reads it, then the preflight and the inference.
 pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
     _ = out;
     if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateCreateFunctionByName request", &.{ "id", "op", "displayName", "exported", "mustNotWait", "typeParameters", "parameters", "resultType", "requiredEffects", "body", "bodyFile", "structuredReview", "detail", "expectedSnapshotId" }, &.{ "id", "op", "displayName", "parameters", "resultType", "requiredEffects" })) |message| return r.fail("{s}", .{message});
@@ -1690,7 +1694,7 @@ pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
     if (inline_body == null or file != null) return r.fail("Pass exactly one of body and bodyFile.", .{});
     try recipe.resolveNames(&d, inline_body.?, try recipe.rawProperty(r.a, r.line, "body"));
     const tree = try d.recipe("/body", inline_body.?.*);
-    try preflight.run(r, .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree });
-    r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host checks simulateCreateFunctionByName requests but does not infer their body types yet." };
-    return error.Rejected;
+    const creation: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
+    try preflight.run(r, creation);
+    try infer.run(r, creation);
 }

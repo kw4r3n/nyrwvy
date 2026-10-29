@@ -25,7 +25,8 @@ pub const Creation = struct {
 };
 
 /// `AgentStructuralWorkflowError.SimulationRejected` of one diagnostic, as `WireEncode.error` spells it.
-fn rejected(r: *query.Request, code: []const u8, message: []const u8) Fail {
+pub fn rejected(r: *query.Request, code: []const u8, message: []const u8) Fail {
+    r.diagnostic = .{ .code = code, .message = message };
     r.rejection = .{
         .code = "SimulationRejected",
         .message = "The structural request was rejected.",
@@ -34,13 +35,13 @@ fn rejected(r: *query.Request, code: []const u8, message: []const u8) Fail {
     return error.Rejected;
 }
 
-fn contains(items: []const []const u8, wanted: []const u8) bool {
+pub fn contains(items: []const []const u8, wanted: []const u8) bool {
     for (items) |item| if (std.mem.eql(u8, item, wanted)) return true;
     return false;
 }
 
 /// `TypeParameters.occurring`, appended to `out` without repeating: first-occurrence order.
-fn occurring(a: Allocator, t: TypeRef, out: *std.ArrayList([]const u8)) !void {
+pub fn occurring(a: Allocator, t: TypeRef, out: *std.ArrayList([]const u8)) !void {
     switch (t) {
         .type_parameter => |id| if (!contains(out.items, id)) try out.append(a, id),
         .function => |f| {
@@ -54,7 +55,7 @@ fn occurring(a: Allocator, t: TypeRef, out: *std.ArrayList([]const u8)) !void {
 }
 
 /// `List.countBy key |> List.tryFind (count > 1)`: the first key, by first occurrence, that repeats.
-fn repeated(items: []const []const u8) ?[]const u8 {
+pub fn repeated(items: []const []const u8) ?[]const u8 {
     for (items, 0..) |item, i| {
         if (contains(items[0..i], item)) continue;
         if (contains(items[i + 1 ..], item)) return item;
@@ -83,13 +84,13 @@ fn validateTypeParameters(r: *query.Request, c: Creation) Fail!void {
         return rejected(r, "FunctionCreationTypeParameterNotInferable", try std.fmt.allocPrint(a, "Type parameter '{s}' is mentioned by no parameter type, so a call could not determine it; a type parameter must appear in at least one parameter type.", .{name}));
 }
 
-fn declaration(r: *query.Request, group: []const u8, id: []const u8) ?query.Value {
+pub fn declaration(r: *query.Request, group: []const u8, id: []const u8) ?query.Value {
     for (model.arrayItems(r.model, group)) |item| if (std.mem.eql(u8, query.idOf(item), id)) return item;
     return null;
 }
 
 /// `ExpressionRecipeSupport.validateTypeRef` against the whole base snapshot.
-fn validateTypeRef(r: *query.Request, t: TypeRef) Fail!void {
+pub fn validateTypeRef(r: *query.Request, t: TypeRef) Fail!void {
     const a = r.a;
     switch (t) {
         .primitive, .type_parameter => {},
