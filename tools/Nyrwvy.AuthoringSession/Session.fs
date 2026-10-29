@@ -1995,6 +1995,14 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
     /// workspace state and the entry, so it is kept with the workspace object, which every commit
     /// replaces: repeated runs of one entry (every runPure case of an authoring step) select,
     /// validate and lower it once.
+    /// The JSON a commit of the current workspace writes, before the record encoding of a `.nyrec`
+    /// path; the Zig host's writer is compared with it.
+    member internal _.CommitJson(): Result<string, AuthoringSessionError> =
+        match dependency with
+        | None -> AgentWorkspace.serializeCurrentSnapshot workspace
+        | Some imported -> AgentWorkspace.serializeWithDependency imported workspace
+        |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
+
     /// The whole committed snapshot's execution program, kept with the workspace like entry projections.
     member internal this.ProjectAllExecution(): Result<ExecutionProgram, AuthoringSessionError> =
         wholeProjections.GetValue(workspace, fun _ -> lazy (this.ProjectExecution())).Value
