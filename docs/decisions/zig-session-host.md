@@ -23,18 +23,21 @@ In total about 45K lines of F#, of which about 12K are already covered by about 
 
 ## In-memory layout
 
-Decided at step 3, the first write path: steps 1 and 2 only read, and their encoders read the model reader's tree (UTF-16 strings, its index maps). The sketch below is the starting point.
+Decided 2026-10-29 for step 3, the first write path (the owner: "うん、お願い"). Steps 1 and 2 only read, and their encoders read the model reader's tree (UTF-16 strings, its index maps).
 
-The current tools work on `std.json.Value` trees. That is fine for one pass, but not for a long-lived host that edits models. The host gets a typed model:
-- **IDs.** Every `domain:uuid` is interned once into a `u32` per domain (types, functions, nodes, fields, …). The UUID text is kept in a side table for the wire and the writer, so maps become arrays indexed by ID.
-- **Strings.** Display names and literals are interned in one string table with `u32` handles.
-- **Functions.** A function graph is stored as struct-of-arrays: node kind, operand slice offsets into one `u32` operand array, and a type per node. The node references come from `node_references.txt`, which the validator already uses.
-- **Snapshots are immutable versions.** A snapshot is a root holding arrays of pointers to declarations. A proposal copies the root and replaces only the declarations it changes (path copying), so unchanged functions are shared.
-- **Arenas.**
-  - One arena per snapshot generation holds what that generation added.
-  - One arena per request holds scratch data and is reset when the request ends.
-  - Committed generations and open proposals hold references on the arenas they use. An arena is freed when nothing references it (a rejected proposal, a superseded commit).
-- **Derived facts** (node types, readiness, fingerprints, the effect-order memo) are computed lazily per snapshot and cached on the snapshot, as `SnapshotComputationScope` does in F#.
+- **IDs.** Every stable ID text is interned once into a `u32` per domain: function, type, field, variant, parameter, node, pattern binding, effect, capability, operation, capability parameter, obligation, transaction and type parameter. A side table keeps each text for the wire, the writer and sorting.
+- **Sort order of IDs.** F# sorts IDs by their text, ordinal UTF-16. The host compares the interned texts at sort time (UTF-16 unit order); no order is precomputed. So an ID a proposal creates sorts correctly the moment it exists, in every generation, and no key needs recomputing.
+- **Strings.** Display names and String literals are interned in one table of UTF-16 units with `u32` handles. They stay UTF-16 because the writers escape per unit, as the F# writers do.
+- **Declarations.** One record type per kind (function, type, effect, capability, obligation), holding `u32` references. Member lists (fields, variants, parameters, operations) are slices in the arena of the generation that created them.
+- **Function bodies.** A struct-of-arrays graph per function: per node a kind (`u8`), an ID (`u32`), and a payload offset and length into one `u32` extra array. Nested graphs (branches and arms) are sub-ranges of the same arrays. The payload layout per kind follows `model_kinds.txt`, which the reader already uses. A body is one contiguous allocation, cheap to share.
+- **Generations.** A snapshot is an immutable generation: its snapshot ID, declaration tables (pointers to records, in ID order), the dependency selection, and lazily cached derived facts (node types, readiness, fingerprints, the effect-order memo, as `SnapshotComputationScope` caches them in F#).
+  - Each generation owns one arena with what it added, and holds references on the arenas of the records it shares.
+  - The committed generation and each open proposal hold one reference. Rejecting a proposal, or committing past one, drops it; an arena is freed at zero.
+  - Each request has a scratch arena, reset when the request ends. Nothing long-lived may point into it.
+- **Proposals copy only what they change.** A proposal's generation copies its parent's pointer tables and replaces only the entries its transaction changes: a body rewrite allocates one new body, a created function one record and one body, and every other declaration and body is shared. Records are reached only through `*const` pointers, so no proposal writes into a shared record. A proposal keeps its base generation, so commit detects a stale base as F# does, and commit installs the proposal's generation without copying.
+- **Interning tables belong to the session and are compacted.** An interned entry is live while some live generation refers to it. IDs and strings from rejected proposals, or from generations no longer referenced, are dead. When a commit or rejection frees an arena and the dead entries make up more than half of a table, the host rebuilds that table from the live generations and remaps their `u32` references. A long session therefore holds at most about twice what its live generations use.
+- **`u32` numbers never leave the process.** They never appear in the wire, files, logs, fingerprints or error messages; every output writes the ID's text. Byte parity with F# checks this, and it is an invariant in its own right: an interned number is valid only inside one process and one table version.
+- **Reads.** During step 3 the step-2 reads keep working on the reader's tree; a proposal's generation writes canonical JSON for them to read. They move to the typed model one by one, behind the same parity tests. That move is a condition of the switch (below).
 
 ## Order of steps
 
@@ -90,10 +93,13 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
      - `view_file.zig` ports `ViewerFile.write` and `ConfinedDirectory`: the output's confinement and refusals, the link check of every component, the generated-file marker, and the write through directory handles into a temporary file renamed over the target. An I/O failure's message names the errno, not .NET's text; parity leaves those out.
      - Parity: each host writes into its own copy of the snapshot's directory, the replies are compared with that directory masked and the pages byte for byte: every function by ID and by name, a page replaced, and each refusal (blank, not `.html`, outside by `..` and absolute, through a link, a file without the marker, a file as a directory).
    - **2e. `executionReadiness` (done).** The model reader lowers the open model (`executionReadinessOf`, the lowering `--execution-ir` writes) and reports the function count, or the projection's or the lowering's case name as `SemanticProjectionFailure` or `ExecutionLoweringFailure`, as `ProjectExecution` does. Parity asks it of every snapshot, the incomplete one included. With it, every read-only operation of step 2 is ported; `previewDependencyUpgrade(s)` comes with the migrations (step 5), `runPure` and `emitCSharp` with steps 6 and 7.
-3. **First write path, 4–6K.**
-   - `simulateCreateFunction(ByName)` and `simulateReplaceBody(ByName)`: expression recipes (inference and materialization), the structural transaction, and the proposal review.
-   - `commit` and `reject`: the writer for both formats, atomic writes and history.
-   - This is the first slice an agent can really use.
+3. **First write path, 4–6K.** This is the first slice an agent can really use. One PR per step:
+   - **3a. The deterministic ID seed in the F# host (done).**
+   - **3b.** The typed model and generations, loaded from the canonical tree; the writer for canonical `.json` and `.nyrec`; fingerprints from the typed model. No new operation. Parity: every example, constructed and all-kinds snapshot round-trips byte for byte, and its fingerprints are equal.
+   - **3c.** Expression recipes (name resolution, inference, materialization) for `simulateCreateFunction(ByName)`, and the proposal review encoder (compact, full, `structuredReview`). It splits into recipe decoding with its rejections and inference with materialization if it outgrows one PR.
+   - **3d.** `simulateReplaceBody(ByName)`: the structural transaction for a body replacement, its diff and its review.
+   - **3e.** `commit` and `reject`: the stale-base check, revalidation at commit, atomic writes of the snapshot and its sidecars, the `.previous` copies, the lock and `ExternalModification`.
+   - **3f.** `readProposal` and `viewProposal` over real proposals; the viewer's `proposalReview` data reuses the focus encoder.
 4. **Remaining declarations, 2–3K.** Types, effects, capabilities, `simulateReplaceTarget`, `simulateOperations`, the batch forms and the `…sByName` plural forms.
 5. **Migrations, 3–4K.**
    - Parameter type, result type, product field type, capability operation signature, and add-union-variant-like.
@@ -106,7 +112,10 @@ The MCP and agent adapters (`tools/nyrwvy-mcp`, `tools/nyrwvy-agent`) get one se
 
 ## How parity with F# is checked
 
-- **Differential transcripts.** Each request stream is fed to both hosts, as separate processes, and every response line is compared byte for byte. Both hosts get a test-only deterministic ID seed (`NYRWVY_TEST_ID_SEED`), because new UUIDv7 IDs and timestamps are the only nondeterministic output. This seed is added to the F# host first, in its own PR.
+- **Differential transcripts.** Each request stream is fed to both hosts, as separate processes, and every response line is compared byte for byte. Both hosts get a test-only deterministic ID seed (`NYRWVY_TEST_ID_SEED`), because new UUIDv7 IDs and timestamps are the only nondeterministic output.
+  - **The seed (step 3a, done).** When the variable is set and not empty, a host's `n`-th new ID in the process (from 1, in allocation order) is a UUIDv7: its 48-bit timestamp is 1 700 000 000 000 ms plus `n`, and its other bits come from SHA-256 of the UTF-8 text `seed:n`. Bytes 6 and 8 take the version (`0x70 | h[0] & 0x0F`) and variant (`0x80 | h[2] & 0x3F`); byte 7 is `h[1]` and bytes 9–15 are `h[3..9]`. The text is the lower-case hyphenated form. `StableIdAllocator.seededPayload` is the F# definition, and a fast test fixes its first values. The variable is read once per process, so the parity tests run the F# host as its own process.
+  - **Guard.** A seed set by accident on real data would hand out the same IDs again after every restart. So, under the seed, a host warns on stderr at startup (`Warning: NYRWVY_TEST_ID_SEED is set, so new IDs are deterministic test IDs. Use it only on test copies.`), and every snapshot or sidecar text it reads moves the count past the largest `n` of an ID that the same seed derives (`StableIdAllocator.observe`, over the text, so JSON and records alike). Both hosts read the same files, so their sequences stay equal; a seeded run's IDs are never handed out twice. The Zig host must do the same before it allocates its first ID (step 3c).
+- **Files written by commit (step 3e).** Each host runs a transcript against its own copy of the snapshot's directory, and the replies are compared with that directory masked. After every `commit`, every file in both directories is compared byte for byte: the snapshot (`.json` or `.nyrec`), its `.dependency.json` and `.backends.json`, and the `.previous` copies F# keeps. The tests also check that no temporary file is left behind. Each host then reopens the files the other wrote and answers a read transcript the same way. Failures carrying OS text (a read-only directory, a file changed on disk) are compared by code only, as for the views.
 - **Corpus.**
   - Transcripts recorded from the existing F# session tests: a recording hook in `AuthoringProtocol.executeLine` under an environment variable.
   - The Node adapter tests and the examples.
@@ -118,7 +127,7 @@ The MCP and agent adapters (`tools/nyrwvy-mcp`, `tools/nyrwvy-agent`) get one se
 
 ## The switch
 
-1. All operations have parity, the adapters' Node tests pass against the Zig host, and Rhifill works through the Zig host.
+1. All operations have parity, the adapters' Node tests pass against the Zig host, and Rhifill works through the Zig host. Every read works on the typed model; no part of the host reads the model reader's JSON tree any more.
 2. One PR makes the Zig host the default in the adapters and docs, and marks the F# host deprecated in its README and in `docs/decisions/zig-tools.md`.
 3. Tag the last commit with the F# host, for example `fsharp-host-final`, and push the tag, so that the F# version stays on the remote (the user's idea: mark F# deprecated, cut a tag, keep it on the remote).
 4. Before removal, record the corpus responses of the F# host as golden files. After removal, the Zig host is tested against the goldens instead of a live F# host.

@@ -211,6 +211,72 @@ module ZigHostParityTests =
                     let shown = $"\"kind\":{{\"kind\":\"{row.Split('|')[1]}\""
                     Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it."))
 
+    /// The seeded IDs a host writes under `NYRWVY_TEST_ID_SEED`, which the Zig host must allocate
+    /// the same way: the `n`-th is a UUIDv7 at 1 700 000 000 000 ms + `n` with SHA-256 bits of `seed:n`.
+    [<Fact>]
+    let ``Seeded IDs are UUIDv7 values derived from the seed and the count`` () =
+        Assert.Equal("018bcfe5-6801-7", (StableIdAllocator.seededPayload "parity" 1L).Substring(0, 15))
+        Assert.Equal("018bcfe5-6802-7", (StableIdAllocator.seededPayload "parity" 2L).Substring(0, 15))
+        Assert.Equal(StableIdAllocator.seededPayload "parity" 7L, StableIdAllocator.seededPayload "parity" 7L)
+        Assert.NotEqual<string>(StableIdAllocator.seededPayload "parity" 7L, StableIdAllocator.seededPayload "other" 7L)
+        for n in 1L .. 50L do
+            let text = StableIdAllocator.seededPayload "parity" n
+            Assert.Contains(text[19], "89ab")
+            Assert.True(StableId.tryCreate<FunctionTag> text |> Result.isOk, text)
+        // The guard counts only IDs the same seed derives, wherever they appear in a file's text.
+        let text = String.concat " " [ "x"; StableIdAllocator.seededPayload "parity" 3L; StableIdAllocator.seededPayload "parity" 9L; StableIdAllocator.seededPayload "other" 40L; string (Guid.CreateVersion7()) ]
+        Assert.Equal(9L, StableIdAllocator.seededCount "parity" text)
+        Assert.Equal(40L, StableIdAllocator.seededCount "other" text)
+        Assert.Equal(0L, StableIdAllocator.seededCount "parity" "no IDs")
+
+    /// With the seed, two runs of the F# host on the same requests answer the same, new IDs included.
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The F# host allocates the same IDs for the same seed`` () =
+        withDirectory (fun dir ->
+            let session seed =
+                let path = Path.Combine(dir, $"{seed}-{Guid.NewGuid():N}.json")
+                File.WriteAllText(path, SnapshotCodec.serialize (MilestoneZeroGraph.create ()).Snapshot |> unwrap)
+                let info = ProcessStartInfo("dotnet", [ fsharpHost; "open"; "--snapshot"; path ])
+                info.RedirectStandardInput <- true
+                info.RedirectStandardOutput <- true
+                info.RedirectStandardError <- true
+                info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
+                info.Environment["NYRWVY_TEST_ID_SEED"] <- seed
+                use host = Process.Start info
+                host.StandardInput.Write(
+                    """{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[{"displayName":"x","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}"""
+                    + "\n")
+                host.StandardInput.Close()
+                let output = host.StandardOutput.ReadToEnd()
+                host.WaitForExit()
+                output
+            let first = session "parity"
+            Assert.Contains("\"proposalId\":\"018bcfe5-68", first)
+            Assert.Equal(first, session "parity")
+            Assert.NotEqual<string>(first, session "other")
+            // A snapshot that already holds this seed's IDs (a seeded run's commit): the count starts
+            // past them, and the host warns that the seed is set.
+            let path = Path.Combine(dir, "seeded.json")
+            let fixture = MilestoneZeroGraph.create ()
+            let taken = StableIdAllocator.seededPayload "parity" 30L
+            File.WriteAllText(path, (SnapshotCodec.serialize fixture.Snapshot |> unwrap).Replace(StableId.value fixture.ValidateFunctionId, taken))
+            let info = ProcessStartInfo("dotnet", [ fsharpHost; "open"; "--snapshot"; path ])
+            info.RedirectStandardInput <- true
+            info.RedirectStandardOutput <- true
+            info.RedirectStandardError <- true
+            info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
+            info.Environment["NYRWVY_TEST_ID_SEED"] <- "parity"
+            use host = Process.Start info
+            host.StandardInput.Write("""{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}""" + "\n")
+            host.StandardInput.Close()
+            let output = host.StandardOutput.ReadToEnd()
+            let errors = host.StandardError.ReadToEnd()
+            host.WaitForExit()
+            Assert.Contains("NYRWVY_TEST_ID_SEED is set", errors)
+            use reply = JsonDocument.Parse output
+            let proposal = reply.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            Assert.True(StableIdAllocator.seededCount "parity" proposal > 30L, proposal))
+
     /// `viewFunction` writes pages beside the snapshot, so each host gets its own copy of the snapshot's
     /// directory: the replies are compared with that directory masked, and the pages byte for byte.
     [<Fact; Trait("Suite", "Extended")>]

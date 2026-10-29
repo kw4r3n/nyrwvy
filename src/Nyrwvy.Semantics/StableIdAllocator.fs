@@ -9,8 +9,55 @@ open System
 /// inspection tags and are therefore not duplicated inside the identity payload.
 [<RequireQualifiedAccess>]
 module StableIdAllocator =
+    /// `NYRWVY_TEST_ID_SEED`, read once per process: when set, new IDs are deterministic, so two
+    /// hosts given the same requests write the same IDs (docs/decisions/zig-session-host.md,
+    /// "How parity with F# is checked"). Never set it outside tests: seeded IDs repeat across processes.
+    let private testSeed = lazy (Environment.GetEnvironmentVariable "NYRWVY_TEST_ID_SEED" |> Option.ofObj |> Option.filter (fun seed -> seed <> ""))
+    let mutable private allocated = 0L
+
+    /// The `n`-th ID (from 1) of a process seeded with `seed`: a UUIDv7 whose timestamp is
+    /// 1 700 000 000 000 ms plus `n` and whose other bits come from SHA-256 of `seed:n`.
+    let seededPayload (seed: string) (n: int64) =
+        let hash = Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes($"{seed}:{n}"))
+        let milliseconds = 1_700_000_000_000L + n
+        let bytes = Array.zeroCreate<byte> 16
+        for index in 0 .. 5 do bytes[index] <- byte (milliseconds >>> (8 * (5 - index)))
+        bytes[6] <- 0x70uy ||| (hash[0] &&& 0x0Fuy)
+        bytes[7] <- hash[1]
+        bytes[8] <- 0x80uy ||| (hash[2] &&& 0x3Fuy)
+        Array.blit hash 3 bytes 9 7
+        Guid(ReadOnlySpan bytes, true).ToString("D")
+
+    let private seededUuid = Text.RegularExpressions.Regex("[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", Text.RegularExpressions.RegexOptions.Compiled)
+
+    /// The largest `n` of an ID in `text` that `seed` derives (`seededPayload seed n`), or 0.
+    let seededCount (seed: string) (text: string) =
+        seq {
+            for found in seededUuid.Matches text do
+                let n = Convert.ToInt64(found.Value.Replace("-", "").Substring(0, 12), 16) - 1_700_000_000_000L
+                if n > 0L && seededPayload seed n = found.Value then yield n
+        }
+        |> Seq.fold max 0L
+
+    /// Whether new IDs are seeded test IDs (`NYRWVY_TEST_ID_SEED` is set).
+    let seeded () = testSeed.Value.IsSome
+
+    /// Under the seed, moves the count past every seeded ID in `text`, a snapshot or sidecar the
+    /// host read, so a restarted process never hands out an ID that a seeded run already wrote.
+    let observe (text: string) =
+        match testSeed.Value with
+        | None -> ()
+        | Some seed ->
+            let found = seededCount seed text
+            let mutable current = Threading.Interlocked.Read &allocated
+            while found > current && Threading.Interlocked.CompareExchange(&allocated, found, current) <> current do
+                current <- Threading.Interlocked.Read &allocated
+
     let private allocate<'Kind> (): StableId<'Kind> =
-        let payload = Guid.CreateVersion7().ToString("D")
+        let payload =
+            match testSeed.Value with
+            | Some seed -> seededPayload seed (Threading.Interlocked.Increment &allocated)
+            | None -> Guid.CreateVersion7().ToString("D")
         match StableId.tryCreate<'Kind> payload with
         | Ok id -> id
         | Error error -> invalidOp $"Generated UUIDv7 was rejected as a stable ID: {error}."
