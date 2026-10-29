@@ -14,7 +14,7 @@ const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 
 /// A request this module rejects: the reply's error code and message.
-pub const Rejection = struct { code: []const u8, message: []const u8 };
+pub const Rejection = struct { code: []const u8, message: []const u8, details: []const u8 = "" };
 pub const Answer = union(enum) { result: []const u8, rejected: Rejection };
 
 const Fail = anyerror;
@@ -335,7 +335,7 @@ pub fn exactOne(r: *Request, label: []const u8, wanted: []const u8, items: []con
 }
 
 /// `JsonSerializer.Serialize` of a string.
-fn stringOf(a: Allocator, text: []const u8) ![]const u8 {
+pub fn stringOf(a: Allocator, text: []const u8) ![]const u8 {
     var out: Writer.Allocating = .init(a);
     try @import("root").writeString(&out.writer, text);
     return out.written();
@@ -1597,74 +1597,88 @@ pub fn executionReadiness(r: *Request, out: *Writer) Fail!void {
 // ---------------------------------------------------------------- simulateCreateFunction
 
 const recipe = @import("recipe.zig");
+const preflight = @import("preflight.zig");
+
+/// The request's `typeParameters` list, or null when it gives none (the list is then derived).
+fn typeParameterNames(r: *Request, d: *recipe.Decoder, root: std.json.Value) Fail!?[]const []const u8 {
+    if (r.root.get("typeParameters") == null) return null;
+    var names: std.ArrayList([]const u8) = .empty;
+    for (try d.array(root, "typeParameters")) |item| {
+        if (item != .string) return r.fail("typeParameters must list type parameter names as strings.", .{});
+        const name = try readable(r, item.string);
+        if (isBlank(try utf16(r.a, name))) return r.fail("Type parameter names must not be blank.", .{});
+        try names.append(r.a, try d.stableId("typeParameters", item.string));
+    }
+    return names.items;
+}
+
+/// `expectedSnapshotId ()`: the request's, or the open snapshot's.
+fn expectedSnapshotId(r: *Request, d: *recipe.Decoder, root: std.json.Value) Fail![]const u8 {
+    if (r.root.get("expectedSnapshotId") == null) return r.snapshot_id;
+    return d.stableId("expectedSnapshotId", try d.requiredString(root, "expectedSnapshotId"));
+}
 
 /// `simulateCreateFunction`: the request read as `Protocol.fs` reads it, field by field in the
-/// order F# evaluates them, with each rejection.
-// shortcut: a request that decodes is not simulated yet (inference, materialization and the review come in 3c-3 and 3c-4).
+/// order F# evaluates them, with each rejection, then the preflight.
+// shortcut: a request that passes the preflight is not simulated yet (inference comes in 3c-3b, materialization and the review in 3c-4).
 pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
     _ = out;
     if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateCreateFunction request", &.{ "id", "op", "displayName", "exported", "mustNotWait", "typeParameters", "parameters", "resultType", "requiredEffects", "body", "structuredReview", "detail", "expectedSnapshotId" }, &.{ "id", "op", "displayName", "parameters", "resultType", "requiredEffects", "body" })) |message| return r.fail("{s}", .{message});
     var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
     var root: std.json.Value = .{ .object = r.root };
+    var parameters: std.ArrayList(preflight.Parameter) = .empty;
     for (try d.array(root, "parameters"), 0..) |item, i| {
         const path = try std.fmt.allocPrint(r.a, "/parameters/{d}", .{i});
         try d.ensureFields(path, item, "function parameter", &.{ "displayName", "type" }, &.{ "displayName", "type" });
-        _ = try d.requiredString(item, "displayName");
-        try d.typeRef(try std.fmt.allocPrint(r.a, "{s}/type", .{path}), try d.property(item, "type"));
+        const name = try d.requiredString(item, "displayName");
+        try parameters.append(r.a, .{ .name = name, .type = try d.typeRef(try std.fmt.allocPrint(r.a, "{s}/type", .{path}), try d.property(item, "type")) });
     }
+    var effects: std.ArrayList([]const u8) = .empty;
     for (try d.array(root, "requiredEffects")) |item| {
         if (item != .string) return r.fail("requiredEffects entries must be stable-ID strings.", .{});
-        _ = try d.stableId("requiredEffects", try readable(r, item.string));
+        try effects.append(r.a, try d.stableId("requiredEffects", try readable(r, item.string)));
     }
-    if (r.root.get("expectedSnapshotId") != null) _ = try d.stableId("expectedSnapshotId", try d.requiredString(root, "expectedSnapshotId"));
-    _ = try d.requiredString(root, "displayName");
+    const expected = try expectedSnapshotId(r, &d, root);
+    const display_name = try d.requiredString(root, "displayName");
     try d.optionalBool(root, "exported");
     try d.optionalBool(root, "mustNotWait");
-    if (r.root.get("typeParameters") != null) {
-        for (try d.array(root, "typeParameters")) |item| {
-            if (item != .string) return r.fail("typeParameters must list type parameter names as strings.", .{});
-            if (isBlank(try utf16(r.a, try readable(r, item.string)))) return r.fail("Type parameter names must not be blank.", .{});
-            _ = try d.stableId("typeParameters", item.string);
-        }
-    }
-    try d.typeRef("/resultType", try d.property(root, "resultType"));
+    const type_parameters = try typeParameterNames(r, &d, root);
+    const result_type = try d.typeRef("/resultType", try d.property(root, "resultType"));
     const body = root.object.getPtr("body").?;
     try recipe.resolveNames(&d, body, try recipe.rawProperty(r.a, r.line, "body"));
-    try d.recipe("/body", body.*);
-    r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host reads simulateCreateFunction requests but does not simulate them yet." };
+    const tree = try d.recipe("/body", body.*);
+    try preflight.run(r, .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree });
+    r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host checks simulateCreateFunction requests but does not infer their body types yet." };
     return error.Rejected;
 }
 
-/// `simulateCreateFunctionByName` as `functionCreationByName` reads it; a request that decodes is not simulated yet.
+/// `simulateCreateFunctionByName` as `functionCreationByName` reads it, then the preflight.
 pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
     _ = out;
     if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateCreateFunctionByName request", &.{ "id", "op", "displayName", "exported", "mustNotWait", "typeParameters", "parameters", "resultType", "requiredEffects", "body", "bodyFile", "structuredReview", "detail", "expectedSnapshotId" }, &.{ "id", "op", "displayName", "parameters", "resultType", "requiredEffects" })) |message| return r.fail("{s}", .{message});
     var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
     const root: std.json.Value = .{ .object = r.root };
-    if (r.root.get("expectedSnapshotId") != null) _ = try d.stableId("expectedSnapshotId", try d.requiredString(root, "expectedSnapshotId"));
+    const expected = try expectedSnapshotId(r, &d, root);
     const display_name = try d.requiredString(root, "displayName");
     for (try visible(r, "function")) |item| if (std.mem.eql(u8, nameOf(item), display_name))
         return r.fail("Function display name '{s}' already exists. Choose a unique name or use the exact-ID authoring surface.", .{display_name});
     d.owner = .{ .name = display_name };
-    var parameters: std.ArrayList([]const u8) = .empty;
+    var parameters: std.ArrayList(preflight.Parameter) = .empty;
+    var names: std.ArrayList([]const u8) = .empty;
     for (try d.array(root, "parameters"), 0..) |item, i| {
         const path = try std.fmt.allocPrint(r.a, "/parameters/{d}", .{i});
         try d.ensureFields(path, item, "function parameter", &.{ "displayName", "type" }, &.{ "displayName", "type" });
-        try parameters.append(r.a, try d.requiredString(item, "displayName"));
-        try d.anyType(try std.fmt.allocPrint(r.a, "{s}/type", .{path}), try d.property(item, "type"));
+        const name = try d.requiredString(item, "displayName");
+        try names.append(r.a, name);
+        try parameters.append(r.a, .{ .name = name, .type = try d.anyType(try std.fmt.allocPrint(r.a, "{s}/type", .{path}), try d.property(item, "type")) });
     }
-    d.owner.?.parameters = parameters.items;
+    d.owner.?.parameters = names.items;
     try d.optionalBool(root, "exported");
     try d.optionalBool(root, "mustNotWait");
-    if (r.root.get("typeParameters") != null) {
-        for (try d.array(root, "typeParameters")) |item| {
-            if (item != .string) return r.fail("typeParameters must list type parameter names as strings.", .{});
-            if (isBlank(try utf16(r.a, try readable(r, item.string)))) return r.fail("Type parameter names must not be blank.", .{});
-            _ = try d.stableId("typeParameters", item.string);
-        }
-    }
-    try d.anyType("/resultType", try d.property(root, "resultType"));
-    for (try d.array(root, "requiredEffects"), 0..) |item, i| _ = try d.selector(try std.fmt.allocPrint(r.a, "/requiredEffects/{d}", .{i}), item, "effect");
+    const type_parameters = try typeParameterNames(r, &d, root);
+    const result_type = try d.anyType("/resultType", try d.property(root, "resultType"));
+    var effects: std.ArrayList([]const u8) = .empty;
+    for (try d.array(root, "requiredEffects"), 0..) |item, i| try effects.append(r.a, idOf(try d.selector(try std.fmt.allocPrint(r.a, "/requiredEffects/{d}", .{i}), item, "effect")));
     // `recipeInput`: exactly one of `body` and `bodyFile`.
     const inline_body, const file = .{ r.root.getPtr("body"), r.root.get("bodyFile") };
     if (inline_body == null and file != null) {
@@ -1675,7 +1689,8 @@ pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
     }
     if (inline_body == null or file != null) return r.fail("Pass exactly one of body and bodyFile.", .{});
     try recipe.resolveNames(&d, inline_body.?, try recipe.rawProperty(r.a, r.line, "body"));
-    try d.recipe("/body", inline_body.?.*);
-    r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host reads simulateCreateFunctionByName requests but does not simulate them yet." };
+    const tree = try d.recipe("/body", inline_body.?.*);
+    try preflight.run(r, .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree });
+    r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host checks simulateCreateFunctionByName requests but does not infer their body types yet." };
     return error.Rejected;
 }

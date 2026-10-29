@@ -1,6 +1,6 @@
 //! Decoding a request's types and exact-ID expression recipes as the F# host does (`WireInput`,
 //! `WireRecipe`, `WireRecipeCommon`, `WireRecipeNames`), with its rejections. A recipe that decodes
-//! stays the request's JSON value; the later steps read it from there.
+//! becomes a `Node` tree in the exact-ID form (`ExpressionRecipe`), whichever surface spelled it.
 const std = @import("std");
 const model = @import("model_reader");
 const query = @import("query.zig");
@@ -13,7 +13,69 @@ const Shape = enum { recipe, recipes, id, type, types, int, int64, bool, text, b
 /// `callback`: for a callback context, the property whose function it binds.
 const Read = struct { name: []const u8, shape: Shape, callback: []const u8 = "" };
 const Table = std.StringHashMapUnmanaged(Kind);
-const Kind = struct { context: []const u8, allowed: []const []const u8, required: []const []const u8, reads: []const Read };
+/// `order`: the F# constructor's order of the slots, when it is not the read order.
+const Kind = struct { context: []const u8, allowed: []const []const u8, required: []const []const u8, reads: []const Read, order: ?[]const []const u8 };
+
+/// `TypeRef`; a type parameter is its ID (a request-local one is spelled as its name).
+pub const TypeRef = union(enum) {
+    primitive: []const u8,
+    type_parameter: []const u8,
+    capability: []const u8,
+    named: struct { id: []const u8, arguments: []const TypeRef },
+    function: struct { parameters: []const TypeRef, result: *const TypeRef },
+    builtin: struct { generic: []const u8, arguments: []const TypeRef },
+};
+
+/// An `ExpressionRecipe` case: its F# name and its fields, named as the exact-ID wire spells them, in
+/// the constructor's order (the order `recipeChildren` and `ExpressionRecipeTypes.collect` follow).
+pub const Node = struct { case: []const u8, slots: []const Slot };
+pub const Slot = struct { name: []const u8, data: Data };
+pub const Data = union(enum) {
+    recipe: *const Node,
+    recipes: []const *const Node,
+    pairs: []const Pair,
+    arms: []const Arm,
+    implementations: []const Implementation,
+    type: TypeRef,
+    types: []const TypeRef,
+    id: []const u8,
+    int: i64,
+    text: []const u8,
+    bits: u64,
+    bool: bool,
+    pattern: struct { slot: []const u8, field_id: ?[]const u8 },
+};
+/// A bound recipe: `id` is the parameter, field or capability parameter; a self call binds `slot`.
+pub const Pair = struct { id: []const u8 = "", slot: i64 = 0, value: *const Node };
+/// `variants` is empty for the `otherwise` arm.
+pub const Arm = struct { variants: []const []const u8, body: *const Node };
+pub const Implementation = struct { operation: []const u8, function: []const u8 };
+
+/// `recipeChildren`: the single recipes in slot order, then those of the lists in slot order.
+pub fn children(a: Allocator, node: *const Node) ![]const *const Node {
+    var out: std.ArrayList(*const Node) = .empty;
+    for (node.slots) |slot| if (slot.data == .recipe) try out.append(a, slot.data.recipe);
+    for (node.slots) |slot| switch (slot.data) {
+        .recipes => |items| try out.appendSlice(a, items),
+        .pairs => |pairs| for (pairs) |pair| try out.append(a, pair.value),
+        .arms => |arms| for (arms) |arm| try out.append(a, arm.body),
+        else => {},
+    };
+    return out.items;
+}
+
+/// `ExpressionRecipeTypes.collect`: every type the tree holds, in constructor order, nested recipes included.
+pub fn collectTypes(a: Allocator, node: *const Node, out: *std.ArrayList(TypeRef)) !void {
+    for (node.slots) |slot| switch (slot.data) {
+        .type => |t| try out.append(a, t),
+        .types => |items| try out.appendSlice(a, items),
+        .recipe => |child| try collectTypes(a, child, out),
+        .recipes => |items| for (items) |child| try collectTypes(a, child, out),
+        .pairs => |pairs| for (pairs) |pair| try collectTypes(a, pair.value, out),
+        .arms => |arms| for (arms) |arm| try collectTypes(a, arm.body, out),
+        else => {},
+    };
+}
 
 var kinds: ?Table = null;
 var byname_kinds: ?Table = null;
@@ -53,7 +115,8 @@ fn parseTable(comptime file: []const u8) Table {
             const shape = std.meta.stringToEnum(Shape, bits.next().?) orelse std.debug.panic(file ++ ": unknown shape '{s}'", .{item});
             reads.append(gpa, .{ .name = read_name, .shape = shape, .callback = bits.next() orelse "" }) catch @panic("out of memory");
         }
-        table.put(gpa, name, .{ .context = context, .allowed = allowed, .required = required, .reads = reads.items }) catch @panic("out of memory");
+        const order = if (parts.next()) |text| words(gpa, text) else null;
+        table.put(gpa, name, .{ .context = context, .allowed = allowed, .required = required, .reads = reads.items, .order = order }) catch @panic("out of memory");
     }
     return table;
 }
@@ -182,8 +245,8 @@ pub const Decoder = struct {
         return text;
     }
 
-    fn id(self: *Decoder, value: Json, name: []const u8) Fail!void {
-        _ = try self.stableId(name, try self.requiredString(value, name));
+    fn id(self: *Decoder, value: Json, name: []const u8) Fail![]const u8 {
+        return self.stableId(name, try self.requiredString(value, name));
     }
 
     pub fn array(self: *Decoder, value: Json, name: []const u8) Fail![]const Json {
@@ -197,97 +260,106 @@ pub const Decoder = struct {
         if (v != .bool) return self.fail("Property '{s}' must be a JSON boolean.", .{name});
     }
 
-    fn requiredInt(self: *Decoder, value: Json, name: []const u8) Fail!void {
+    fn requiredInt(self: *Decoder, value: Json, name: []const u8) Fail!i64 {
         const v = try self.property(value, name);
         const ok = v == .integer and v.integer >= std.math.minInt(i32) and v.integer <= std.math.maxInt(i32);
         if (!ok) return self.fail("Property '{s}' must be a 32-bit integer.", .{name});
+        return v.integer;
     }
 
     /// `WireInput.requiredInt64`: a JSON integer, or a string `Int64.TryParse` takes with a leading sign only.
-    fn requiredInt64(self: *Decoder, value: Json, name: []const u8) Fail!void {
+    fn requiredInt64(self: *Decoder, value: Json, name: []const u8) Fail!i64 {
         const v = try self.property(value, name);
-        const ok = switch (v) {
-            .integer => true,
+        const parsed: ?i64 = switch (v) {
+            .integer => |n| n,
             .string => |given| blk: {
                 // `Int64.TryParse` also ignores trailing NUL characters.
                 const text = std.mem.trimEnd(u8, try query.readable(self.r, given), "\x00");
                 const digits = if (text.len > 0 and (text[0] == '-' or text[0] == '+')) text[1..] else text;
-                if (digits.len == 0) break :blk false;
-                for (digits) |c| if (!std.ascii.isDigit(c)) break :blk false;
-                _ = std.fmt.parseInt(i64, text, 10) catch break :blk false;
-                break :blk true;
+                if (digits.len == 0) break :blk null;
+                for (digits) |c| if (!std.ascii.isDigit(c)) break :blk null;
+                break :blk std.fmt.parseInt(i64, text, 10) catch null;
             },
-            else => false,
+            else => null,
         };
-        if (!ok) return self.fail("Property '{s}' must be a 64-bit integer or exact decimal integer string.", .{name});
+        return parsed orelse self.fail("Property '{s}' must be a 64-bit integer or exact decimal integer string.", .{name});
+    }
+
+    fn typeList(self: *Decoder, path: []const u8, items: []const Json) Fail![]const TypeRef {
+        const out = try self.r.a.alloc(TypeRef, items.len);
+        for (items, 0..) |item, i| out[i] = try self.anyType(try self.at(path, i), item);
+        return out;
     }
 
     /// `WireInput.typeRef`.
-    pub fn typeRef(self: *Decoder, path: []const u8, value: Json) Fail!void {
+    pub fn typeRef(self: *Decoder, path: []const u8, value: Json) Fail!TypeRef {
         const kind = try self.requiredString(value, "kind");
         const eql = std.mem.eql;
         if (eql(u8, kind, "function")) {
             try self.ensureFields(path, value, "Function type", &.{ "kind", "parameters", "resultType" }, &.{ "kind", "parameters", "resultType" });
-            for (try self.array(value, "parameters"), 0..) |item, i| try self.anyType(try self.at(try self.at(path, "parameters"), i), item);
-            try self.anyType(try self.at(path, "resultType"), try self.property(value, "resultType"));
+            const parameters = try self.typeList(try self.at(path, "parameters"), try self.array(value, "parameters"));
+            const result = try self.r.a.create(TypeRef);
+            result.* = try self.anyType(try self.at(path, "resultType"), try self.property(value, "resultType"));
+            return .{ .function = .{ .parameters = parameters, .result = result } };
         } else if (eql(u8, kind, "primitive")) {
             try self.ensureFields(path, value, "primitive type", &.{ "kind", "primitive" }, &.{ "kind", "primitive" });
             const primitive = try self.requiredString(value, "primitive");
             for ([_][]const u8{ "string", "bool", "unit", "int64", "float64", "bits32", "bytes" }) |known| {
                 if (eql(u8, known, primitive)) break;
             } else return self.fail("Unsupported primitive type '{s}'.", .{primitive});
+            return .{ .primitive = primitive };
         } else if (eql(u8, kind, "named")) {
             try self.ensureFields(path, value, "named type", &.{ "kind", "typeId", "arguments" }, &.{ "kind", "typeId" });
-            try self.id(value, "typeId");
-            try self.typeArguments(path, value, "arguments");
+            const type_id = try self.id(value, "typeId");
+            return .{ .named = .{ .id = type_id, .arguments = try self.typeArguments(path, value, "arguments") } };
         } else if (eql(u8, kind, "capability")) {
             try self.ensureFields(path, value, "capability type", &.{ "kind", "capabilityId" }, &.{ "kind", "capabilityId" });
-            try self.id(value, "capabilityId");
+            return .{ .capability = try self.id(value, "capabilityId") };
         } else if (eql(u8, kind, "typeParameter") and (try self.tryProperty(value, "name")) != null) {
             try self.ensureFields(path, value, "type parameter", &.{ "kind", "name" }, &.{ "kind", "name" });
             const name = try self.requiredString(value, "name");
             if (try isBlank(self.r.a, name)) return self.fail("Type parameter names must not be blank.", .{});
-            try self.id(value, "name");
+            return .{ .type_parameter = try self.id(value, "name") };
         } else if (eql(u8, kind, "typeParameter")) {
             try self.ensureFields(path, value, "type parameter", &.{ "kind", "typeParameterId", "displayName" }, &.{ "kind", "typeParameterId" });
-            try self.id(value, "typeParameterId");
+            return .{ .type_parameter = try self.id(value, "typeParameterId") };
         } else if (eql(u8, kind, "builtinGeneric")) {
             try self.ensureFields(path, value, "builtin generic type", &.{ "kind", "generic", "arguments" }, &.{ "kind", "generic", "arguments" });
             const generic = try self.requiredString(value, "generic");
             for ([_][]const u8{ "option", "result", "map", "list", "set", "oneShot", "task", "exception", "taskScope" }) |known| {
                 if (eql(u8, known, generic)) break;
             } else return self.fail("Unsupported builtin generic '{s}'.", .{generic});
-            for (try self.array(value, "arguments"), 0..) |item, i| try self.anyType(try self.at(try self.at(path, "arguments"), i), item);
+            return .{ .builtin = .{ .generic = generic, .arguments = try self.typeList(try self.at(path, "arguments"), try self.array(value, "arguments")) } };
         } else return self.fail("Unsupported type kind '{s}'.", .{kind});
     }
 
-    fn typeArguments(self: *Decoder, path: []const u8, value: Json, name: []const u8) Fail!void {
-        if ((try self.tryProperty(value, name)) == null) return;
-        for (try self.array(value, name), 0..) |item, i| try self.anyType(try self.at(try self.at(path, name), i), item);
+    fn typeArguments(self: *Decoder, path: []const u8, value: Json, name: []const u8) Fail![]const TypeRef {
+        if ((try self.tryProperty(value, name)) == null) return &.{};
+        return self.typeList(try self.at(path, name), try self.array(value, name));
     }
 
     /// A type as this request spells it: `WireInput.typeRef`, or `WireSymbolic.typeRef` by name.
-    pub fn anyType(self: *Decoder, path: []const u8, value: Json) Fail!void {
+    pub fn anyType(self: *Decoder, path: []const u8, value: Json) Fail!TypeRef {
         if (self.owner == null) return self.typeRef(path, value);
         const kind = try self.requiredString(value, "kind");
         const eql = std.mem.eql;
         if (eql(u8, kind, "function") or eql(u8, kind, "primitive") or eql(u8, kind, "builtinGeneric")) {
-            try self.typeRef(path, value);
+            return self.typeRef(path, value);
         } else if (eql(u8, kind, "named")) {
             try self.ensureFields(path, value, "named type", &.{ "kind", "name", "arguments" }, &.{ "kind", "name" });
             // A string name is read before the arguments (to look it up among types created together).
             const name = try self.property(value, "name");
             if (name == .string) _ = try query.readable(self.r, name.string);
-            try self.typeArguments(path, value, "arguments");
-            _ = try self.selector(try self.at(path, "name"), name, "type");
+            const arguments = try self.typeArguments(path, value, "arguments");
+            return .{ .named = .{ .id = query.idOf(try self.selector(try self.at(path, "name"), name, "type")), .arguments = arguments } };
         } else if (eql(u8, kind, "capability")) {
             try self.ensureFields(path, value, "capability type", &.{ "kind", "name" }, &.{ "kind", "name" });
-            _ = try self.selector(try self.at(path, "name"), try self.property(value, "name"), "capability");
+            return .{ .capability = query.idOf(try self.selector(try self.at(path, "name"), try self.property(value, "name"), "capability")) };
         } else if (eql(u8, kind, "typeParameter")) {
             try self.ensureFields(path, value, "type parameter", &.{ "kind", "name" }, &.{ "kind", "name" });
             const name = try self.requiredString(value, "name");
             if (try isBlank(self.r.a, name)) return self.fail("Type parameter names must not be blank.", .{});
-            try self.id(value, "name");
+            return .{ .type_parameter = try self.id(value, "name") };
         } else return self.fail("Unsupported symbolic type kind '{s}'.", .{kind});
     }
 
@@ -348,44 +420,61 @@ pub const Decoder = struct {
     }
 
     /// `namedCallbackContext`: `[{ parameter, value }]` naming the callback's parameters.
-    fn callbackContext(self: *Decoder, path: []const u8, value: Json, name: []const u8, callback: query.Value) Fail!void {
-        if ((try self.tryProperty(value, name)) == null) return;
+    fn callbackContext(self: *Decoder, path: []const u8, value: Json, name: []const u8, callback: query.Value) Fail![]const Pair {
+        if ((try self.tryProperty(value, name)) == null) return &.{};
+        var out: std.ArrayList(Pair) = .empty;
         for (try self.array(value, name), 0..) |item, i| {
             const item_path = try self.at(try self.at(path, name), i);
             try self.ensureFields(item_path, item, "callback context", &.{ "parameter", "value" }, &.{ "parameter", "value" });
-            _ = try self.member("parameter on {s}", .{query.nameOf(callback)}, callback, "parameters", try self.requiredString(item, "parameter"));
-            try self.recipe(try self.at(item_path, "value"), try self.property(item, "value"));
+            const parameter = try self.member("parameter on {s}", .{query.nameOf(callback)}, callback, "parameters", try self.requiredString(item, "parameter"));
+            try out.append(self.r.a, .{ .id = query.idOf(parameter), .value = try self.recipe(try self.at(item_path, "value"), try self.property(item, "value")) });
         }
+        return out.items;
     }
 
-    /// `WireInput.unionArms`; `owner` resolves variant names (by name), or they are exact IDs.
-    fn arms(self: *Decoder, path: []const u8, value: Json, single: []const u8, plural: []const u8, owner: ?query.Value) Fail!void {
+    /// `WireInput.unionArms`; `owner` resolves variant names (by name), or they are exact IDs. The
+    /// `otherwise` arm comes last, naming no variant.
+    fn arms(self: *Decoder, path: []const u8, value: Json, single: []const u8, plural: []const u8, owner: ?query.Value) Fail![]const Arm {
+        const a = self.r.a;
+        var out: std.ArrayList(Arm) = .empty;
         for (try self.array(value, "arms"), 0..) |arm, i| {
             const arm_path = try self.at(try self.at(path, "arms"), i);
             try self.ensureFields(arm_path, arm, "union arm", &.{ single, plural, "body" }, &.{"body"});
             const one, const many = .{ (try self.tryProperty(arm, single)) != null, (try self.tryProperty(arm, plural)) != null };
+            var variants: std.ArrayList([]const u8) = .empty;
             if (one and !many) {
-                try self.variantOf(owner, try self.requiredString(arm, single));
+                try variants.append(a, try self.variantOf(owner, try self.requiredString(arm, single)));
             } else if (many and !one) {
                 const items = try self.array(arm, plural);
                 if (items.len == 0) return self.fail("Property '{s}' must name at least one variant.", .{plural});
                 for (items) |item| {
                     if (item != .string) return self.fail("Property '{s}' must contain only strings.", .{plural});
-                    try self.variantOf(owner, try query.readable(self.r, item.string));
+                    try variants.append(a, try self.variantOf(owner, try query.readable(self.r, item.string)));
                 }
             } else return self.fail("A union arm requires exactly one of '{s}' and '{s}'.", .{ single, plural });
-            try self.recipe(try self.at(arm_path, "body"), try self.property(arm, "body"));
+            try out.append(a, .{ .variants = variants.items, .body = try self.recipe(try self.at(arm_path, "body"), try self.property(arm, "body")) });
         }
-        if (try self.tryProperty(value, "otherwise")) |otherwise| try self.recipe(try self.at(path, "otherwise"), otherwise);
+        if (try self.tryProperty(value, "otherwise")) |otherwise| try out.append(a, .{ .variants = &.{}, .body = try self.recipe(try self.at(path, "otherwise"), otherwise) });
+        return out.items;
     }
 
-    fn variantOf(self: *Decoder, owner: ?query.Value, name: []const u8) Fail!void {
-        if (owner) |type_| _ = try self.unionVariant(type_, name) else _ = try self.stableId("variantId", name);
+    fn variantOf(self: *Decoder, owner: ?query.Value, name: []const u8) Fail![]const u8 {
+        return if (owner) |type_| query.idOf(try self.unionVariant(type_, name)) else self.stableId("variantId", name);
+    }
+
+    fn node(self: *Decoder, kind_name: []const u8, slots: []const Slot) Fail!*const Node {
+        const a = self.r.a;
+        const case = try a.dupe(u8, kind_name);
+        case[0] = std.ascii.toUpper(case[0]);
+        const made = try a.create(Node);
+        made.* = .{ .case = case, .slots = slots };
+        return made;
     }
 
     /// The by-name `patternReference`: the slot is read before the fields are checked.
-    fn namedSlot(self: *Decoder, path: []const u8, value: Json) Fail!void {
+    fn namedSlot(self: *Decoder, path: []const u8, value: Json) Fail!*const Node {
         const slot = try self.requiredString(value, "slot");
+        var field_id: ?[]const u8 = null;
         if (std.mem.eql(u8, slot, "value") or std.mem.eql(u8, slot, "error")) {
             try self.ensureFields(path, value, "pattern-reference recipe", &.{ "kind", "scopeDepth", "slot" }, &.{ "kind", "scopeDepth", "slot" });
         } else if (std.mem.eql(u8, slot, "field")) {
@@ -393,13 +482,18 @@ pub const Decoder = struct {
             try self.ensureFields(path, value, "pattern-reference recipe", all, all);
             const owner = try self.selector(try self.at(path, "type"), try self.property(value, "type"), "type");
             const variant = try self.unionVariant(owner, try self.requiredString(value, "variant"));
-            _ = try self.variantField(variant, try self.requiredString(value, "field"));
+            field_id = query.idOf(try self.variantField(variant, try self.requiredString(value, "field")));
         } else return self.fail("Unsupported pattern slot '{s}'.", .{slot});
-        try self.requiredInt(value, "scopeDepth");
+        const depth = try self.requiredInt(value, "scopeDepth");
+        return self.node("patternReference", try self.r.a.dupe(Slot, &.{ .{ .name = "slot", .data = .{ .pattern = .{ .slot = slot, .field_id = field_id } } }, .{ .name = "scopeDepth", .data = .{ .int = depth } } }));
+    }
+
+    fn parameterSlot(self: *Decoder, index: usize) Fail!*const Node {
+        return self.node("parameterSlot", try self.r.a.dupe(Slot, &.{.{ .name = "index", .data = .{ .int = @intCast(index) } }}));
     }
 
     /// The by-name `directCall`: a call naming the function being created is a self call.
-    fn directCall(self: *Decoder, path: []const u8, value: Json) Fail!void {
+    fn directCall(self: *Decoder, path: []const u8, value: Json) Fail!*const Node {
         try self.ensureFields(path, value, "direct-call recipe", &.{ "kind", "function", "arguments", "keepUnlisted" }, &.{ "kind", "function", "arguments" });
         const callee_selector = try self.property(value, "function");
         const callee_name: ?[]const u8 = if (callee_selector == .string) try query.readable(self.r, callee_selector.string) else null;
@@ -407,20 +501,24 @@ pub const Decoder = struct {
         const selected: ?query.Value = if (callee_selector == .string) null else try self.selector(try self.at(path, "function"), callee_selector, "function");
         const keep = try self.flag(value, "keepUnlisted");
         const owner = self.owner.?;
+        const a = self.r.a;
+        var arguments: std.ArrayList(Pair) = .empty;
         if (callee_name != null and std.mem.eql(u8, callee_name.?, owner.name)) {
             if (try self.functionNamed(owner.name)) return self.fail("Ambiguous function '{s}'.", .{owner.name});
-            const label = try std.fmt.allocPrint(self.r.a, "parameter on {s}", .{owner.name});
-            var named = try self.r.a.alloc(bool, owner.parameters.len);
+            const label = try std.fmt.allocPrint(a, "parameter on {s}", .{owner.name});
+            var named = try a.alloc(bool, owner.parameters.len);
             @memset(named, false);
             for (try self.array(value, "arguments"), 0..) |item, i| {
                 const item_path = try self.at(try self.at(path, "arguments"), i);
                 try self.ensureFields(item_path, item, "call argument", &.{ "parameter", "value" }, &.{ "parameter", "value" });
-                named[try self.exactName(label, try self.requiredString(item, "parameter"), owner.parameters)] = true;
-                try self.recipe(try self.at(item_path, "value"), try self.property(item, "value"));
+                const slot = try self.exactName(label, try self.requiredString(item, "parameter"), owner.parameters);
+                named[slot] = true;
+                try arguments.append(a, .{ .slot = @intCast(slot), .value = try self.recipe(try self.at(item_path, "value"), try self.property(item, "value")) });
             }
-            if (keep) for (owner.parameters, named) |name, done| if (!done) {
-                _ = try self.exactName("new function parameter", name, owner.parameters);
+            if (keep) for (owner.parameters, named, 0..) |name, done, slot| if (!done) {
+                try arguments.append(a, .{ .slot = @intCast(slot), .value = try self.parameterSlot(try self.exactName("new function parameter", name, owner.parameters)) });
             };
+            return self.node("selfCall", try a.dupe(Slot, &.{.{ .name = "arguments", .data = .{ .pairs = arguments.items } }}));
         } else if (keep) {
             return self.fail("keepUnlisted applies only to a call of the function being created or replaced; '{s}' is another function.", .{callee_name orelse ""});
         } else {
@@ -428,9 +526,10 @@ pub const Decoder = struct {
             for (try self.array(value, "arguments"), 0..) |item, i| {
                 const item_path = try self.at(try self.at(path, "arguments"), i);
                 try self.ensureFields(item_path, item, "call argument", &.{ "parameter", "value" }, &.{ "parameter", "value" });
-                _ = try self.member("parameter on {s}", .{query.nameOf(callee)}, callee, "parameters", try self.requiredString(item, "parameter"));
-                try self.recipe(try self.at(item_path, "value"), try self.property(item, "value"));
+                const parameter = try self.member("parameter on {s}", .{query.nameOf(callee)}, callee, "parameters", try self.requiredString(item, "parameter"));
+                try arguments.append(a, .{ .id = query.idOf(parameter), .value = try self.recipe(try self.at(item_path, "value"), try self.property(item, "value")) });
             }
+            return self.node("directCall", try a.dupe(Slot, &.{ .{ .name = "functionId", .data = .{ .id = query.idOf(callee) } }, .{ .name = "arguments", .data = .{ .pairs = arguments.items } } }));
         }
     }
 
@@ -441,18 +540,42 @@ pub const Decoder = struct {
     }
 
     /// Bindings of one target each: call arguments, capability arguments, field values.
-    fn targets(self: *Decoder, path: []const u8, value: Json, name: []const u8, context: []const u8, target: []const u8) Fail!void {
+    fn targets(self: *Decoder, path: []const u8, value: Json, name: []const u8, context: []const u8, target: []const u8) Fail![]const Pair {
+        var out: std.ArrayList(Pair) = .empty;
         for (try self.array(value, name), 0..) |item, i| {
             const item_path = try self.at(try self.at(path, name), i);
             try self.ensureFields(item_path, item, context, &.{ target, "value" }, &.{ target, "value" });
-            try self.id(item, target);
-            try self.recipe(try self.at(item_path, "value"), try self.property(item, "value"));
+            const target_id = try self.id(item, target);
+            try out.append(self.r.a, .{ .id = target_id, .value = try self.recipe(try self.at(item_path, "value"), try self.property(item, "value")) });
         }
+        return out.items;
+    }
+
+    /// The exact-ID slot a by-name read stands for, or null when the exact form has none (a selector
+    /// another read implies).
+    fn exactSlot(self: *Decoder, kind_name: []const u8, read: Read) Fail!?[]const u8 {
+        const name = switch (read.shape) {
+            .fnref => if (std.mem.eql(u8, read.name, "function")) "functionId" else try std.fmt.allocPrint(self.r.a, "{s}FunctionId", .{read.name}),
+            .capsel, .capop, .typesel, .variant, .field => try std.fmt.allocPrint(self.r.a, "{s}Id", .{read.name}),
+            else => read.name,
+        };
+        for (kindTable().get(kind_name).?.reads) |exact| if (std.mem.eql(u8, exact.name, name)) return name;
+        return null;
+    }
+
+    /// The slots in the F# constructor's order (the exact table's read order unless it says otherwise).
+    fn ordered(self: *Decoder, kind_name: []const u8, slots: []const Slot) Fail!*const Node {
+        const kind = kindTable().get(kind_name).?;
+        var out: std.ArrayList(Slot) = .empty;
+        if (kind.order) |order| {
+            for (order) |name| for (slots) |slot| if (std.mem.eql(u8, slot.name, name)) try out.append(self.r.a, slot);
+        } else for (kind.reads) |read| for (slots) |slot| if (std.mem.eql(u8, slot.name, read.name)) try out.append(self.r.a, slot);
+        return self.node(kind_name, out.items);
     }
 
     /// `WireRecipe.recipeIn` (after `WireRecipeNames.resolve`) of an exact-ID recipe, or
     /// `WireSymbolic.recipe` of a by-name one.
-    pub fn recipe(self: *Decoder, path: []const u8, value: Json) Fail!void {
+    pub fn recipe(self: *Decoder, path: []const u8, value: Json) Fail!*const Node {
         const kind_name = try self.requiredString(value, "kind");
         const eql = std.mem.eql;
         const kind = if (self.owner == null)
@@ -466,6 +589,7 @@ pub const Decoder = struct {
             return self.fail("Unsupported symbolic expression recipe kind '{s}'.", .{kind_name});
         };
         try self.ensureFields(path, value, kind.context, kind.allowed, kind.required);
+        const a = self.r.a;
         // What earlier reads of this recipe resolved, for the later ones.
         var callbacks: [2]struct { name: []const u8, function: query.Value } = undefined;
         var callback_count: usize = 0;
@@ -473,112 +597,159 @@ pub const Decoder = struct {
         var operation: ?query.Value = null;
         var owner: ?query.Value = null;
         var variant: ?query.Value = null;
+        var slots: std.ArrayList(Slot) = .empty;
         for (kind.reads) |read| {
             const name = read.name;
             const here = try self.at(path, name);
-            switch (read.shape) {
-                .pname => _ = try self.exactName("new function parameter", try self.requiredString(value, name), self.owner.?.parameters),
-                .fnref => {
-                    callbacks[callback_count] = .{ .name = name, .function = try self.referencedFunction(path, value, name) };
+            const data: ?Data = switch (read.shape) {
+                .pname => return self.parameterSlot(try self.exactName("new function parameter", try self.requiredString(value, name), self.owner.?.parameters)),
+                .fnref => blk: {
+                    const function = try self.referencedFunction(path, value, name);
+                    callbacks[callback_count] = .{ .name = name, .function = function };
                     callback_count += 1;
+                    break :blk .{ .id = query.idOf(function) };
                 },
-                .ctx => for (callbacks[0..callback_count]) |callback| {
-                    if (eql(u8, callback.name, read.callback)) try self.callbackContext(path, value, name, callback.function);
+                .ctx => blk: {
+                    for (callbacks[0..callback_count]) |callback| {
+                        if (eql(u8, callback.name, read.callback)) break :blk .{ .pairs = try self.callbackContext(path, value, name, callback.function) };
+                    }
+                    break :blk null;
                 },
-                .capsel => capability = try self.selector(here, try self.property(value, name), "capability"),
-                .capop => operation = try self.member("operation on {s}", .{query.nameOf(capability.?)}, capability.?, "operations", try self.requiredString(value, name)),
-                .typesel => owner = try self.selector(here, try self.property(value, name), "type"),
-                .variant => variant = try self.unionVariant(owner.?, try self.requiredString(value, name)),
-                .field => _ = try self.productField(owner.?, try self.requiredString(value, name)),
-                .pfields, .ufields, .scapargs => for (try self.array(value, name), 0..) |item, i| {
-                    const item_path = try self.at(here, i);
-                    const target = if (read.shape == .scapargs) "parameter" else "field";
-                    const context = switch (read.shape) {
-                        .pfields => "product field recipe",
-                        .ufields => "union field recipe",
-                        else => "capability argument",
-                    };
-                    try self.ensureFields(item_path, item, context, &.{ target, "value" }, &.{ target, "value" });
-                    const wanted = try self.requiredString(item, target);
-                    _ = switch (read.shape) {
-                        .pfields => try self.productField(owner.?, wanted),
-                        .ufields => try self.variantField(variant.?, wanted),
-                        else => try self.member("parameter on operation {s}", .{query.nameOf(operation.?)}, operation.?, "parameters", wanted),
-                    };
-                    try self.recipe(try self.at(item_path, "value"), try self.property(item, "value"));
+                .capsel => blk: {
+                    capability = try self.selector(here, try self.property(value, name), "capability");
+                    break :blk .{ .id = query.idOf(capability.?) };
                 },
-                .simpls => for (try self.array(value, name), 0..) |item, i| {
-                    const item_path = try self.at(here, i);
-                    try self.ensureFields(item_path, item, "Capability implementation", &.{ "operation", "function" }, &.{ "operation", "function" });
-                    _ = try self.member("operation on {s}", .{query.nameOf(capability.?)}, capability.?, "operations", try self.requiredString(item, "operation"));
-                    _ = try self.referencedFunction(item_path, item, "function");
+                .capop => blk: {
+                    operation = try self.member("operation on {s}", .{query.nameOf(capability.?)}, capability.?, "operations", try self.requiredString(value, name));
+                    break :blk .{ .id = query.idOf(operation.?) };
                 },
-                .sarms => try self.arms(path, value, "variant", "variants", owner.?),
-                .recipe => try self.recipe(here, try self.property(value, name)),
-                .recipes => for (try self.array(value, name), 0..) |item, i| try self.recipe(try self.at(here, i), item),
-                .optrecipe => if (try self.tryProperty(value, name)) |item| try self.recipe(here, item),
-                .id => try self.id(value, name),
-                .type => try self.anyType(here, try self.property(value, name)),
-                .types => try self.typeArguments(path, value, name),
-                .int => try self.requiredInt(value, name),
-                .int64 => try self.requiredInt64(value, name),
-                .bool => {
+                .typesel => blk: {
+                    owner = try self.selector(here, try self.property(value, name), "type");
+                    break :blk .{ .id = query.idOf(owner.?) };
+                },
+                .variant => blk: {
+                    variant = try self.unionVariant(owner.?, try self.requiredString(value, name));
+                    break :blk .{ .id = query.idOf(variant.?) };
+                },
+                .field => .{ .id = query.idOf(try self.productField(owner.?, try self.requiredString(value, name))) },
+                .pfields, .ufields, .scapargs => blk: {
+                    var pairs: std.ArrayList(Pair) = .empty;
+                    for (try self.array(value, name), 0..) |item, i| {
+                        const item_path = try self.at(here, i);
+                        const target = if (read.shape == .scapargs) "parameter" else "field";
+                        const context = switch (read.shape) {
+                            .pfields => "product field recipe",
+                            .ufields => "union field recipe",
+                            else => "capability argument",
+                        };
+                        try self.ensureFields(item_path, item, context, &.{ target, "value" }, &.{ target, "value" });
+                        const wanted = try self.requiredString(item, target);
+                        const bound = switch (read.shape) {
+                            .pfields => try self.productField(owner.?, wanted),
+                            .ufields => try self.variantField(variant.?, wanted),
+                            else => try self.member("parameter on operation {s}", .{query.nameOf(operation.?)}, operation.?, "parameters", wanted),
+                        };
+                        try pairs.append(a, .{ .id = query.idOf(bound), .value = try self.recipe(try self.at(item_path, "value"), try self.property(item, "value")) });
+                    }
+                    break :blk .{ .pairs = pairs.items };
+                },
+                .simpls => blk: {
+                    var impls: std.ArrayList(Implementation) = .empty;
+                    for (try self.array(value, name), 0..) |item, i| {
+                        const item_path = try self.at(here, i);
+                        try self.ensureFields(item_path, item, "Capability implementation", &.{ "operation", "function" }, &.{ "operation", "function" });
+                        const op = try self.member("operation on {s}", .{query.nameOf(capability.?)}, capability.?, "operations", try self.requiredString(item, "operation"));
+                        try impls.append(a, .{ .operation = query.idOf(op), .function = query.idOf(try self.referencedFunction(item_path, item, "function")) });
+                    }
+                    break :blk .{ .implementations = impls.items };
+                },
+                .sarms => .{ .arms = try self.arms(path, value, "variant", "variants", owner.?) },
+                .recipe => .{ .recipe = try self.recipe(here, try self.property(value, name)) },
+                .recipes => blk: {
+                    const items = try self.array(value, name);
+                    const out = try a.alloc(*const Node, items.len);
+                    for (items, 0..) |item, i| out[i] = try self.recipe(try self.at(here, i), item);
+                    break :blk .{ .recipes = out };
+                },
+                .optrecipe => if (try self.tryProperty(value, name)) |item| .{ .recipe = try self.recipe(here, item) } else null,
+                .id => .{ .id = try self.id(value, name) },
+                .type => .{ .type = try self.anyType(here, try self.property(value, name)) },
+                .types => .{ .types = try self.typeArguments(path, value, name) },
+                .int => .{ .int = try self.requiredInt(value, name) },
+                .int64 => .{ .int = try self.requiredInt64(value, name) },
+                .bool => blk: {
                     const v = try self.property(value, name);
                     if (v != .bool) return self.fail("Property '{s}' must be a JSON boolean.", .{name});
+                    break :blk .{ .bool = v.bool };
                 },
-                .text => {
+                .text => blk: {
                     const v = try self.property(value, name);
                     if (v != .string) return self.fail("A String run value must be a JSON string.", .{});
                     if (query.masked and std.mem.indexOf(u8, v.string, query.lone_mark) != null)
                         return self.fail("A String must not contain an unpaired surrogate escape; a String is a sequence of Unicode scalar values.", .{});
+                    break :blk .{ .text = v.string };
                 },
-                .bits => {
+                .bits => blk: {
                     const bits = try self.requiredString(value, name);
                     // `String.Length`: UTF-16 units.
                     if (try std.unicode.calcUtf16LeLen(bits) != 16) return self.fail("Invalid Float64 bits: Float64 bits must contain exactly 16 hexadecimal digits..", .{});
                     // `UInt64.TryParse` ignores trailing NUL characters, which the length above counts.
                     const digits = std.mem.trimEnd(u8, bits, "\x00");
-                    _ = std.fmt.parseInt(u64, digits, 16) catch return self.fail("Invalid Float64 bits: Float64 bits contain invalid hexadecimal digits..", .{});
+                    const parsed = std.fmt.parseInt(u64, digits, 16) catch return self.fail("Invalid Float64 bits: Float64 bits contain invalid hexadecimal digits..", .{});
                     for (digits) |c| if (!std.ascii.isHex(c)) return self.fail("Invalid Float64 bits: Float64 bits contain invalid hexadecimal digits..", .{});
+                    break :blk .{ .bits = parsed };
                 },
-                .context => if ((try self.tryProperty(value, name)) != null) try self.targets(path, value, name, "call argument", "parameterId"),
-                .args => try self.targets(path, value, name, "call argument", "parameterId"),
-                .capargs => try self.targets(path, value, name, "capability argument", "capabilityParameterId"),
-                .fields => try self.targets(path, value, name, "field recipe", "fieldId"),
-                .mode => {
+                .context => if ((try self.tryProperty(value, name)) != null) .{ .pairs = try self.targets(path, value, name, "call argument", "parameterId") } else .{ .pairs = &.{} },
+                .args => .{ .pairs = try self.targets(path, value, name, "call argument", "parameterId") },
+                .capargs => .{ .pairs = try self.targets(path, value, name, "capability argument", "capabilityParameterId") },
+                .fields => .{ .pairs = try self.targets(path, value, name, "field recipe", "fieldId") },
+                .mode => blk: {
                     const mode = try self.requiredString(value, "mode");
                     if (!std.mem.eql(u8, mode, "any") and !std.mem.eql(u8, mode, "all")) return self.fail("Unsupported task wait mode '{s}'; expected 'any' or 'all'.", .{mode});
+                    break :blk .{ .text = mode };
                 },
-                .slot => {
+                .slot => blk: {
                     const slot = try self.requiredString(value, "slot");
+                    var field_id: ?[]const u8 = null;
                     if (std.mem.eql(u8, slot, "field")) {
                         const by_id, const by_name = .{ (try self.tryProperty(value, "fieldId")) != null, (try self.tryProperty(value, "field")) != null };
                         if (by_id and !by_name) {
-                            try self.id(value, "fieldId");
+                            field_id = try self.id(value, "fieldId");
                         } else if (by_name and !by_id) {
                             const field = try self.requiredString(value, "field");
                             return self.fail("Pattern reference by field name '{s}' is available only in an addUnionVariant arm body; use fieldId.", .{field});
                         } else return self.fail("A field pattern reference takes exactly one of fieldId and field.", .{});
                     } else if (!std.mem.eql(u8, slot, "value") and !std.mem.eql(u8, slot, "error")) return self.fail("Unsupported pattern slot '{s}'.", .{slot});
+                    break :blk .{ .pattern = .{ .slot = slot, .field_id = field_id } };
                 },
-                .selfargs => for (try self.array(value, "arguments"), 0..) |item, i| {
-                    const item_path = try self.at(try self.at(path, "arguments"), i);
-                    try self.ensureFields(item_path, item, "self-call argument", &.{ "slot", "value" }, &.{ "slot", "value" });
-                    try self.requiredInt(item, "slot");
-                    try self.recipe(try self.at(item_path, "value"), try self.property(item, "value"));
+                .selfargs => blk: {
+                    var pairs: std.ArrayList(Pair) = .empty;
+                    for (try self.array(value, "arguments"), 0..) |item, i| {
+                        const item_path = try self.at(try self.at(path, "arguments"), i);
+                        try self.ensureFields(item_path, item, "self-call argument", &.{ "slot", "value" }, &.{ "slot", "value" });
+                        const slot = try self.requiredInt(item, "slot");
+                        try pairs.append(a, .{ .slot = slot, .value = try self.recipe(try self.at(item_path, "value"), try self.property(item, "value")) });
+                    }
+                    break :blk .{ .pairs = pairs.items };
                 },
-                .impls => for (try self.array(value, "implementations"), 0..) |item, i| {
-                    try self.ensureFields(try self.at(try self.at(path, "implementations"), i), item, "Capability implementation", &.{ "operationId", "functionId" }, &.{ "operationId", "functionId" });
-                    try self.id(item, "operationId");
-                    try self.id(item, "functionId");
+                .impls => blk: {
+                    var impls: std.ArrayList(Implementation) = .empty;
+                    for (try self.array(value, "implementations"), 0..) |item, i| {
+                        try self.ensureFields(try self.at(try self.at(path, "implementations"), i), item, "Capability implementation", &.{ "operationId", "functionId" }, &.{ "operationId", "functionId" });
+                        const op = try self.id(item, "operationId");
+                        try impls.append(a, .{ .operation = op, .function = try self.id(item, "functionId") });
+                    }
+                    break :blk .{ .implementations = impls.items };
                 },
-                .arms => try self.arms(path, value, "variantId", "variantIds", null),
-            }
+                .arms => .{ .arms = try self.arms(path, value, "variantId", "variantIds", null) },
+            };
+            if (data) |d| if (try self.exactSlot(kind_name, read)) |slot_name| try slots.append(a, .{ .name = slot_name, .data = d });
         }
+        return self.ordered(kind_name, slots.items);
     }
 };
 
-fn isBlank(a: Allocator, text: []const u8) !bool {
+pub fn isBlank(a: Allocator, text: []const u8) !bool {
     _ = a;
     var it = std.unicode.Utf8View.initUnchecked(text).iterator();
     while (it.nextCodepoint()) |c| switch (c) {

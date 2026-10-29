@@ -162,6 +162,60 @@ module ZigHostParityTests =
     let internal sessionErrorCode (reply: string) =
         Text.RegularExpressions.Regex.Replace(reply, "\"code\":\"SessionError\",\"message\":\"(?:[^\"\\\\]|\\\\.)*\"", "\"code\":\"SessionError\"")
 
+    /// The diagnostic codes of the `simulateCreateFunction(ByName)` preflight the Zig host answers (step 3c-3a).
+    let internal preflightCodes =
+        set [ "FunctionCreationTypeParameterNameBlank"; "FunctionCreationDuplicateTypeParameter"; "FunctionCreationTypeParameterNotDeclared"; "FunctionCreationTypeParameterNotInferable"
+              "StructuralExpectedBaseMismatch"; "FunctionCreationDisplayNameBlank"; "FunctionCreationDuplicateDisplayName"; "FunctionCreationParameterDisplayNameBlank"
+              "PureExpressionInvalidTypeRef"; "NamedTypeArityMismatch"; "FunctionCreationDuplicateRequiredEffect"; "FunctionCreationRequiredEffectNotFound"
+              "StructuralRecipeDepthLimitExceeded"; "StructuralRecipeNodeLimitExceeded" ]
+
+    /// Whether the Zig reply to a create request matches the F# one: a `ProtocolError` or a preflight
+    /// `SimulationRejected` byte for byte, a `SessionError` by code, and `UnsupportedOperation` for
+    /// every other reply (the simulation itself is not ported yet).
+    let internal createReplyMatches (fsharp: string) (zig: string) =
+        use reply = JsonDocument.Parse fsharp
+        match reply.RootElement.TryGetProperty "error" with
+        | true, error ->
+            match error.GetProperty("code").GetString() with
+            | "SessionError" -> sessionErrorCode fsharp = sessionErrorCode zig
+            | "ProtocolError" -> fsharp = zig
+            | "SimulationRejected" when preflightCodes.Contains(error.GetProperty("details").GetProperty("diagnostics").[0].GetProperty("code").GetString()) -> fsharp = zig
+            | _ -> zig.Contains "\"code\":\"UnsupportedOperation\""
+        | _ -> zig.Contains "\"code\":\"UnsupportedOperation\""
+
+    /// Whether the F# reply is a preflight rejection, which the Zig host must answer byte for byte.
+    let internal isPreflightRejection (fsharp: string) = preflightCodes |> Set.exists (fun code -> fsharp.Contains $"\"code\":\"{code}\"")
+
+    /// A body `depth` string-length nodes deep, and one of `items` + 1 nodes two deep.
+    let internal nested (depth: int) = String.replicate depth """{"kind":"stringLength","value":""" + """{"kind":"unitLiteral"}""" + String.replicate depth "}"
+    let internal wide (items: int) =
+        let units = String.Join(",", List.replicate items """{"kind":"unitLiteral"}""")
+        $"""{{"kind":"listConstruct","itemType":{{"kind":"primitive","primitive":"int64"}},"items":[{units}]}}"""
+
+    /// `node` with each unit literal replaced by a list of its own size (131, 141, …), so the
+    /// node-limit reply's largest-subtree paths pin the child order of the kind and its child count.
+    let internal inflated (node: JsonNode) =
+        let copy = node.DeepClone()
+        let mutable next = 0
+        let isUnit (child: JsonNode) =
+            match child with
+            | :? JsonObject as o -> o.Count = 1 && (match o["kind"] with :? JsonValue as v when v.GetValueKind() = JsonValueKind.String -> v.GetValue<string>() = "unitLiteral" | _ -> false)
+            | _ -> false
+        let list () =
+            next <- next + 1
+            JsonNode.Parse(wide (120 + 10 * next))
+        let rec visit (current: JsonNode) =
+            match current with
+            | :? JsonObject as o ->
+                for key in [ for property in o -> property.Key ] do
+                    if isUnit o[key] then o[key] <- list () else visit o[key]
+            | :? JsonArray as items ->
+                for index in 0 .. items.Count - 1 do
+                    if isUnit items[index] then items[index] <- list () else visit items[index]
+            | _ -> ()
+        visit copy
+        copy
+
     let internal sameAnswers label (fsharp: string list) (zig: string list) (requests: string list) =
         Assert.Equal(requests.Length, zig.Length)
         List.zip3 requests fsharp zig |> List.iteri (fun index (request, expected, actual) ->
@@ -757,6 +811,7 @@ module ZigHostCreateDecodeTests =
         [ for (kind, allowed, reads) as row in rows do
               let valid = instance row
               yield request valid
+              yield request (inflated valid)
               // Nested, so a rejection inside sits at a path below the body.
               yield request (JsonObject(dict [ "kind", JsonValue.Create "stringConcat" :> JsonNode; "left", unit.DeepClone(); "right", valid.DeepClone() ]))
               let changed (change: JsonObject -> unit) = let copy = valid.DeepClone().AsObject() in change copy; request copy
@@ -867,33 +922,78 @@ module ZigHostCreateDecodeTests =
               yield line (ok.Replace("\"resultType\":{\"kind\":\"primitive\",\"primitive\":\"unit\"}", "\"resultType\":" + t))
               yield line (ok.Replace("\"parameters\":[]", "\"parameters\":[{\"displayName\":\"x\",\"type\":" + t + "}]")) ]
 
+    /// Requests that reach each preflight diagnostic (step 3c-3a), against the session's declarations.
+    let private preflightRequests (declarations: AuthoringDeclarations) (snapshotId: string) =
+        let line (fields: string) (body: string) = $"""{{"id":"p","op":"simulateCreateFunction",{fields},"body":{body}}}"""
+        let unitType = """{"kind":"primitive","primitive":"unit"}"""
+        let int64Type = """{"kind":"primitive","primitive":"int64"}"""
+        let unit = """{"kind":"unitLiteral"}"""
+        let typeParameter name = $"""{{"kind":"typeParameter","name":"{name}"}}"""
+        let listOf itemType = $"""{{"kind":"listEmpty","itemType":{itemType}}}"""
+        let signature (parameters: string list) resultType (effects: string list) =
+            $""""displayName":"made","parameters":[{String.Join(",", parameters)}],"resultType":{resultType},"requiredEffects":[{String.Join(",", effects |> List.map (fun e -> "\"" + e + "\""))}]"""
+        let parameter name (t: string) = $"""{{"displayName":"{name}","type":{t}}}"""
+        let ok = signature [] unitType []
+        let stale = ",\"expectedSnapshotId\":\"zig-stale-base\""
+        let existing = declarations.Functions |> List.tryHead |> Option.map (fun f -> f.DisplayName) |> Option.defaultValue "none"
+        let effect = declarations.Effects |> List.tryHead |> Option.map (fun e -> StableId.value e.Id) |> Option.defaultValue "zig-no-effect"
+        [ yield line (ok + stale) unit
+          yield line (ok + $",\"expectedSnapshotId\":\"{snapshotId}\"") unit
+          // The type-parameter check runs before the stale-base check; the stale-base check before the blank name.
+          yield line (signature [] (typeParameter "T") [] + stale) unit
+          yield line (ok.Replace("\"made\"", "\" \"")) unit
+          yield line (ok.Replace("\"made\"", "\" \"") + stale) unit
+          yield line (ok.Replace("\"made\"", $"\"{existing}\"")) unit
+          yield line (signature [ parameter " " int64Type ] unitType []) unit
+          yield line (signature [ parameter "x" (typeParameter "T") ] unitType [] + ",\"typeParameters\":[\"T\",\"T\"]") unit
+          yield line (signature [] (typeParameter "T") []) unit
+          yield line ok (listOf (typeParameter "T"))
+          // Two undeclared type parameters: the first in the F# constructor's order is named.
+          yield line ok $"""{{"kind":"resultOk","errorType":{typeParameter "U"},"value":{listOf (typeParameter "V")}}}"""
+          yield line ok $"""{{"kind":"exceptionRethrow","value":{listOf (typeParameter "V")},"resultType":{typeParameter "U"}}}"""
+          yield line ok $"""{{"kind":"matchUnion","arms":[{{"variantId":"v","body":{listOf (typeParameter "A")}}}],"input":{listOf (typeParameter "I")}}}"""
+          yield line ok $"""{{"kind":"taskStart","scope":{unit},"workerFunctionId":"w","context":[{{"parameterId":"p","value":{listOf (typeParameter "C")}}}],"item":{listOf (typeParameter "I")}}}"""
+          yield line (signature [ parameter "x" int64Type ] unitType [] + ",\"typeParameters\":[\"T\"]") unit
+          yield line (signature [] """{"kind":"named","typeId":"zig-no-such-type"}""" []) unit
+          yield line (signature [ parameter "x" """{"kind":"capability","capabilityId":"zig-no-such-capability"}""" ] unitType []) unit
+          for t in declarations.Types |> List.truncate 1 do
+              let arguments = String.Join(",", List.replicate (t.TypeParameters.Length + 1) int64Type)
+              yield line (signature [] $"""{{"kind":"named","typeId":"{StableId.value t.Id}","arguments":[{arguments}]}}""" []) unit
+          yield line (signature [] """{"kind":"builtinGeneric","generic":"oneShot","arguments":[]}""" []) unit
+          yield line (signature [ parameter "x" $"""{{"kind":"builtinGeneric","generic":"result","arguments":[{int64Type}]}}""" ] unitType []) unit
+          yield line (signature [] unitType [ effect; effect ]) unit
+          yield line (signature [] unitType [ "zig-no-such-effect" ]) unit
+          yield line ok (nested 33)
+          yield line ok (nested 32)
+          yield line ok (wide 256)
+          yield line ok (wide 255) ]
+
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host decodes simulateCreateFunction requests as the F# host does`` () =
         withDirectory (fun dir ->
             let path = Path.Combine(dir, "decode.json")
             File.WriteAllText(path, SnapshotCodec.serialize (MilestoneZeroGraph.create ()).Snapshot |> unwrap)
             use session = AuthoringSession.openReadOnly path |> unwrap
-            let requests = recipeRequests () @ requestMutations ()
+            let requests = recipeRequests () @ requestMutations () @ preflightRequests (session.Declarations()) (StableId.value session.SnapshotId)
             let code, errors, answers = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
             Assert.True((code = 0), errors)
             Assert.Equal(requests.Length, answers.Length)
             let mutable rejected = 0
+            let mutable preflight = 0
             let mismatches = ResizeArray<string>()
+            let answered = Text.StringBuilder()
             for request, zig in List.zip requests answers do
                 let fsharp = AuthoringProtocol.executeLine session request
-                use reply = JsonDocument.Parse fsharp
-                let code =
-                    match reply.RootElement.TryGetProperty "error" with
-                    | true, error -> error.GetProperty("code").GetString()
-                    | _ -> ""
-                if code = "SessionError" then
-                    if sessionErrorCode fsharp <> sessionErrorCode zig then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
-                elif code = "ProtocolError" then
-                    rejected <- rejected + 1
-                    if fsharp <> zig then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
-                elif not (zig.Contains "\"code\":\"UnsupportedOperation\"") then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
+                answered.Append(fsharp) |> ignore
+                if fsharp.Contains "\"code\":\"ProtocolError\"" then rejected <- rejected + 1
+                if isPreflightRejection fsharp then preflight <- preflight + 1
+                if not (createReplyMatches fsharp zig) then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
+            let shownText = answered.ToString()
+            for shown in Set.toList (Set.remove "FunctionCreationTypeParameterNameBlank" preflightCodes) @ [ "Largest subtrees within the limit" ] do
+                Assert.True(shownText.Contains shown, $"No F# reply shows {shown}; the decode parity test does not cover it.")
             Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
-            Assert.True(rejected > 1000, $"Only {rejected} requests are decode rejections."))
+            Assert.True(rejected > 1000, $"Only {rejected} requests are decode rejections.")
+            Assert.True(preflight > 100, $"Only {preflight} requests are preflight rejections."))
 
 /// Its own class, so xunit runs it beside the other host parity tests.
 module ZigHostLoneSurrogateTests =
@@ -936,7 +1036,7 @@ module ZigHostCreateByNameTests =
 
     /// Requests for a session's declarations: a valid instance of each by-name recipe kind (from
     /// tools/zig/host/recipe_kinds_byname.txt), broken one way at a time, and the signature around it.
-    let private requests (declarations: AuthoringDeclarations) =
+    let private requests (declarations: AuthoringDeclarations) (snapshotId: string) =
         let first fallback items = items |> List.tryHead |> Option.defaultValue fallback
         let products = declarations.Types |> List.choose (fun t -> match t.Kind with SemanticTypeKind.Product fields when not fields.IsEmpty -> Some(t.DisplayName, fields.Head.DisplayName) | _ -> None)
         // Prefer members with members of their own; fall back to any, so names still resolve partway.
@@ -1009,6 +1109,7 @@ module ZigHostCreateByNameTests =
         [ for (kind, allowed, reads) as row in byName do
               let valid = instance row
               yield request valid
+              yield request (inflated valid)
               yield request (JsonObject(dict [ "kind", str "stringConcat"; "left", unit (); "right", valid.DeepClone() ]))
               let changed (change: JsonObject -> unit) = let copy = valid.DeepClone().AsObject() in change copy; request copy
               yield changed (fun built -> built["zzz"] <- JsonValue.Create 1)
@@ -1035,6 +1136,7 @@ module ZigHostCreateByNameTests =
                       | _ -> ()
           for row in shared do
               yield request (instance row)
+              yield request (inflated (instance row))
           for body in
               [ """{"kind":"parameterSlot","index":0}"""
                 """{"kind":"selfCall","arguments":[]}"""
@@ -1093,17 +1195,47 @@ module ZigHostCreateByNameTests =
           yield line $"""{signature},"body":{ok},"expectedSnapshotId":" " """
           yield line $"""{signature},"body":{ok},"exported":3"""
           yield line $"""{signature},"body":{ok},"typeParameters":["T"]"""
-          yield line $"""{signature},"body":{ok},"zzz":1""" ]
+          yield line $"""{signature},"body":{ok},"zzz":1"""
+          // The preflight (step 3c-3a) by name; the signature's two parameters are x: int64 and y: unit.
+          let typeParameter name = $"""{{"kind":"typeParameter","name":"{name}"}}"""
+          let listOf itemType = $"""{{"kind":"listEmpty","itemType":{itemType}}}"""
+          let signed (parameters: string) (resultType: string) (effects: string) = $""""parameters":{parameters},"resultType":{resultType},"requiredEffects":{effects}"""
+          let unitType = """{"kind":"primitive","primitive":"unit"}"""
+          let int64Type = """{"kind":"primitive","primitive":"int64"}"""
+          let stale = ",\"expectedSnapshotId\":\"zig-stale-base\""
+          yield line $"""{signature}{stale},"body":{ok}"""
+          yield line $"""{signature},"expectedSnapshotId":"{snapshotId}","body":{ok}"""
+          yield line $"""{signed "[]" (typeParameter "T") "[]"}{stale},"body":{ok}"""
+          yield (around signature).Replace("\"displayName\":\"made\"", "\"displayName\":\" \"")
+          yield around (signed $"""[{{"displayName":" ","type":{int64Type}}}]""" unitType "[]")
+          yield around (signed $"""[{{"displayName":"x","type":{typeParameter "T"}}}]""" unitType "[]" + ",\"typeParameters\":[\"T\",\"T\"]")
+          yield around (signed "[]" (typeParameter "T") "[]")
+          yield line $"""{signature},"body":{listOf (typeParameter "T")}"""
+          // Two undeclared type parameters, named in the F# constructor's order (source before fields; scope, context, item).
+          yield line $"""{signature},"body":{{"kind":"productUpdate","type":"{product}","fields":[{{"field":"{productField}","value":{listOf (typeParameter "V")}}}],"source":{listOf (typeParameter "U")}}}"""
+          yield line $"""{signature},"body":{{"kind":"taskStart","worker":"{fn}","scope":{ok},"context":[{{"parameter":"{fnParameter}","value":{listOf (typeParameter "C")}}}],"item":{listOf (typeParameter "I")}}}"""
+          yield around (signed $"""[{{"displayName":"x","type":{int64Type}}}]""" unitType "[]" + ",\"typeParameters\":[\"T\"]")
+          for t in declarations.Types |> List.filter (fun t -> t.DisplayName = product) |> List.truncate 1 do
+              let arguments = String.Join(",", List.replicate (t.TypeParameters.Length + 1) int64Type)
+              yield around (signed "[]" $"""{{"kind":"named","name":"{product}","arguments":[{arguments}]}}""" "[]")
+          yield around (signed "[]" """{"kind":"builtinGeneric","generic":"oneShot","arguments":[]}""" "[]")
+          yield around (signed "[]" unitType $"""["{effect}","{effect}"]""")
+          yield line $"""{signature},"body":{nested 33}"""
+          yield line $"""{signature},"body":{nested 32}"""
+          yield line $"""{signature},"body":{wide 256}"""
+          // The kept parameter slot counts as a node.
+          yield line $"""{signature},"body":{{"kind":"directCall","function":"made","arguments":[{{"parameter":"x","value":{wide 255}}}],"keepUnlisted":true}}""" ]
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host decodes simulateCreateFunctionByName requests as the F# host does`` () =
         withDirectory (fun dir ->
             let mutable rejected = 0
+            let mutable preflight = 0
             let mismatches = ResizeArray<string>()
             let answered = Text.StringBuilder()
             for snapshot in snapshots dir do
                 use session = AuthoringSession.openReadOnly snapshot |> unwrap
-                let lines = requests (session.Declarations())
+                let lines = requests (session.Declarations()) (StableId.value session.SnapshotId)
                 let code, errors, answers = run true [ "open"; "--snapshot"; snapshot; "--read-only" ] lines
                 Assert.True((code = 0), errors)
                 Assert.Equal(lines.Length, answers.Length)
@@ -1114,19 +1246,14 @@ module ZigHostCreateByNameTests =
                         // The Zig host does not read bodyFile yet (a documented shortcut).
                         if not (zig.Contains "\"code\":\"UnsupportedOperation\"") then mismatches.Add $"{request}\n Zig: {zig}"
                     else
-                        use reply = JsonDocument.Parse fsharp
-                        let code =
-                            match reply.RootElement.TryGetProperty "error" with
-                            | true, error -> error.GetProperty("code").GetString()
-                            | _ -> ""
-                        if code = "SessionError" then
-                            if sessionErrorCode fsharp <> sessionErrorCode zig then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
-                        elif code = "ProtocolError" then
-                            rejected <- rejected + 1
-                            if fsharp <> zig then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
-                        elif not (zig.Contains "\"code\":\"UnsupportedOperation\"") then mismatches.Add $"{Path.GetFileName snapshot}: {request}\n F#:  {fsharp}\n Zig: {zig}"
+                        if fsharp.Contains "\"code\":\"ProtocolError\"" then rejected <- rejected + 1
+                        if isPreflightRejection fsharp then preflight <- preflight + 1
+                        if not (createReplyMatches fsharp zig) then mismatches.Add $"{Path.GetFileName snapshot}: {request}\n F#:  {fsharp}\n Zig: {zig}"
             let shownText = answered.ToString().Replace("\\u0027", "'")
-            for shown in [ "Unknown function '"; "Unknown type '"; "Unknown capability '"; "Unknown effect '"; "Unknown field on "; "Unknown variant on "; "Unknown field on variant "; "Unknown operation on "; "Unknown parameter on operation "; "Unknown parameter on "; "Unknown new function parameter"; " Available: "; "is not a product type"; "is not a union type"; "is the function being created"; "keepUnlisted applies only"; "No current function matches the explicit declaration selector"; "Selector ownership must be local or imported."; "Unsupported symbolic expression recipe kind"; "Unsupported symbolic type kind"; "already exists. Choose a unique name"; "Pass exactly one of body and bodyFile."; "Ambiguous new function parameter 'x'."; "Ambiguous parameter on made 'x'."; "Current candidates (advice only)"; "SimulationRejected" ] do
+            // Of the preflight, a blank type-parameter name, a taken display name and an unknown effect, type or capability ID are decode rejections by name.
+            let preflightShown = Set.toList (Set.difference preflightCodes (set [ "FunctionCreationTypeParameterNameBlank"; "FunctionCreationRequiredEffectNotFound"; "FunctionCreationDuplicateDisplayName" ]))
+            for shown in [ "Unknown function '"; "Unknown type '"; "Unknown capability '"; "Unknown effect '"; "Unknown field on "; "Unknown variant on "; "Unknown field on variant "; "Unknown operation on "; "Unknown parameter on operation "; "Unknown parameter on "; "Unknown new function parameter"; " Available: "; "is not a product type"; "is not a union type"; "is the function being created"; "keepUnlisted applies only"; "No current function matches the explicit declaration selector"; "Selector ownership must be local or imported."; "Unsupported symbolic expression recipe kind"; "Unsupported symbolic type kind"; "already exists. Choose a unique name"; "Pass exactly one of body and bodyFile."; "Ambiguous new function parameter 'x'."; "Ambiguous parameter on made 'x'."; "Current candidates (advice only)"; "SimulationRejected"; "Largest subtrees within the limit" ] @ preflightShown do
                 Assert.True(shownText.Contains shown, $"No F# reply shows {shown}; the by-name parity test does not cover it.")
             Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
-            Assert.True(rejected > 1000, $"Only {rejected} requests are decode rejections."))
+            Assert.True(rejected > 1000, $"Only {rejected} requests are decode rejections.")
+            Assert.True(preflight > 100, $"Only {preflight} requests are preflight rejections."))
