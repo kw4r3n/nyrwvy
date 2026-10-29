@@ -1020,27 +1020,185 @@ pub fn readFunction(r: *Request, out: *Writer) Fail!void {
         return error.Rejected;
     };
     const nodes = model.bodyNodes(r.a, function);
-    // shortcut: Bytes copy plans are ported in the next step; until then the Zig host refuses them.
     const updates = for (nodes) |node| {
         if (kindIs(node, "bytesSet") or kindIs(node, "bytesAppend")) break true;
     } else false;
-    if (updates) {
-        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host reads functions only without Bytes updates, so far." };
-        return error.Rejected;
-    }
     // The compact focus, open at its end, so each detail appends its own fields.
     var compact: Writer.Allocating = .init(r.a);
     const full = std.mem.eql(u8, detail, "full");
     try compactFocus(r, &compact.writer, function, wanted, nodes, full);
     if (full) {
         try out.writeAll(compact.written());
-        return out.writeByte('}');
+    } else if (std.mem.eql(u8, detail, "outline")) {
+        try outline(r, out, compact.written(), function, nodes);
+    } else {
+        try out.writeAll(compact.written());
+        try out.writeAll(",\"literals\":");
+        try literals(r, out, function);
     }
-    if (std.mem.eql(u8, detail, "outline")) return outline(r, out, compact.written(), function, nodes);
-    try out.writeAll(compact.written());
-    try out.writeAll(",\"literals\":");
-    try literals(r, out, function);
+    if (updates) try copiedUpdates(r, out, wanted);
     try out.writeByte('}');
+}
+
+// ---------------------------------------------------------------- copiedUpdates
+
+const Json = std.json.Value;
+
+fn jsonString(value: Json, name: []const u8) []const u8 {
+    return value.object.get(name).?.string;
+}
+
+/// `ExecutionIrBytesOwnership.plan`'s copied updates of one lowered function: each Bytes update
+/// whose input (or a name of the same buffer) has a use that can run after it, with that use's origin.
+const Plan = struct {
+    a: Allocator,
+    defined: std.StringHashMapUnmanaged(void) = .empty,
+    parent: std.StringHashMapUnmanaged([]const u8) = .empty,
+
+    fn find(self: *Plan, id: []const u8) []const u8 {
+        var current = id;
+        while (self.parent.get(current)) |next| {
+            if (std.mem.eql(u8, next, current)) break;
+            current = next;
+        }
+        return current;
+    }
+
+    fn join(self: *Plan, x: []const u8, y: []const u8) !void {
+        const left, const right = .{ self.find(x), self.find(y) };
+        if (!std.mem.eql(u8, left, right)) try self.parent.put(self.a, left, right);
+    }
+
+    /// `valueIds`: the value IDs an instruction kind or terminator mentions. Every string that names
+    /// a value of the function is one, but for a String literal's text.
+    fn valueIds(self: *Plan, out: *std.ArrayList([]const u8), value: Json) !void {
+        switch (value) {
+            .string => |text| if (self.defined.contains(text)) try out.append(self.a, text),
+            .array => |items| for (items.items) |item| try self.valueIds(out, item),
+            .object => |object| {
+                const literal = if (object.get("kind")) |kind| kind == .string and std.mem.eql(u8, kind.string, "stringLiteral") else false;
+                var fields = object.iterator();
+                while (fields.next()) |entry| {
+                    const name = entry.key_ptr.*;
+                    if (std.mem.eql(u8, name, "result") or std.mem.eql(u8, name, "originNodeId") or std.mem.eql(u8, name, "kind")) continue;
+                    if (literal and std.mem.eql(u8, name, "value")) continue;
+                    try self.valueIds(out, entry.value_ptr.*);
+                }
+            },
+            else => {},
+        }
+    }
+};
+
+const Use = struct { block: usize, position: usize, origin: ?[]const u8, update: bool, id: []const u8 };
+
+fn successors(a: Allocator, terminator: Json, blocks: []const Json) ![]const usize {
+    const kind = jsonString(terminator, "kind");
+    var names: std.ArrayList([]const u8) = .empty;
+    if (std.mem.eql(u8, kind, "jump")) {
+        try names.append(a, jsonString(terminator, "blockId"));
+    } else if (std.mem.eql(u8, kind, "branch")) {
+        try names.appendSlice(a, &.{ jsonString(terminator, "whenTrue"), jsonString(terminator, "whenFalse") });
+    } else if (std.mem.eql(u8, kind, "matchUnion")) {
+        for (terminator.object.get("targets").?.array.items) |target| try names.append(a, jsonString(target, "blockId"));
+    } else if (std.mem.eql(u8, kind, "matchOption")) {
+        try names.appendSlice(a, &.{ jsonString(terminator, "someBlock"), jsonString(terminator, "noneBlock") });
+    } else if (std.mem.eql(u8, kind, "matchResult")) {
+        try names.appendSlice(a, &.{ jsonString(terminator, "okBlock"), jsonString(terminator, "errBlock") });
+    }
+    const out = try a.alloc(usize, names.items.len);
+    for (names.items, out) |name, *index| index.* = for (blocks, 0..) |block, i| {
+        if (std.mem.eql(u8, jsonString(block, "id"), name)) break i;
+    } else unreachable;
+    return out;
+}
+
+/// `copiedUpdates` (`withCopiedUpdates`): written only when the model lowers and an update must copy.
+fn copiedUpdates(r: *Request, out: *Writer, wanted: Str) !void {
+    const a = r.a;
+    const ir = model.executionIrOf(a, r.model) orelse return;
+    const program = try std.json.parseFromSliceLeaky(Json, a, ir, .{});
+    const semantic_id = model.utf8(wanted);
+    const function = for (program.object.get("functions").?.array.items) |item| {
+        if (std.mem.eql(u8, jsonString(item, "semanticFunctionId"), semantic_id)) break item;
+    } else return;
+    const blocks = function.object.get("blocks").?.array.items;
+    var plan: Plan = .{ .a = a };
+    for (function.object.get("parameters").?.array.items) |parameter| try plan.defined.put(a, jsonString(parameter.object.get("value").?, "id"), {});
+    for (blocks) |block| {
+        for (block.object.get("parameters").?.array.items) |parameter| try plan.defined.put(a, jsonString(parameter, "id"), {});
+        for (block.object.get("instructions").?.array.items) |instruction| try plan.defined.put(a, jsonString(instruction.object.get("result").?, "id"), {});
+    }
+    const moved = struct {
+        fn f(instruction: Json) ?[]const u8 {
+            const kind = jsonString(instruction, "kind");
+            return if (std.mem.eql(u8, kind, "readParameter") or std.mem.eql(u8, kind, "readPatternBinding")) jsonString(instruction, "sourceValueId") else null;
+        }
+    }.f;
+    // One buffer under several names is one alias class: jump arguments and their block
+    // parameters, and parameter and pattern reads and what they read.
+    for (blocks) |block| {
+        const terminator = block.object.get("terminator").?;
+        if (std.mem.eql(u8, jsonString(terminator, "kind"), "jump")) {
+            for (terminator.object.get("arguments").?.array.items) |argument| try plan.join(jsonString(argument, "valueId"), jsonString(argument, "targetValueId"));
+        }
+        for (block.object.get("instructions").?.array.items) |instruction| {
+            if (moved(instruction)) |source| try plan.join(jsonString(instruction.object.get("result").?, "id"), source);
+        }
+    }
+    var uses: std.ArrayList(Use) = .empty;
+    for (blocks, 0..) |block, block_index| {
+        const instructions = block.object.get("instructions").?.array.items;
+        for (instructions, 0..) |instruction, index| {
+            if (moved(instruction) != null) continue;
+            var ids: std.ArrayList([]const u8) = .empty;
+            try plan.valueIds(&ids, instruction);
+            const kind = jsonString(instruction, "kind");
+            const update = std.mem.eql(u8, kind, "bytesSet") or std.mem.eql(u8, kind, "bytesAppend");
+            for (ids.items) |id| try uses.append(a, .{ .block = block_index, .position = index, .origin = jsonString(instruction, "originNodeId"), .update = update, .id = id });
+        }
+        const terminator = block.object.get("terminator").?;
+        const kind = jsonString(terminator, "kind");
+        if (std.mem.eql(u8, kind, "jump")) continue;
+        // Return and branch inputs carry no origin of their own; the block's last instruction, if any, stands in.
+        const origin: ?[]const u8 = if (std.mem.eql(u8, kind, "tailCall") or std.mem.eql(u8, kind, "abort")) jsonString(terminator, "originNodeId") else if (instructions.len > 0) jsonString(instructions[instructions.len - 1], "originNodeId") else null;
+        var ids: std.ArrayList([]const u8) = .empty;
+        try plan.valueIds(&ids, terminator);
+        for (ids.items) |id| try uses.append(a, .{ .block = block_index, .position = instructions.len, .origin = origin, .update = false, .id = id });
+    }
+    var count: usize = 0;
+    for (blocks, 0..) |block, block_index| {
+        // The blocks reachable from this one, by its successors.
+        const reachable = try a.alloc(bool, blocks.len);
+        @memset(reachable, false);
+        var pending: std.ArrayList(usize) = .empty;
+        try pending.appendSlice(a, try successors(a, block.object.get("terminator").?, blocks));
+        while (pending.pop()) |next| {
+            if (reachable[next]) continue;
+            reachable[next] = true;
+            try pending.appendSlice(a, try successors(a, blocks[next].object.get("terminator").?, blocks));
+        }
+        for (block.object.get("instructions").?.array.items, 0..) |instruction, index| {
+            const kind = jsonString(instruction, "kind");
+            if (!std.mem.eql(u8, kind, "bytesSet") and !std.mem.eql(u8, kind, "bytesAppend")) continue;
+            const alias = plan.find(jsonString(instruction, "bytesId"));
+            const later = for (uses.items) |use| {
+                if (!std.mem.eql(u8, plan.find(use.id), alias)) continue;
+                if (use.update and use.block == block_index and use.position == index) continue;
+                if ((use.block == block_index and use.position > index) or (use.block != block_index and reachable[use.block])) break use;
+            } else null;
+            const forcing = later orelse continue;
+            try out.writeAll(if (count == 0) ",\"copiedUpdates\":[" else ",");
+            count += 1;
+            const origin = jsonString(instruction, "originNodeId");
+            try out.writeAll("{\"updateNodeId\":");
+            try writeId(out, try utf16(a, origin));
+            try out.writeAll(",\"forcedByNodeId\":");
+            try writeId(out, try utf16(a, forcing.origin orelse origin));
+            try out.writeByte('}');
+        }
+    }
+    if (count > 0) try out.writeByte(']');
 }
 
 /// `focusFields`: compact (the function summarized) or, for `full`, with the structured body and the node types.
@@ -1288,8 +1446,8 @@ const Outline = struct {
 /// `WireOutline.focus`: the compact focus and a bounded outline, one line per node from the result
 /// node through operands and nested bodies, cut before the reply passes 16384 bytes.
 fn outline(r: *Request, out: *Writer, compact: []const u8, function: Value, nodes: []const Value) !void {
-    const tail_false = "],\"outlineTruncated\":false,\"outlineMaxBytes\":16384}";
-    var o: Outline = .{ .r = r, .size = compact.len + ",\"outline\":[".len + tail_false.len };
+    const tail_false = "],\"outlineTruncated\":false,\"outlineMaxBytes\":16384";
+    var o: Outline = .{ .r = r, .size = compact.len + ",\"outline\":[".len + tail_false.len + "}".len };
     for (model.arrayItems(function, "parameters")) |parameter| try o.add(parameter);
     for (try visible(r, "function")) |item| {
         try o.add(item);
@@ -1315,7 +1473,7 @@ fn outline(r: *Request, out: *Writer, compact: []const u8, function: Value, node
         if (index > 0) try out.writeByte(',');
         try out.writeAll(line);
     }
-    try out.writeAll(if (o.truncated) "],\"outlineTruncated\":true,\"outlineMaxBytes\":16384}" else tail_false);
+    try out.writeAll(if (o.truncated) "],\"outlineTruncated\":true,\"outlineMaxBytes\":16384" else tail_false);
 }
 
 

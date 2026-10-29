@@ -1512,6 +1512,16 @@ pub fn utf8(units: Str) []const u8 {
     return text(units);
 }
 
+/// `ExecutionIr.lower` of a model already validated (the open model), as the serializer's JSON;
+/// null when it does not lower (`ProjectExecution` fails).
+pub fn executionIrOf(allocator: std.mem.Allocator, root: Value) ?[]const u8 {
+    a = allocator;
+    const was = validated_input;
+    validated_input = true;
+    defer validated_input = was;
+    return executionIr(root) catch null;
+}
+
 /// `SemanticNodeShape.nestedScopes` of a node.
 pub fn scopesOf(node: Value) []const Scope {
     return nestedScopes(node);
