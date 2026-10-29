@@ -706,3 +706,169 @@ module ZigTypedModelTests =
                 plain $"kinds-{index}" snapshot
             for index, path in List.indexed (constructedSnapshots (Path.Combine(dir, "constructed") |> fun d -> Directory.CreateDirectory d |> ignore; d)) do
                 plain $"constructed-{index}" (SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap))
+
+/// Its own class, so xunit runs it beside the other host parity tests.
+module ZigHostCreateDecodeTests =
+    open ZigHostParityTests
+
+    /// A valid instance of each exact-ID recipe kind, built from tools/zig/host/recipe_kinds.txt
+    /// (every allowed property present), and the requests that break it one way at a time.
+    let private recipeRequests () =
+        let rows =
+            File.ReadAllLines(Path.Combine(ZigModelReaderSupport.root (), "tools", "zig", "host", "recipe_kinds.txt"))
+            |> Array.filter (fun line -> not (line.StartsWith "#"))
+            |> Array.map (fun line -> let parts = line.Split('|') in parts[0], parts[2].Split(' ', StringSplitOptions.RemoveEmptyEntries), parts[4].Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        let unit = JsonObject(dict [ "kind", JsonValue.Create "unitLiteral" :> JsonNode ])
+        let int64Type () = JsonNode.Parse """{"kind":"primitive","primitive":"int64"}"""
+        let valueOf (shape: string) (name: string) : JsonNode =
+            match shape with
+            | "recipe" | "optrecipe" -> unit.DeepClone()
+            | "recipes" -> JsonArray(unit.DeepClone())
+            | "id" -> JsonValue.Create $"zig-decode-{name}"
+            | "type" -> int64Type ()
+            | "types" -> JsonArray(int64Type ())
+            | "int" | "int64" -> JsonValue.Create 0
+            | "bool" -> JsonValue.Create true
+            | "text" -> JsonValue.Create "text"
+            | "bits" -> JsonValue.Create "3ff0000000000000"
+            | "context" | "args" -> JsonNode.Parse """[{"parameterId":"zig-decode-parameter","value":{"kind":"unitLiteral"}}]"""
+            | "capargs" -> JsonNode.Parse """[{"capabilityParameterId":"zig-decode-capability-parameter","value":{"kind":"unitLiteral"}}]"""
+            | "fields" -> JsonNode.Parse """[{"fieldId":"zig-decode-field","value":{"kind":"unitLiteral"}}]"""
+            | "mode" -> JsonValue.Create "any"
+            | "slot" -> JsonValue.Create "value"
+            | "selfargs" -> JsonNode.Parse """[{"slot":0,"value":{"kind":"unitLiteral"}}]"""
+            | "impls" -> JsonNode.Parse """[{"operationId":"zig-decode-operation","functionId":"zig-decode-function"}]"""
+            | "arms" -> JsonNode.Parse """[{"variantId":"zig-decode-variant","body":{"kind":"unitLiteral"}},{"variantIds":["a","b"],"body":{"kind":"unitLiteral"}}]"""
+            | other -> failwith other
+        let instance (kind: string, _, reads: string array) =
+            let node = JsonObject()
+            node["kind"] <- JsonValue.Create kind
+            for read in reads do
+                let name, shape = let at = read.IndexOf ':' in read.Substring(0, at), read.Substring(at + 1)
+                if shape = "arms" then node["otherwise"] <- unit.DeepClone()
+                node[name] <- valueOf shape name
+            node
+        let request (body: JsonNode) =
+            $"""{{"id":"c","op":"simulateCreateFunction","displayName":"made","parameters":[],"resultType":{{"kind":"primitive","primitive":"unit"}},"requiredEffects":[],"body":{body.ToJsonString()}}}"""
+        [ for (kind, allowed, reads) as row in rows do
+              let valid = instance row
+              yield request valid
+              // Nested, so a rejection inside sits at a path below the body.
+              yield request (JsonObject(dict [ "kind", JsonValue.Create "stringConcat" :> JsonNode; "left", unit.DeepClone(); "right", valid.DeepClone() ]))
+              let changed (change: JsonObject -> unit) = let copy = valid.DeepClone().AsObject() in change copy; request copy
+              yield changed (fun node -> node["zzz"] <- JsonValue.Create 1)
+              for name in allowed do
+                  if name <> "kind" then
+                      yield changed (fun node -> node.Remove name |> ignore)
+                      yield changed (fun node -> node[name] <- JsonValue.Create 3)
+                      yield changed (fun node -> node[name] <- JsonValue.Create "s")
+                      yield changed (fun node -> node[name] <- JsonArray(JsonValue.Create 3))
+                      yield changed (fun node -> node[name] <- JsonObject())
+              // A property named twice, which the parse keeps once.
+              let text = request valid
+              yield text.Replace("\"body\":{\"kind\":", "\"body\":{\"kind\":\"x\",\"kind\":")
+          yield request (JsonObject(dict [ "kind", JsonValue.Create "noSuchKind" :> JsonNode ]))
+          yield request (JsonValue.Create 3)
+          yield request (JsonObject())
+          // Named pattern references.
+          for body in
+              [ """{"kind":"bind","name":"x","value":{"kind":"unitLiteral"},"body":{"kind":"patternReference","name":"x"}}"""
+                """{"kind":"bind","name":"x","value":{"kind":"unitLiteral"},"body":{"kind":"patternReference","name":"y"}}"""
+                """{"kind":"patternReference","name":"y"}"""
+                """{"kind":"bind","name":3,"value":{"kind":"unitLiteral"},"body":{"kind":"unitLiteral"}}"""
+                """{"kind":"bind","name":"x","value":{"kind":"unitLiteral"},"body":{"kind":"patternReference","name":"x","slot":"value"}}"""
+                """{"kind":"matchResult","okName":"o","errName":"e","input":{"kind":"unitLiteral"},"okBody":{"kind":"patternReference","name":"o"},"errBody":{"kind":"patternReference","name":"e"}}"""
+                """{"kind":"matchOption","someName":"s","input":{"kind":"unitLiteral"},"someBody":{"kind":"patternReference","name":"s"},"noneBody":{"kind":"patternReference","name":"s"}}"""
+                """{"kind":"matchUnion","input":{"kind":"unitLiteral"},"arms":[{"variantId":"v","body":{"kind":"bind","name":"b","value":{"kind":"unitLiteral"},"body":{"kind":"patternReference","name":"b"}}}],"otherwise":{"kind":"patternReference","name":"b"}}"""
+                """{"kind":"patternReference","slot":"field","scopeDepth":0}"""
+                """{"kind":"patternReference","slot":"field","field":"f","scopeDepth":0}"""
+                """{"kind":"patternReference","slot":"other","scopeDepth":0}"""
+                """{"kind":"float64Literal","bits":"3FF000000000000G"}"""
+                """{"kind":"float64Literal","bits":"3ff00000"}"""
+                """{"kind":"int64Literal","value":"+12"}"""
+                """{"kind":"int64Literal","value":" 12"}"""
+                """{"kind":"int64Literal","value":"99999999999999999999"}"""
+                """{"kind":"int64Literal","value":1.5}"""
+                """{"kind":"taskWait","tasks":{"kind":"unitLiteral"},"mode":"some"}"""
+                """{"kind":"matchUnion","input":{"kind":"unitLiteral"},"arms":[{"variantIds":[],"body":{"kind":"unitLiteral"}}]}"""
+                """{"kind":"matchUnion","input":{"kind":"unitLiteral"},"arms":[{"variantIds":[3],"body":{"kind":"unitLiteral"}}]}"""
+                """{"kind":"matchUnion","input":{"kind":"unitLiteral"},"arms":[{"body":{"kind":"unitLiteral"}}]}"""
+                """{"kind":"directCall","functionId":" ","arguments":[]}""" ] do
+              yield request (JsonNode.Parse body)
+          // Spelled with escapes, which the raw text check of `WireRecipeNames.resolve` does not see.
+          let raw (body: string) = $"""{{"id":"c","op":"simulateCreateFunction","displayName":"made","parameters":[],"resultType":{{"kind":"primitive","primitive":"unit"}},"requiredEffects":[],"body":{body}}}"""
+          yield raw """{"kind":"bind","n\u0061me":"x","value":{"kind":"unitLiteral"},"body":{"kind":"unitLiteral"}}"""
+          yield raw """{"kind":"float64Literal","bits":"3ff000000000000\u00e9"}"""
+          yield raw """{"kind":"int64Literal","value":"12\u0000"}"""
+          yield raw """{"kind":"float64Literal","bits":"3ff000000000000\u0000"}"""
+          yield raw """{"kind":"float64Literal","bits":"\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"}"""
+          // Not yet covered: lone surrogate escapes (std.json rejects the whole line; a JSON-layer PR follows), and
+          // a doubled property under a named recipe, where F# answers InternalError (an F# bug; Zig answers the intended ProtocolError).
+          yield raw """{"kind":"float64Literal","bits":"3ff00000\u00000000000"}""" ]
+
+    /// Mutations of the request around the recipe.
+    let private requestMutations () =
+        let line (fields: string) = $"""{{"id":"c","op":"simulateCreateFunction",{fields}}}"""
+        let ok = "\"displayName\":\"made\",\"parameters\":[],\"resultType\":{\"kind\":\"primitive\",\"primitive\":\"unit\"},\"requiredEffects\":[],\"body\":{\"kind\":\"unitLiteral\"}"
+        let types =
+            [ """{"kind":"function","parameters":[{"kind":"primitive","primitive":"int64"}],"resultType":{"kind":"primitive","primitive":"bool"}}"""
+              """{"kind":"function","parameters":3,"resultType":{"kind":"primitive","primitive":"bool"}}"""
+              """{"kind":"primitive","primitive":"char"}"""
+              """{"kind":"named","typeId":"t","arguments":[{"kind":"primitive","primitive":"int64"}]}"""
+              """{"kind":"named","typeId":""}"""
+              """{"kind":"named","typeId":"t","arguments":"x"}"""
+              """{"kind":"capability","capabilityId":"c"}"""
+              """{"kind":"typeParameter","name":"T"}"""
+              """{"kind":"typeParameter","name":" "}"""
+              """{"kind":"typeParameter","typeParameterId":"t","displayName":"T"}"""
+              """{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"primitive","primitive":"int64"}]}"""
+              """{"kind":"builtinGeneric","generic":"vector","arguments":[]}"""
+              """{"kind":"other"}"""
+              """{"primitive":"int64"}"""
+              "3" ]
+        [ yield line ok
+          yield line (ok + ",\"extra\":1")
+          yield line (ok.Replace("\"body\":{\"kind\":\"unitLiteral\"}", "\"body\":3"))
+          yield line (ok.Replace("\"parameters\":[]", "\"parameters\":3"))
+          yield line (ok.Replace("\"parameters\":[]", "\"parameters\":[{\"displayName\":\"x\"}]"))
+          yield line (ok.Replace("\"parameters\":[]", "\"parameters\":[{\"displayName\":3,\"type\":{\"kind\":\"primitive\",\"primitive\":\"int64\"}}]"))
+          yield line (ok.Replace("\"parameters\":[]", "\"parameters\":[3]"))
+          yield line (ok.Replace("\"requiredEffects\":[]", "\"requiredEffects\":[3]"))
+          yield line (ok.Replace("\"requiredEffects\":[]", "\"requiredEffects\":[\" \"]"))
+          yield line (ok.Replace("\"displayName\":\"made\"", "\"displayName\":3"))
+          yield line (ok + ",\"exported\":\"yes\"")
+          yield line (ok + ",\"mustNotWait\":1")
+          yield line (ok + ",\"expectedSnapshotId\":\"\"")
+          yield line (ok + ",\"expectedSnapshotId\":3")
+          yield line (ok + ",\"typeParameters\":[3]")
+          yield line (ok + ",\"typeParameters\":[\" \"]")
+          yield line (ok + ",\"typeParameters\":\"T\"")
+          for t in types do
+              yield line (ok.Replace("\"resultType\":{\"kind\":\"primitive\",\"primitive\":\"unit\"}", "\"resultType\":" + t))
+              yield line (ok.Replace("\"parameters\":[]", "\"parameters\":[{\"displayName\":\"x\",\"type\":" + t + "}]")) ]
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host decodes simulateCreateFunction requests as the F# host does`` () =
+        withDirectory (fun dir ->
+            let path = Path.Combine(dir, "decode.json")
+            File.WriteAllText(path, SnapshotCodec.serialize (MilestoneZeroGraph.create ()).Snapshot |> unwrap)
+            use session = AuthoringSession.openReadOnly path |> unwrap
+            let requests = recipeRequests () @ requestMutations ()
+            let code, errors, answers = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
+            Assert.True((code = 0), errors)
+            Assert.Equal(requests.Length, answers.Length)
+            let mutable rejected = 0
+            let mismatches = ResizeArray<string>()
+            for request, zig in List.zip requests answers do
+                let fsharp = AuthoringProtocol.executeLine session request
+                use reply = JsonDocument.Parse fsharp
+                let decodeRejection =
+                    match reply.RootElement.TryGetProperty "error" with
+                    | true, error -> error.GetProperty("code").GetString() = "ProtocolError"
+                    | _ -> false
+                if decodeRejection then
+                    rejected <- rejected + 1
+                    if fsharp <> zig then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
+                elif not (zig.Contains "\"code\":\"UnsupportedOperation\"") then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
+            Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
+            Assert.True(rejected > 1000, $"Only {rejected} requests are decode rejections."))
