@@ -105,6 +105,7 @@ pub const Decoder = struct {
 
     fn object(self: *Decoder, value: Json) Fail!std.json.ObjectMap {
         if (value != .object) return self.fail("Expected a JSON object.", .{});
+        try query.lookable(self.r, value.object);
         return value.object;
     }
 
@@ -146,7 +147,7 @@ pub const Decoder = struct {
     pub fn requiredString(self: *Decoder, value: Json, name: []const u8) Fail![]const u8 {
         const v = try self.property(value, name);
         if (v != .string) return self.fail("Property '{s}' must be a JSON string.", .{name});
-        return v.string;
+        return query.readable(self.r, v.string);
     }
 
     /// `WireInput.stableId`: `StableId.tryCreate`'s two errors.
@@ -190,7 +191,7 @@ pub const Decoder = struct {
             .integer => true,
             .string => |given| blk: {
                 // `Int64.TryParse` also ignores trailing NUL characters.
-                const text = std.mem.trimEnd(u8, given, "\x00");
+                const text = std.mem.trimEnd(u8, try query.readable(self.r, given), "\x00");
                 const digits = if (text.len > 0 and (text[0] == '-' or text[0] == '+')) text[1..] else text;
                 if (digits.len == 0) break :blk false;
                 for (digits) |c| if (!std.ascii.isDigit(c)) break :blk false;
@@ -277,7 +278,12 @@ pub const Decoder = struct {
                     const v = try self.property(value, name);
                     if (v != .bool) return self.fail("Property '{s}' must be a JSON boolean.", .{name});
                 },
-                .text => if ((try self.property(value, name)) != .string) return self.fail("A String run value must be a JSON string.", .{}),
+                .text => {
+                    const v = try self.property(value, name);
+                    if (v != .string) return self.fail("A String run value must be a JSON string.", .{});
+                    if (query.masked and std.mem.indexOf(u8, v.string, query.lone_mark) != null)
+                        return self.fail("A String must not contain an unpaired surrogate escape; a String is a sequence of Unicode scalar values.", .{});
+                },
                 .bits => {
                     const bits = try self.requiredString(value, name);
                     // `String.Length`: UTF-16 units.
@@ -330,7 +336,7 @@ pub const Decoder = struct {
                             if (items.len == 0) return self.fail("Property 'variantIds' must name at least one variant.", .{});
                             for (items) |item| {
                                 if (item != .string) return self.fail("Property 'variantIds' must contain only strings.", .{});
-                                _ = try self.stableId("variantId", item.string);
+                                _ = try self.stableId("variantId", try query.readable(self.r, item.string));
                             }
                         } else return self.fail("A union arm requires exactly one of 'variantId' and 'variantIds'.", .{});
                         try self.recipe(try self.at(arm_path, "body"), try self.property(arm, "body"));
@@ -362,6 +368,8 @@ pub fn resolveNames(d: *Decoder, value: *Json, raw: []const u8) Fail!void {
     if (std.mem.indexOf(u8, raw, "Name\"") == null and std.mem.indexOf(u8, raw, "\"name\"") == null) return;
     var frames: std.ArrayList(?Binder) = .empty;
     try visit(d, &frames, value);
+    // `ToJsonString` then reads every string of the copy again.
+    if (query.masked and std.mem.indexOf(u8, raw, "\\ufdd0") != null) _ = try query.readable(d.r, query.lone_mark);
 }
 
 const Binder = struct { name: []const u8, slot: []const u8 };
@@ -369,7 +377,7 @@ const Binder = struct { name: []const u8, slot: []const u8 };
 fn takeName(d: *Decoder, map: *std.json.ObjectMap, key: []const u8) Fail!?[]const u8 {
     const entry = map.fetchOrderedRemove(key) orelse return null;
     if (entry.value != .string) return d.fail("Property '{s}' must be a binding name string.", .{key});
-    return entry.value.string;
+    return try query.readable(d.r, entry.value.string);
 }
 
 fn kindOf(map: std.json.ObjectMap) []const u8 {

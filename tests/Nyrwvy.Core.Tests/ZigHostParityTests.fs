@@ -158,6 +158,10 @@ module ZigHostParityTests =
           for item in declarations.Functions |> List.truncate 3 do
               yield $"""{{"id":"u","op":"unreferenced","roots":[{quote item.DisplayName}]}}""" ]
 
+    /// A `SessionError` reply carries .NET's exception text, so it is compared by its code (and ID) only.
+    let internal sessionErrorCode (reply: string) =
+        Text.RegularExpressions.Regex.Replace(reply, "\"code\":\"SessionError\",\"message\":\"(?:[^\"\\\\]|\\\\.)*\"", "\"code\":\"SessionError\"")
+
     let internal sameAnswers label (fsharp: string list) (zig: string list) (requests: string list) =
         Assert.Equal(requests.Length, zig.Length)
         List.zip3 requests fsharp zig |> List.iteri (fun index (request, expected, actual) ->
@@ -802,8 +806,20 @@ module ZigHostCreateDecodeTests =
           yield raw """{"kind":"int64Literal","value":"12\u0000"}"""
           yield raw """{"kind":"float64Literal","bits":"3ff000000000000\u0000"}"""
           yield raw """{"kind":"float64Literal","bits":"\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000\u0000"}"""
-          // Not yet covered: lone surrogate escapes (std.json rejects the whole line; a JSON-layer PR follows), and
-          // a doubled property under a named recipe, where F# answers InternalError (an F# bug; Zig answers the intended ProtocolError).
+          yield raw """{"kind":"stringLiteral","value":"a\ud800"}"""
+          yield raw """{"kind":"stringLiteral","value":"\udc00b"}"""
+          yield raw """{"kind":"stringLiteral","value":"\ud83d\ude00"}"""
+          yield raw """{"kind":"float64Literal","bits":"3ff00000000000\ud800"}"""
+          yield raw """{"kind":"int64Literal","value":"1\ud800"}"""
+          yield raw """{"kind":"directCall","functionId":"f\ud800","arguments":[]}"""
+          yield raw """{"kind":"bind","name":"x\ud800","value":{"kind":"unitLiteral"},"body":{"kind":"unitLiteral"}}"""
+          yield raw """{"kind":"bind","name":"x","value":{"kind":"stringLiteral","value":"a\ud800"},"body":{"kind":"unitLiteral"}}"""
+          yield raw """{"kind":"unitLiteral","x\ud800":1}"""
+          yield raw """{"kind":"stringConcat","left":{"kind":"stringLiteral","value":"a"},"right":{"kind":"unitLiteral","\udc00":1}}"""
+          yield raw """{"kind":"stringConcat","left":{"kind":"stringLiteral","value":"a\ud800"},"right":{"kind":"unitLiteral","\udc00":1}}"""
+          yield raw """{"kind":"stringConcat","left":3,"right":{"kind":"unitLiteral","\udc00":1}}"""
+          // Not covered: a doubled property under a named recipe, where F# answers InternalError
+          // (an F# bug; Zig answers the intended ProtocolError).
           yield raw """{"kind":"float64Literal","bits":"3ff00000\u00000000000"}""" ]
 
     /// Mutations of the request around the recipe.
@@ -862,13 +878,47 @@ module ZigHostCreateDecodeTests =
             for request, zig in List.zip requests answers do
                 let fsharp = AuthoringProtocol.executeLine session request
                 use reply = JsonDocument.Parse fsharp
-                let decodeRejection =
+                let code =
                     match reply.RootElement.TryGetProperty "error" with
-                    | true, error -> error.GetProperty("code").GetString() = "ProtocolError"
-                    | _ -> false
-                if decodeRejection then
+                    | true, error -> error.GetProperty("code").GetString()
+                    | _ -> ""
+                if code = "SessionError" then
+                    if sessionErrorCode fsharp <> sessionErrorCode zig then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
+                elif code = "ProtocolError" then
                     rejected <- rejected + 1
                     if fsharp <> zig then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
                 elif not (zig.Contains "\"code\":\"UnsupportedOperation\"") then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
             Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
             Assert.True(rejected > 1000, $"Only {rejected} requests are decode rejections."))
+
+/// Its own class, so xunit runs it beside the other host parity tests.
+module ZigHostLoneSurrogateTests =
+    open ZigHostParityTests
+
+    /// Each query with a lone surrogate escape at the start of one of its strings (values and property names).
+    let private spoiled (requests: string list) =
+        [ for request in requests do
+              let mutable inString = false
+              let mutable escaped = false
+              for index in 0 .. request.Length - 1 do
+                  let c = request[index]
+                  if escaped then escaped <- false
+                  elif c = '\\' then escaped <- true
+                  elif c = '"' then
+                      if not inString then
+                          let escape = if index % 2 = 0 then "\\ud800" else "\\udc00"
+                          yield request.Insert(index + 1, escape)
+                      inString <- not inString ]
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host answers strings with a lone surrogate escape as the F# host does`` () =
+        withDirectory (fun dir ->
+            let path = Path.Combine(dir, "lone.json")
+            File.WriteAllText(path, SnapshotCodec.serialize (MilestoneZeroGraph.create ()).Snapshot |> unwrap)
+            use session = AuthoringSession.openReadOnly path |> unwrap
+            let requests = spoiled (queries session)
+            let code, errors, answers = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
+            Assert.True((code = 0), errors)
+            let fsharp = requests |> List.map (AuthoringProtocol.executeLine session >> sessionErrorCode)
+            sameAnswers "lone surrogates" fsharp (answers |> List.map sessionErrorCode) requests
+            Assert.Contains(fsharp, fun reply -> reply.Contains "\"code\":\"SessionError\""))
