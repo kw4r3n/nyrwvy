@@ -57,12 +57,21 @@ pub fn writeString(out: *std.Io.Writer, text: []const u8) !void {
 }
 
 fn failure(out: *std.Io.Writer, id: ?[]const u8, code: []const u8, message: []const u8) !void {
+    return failureWith(out, id, code, message, "");
+}
+
+/// `details`: the error's `details` object as JSON text, or empty for none.
+fn failureWith(out: *std.Io.Writer, id: ?[]const u8, code: []const u8, message: []const u8, details: []const u8) !void {
     try out.writeAll("{\"id\":");
     if (id) |text| try writeString(out, text) else try out.writeAll("null");
     try out.writeAll(",\"ok\":false,\"error\":{\"code\":");
     try writeString(out, code);
     try out.writeAll(",\"message\":");
     try writeString(out, message);
+    if (details.len > 0) {
+        try out.writeAll(",\"details\":");
+        try out.writeAll(details);
+    }
     try out.writeAll("}}");
 }
 
@@ -270,7 +279,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .model = canonical(), .provenance = if (selection) |d| d.provenance else null, .snapshot_id = snapshot_id, .snapshot_path = snapshot_path };
         var result: std.Io.Writer.Allocating = .init(a);
         entry[1](&request, &result.writer) catch |e| switch (e) {
-            error.Rejected => return failure(out, id, request.rejection.code, request.rejection.message),
+            error.Rejected => return failureWith(out, id, request.rejection.code, request.rejection.message, request.rejection.details),
             else => return e,
         };
         try success(out, id);

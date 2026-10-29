@@ -1,5 +1,5 @@
 # The exact-ID expression recipes of WireRecipe.recipeIn and WireRecipeCommon.tryReferenceFree, as the Zig host decodes them:
-# kind|ensureFields context|allowed|required|reads in F# evaluation order (name:shape). Derived from those two files; ZigHostParityTests checks the decoding.
+# kind|ensureFields context|allowed|required|reads in F# evaluation order (name:shape). Derived from those two files; ZigHostParityTests checks the decoding. An optional sixth column gives the F# constructor's slot order when it is not the read order.
 parameter|parameter recipe|kind parameterId|kind parameterId|parameterId:id
 parameterSlot|parameter-slot recipe|kind index|kind index|index:int
 patternReference|pattern-reference recipe|kind scopeDepth slot fieldId field|kind scopeDepth slot|slot:slot scopeDepth:int
@@ -53,7 +53,7 @@ functionReference|Function reference recipe|kind functionId|kind functionId|func
 directCall|direct-call recipe|kind functionId arguments|kind functionId arguments|functionId:id arguments:args
 selfCall|self-call recipe|kind arguments|kind arguments|arguments:selfargs
 capabilityInvoke|capability-invoke recipe|kind capabilityValue operationId arguments|kind capabilityValue operationId arguments|capabilityValue:recipe operationId:id arguments:capargs
-matchUnion|match-union recipe|kind input arms otherwise|kind input arms|arms:arms input:recipe
+matchUnion|match-union recipe|kind input arms otherwise|kind input arms|arms:arms input:recipe|input arms
 stringLiteral|string literal recipe|kind value|kind value|value:text
 boolLiteral|bool literal recipe|kind value|kind value|value:bool
 originalTarget|original-target recipe|kind|kind|
