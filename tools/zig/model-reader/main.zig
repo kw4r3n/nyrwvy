@@ -1522,6 +1522,16 @@ pub fn executionIrOf(allocator: std.mem.Allocator, root: Value) ?[]const u8 {
     return executionIr(root) catch null;
 }
 
+/// The functions a node names (`SemanticNodeShape.functionReferences`), decoded, in payload order,
+/// each with whether it is invoked (`FunctionReferenceRole.isInvoked`).
+pub const FunctionRelation = struct { id: Str, invoked: bool };
+pub fn functionRelationsOf(node: Value) []const FunctionRelation {
+    const references = functionReferences(node);
+    const out = a.alloc(FunctionRelation, references.len) catch oom();
+    for (references, out) |reference, *relation| relation.* = .{ .id = dec(reference.function_id), .invoked = isInvoked(reference.role) };
+    return out;
+}
+
 /// `SemanticNodeShape.nestedScopes` of a node.
 pub fn scopesOf(node: Value) []const Scope {
     return nestedScopes(node);

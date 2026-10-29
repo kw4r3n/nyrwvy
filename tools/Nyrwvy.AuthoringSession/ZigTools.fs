@@ -95,8 +95,12 @@ module internal ZigTools =
         || [ "NYRWVY_ZIG_READER_CHECK"; "NYRWVY_ZIG_LOWERING_CHECK"; "NYRWVY_ZIG_EMITTER_CHECK" ]
            |> List.exists (Environment.GetEnvironmentVariable >> String.IsNullOrEmpty >> not)
 
-    // The tools a tool imports as modules (`@import("model_reader")` for `tools/zig/model-reader`).
-    let private imports = dict [ "host", [ "model-reader"; "snapshot-reader" ] ]
+    // The modules a tool imports (`@import("model_reader")` for `tools/zig/model-reader`), each a
+    // directory below the repository with a `main.zig` or, for the viewer page, `asset.zig`.
+    let private imports =
+        dict [ "host", [ "model_reader", [ "tools"; "zig"; "model-reader" ], "main.zig"
+                         "snapshot_reader", [ "tools"; "zig"; "snapshot-reader" ], "main.zig"
+                         "viewer_asset", [ "src"; "Nyrwvy.Viewer" ], "asset.zig" ] ]
 
     /// A Zig tool (`tools/zig/<name>` beside mise.toml), built once per process into the cache,
     /// keyed by a hash of every file in its directory and in the directories it imports.
@@ -106,28 +110,27 @@ module internal ZigTools =
             | true, path -> Ok path
             | _ ->
                 try
-                    let source tool = Path.Combine(directory.Value, "tools", "zig", tool)
-                    let sources = source name
-                    let imported = match imports.TryGetValue name with | true, tools -> tools | _ -> []
+                    let below parts = Path.Combine(Array.ofList (directory.Value :: parts))
+                    let sources = below [ "tools"; "zig"; name ]
+                    let imported = match imports.TryGetValue name with | true, modules -> modules | _ -> []
                     let text =
-                        name :: imported
-                        |> List.map (fun tool ->
-                            Directory.GetFiles(source tool)
+                        sources :: (imported |> List.map (fun (_, parts, _) -> below parts))
+                        |> List.map (fun folder ->
+                            Directory.GetFiles folder
                             |> Array.sortWith (fun x y -> String.CompareOrdinal(x, y))
                             |> Array.map (fun file -> Path.GetFileName file + "\u0000" + File.ReadAllText file)
                             |> String.concat "\u0000")
                         |> String.concat "\u0000\u0000"
-                    let moduleName (tool: string) = tool.Replace('-', '_')
                     // `-O` is a per-module option: it applies to the module defined after it.
                     let roots =
                         if imported.IsEmpty then [ Path.Combine(sources, "main.zig"); "-O"; "ReleaseSafe" ]
                         else
                             [ yield! [ "-O"; "ReleaseSafe" ]
-                              for tool in imported do yield! [ "--dep"; moduleName tool ]
+                              for moduleName, _, _ in imported do yield! [ "--dep"; moduleName ]
                               yield "-Mroot=" + Path.Combine(sources, "main.zig")
-                              for tool in imported do yield! [ "-O"; "ReleaseSafe"; $"-M{moduleName tool}=" + Path.Combine(source tool, "main.zig") ] ]
+                              for moduleName, parts, root in imported do yield! [ "-O"; "ReleaseSafe"; $"-M{moduleName}=" + Path.Combine(below parts, root) ] ]
                     // The build options are part of the key, so a build made with other options is not reused.
-                    let options = String.Join(" ", roots |> List.map (fun arg -> if arg.Contains "main.zig" then Path.GetFileName(Path.GetDirectoryName arg) else arg))
+                    let options = String.Join(" ", roots |> List.map (fun arg -> if arg.EndsWith ".zig" then Path.GetFileName(Path.GetDirectoryName arg) else arg))
                     let target = Path.Combine(cache, name + "-" + (sha256Hex (text + "\u0000" + options)).Substring(0, 32))
                     let built = Path.Combine(target, name)
                     let result =

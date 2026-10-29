@@ -13,6 +13,7 @@ const query = @import("query.zig");
 /// The open snapshot: what `status` reports, the model (merged with the dependency, if any) and
 /// the selected dependency. All live in `startup`.
 var snapshot_id: []const u8 = "";
+var snapshot_path: []const u8 = "";
 var fingerprints: model_reader.Fingerprints = undefined;
 var model_root: model_reader.Value = .json_null;
 var canonical_model: ?model_reader.Value = null;
@@ -193,9 +194,10 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, line: []const u8) !void {
         .{ "unreferenced", query.unreferenced },
         .{ "bindingScopes", query.bindingScopes },
         .{ "readFunction", query.readFunction },
+        .{ "viewFunction", query.viewFunction },
     };
     for (queries) |entry| if (std.mem.eql(u8, op, entry[0])) {
-        var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .model = canonical(), .provenance = if (selection) |d| d.provenance else null, .snapshot_id = snapshot_id };
+        var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .model = canonical(), .provenance = if (selection) |d| d.provenance else null, .snapshot_id = snapshot_id, .snapshot_path = snapshot_path };
         var result: std.Io.Writer.Allocating = .init(a);
         entry[1](&request, &result.writer) catch |e| switch (e) {
             error.Rejected => return failure(out, id, request.rejection.code, request.rejection.message),
@@ -306,6 +308,7 @@ fn isTemporaryOf(name: []const u8, file: []const u8) bool {
 /// dependency. The lock lives until the process ends.
 fn open(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only: bool) !void {
     const path = try std.fs.path.resolveAlloc(a, &.{ try std.process.currentPathAlloc(io, a), given });
+    snapshot_path = path;
     const stat = std.Io.Dir.cwd().statFile(io, path, .{}) catch null;
     if (stat == null or stat.?.kind != .file) startupFailure("SnapshotFileNotFound: No snapshot file at {s}. Use create (MCP nyrwvy_open mode \"create\") to start a new one.", .{path});
     if (!read_only) {
