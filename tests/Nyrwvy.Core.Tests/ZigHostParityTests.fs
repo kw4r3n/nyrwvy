@@ -16,17 +16,17 @@ open Xunit
 /// line and exit code. Two parts are host-specific: .NET's JSON parser text after "Invalid JSON:"
 /// and "not valid JSON:" (compared by that prefix) and `status.build` (each host's own build).
 module ZigHostParityTests =
-    let private unwrap = function Ok x -> x | Error e -> failwithf "%A" e
+    let internal unwrap = function Ok x -> x | Error e -> failwithf "%A" e
 
-    let private comparable (line: string) =
+    let internal comparable (line: string) =
         let masked = Regex.Replace(line, "\"build\":\"[^\"]*\"", "\"build\":\"…\"")
         Regex.Replace(masked, "(Invalid JSON: |not valid JSON: ).*", "$1…")
 
-    let private zigHost () = ZigTools.tool "host" |> Result.mapError (fun (code, message) -> $"{code}: {message}") |> unwrap
-    let private fsharpHost = Path.Combine(AppContext.BaseDirectory, "Nyrwvy.AuthoringSession.dll")
+    let internal zigHost () = ZigTools.tool "host" |> Result.mapError (fun (code, message) -> $"{code}: {message}") |> unwrap
+    let internal fsharpHost = Path.Combine(AppContext.BaseDirectory, "Nyrwvy.AuthoringSession.dll")
 
     /// Starts a host on `arguments`; `requests` are written and its input closed unless `hold`.
-    let private start (zig: bool) (arguments: string list) =
+    let internal start (zig: bool) (arguments: string list) =
         let info = if zig then ProcessStartInfo(zigHost (), arguments) else ProcessStartInfo("dotnet", fsharpHost :: arguments)
         info.RedirectStandardInput <- true
         info.RedirectStandardOutput <- true
@@ -34,27 +34,50 @@ module ZigHostParityTests =
         info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
         Process.Start info
 
-    /// Exit code, stderr and stdout lines of a host run to the end of `requests`.
-    let private run zig arguments (requests: string list) =
-        use host = start zig arguments
-        // A host that fails to start may exit before reading its input.
-        try
-            for request in requests do host.StandardInput.Write(request + "\n")
-            host.StandardInput.Close()
-        with :? IOException -> ()
-        let output = host.StandardOutput.ReadToEndAsync()
-        let errors = host.StandardError.ReadToEnd()
-        host.WaitForExit()
-        host.ExitCode, errors.Trim(), output.Result.Split('\n') |> Array.toList |> List.filter ((<>) "")
+    /// How long a host may go without answering before the run fails.
+    let internal silence = TimeSpan.FromSeconds 60.0
 
-    let private snapshots (dir: string) =
+    /// Exit code, stderr and stdout lines of a host run to the end of `requests`. Output is read
+    /// while the requests are written, so a host blocked on a full stdout never deadlocks the run,
+    /// and a host that stops answering for `silence` is killed and named.
+    let internal run zig arguments (requests: string list) =
+        use host = start zig arguments
+        let lines = Collections.Concurrent.ConcurrentQueue<string>()
+        let mutable last = DateTime.UtcNow
+        let reading =
+            Threading.Tasks.Task.Run(fun () ->
+                let mutable line = host.StandardOutput.ReadLine()
+                while not (isNull line) do
+                    lines.Enqueue line
+                    last <- DateTime.UtcNow
+                    line <- host.StandardOutput.ReadLine())
+        let errors = host.StandardError.ReadToEndAsync()
+        // A host that fails to start may exit before reading its input.
+        let writing =
+            Threading.Tasks.Task.Run(fun () ->
+                try
+                    for request in requests do host.StandardInput.Write(request + "\n")
+                    host.StandardInput.Close()
+                with :? IOException -> ())
+        while not (reading.Wait(TimeSpan.FromSeconds 1.0)) do
+            if DateTime.UtcNow - last > silence then
+                host.Kill true
+                let answered = lines.Count
+                let next = if answered < requests.Length then requests[answered] else "<none>"
+                failwithf "The %s host answered nothing for %.0f s after %d of %d requests; the next one is: %s"
+                    (if zig then "Zig" else "F#") silence.TotalSeconds answered requests.Length (next.Substring(0, min 300 next.Length))
+        writing.Wait()
+        host.WaitForExit()
+        host.ExitCode, errors.Result.Trim(), lines |> Seq.filter ((<>) "") |> Seq.toList
+
+    let internal snapshots (dir: string) =
         let root = ZigModelReaderSupport.root ()
         let records = Directory.GetFiles(Path.Combine(root, "examples"), "*.nyrec", SearchOption.AllDirectories) |> Array.toList
         let json = Path.Combine(dir, "task-outcomes.json")
         File.WriteAllText(json, File.ReadAllText records.Head |> RecordCodec.deserialize |> unwrap |> SnapshotCodec.serialize |> unwrap)
         records @ [ json ]
 
-    let private withDirectory f =
+    let internal withDirectory f =
         let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-host-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory dir |> ignore
         try f dir finally Directory.Delete(dir, true)
@@ -79,7 +102,7 @@ module ZigHostParityTests =
     /// `references`, `search` and `unreferenced` requests built from a session's own declarations:
     /// every declaration and member by exact ID and by display names (as a string and as a
     /// selector object), and searches for parts of their names.
-    let private queries (session: AuthoringSession) =
+    let internal queries (session: AuthoringSession) =
         let declarations = session.Declarations()
         let quote (text: string) = JsonSerializer.Serialize text
         let id = StableId.value
@@ -135,7 +158,7 @@ module ZigHostParityTests =
           for item in declarations.Functions |> List.truncate 3 do
               yield $"""{{"id":"u","op":"unreferenced","roots":[{quote item.DisplayName}]}}""" ]
 
-    let private sameAnswers label (fsharp: string list) (zig: string list) (requests: string list) =
+    let internal sameAnswers label (fsharp: string list) (zig: string list) (requests: string list) =
         Assert.Equal(requests.Length, zig.Length)
         List.zip3 requests fsharp zig |> List.iteri (fun index (request, expected, actual) ->
             if comparable expected <> comparable actual then
@@ -143,7 +166,7 @@ module ZigHostParityTests =
 
     /// Snapshots with the constructs the examples lack (aborts, waits, open obligations, long
     /// literals, Bytes updates), written into `dir`.
-    let private constructedSnapshots (dir: string) =
+    let internal constructedSnapshots (dir: string) =
         let fixture = MilestoneZeroGraph.create ()
         // An open obligation: a parameter added with the call site left missing.
         let incomplete =
@@ -190,27 +213,6 @@ module ZigHostParityTests =
              path))
         @ [ ownership ]
 
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``The Zig host answers queries built from each snapshot as the F# host does`` () =
-        withDirectory (fun dir ->
-            let constructed = constructedSnapshots dir
-            let answered = Text.StringBuilder()
-            for snapshot in snapshots dir @ constructed do
-                use session = AuthoringSession.openReadOnly snapshot |> unwrap
-                let requests = queries session
-                let code, errors, answers = run true [ "open"; "--snapshot"; snapshot; "--read-only" ] requests
-                Assert.True((code = 0), errors)
-                let fsharp = requests |> List.map (AuthoringProtocol.executeLine session)
-                fsharp |> List.iter (answered.Append >> ignore)
-                sameAnswers (Path.GetFileName snapshot) fsharp answers requests
-            for shown in [ "\"aborts\":[{"; "\"mayWait\":true"; "\"openObligations\":[{"; "\"frames\":[{"; "\"variants\":["; "\"slot\":\"field\""; "\"evidence\":[{"; "\"references\":[{"; "\"role\":\"patternBinding\""; "\"truncated\":true"; "\"outlineTruncated\":true"; "scopeDepth=1"; "\\\\uD83D\\\\u2026"; "ref "; "\"nodeTypes\":[{"; "\"copiedUpdates\":[{"; "\"kind\":\"ready\""; "\"code\":\"SemanticProjectionFailure\",\"message\":\"IncompleteSnapshot\"" ] do
-                Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it.")
-            // `full` replies show every node kind's structured form.
-            for row in File.ReadAllLines(Path.Combine(ZigModelReaderSupport.root (), "tools", "zig", "host", "graph_kinds.txt")) do
-                if not (row.StartsWith "#") then
-                    let shown = $"\"kind\":{{\"kind\":\"{row.Split('|')[1]}\""
-                    Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it."))
-
     /// The seeded IDs a host writes under `NYRWVY_TEST_ID_SEED`, which the Zig host must allocate
     /// the same way: the `n`-th is a UUIDv7 at 1 700 000 000 000 ms + `n` with SHA-256 bits of `seed:n`.
     [<Fact>]
@@ -228,115 +230,6 @@ module ZigHostParityTests =
         Assert.Equal(9L, StableIdAllocator.seededCount "parity" text)
         Assert.Equal(40L, StableIdAllocator.seededCount "other" text)
         Assert.Equal(0L, StableIdAllocator.seededCount "parity" "no IDs")
-
-    /// With the seed, two runs of the F# host on the same requests answer the same, new IDs included.
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``The F# host allocates the same IDs for the same seed`` () =
-        withDirectory (fun dir ->
-            let session seed =
-                let path = Path.Combine(dir, $"{seed}-{Guid.NewGuid():N}.json")
-                File.WriteAllText(path, SnapshotCodec.serialize (MilestoneZeroGraph.create ()).Snapshot |> unwrap)
-                let info = ProcessStartInfo("dotnet", [ fsharpHost; "open"; "--snapshot"; path ])
-                info.RedirectStandardInput <- true
-                info.RedirectStandardOutput <- true
-                info.RedirectStandardError <- true
-                info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
-                info.Environment["NYRWVY_TEST_ID_SEED"] <- seed
-                use host = Process.Start info
-                host.StandardInput.Write(
-                    """{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[{"displayName":"x","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}"""
-                    + "\n")
-                host.StandardInput.Close()
-                let output = host.StandardOutput.ReadToEnd()
-                host.WaitForExit()
-                output
-            let first = session "parity"
-            Assert.Contains("\"proposalId\":\"018bcfe5-68", first)
-            Assert.Equal(first, session "parity")
-            Assert.NotEqual<string>(first, session "other")
-            // A snapshot that already holds this seed's IDs (a seeded run's commit): the count starts
-            // past them, and the host warns that the seed is set.
-            let path = Path.Combine(dir, "seeded.json")
-            let fixture = MilestoneZeroGraph.create ()
-            let taken = StableIdAllocator.seededPayload "parity" 30L
-            File.WriteAllText(path, (SnapshotCodec.serialize fixture.Snapshot |> unwrap).Replace(StableId.value fixture.ValidateFunctionId, taken))
-            let info = ProcessStartInfo("dotnet", [ fsharpHost; "open"; "--snapshot"; path ])
-            info.RedirectStandardInput <- true
-            info.RedirectStandardOutput <- true
-            info.RedirectStandardError <- true
-            info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
-            info.Environment["NYRWVY_TEST_ID_SEED"] <- "parity"
-            use host = Process.Start info
-            host.StandardInput.Write("""{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}""" + "\n")
-            host.StandardInput.Close()
-            let output = host.StandardOutput.ReadToEnd()
-            let errors = host.StandardError.ReadToEnd()
-            host.WaitForExit()
-            Assert.Contains("NYRWVY_TEST_ID_SEED is set", errors)
-            use reply = JsonDocument.Parse output
-            let proposal = reply.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
-            Assert.True(StableIdAllocator.seededCount "parity" proposal > 30L, proposal))
-
-    /// `viewFunction` writes pages beside the snapshot, so each host gets its own copy of the snapshot's
-    /// directory: the replies are compared with that directory masked, and the pages byte for byte.
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``The Zig host writes viewFunction pages as the F# host does`` () =
-        withDirectory (fun dir ->
-            let quote (text: string) = JsonSerializer.Serialize text
-            let pages = Text.StringBuilder()
-            let replies = Text.StringBuilder()
-            let sources = snapshots (Path.Combine(dir, "json") |> fun d -> Directory.CreateDirectory d |> ignore; d) @ constructedSnapshots (Path.Combine(dir, "constructed") |> fun d -> Directory.CreateDirectory d |> ignore; d)
-            for index, source in List.indexed sources do
-                // Each host's copy of the snapshot's directory, with the setups the error cases need.
-                let copy (host: string) =
-                    let target = Path.Combine(dir, $"{index}-{host}")
-                    Directory.CreateDirectory target |> ignore
-                    for file in Directory.GetFiles(Path.GetDirectoryName source) do File.Copy(file, Path.Combine(target, Path.GetFileName file))
-                    Directory.CreateDirectory(Path.Combine(target, "elsewhere")) |> ignore
-                    File.CreateSymbolicLink(Path.Combine(target, "link"), Path.Combine(target, "elsewhere")) |> ignore
-                    File.WriteAllText(Path.Combine(target, "own.html"), "<p>a person's page</p>")
-                    File.WriteAllText(Path.Combine(target, "plain.html"), "not a directory")
-                    target, Path.Combine(target, Path.GetFileName source)
-                let fsharpDir, fsharpSnapshot = copy "fsharp"
-                let zigDir, zigSnapshot = copy "zig"
-                use session = AuthoringSession.openReadOnly fsharpSnapshot |> unwrap
-                let functions = session.Declarations().Functions
-                let id (value: StableId<'Kind>) = StableId.value value
-                let requests =
-                    [ for position, item in List.indexed functions do
-                          yield $"""{{"id":"v","op":"viewFunction","functionId":{quote (id item.Id)}}}"""
-                          yield $"""{{"id":"v","op":"viewFunction","function":{quote item.DisplayName},"output":"views/{position}.html"}}"""
-                      match functions with
-                      | first :: _ ->
-                          let at (output: string) = $"""{{"id":"v","op":"viewFunction","functionId":{quote (id first.Id)},"output":{quote output}}}"""
-                          // A page this tool wrote is replaced; the others are refused.
-                          yield at "views/0.html"
-                          yield! [ ""; "  "; "page.txt"; "../outside.html"; "/elsewhere/outside.html"; "link/page.html"; "own.html"; "plain.html/page.html"; "nested/deeper/page.HTML"; "page.html\u0000.html" ] |> List.map at
-                          yield $"""{{"id":"v","op":"viewFunction","functionId":{quote (id first.Id)},"output":3}}"""
-                      | [] -> ()
-                      yield """{"id":"v","op":"viewFunction"}"""
-                      yield """{"id":"v","op":"viewFunction","function":"x","functionId":"y"}"""
-                      yield """{"id":"v","op":"viewFunction","functionId":"missing"}"""
-                      yield """{"id":"v","op":"viewFunction","functionId":"missing","extra":1}""" ]
-                let code, errors, answers = run true [ "open"; "--snapshot"; zigSnapshot; "--read-only" ] requests
-                Assert.True((code = 0), errors)
-                let fsharp = requests |> List.map (AuthoringProtocol.executeLine session >> fun reply -> reply.Replace(fsharpDir, "<dir>"))
-                fsharp |> List.iter (replies.Append >> ignore)
-                sameAnswers (Path.GetFileName source) fsharp (answers |> List.map (fun reply -> reply.Replace(zigDir, "<dir>"))) requests
-                let written (root: string) =
-                    Directory.GetFiles(root, "*.html", SearchOption.AllDirectories)
-                    |> Array.map (fun file -> Path.GetRelativePath(root, file))
-                    |> Array.sort
-                    |> Array.toList
-                Assert.Equal<string list>(written fsharpDir, written zigDir)
-                for file in written fsharpDir do
-                    let expected = File.ReadAllBytes(Path.Combine(fsharpDir, file))
-                    Assert.True((expected = File.ReadAllBytes(Path.Combine(zigDir, file))), $"{Path.GetFileName source}: {file} differs.")
-                    pages.Append(Text.Encoding.UTF8.GetString expected) |> ignore
-            for shown in [ "\"role\":\"UnionVariant\""; "\"sourceFieldId\":\""; "\"kind\":\"capabilityConstruct\""; "\"waitPath\":\""; "\"mustNotWait\":true"; "\"referencedCapabilities\":[{"; "\"originTransactionId\":\""; "\"role\":\"CallArgument\""; "\"kind\":\"CallsFunction\""; "\"bits\":\"" ] do
-                Assert.True(pages.ToString().Contains shown, $"No F# page shows {shown}; the parity test does not cover it.")
-            for shown in [ "output must not be blank."; "output must name a .html file."; "output must stay inside"; "is one."; "is one or is not a directory."; "without the generated-file marker"; "\"kind\":\"functionFocus\"" ] do
-                Assert.True(replies.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it."))
 
     /// `ValueDependency.ofNode` as the Zig host reads it (tools/zig/host/dependency_roles.txt): per
     /// node kind, in dependency order, the snapshot property that holds each operand and its role.
@@ -414,6 +307,166 @@ module ZigHostParityTests =
         let file = Path.Combine(ZigModelReaderSupport.root (), "tools", "zig", "host", "dependency_roles.txt")
         Assert.True((dependencyRoleTable () = File.ReadAllText file), "tools/zig/host/dependency_roles.txt is stale.")
 
+    /// One sidecar member, as `PinnedDependency.embed` writes it, or by path for a legacy selection.
+    let internal memberOf (dependency: Snapshot) (content: (string * string) option) (path: string) =
+        let fingerprint = SnapshotFingerprint.compute dependency |> unwrap |> SnapshotFingerprint.value
+        let item = JsonObject()
+        item["fingerprint"] <- JsonValue.Create fingerprint
+        item["path"] <- JsonValue.Create path
+        item["snapshotId"] <- JsonValue.Create(StableId.value dependency.Id)
+        content |> Option.iter (fun (key, text) -> item[key] <- JsonValue.Create text)
+        item
+
+/// Its own class, so xunit runs it beside the other host parity tests.
+module ZigHostQueryParityTests =
+    open ZigHostParityTests
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host answers queries built from each snapshot as the F# host does`` () =
+        withDirectory (fun dir ->
+            let constructed = constructedSnapshots dir
+            // Each snapshot runs its own host and session, so they run in parallel.
+            let answered = Text.StringBuilder()
+            snapshots dir @ constructed
+            |> List.toArray
+            |> Array.Parallel.map (fun snapshot ->
+                use session = AuthoringSession.openReadOnly snapshot |> unwrap
+                let requests = queries session
+                let code, errors, answers = run true [ "open"; "--snapshot"; snapshot; "--read-only" ] requests
+                Assert.True((code = 0), errors)
+                let fsharp = requests |> List.map (AuthoringProtocol.executeLine session)
+                sameAnswers (Path.GetFileName snapshot) fsharp answers requests
+                String.concat "" fsharp)
+            |> Array.iter (answered.Append >> ignore)
+            for shown in [ "\"aborts\":[{"; "\"mayWait\":true"; "\"openObligations\":[{"; "\"frames\":[{"; "\"variants\":["; "\"slot\":\"field\""; "\"evidence\":[{"; "\"references\":[{"; "\"role\":\"patternBinding\""; "\"truncated\":true"; "\"outlineTruncated\":true"; "scopeDepth=1"; "\\\\uD83D\\\\u2026"; "ref "; "\"nodeTypes\":[{"; "\"copiedUpdates\":[{"; "\"kind\":\"ready\""; "\"code\":\"SemanticProjectionFailure\",\"message\":\"IncompleteSnapshot\"" ] do
+                Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it.")
+            // `full` replies show every node kind's structured form.
+            for row in File.ReadAllLines(Path.Combine(ZigModelReaderSupport.root (), "tools", "zig", "host", "graph_kinds.txt")) do
+                if not (row.StartsWith "#") then
+                    let shown = $"\"kind\":{{\"kind\":\"{row.Split('|')[1]}\""
+                    Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it."))
+
+/// Its own class, so xunit runs it beside the other host parity tests.
+module ZigHostSeedTests =
+    open ZigHostParityTests
+
+    /// With the seed, two runs of the F# host on the same requests answer the same, new IDs included.
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The F# host allocates the same IDs for the same seed`` () =
+        withDirectory (fun dir ->
+            let session seed =
+                let path = Path.Combine(dir, $"{seed}-{Guid.NewGuid():N}.json")
+                File.WriteAllText(path, SnapshotCodec.serialize (MilestoneZeroGraph.create ()).Snapshot |> unwrap)
+                let info = ProcessStartInfo("dotnet", [ fsharpHost; "open"; "--snapshot"; path ])
+                info.RedirectStandardInput <- true
+                info.RedirectStandardOutput <- true
+                info.RedirectStandardError <- true
+                info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
+                info.Environment["NYRWVY_TEST_ID_SEED"] <- seed
+                use host = Process.Start info
+                host.StandardInput.Write(
+                    """{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[{"displayName":"x","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}"""
+                    + "\n")
+                host.StandardInput.Close()
+                let output = host.StandardOutput.ReadToEnd()
+                host.WaitForExit()
+                output
+            let first = session "parity"
+            Assert.Contains("\"proposalId\":\"018bcfe5-68", first)
+            Assert.Equal(first, session "parity")
+            Assert.NotEqual<string>(first, session "other")
+            // A snapshot that already holds this seed's IDs (a seeded run's commit): the count starts
+            // past them, and the host warns that the seed is set.
+            let path = Path.Combine(dir, "seeded.json")
+            let fixture = MilestoneZeroGraph.create ()
+            let taken = StableIdAllocator.seededPayload "parity" 30L
+            File.WriteAllText(path, (SnapshotCodec.serialize fixture.Snapshot |> unwrap).Replace(StableId.value fixture.ValidateFunctionId, taken))
+            let info = ProcessStartInfo("dotnet", [ fsharpHost; "open"; "--snapshot"; path ])
+            info.RedirectStandardInput <- true
+            info.RedirectStandardOutput <- true
+            info.RedirectStandardError <- true
+            info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
+            info.Environment["NYRWVY_TEST_ID_SEED"] <- "parity"
+            use host = Process.Start info
+            host.StandardInput.Write("""{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}""" + "\n")
+            host.StandardInput.Close()
+            let output = host.StandardOutput.ReadToEnd()
+            let errors = host.StandardError.ReadToEnd()
+            host.WaitForExit()
+            Assert.Contains("NYRWVY_TEST_ID_SEED is set", errors)
+            use reply = JsonDocument.Parse output
+            let proposal = reply.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+            Assert.True(StableIdAllocator.seededCount "parity" proposal > 30L, proposal))
+
+/// Its own class, so xunit runs it beside the other host parity tests.
+module ZigHostViewParityTests =
+    open ZigHostParityTests
+
+    /// `viewFunction` writes pages beside the snapshot, so each host gets its own copy of the snapshot's
+    /// directory: the replies are compared with that directory masked, and the pages byte for byte.
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host writes viewFunction pages as the F# host does`` () =
+        withDirectory (fun dir ->
+            let quote (text: string) = JsonSerializer.Serialize text
+            let pages = Text.StringBuilder()
+            let replies = Text.StringBuilder()
+            let sources = snapshots (Path.Combine(dir, "json") |> fun d -> Directory.CreateDirectory d |> ignore; d) @ constructedSnapshots (Path.Combine(dir, "constructed") |> fun d -> Directory.CreateDirectory d |> ignore; d)
+            for index, source in List.indexed sources do
+                // Each host's copy of the snapshot's directory, with the setups the error cases need.
+                let copy (host: string) =
+                    let target = Path.Combine(dir, $"{index}-{host}")
+                    Directory.CreateDirectory target |> ignore
+                    for file in Directory.GetFiles(Path.GetDirectoryName source) do File.Copy(file, Path.Combine(target, Path.GetFileName file))
+                    Directory.CreateDirectory(Path.Combine(target, "elsewhere")) |> ignore
+                    File.CreateSymbolicLink(Path.Combine(target, "link"), Path.Combine(target, "elsewhere")) |> ignore
+                    File.WriteAllText(Path.Combine(target, "own.html"), "<p>a person's page</p>")
+                    File.WriteAllText(Path.Combine(target, "plain.html"), "not a directory")
+                    target, Path.Combine(target, Path.GetFileName source)
+                let fsharpDir, fsharpSnapshot = copy "fsharp"
+                let zigDir, zigSnapshot = copy "zig"
+                use session = AuthoringSession.openReadOnly fsharpSnapshot |> unwrap
+                let functions = session.Declarations().Functions
+                let id (value: StableId<'Kind>) = StableId.value value
+                let requests =
+                    [ for position, item in List.indexed functions do
+                          yield $"""{{"id":"v","op":"viewFunction","functionId":{quote (id item.Id)}}}"""
+                          yield $"""{{"id":"v","op":"viewFunction","function":{quote item.DisplayName},"output":"views/{position}.html"}}"""
+                      match functions with
+                      | first :: _ ->
+                          let at (output: string) = $"""{{"id":"v","op":"viewFunction","functionId":{quote (id first.Id)},"output":{quote output}}}"""
+                          // A page this tool wrote is replaced; the others are refused.
+                          yield at "views/0.html"
+                          yield! [ ""; "  "; "page.txt"; "../outside.html"; "/elsewhere/outside.html"; "link/page.html"; "own.html"; "plain.html/page.html"; "nested/deeper/page.HTML"; "page.html\u0000.html" ] |> List.map at
+                          yield $"""{{"id":"v","op":"viewFunction","functionId":{quote (id first.Id)},"output":3}}"""
+                      | [] -> ()
+                      yield """{"id":"v","op":"viewFunction"}"""
+                      yield """{"id":"v","op":"viewFunction","function":"x","functionId":"y"}"""
+                      yield """{"id":"v","op":"viewFunction","functionId":"missing"}"""
+                      yield """{"id":"v","op":"viewFunction","functionId":"missing","extra":1}""" ]
+                let code, errors, answers = run true [ "open"; "--snapshot"; zigSnapshot; "--read-only" ] requests
+                Assert.True((code = 0), errors)
+                let fsharp = requests |> List.map (AuthoringProtocol.executeLine session >> fun reply -> reply.Replace(fsharpDir, "<dir>"))
+                fsharp |> List.iter (replies.Append >> ignore)
+                sameAnswers (Path.GetFileName source) fsharp (answers |> List.map (fun reply -> reply.Replace(zigDir, "<dir>"))) requests
+                let written (root: string) =
+                    Directory.GetFiles(root, "*.html", SearchOption.AllDirectories)
+                    |> Array.map (fun file -> Path.GetRelativePath(root, file))
+                    |> Array.sort
+                    |> Array.toList
+                Assert.Equal<string list>(written fsharpDir, written zigDir)
+                for file in written fsharpDir do
+                    let expected = File.ReadAllBytes(Path.Combine(fsharpDir, file))
+                    Assert.True((expected = File.ReadAllBytes(Path.Combine(zigDir, file))), $"{Path.GetFileName source}: {file} differs.")
+                    pages.Append(Text.Encoding.UTF8.GetString expected) |> ignore
+            for shown in [ "\"role\":\"UnionVariant\""; "\"sourceFieldId\":\""; "\"kind\":\"capabilityConstruct\""; "\"waitPath\":\""; "\"mustNotWait\":true"; "\"referencedCapabilities\":[{"; "\"originTransactionId\":\""; "\"role\":\"CallArgument\""; "\"kind\":\"CallsFunction\""; "\"bits\":\"" ] do
+                Assert.True(pages.ToString().Contains shown, $"No F# page shows {shown}; the parity test does not cover it.")
+            for shown in [ "output must not be blank."; "output must name a .html file."; "output must stay inside"; "is one."; "is one or is not a directory."; "without the generated-file marker"; "\"kind\":\"functionFocus\"" ] do
+                Assert.True(replies.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it."))
+
+/// Its own class, so xunit runs it beside the other host parity tests.
+module ZigHostStartupParityTests =
+    open ZigHostParityTests
+
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host fails to start as the F# host does`` () =
         withDirectory (fun dir ->
@@ -456,6 +509,10 @@ module ZigHostParityTests =
             Assert.Equal(2, code)
             Assert.Contains("is a legacy schema, which the Zig host does not read", errors))
 
+/// Its own class, so xunit runs it beside the other host parity tests.
+module ZigHostLockParityTests =
+    open ZigHostParityTests
+
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig and F# hosts lock each other out and sweep temporaries`` () =
         withDirectory (fun dir ->
@@ -481,15 +538,9 @@ module ZigHostParityTests =
                     Assert.True(File.Exists foreign, "The Zig host removed a file outside the temporary pattern.")
                 File.WriteAllText(stray, ""))
 
-    /// One sidecar member, as `PinnedDependency.embed` writes it, or by path for a legacy selection.
-    let private memberOf (dependency: Snapshot) (content: (string * string) option) (path: string) =
-        let fingerprint = SnapshotFingerprint.compute dependency |> unwrap |> SnapshotFingerprint.value
-        let item = JsonObject()
-        item["fingerprint"] <- JsonValue.Create fingerprint
-        item["path"] <- JsonValue.Create path
-        item["snapshotId"] <- JsonValue.Create(StableId.value dependency.Id)
-        content |> Option.iter (fun (key, text) -> item[key] <- JsonValue.Create text)
-        item
+/// Its own class, so xunit runs it beside the other host parity tests.
+module ZigHostResolvedParityTests =
+    open ZigHostParityTests
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host opens resolved snapshots as the F# host does`` () =
@@ -516,9 +567,15 @@ module ZigHostParityTests =
                     let arguments = [ "open"; "--snapshot"; path ] @ (if readOnly then [ "--read-only" ] else [])
                     let shown (code, errors, (lines: string list)) = $"{code} {comparable errors} {comparable (String.Join(' ', lines))}"
                     let request = [ """{"id":"s","op":"status"}"""; """{"id":"d","op":"declarations"}"""; """{"id":"e","op":"dependency"}""" ]
-                    let opened = match AuthoringSession.openReadOnly path with | Ok session -> Some session | Error _ -> None
-                    let request = request @ (opened |> Option.map queries |> Option.defaultValue [])
-                    opened |> Option.iter (fun session -> (session :> IDisposable).Dispose())
+                    // The queries read the same model in both modes, so the read-only run asks them; the writable run checks the open.
+                    let request =
+                        if not readOnly then request
+                        else
+                            match AuthoringSession.openReadOnly path with
+                            | Ok session ->
+                                use session = session
+                                request @ queries session
+                            | Error _ -> request
                     let fsharpRun = run false arguments request
                     let fsharp, zig = shown fsharpRun, shown (run true arguments request)
                     Assert.True((fsharp = zig), $"{name}:\n F#:  {fsharp}\n Zig: {zig}")
