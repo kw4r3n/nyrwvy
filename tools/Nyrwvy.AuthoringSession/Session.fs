@@ -622,7 +622,10 @@ module internal SessionStorage =
         lockHandle.Dispose()
 
     let readText (path: string): Result<string, AuthoringSessionError> =
-        try Ok(File.ReadAllText(path, Encoding.UTF8))
+        try
+            let text = File.ReadAllText(path, Encoding.UTF8)
+            StableIdAllocator.observe text
+            Ok text
         with
         | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
         | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)

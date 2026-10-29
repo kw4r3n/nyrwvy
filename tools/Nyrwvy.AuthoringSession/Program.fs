@@ -78,6 +78,8 @@ module private CommandLine =
 
 [<EntryPoint>]
 let main argv =
+    if Nyrwvy.Core.StableIdAllocator.seeded () then
+        Console.Error.WriteLine("Warning: NYRWVY_TEST_ID_SEED is set, so new IDs are deterministic test IDs. Use it only on test copies.")
     match argv |> Array.toList with
     | "bind-c" :: rest -> CBindingGenerator.run rest
     | _ ->
