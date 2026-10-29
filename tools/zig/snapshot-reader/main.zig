@@ -1227,9 +1227,268 @@ pub fn readRecords(allocator: std.mem.Allocator, input: []const u8, dependency_s
 }
 var kinds_loaded = false;
 
+// ---------------------------------------------------------------- encode: the writer's JSON -> record text
+
+const Json = std.json.Value;
+
+/// A JSON string spelled as the F# writer spells it (`JavaScriptEncoder.Default`), so a value read
+/// from the writer's canonical JSON is written back byte for byte.
+fn appendJsonString(out: *List(u8), input: []const u8) void {
+    out.append(a, '"') catch oom();
+    var it = std.unicode.Utf8View.initUnchecked(input).iterator();
+    while (it.nextCodepoint()) |c| switch (c) {
+        8 => out.appendSlice(a, "\\b") catch oom(),
+        9 => out.appendSlice(a, "\\t") catch oom(),
+        10 => out.appendSlice(a, "\\n") catch oom(),
+        12 => out.appendSlice(a, "\\f") catch oom(),
+        13 => out.appendSlice(a, "\\r") catch oom(),
+        '\\' => out.appendSlice(a, "\\\\") catch oom(),
+        0x20...0x21, 0x23...0x25, 0x28...0x2A, 0x2C...0x3B, 0x3D, 0x3F...0x5B, 0x5D...0x5F, 0x61...0x7E => out.append(a, @intCast(c)) catch oom(),
+        else => if (c >= 0x10000) {
+            const v = c - 0x10000;
+            out.print(a, "\\u{X:0>4}\\u{X:0>4}", .{ 0xD800 + (v >> 10), 0xDC00 + (v & 0x3FF) }) catch oom();
+        } else out.print(a, "\\u{X:0>4}", .{c}) catch oom(),
+    };
+    out.append(a, '"') catch oom();
+}
+
+/// `GetRawText` of a scalar of the writer's JSON.
+fn rawText(out: *List(u8), scalar: Json) void {
+    switch (scalar) {
+        .string => |text_value| appendJsonString(out, text_value),
+        .integer => |n| out.print(a, "{d}", .{n}) catch oom(),
+        .bool => |b| out.appendSlice(a, if (b) "true" else "false") catch oom(),
+        .number_string => |digits| out.appendSlice(a, digits) catch oom(),
+        else => std.debug.panic("record writer: unexpected scalar", .{}),
+    }
+}
+
+fn jsonStr(element: Json, name: []const u8) []const u8 {
+    return element.object.get(name).?.string;
+}
+
+const generics_by_json = [_][2][]const u8{ .{ "option", "option" }, .{ "result", "result" }, .{ "map", "map" }, .{ "list", "list" }, .{ "set", "set" }, .{ "oneShot", "one-shot" }, .{ "task", "task" }, .{ "exception", "exception" }, .{ "taskScope", "task-scope" } };
+
+fn typeExpr(out: *List(u8), t: Json) void {
+    const kind = jsonStr(t, "kind");
+    const args = struct {
+        fn f(o: *List(u8), items: Json) void {
+            for (items.array.items, 0..) |item, i| {
+                if (i > 0) o.append(a, ',') catch oom();
+                typeExpr(o, item);
+            }
+        }
+    }.f;
+    if (eql(kind, "primitive")) {
+        out.appendSlice(a, jsonStr(t, "primitive")) catch oom();
+    } else if (eql(kind, "named")) {
+        out.print(a, "type:{s}", .{jsonStr(t, "typeId")}) catch oom();
+        if (t.object.get("arguments")) |arguments| {
+            out.append(a, '(') catch oom();
+            args(out, arguments);
+            out.append(a, ')') catch oom();
+        }
+    } else if (eql(kind, "builtinGeneric")) {
+        const name = for (generics_by_json) |pair| {
+            if (eql(pair[0], jsonStr(t, "generic"))) break pair[1];
+        } else unreachable;
+        out.print(a, "{s}(", .{name}) catch oom();
+        args(out, t.object.get("arguments").?);
+        out.append(a, ')') catch oom();
+    } else if (eql(kind, "typeParameter")) {
+        out.print(a, "type-parameter:{s}", .{jsonStr(t, "typeParameterId")}) catch oom();
+    } else if (eql(kind, "capability")) {
+        out.print(a, "capability:{s}", .{jsonStr(t, "capabilityId")}) catch oom();
+    } else if (eql(kind, "function")) {
+        out.append(a, '(') catch oom();
+        args(out, t.object.get("parameters").?);
+        out.appendSlice(a, ")->") catch oom();
+        typeExpr(out, t.object.get("resultType").?);
+    } else std.debug.panic("record writer: unmapped type reference {s}", .{kind});
+}
+
+/// A member line with its place in the declaration's block: the declaration's own type
+/// parameters (phase 0) and parameters (phase 1) by position, then everything else by subject.
+const Line = struct { phase: u8, position: usize, subject: []const u8, text: []const u8 };
+
+fn lineLess(_: void, x: Line, y: Line) bool {
+    if (x.phase != y.phase) return x.phase < y.phase;
+    if (x.position != y.position) return x.position < y.position;
+    return less(x.subject, y.subject);
+}
+
+fn kindOf(element: Json, fallback: []const u8) Kind {
+    if (element.object.get("kind")) |kind| {
+        var it = kinds.valueIterator();
+        while (it.next()) |candidate| if (candidate.json_kind) |json_kind| if (eql(json_kind, kind.string)) return candidate.*;
+        std.debug.panic("record writer: no kind for {s}", .{kind.string});
+    }
+    return kinds.get(fallback).?;
+}
+
+const Encoder = struct {
+    acc: *List(Line),
+
+    fn object(self: Encoder, declaration: []const u8, kind: Kind, subject: []const u8, obj: Json, owner: ?[]const u8, position: ?usize) []const u8 {
+        var sb: List(u8) = .empty;
+        sb.print(a, "{s} {s}", .{ kind.name, subject }) catch oom();
+        if (owner) |o| sb.print(a, " in={s}", .{o}) catch oom();
+        if (position) |p| sb.print(a, " position={d}", .{p}) catch oom();
+        for (kind.keys) |key| {
+            if (key.shape == .meta) continue;
+            const v = obj.object.get(key.json) orelse continue;
+            const field = struct {
+                fn f(o: *List(u8), name: []const u8) void {
+                    o.print(a, " {s}=", .{name}) catch oom();
+                }
+            }.f;
+            switch (key.shape) {
+                .meta => {},
+                .id => |domain| {
+                    field(&sb, key.record);
+                    sb.print(a, "{s}:{s}", .{ domain, v.string }) catch oom();
+                },
+                .bool, .int, .str => {
+                    field(&sb, key.record);
+                    rawText(&sb, v);
+                },
+                .type_expr => {
+                    field(&sb, key.record);
+                    typeExpr(&sb, v);
+                },
+                .type_list, .id_list, .pairs => {
+                    if (v.array.items.len == 0) continue;
+                    field(&sb, key.record);
+                    sb.append(a, '[') catch oom();
+                    for (v.array.items, 0..) |item, i| {
+                        if (i > 0) sb.append(a, ' ') catch oom();
+                        switch (key.shape) {
+                            .type_list => typeExpr(&sb, item),
+                            .id_list => |domain| sb.print(a, "{s}:{s}", .{ domain, item.string }) catch oom(),
+                            .pairs => |p| sb.print(a, "{s}:{s}={s}:{s}", .{ p[1], jsonStr(item, p[0]), p[3], jsonStr(item, p[2]) }) catch oom(),
+                            else => unreachable,
+                        }
+                    }
+                    sb.append(a, ']') catch oom();
+                },
+                .graph => {
+                    const result = self.graph(declaration, v, fmt("{s}/{s}", .{ subject, key.record }));
+                    field(&sb, key.record);
+                    sb.print(a, "node:{s}", .{result}) catch oom();
+                },
+                .value_arm => |binding_key| {
+                    const loc = fmt("{s}/{s}", .{ subject, key.record });
+                    self.acc.append(a, binding(v.object.get(binding_key).?, loc, null)) catch oom();
+                    const result = self.graph(declaration, v.object.get("body").?, loc);
+                    field(&sb, key.record);
+                    sb.print(a, "node:{s}", .{result}) catch oom();
+                },
+                .arms => for (v.array.items) |match_arm| {
+                    var variants: List([]const u8) = .empty;
+                    if (match_arm.object.get("variantIds")) |ids| {
+                        for (ids.array.items) |id| variants.append(a, id.string) catch oom();
+                    } else variants.append(a, jsonStr(match_arm, "variantId")) catch oom();
+                    const loc = fmt("{s}/arm/variant:{s}", .{ subject, variants.items[0] });
+                    for (match_arm.object.get("fieldBindings").?.array.items) |fb| {
+                        self.acc.append(a, binding(fb.object.get("binding").?, loc, fmt("field:{s}", .{jsonStr(fb, "sourceFieldId")}))) catch oom();
+                    }
+                    const arm_body = self.graph(declaration,  match_arm.object.get("body").?, loc);
+                    var text_out: List(u8) = .empty;
+                    text_out.print(a, "arm {s}", .{loc}) catch oom();
+                    if (variants.items.len > 1) {
+                        text_out.appendSlice(a, " variants=[") catch oom();
+                        for (variants.items, 0..) |id, i| text_out.print(a, "{s}variant:{s}", .{ if (i > 0) " " else "", id }) catch oom();
+                        text_out.append(a, ']') catch oom();
+                    }
+                    text_out.print(a, " body=node:{s}", .{arm_body}) catch oom();
+                    self.acc.append(a, .{ .phase = 2, .position = 0, .subject = loc, .text = text_out.items }) catch oom();
+                },
+                .members => |m| {
+                    const is_ordered = eql(key.json, "parameters") or eql(key.json, "typeParameters");
+                    const domain = if (eql(m, "parameter") and eql(kind.name, "operation")) "capability-parameter" else m;
+                    for (v.array.items, 0..) |item, i| {
+                        const id = if (item.object.get("id")) |id| id.string else jsonStr(item, "typeParameterId");
+                        const member_subject = fmt("{s}:{s}", .{ domain, id });
+                        const rendered = self.object(declaration, kindOf(item, m), member_subject, item, subject, if (is_ordered) i else null);
+                        const phase: u8 = if (is_ordered and eql(subject, declaration)) (if (eql(m, "type-parameter")) 0 else 1) else 2;
+                        self.acc.append(a, .{ .phase = phase, .position = if (phase == 2) 0 else i, .subject = member_subject, .text = rendered }) catch oom();
+                    }
+                },
+            }
+        }
+        return sb.items;
+    }
+
+    fn graph(self: Encoder, declaration: []const u8, g: Json, loc: []const u8) []const u8 {
+        for (g.object.get("nodes").?.array.items) |n| {
+            const subject = fmt("node:{s}", .{jsonStr(n, "id")});
+            const rendered = self.object(declaration, kindOf(n, ""), subject, n, loc, null);
+            self.acc.append(a, .{ .phase = 2, .position = 0, .subject = subject, .text = rendered }) catch oom();
+        }
+        return jsonStr(g, "resultNodeId");
+    }
+
+    fn binding(b: Json, owner: []const u8, source_field: ?[]const u8) Line {
+        const subject = fmt("binding:{s}", .{jsonStr(b, "id")});
+        var sb: List(u8) = .empty;
+        sb.print(a, "binding {s} in={s}", .{ subject, owner }) catch oom();
+        if (source_field) |f| sb.print(a, " source-field={s}", .{f}) catch oom();
+        for (kinds.get("binding").?.keys) |key| {
+            const v = b.object.get(key.json) orelse continue;
+            switch (key.shape) {
+                .type_expr => {
+                    sb.print(a, " {s}=", .{key.record}) catch oom();
+                    typeExpr(&sb, v);
+                },
+                .bool, .int, .str => {
+                    sb.print(a, " {s}=", .{key.record}) catch oom();
+                    rawText(&sb, v);
+                },
+                else => {},
+            }
+        }
+        return .{ .phase = 2, .position = 0, .subject = subject, .text = sb.items };
+    }
+};
+
+/// `RecordCodec.ofJson`: the writer's JSON (`SnapshotCodec.serialize` or `serializeResolved`) as record text.
+pub fn recordsOf(allocator: std.mem.Allocator, json: []const u8) ![]const u8 {
+    a = allocator;
+    loadKinds();
+    const root = try std.json.parseFromSliceLeaky(Json, a, json, .{});
+    var sb: List(u8) = .empty;
+    sb.print(a, "snapshot snapshot:{s} schema={d}", .{ jsonStr(root, "snapshotId"), root.object.get("schemaVersion").?.integer }) catch oom();
+    if (root.object.get("parentSnapshotId")) |p| sb.print(a, " parent=snapshot:{s}", .{p.string}) catch oom();
+    if (root.object.get("dependency")) |d| {
+        sb.appendSlice(a, " dependency=") catch oom();
+        appendJsonString(&sb, jsonStr(d, "snapshotId"));
+        sb.print(a, " digest={s}", .{jsonStr(d, "digest")}) catch oom();
+    }
+    sb.append(a, '\n') catch oom();
+    const declaration_groups = [_][2][]const u8{ .{ "types", "type" }, .{ "effects", "effect" }, .{ "capabilities", "capability" }, .{ "functions", "function" }, .{ "obligations", "obligation" } };
+    for (declaration_groups) |group| {
+        for (root.object.get(group[0]).?.array.items) |d| {
+            const subject = fmt("{s}:{s}", .{ group[1], jsonStr(d, "id") });
+            var acc: List(Line) = .empty;
+            const encoder: Encoder = .{ .acc = &acc };
+            const first = encoder.object(subject, kindOf(d, group[1]), subject, d, null, null);
+            std.mem.sort(Line, acc.items, {}, lineLess);
+            sb.print(a, "\n{s}\n", .{first}) catch oom();
+            for (acc.items) |l| sb.print(a, "{s}\n", .{l.text}) catch oom();
+        }
+    }
+    return sb.items;
+}
+
 pub fn main(init: std.process.Init) !void {
     a = init.arena.allocator();
     const args = try init.minimal.args.toSlice(a);
+    // `--records <in.json> <out.nyrec>`: the writer's JSON as record text (`RecordCodec.ofJson`).
+    if (args.len == 4 and eql(args[1], "--records")) {
+        const input = try std.Io.Dir.cwd().readFileAlloc(init.io, args[2], a, .unlimited);
+        try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[3], .data = try recordsOf(a, input) });
+        return;
+    }
     var index: usize = 1;
     // `--dependency <file>`: the dependency's subjects, one `domain:uuid` per line, for every pair.
     if (args.len > 2 and eql(args[1], "--dependency")) {
