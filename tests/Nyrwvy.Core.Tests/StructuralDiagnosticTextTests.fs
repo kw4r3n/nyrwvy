@@ -148,6 +148,20 @@ module StructuralDiagnosticTextTests =
         )
 
     [<Fact>]
+    let ``a new function's own type parameters are named, not shown by their fresh IDs`` () =
+        let T = """{"kind":"typeParameter","name":"T"}"""
+        let code, message = reject [ "x", T ] I """{"kind":"parameter","name":"x"}"""
+        Assert.Equal("FunctionCreationResultTypeMismatch", code)
+        Assert.Equal("The function body produces T, but the requested result type is Int64.", message)
+        let code, message =
+            reject [ "x", T ] T ("""{"kind":"conditional","condition":{"kind":"boolLiteral","value":true},"whenTrue":{"kind":"parameter","name":"x"},"whenFalse":{"kind":"int64Literal","value":"1"}}""")
+        Assert.Equal("PureExpressionBranchTypeMismatch", code)
+        Assert.Equal("Conditional normally completing branches must produce one common type; found T and Int64. At body (conditional).", message)
+        let code, message = reject [ "x", T ] S """{"kind":"fieldAccess","source":{"kind":"parameter","name":"x"},"type":"Finding","field":"line"}"""
+        Assert.Equal("PureExpressionFieldAccessTypeMismatch", code)
+        Assert.EndsWith("but the source recipe produces T. At body (fieldAccess).", message)
+
+    [<Fact>]
     let ``the path locates a nested operand and a list item`` () =
         let _, nested =
             reject

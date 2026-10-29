@@ -1297,7 +1297,7 @@ module internal ExpressionRecipeInference =
                         | Some owner -> Ok(TypeParameters.instantiate owner arguments field.Type)
                         | None -> Ok field.Type
                     | Ok actual ->
-                        Error(diagnostic "PureExpressionFieldAccessTypeMismatch" $"Field access to {StableId.describe field.DisplayName field.Id} requires {DiagnosticText.namedType snapshot ownerTypeId}, but the source recipe produces {DiagnosticText.typeRefWithId snapshot actual}.")
+                        Error(diagnostic "PureExpressionFieldAccessTypeMismatch" $"Field access to {StableId.describe field.DisplayName field.Id} requires {DiagnosticText.namedType snapshot ownerTypeId}, but the source recipe produces {DiagnosticText.typeRefWithIdIn owner.TypeParameters snapshot actual}.")
             | ExpressionRecipe.ProductUpdate(typeId, source, fields) ->
                 match Map.tryFind typeId typesById with
                 | None ->
@@ -1317,7 +1317,7 @@ module internal ExpressionRecipeInference =
                             let updatedFields = instantiateFields owner arguments declaredFields |> List.filter (fun field -> Set.contains field.Id boundIds)
                             validateFieldBindings "ProductUpdate" updatedFields fields |> Result.map (fun () -> sourceType)
                         | Ok actual ->
-                            Error(diagnostic "PureExpressionProductUpdateSourceMismatch" $"Product update of {DiagnosticText.namedType snapshot typeId} requires a source of that type, but the source recipe produces {DiagnosticText.typeRefWithId snapshot actual}.")
+                            Error(diagnostic "PureExpressionProductUpdateSourceMismatch" $"Product update of {DiagnosticText.namedType snapshot typeId} requires a source of that type, but the source recipe produces {DiagnosticText.typeRefWithIdIn owner.TypeParameters snapshot actual}.")
                 | Some _ ->
                     Error(diagnostic "PureExpressionProductTargetMismatch" $"Product update target '{StableId.value typeId}' is not a product type.")
             | ExpressionRecipe.UnionConstruct(variantId, typeArguments, fields) ->
@@ -1459,7 +1459,7 @@ module internal ExpressionRecipeInference =
                 match GraphCompletion.merge [ Some left; Some right ] with
                 | Some result -> Ok result
                 | None ->
-                    let leftText, rightText = DiagnosticText.completionPair snapshot left right
+                    let leftText, rightText = DiagnosticText.completionPairIn owner.TypeParameters snapshot left right
                     Error(diagnostic "PureExpressionBranchTypeMismatch" $"{role} normally completing branches must produce one common type; found {leftText} and {rightText}.")
             match recipe with
             | ExpressionRecipe.Abort payload ->
