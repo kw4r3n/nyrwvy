@@ -652,11 +652,13 @@ module ZigTypedModelTests =
 
     /// The Zig host's typed model (tools/zig/model-reader/typed.zig) reads what an F# commit writes
     /// and writes it back byte for byte (`model-reader --typed-roundtrip`), resolved snapshots with
-    /// their dependency marker, and gives the F# fingerprints of a plain one.
+    /// their dependency marker, and gives the F# fingerprints of a plain one; `snapshot-reader
+    /// --records` writes that text in record form as `RecordCodec.ofJson` does.
     [<Fact; Trait("Suite", "Extended")>]
     let ``The typed model writes snapshots as the F# writer does`` () =
         withDirectory (fun dir ->
             let reader = ZigTools.tool "model-reader" |> Result.mapError (fun (code, message) -> $"{code}: {message}") |> unwrap
+            let recordWriter = ZigTools.tool "snapshot-reader" |> Result.mapError (fun (code, message) -> $"{code}: {message}") |> unwrap
             let roundTrip name (expected: string) (fingerprints: string option) =
                 let input, output = Path.Combine(dir, name + ".in.json"), Path.Combine(dir, name + ".out.json")
                 File.WriteAllText(input, expected, Text.UTF8Encoding false)
@@ -674,6 +676,20 @@ module ZigTypedModelTests =
                     let around (text: string) = if at < text.Length then text.Substring(max 0 (at - 80), min 160 (text.Length - max 0 (at - 80))) else "<end>"
                     failwithf "%s: the written text differs at %d (%s)\n F#:  %s\n Zig: %s" name at printed (around expected) (around written)
                 Assert.Equal(defaultArg fingerprints "resolved\n", printed)
+                // The same text in record form (`.nyrec`), as `RecordCodec.ofJson` writes it.
+                let records = Path.Combine(dir, name + ".nyrec")
+                let info = ProcessStartInfo(recordWriter, [ "--records"; output; records ])
+                info.RedirectStandardError <- true
+                use writer = Process.Start info
+                let errors = writer.StandardError.ReadToEnd()
+                writer.WaitForExit()
+                Assert.True((writer.ExitCode = 0), $"{name}: {errors}")
+                let expectedRecords = RecordCodec.ofJson expected
+                let writtenRecords = File.ReadAllText records
+                if writtenRecords <> expectedRecords then
+                    let at = Seq.zip expectedRecords writtenRecords |> Seq.tryFindIndex (fun (x, y) -> x <> y) |> Option.defaultValue (min expectedRecords.Length writtenRecords.Length)
+                    let around (text: string) = if at < text.Length then text.Substring(max 0 (at - 80), min 160 (text.Length - max 0 (at - 80))) else "<end>"
+                    failwithf "%s: the records differ at %d\n F#:  %s\n Zig: %s" name at (around expectedRecords) (around writtenRecords)
             let plain name (snapshot: Snapshot) =
                 let fingerprints = $"snapshot {SnapshotFingerprint.compute snapshot |> unwrap |> SnapshotFingerprint.value}\nsemantic {SemanticFingerprint.compute snapshot |> unwrap |> SemanticFingerprint.value}\n"
                 roundTrip name (SnapshotCodec.serialize snapshot |> unwrap) (Some fingerprints)
