@@ -169,17 +169,76 @@ module ZigHostParityTests =
               "PureExpressionInvalidTypeRef"; "NamedTypeArityMismatch"; "FunctionCreationDuplicateRequiredEffect"; "FunctionCreationRequiredEffectNotFound"
               "StructuralRecipeDepthLimitExceeded"; "StructuralRecipeNodeLimitExceeded" ]
 
-    /// Whether the Zig reply to a create request matches the F# one: a `ProtocolError` or a preflight
-    /// `SimulationRejected` byte for byte, a `SessionError` by code, and `UnsupportedOperation` for
-    /// every other reply (the simulation itself is not ported yet).
-    let internal createReplyMatches (fsharp: string) (zig: string) =
+    /// The diagnostic codes of the ported inference (step 3c-3b), located at their node.
+    let internal inferenceCodes =
+        set [ "PureExpressionOperandTypeMismatch"; "ListIndexOfItemTypeNotEquatable"; "ListLastIndexOfItemTypeNotEquatable"; "ListContainsItemTypeNotEquatable"
+              "SetItemTypeNotEquatable"; "MapKeyTypeNotEquatable"; "ValueEqualTypeNotEquatable"; "OriginalTargetOutsideTargetedReplacement"
+              "PureExpressionParameterOutOfScope"; "PureExpressionParameterSlotOutOfRange"; "PureExpressionPatternScopeDepthInvalid"; "PureExpressionPatternScopeNotFound"
+              "PureExpressionPatternSlotNotFound"; "PureExpressionDuplicateFieldBinding"; "PureExpressionFieldBindingMismatch"; "PureExpressionFieldBindingTypeMismatch"
+              "PureExpressionTypeArgumentArityMismatch"; "PureExpressionTypeArgumentsRequired"; "PureExpressionProductTypeNotFound"; "PureExpressionProductTargetMismatch"
+              "PureExpressionProductFieldNotFound"; "PureExpressionFieldAccessTypeMismatch"; "PureExpressionEmptyProductUpdate"; "PureExpressionProductUpdateSourceMismatch"
+              "PureExpressionUnionVariantNotFound"; "AbortValueUse"; "PureExpressionBranchTypeMismatch"; "AbortPayloadTypeMismatch"; "AbortOwnerResultTypeMismatch"
+              "PureExpressionMatchArmDuplicate"; "PureExpressionMatchArmMismatch"; "PureExpressionMatchOtherwiseDuplicate"; "PureExpressionMatchOtherwiseUnused"
+              "PureExpressionMatchInputTypeMismatch"; "FunctionCreationResultTypeMismatch" ]
+
+    /// The recipe kinds the Zig host infers (tools/zig/host/infer.zig), plus the type kinds a request spells.
+    let internal portedKinds =
+        set [ yield! OperationSignatures.table |> List.map (fun entry -> entry.Kind)
+              yield! [ "parameter"; "parameterSlot"; "patternReference"; "originalTarget"; "stringLiteral"; "boolLiteral"; "unitLiteral"; "int64Literal"; "float64Literal"
+                       "boolAnd"; "boolOr"; "valueEqual"; "listEmpty"; "setEmpty"; "mapEmpty"; "listConstruct"; "productConstruct"; "fieldAccess"; "productUpdate"; "unionConstruct"
+                       "optionNone"; "resultOk"; "resultErr"; "abort"; "conditional"; "matchUnion"; "bind"; "matchOption"; "matchResult"
+                       "primitive"; "named"; "capability"; "typeParameter"; "builtinGeneric"; "function" ] ]
+
+    /// Whether the request spells a recipe kind the Zig host does not infer yet.
+    let internal hasUnportedKind (request: string) =
+        Regex.Matches(request, "\"kind\":\"([A-Za-z0-9]+)\"") |> Seq.exists (fun m -> not (portedKinds.Contains m.Groups[1].Value))
+
+    /// The Zig host's fixed `UnsupportedOperation` replies of step 3c-3b, told apart by message; the
+    /// first names the kind it stopped at and its path.
+    let internal unportedKindReply (zig: string) = zig.Contains "\"code\":\"UnsupportedOperation\",\"message\":\"The Zig host does not infer "
+    let internal unportedKindPath (zig: string) = Regex.Match(zig, "does not infer [A-Za-z0-9]+ recipes yet \\(at (body[^ ]*)\\)").Groups[1].Value
+    let internal typeParameterIdentityReply (zig: string) = zig.Contains "\"message\":\"The Zig host does not spell allocated type-parameter identities in diagnostics yet.\""
+
+    /// `locate`'s suffix on an inference diagnostic: the failing node's path, or None for a preflight one.
+    let internal locatedPath (message: string) =
+        let found = Regex.Match(message, " At (body[^ ]*) \\([a-z][A-Za-z0-9]*\\)\\.(?:\"|$)")
+        if found.Success then Some found.Groups[1].Value else None
+
+    /// Whether `path` is `ancestor` or below it (`body.arms[1].body` is below `body.arms[1]`).
+    let internal atOrBelow (ancestor: string) (path: string) =
+        path = ancestor || path.StartsWith(ancestor + ".") || path.StartsWith(ancestor + "[")
+
+    /// A UUID in `text` that `request` does not spell: an identity the F# host allocated.
+    let internal spellsAllocatedId (request: string) (text: string) =
+        Regex.Matches(text, "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}") |> Seq.exists (fun m -> not (request.Contains m.Value))
+
+    /// Whether the Zig reply to a create request matches the F# one: a `ProtocolError`, a preflight or
+    /// an inference `SimulationRejected` byte for byte, a `SessionError` by code, and
+    /// `UnsupportedOperation` for every other reply (the simulation itself is not ported yet). An
+    /// inference rejection may instead be the Zig host's fixed `UnsupportedOperation` when the request
+    /// reaches a kind it does not infer, or declares a type parameter whose fresh F# identity the
+    /// diagnostic would spell.
+    let internal createReplyMatches (request: string) (fsharp: string) (zig: string) =
         use reply = JsonDocument.Parse fsharp
         match reply.RootElement.TryGetProperty "error" with
         | true, error ->
             match error.GetProperty("code").GetString() with
             | "SessionError" -> sessionErrorCode fsharp = sessionErrorCode zig
             | "ProtocolError" -> fsharp = zig
-            | "SimulationRejected" when preflightCodes.Contains(error.GetProperty("details").GetProperty("diagnostics").[0].GetProperty("code").GetString()) -> fsharp = zig
+            | "SimulationRejected" ->
+                let diagnostic = error.GetProperty("details").GetProperty("diagnostics").[0]
+                let code = diagnostic.GetProperty("code").GetString()
+                let message = diagnostic.GetProperty("message").GetString()
+                let located = locatedPath message
+                if preflightCodes.Contains code && located.IsNone then fsharp = zig
+                elif preflightCodes.Contains code || inferenceCodes.Contains code then
+                    // The Zig host stops at a kind it does not infer where F# enters it, so F#'s diagnostic
+                    // came from that subtree, from an ancestor it returned to, or from after inference (the
+                    // result-type check); one from a sibling F# reached later still counts as a mismatch.
+                    fsharp = zig
+                    || (unportedKindReply zig && hasUnportedKind request && (located |> Option.forall (fun path -> atOrBelow (unportedKindPath zig) path || atOrBelow path (unportedKindPath zig))))
+                    || (typeParameterIdentityReply zig && request.Contains "\"typeParameter\"" && spellsAllocatedId request message)
+                else zig.Contains "\"code\":\"UnsupportedOperation\""
             | _ -> zig.Contains "\"code\":\"UnsupportedOperation\""
         | _ -> zig.Contains "\"code\":\"UnsupportedOperation\""
 
@@ -987,7 +1046,7 @@ module ZigHostCreateDecodeTests =
                 answered.Append(fsharp) |> ignore
                 if fsharp.Contains "\"code\":\"ProtocolError\"" then rejected <- rejected + 1
                 if isPreflightRejection fsharp then preflight <- preflight + 1
-                if not (createReplyMatches fsharp zig) then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
+                if not (createReplyMatches request fsharp zig) then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
             let shownText = answered.ToString()
             for shown in Set.toList (Set.remove "FunctionCreationTypeParameterNameBlank" preflightCodes) @ [ "Largest subtrees within the limit" ] do
                 Assert.True(shownText.Contains shown, $"No F# reply shows {shown}; the decode parity test does not cover it.")
@@ -1248,7 +1307,7 @@ module ZigHostCreateByNameTests =
                     else
                         if fsharp.Contains "\"code\":\"ProtocolError\"" then rejected <- rejected + 1
                         if isPreflightRejection fsharp then preflight <- preflight + 1
-                        if not (createReplyMatches fsharp zig) then mismatches.Add $"{Path.GetFileName snapshot}: {request}\n F#:  {fsharp}\n Zig: {zig}"
+                        if not (createReplyMatches request fsharp zig) then mismatches.Add $"{Path.GetFileName snapshot}: {request}\n F#:  {fsharp}\n Zig: {zig}"
             let shownText = answered.ToString().Replace("\\u0027", "'")
             // Of the preflight, a blank type-parameter name, a taken display name and an unknown effect, type or capability ID are decode rejections by name.
             let preflightShown = Set.toList (Set.difference preflightCodes (set [ "FunctionCreationTypeParameterNameBlank"; "FunctionCreationRequiredEffectNotFound"; "FunctionCreationDuplicateDisplayName" ]))
@@ -1257,3 +1316,236 @@ module ZigHostCreateByNameTests =
             Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
             Assert.True(rejected > 1000, $"Only {rejected} requests are decode rejections.")
             Assert.True(preflight > 100, $"Only {preflight} requests are preflight rejections."))
+
+/// Its own class, so xunit runs it beside the other host parity tests.
+module ZigHostCreateInferenceTests =
+    open ZigHostParityTests
+
+    let private id<'Kind> value = StableId.createForTesting<'Kind> value
+    let private field name (fieldType: TypeRef) : SemanticField = { Id = id<FieldTag> ("zig-" + name); DisplayName = name.Substring(name.LastIndexOf '-' + 1); Type = fieldType }
+    let private variant name fields : SemanticVariant = { Id = id<VariantTag> ("zig-" + name); DisplayName = name.Substring(name.LastIndexOf '-' + 1); Fields = fields }
+    let private declared name typeParameters kind : SemanticType = { Id = id<TypeTag> ("zig-" + name); DisplayName = name; Exported = true; TypeParameters = typeParameters; Kind = kind }
+    let private int64T = TypeRef.Primitive PrimitiveType.Int64
+    let private t name = id<TypeParameterTag> ("zig-t-" + name)
+
+    /// Declarations the inference diagnostics name: a product, generic products, a union with a
+    /// Float64 field, a generic union, a recursive product and a function with a parameter.
+    let private snapshot () =
+        let types =
+            [ declared "Point" [] (SemanticTypeKind.Product [ field "point-x" int64T; field "point-y" int64T ])
+              declared "Box" [ t "box", "T" ] (SemanticTypeKind.Product [ field "box-item" (TypeRef.TypeParameter(t "box")) ])
+              declared "Pair" [ t "pair", "T" ] (SemanticTypeKind.Product [ field "pair-first" (TypeRef.TypeParameter(t "pair")); field "pair-second" (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.TypeParameter(t "pair") ])) ])
+              declared "Shape" [] (SemanticTypeKind.Union [ variant "circle" [ field "circle-radius" (TypeRef.Primitive PrimitiveType.Float64) ]; variant "dot" []; variant "square" [ field "square-side" int64T ] ])
+              declared "Maybe" [ t "maybe", "T" ] (SemanticTypeKind.Union [ variant "just" [ field "just-value" (TypeRef.TypeParameter(t "maybe")) ]; variant "nothing" [] ])
+              declared "Tree" [] (SemanticTypeKind.Product [ field "tree-label" (TypeRef.Primitive PrimitiveType.String); field "tree-children" (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ TypeRef.Named(id<TypeTag> "zig-Tree", []) ])) ]) ]
+        let twice: SemanticFunction =
+            { MustNotWait = false; Exported = true; Id = id<FunctionTag> "zig-twice"; DisplayName = "twice"; TypeParameters = []
+              Parameters = [ { Id = id<ParameterTag> "zig-twice-n"; DisplayName = "n"; Type = int64T } ]
+              ResultType = TypeRef.Primitive PrimitiveType.Bool; RequiredEffects = []
+              Body = { Nodes = [ { Id = id<GraphNodeTag> "zig-twice-body"; Kind = SemanticNodeKind.BoolLiteral true } ]; ResultNodeId = id<GraphNodeTag> "zig-twice-body" } }
+        { Snapshot.empty (id<SnapshotTag> "zig-host-inference") with Types = types; Functions = [ twice ] }
+
+    /// Requests reaching each inference diagnostic, the location suffix through each renamed field,
+    /// F#'s traversal order around kinds the Zig host does not infer, and the type-parameter cases.
+    let private requests () =
+        let primitive name = $"""{{"kind":"primitive","primitive":"{name}"}}"""
+        let unitT, int64T, boolT, stringT, float64T = primitive "unit", primitive "int64", primitive "bool", primitive "string", primitive "float64"
+        let named id (arguments: string list) = $"""{{"kind":"named","typeId":"{id}","arguments":[{String.Join(",", arguments)}]}}"""
+        let generic name (arguments: string list) = $"""{{"kind":"builtinGeneric","generic":"{name}","arguments":[{String.Join(",", arguments)}]}}"""
+        let typeParameter name = $"""{{"kind":"typeParameter","name":"{name}"}}"""
+        let unit = """{"kind":"unitLiteral"}"""
+        let int = """{"kind":"int64Literal","value":1}"""
+        let str = """{"kind":"stringLiteral","value":"s"}"""
+        let bool = """{"kind":"boolLiteral","value":true}"""
+        let flt = """{"kind":"float64Literal","bits":"3ff0000000000000"}"""
+        let slot index = $"""{{"kind":"parameterSlot","index":{index}}}"""
+        let unary kind value = $"""{{"kind":"{kind}","value":{value}}}"""
+        let binary kind left right = $"""{{"kind":"{kind}","left":{left},"right":{right}}}"""
+        let recipe kind (fields: (string * string) list) = "{\"kind\":\"" + kind + "\"," + String.Join(",", fields |> List.map (fun (name, value) -> $"\"{name}\":{value}")) + "}"
+        let quoted (value: string) = "\"" + value + "\""
+        let array (items: string list) = "[" + String.Join(",", items) + "]"
+        let listEmpty itemType = recipe "listEmpty" [ "itemType", itemType ]
+        let bound (fieldId: string) value = $"""{{"fieldId":"{fieldId}","value":{value}}}"""
+        let construct typeId (fields: string list) = recipe "productConstruct" [ "typeId", quoted typeId; "fields", array fields ]
+        let constructWith typeId (arguments: string list) (fields: string list) = recipe "productConstruct" [ "typeId", quoted typeId; "typeArguments", array arguments; "fields", array fields ]
+        let unionConstruct variantId (arguments: string list) (fields: string list) = recipe "unionConstruct" [ "variantId", quoted variantId; "typeArguments", array arguments; "fields", array fields ]
+        let update typeId source (fields: string list) = recipe "productUpdate" [ "typeId", quoted typeId; "source", source; "fields", array fields ]
+        let access source fieldId = recipe "fieldAccess" [ "source", source; "fieldId", quoted fieldId ]
+        let pattern slot depth = $"""{{"kind":"patternReference","slot":"{slot}","scopeDepth":{depth}}}"""
+        let fieldPattern fieldId depth = $"""{{"kind":"patternReference","slot":"field","fieldId":"{fieldId}","scopeDepth":{depth}}}"""
+        let bind value body = recipe "bind" [ "value", value; "body", body ]
+        let conditional condition whenTrue whenFalse = recipe "conditional" [ "condition", condition; "whenTrue", whenTrue; "whenFalse", whenFalse ]
+        let matchOption input someBody noneBody = recipe "matchOption" [ "input", input; "someBody", someBody; "noneBody", noneBody ]
+        let matchResult input okBody errBody = recipe "matchResult" [ "input", input; "okBody", okBody; "errBody", errBody ]
+        let arm (variantId: string) body = $"""{{"variantId":"{variantId}","body":{body}}}"""
+        let arms (variantIds: string list) body = "{\"variantIds\":" + array (List.map quoted variantIds) + ",\"body\":" + body + "}"
+        let matchUnion input (arms: string list) = recipe "matchUnion" [ "input", input; "arms", array arms ]
+        let matchUnionOtherwise input (arms: string list) otherwise = recipe "matchUnion" [ "input", input; "arms", array arms; "otherwise", otherwise ]
+        let abort payload = recipe "abort" [ "error", payload ]
+        let point = construct "zig-Point" [ bound "zig-point-x" int; bound "zig-point-y" int ]
+        let dot = unionConstruct "zig-dot" [] []
+        let badList = unary "listLength" int
+        let unported = recipe "listMap" [ "source", listEmpty int64T; "functionId", "\"zig-twice\""; "context", "[]" ]
+        let line (parameters: string list) resultType body = $"""{{"id":"i","op":"simulateCreateFunction","displayName":"made","parameters":[{String.Join(",", parameters)}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+        let parameter name (t: string) = $"""{{"displayName":"{name}","type":{t}}}"""
+        let withTypeParameters (parameters: string list) resultType body = (line parameters resultType body).Replace("\"requiredEffects\":[]", "\"requiredEffects\":[],\"typeParameters\":[\"T\"]")
+        [ // Fixed signatures: a fixed operand, a shape, a bound variable, the equatable constraint before the next operand.
+          line [] unitT (binary "stringConcat" int str)
+          line [] unitT badList
+          line [] unitT (recipe "listAppendItem" [ "list", listEmpty int64T; "item", str ])
+          line [] unitT (recipe "stringContains" [ "value", int; "substring", str ])
+          line [] unitT (recipe "listIndexOf" [ "list", listEmpty float64T; "item", unported ])
+          line [] unitT (recipe "listLastIndexOf" [ "list", listEmpty float64T; "item", flt ])
+          line [] unitT (recipe "listContains" [ "list", listEmpty (named "zig-Shape" []); "item", dot ])
+          line [] unitT (unary "setFromList" (listEmpty (generic "list" [ float64T ])))
+          line [] unitT (recipe "mapInsert" [ "map", recipe "mapEmpty" [ "keyType", int64T; "valueType", stringT ]; "key", int; "value", int ])
+          // The F# field names of renamed wire fields in the location suffix.
+          line [] unitT (recipe "mapInsert" [ "map", recipe "mapEmpty" [ "keyType", int64T; "valueType", stringT ]; "key", int; "value", badList ])
+          line [] unitT (recipe "optionGetOrDefault" [ "option", recipe "optionNone" [ "itemType", int64T ]; "default", badList ])
+          line [] unitT (recipe "setInsert" [ "set", recipe "setEmpty" [ "itemType", int64T ]; "item", badList ])
+          line [] unitT (recipe "listRange" [ "start", badList; "end", int ])
+          line [] unitT (recipe "stringRepeat" [ "text", str; "count", badList ])
+          line [] unitT (recipe "float64Round" [ "value", flt; "digits", badList ])
+          line [] unitT (recipe "listConstruct" [ "itemType", int64T; "items", array [ int; badList ] ])
+          line [] unitT (construct "zig-Point" [ bound "zig-point-x" int; bound "zig-point-y" badList ])
+          line [] unitT (matchUnion dot [ arm "zig-circle" int; arm "zig-dot" int; arm "zig-square" badList ])
+          line [] unitT (matchUnionOtherwise dot [ arm "zig-circle" int ] badList)
+          // A field-less F# case is one object: the path names its first occurrence, not the failing one.
+          line [] unitT (construct "zig-Point" [ bound "zig-point-y" """{"kind":"originalTarget"}"""; bound "zig-point-x" """{"kind":"originalTarget"}""" ])
+          line [] unitT (matchUnion dot [ arm "zig-square" """{"kind":"originalTarget"}"""; arm "zig-circle" """{"kind":"originalTarget"}"""; arm "zig-dot" int ])
+          line [] unitT (binary "stringConcat" str """{"kind":"originalTarget"}""")
+          // Operators, constructors and equatability.
+          line [] unitT (binary "boolAnd" int bool)
+          line [] unitT (binary "boolOr" bool int)
+          line [] unitT (binary "boolAnd" bool (abort str))
+          line [] unitT (binary "valueEqual" int str)
+          line [] unitT (binary "valueEqual" flt flt)
+          line [] unitT (binary "valueEqual" dot dot)
+          line [] unitT (binary "valueEqual" (listEmpty float64T) (listEmpty float64T))
+          line [] unitT (binary "valueEqual" (construct "zig-Tree" [ bound "zig-tree-label" str; bound "zig-tree-children" (listEmpty (named "zig-Tree" [])) ]) (construct "zig-Tree" [ bound "zig-tree-label" str; bound "zig-tree-children" (listEmpty (named "zig-Tree" [])) ]))
+          line [ parameter "x" (generic "exception" []) ] unitT (binary "valueEqual" (slot 0) (slot 0))
+          line [ parameter "x" (generic "map" [ stringT; int64T ]) ] unitT (binary "valueEqual" (slot 0) (slot 0))
+          line [] unitT (recipe "setEmpty" [ "itemType", float64T ])
+          line [] unitT (recipe "setEmpty" [ "itemType", named "zig-Box" [ generic "option" [ float64T ] ] ])
+          line [] unitT (recipe "mapEmpty" [ "keyType", float64T; "valueType", int64T ])
+          line [] unitT (recipe "listConstruct" [ "itemType", int64T; "items", array [ int; str ] ])
+          line [] unitT (listEmpty (named "zig-nope" []))
+          line [] unitT (recipe "optionNone" [ "itemType", named "zig-Box" [] ])
+          line [] unitT (recipe "resultOk" [ "errorType", generic "list" []; "value", int ])
+          line [] unitT (recipe "resultErr" [ "okType", generic "capability" []; "error", int ])
+          line [] unitT (constructWith "zig-Box" [ named "zig-nope" [] ] [ bound "zig-box-item" int ])
+          line [] unitT (constructWith "zig-Box" [ int64T; int64T ] [ bound "zig-box-item" int ])
+          line [] unitT (constructWith "zig-Box" [ int64T ] [ bound "zig-box-item" str ])
+          line [] unitT (construct "zig-Pair" [ bound "zig-pair-first" int; bound "zig-pair-second" (listEmpty stringT) ])
+          line [] unitT (construct "zig-Point" [ bound "zig-point-x" int; bound "zig-point-x" int ])
+          line [] unitT (construct "zig-Point" [ bound "zig-point-x" int ])
+          line [] unitT (construct "zig-Point" [ bound "zig-point-x" int; bound "zig-point-y" str ])
+          line [] unitT (construct "zig-nope" [])
+          line [] unitT (construct "zig-Shape" [])
+          line [] unitT (unionConstruct "zig-nope" [] [])
+          line [] unitT (unionConstruct "zig-nothing" [] [])
+          line [] unitT (unionConstruct "zig-just" [] [ bound "zig-just-value" str ])
+          line [] unitT (unionConstruct "zig-just" [ int64T ] [ bound "zig-just-value" str ])
+          line [] unitT (access int "zig-nope")
+          line [] unitT (access int "zig-circle-radius")
+          line [] unitT (access int "zig-point-x")
+          line [] unitT (access dot "zig-point-x")
+          line [] unitT (access (constructWith "zig-Box" [ int64T ] [ bound "zig-box-item" int ]) "zig-point-x")
+          line [] unitT (access (construct "zig-Pair" [ bound "zig-pair-first" str; bound "zig-pair-second" (listEmpty stringT) ]) "zig-pair-second")
+          line [] unitT (update "zig-Point" point [])
+          line [] unitT (update "zig-Point" point [ bound "zig-nope" int ])
+          line [] unitT (update "zig-Point" int [ bound "zig-point-x" int ])
+          line [] unitT (update "zig-Point" point [ bound "zig-point-y" str ])
+          line [] unitT (update "zig-nope" int [])
+          line [] unitT (update "zig-Shape" int [])
+          line [] unitT (update "zig-Point" point [ bound "zig-point-y" int ])
+          // Leaves.
+          line [] unitT """{"kind":"originalTarget"}"""
+          line [] unitT """{"kind":"parameter","parameterId":"zig-twice-n"}"""
+          line [ parameter "a" int64T; parameter "b" stringT ] unitT """{"kind":"parameter","parameterId":"zig-nope"}"""
+          line [ parameter "a" int64T ] unitT (slot 1)
+          line [] unitT (slot -1)
+          line [] unitT (pattern "value" 0)
+          line [] unitT (pattern "value" -1)
+          line [] unitT (bind int (pattern "error" 0))
+          line [] unitT (matchOption (recipe "optionNone" [ "itemType", int64T ]) (bind str (pattern "value" 2)) int)
+          line [] unitT (matchUnion dot [ arm "zig-circle" (fieldPattern "zig-circle-radius" 0); arm "zig-dot" flt; arm "zig-square" flt ])
+          line [] unitT (matchUnion dot [ arm "zig-circle" (fieldPattern "zig-square-side" 0); arm "zig-dot" flt; arm "zig-square" flt ])
+          line [] unitT (matchUnion dot [ arm "zig-circle" (fieldPattern "zig-nope" 0); arm "zig-dot" flt; arm "zig-square" flt ])
+          line [] unitT (matchUnion dot [ arms [ "zig-circle"; "zig-square" ] (pattern "value" 0); arm "zig-dot" flt ])
+          line [] unitT (matchResult (recipe "resultOk" [ "errorType", stringT; "value", int ]) (pattern "value" 0) (pattern "value" 0))
+          // Branches, arms and aborts.
+          line [] unitT (conditional int int int)
+          line [] unitT (conditional bool int str)
+          line [] (generic "result" [ unitT; stringT ]) (conditional bool (abort str) int)
+          line [] (generic "result" [ unitT; stringT ]) (conditional bool (abort str) (abort str))
+          line [] (generic "result" [ unitT; stringT ]) (unary "stringLength" (abort str))
+          line [] (generic "result" [ unitT; stringT ]) (abort int)
+          line [] unitT (abort str)
+          line [] unitT (matchOption int int int)
+          line [] unitT (matchOption (recipe "optionNone" [ "itemType", int64T ]) (pattern "value" 0) str)
+          line [] unitT (matchResult int int int)
+          line [] unitT (matchResult (recipe "resultOk" [ "errorType", stringT; "value", int ]) (pattern "value" 0) (pattern "error" 0))
+          line [] unitT (matchUnion int [])
+          line [] unitT (matchUnion point [])
+          line [] unitT (matchUnion dot [ arm "zig-circle" int; arm "zig-circle" int; arm "zig-dot" int ])
+          line [] unitT (matchUnion dot [ arm "zig-circle" int ])
+          line [] unitT (matchUnion dot [ arm "zig-nope" int ])
+          line [] unitT (matchUnionOtherwise dot [ arm "zig-circle" int; arm "zig-dot" int; arm "zig-square" int ] int)
+          line [] unitT (matchUnionOtherwise dot [ arm "zig-circle" int ] str)
+          line [] unitT (matchUnion dot [ arm "zig-square" int; arm "zig-circle" str; arm "zig-dot" int ])
+          line [] unitT (matchUnion (unionConstruct "zig-just" [] [ bound "zig-just-value" str ]) [ arm "zig-just" (fieldPattern "zig-just-value" 0); arm "zig-nothing" str ])
+          // Generic constructors nested as deep as the bounds allow, with derived type arguments: each
+          // level's value is inferred for the arguments and again for the bindings, so the cache keeps it linear.
+          line [] unitT (List.fold (fun inner _ -> construct "zig-Box" [ bound "zig-box-item" inner ]) int [ 1 .. 30 ])
+          line [] unitT (List.fold (fun inner _ -> unionConstruct "zig-just" [] [ bound "zig-just-value" inner ]) (update "zig-Point" point [ bound "zig-point-x" int ]) [ 1 .. 28 ])
+          // The result type.
+          line [] unitT int
+          line [] int64T point
+          line [] (named "zig-Box" [ int64T ]) (constructWith "zig-Box" [ stringT ] [ bound "zig-box-item" str ])
+          // Kinds the Zig host does not infer, reached or not in F#'s order.
+          line [] unitT (binary "stringConcat" int unported)
+          line [] unitT (binary "stringConcat" str unported)
+          line [] unitT (conditional bool unported int)
+          // Type parameters: owner-named in operand messages, fresh identities elsewhere.
+          withTypeParameters [ parameter "x" (typeParameter "T") ] int64T (slot 0)
+          withTypeParameters [ parameter "x" (typeParameter "T") ] unitT (binary "valueEqual" (slot 0) (slot 0))
+          withTypeParameters [ parameter "x" (typeParameter "T") ] unitT (recipe "listConstruct" [ "itemType", typeParameter "T"; "items", array [ int ] ])
+          withTypeParameters [ parameter "x" (typeParameter "T") ] unitT (recipe "setEmpty" [ "itemType", typeParameter "T" ])
+          withTypeParameters [ parameter "x" (typeParameter "T") ] unitT (conditional bool (slot 0) int)
+          withTypeParameters [ parameter "x" (typeParameter "T") ] unitT (access (slot 0) "zig-point-x")
+          withTypeParameters [ parameter "x" (typeParameter "T") ] unitT (construct "zig-Pair" [ bound "zig-pair-first" (slot 0); bound "zig-pair-second" (listEmpty int64T) ])
+          withTypeParameters [ parameter "x" (typeParameter "T") ] (generic "list" [ typeParameter "T" ]) (recipe "productUpdate" [ "typeId", quoted "zig-Point"; "source", slot 0; "fields", array [ bound "zig-point-x" int ] ])
+          line [ parameter "x" (typeParameter "Point") ] unitT (recipe "listConstruct" [ "itemType", named "zig-Point" []; "items", array [ slot 0 ] ]) ]
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host infers simulateCreateFunction bodies as the F# host does`` () =
+        withDirectory (fun dir ->
+            let path = Path.Combine(dir, "inference.json")
+            File.WriteAllText(path, SnapshotCodec.serialize (snapshot ()) |> unwrap)
+            use session = AuthoringSession.openReadOnly path |> unwrap
+            let lines = requests ()
+            // Built before the clock starts: the first run of a changed host compiles it.
+            zigHost () |> ignore
+            let clock = Stopwatch.StartNew()
+            let code, errors, answers = run true [ "open"; "--snapshot"; path; "--read-only" ] lines
+            // The deep generic constructors would take 2^30 inferences without the cache.
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds 20.0, $"The Zig host took {clock.Elapsed} to answer the inference corpus.")
+            Assert.True((code = 0), errors)
+            Assert.Equal(lines.Length, answers.Length)
+            let mismatches = ResizeArray<string>()
+            let answered = Text.StringBuilder()
+            let mutable located = 0
+            for request, zig in List.zip lines answers do
+                let fsharp = AuthoringProtocol.executeLine session request
+                answered.Append(fsharp) |> ignore
+                if (locatedPath zig).IsSome then located <- located + 1
+                if not (createReplyMatches request fsharp zig) then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
+                // Every kind here is inferred, except the one deliberately unported recipe.
+                if unportedKindReply zig && not (request.Contains "\"kind\":\"listMap\"") then mismatches.Add $"{request}\n Zig did not infer: {zig}"
+            let shownText = answered.ToString().Replace("\\u0027", "'").Replace("\\u003C", "<").Replace("\\u003E", ">")
+            // The wire spells one `otherwise` arm, so a second one is a decode rejection.
+            for shown in Set.toList (Set.remove "PureExpressionMatchOtherwiseDuplicate" inferenceCodes) @ [ "(type parameter "; "The slot is found at depths 0, 1;"; "Visible frames, innermost first: depth 0 = Bind body (binds Value)"; "binds 'radius'"; "(not a declared field)"; "At body.end (listLength)"; "At body.defaultValue (listLength)"; "At body.key (listLength)"; "At body.left (listLength)"; "At body.right (listLength)"; "At body.items[1] (listLength)"; "At body.fields[1].value (listLength)"; "At body.arms[2].body (listLength)"; "At body.arms[1].body (listLength)"; "At body.fields[0].value (originalTarget)"; "At body.arms[0].body (originalTarget)"; "At body.right (originalTarget)"; "The function body produces T, but the requested result type is Int64."; "found T and Int64"; "but the source recipe produces T. At body (fieldAccess)."; "but the source recipe produces T. At body (productUpdate)."; "requires List<T>, but the recipe produces List<Int64>"; "The function body produces " + String.replicate 30 "Box<" + "Int64" + String.replicate 30 ">" + ", but"; "The function body produces " + String.replicate 28 "Maybe<" + "Point" + String.replicate 28 ">" + ", but"; "Exception<> is not equatable"; "at Shape.circle.radius"; "at List item"; "type parameters are never equatable" ] do
+                Assert.True(shownText.Contains shown, $"No F# reply shows {shown}; the inference parity test does not cover it.")
+            Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
+            Assert.True(located > 60, $"Only {located} Zig replies locate their diagnostic."))
