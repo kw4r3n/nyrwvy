@@ -2,17 +2,21 @@
 //! `WireRecipe`, `WireRecipeCommon`, `WireRecipeNames`), with its rejections. A recipe that decodes
 //! stays the request's JSON value; the later steps read it from there.
 const std = @import("std");
+const model = @import("model_reader");
 const query = @import("query.zig");
 
 const Json = std.json.Value;
 const Allocator = std.mem.Allocator;
 const Fail = anyerror;
 
-const Shape = enum { recipe, recipes, id, type, types, int, int64, bool, text, bits, optrecipe, context, args, capargs, fields, mode, slot, selfargs, impls, arms };
-const Read = struct { name: []const u8, shape: Shape };
+const Shape = enum { recipe, recipes, id, type, types, int, int64, bool, text, bits, optrecipe, context, args, capargs, fields, mode, slot, selfargs, impls, arms, pname, fnref, ctx, capsel, capop, typesel, variant, field, pfields, ufields, scapargs, simpls, sarms };
+/// `callback`: for a callback context, the property whose function it binds.
+const Read = struct { name: []const u8, shape: Shape, callback: []const u8 = "" };
+const Table = std.StringHashMapUnmanaged(Kind);
 const Kind = struct { context: []const u8, allowed: []const []const u8, required: []const []const u8, reads: []const Read };
 
-var kinds: ?std.StringHashMapUnmanaged(Kind) = null;
+var kinds: ?Table = null;
+var byname_kinds: ?Table = null;
 
 fn words(gpa: Allocator, text: []const u8) []const []const u8 {
     var out: std.ArrayList([]const u8) = .empty;
@@ -21,11 +25,20 @@ fn words(gpa: Allocator, text: []const u8) []const []const u8 {
     return out.items;
 }
 
-fn kindTable() std.StringHashMapUnmanaged(Kind) {
-    if (kinds) |table| return table;
+fn kindTable() Table {
+    if (kinds == null) kinds = parseTable("recipe_kinds.txt");
+    return kinds.?;
+}
+
+fn byNameTable() Table {
+    if (byname_kinds == null) byname_kinds = parseTable("recipe_kinds_byname.txt");
+    return byname_kinds.?;
+}
+
+fn parseTable(comptime file: []const u8) Table {
     const gpa = std.heap.page_allocator;
-    var table: std.StringHashMapUnmanaged(Kind) = .empty;
-    var lines = std.mem.tokenizeScalar(u8, @embedFile("recipe_kinds.txt"), '\n');
+    var table: Table = .empty;
+    var lines = std.mem.tokenizeScalar(u8, @embedFile(file), '\n');
     while (lines.next()) |line| {
         if (line[0] == '#') continue;
         var parts = std.mem.splitScalar(u8, line, '|');
@@ -35,12 +48,13 @@ fn kindTable() std.StringHashMapUnmanaged(Kind) {
         const required = words(gpa, parts.next().?);
         var reads: std.ArrayList(Read) = .empty;
         for (words(gpa, parts.next().?)) |item| {
-            const colon = std.mem.indexOfScalar(u8, item, ':').?;
-            reads.append(gpa, .{ .name = item[0..colon], .shape = std.meta.stringToEnum(Shape, item[colon + 1 ..]) orelse std.debug.panic("recipe_kinds.txt: unknown shape '{s}'", .{item}) }) catch @panic("out of memory");
+            var bits = std.mem.splitScalar(u8, item, ':');
+            const read_name = bits.next().?;
+            const shape = std.meta.stringToEnum(Shape, bits.next().?) orelse std.debug.panic(file ++ ": unknown shape '{s}'", .{item});
+            reads.append(gpa, .{ .name = read_name, .shape = shape, .callback = bits.next() orelse "" }) catch @panic("out of memory");
         }
         table.put(gpa, name, .{ .context = context, .allowed = allowed, .required = required, .reads = reads.items }) catch @panic("out of memory");
     }
-    kinds = table;
     return table;
 }
 
@@ -88,9 +102,14 @@ pub fn duplicatePaths(a: Allocator, line: []const u8) !std.StringHashMapUnmanage
     }
 }
 
+/// The function a by-name recipe is written for (`WireSymbolic.ParameterContext.NewFunction`).
+pub const Owner = struct { name: []const u8, parameters: []const []const u8 = &.{} };
+
 pub const Decoder = struct {
     r: *query.Request,
     duplicates: std.StringHashMapUnmanaged(void),
+    /// Set for a by-name request: recipes and types are then `WireSymbolic`'s.
+    owner: ?Owner = null,
 
     fn fail(self: *Decoder, comptime format: []const u8, args: anytype) Fail {
         return self.r.fail(format, args);
@@ -209,8 +228,8 @@ pub const Decoder = struct {
         const eql = std.mem.eql;
         if (eql(u8, kind, "function")) {
             try self.ensureFields(path, value, "Function type", &.{ "kind", "parameters", "resultType" }, &.{ "kind", "parameters", "resultType" });
-            for (try self.array(value, "parameters"), 0..) |item, i| try self.typeRef(try self.at(try self.at(path, "parameters"), i), item);
-            try self.typeRef(try self.at(path, "resultType"), try self.property(value, "resultType"));
+            for (try self.array(value, "parameters"), 0..) |item, i| try self.anyType(try self.at(try self.at(path, "parameters"), i), item);
+            try self.anyType(try self.at(path, "resultType"), try self.property(value, "resultType"));
         } else if (eql(u8, kind, "primitive")) {
             try self.ensureFields(path, value, "primitive type", &.{ "kind", "primitive" }, &.{ "kind", "primitive" });
             const primitive = try self.requiredString(value, "primitive");
@@ -238,13 +257,187 @@ pub const Decoder = struct {
             for ([_][]const u8{ "option", "result", "map", "list", "set", "oneShot", "task", "exception", "taskScope" }) |known| {
                 if (eql(u8, known, generic)) break;
             } else return self.fail("Unsupported builtin generic '{s}'.", .{generic});
-            for (try self.array(value, "arguments"), 0..) |item, i| try self.typeRef(try self.at(try self.at(path, "arguments"), i), item);
+            for (try self.array(value, "arguments"), 0..) |item, i| try self.anyType(try self.at(try self.at(path, "arguments"), i), item);
         } else return self.fail("Unsupported type kind '{s}'.", .{kind});
     }
 
     fn typeArguments(self: *Decoder, path: []const u8, value: Json, name: []const u8) Fail!void {
         if ((try self.tryProperty(value, name)) == null) return;
-        for (try self.array(value, name), 0..) |item, i| try self.typeRef(try self.at(try self.at(path, name), i), item);
+        for (try self.array(value, name), 0..) |item, i| try self.anyType(try self.at(try self.at(path, name), i), item);
+    }
+
+    /// A type as this request spells it: `WireInput.typeRef`, or `WireSymbolic.typeRef` by name.
+    pub fn anyType(self: *Decoder, path: []const u8, value: Json) Fail!void {
+        if (self.owner == null) return self.typeRef(path, value);
+        const kind = try self.requiredString(value, "kind");
+        const eql = std.mem.eql;
+        if (eql(u8, kind, "function") or eql(u8, kind, "primitive") or eql(u8, kind, "builtinGeneric")) {
+            try self.typeRef(path, value);
+        } else if (eql(u8, kind, "named")) {
+            try self.ensureFields(path, value, "named type", &.{ "kind", "name", "arguments" }, &.{ "kind", "name" });
+            // A string name is read before the arguments (to look it up among types created together).
+            const name = try self.property(value, "name");
+            if (name == .string) _ = try query.readable(self.r, name.string);
+            try self.typeArguments(path, value, "arguments");
+            _ = try self.selector(try self.at(path, "name"), name, "type");
+        } else if (eql(u8, kind, "capability")) {
+            try self.ensureFields(path, value, "capability type", &.{ "kind", "name" }, &.{ "kind", "name" });
+            _ = try self.selector(try self.at(path, "name"), try self.property(value, "name"), "capability");
+        } else if (eql(u8, kind, "typeParameter")) {
+            try self.ensureFields(path, value, "type parameter", &.{ "kind", "name" }, &.{ "kind", "name" });
+            const name = try self.requiredString(value, "name");
+            if (try isBlank(self.r.a, name)) return self.fail("Type parameter names must not be blank.", .{});
+            try self.id(value, "name");
+        } else return self.fail("Unsupported symbolic type kind '{s}'.", .{kind});
+    }
+
+    /// `WireSymbolic.resolveSelector` of `selector` (at `path`) among the visible `kind` declarations.
+    pub fn selector(self: *Decoder, path: []const u8, selector_value: Json, kind: []const u8) Fail!query.Value {
+        const items = try query.visible(self.r, kind);
+        if (selector_value == .string) return query.exactOne(self.r, kind, try query.readable(self.r, selector_value.string), items);
+        try self.ensureFields(path, selector_value, try std.fmt.allocPrint(self.r.a, "{s} selector", .{kind}), &.{ "id", "name", "dependencySnapshotId", "ownership" }, &.{});
+        return query.guarded(self.r, kind, items, selector_value.object);
+    }
+
+    /// `exactOne` among the `group` members of a declaration, labelled `label` (with `args`).
+    fn member(self: *Decoder, comptime label: []const u8, args: anytype, parent: query.Value, group: []const u8, wanted: []const u8) Fail!query.Value {
+        return query.exactOne(self.r, try std.fmt.allocPrint(self.r.a, label, args), wanted, model.arrayItems(parent, group));
+    }
+
+    /// `exactOne` among names, as an index.
+    fn exactName(self: *Decoder, label: []const u8, wanted: []const u8, names: []const []const u8) Fail!usize {
+        var found: ?usize = null;
+        var count: usize = 0;
+        for (names, 0..) |name, i| if (std.mem.eql(u8, name, wanted)) {
+            found = i;
+            count += 1;
+        };
+        if (count == 1) return found.?;
+        if (count == 0) return self.fail("Unknown {s} '{s}'.{s}", .{ label, wanted, try query.candidateHint(self.r.a, wanted, names) });
+        return self.fail("Ambiguous {s} '{s}'.", .{ label, wanted });
+    }
+
+    fn productField(self: *Decoder, owner: query.Value, name: []const u8) Fail!query.Value {
+        if (model.property(owner, "fields") == null) return self.fail("Type '{s}' is not a product type.", .{query.nameOf(owner)});
+        return self.member("field on {s}", .{query.nameOf(owner)}, owner, "fields", name);
+    }
+
+    fn unionVariant(self: *Decoder, owner: query.Value, name: []const u8) Fail!query.Value {
+        if (model.property(owner, "variants") == null) return self.fail("Type '{s}' is not a union type.", .{query.nameOf(owner)});
+        return self.member("variant on {s}", .{query.nameOf(owner)}, owner, "variants", name);
+    }
+
+    fn variantField(self: *Decoder, variant: query.Value, name: []const u8) Fail!query.Value {
+        return self.member("field on variant {s}", .{query.nameOf(variant)}, variant, "fields", name);
+    }
+
+    fn functionNamed(self: *Decoder, name: []const u8) Fail!bool {
+        for (try query.visible(self.r, "function")) |item| if (std.mem.eql(u8, query.nameOf(item), name)) return true;
+        return false;
+    }
+
+    /// `resolveReferencedFunction`: a callback, worker or function value.
+    fn referencedFunction(self: *Decoder, path: []const u8, value: Json, key: []const u8) Fail!query.Value {
+        const selector_value = try self.property(value, key);
+        if (selector_value == .string) {
+            const name = try query.readable(self.r, selector_value.string);
+            if (std.mem.eql(u8, name, self.owner.?.name) and !try self.functionNamed(name))
+                return self.fail("Function '{s}' is the function being created: only a directCall to it is a self call. A callback, worker or functionReference naming it (and mutual recursion through another new function) needs it to exist, so create it with a placeholder body, create the functions it calls back, then give it the real body with simulateReplaceBodyByName.", .{name});
+        }
+        return self.selector(try self.at(path, key), selector_value, "function");
+    }
+
+    /// `namedCallbackContext`: `[{ parameter, value }]` naming the callback's parameters.
+    fn callbackContext(self: *Decoder, path: []const u8, value: Json, name: []const u8, callback: query.Value) Fail!void {
+        if ((try self.tryProperty(value, name)) == null) return;
+        for (try self.array(value, name), 0..) |item, i| {
+            const item_path = try self.at(try self.at(path, name), i);
+            try self.ensureFields(item_path, item, "callback context", &.{ "parameter", "value" }, &.{ "parameter", "value" });
+            _ = try self.member("parameter on {s}", .{query.nameOf(callback)}, callback, "parameters", try self.requiredString(item, "parameter"));
+            try self.recipe(try self.at(item_path, "value"), try self.property(item, "value"));
+        }
+    }
+
+    /// `WireInput.unionArms`; `owner` resolves variant names (by name), or they are exact IDs.
+    fn arms(self: *Decoder, path: []const u8, value: Json, single: []const u8, plural: []const u8, owner: ?query.Value) Fail!void {
+        for (try self.array(value, "arms"), 0..) |arm, i| {
+            const arm_path = try self.at(try self.at(path, "arms"), i);
+            try self.ensureFields(arm_path, arm, "union arm", &.{ single, plural, "body" }, &.{"body"});
+            const one, const many = .{ (try self.tryProperty(arm, single)) != null, (try self.tryProperty(arm, plural)) != null };
+            if (one and !many) {
+                try self.variantOf(owner, try self.requiredString(arm, single));
+            } else if (many and !one) {
+                const items = try self.array(arm, plural);
+                if (items.len == 0) return self.fail("Property '{s}' must name at least one variant.", .{plural});
+                for (items) |item| {
+                    if (item != .string) return self.fail("Property '{s}' must contain only strings.", .{plural});
+                    try self.variantOf(owner, try query.readable(self.r, item.string));
+                }
+            } else return self.fail("A union arm requires exactly one of '{s}' and '{s}'.", .{ single, plural });
+            try self.recipe(try self.at(arm_path, "body"), try self.property(arm, "body"));
+        }
+        if (try self.tryProperty(value, "otherwise")) |otherwise| try self.recipe(try self.at(path, "otherwise"), otherwise);
+    }
+
+    fn variantOf(self: *Decoder, owner: ?query.Value, name: []const u8) Fail!void {
+        if (owner) |type_| _ = try self.unionVariant(type_, name) else _ = try self.stableId("variantId", name);
+    }
+
+    /// The by-name `patternReference`: the slot is read before the fields are checked.
+    fn namedSlot(self: *Decoder, path: []const u8, value: Json) Fail!void {
+        const slot = try self.requiredString(value, "slot");
+        if (std.mem.eql(u8, slot, "value") or std.mem.eql(u8, slot, "error")) {
+            try self.ensureFields(path, value, "pattern-reference recipe", &.{ "kind", "scopeDepth", "slot" }, &.{ "kind", "scopeDepth", "slot" });
+        } else if (std.mem.eql(u8, slot, "field")) {
+            const all = &.{ "kind", "scopeDepth", "slot", "type", "variant", "field" };
+            try self.ensureFields(path, value, "pattern-reference recipe", all, all);
+            const owner = try self.selector(try self.at(path, "type"), try self.property(value, "type"), "type");
+            const variant = try self.unionVariant(owner, try self.requiredString(value, "variant"));
+            _ = try self.variantField(variant, try self.requiredString(value, "field"));
+        } else return self.fail("Unsupported pattern slot '{s}'.", .{slot});
+        try self.requiredInt(value, "scopeDepth");
+    }
+
+    /// The by-name `directCall`: a call naming the function being created is a self call.
+    fn directCall(self: *Decoder, path: []const u8, value: Json) Fail!void {
+        try self.ensureFields(path, value, "direct-call recipe", &.{ "kind", "function", "arguments", "keepUnlisted" }, &.{ "kind", "function", "arguments" });
+        const callee_selector = try self.property(value, "function");
+        const callee_name: ?[]const u8 = if (callee_selector == .string) try query.readable(self.r, callee_selector.string) else null;
+        // Object guards resolve before recursion is classified.
+        const selected: ?query.Value = if (callee_selector == .string) null else try self.selector(try self.at(path, "function"), callee_selector, "function");
+        const keep = try self.flag(value, "keepUnlisted");
+        const owner = self.owner.?;
+        if (callee_name != null and std.mem.eql(u8, callee_name.?, owner.name)) {
+            if (try self.functionNamed(owner.name)) return self.fail("Ambiguous function '{s}'.", .{owner.name});
+            const label = try std.fmt.allocPrint(self.r.a, "parameter on {s}", .{owner.name});
+            var named = try self.r.a.alloc(bool, owner.parameters.len);
+            @memset(named, false);
+            for (try self.array(value, "arguments"), 0..) |item, i| {
+                const item_path = try self.at(try self.at(path, "arguments"), i);
+                try self.ensureFields(item_path, item, "call argument", &.{ "parameter", "value" }, &.{ "parameter", "value" });
+                named[try self.exactName(label, try self.requiredString(item, "parameter"), owner.parameters)] = true;
+                try self.recipe(try self.at(item_path, "value"), try self.property(item, "value"));
+            }
+            if (keep) for (owner.parameters, named) |name, done| if (!done) {
+                _ = try self.exactName("new function parameter", name, owner.parameters);
+            };
+        } else if (keep) {
+            return self.fail("keepUnlisted applies only to a call of the function being created or replaced; '{s}' is another function.", .{callee_name orelse ""});
+        } else {
+            const callee = selected orelse try self.selector(try self.at(path, "function"), callee_selector, "function");
+            for (try self.array(value, "arguments"), 0..) |item, i| {
+                const item_path = try self.at(try self.at(path, "arguments"), i);
+                try self.ensureFields(item_path, item, "call argument", &.{ "parameter", "value" }, &.{ "parameter", "value" });
+                _ = try self.member("parameter on {s}", .{query.nameOf(callee)}, callee, "parameters", try self.requiredString(item, "parameter"));
+                try self.recipe(try self.at(item_path, "value"), try self.property(item, "value"));
+            }
+        }
+    }
+
+    fn flag(self: *Decoder, value: Json, name: []const u8) Fail!bool {
+        const v = (try self.tryProperty(value, name)) orelse return false;
+        if (v != .bool) return self.fail("Property '{s}' must be a JSON boolean.", .{name});
+        return v.bool;
     }
 
     /// Bindings of one target each: call arguments, capability arguments, field values.
@@ -257,20 +450,75 @@ pub const Decoder = struct {
         }
     }
 
-    /// `WireRecipe.recipeIn` (after `WireRecipeNames.resolve`) of an exact-ID recipe.
+    /// `WireRecipe.recipeIn` (after `WireRecipeNames.resolve`) of an exact-ID recipe, or
+    /// `WireSymbolic.recipe` of a by-name one.
     pub fn recipe(self: *Decoder, path: []const u8, value: Json) Fail!void {
         const kind_name = try self.requiredString(value, "kind");
-        const kind = kindTable().get(kind_name) orelse return self.fail("Unsupported expression recipe kind '{s}'.", .{kind_name});
+        const eql = std.mem.eql;
+        const kind = if (self.owner == null)
+            kindTable().get(kind_name) orelse return self.fail("Unsupported expression recipe kind '{s}'.", .{kind_name})
+        else blk: {
+            if (eql(u8, kind_name, "patternReference")) return self.namedSlot(path, value);
+            if (eql(u8, kind_name, "directCall")) return self.directCall(path, value);
+            if (byNameTable().get(kind_name)) |kind| break :blk kind;
+            // `WireRecipeCommon.tryReferenceFree`: the exact kinds but the two the by-name surface spells as `parameter` and `directCall`.
+            if (!eql(u8, kind_name, "parameterSlot") and !eql(u8, kind_name, "selfCall")) if (kindTable().get(kind_name)) |kind| break :blk kind;
+            return self.fail("Unsupported symbolic expression recipe kind '{s}'.", .{kind_name});
+        };
         try self.ensureFields(path, value, kind.context, kind.allowed, kind.required);
+        // What earlier reads of this recipe resolved, for the later ones.
+        var callbacks: [2]struct { name: []const u8, function: query.Value } = undefined;
+        var callback_count: usize = 0;
+        var capability: ?query.Value = null;
+        var operation: ?query.Value = null;
+        var owner: ?query.Value = null;
+        var variant: ?query.Value = null;
         for (kind.reads) |read| {
             const name = read.name;
             const here = try self.at(path, name);
             switch (read.shape) {
+                .pname => _ = try self.exactName("new function parameter", try self.requiredString(value, name), self.owner.?.parameters),
+                .fnref => {
+                    callbacks[callback_count] = .{ .name = name, .function = try self.referencedFunction(path, value, name) };
+                    callback_count += 1;
+                },
+                .ctx => for (callbacks[0..callback_count]) |callback| {
+                    if (eql(u8, callback.name, read.callback)) try self.callbackContext(path, value, name, callback.function);
+                },
+                .capsel => capability = try self.selector(here, try self.property(value, name), "capability"),
+                .capop => operation = try self.member("operation on {s}", .{query.nameOf(capability.?)}, capability.?, "operations", try self.requiredString(value, name)),
+                .typesel => owner = try self.selector(here, try self.property(value, name), "type"),
+                .variant => variant = try self.unionVariant(owner.?, try self.requiredString(value, name)),
+                .field => _ = try self.productField(owner.?, try self.requiredString(value, name)),
+                .pfields, .ufields, .scapargs => for (try self.array(value, name), 0..) |item, i| {
+                    const item_path = try self.at(here, i);
+                    const target = if (read.shape == .scapargs) "parameter" else "field";
+                    const context = switch (read.shape) {
+                        .pfields => "product field recipe",
+                        .ufields => "union field recipe",
+                        else => "capability argument",
+                    };
+                    try self.ensureFields(item_path, item, context, &.{ target, "value" }, &.{ target, "value" });
+                    const wanted = try self.requiredString(item, target);
+                    _ = switch (read.shape) {
+                        .pfields => try self.productField(owner.?, wanted),
+                        .ufields => try self.variantField(variant.?, wanted),
+                        else => try self.member("parameter on operation {s}", .{query.nameOf(operation.?)}, operation.?, "parameters", wanted),
+                    };
+                    try self.recipe(try self.at(item_path, "value"), try self.property(item, "value"));
+                },
+                .simpls => for (try self.array(value, name), 0..) |item, i| {
+                    const item_path = try self.at(here, i);
+                    try self.ensureFields(item_path, item, "Capability implementation", &.{ "operation", "function" }, &.{ "operation", "function" });
+                    _ = try self.member("operation on {s}", .{query.nameOf(capability.?)}, capability.?, "operations", try self.requiredString(item, "operation"));
+                    _ = try self.referencedFunction(item_path, item, "function");
+                },
+                .sarms => try self.arms(path, value, "variant", "variants", owner.?),
                 .recipe => try self.recipe(here, try self.property(value, name)),
                 .recipes => for (try self.array(value, name), 0..) |item, i| try self.recipe(try self.at(here, i), item),
                 .optrecipe => if (try self.tryProperty(value, name)) |item| try self.recipe(here, item),
                 .id => try self.id(value, name),
-                .type => try self.typeRef(here, try self.property(value, name)),
+                .type => try self.anyType(here, try self.property(value, name)),
                 .types => try self.typeArguments(path, value, name),
                 .int => try self.requiredInt(value, name),
                 .int64 => try self.requiredInt64(value, name),
@@ -324,25 +572,7 @@ pub const Decoder = struct {
                     try self.id(item, "operationId");
                     try self.id(item, "functionId");
                 },
-                .arms => {
-                    for (try self.array(value, "arms"), 0..) |arm, i| {
-                        const arm_path = try self.at(try self.at(path, "arms"), i);
-                        try self.ensureFields(arm_path, arm, "union arm", &.{ "variantId", "variantIds", "body" }, &.{"body"});
-                        const single, const plural = .{ (try self.tryProperty(arm, "variantId")) != null, (try self.tryProperty(arm, "variantIds")) != null };
-                        if (single and !plural) {
-                            _ = try self.stableId("variantId", try self.requiredString(arm, "variantId"));
-                        } else if (plural and !single) {
-                            const items = try self.array(arm, "variantIds");
-                            if (items.len == 0) return self.fail("Property 'variantIds' must name at least one variant.", .{});
-                            for (items) |item| {
-                                if (item != .string) return self.fail("Property 'variantIds' must contain only strings.", .{});
-                                _ = try self.stableId("variantId", try query.readable(self.r, item.string));
-                            }
-                        } else return self.fail("A union arm requires exactly one of 'variantId' and 'variantIds'.", .{});
-                        try self.recipe(try self.at(arm_path, "body"), try self.property(arm, "body"));
-                    }
-                    if (try self.tryProperty(value, "otherwise")) |otherwise| try self.recipe(try self.at(path, "otherwise"), otherwise);
-                },
+                .arms => try self.arms(path, value, "variantId", "variantIds", null),
             }
         }
     }

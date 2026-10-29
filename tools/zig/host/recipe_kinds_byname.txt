@@ -1,0 +1,54 @@
+# The by-name expression recipes of WireSymbolic.recipe that differ from recipe_kinds.txt, as the Zig host decodes them; the other
+# kinds are WireRecipeCommon.tryReferenceFree's, read from recipe_kinds.txt. patternReference and directCall are decoded in code.
+# kind|ensureFields context|allowed|required|reads in F# evaluation order (name:shape, or name:shape:callback for a callback context).
+# Types are symbolic here. Derived from WireSymbolic.fs; ZigHostParityTests checks the decoding.
+parameter|parameter recipe|kind name|kind name|name:pname
+listEmpty|list-empty recipe|kind itemType|kind itemType|itemType:type
+setEmpty|set-empty recipe|kind itemType|kind itemType|itemType:type
+mapEmpty|map-empty recipe|kind keyType valueType|kind keyType valueType|keyType:type valueType:type
+listConstruct|list-construct recipe|kind itemType items|kind itemType items|itemType:type items:recipes
+listFold|list-fold recipe|kind source seed function context|kind source seed function|function:fnref source:recipe seed:recipe context:ctx:function
+listScan|list-scan recipe|kind source seed function context|kind source seed function|function:fnref source:recipe seed:recipe context:ctx:function
+mapFold|map-fold recipe|kind map seed function context|kind map seed function|function:fnref map:recipe seed:recipe context:ctx:function
+setFold|set-fold recipe|kind set seed function context|kind set seed function|function:fnref set:recipe seed:recipe context:ctx:function
+listEffectFold|list-effect-fold recipe|kind source seed function context|kind source seed function|function:fnref source:recipe seed:recipe context:ctx:function
+useResource|use-resource recipe|kind acquire releaseCapability capability releaseOperation body context|kind acquire releaseCapability capability releaseOperation body|capability:capsel releaseOperation:capop body:fnref acquire:recipe releaseCapability:recipe context:ctx:body
+parallelAll|parallel-all recipe|kind source worker context|kind source worker|worker:fnref source:recipe context:ctx:worker
+exceptionCatch|exception-catch recipe|kind body handler bodyContext handlerContext|kind body handler|body:fnref handler:fnref bodyContext:ctx:body handlerContext:ctx:handler
+exceptionRethrow|exception-rethrow recipe|kind value resultType|kind value resultType|value:recipe resultType:type
+cancellationShield|cancellation-shield recipe|kind body context|kind body|body:fnref context:ctx:body
+taskScope|task-scope recipe|kind body context|kind body|body:fnref context:ctx:body
+taskStart|task-start recipe|kind scope worker item context|kind scope worker item|worker:fnref scope:recipe context:ctx:worker item:recipe
+taskWait|task-wait recipe|kind tasks mode limit|kind tasks mode|tasks:recipe mode:mode limit:optrecipe
+oneShotCreate|one-shot-create recipe|kind scope valueType|kind scope valueType|scope:recipe valueType:type
+mapFilter|map-filter recipe|kind map function context|kind map function|function:fnref map:recipe context:ctx:function
+setFilter|set-filter recipe|kind set function context|kind set function|function:fnref set:recipe context:ctx:function
+optionMap|option-map recipe|kind option function context|kind option function|function:fnref option:recipe context:ctx:function
+optionAndThen|option-and-then recipe|kind option function context|kind option function|function:fnref option:recipe context:ctx:function
+resultMap|result-map recipe|kind result function context|kind result function|function:fnref result:recipe context:ctx:function
+resultMapErr|result-map-err recipe|kind result function context|kind result function|function:fnref result:recipe context:ctx:function
+resultAndThen|result-and-then recipe|kind result function context|kind result function|function:fnref result:recipe context:ctx:function
+mapMapValues|map-map-values recipe|kind map function context|kind map function|function:fnref map:recipe context:ctx:function
+setMap|set-map recipe|kind set function context|kind set function|function:fnref set:recipe context:ctx:function
+listZipWith|list-zip-with recipe|kind left right function context|kind left right function|function:fnref left:recipe right:recipe context:ctx:function
+listFlatMap|listFlatMap recipe|kind source function context|kind source function|source:recipe function:fnref context:ctx:function
+listMap|listMap recipe|kind source function context|kind source function|source:recipe function:fnref context:ctx:function
+mapFromList|mapFromList recipe|kind source function context|kind source function|source:recipe function:fnref context:ctx:function
+listSortBy|listSortBy recipe|kind source function context|kind source function|source:recipe function:fnref context:ctx:function
+listMinBy|listMinBy recipe|kind source function context|kind source function|source:recipe function:fnref context:ctx:function
+listMaxBy|listMaxBy recipe|kind source function context|kind source function|source:recipe function:fnref context:ctx:function
+listFilter|listFilter recipe|kind source function context|kind source function|source:recipe function:fnref context:ctx:function
+listAny|listAny recipe|kind source function context|kind source function|source:recipe function:fnref context:ctx:function
+listFindIndex|listFindIndex recipe|kind source function context|kind source function|source:recipe function:fnref context:ctx:function
+listAll|listAll recipe|kind source function context|kind source function|source:recipe function:fnref context:ctx:function
+productConstruct|product-construct recipe|kind type typeArguments fields|kind type fields|type:typesel fields:pfields typeArguments:types
+fieldAccess|field-access recipe|kind source type field|kind source type field|type:typesel field:field source:recipe
+productUpdate|product-update recipe|kind type source fields|kind type source fields|type:typesel fields:pfields source:recipe
+unionConstruct|union-construct recipe|kind type variant typeArguments fields|kind type variant fields|type:typesel variant:variant fields:ufields typeArguments:types
+optionNone|option-none recipe|kind itemType|kind itemType|itemType:type
+resultOk|result-ok recipe|kind errorType value|kind errorType value|errorType:type value:recipe
+resultErr|result-err recipe|kind okType error|kind okType error|okType:type error:recipe
+capabilityConstruct|Capability construction recipe|kind capability implementations|kind capability implementations|capability:capsel implementations:simpls
+functionReference|Function reference recipe|kind function|kind function|function:fnref
+capabilityInvoke|capability-invoke recipe|kind capabilityValue capability operation arguments|kind capabilityValue capability operation arguments|capability:capsel operation:capop arguments:scapargs capabilityValue:recipe
+matchUnion|match-union recipe|kind type input arms otherwise|kind type input arms|type:typesel arms:sarms input:recipe

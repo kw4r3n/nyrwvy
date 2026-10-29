@@ -8,7 +8,7 @@ const case_runs = @import("case_runs.zig");
 const viewer = @import("viewer.zig");
 const view_file = @import("view_file.zig");
 
-const Value = model.Value;
+pub const Value = model.Value;
 const Str = model.Str;
 const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
@@ -249,7 +249,7 @@ fn quotedList(a: Allocator, names: []const []const u8) ![]const u8 {
 }
 
 /// `candidateHint`: every name when there are few, otherwise the closest few.
-fn candidateHint(a: Allocator, wanted_name: []const u8, all: []const []const u8) ![]const u8 {
+pub fn candidateHint(a: Allocator, wanted_name: []const u8, all: []const []const u8) ![]const u8 {
     var names: std.ArrayList([]const u8) = .empty;
     for (all) |name| {
         if (name.len == 0) continue;
@@ -268,7 +268,8 @@ fn candidateHint(a: Allocator, wanted_name: []const u8, all: []const []const u8)
         if (distance <= @max(2, wanted.len / 3) or (wanted.len >= 3 and (std.mem.indexOf(u16, lower, wanted) != null or std.mem.indexOf(u16, wanted, lower) != null)))
             try close.append(a, .{ .name = name, .distance = distance });
     }
-    std.mem.sort(Close, close.items, {}, struct {
+    // Stable, as `List.sortBy` is: ties keep the names' order.
+    std.sort.insertion(Close, close.items, {}, struct {
         fn less(_: void, x: Close, y: Close) bool {
             return x.distance < y.distance;
         }
@@ -281,11 +282,11 @@ fn candidateHint(a: Allocator, wanted_name: []const u8, all: []const []const u8)
 
 // ---------------------------------------------------------------- declarations
 
-fn nameOf(item: Value) []const u8 {
+pub fn nameOf(item: Value) []const u8 {
     return model.utf8(model.decoded(model.property(item, "displayName").?));
 }
 
-fn idOf(item: Value) []const u8 {
+pub fn idOf(item: Value) []const u8 {
     return model.utf8(model.decoded(model.property(item, "id").?));
 }
 
@@ -299,7 +300,7 @@ fn hidden(r: *const Request) []const []const u8 {
 }
 
 /// The `kind` declarations of `AuthoringDeclarations`: the model's, less the hidden imports.
-fn visible(r: *const Request, kind: []const u8) ![]const Value {
+pub fn visible(r: *const Request, kind: []const u8) ![]const Value {
     const group = if (std.mem.eql(u8, kind, "function")) "functions" else if (std.mem.eql(u8, kind, "type")) "types" else if (std.mem.eql(u8, kind, "effect")) "effects" else "capabilities";
     var out: std.ArrayList(Value) = .empty;
     for (model.arrayItems(r.model, group)) |item| {
@@ -317,7 +318,7 @@ fn sources(r: *const Request, kind: []const u8, id: []const u8) ![]const wire.Pr
     return out.items;
 }
 
-fn exactOne(r: *Request, label: []const u8, wanted: []const u8, items: []const Value) Fail!Value {
+pub fn exactOne(r: *Request, label: []const u8, wanted: []const u8, items: []const Value) Fail!Value {
     var found: ?Value = null;
     var count: usize = 0;
     var names: std.ArrayList([]const u8) = .empty;
@@ -349,9 +350,15 @@ fn resolve(r: *Request, kind: []const u8, object: std.json.ObjectMap, key: []con
     const fields = &.{ "id", "name", "dependencySnapshotId", "ownership" };
     try lookable(r, selector.object);
     if (try fieldProblem(r.a, r.line, path, selector.object, try std.fmt.allocPrint(r.a, "{s} selector", .{kind}), fields, &.{})) |message| return r.fail("{s}", .{message});
+    return guarded(r, kind, items, selector.object);
+}
+
+/// The rest of `WireSymbolic.resolveSelector` for an object selector whose fields were checked.
+pub fn guarded(r: *Request, kind: []const u8, items: []const Value, object: std.json.ObjectMap) Fail!Value {
+    const fields = &.{ "id", "name", "dependencySnapshotId", "ownership" };
     var guards: [4]?[]const u8 = .{ null, null, null, null };
     inline for (fields, 0..) |field, index| {
-        if (selector.object.get(field) != null) guards[index] = try requiredString(r, selector.object, field);
+        if (object.get(field) != null) guards[index] = try requiredString(r, object, field);
     }
     const id, const wanted_name, const dependency, const ownership = guards;
     if (id == null and wanted_name == null) return r.fail("A declaration selector needs id or name.", .{});
@@ -1625,5 +1632,50 @@ pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
     try recipe.resolveNames(&d, body, try recipe.rawProperty(r.a, r.line, "body"));
     try d.recipe("/body", body.*);
     r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host reads simulateCreateFunction requests but does not simulate them yet." };
+    return error.Rejected;
+}
+
+/// `simulateCreateFunctionByName` as `functionCreationByName` reads it; a request that decodes is not simulated yet.
+pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
+    _ = out;
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateCreateFunctionByName request", &.{ "id", "op", "displayName", "exported", "mustNotWait", "typeParameters", "parameters", "resultType", "requiredEffects", "body", "bodyFile", "structuredReview", "detail", "expectedSnapshotId" }, &.{ "id", "op", "displayName", "parameters", "resultType", "requiredEffects" })) |message| return r.fail("{s}", .{message});
+    var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
+    const root: std.json.Value = .{ .object = r.root };
+    if (r.root.get("expectedSnapshotId") != null) _ = try d.stableId("expectedSnapshotId", try d.requiredString(root, "expectedSnapshotId"));
+    const display_name = try d.requiredString(root, "displayName");
+    for (try visible(r, "function")) |item| if (std.mem.eql(u8, nameOf(item), display_name))
+        return r.fail("Function display name '{s}' already exists. Choose a unique name or use the exact-ID authoring surface.", .{display_name});
+    d.owner = .{ .name = display_name };
+    var parameters: std.ArrayList([]const u8) = .empty;
+    for (try d.array(root, "parameters"), 0..) |item, i| {
+        const path = try std.fmt.allocPrint(r.a, "/parameters/{d}", .{i});
+        try d.ensureFields(path, item, "function parameter", &.{ "displayName", "type" }, &.{ "displayName", "type" });
+        try parameters.append(r.a, try d.requiredString(item, "displayName"));
+        try d.anyType(try std.fmt.allocPrint(r.a, "{s}/type", .{path}), try d.property(item, "type"));
+    }
+    d.owner.?.parameters = parameters.items;
+    try d.optionalBool(root, "exported");
+    try d.optionalBool(root, "mustNotWait");
+    if (r.root.get("typeParameters") != null) {
+        for (try d.array(root, "typeParameters")) |item| {
+            if (item != .string) return r.fail("typeParameters must list type parameter names as strings.", .{});
+            if (isBlank(try utf16(r.a, try readable(r, item.string)))) return r.fail("Type parameter names must not be blank.", .{});
+            _ = try d.stableId("typeParameters", item.string);
+        }
+    }
+    try d.anyType("/resultType", try d.property(root, "resultType"));
+    for (try d.array(root, "requiredEffects"), 0..) |item, i| _ = try d.selector(try std.fmt.allocPrint(r.a, "/requiredEffects/{d}", .{i}), item, "effect");
+    // `recipeInput`: exactly one of `body` and `bodyFile`.
+    const inline_body, const file = .{ r.root.getPtr("body"), r.root.get("bodyFile") };
+    if (inline_body == null and file != null) {
+        if (file.? != .string or isBlank(try utf16(r.a, try readable(r, file.?.string)))) return r.fail("bodyFile must be a file path.", .{});
+        // shortcut: bodyFile is not read yet (`confinedJsonFile`); port it with the simulation (3c-4).
+        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host does not read bodyFile yet." };
+        return error.Rejected;
+    }
+    if (inline_body == null or file != null) return r.fail("Pass exactly one of body and bodyFile.", .{});
+    try recipe.resolveNames(&d, inline_body.?, try recipe.rawProperty(r.a, r.line, "body"));
+    try d.recipe("/body", inline_body.?.*);
+    r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host reads simulateCreateFunctionByName requests but does not simulate them yet." };
     return error.Rejected;
 }

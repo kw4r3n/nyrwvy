@@ -111,7 +111,13 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
        - A `SessionError` reply carries .NET's exception text, so the parity tests compare its code and ID only (the user agreed, 2026-10-29).
        - Shortcut: a line that also spells U+FDD0 itself keeps the old parse failure.
        - Parity: every string and property name of every query, spoiled in turn, plus recipe cases in the decode test.
-     - **3c-2.** `ByName`: name resolution (`WireSymbolic`, `WireRecipeNames`) with its rejections.
+     - **3c-2. `simulateCreateFunctionByName` decoding (done).** The request is read as `functionCreationByName` reads it:
+       - the expected snapshot first, then the display name (unique among the visible functions), the parameters, the flags, type parameters, the result type, the required effects and the body (exactly one of `body` and `bodyFile`);
+       - types are `WireSymbolic.typeRef`'s: `named` and `capability` take selectors, and a string `name` is read before the type arguments;
+       - the recipe is `WireSymbolic.recipe`: `recipe_kinds_byname.txt` lists the 52 kinds it spells by name (selectors, fields, variants, operations, parameters and callback contexts, resolved in F#'s order), `patternReference` and `directCall` (self calls, `keepUnlisted`) are decoded in code, and the other 164 kinds are `tryReferenceFree`'s from `recipe_kinds.txt`;
+       - selectors share `query.zig`'s `resolveSelector` port (`guarded`), so names are checked against the visible declarations with F#'s candidate hints and guard advice.
+       - Shortcut: a request with `bodyFile` answers `UnsupportedOperation` once the file name is checked; reading the file (`confinedJsonFile`) comes with the simulation.
+       - Parity: `ZigHostCreateByNameTests` builds a valid instance of each by-name kind from each example's declarations, breaks every property (removed, mistyped, unknown or near-miss names, object selectors with guards), and adds self calls, callback contexts, symbolic types and signature mutations. Every F# `ProtocolError` of an inline body is answered byte for byte (a `bodyFile` request is pinned to `UnsupportedOperation`); the test also checks that the replies show each resolver's rejections.
      - **3c-3.** Preflight and type inference (`ExpressionRecipeInference`), so diagnostics replies match.
      - **3c-4.** Materialization, the structural transaction, readiness and receipt, the proposal registry and the review encoders (compact, full, `structuredReview`). The Zig ID allocator comes here (UUIDv7, the seed and its guard over every snapshot and sidecar text the host reads), the first point where the Zig host creates IDs.
    - **3d.** `simulateReplaceBody(ByName)`: the structural transaction for a body replacement, its diff and its review.

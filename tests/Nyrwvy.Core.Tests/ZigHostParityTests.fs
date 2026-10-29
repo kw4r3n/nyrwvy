@@ -926,3 +926,207 @@ module ZigHostLoneSurrogateTests =
             let fsharp = requests |> List.map (AuthoringProtocol.executeLine session >> sessionErrorCode)
             sameAnswers "lone surrogates" fsharp (answers |> List.map sessionErrorCode) requests
             Assert.Contains(fsharp, fun reply -> reply.Contains "\"code\":\"SessionError\""))
+
+/// Its own class, so xunit runs it beside the other host parity tests.
+module ZigHostCreateByNameTests =
+    open ZigHostParityTests
+
+    let private unit () = JsonNode.Parse """{"kind":"unitLiteral"}"""
+    let private int64Type () = JsonNode.Parse """{"kind":"primitive","primitive":"int64"}"""
+
+    /// Requests for a session's declarations: a valid instance of each by-name recipe kind (from
+    /// tools/zig/host/recipe_kinds_byname.txt), broken one way at a time, and the signature around it.
+    let private requests (declarations: AuthoringDeclarations) =
+        let first fallback items = items |> List.tryHead |> Option.defaultValue fallback
+        let products = declarations.Types |> List.choose (fun t -> match t.Kind with SemanticTypeKind.Product fields when not fields.IsEmpty -> Some(t.DisplayName, fields.Head.DisplayName) | _ -> None)
+        // Prefer members with members of their own; fall back to any, so names still resolve partway.
+        let unions =
+            declarations.Types
+            |> List.collect (fun t -> match t.Kind with SemanticTypeKind.Union variants -> variants |> List.map (fun v -> t.DisplayName, v.DisplayName, v.Fields |> List.tryHead |> Option.map (fun f -> f.DisplayName)) | _ -> [])
+            |> List.sortBy (fun (_, _, field) -> Option.isNone field)
+            |> List.map (fun (t, v, field) -> t, v, Option.defaultValue "noField" field)
+        let product, productField = first ("NoProduct", "noField") products
+        let union, variant, variantField = first ("NoUnion", "noVariant", "noField") unions
+        let functions = declarations.Functions |> List.filter (fun f -> not f.Parameters.IsEmpty)
+        let fn, fnParameter = functions |> List.map (fun f -> f.DisplayName, f.Parameters.Head.DisplayName) |> first ("noFunction", "noParameter")
+        let operations =
+            declarations.Capabilities
+            |> List.collect (fun c -> c.Operations |> List.map (fun o -> c.DisplayName, o.DisplayName, o.Parameters |> List.tryHead |> Option.map (fun p -> p.DisplayName)))
+            |> List.sortBy (fun (_, _, parameter) -> Option.isNone parameter)
+            |> List.map (fun (c, o, parameter) -> c, o, Option.defaultValue "noParameter" parameter)
+        let capability, operation, operationParameter = first ("NoCapability", "noOperation", "noParameter") operations
+        let effect = declarations.Effects |> List.map (fun e -> e.DisplayName) |> first "NoEffect"
+        let node (text: string) = JsonNode.Parse text
+        let str (text: string) : JsonNode = JsonValue.Create text
+        let valueOf (kind: string) (shape: string) : JsonNode =
+            match shape with
+            | "recipe" | "optrecipe" -> unit ()
+            | "recipes" -> JsonArray(unit ())
+            | "type" -> JsonObject(dict [ "kind", str "named"; "name", str product ])
+            | "types" -> JsonArray(int64Type ())
+            | "int" | "int64" -> JsonValue.Create 0
+            | "bool" -> JsonValue.Create true
+            | "text" -> str "text"
+            | "bits" -> str "3ff0000000000000"
+            | "mode" -> str "any"
+            | "pname" -> str "x"
+            | "fnref" -> str fn
+            | "ctx" -> JsonArray(JsonObject(dict [ "parameter", str fnParameter; "value", unit () ]))
+            | "capsel" -> str capability
+            | "capop" -> str operation
+            | "typesel" -> str (if kind = "unionConstruct" || kind = "matchUnion" then union else product)
+            | "variant" -> str variant
+            | "field" -> str productField
+            | "pfields" -> JsonArray(JsonObject(dict [ "field", str productField; "value", unit () ]))
+            | "ufields" -> JsonArray(JsonObject(dict [ "field", str variantField; "value", unit () ]))
+            | "scapargs" -> JsonArray(JsonObject(dict [ "parameter", str operationParameter; "value", unit () ]))
+            | "simpls" -> JsonArray(JsonObject(dict [ "operation", str operation; "function", str fn ]))
+            | "sarms" -> JsonArray(JsonObject(dict [ "variant", str variant; "body", unit () ]), JsonObject(dict [ "variants", JsonArray(str variant) :> JsonNode; "body", unit () ]))
+            | other -> failwith other
+        let rows file =
+            File.ReadAllLines(Path.Combine(ZigModelReaderSupport.root (), "tools", "zig", "host", file))
+            |> Array.filter (fun line -> not (line.StartsWith "#"))
+            |> Array.map (fun line -> let parts = line.Split('|') in parts[0], parts[2].Split(' ', StringSplitOptions.RemoveEmptyEntries), parts[4].Split(' ', StringSplitOptions.RemoveEmptyEntries))
+        let byName = rows "recipe_kinds_byname.txt"
+        let simple = set [ "recipe"; "recipes"; "optrecipe"; "int"; "int64"; "bool"; "text"; "bits"; "mode" ]
+        let shared =
+            rows "recipe_kinds.txt"
+            |> Array.filter (fun (kind, _, reads) ->
+                not (byName |> Array.exists (fun (k, _, _) -> k = kind))
+                && reads |> Array.forall (fun read -> simple.Contains(read.Split(':')[1])))
+        let instance (kind: string, _, reads: string array) =
+            let built = JsonObject()
+            built["kind"] <- str kind
+            for read in reads do
+                let parts = read.Split(':')
+                if parts[1] = "sarms" then built["otherwise"] <- unit ()
+                built[parts[0]] <- valueOf kind parts[1]
+            built
+        let signature = """"parameters":[{"displayName":"x","type":{"kind":"primitive","primitive":"int64"}},{"displayName":"y","type":{"kind":"primitive","primitive":"unit"}}],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[]"""
+        let line (fields: string) = $"""{{"id":"n","op":"simulateCreateFunctionByName","displayName":"made",{fields}}}"""
+        let request (body: JsonNode) = line $"""{signature},"body":{body.ToJsonString()}"""
+        let raw (body: string) = line $"""{signature},"body":{body}"""
+        [ for (kind, allowed, reads) as row in byName do
+              let valid = instance row
+              yield request valid
+              yield request (JsonObject(dict [ "kind", str "stringConcat"; "left", unit (); "right", valid.DeepClone() ]))
+              let changed (change: JsonObject -> unit) = let copy = valid.DeepClone().AsObject() in change copy; request copy
+              yield changed (fun built -> built["zzz"] <- JsonValue.Create 1)
+              for name in allowed do
+                  if name <> "kind" then
+                      yield changed (fun built -> built.Remove name |> ignore)
+                      yield changed (fun built -> built[name] <- JsonValue.Create 3)
+                      yield changed (fun built -> built[name] <- str "s")
+                      yield changed (fun built -> built[name] <- JsonArray(JsonValue.Create 3))
+                      yield changed (fun built -> built[name] <- JsonObject())
+                      match valid[name] with
+                      | :? JsonValue as text when text.GetValueKind() = JsonValueKind.String ->
+                          let name' = text.GetValue<string>()
+                          yield changed (fun built -> built[name] <- str (name' + "x"))
+                          yield changed (fun built -> built[name] <- JsonObject(dict [ "name", str name' ]))
+                          yield changed (fun built -> built[name] <- JsonObject(dict [ "name", str name'; "ownership", str "local" ]))
+                          yield changed (fun built -> built[name] <- JsonObject(dict [ "name", str name'; "ownership", str "elsewhere" ]))
+                          yield changed (fun built -> built[name] <- JsonObject(dict [ "name", str name'; "ownership", str "imported" ]))
+                          yield changed (fun built -> built[name] <- JsonObject(dict [ "id", str "zig-no-such-id" ]))
+                      | :? JsonArray as items when items.Count > 0 && (items[0] :? JsonObject) ->
+                          for key in [ for property in items[0].AsObject() -> property.Key ] do
+                              yield changed (fun built -> let item = built[name].AsArray() in item[0].AsObject()[key] <- str "Zz")
+                              yield changed (fun built -> let item = built[name].AsArray() in item[0].AsObject().Remove(key) |> ignore)
+                      | _ -> ()
+          for row in shared do
+              yield request (instance row)
+          for body in
+              [ """{"kind":"parameterSlot","index":0}"""
+                """{"kind":"selfCall","arguments":[]}"""
+                """{"kind":"noSuchKind"}"""
+                """{"kind":"parameter","name":"z"}"""
+                """{"kind":"patternReference","slot":"value","scopeDepth":0}"""
+                """{"kind":"patternReference","slot":"error","scopeDepth":0,"type":"T"}"""
+                """{"kind":"patternReference","slot":"other","scopeDepth":0}"""
+                """{"kind":"patternReference","scopeDepth":0}"""
+                $"""{{"kind":"patternReference","slot":"field","scopeDepth":0,"type":"{union}","variant":"{variant}","field":"{variantField}"}}"""
+                $"""{{"kind":"patternReference","slot":"field","scopeDepth":0,"type":"{union}","variant":"{variant}","field":"zz"}}"""
+                $"""{{"kind":"patternReference","slot":"field","scopeDepth":0,"type":"{product}","variant":"{variant}","field":"zz"}}"""
+                $"""{{"kind":"fieldAccess","source":{{"kind":"unitLiteral"}},"type":"{union}","field":"f"}}"""
+                """{"kind":"directCall","function":"made","arguments":[{"parameter":"x","value":{"kind":"unitLiteral"}}]}"""
+                """{"kind":"directCall","function":"made","arguments":[],"keepUnlisted":true}"""
+                """{"kind":"directCall","function":"made","arguments":[{"parameter":"q","value":{"kind":"unitLiteral"}}]}"""
+                """{"kind":"directCall","function":"made","arguments":[],"keepUnlisted":3}"""
+                $"""{{"kind":"directCall","function":"{fn}","arguments":[{{"parameter":"{fnParameter}","value":{{"kind":"unitLiteral"}}}}]}}"""
+                $"""{{"kind":"directCall","function":"{fn}","arguments":[],"keepUnlisted":true}}"""
+                $"""{{"kind":"directCall","function":{{"name":"{fn}"}},"arguments":[{{"parameter":"zz","value":{{"kind":"unitLiteral"}}}}]}}"""
+                """{"kind":"directCall","function":{"name":"made"},"arguments":[]}"""
+                """{"kind":"directCall","function":3,"arguments":[]}"""
+                """{"kind":"functionReference","function":"made"}"""
+                """{"kind":"listMap","source":{"kind":"unitLiteral"},"function":"made"}"""
+                $"""{{"kind":"listMap","source":{{"kind":"unitLiteral"}},"function":"{fn}","context":[{{"parameter":"zz","value":{{"kind":"unitLiteral"}}}}]}}"""
+                $"""{{"kind":"listMap","source":{{"kind":"unitLiteral"}},"function":"{fn}","context":3}}"""
+                $"""{{"kind":"listEmpty","itemType":{{"kind":"named","name":"Zz","arguments":[3]}}}}"""
+                $"""{{"kind":"listEmpty","itemType":{{"kind":"named","name":{{"name":"{product}"}}}}}}"""
+                $"""{{"kind":"listEmpty","itemType":{{"kind":"capability","name":"{capability}"}}}}"""
+                """{"kind":"listEmpty","itemType":{"kind":"typeParameter","name":" "}}"""
+                """{"kind":"listEmpty","itemType":{"kind":"typeParameter","typeParameterId":"t"}}"""
+                """{"kind":"listEmpty","itemType":{"kind":"named","typeId":"t"}}"""
+                """{"kind":"listEmpty","itemType":{"kind":"other"}}"""
+                """{"kind":"listEmpty","itemType":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"named","name":"Zz"}]}}"""
+                """{"kind":"bind","name":"v","value":{"kind":"unitLiteral"},"body":{"kind":"patternReference","name":"v"}}""" ] do
+              yield raw body
+          // The signature around a valid body.
+          let ok = """{"kind":"unitLiteral"}"""
+          let around (fields: string) = line $"""{fields},"body":{ok}"""
+          yield around signature
+          yield (around signature).Replace("\"displayName\":\"made\"", $"\"displayName\":\"{fn}\"")
+          yield (around signature).Replace("\"displayName\":\"made\"", "\"displayName\":3")
+          for t in [ $"""{{"kind":"named","name":"{product}"}}"""; """{"kind":"named","name":"Zz"}"""; $"""{{"kind":"capability","name":"{capability}"}}"""; """{"kind":"capability","name":"Zz"}"""; """{"kind":"typeParameter","name":"T"}"""; """{"kind":"named","typeId":"x"}""" ] do
+              yield around $""""parameters":[{{"displayName":"x","type":{t}}}],"resultType":{t},"requiredEffects":[]"""
+          for effects in [ $"""["{effect}"]"""; """["Zz"]"""; $"""[{{"name":"{effect}"}}]"""; """[3]"""; """[{}]"""; """3""" ] do
+              yield around $""""parameters":[],"resultType":{{"kind":"primitive","primitive":"unit"}},"requiredEffects":{effects}"""
+          yield line signature
+          let twice = """"parameters":[{"displayName":"x","type":{"kind":"primitive","primitive":"unit"}},{"displayName":"x","type":{"kind":"primitive","primitive":"unit"}}],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[]"""
+          yield line $"""{twice},"body":{{"kind":"parameter","name":"x"}}"""
+          yield line $"""{twice},"body":{{"kind":"directCall","function":"made","arguments":[],"keepUnlisted":true}}"""
+          yield line $"""{twice},"body":{{"kind":"directCall","function":"made","arguments":[{{"parameter":"x","value":{{"kind":"unitLiteral"}}}}]}}"""
+          yield line $"""{signature},"body":{ok},"bodyFile":"b.json" """
+          yield line $"""{signature},"bodyFile":3"""
+          yield line $"""{signature},"bodyFile":"nope.json" """
+          yield line $"""{signature},"bodyFile":" " """
+          yield line $"""{signature},"body":{ok},"expectedSnapshotId":" " """
+          yield line $"""{signature},"body":{ok},"exported":3"""
+          yield line $"""{signature},"body":{ok},"typeParameters":["T"]"""
+          yield line $"""{signature},"body":{ok},"zzz":1""" ]
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host decodes simulateCreateFunctionByName requests as the F# host does`` () =
+        withDirectory (fun dir ->
+            let mutable rejected = 0
+            let mismatches = ResizeArray<string>()
+            let answered = Text.StringBuilder()
+            for snapshot in snapshots dir do
+                use session = AuthoringSession.openReadOnly snapshot |> unwrap
+                let lines = requests (session.Declarations())
+                let code, errors, answers = run true [ "open"; "--snapshot"; snapshot; "--read-only" ] lines
+                Assert.True((code = 0), errors)
+                Assert.Equal(lines.Length, answers.Length)
+                for request, zig in List.zip lines answers do
+                    let fsharp = AuthoringProtocol.executeLine session request
+                    answered.Append(fsharp) |> ignore
+                    if request.Contains "\"bodyFile\":\"nope.json\"" then
+                        // The Zig host does not read bodyFile yet (a documented shortcut).
+                        if not (zig.Contains "\"code\":\"UnsupportedOperation\"") then mismatches.Add $"{request}\n Zig: {zig}"
+                    else
+                        use reply = JsonDocument.Parse fsharp
+                        let code =
+                            match reply.RootElement.TryGetProperty "error" with
+                            | true, error -> error.GetProperty("code").GetString()
+                            | _ -> ""
+                        if code = "SessionError" then
+                            if sessionErrorCode fsharp <> sessionErrorCode zig then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
+                        elif code = "ProtocolError" then
+                            rejected <- rejected + 1
+                            if fsharp <> zig then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
+                        elif not (zig.Contains "\"code\":\"UnsupportedOperation\"") then mismatches.Add $"{Path.GetFileName snapshot}: {request}\n F#:  {fsharp}\n Zig: {zig}"
+            let shownText = answered.ToString().Replace("\\u0027", "'")
+            for shown in [ "Unknown function '"; "Unknown type '"; "Unknown capability '"; "Unknown effect '"; "Unknown field on "; "Unknown variant on "; "Unknown field on variant "; "Unknown operation on "; "Unknown parameter on operation "; "Unknown parameter on "; "Unknown new function parameter"; " Available: "; "is not a product type"; "is not a union type"; "is the function being created"; "keepUnlisted applies only"; "No current function matches the explicit declaration selector"; "Selector ownership must be local or imported."; "Unsupported symbolic expression recipe kind"; "Unsupported symbolic type kind"; "already exists. Choose a unique name"; "Pass exactly one of body and bodyFile."; "Ambiguous new function parameter 'x'."; "Ambiguous parameter on made 'x'."; "Current candidates (advice only)"; "SimulationRejected" ] do
+                Assert.True(shownText.Contains shown, $"No F# reply shows {shown}; the by-name parity test does not cover it.")
+            Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
+            Assert.True(rejected > 1000, $"Only {rejected} requests are decode rejections."))
