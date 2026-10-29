@@ -125,17 +125,10 @@ module ZigHostParityTests =
                   yield $"""{{"id":"b","op":"bindingScopes","functionId":{quote (id item.Id)},"nodeId":{quote (id node.Id)}}}"""
               yield $"""{{"id":"b","op":"bindingScopes","function":{quote item.DisplayName},"nodeId":{quote (id item.Body.ResultNodeId)}}}"""
               yield $"""{{"id":"b","op":"bindingScopes","function":{quote item.DisplayName},"nodeId":"missing"}}"""
-              // Bytes copy plans (`copiedUpdates`) come with the Execution IR in the next step.
-              let updatesBytes =
-                  ValueGraph.collectNodes item.Body |> List.exists (fun node ->
-                      match node.Kind with
-                      | SemanticNodeKind.BytesSet _ | SemanticNodeKind.BytesAppend _ -> true
-                      | _ -> false)
-              if not updatesBytes then
-                  yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)},"detail":"compact"}}"""
-                  yield $"""{{"id":"f","op":"readFunction","function":{quote item.DisplayName},"detail":"compact"}}"""
-                  yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)},"detail":"outline"}}"""
-                  yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)}}}"""
+              yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)},"detail":"compact"}}"""
+              yield $"""{{"id":"f","op":"readFunction","function":{quote item.DisplayName},"detail":"compact"}}"""
+              yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)},"detail":"outline"}}"""
+              yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)}}}"""
           yield """{"id":"u","op":"unreferenced"}"""
           for item in declarations.Functions |> List.truncate 3 do
               yield $"""{{"id":"u","op":"unreferenced","roots":[{quote item.DisplayName}]}}""" ]
@@ -184,11 +177,18 @@ module ZigHostParityTests =
                           [ literal "long" ("long" + String.replicate 251 "a" + "😀" + String.replicate 200 "b")
                             literal "split" (String.replicate 63 "y" + "😀z")
                             wide ] }
-                RecordCodecAllKindsTests.allKindSnapshots () @ [ fixture.Snapshot; incomplete; long ]
-                |> List.mapi (fun index snapshot ->
-                    let path = Path.Combine(dir, $"kinds-{index}.json")
-                    File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap)
-                    path)
+                // Bytes updates that write in place and that must copy (`copiedUpdates`).
+                let ownership = Path.Combine(dir, "ownership.json")
+                do
+                    use session = AuthoringSession.createNew ownership |> unwrap
+                    BytesTests.ownershipFunctions session |> ignore
+                    session.Close()
+                (RecordCodecAllKindsTests.allKindSnapshots () @ [ fixture.Snapshot; incomplete; long ]
+                 |> List.mapi (fun index snapshot ->
+                     let path = Path.Combine(dir, $"kinds-{index}.json")
+                     File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap)
+                     path))
+                @ [ ownership ]
             let answered = Text.StringBuilder()
             for snapshot in snapshots dir @ constructed do
                 use session = AuthoringSession.openReadOnly snapshot |> unwrap
@@ -198,11 +198,11 @@ module ZigHostParityTests =
                 let fsharp = requests |> List.map (AuthoringProtocol.executeLine session)
                 fsharp |> List.iter (answered.Append >> ignore)
                 sameAnswers (Path.GetFileName snapshot) fsharp answers requests
-            for shown in [ "\"aborts\":[{"; "\"mayWait\":true"; "\"openObligations\":[{"; "\"frames\":[{"; "\"variants\":["; "\"slot\":\"field\""; "\"evidence\":[{"; "\"references\":[{"; "\"role\":\"patternBinding\""; "\"truncated\":true"; "\"outlineTruncated\":true"; "scopeDepth=1"; "\\\\uD83D\\\\u2026"; "ref "; "\"nodeTypes\":[{" ] do
+            for shown in [ "\"aborts\":[{"; "\"mayWait\":true"; "\"openObligations\":[{"; "\"frames\":[{"; "\"variants\":["; "\"slot\":\"field\""; "\"evidence\":[{"; "\"references\":[{"; "\"role\":\"patternBinding\""; "\"truncated\":true"; "\"outlineTruncated\":true"; "scopeDepth=1"; "\\\\uD83D\\\\u2026"; "ref "; "\"nodeTypes\":[{"; "\"copiedUpdates\":[{" ] do
                 Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it.")
-            // `full` replies show every node kind's structured form, but for the Bytes updates, whose functions wait for `copiedUpdates`.
+            // `full` replies show every node kind's structured form.
             for row in File.ReadAllLines(Path.Combine(ZigModelReaderSupport.root (), "tools", "zig", "host", "graph_kinds.txt")) do
-                if not (row.StartsWith "#" || row.StartsWith "bytesSet|" || row.StartsWith "bytesAppend|") then
+                if not (row.StartsWith "#") then
                     let shown = $"\"kind\":{{\"kind\":\"{row.Split('|')[1]}\""
                     Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it."))
 

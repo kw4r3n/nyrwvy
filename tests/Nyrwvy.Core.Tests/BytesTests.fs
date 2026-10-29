@@ -304,82 +304,94 @@ module BytesTests =
             Assert.False(missed.GetProperty("matches").GetBoolean())
             Assert.Equal("\"ffff\"", missed.GetProperty("mismatch").GetProperty("actual").GetProperty("hex").GetRawText()))
 
+    /// Functions whose Bytes updates write in place or must copy, created in `session`; the Zig host
+    /// parity test reads them too.
+    let internal ownershipFunctions (session: AuthoringSession) =
+        let value = ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Value }
+        let plus1 recipe = ExpressionRecipe.Int64WrappingAdd(recipe, ExpressionRecipe.Int64Literal 1L)
+        // A tail-recursive fill: after the first copy, every turn writes into the same buffer.
+        let fillLoop =
+            create session "fillLoop" [ "b", bytesType; "i", intType; "n", intType ] bytesType
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64LessThan(slot 1, slot 2),
+                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, slot 1, plus1 (slot 1)); 1, plus1 (slot 1); 2, slot 2 ],
+                    slot 0))
+        // The caller's buffer is unchanged by the loop it was passed to.
+        let keepsArgument =
+            create session "keepsArgument" [ "b", bytesType ] (listOf bytesType)
+                (ExpressionRecipe.ListConstruct(bytesType,
+                    [ slot 0; ExpressionRecipe.DirectCall(fillLoop.Id, [ fillLoop.Parameters[0].Id, slot 0; fillLoop.Parameters[1].Id, ExpressionRecipe.Int64Literal 0L; fillLoop.Parameters[2].Id, ExpressionRecipe.Int64Literal 3L ]) ]))
+        // A buffer stored into a list must not change when the loop updates it on a later turn.
+        let snapshots =
+            create session "snapshots" [ "buf", bytesType; "acc", listOf bytesType; "i", intType ] (listOf bytesType)
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64LessThan(slot 2, ExpressionRecipe.Int64Literal 3L),
+                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, slot 2); 1, ExpressionRecipe.ListAppendItem(slot 1, slot 0); 2, plus1 (slot 2) ],
+                    slot 1))
+        // One buffer passed as two arguments of a tail self-call: updating one must not change the other.
+        let twins =
+            create session "twins" [ "a", bytesType; "c", bytesType; "i", intType ] (listOf bytesType)
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64LessThan(slot 2, ExpressionRecipe.Int64Literal 1L),
+                    ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 1L),
+                        ExpressionRecipe.SelfCall [ 0, value; 1, value; 2, ExpressionRecipe.Int64Literal 1L ]),
+                    ExpressionRecipe.ListConstruct(bytesType, [ ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 5L); slot 1 ])))
+        // The old value is read after the update: the update copies.
+        let oldAndNew =
+            create session "oldAndNew" [ "b", bytesType ] (listOf bytesType)
+                (ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
+                    ExpressionRecipe.ListConstruct(bytesType, [ value; slot 0 ])))
+        // The same read-after-update on a buffer the invocation already owns (second loop turn): a wrong
+        // in-place decision would show up in the result here, not only in the plan.
+        let ownedOldAndNew =
+            create session "ownedOldAndNew" [ "b", bytesType; "i", intType ] (listOf bytesType)
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 1L),
+                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 1L, ExpressionRecipe.Int64Literal 1L); 1, plus1 (slot 1) ],
+                    ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
+                        ExpressionRecipe.ListConstruct(bytesType, [ value; slot 0 ]))))
+        // The old value returned through a conditional's merge block, which has no instruction of its
+        // own: on an owned buffer (second turn) the update must still copy.
+        let ownedMergeReturn =
+            create session "ownedMergeReturn" [ "b", bytesType; "i", intType ] bytesType
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 1L),
+                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 1L, ExpressionRecipe.Int64Literal 1L); 1, plus1 (slot 1) ],
+                    ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
+                        ExpressionRecipe.Conditional(ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 5L), slot 0, slot 0))))
+        // Appending in a loop grows one buffer.
+        let appendLoop =
+            create session "appendLoop" [ "b", bytesType; "i", intType ] bytesType
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 300L),
+                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesAppend(slot 0, slot 1); 1, plus1 (slot 1) ],
+                    slot 0))
+        // A loop that reads its buffer beside the update: lowering must emit the read first, whatever
+        // order the node IDs happen to have, so the update can still write in place. Several copies,
+        // because IDs created within one millisecond are ordered by their random bits.
+        let readerLoops =
+            [ for k in 1..8 ->
+                create session $"readerLoop{k}" [ "b", bytesType; "i", intType; "n", intType; "acc", intType ] intType
+                    (ExpressionRecipe.Conditional(
+                        ExpressionRecipe.Int64LessThan(slot 1, slot 2),
+                        ExpressionRecipe.SelfCall
+                            [ 0, ExpressionRecipe.BytesSet(slot 0, slot 1, ExpressionRecipe.Int64Literal 1L)
+                              1, plus1 (slot 1)
+                              2, slot 2
+                              3, ExpressionRecipe.Int64WrappingAdd(slot 3, ExpressionRecipe.BytesLength(slot 0)) ],
+                        slot 3)) ]
+        // The old value read by a function value invoked after the update, which forces the copy.
+        let passBytes = create session "passBytes" [ "b", bytesType ] bytesType (slot 0)
+        create session "invokesOld" [ "b", bytesType ] (listOf bytesType)
+            (ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
+                ExpressionRecipe.ListConstruct(bytesType, [ value; ExpressionRecipe.FunctionInvoke(ExpressionRecipe.FunctionReference passBytes.Id, [ slot 0 ]) ])))
+        |> ignore
+        fillLoop, keepsArgument, snapshots, twins, oldAndNew, ownedOldAndNew, ownedMergeReturn, appendLoop, readerLoops
+
     [<Fact; Trait("Suite", "Extended")>]
     let ``Bytes updates write in place only where no holder can see the old value`` () =
         withSession (fun session path ->
-            let value = ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Value }
-            let plus1 recipe = ExpressionRecipe.Int64WrappingAdd(recipe, ExpressionRecipe.Int64Literal 1L)
-            // A tail-recursive fill: after the first copy, every turn writes into the same buffer.
-            let fillLoop =
-                create session "fillLoop" [ "b", bytesType; "i", intType; "n", intType ] bytesType
-                    (ExpressionRecipe.Conditional(
-                        ExpressionRecipe.Int64LessThan(slot 1, slot 2),
-                        ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, slot 1, plus1 (slot 1)); 1, plus1 (slot 1); 2, slot 2 ],
-                        slot 0))
-            // The caller's buffer is unchanged by the loop it was passed to.
-            let keepsArgument =
-                create session "keepsArgument" [ "b", bytesType ] (listOf bytesType)
-                    (ExpressionRecipe.ListConstruct(bytesType,
-                        [ slot 0; ExpressionRecipe.DirectCall(fillLoop.Id, [ fillLoop.Parameters[0].Id, slot 0; fillLoop.Parameters[1].Id, ExpressionRecipe.Int64Literal 0L; fillLoop.Parameters[2].Id, ExpressionRecipe.Int64Literal 3L ]) ]))
-            // A buffer stored into a list must not change when the loop updates it on a later turn.
-            let snapshots =
-                create session "snapshots" [ "buf", bytesType; "acc", listOf bytesType; "i", intType ] (listOf bytesType)
-                    (ExpressionRecipe.Conditional(
-                        ExpressionRecipe.Int64LessThan(slot 2, ExpressionRecipe.Int64Literal 3L),
-                        ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, slot 2); 1, ExpressionRecipe.ListAppendItem(slot 1, slot 0); 2, plus1 (slot 2) ],
-                        slot 1))
-            // One buffer passed as two arguments of a tail self-call: updating one must not change the other.
-            let twins =
-                create session "twins" [ "a", bytesType; "c", bytesType; "i", intType ] (listOf bytesType)
-                    (ExpressionRecipe.Conditional(
-                        ExpressionRecipe.Int64LessThan(slot 2, ExpressionRecipe.Int64Literal 1L),
-                        ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 1L),
-                            ExpressionRecipe.SelfCall [ 0, value; 1, value; 2, ExpressionRecipe.Int64Literal 1L ]),
-                        ExpressionRecipe.ListConstruct(bytesType, [ ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 5L); slot 1 ])))
-            // The old value is read after the update: the update copies.
-            let oldAndNew =
-                create session "oldAndNew" [ "b", bytesType ] (listOf bytesType)
-                    (ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
-                        ExpressionRecipe.ListConstruct(bytesType, [ value; slot 0 ])))
-            // The same read-after-update on a buffer the invocation already owns (second loop turn): a wrong
-            // in-place decision would show up in the result here, not only in the plan.
-            let ownedOldAndNew =
-                create session "ownedOldAndNew" [ "b", bytesType; "i", intType ] (listOf bytesType)
-                    (ExpressionRecipe.Conditional(
-                        ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 1L),
-                        ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 1L, ExpressionRecipe.Int64Literal 1L); 1, plus1 (slot 1) ],
-                        ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
-                            ExpressionRecipe.ListConstruct(bytesType, [ value; slot 0 ]))))
-            // The old value returned through a conditional's merge block, which has no instruction of its
-            // own: on an owned buffer (second turn) the update must still copy.
-            let ownedMergeReturn =
-                create session "ownedMergeReturn" [ "b", bytesType; "i", intType ] bytesType
-                    (ExpressionRecipe.Conditional(
-                        ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 1L),
-                        ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 1L, ExpressionRecipe.Int64Literal 1L); 1, plus1 (slot 1) ],
-                        ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
-                            ExpressionRecipe.Conditional(ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 5L), slot 0, slot 0))))
-            // Appending in a loop grows one buffer.
-            let appendLoop =
-                create session "appendLoop" [ "b", bytesType; "i", intType ] bytesType
-                    (ExpressionRecipe.Conditional(
-                        ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 300L),
-                        ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesAppend(slot 0, slot 1); 1, plus1 (slot 1) ],
-                        slot 0))
-            // A loop that reads its buffer beside the update: lowering must emit the read first, whatever
-            // order the node IDs happen to have, so the update can still write in place. Several copies,
-            // because IDs created within one millisecond are ordered by their random bits.
-            let readerLoops =
-                [ for k in 1..8 ->
-                    create session $"readerLoop{k}" [ "b", bytesType; "i", intType; "n", intType; "acc", intType ] intType
-                        (ExpressionRecipe.Conditional(
-                            ExpressionRecipe.Int64LessThan(slot 1, slot 2),
-                            ExpressionRecipe.SelfCall
-                                [ 0, ExpressionRecipe.BytesSet(slot 0, slot 1, ExpressionRecipe.Int64Literal 1L)
-                                  1, plus1 (slot 1)
-                                  2, slot 2
-                                  3, ExpressionRecipe.Int64WrappingAdd(slot 3, ExpressionRecipe.BytesLength(slot 0)) ],
-                            slot 3)) ]
+            let fillLoop, keepsArgument, snapshots, twins, oldAndNew, ownedOldAndNew, ownedMergeReturn, appendLoop, readerLoops = ownershipFunctions session
             session.Close()
             use reopened = AuthoringSession.openExisting path |> unwrap
             let run (fn: SemanticFunction) arguments = (PureRun.run reopened fn.Id arguments None |> unwrap).Actual
