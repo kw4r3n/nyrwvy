@@ -1,0 +1,220 @@
+# The exact-ID expression recipes of WireRecipe.recipeIn and WireRecipeCommon.tryReferenceFree, as the Zig host decodes them:
+# kind|ensureFields context|allowed|required|reads in F# evaluation order (name:shape). Derived from those two files; ZigHostParityTests checks the decoding.
+parameter|parameter recipe|kind parameterId|kind parameterId|parameterId:id
+parameterSlot|parameter-slot recipe|kind index|kind index|index:int
+patternReference|pattern-reference recipe|kind scopeDepth slot fieldId field|kind scopeDepth slot|slot:slot scopeDepth:int
+listEmpty|list-empty recipe|kind itemType|kind itemType|itemType:type
+setEmpty|set-empty recipe|kind itemType|kind itemType|itemType:type
+mapEmpty|map-empty recipe|kind keyType valueType|kind keyType valueType|keyType:type valueType:type
+listConstruct|list-construct recipe|kind itemType items|kind itemType items|itemType:type items:recipes
+listFold|list-fold recipe|kind source seed functionId context|kind source seed functionId|source:recipe seed:recipe functionId:id context:context
+listScan|list-scan recipe|kind source seed functionId context|kind source seed functionId|source:recipe seed:recipe functionId:id context:context
+mapFold|map-fold recipe|kind map seed functionId context|kind map seed functionId|map:recipe seed:recipe functionId:id context:context
+setFold|set-fold recipe|kind set seed functionId context|kind set seed functionId|set:recipe seed:recipe functionId:id context:context
+listEffectFold|list-effect-fold recipe|kind source seed functionId context|kind source seed functionId|source:recipe seed:recipe functionId:id context:context
+useResource|use-resource recipe|kind acquire releaseCapability releaseOperationId bodyFunctionId context|kind acquire releaseCapability releaseOperationId bodyFunctionId|acquire:recipe releaseCapability:recipe releaseOperationId:id bodyFunctionId:id context:context
+parallelAll|parallel-all recipe|kind source workerFunctionId context|kind source workerFunctionId|source:recipe workerFunctionId:id context:context
+exceptionCatch|exception-catch recipe|kind bodyFunctionId handlerFunctionId bodyContext handlerContext|kind bodyFunctionId handlerFunctionId|bodyFunctionId:id bodyContext:context handlerFunctionId:id handlerContext:context
+exceptionRethrow|exception-rethrow recipe|kind value resultType|kind value resultType|value:recipe resultType:type
+cancellationShield|cancellation-shield recipe|kind bodyFunctionId context|kind bodyFunctionId|bodyFunctionId:id context:context
+taskScope|task-scope recipe|kind bodyFunctionId context|kind bodyFunctionId|bodyFunctionId:id context:context
+taskStart|task-start recipe|kind scope workerFunctionId item context|kind scope workerFunctionId item|scope:recipe workerFunctionId:id context:context item:recipe
+taskWait|task-wait recipe|kind tasks mode limit|kind tasks mode|tasks:recipe mode:mode limit:optrecipe
+oneShotCreate|one-shot-create recipe|kind scope valueType|kind scope valueType|scope:recipe valueType:type
+mapFilter|map-filter recipe|kind map functionId context|kind map functionId|map:recipe functionId:id context:context
+setFilter|set-filter recipe|kind set functionId context|kind set functionId|set:recipe functionId:id context:context
+optionMap|option-map recipe|kind option functionId context|kind option functionId|option:recipe functionId:id context:context
+optionAndThen|option-and-then recipe|kind option functionId context|kind option functionId|option:recipe functionId:id context:context
+resultMap|result-map recipe|kind result functionId context|kind result functionId|result:recipe functionId:id context:context
+resultMapErr|result-map-err recipe|kind result functionId context|kind result functionId|result:recipe functionId:id context:context
+resultAndThen|result-and-then recipe|kind result functionId context|kind result functionId|result:recipe functionId:id context:context
+mapMapValues|map-map-values recipe|kind map functionId context|kind map functionId|map:recipe functionId:id context:context
+setMap|set-map recipe|kind set functionId context|kind set functionId|set:recipe functionId:id context:context
+listZipWith|list-zip-with recipe|kind left right functionId context|kind left right functionId|left:recipe right:recipe functionId:id context:context
+listFlatMap|listFlatMap recipe|kind source functionId context|kind source functionId|source:recipe functionId:id context:context
+listMap|listMap recipe|kind source functionId context|kind source functionId|source:recipe functionId:id context:context
+mapFromList|mapFromList recipe|kind source functionId context|kind source functionId|source:recipe functionId:id context:context
+listSortBy|listSortBy recipe|kind source functionId context|kind source functionId|source:recipe functionId:id context:context
+listMinBy|listMinBy recipe|kind source functionId context|kind source functionId|source:recipe functionId:id context:context
+listMaxBy|listMaxBy recipe|kind source functionId context|kind source functionId|source:recipe functionId:id context:context
+listFilter|listFilter recipe|kind source functionId context|kind source functionId|source:recipe functionId:id context:context
+listAny|listAny recipe|kind source functionId context|kind source functionId|source:recipe functionId:id context:context
+listFindIndex|listFindIndex recipe|kind source functionId context|kind source functionId|source:recipe functionId:id context:context
+listAll|listAll recipe|kind source functionId context|kind source functionId|source:recipe functionId:id context:context
+productConstruct|product-construct recipe|kind typeId typeArguments fields|kind typeId fields|typeId:id typeArguments:types fields:fields
+fieldAccess|field-access recipe|kind source fieldId|kind source fieldId|source:recipe fieldId:id
+productUpdate|product-update recipe|kind typeId source fields|kind typeId source fields|typeId:id source:recipe fields:fields
+unionConstruct|union-construct recipe|kind variantId typeArguments fields|kind variantId fields|variantId:id typeArguments:types fields:fields
+optionNone|option-none recipe|kind itemType|kind itemType|itemType:type
+resultOk|result-ok recipe|kind errorType value|kind errorType value|errorType:type value:recipe
+resultErr|result-err recipe|kind okType error|kind okType error|okType:type error:recipe
+capabilityConstruct|Capability construction recipe|kind capabilityId implementations|kind capabilityId implementations|implementations:impls capabilityId:id
+functionReference|Function reference recipe|kind functionId|kind functionId|functionId:id
+directCall|direct-call recipe|kind functionId arguments|kind functionId arguments|functionId:id arguments:args
+selfCall|self-call recipe|kind arguments|kind arguments|arguments:selfargs
+capabilityInvoke|capability-invoke recipe|kind capabilityValue operationId arguments|kind capabilityValue operationId arguments|capabilityValue:recipe operationId:id arguments:capargs
+matchUnion|match-union recipe|kind input arms otherwise|kind input arms|arms:arms input:recipe
+stringLiteral|string literal recipe|kind value|kind value|value:text
+boolLiteral|bool literal recipe|kind value|kind value|value:bool
+originalTarget|original-target recipe|kind|kind|
+unitLiteral|unit literal recipe|kind|kind|
+int64Literal|int64 literal recipe|kind value|kind value|value:int64
+float64Literal|float64 literal recipe|kind bits|kind bits|bits:bits
+stringIsEmpty|string-is-empty recipe|kind value|kind value|value:recipe
+int64ToString|int64-to-string recipe|kind value|kind value|value:recipe
+int64ToHexString|int64-to-hex-string recipe|kind value|kind value|value:recipe
+stringParseInt64|string-parse-int64 recipe|kind value|kind value|value:recipe
+stringParseInt64Hex|string-parse-int64-hex recipe|kind value|kind value|value:recipe
+float64ToString|float64-to-string recipe|kind value|kind value|value:recipe
+stringParseFloat64|string-parse-float64 recipe|kind value|kind value|value:recipe
+stringCodePoints|string-code-points recipe|kind value|kind value|value:recipe
+stringToLower|string-to-lower recipe|kind value|kind value|value:recipe
+stringToUpper|string-to-upper recipe|kind value|kind value|value:recipe
+stringDecodeUtf8Lossy|string-decode-utf8-lossy recipe|kind value|kind value|value:recipe
+stringEncodeUtf8|string-encode-utf8 recipe|kind value|kind value|value:recipe
+float64RoundToInt64|float64-round-to-int64 recipe|kind value|kind value|value:recipe
+float64FloorToInt64|float64-floor-to-int64 recipe|kind value|kind value|value:recipe
+float64Sqrt|float64-sqrt recipe|kind value|kind value|value:recipe
+float64Abs|float64-abs recipe|kind value|kind value|value:recipe
+float64Negate|float64-negate recipe|kind value|kind value|value:recipe
+float64Floor|float64-floor recipe|kind value|kind value|value:recipe
+float64Ceiling|float64-ceiling recipe|kind value|kind value|value:recipe
+float64Truncate|float64-truncate recipe|kind value|kind value|value:recipe
+stringUtf8ByteCount|string-utf8-byte-count recipe|kind value|kind value|value:recipe
+stringFromCodePoint|string-from-code-point recipe|kind value|kind value|value:recipe
+stringToCodePoint|string-to-code-point recipe|kind value|kind value|value:recipe
+stringLength|string-length recipe|kind value|kind value|value:recipe
+stringSlice|string-slice recipe|kind value start end|kind value start end|value:recipe start:recipe end:recipe
+stringContains|string-contains recipe|kind value substring|kind value substring|value:recipe substring:recipe
+stringIndexOf|string-index-of recipe|kind value substring from|kind value substring from|value:recipe substring:recipe from:recipe
+stringSpan|string-span recipe|kind value set from|kind value set from|value:recipe set:recipe from:recipe
+stringSpanBack|string-span-back recipe|kind value set end|kind value set end|value:recipe set:recipe end:recipe
+stringLastIndexOfBefore|string-last-index-of-before recipe|kind value substring end|kind value substring end|value:recipe substring:recipe end:recipe
+stringLastIndexOf|string-last-index-of recipe|kind value substring|kind value substring|value:recipe substring:recipe
+stringStartsWith|string-starts-with recipe|kind value prefix|kind value prefix|value:recipe prefix:recipe
+stringEndsWith|string-ends-with recipe|kind value suffix|kind value suffix|value:recipe suffix:recipe
+stringSplit|string-split recipe|kind value separator|kind value separator|value:recipe separator:recipe
+stringSplitLines|string-split-lines recipe|kind value breaks|kind value breaks|value:recipe breaks:recipe
+stringReplace|string-replace recipe|kind value pattern replacement|kind value pattern replacement|value:recipe pattern:recipe replacement:recipe
+stringTrim|string-trim recipe|kind value|kind value|value:recipe
+stringTrimStart|string-trim-start recipe|kind value|kind value|value:recipe
+stringTrimEnd|string-trim-end recipe|kind value|kind value|value:recipe
+stringJoin|string-join recipe|kind list separator|kind list separator|list:recipe separator:recipe
+stringEqual|string-equal recipe|kind left right|kind left right|left:recipe right:recipe
+stringLessThan|string-less-than recipe|kind left right|kind left right|left:recipe right:recipe
+valueEqual|value-equal recipe|kind left right|kind left right|left:recipe right:recipe
+stringConcat|string-concat recipe|kind left right|kind left right|left:recipe right:recipe
+int64WrappingAdd|int64-wrapping-add recipe|kind left right|kind left right|left:recipe right:recipe
+int64WrappingSubtract|int64-wrapping-subtract recipe|kind left right|kind left right|left:recipe right:recipe
+int64WrappingMultiply|int64-wrapping-multiply recipe|kind left right|kind left right|left:recipe right:recipe
+int64FloorDivide|int64-floor-divide recipe|kind left right|kind left right|left:recipe right:recipe
+int64FloorModulo|int64-floor-modulo recipe|kind left right|kind left right|left:recipe right:recipe
+int64Min|int64-min recipe|kind left right|kind left right|left:recipe right:recipe
+int64Max|int64-max recipe|kind left right|kind left right|left:recipe right:recipe
+int64BitAnd|int64-bit-and recipe|kind left right|kind left right|left:recipe right:recipe
+int64BitOr|int64-bit-or recipe|kind left right|kind left right|left:recipe right:recipe
+int64BitXor|int64-bit-xor recipe|kind left right|kind left right|left:recipe right:recipe
+int64ShiftLeft|int64-shift-left recipe|kind value count|kind value count|value:recipe count:recipe
+int64ShiftRight|int64-shift-right recipe|kind value count|kind value count|value:recipe count:recipe
+int64CheckedAdd|int64-checked-add recipe|kind left right|kind left right|left:recipe right:recipe
+int64CheckedSubtract|int64-checked-subtract recipe|kind left right|kind left right|left:recipe right:recipe
+int64CheckedMultiply|int64-checked-multiply recipe|kind left right|kind left right|left:recipe right:recipe
+listRange|list-range recipe|kind start end|kind start end|start:recipe end:recipe
+stringRepeat|string-repeat recipe|kind text count|kind text count|text:recipe count:recipe
+float64Round|float64-round recipe|kind value digits|kind value digits|value:recipe digits:recipe
+int64Equal|int64-equal recipe|kind left right|kind left right|left:recipe right:recipe
+int64LessThan|int64-less-than recipe|kind left right|kind left right|left:recipe right:recipe
+int64LessThanOrEqual|int64-less-than-or-equal recipe|kind left right|kind left right|left:recipe right:recipe
+int64GreaterThan|int64-greater-than recipe|kind left right|kind left right|left:recipe right:recipe
+int64GreaterThanOrEqual|int64-greater-than-or-equal recipe|kind left right|kind left right|left:recipe right:recipe
+float64Add|float64-add recipe|kind left right|kind left right|left:recipe right:recipe
+float64Min|float64-min recipe|kind left right|kind left right|left:recipe right:recipe
+float64Max|float64-max recipe|kind left right|kind left right|left:recipe right:recipe
+float64Subtract|float64-subtract recipe|kind left right|kind left right|left:recipe right:recipe
+float64Multiply|float64-multiply recipe|kind left right|kind left right|left:recipe right:recipe
+float64Divide|float64-divide recipe|kind left right|kind left right|left:recipe right:recipe
+float64FloorModulo|float64-floor-modulo recipe|kind left right|kind left right|left:recipe right:recipe
+float64Equal|float64-equal recipe|kind left right|kind left right|left:recipe right:recipe
+float64LessThan|float64-less-than recipe|kind left right|kind left right|left:recipe right:recipe
+float64IsNaN|float64-is-nan recipe|kind value|kind value|value:recipe
+float64IsFinite|float64-is-finite recipe|kind value|kind value|value:recipe
+float64IsInfinite|float64-is-infinite recipe|kind value|kind value|value:recipe
+int64ToFloat64|int64-to-float64 recipe|kind value|kind value|value:recipe
+int64WrappingAbs|int64-wrapping-abs recipe|kind value|kind value|value:recipe
+int64BitNot|int64-bit-not recipe|kind value|kind value|value:recipe
+bits32FromInt64|bits32-from-int64 recipe|kind value|kind value|value:recipe
+bits32ToInt64|bits32-to-int64 recipe|kind value|kind value|value:recipe
+bits32Not|bits32-not recipe|kind value|kind value|value:recipe
+bits32Xor|bits32-xor recipe|kind left right|kind left right|left:recipe right:recipe
+bits32And|bits32-and recipe|kind left right|kind left right|left:recipe right:recipe
+bits32Or|bits32-or recipe|kind left right|kind left right|left:recipe right:recipe
+bits32Add|bits32-add recipe|kind left right|kind left right|left:recipe right:recipe
+bits32RotateRight|bits32-rotate-right recipe|kind value amount|kind value amount|value:recipe amount:recipe
+bits32ShiftRight|bits32-shift-right recipe|kind value amount|kind value amount|value:recipe amount:recipe
+bits32ShiftLeft|bits32-shift-left recipe|kind value amount|kind value amount|value:recipe amount:recipe
+bytesEmpty|bytes-empty recipe|kind|kind|
+bytesFill|bytes-fill recipe|kind length value|kind length value|length:recipe value:recipe
+bytesLength|bytes-length recipe|kind value|kind value|value:recipe
+bytesGet|bytes-get recipe|kind bytes index|kind bytes index|bytes:recipe index:recipe
+bytesSet|bytes-set recipe|kind bytes index value|kind bytes index value|bytes:recipe index:recipe value:recipe
+bytesAppend|bytes-append recipe|kind bytes value|kind bytes value|bytes:recipe value:recipe
+bytesConcat|bytes-concat recipe|kind left right|kind left right|left:recipe right:recipe
+bytesSlice|bytes-slice recipe|kind bytes start end|kind bytes start end|bytes:recipe start:recipe end:recipe
+bytesFromLatin1|bytes-from-latin1 recipe|kind value|kind value|value:recipe
+bytesToLatin1|bytes-to-latin1 recipe|kind value|kind value|value:recipe
+listLength|list-length recipe|kind value|kind value|value:recipe
+mapValues|map-values recipe|kind value|kind value|value:recipe
+mapKeys|map-keys recipe|kind value|kind value|value:recipe
+setToList|set-to-list recipe|kind value|kind value|value:recipe
+mapSize|map-size recipe|kind value|kind value|value:recipe
+setFromList|set-from-list recipe|kind value|kind value|value:recipe
+setSize|set-size recipe|kind value|kind value|value:recipe
+listReverse|list-reverse recipe|kind value|kind value|value:recipe
+listLast|list-last recipe|kind value|kind value|value:recipe
+listDropLast|list-drop-last recipe|kind value|kind value|value:recipe
+listAppendItem|list-append-item recipe|kind list item|kind list item|list:recipe item:recipe
+listConcat|list-concat recipe|kind left right|kind left right|left:recipe right:recipe
+setUnion|set-union recipe|kind left right|kind left right|left:recipe right:recipe
+setIntersection|set-intersection recipe|kind left right|kind left right|left:recipe right:recipe
+setDifference|set-difference recipe|kind left right|kind left right|left:recipe right:recipe
+setIsSubset|set-is-subset recipe|kind left right|kind left right|left:recipe right:recipe
+mapUnion|map-union recipe|kind left right|kind left right|left:recipe right:recipe
+listItemAt|list-item-at recipe|kind list index|kind list index|list:recipe index:recipe
+mapRemove|map-remove recipe|kind map key|kind map key|map:recipe key:recipe
+setInsert|set-insert recipe|kind set item|kind set item|set:recipe item:recipe
+setRemove|set-remove recipe|kind set item|kind set item|set:recipe item:recipe
+mapContainsKey|map-contains-key recipe|kind map key|kind map key|map:recipe key:recipe
+setContains|set-contains recipe|kind set item|kind set item|set:recipe item:recipe
+listIndexOf|set-contains recipe|kind list item|kind list item|list:recipe item:recipe
+listLastIndexOf|set-contains recipe|kind list item|kind list item|list:recipe item:recipe
+listContains|list-contains recipe|kind list item|kind list item|list:recipe item:recipe
+mapGet|map-get recipe|kind map key|kind map key|map:recipe key:recipe
+optionGetOrDefault|option-get-or-default recipe|kind option default|kind option default|option:recipe default:recipe
+resultGetOrDefault|result-get-or-default recipe|kind result default|kind result default|result:recipe default:recipe
+optionOkOr|option-ok-or recipe|kind option error|kind option error|option:recipe error:recipe
+resultOkValue|result-ok-value recipe|kind value|kind value|value:recipe
+resultErrValue|result-err-value recipe|kind value|kind value|value:recipe
+optionIsSome|option-is-some recipe|kind value|kind value|value:recipe
+resultIsOk|result-is-ok recipe|kind value|kind value|value:recipe
+mapGetOrDefault|map-get-or-default recipe|kind map key default|kind map key default|map:recipe key:recipe default:recipe
+listSlice|list-slice recipe|kind list start end|kind list start end|list:recipe start:recipe end:recipe
+listSetAt|list-set-at recipe|kind list index item|kind list index item|list:recipe index:recipe item:recipe
+listInsertAt|list-insert-at recipe|kind list index item|kind list index item|list:recipe index:recipe item:recipe
+listRemoveAt|list-remove-at recipe|kind list index|kind list index|list:recipe index:recipe
+mapInsert|map-insert recipe|kind map key value|kind map key value|map:recipe key:recipe value:recipe
+cancellationRequested|cancellation-requested recipe|kind|kind|
+exceptionIsCancellation|exception-is-cancellation recipe|kind value|kind value|value:recipe
+exceptionMessage|exception-message recipe|kind value|kind value|value:recipe
+oneShotComplete|one-shot-complete recipe|kind cell value|kind cell value|cell:recipe value:recipe
+oneShotWait|one-shot-wait recipe|kind cell limit|kind cell|cell:recipe limit:optrecipe
+taskCancel|task-cancel recipe|kind task|kind task|task:recipe
+optionSome|option-some recipe|kind value|kind value|value:recipe
+abort|abort recipe|kind error|kind error|error:recipe
+functionInvoke|Function invocation recipe|kind functionValue arguments|kind functionValue arguments|functionValue:recipe arguments:recipes
+boolNot|bool-not recipe|kind value|kind value|value:recipe
+boolAnd|bool-and recipe|kind left right|kind left right|left:recipe right:recipe
+boolOr|bool-or recipe|kind left right|kind left right|left:recipe right:recipe
+conditional|conditional recipe|kind condition whenTrue whenFalse|kind condition whenTrue whenFalse|condition:recipe whenTrue:recipe whenFalse:recipe
+bind|bind recipe|kind value body|kind value body|value:recipe body:recipe
+matchOption|match-option recipe|kind input someBody noneBody|kind input someBody noneBody|input:recipe someBody:recipe noneBody:recipe
+matchResult|match-result recipe|kind input okBody errBody|kind input okBody errBody|input:recipe okBody:recipe errBody:recipe

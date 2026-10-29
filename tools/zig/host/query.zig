@@ -32,7 +32,7 @@ pub const Request = struct {
     snapshot_path: []const u8 = "",
     rejection: Rejection = .{ .code = "", .message = "" },
 
-    fn fail(self: *Request, comptime format: []const u8, args: anytype) Fail {
+    pub fn fail(self: *Request, comptime format: []const u8, args: anytype) Fail {
         self.rejection = .{ .code = "ProtocolError", .message = try std.fmt.allocPrint(self.a, format, args) };
         return error.Rejected;
     }
@@ -1563,4 +1563,45 @@ pub fn executionReadiness(r: *Request, out: *Writer) Fail!void {
             return error.Rejected;
         },
     }
+}
+
+// ---------------------------------------------------------------- simulateCreateFunction
+
+const recipe = @import("recipe.zig");
+
+/// `simulateCreateFunction`: the request read as `Protocol.fs` reads it, field by field in the
+/// order F# evaluates them, with each rejection.
+// shortcut: a request that decodes is not simulated yet (inference, materialization and the review come in 3c-3 and 3c-4).
+pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
+    _ = out;
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateCreateFunction request", &.{ "id", "op", "displayName", "exported", "mustNotWait", "typeParameters", "parameters", "resultType", "requiredEffects", "body", "structuredReview", "detail", "expectedSnapshotId" }, &.{ "id", "op", "displayName", "parameters", "resultType", "requiredEffects", "body" })) |message| return r.fail("{s}", .{message});
+    var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
+    var root: std.json.Value = .{ .object = r.root };
+    for (try d.array(root, "parameters"), 0..) |item, i| {
+        const path = try std.fmt.allocPrint(r.a, "/parameters/{d}", .{i});
+        try d.ensureFields(path, item, "function parameter", &.{ "displayName", "type" }, &.{ "displayName", "type" });
+        _ = try d.requiredString(item, "displayName");
+        try d.typeRef(try std.fmt.allocPrint(r.a, "{s}/type", .{path}), try d.property(item, "type"));
+    }
+    for (try d.array(root, "requiredEffects")) |item| {
+        if (item != .string) return r.fail("requiredEffects entries must be stable-ID strings.", .{});
+        _ = try d.stableId("requiredEffects", item.string);
+    }
+    if (r.root.get("expectedSnapshotId") != null) _ = try d.stableId("expectedSnapshotId", try d.requiredString(root, "expectedSnapshotId"));
+    _ = try d.requiredString(root, "displayName");
+    try d.optionalBool(root, "exported");
+    try d.optionalBool(root, "mustNotWait");
+    if (r.root.get("typeParameters") != null) {
+        for (try d.array(root, "typeParameters")) |item| {
+            if (item != .string) return r.fail("typeParameters must list type parameter names as strings.", .{});
+            if (isBlank(try utf16(r.a, item.string))) return r.fail("Type parameter names must not be blank.", .{});
+            _ = try d.stableId("typeParameters", item.string);
+        }
+    }
+    try d.typeRef("/resultType", try d.property(root, "resultType"));
+    const body = root.object.getPtr("body").?;
+    try recipe.resolveNames(&d, body, try recipe.rawProperty(r.a, r.line, "body"));
+    try d.recipe("/body", body.*);
+    r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host reads simulateCreateFunction requests but does not simulate them yet." };
+    return error.Rejected;
 }
