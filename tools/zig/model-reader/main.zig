@@ -1532,6 +1532,26 @@ pub fn functionRelationsOf(node: Value) []const FunctionRelation {
     return out;
 }
 
+/// `ProjectExecution` of a model already validated (the open model): the number of functions it
+/// lowers, or the case name of the projection's or the lowering's error.
+pub const Readiness = union(enum) { ready: usize, projection: []const u8, lowering: []const u8 };
+pub fn executionReadinessOf(allocator: std.mem.Allocator, root: Value) Readiness {
+    a = allocator;
+    const was = validated_input;
+    validated_input = true;
+    defer validated_input = was;
+    const case = struct {
+        fn of(failure: []const u8) []const u8 {
+            return failure[0 .. std.mem.indexOfScalar(u8, failure, ':') orelse failure.len];
+        }
+    }.of;
+    _ = executionIr(root) catch |e| return switch (e) {
+        error.Lowering => .{ .lowering = case(lowering_failure) },
+        else => .{ .projection = case(lowering_failure) },
+    };
+    return .{ .ready = arrayOf(root, "functions").len };
+}
+
 /// `SemanticNodeShape.nestedScopes` of a node.
 pub fn scopesOf(node: Value) []const Scope {
     return nestedScopes(node);

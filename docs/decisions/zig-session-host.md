@@ -1,6 +1,6 @@
 # Zig session host
 
-Status: accepted 2026-10-28 (owner: "OK, go ahead with recommends"). Steps 0, 1 and 2a done. Background: [zig-tools.md](zig-tools.md), section "Direction: a whole Zig session host".
+Status: accepted 2026-10-28 (owner: "OK, go ahead with recommends"). Steps 0, 1 and 2 done. Background: [zig-tools.md](zig-tools.md), section "Direction: a whole Zig session host".
 
 Goal: a separate executable, `nyrwvy-host` built from `tools/zig/`, that speaks the same JSONL protocol as the F# host (`Nyrwvy.AuthoringSession open …`). It reaches parity step by step and then replaces the F# host in one switch. Rules:
 - The Zig host never calls F#.
@@ -89,7 +89,7 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
      - The asset is the module `viewer_asset` (`src/Nyrwvy.Viewer/asset.zig`, which embeds `viewer.html`); `ZigTools` builds the host with it and hashes its directory into the build key.
      - `view_file.zig` ports `ViewerFile.write` and `ConfinedDirectory`: the output's confinement and refusals, the link check of every component, the generated-file marker, and the write through directory handles into a temporary file renamed over the target. An I/O failure's message names the errno, not .NET's text; parity leaves those out.
      - Parity: each host writes into its own copy of the snapshot's directory, the replies are compared with that directory masked and the pages byte for byte: every function by ID and by name, a page replaced, and each refusal (blank, not `.html`, outside by `..` and absolute, through a link, a file without the marker, a file as a directory).
-   - **2e. `executionReadiness`.**
+   - **2e. `executionReadiness` (done).** The model reader lowers the open model (`executionReadinessOf`, the lowering `--execution-ir` writes) and reports the function count, or the projection's or the lowering's case name as `SemanticProjectionFailure` or `ExecutionLoweringFailure`, as `ProjectExecution` does. Parity asks it of every snapshot, the incomplete one included. With it, every read-only operation of step 2 is ported; `previewDependencyUpgrade(s)` comes with the migrations (step 5), `runPure` and `emitCSharp` with steps 6 and 7.
 3. **First write path, 4–6K.**
    - `simulateCreateFunction(ByName)` and `simulateReplaceBody(ByName)`: expression recipes (inference and materialization), the structural transaction, and the proposal review.
    - `commit` and `reject`: the writer for both formats, atomic writes and history.
