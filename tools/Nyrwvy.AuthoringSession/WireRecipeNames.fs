@@ -85,10 +85,21 @@ module internal WireRecipeNames =
             | _ -> rest []
         | _ -> ()
 
+    let rec private hasDuplicates (element: JsonElement) =
+        match element.ValueKind with
+        | JsonValueKind.Object ->
+            let names = element.EnumerateObject() |> Seq.map (fun item -> item.Name) |> Seq.toList
+            (List.distinct names).Length <> names.Length
+            || element.EnumerateObject() |> Seq.exists (fun item -> hasDuplicates item.Value)
+        | JsonValueKind.Array -> element.EnumerateArray() |> Seq.exists hasDuplicates
+        | _ -> false
+
     /// The recipe with every named pattern reference rewritten; unchanged when it uses no names.
     let resolve (element: JsonElement): JsonElement =
         let raw = element.GetRawText()
         if not (raw.Contains "Name\"" || raw.Contains "\"name\"") then element
+        // The `JsonNode` copy below throws on a doubled property, so it is rejected as `ensureFields` rejects one.
+        elif hasDuplicates element then fail "JSON object contains duplicate property names."
         else
             // The request line was parsed with requestMaxJsonDepth, so the copies here must allow it too.
             let root = JsonNode.Parse(raw, System.Nullable(), JsonDocumentOptions(MaxDepth = requestMaxJsonDepth))
