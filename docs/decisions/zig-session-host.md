@@ -123,6 +123,8 @@ The MCP and agent adapters (`tools/nyrwvy-mcp`, `tools/nyrwvy-agent`) get one se
   - Mutated requests: wrong IDs, bad recipes, conflicting proposals, so that error codes and messages match too.
 - **Stored state.** After every commit, the snapshot files and sidecars written by both hosts must be byte-identical.
 - **Gate.** A step merges only when the transcripts of its operations are identical, the fast and extended suites pass, and the `ZigSpeed` host rows are recorded.
+- **Working loop (2026-10-29).** While iterating on a step, run only the tests the change touches (`dotnet test … --filter`) and the fast suite. Run the full extended suite once, just before opening the PR. Never leave a suite unwatched: if it runs past about twice its usual time (fast about 30 s, extended about 7 min), check it and stop it if it hangs.
+- **Harness.** `ZigHostParityTests.run` reads a host's output while it writes the requests, so a host blocked on a full stdout cannot deadlock the run, and a host that answers nothing for 60 s is killed and the test names the next request. Each heavy parity test is its own module, so xunit runs them in parallel; within a test the snapshots run one at a time, since a burst of hosts starved the timed runPure tests beside them. ZigTools builds each tool once per process and caches it by content.
 - **Unit level.** The existing tool parity tests (reader, validator, lowering, emitter) stay until the switch.
 
 ## The switch
