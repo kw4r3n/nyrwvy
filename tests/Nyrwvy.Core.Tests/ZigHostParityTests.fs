@@ -325,19 +325,16 @@ module ZigHostQueryParityTests =
     let ``The Zig host answers queries built from each snapshot as the F# host does`` () =
         withDirectory (fun dir ->
             let constructed = constructedSnapshots dir
-            // Each snapshot runs its own host and session, so they run in parallel.
+            // One snapshot at a time: running them in parallel starved the timed runPure tests beside this one.
             let answered = Text.StringBuilder()
-            snapshots dir @ constructed
-            |> List.toArray
-            |> Array.Parallel.map (fun snapshot ->
+            for snapshot in snapshots dir @ constructed do
                 use session = AuthoringSession.openReadOnly snapshot |> unwrap
                 let requests = queries session
                 let code, errors, answers = run true [ "open"; "--snapshot"; snapshot; "--read-only" ] requests
                 Assert.True((code = 0), errors)
                 let fsharp = requests |> List.map (AuthoringProtocol.executeLine session)
+                fsharp |> List.iter (answered.Append >> ignore)
                 sameAnswers (Path.GetFileName snapshot) fsharp answers requests
-                String.concat "" fsharp)
-            |> Array.iter (answered.Append >> ignore)
             for shown in [ "\"aborts\":[{"; "\"mayWait\":true"; "\"openObligations\":[{"; "\"frames\":[{"; "\"variants\":["; "\"slot\":\"field\""; "\"evidence\":[{"; "\"references\":[{"; "\"role\":\"patternBinding\""; "\"truncated\":true"; "\"outlineTruncated\":true"; "scopeDepth=1"; "\\\\uD83D\\\\u2026"; "ref "; "\"nodeTypes\":[{"; "\"copiedUpdates\":[{"; "\"kind\":\"ready\""; "\"code\":\"SemanticProjectionFailure\",\"message\":\"IncompleteSnapshot\"" ] do
                 Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it.")
             // `full` replies show every node kind's structured form.
