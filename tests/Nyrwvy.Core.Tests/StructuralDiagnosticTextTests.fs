@@ -160,6 +160,10 @@ module StructuralDiagnosticTextTests =
         let code, message = reject [ "x", T ] S """{"kind":"fieldAccess","source":{"kind":"parameter","name":"x"},"type":"Finding","field":"line"}"""
         Assert.Equal("PureExpressionFieldAccessTypeMismatch", code)
         Assert.EndsWith("but the source recipe produces T. At body (fieldAccess).", message)
+        let code, message =
+            reject [ "x", T ] (named "Finding") """{"kind":"productUpdate","type":"Finding","source":{"kind":"parameter","name":"x"},"fields":[{"field":"line","value":{"kind":"int64Literal","value":"1"}}]}"""
+        Assert.Equal("PureExpressionProductUpdateSourceMismatch", code)
+        Assert.EndsWith("but the source recipe produces T. At body (productUpdate).", message)
 
     [<Fact>]
     let ``the path locates a nested operand and a list item`` () =

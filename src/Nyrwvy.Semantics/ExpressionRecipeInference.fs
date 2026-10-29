@@ -1302,7 +1302,7 @@ module internal ExpressionRecipeInference =
                 match Map.tryFind typeId typesById with
                 | None ->
                     Error(diagnostic "PureExpressionProductTypeNotFound" $"Product update references unknown type '{StableId.value typeId}'.")
-                | Some({ Kind = SemanticTypeKind.Product declaredFields } as owner) ->
+                | Some({ Kind = SemanticTypeKind.Product declaredFields } as productType) ->
                     let declaredIds = declaredFields |> List.map (fun field -> field.Id) |> Set.ofList
                     match fields |> List.tryFind (fun (fieldId, _) -> not (Set.contains fieldId declaredIds)) with
                     | _ when List.isEmpty fields ->
@@ -1314,7 +1314,7 @@ module internal ExpressionRecipeInference =
                         | Error error -> Error error
                         | Ok(TypeRef.Named(sourceTypeId, arguments) as sourceType) when sourceTypeId = typeId ->
                             let boundIds = fields |> List.map fst |> Set.ofList
-                            let updatedFields = instantiateFields owner arguments declaredFields |> List.filter (fun field -> Set.contains field.Id boundIds)
+                            let updatedFields = instantiateFields productType arguments declaredFields |> List.filter (fun field -> Set.contains field.Id boundIds)
                             validateFieldBindings "ProductUpdate" updatedFields fields |> Result.map (fun () -> sourceType)
                         | Ok actual ->
                             Error(diagnostic "PureExpressionProductUpdateSourceMismatch" $"Product update of {DiagnosticText.namedType snapshot typeId} requires a source of that type, but the source recipe produces {DiagnosticText.typeRefWithIdIn owner.TypeParameters snapshot actual}.")
