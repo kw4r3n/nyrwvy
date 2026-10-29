@@ -211,6 +211,45 @@ module ZigHostParityTests =
                     let shown = $"\"kind\":{{\"kind\":\"{row.Split('|')[1]}\""
                     Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it."))
 
+    /// The seeded IDs a host writes under `NYRWVY_TEST_ID_SEED`, which the Zig host must allocate
+    /// the same way: the `n`-th is a UUIDv7 at 1 700 000 000 000 ms + `n` with SHA-256 bits of `seed:n`.
+    [<Fact>]
+    let ``Seeded IDs are UUIDv7 values derived from the seed and the count`` () =
+        Assert.Equal("018bcfe5-6801-7", (StableIdAllocator.seededPayload "parity" 1L).Substring(0, 15))
+        Assert.Equal("018bcfe5-6802-7", (StableIdAllocator.seededPayload "parity" 2L).Substring(0, 15))
+        Assert.Equal(StableIdAllocator.seededPayload "parity" 7L, StableIdAllocator.seededPayload "parity" 7L)
+        Assert.NotEqual<string>(StableIdAllocator.seededPayload "parity" 7L, StableIdAllocator.seededPayload "other" 7L)
+        for n in 1L .. 50L do
+            let text = StableIdAllocator.seededPayload "parity" n
+            Assert.Contains(text[19], "89ab")
+            Assert.True(StableId.tryCreate<FunctionTag> text |> Result.isOk, text)
+
+    /// With the seed, two runs of the F# host on the same requests answer the same, new IDs included.
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The F# host allocates the same IDs for the same seed`` () =
+        withDirectory (fun dir ->
+            let session seed =
+                let path = Path.Combine(dir, $"{seed}-{Guid.NewGuid():N}.json")
+                File.WriteAllText(path, SnapshotCodec.serialize (MilestoneZeroGraph.create ()).Snapshot |> unwrap)
+                let info = ProcessStartInfo("dotnet", [ fsharpHost; "open"; "--snapshot"; path ])
+                info.RedirectStandardInput <- true
+                info.RedirectStandardOutput <- true
+                info.RedirectStandardError <- true
+                info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
+                info.Environment["NYRWVY_TEST_ID_SEED"] <- seed
+                use host = Process.Start info
+                host.StandardInput.Write(
+                    """{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[{"displayName":"x","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}"""
+                    + "\n")
+                host.StandardInput.Close()
+                let output = host.StandardOutput.ReadToEnd()
+                host.WaitForExit()
+                output
+            let first = session "parity"
+            Assert.Contains("\"proposalId\":\"018bcfe5-68", first)
+            Assert.Equal(first, session "parity")
+            Assert.NotEqual<string>(first, session "other"))
+
     /// `viewFunction` writes pages beside the snapshot, so each host gets its own copy of the snapshot's
     /// directory: the replies are compared with that directory masked, and the pages byte for byte.
     [<Fact; Trait("Suite", "Extended")>]
