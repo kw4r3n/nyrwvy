@@ -82,22 +82,28 @@ module DiagnosticText =
         | None -> $"type '{StableId.value typeId}'"
 
     /// A type with the ID of a top-level named type appended, e.g. `'Tail' (01a0…)`.
-    let typeRefWithId (snapshot: Snapshot) (value: TypeRef) =
+    let typeRefWithIdIn (extra: (TypeParameterId * string) list) (snapshot: Snapshot) (value: TypeRef) =
         match value with
         | TypeRef.Named(typeId, []) -> namedType snapshot typeId
-        | _ -> typeRef snapshot value
+        | _ -> typeRefIn extra snapshot value
+
+    let typeRefWithId (snapshot: Snapshot) (value: TypeRef) = typeRefWithIdIn [] snapshot value
 
     /// The normal-completion type, or a note that the expression never completes normally.
-    let completion (snapshot: Snapshot) (value: GraphCompletion) =
+    let completionIn (extra: (TypeParameterId * string) list) (snapshot: Snapshot) (value: GraphCompletion) =
         match value with
-        | GraphCompletion.Normal normal -> typeRef snapshot normal
+        | GraphCompletion.Normal normal -> typeRefIn extra snapshot normal
         | GraphCompletion.Aborts -> "no value (the expression always aborts)"
 
+    let completion (snapshot: Snapshot) (value: GraphCompletion) = completionIn [] snapshot value
+
     /// Two completions of a mismatch, with type-parameter IDs when their texts would otherwise agree.
-    let completionPair (snapshot: Snapshot) (left: GraphCompletion) (right: GraphCompletion): string * string =
+    let completionPairIn (extra: (TypeParameterId * string) list) (snapshot: Snapshot) (left: GraphCompletion) (right: GraphCompletion): string * string =
         match left, right with
-        | GraphCompletion.Normal leftType, GraphCompletion.Normal rightType -> typeRefPair snapshot leftType rightType
-        | _ -> completion snapshot left, completion snapshot right
+        | GraphCompletion.Normal leftType, GraphCompletion.Normal rightType -> typeRefPairIn extra snapshot leftType rightType
+        | _ -> completionIn extra snapshot left, completionIn extra snapshot right
+
+    let completionPair (snapshot: Snapshot) (left: GraphCompletion) (right: GraphCompletion): string * string = completionPairIn [] snapshot left right
 
     /// A function by display name and ID: `'countStep' (01a0…)`.
     let functionName (functionEntity: SemanticFunction) =

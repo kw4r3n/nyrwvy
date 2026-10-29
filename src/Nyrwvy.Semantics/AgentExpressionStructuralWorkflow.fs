@@ -905,7 +905,7 @@ module AgentExpressionStructuralWorkflow =
                                         Error(
                                             diagnostic
                                                 "FunctionCreationResultTypeMismatch"
-                                                $"The function body produces {DiagnosticText.typeRef baseSnapshot bodyType}, but the requested result type is {DiagnosticText.typeRef baseSnapshot request.ResultType}."
+                                                $"The function body produces {DiagnosticText.typeRefIn typeParameters baseSnapshot bodyType}, but the requested result type is {DiagnosticText.typeRefIn typeParameters baseSnapshot request.ResultType}."
                                         )
                                     | Ok _ ->
                                         Ok
