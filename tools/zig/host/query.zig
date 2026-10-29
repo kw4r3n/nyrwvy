@@ -5,6 +5,8 @@ const std = @import("std");
 const model = @import("model_reader");
 const wire = @import("wire.zig");
 const case_runs = @import("case_runs.zig");
+const viewer = @import("viewer.zig");
+const view_file = @import("view_file.zig");
 
 const Value = model.Value;
 const Str = model.Str;
@@ -26,6 +28,8 @@ pub const Request = struct {
     model: Value,
     provenance: ?wire.Provenance,
     snapshot_id: []const u8 = "",
+    /// The snapshot file, absolute, beside which views are written.
+    snapshot_path: []const u8 = "",
     rejection: Rejection = .{ .code = "", .message = "" },
 
     fn fail(self: *Request, comptime format: []const u8, args: anytype) Fail {
@@ -530,7 +534,7 @@ fn subjectOf(r: *Request) Fail!Subject {
     return .{ .kind = kind, .id = idOf(try exactOne(r, try std.fmt.allocPrint(r.a, "field on {s}", .{nameOf(owner)}), field_name, model.arrayItems(owner, "fields"))) };
 }
 
-fn writeId(out: *Writer, units: Str) !void {
+pub fn writeId(out: *Writer, units: Str) !void {
     try model.writeString(out, units);
 }
 
@@ -930,7 +934,7 @@ pub fn bindingScopes(r: *Request, out: *Writer) Fail!void {
 
 // ---------------------------------------------------------------- readFunction
 
-fn writeIds(out: *Writer, ids: []const Str) !void {
+pub fn writeIds(out: *Writer, ids: []const Str) !void {
     try out.writeByte('[');
     for (ids, 0..) |id, index| {
         if (index > 0) try out.writeByte(',');
@@ -939,7 +943,7 @@ fn writeIds(out: *Writer, ids: []const Str) !void {
     try out.writeByte(']');
 }
 
-fn writeSites(out: *Writer, sites: []const model.CallSite) !void {
+pub fn writeSites(out: *Writer, sites: []const model.CallSite) !void {
     try out.writeByte('[');
     for (sites, 0..) |site, index| {
         if (index > 0) try out.writeByte(',');
@@ -1201,15 +1205,9 @@ fn copiedUpdates(r: *Request, out: *Writer, wanted: Str) !void {
     if (count > 0) try out.writeByte(']');
 }
 
-/// `focusFields`: compact (the function summarized) or, for `full`, with the structured body and the node types.
-fn compactFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: []const Value, full: bool) !void {
-    const focus = model.focusOf(r.a, r.model, function);
-    try out.writeAll("{\"snapshotId\":");
-    try @import("root").writeString(out, r.snapshot_id);
-    try out.writeAll(",\"function\":");
-    if (full) try wire.functionEntity(out, function) else try wire.functionSummary(out, function, nodes.len);
-    const requirements = focus.requirements;
-    try out.writeAll(",\"bodyEffectRequirements\":{\"effectIds\":");
+/// `bodyEffectRequirements`.
+pub fn writeRequirements(out: *Writer, requirements: model.BodyRequirements) !void {
+    try out.writeAll("{\"effectIds\":");
     try writeIds(out, requirements.effects);
     try out.writeAll(",\"evidence\":[");
     for (requirements.evidence, 0..) |item, index| {
@@ -1227,15 +1225,15 @@ fn compactFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: 
     try out.writeAll(",\"unresolvedOperationIds\":");
     try writeIds(out, requirements.unresolved_operations);
     try out.writeByte('}');
-    if (focus.wait_path) |path| {
-        try out.writeAll(",\"mayWait\":true,\"waitPath\":");
-        try model.writeString(out, path);
-    }
-    try out.writeAll(",\"aborts\":[");
-    for (focus.aborts, 0..) |item, index| {
+}
+
+/// `aborts`, owned by `owner`.
+pub fn writeAborts(out: *Writer, aborts: []const model.Abort, owner: Str) !void {
+    try out.writeByte('[');
+    for (aborts, 0..) |item, index| {
         if (index > 0) try out.writeByte(',');
         try out.writeAll("{\"ownerFunctionId\":");
-        try writeId(out, wanted);
+        try writeId(out, owner);
         try out.writeAll(",\"nodeId\":");
         try writeId(out, item.node);
         try out.writeAll(",\"errorNodeId\":");
@@ -1248,8 +1246,26 @@ fn compactFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: 
         try writeIds(out, item.dependents);
         try out.writeByte('}');
     }
+    try out.writeByte(']');
+}
+
+/// `focusFields`: compact (the function summarized) or, for `full`, with the structured body and the node types.
+fn compactFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: []const Value, full: bool) !void {
+    const focus = model.focusOf(r.a, r.model, function);
+    try out.writeAll("{\"snapshotId\":");
+    try @import("root").writeString(out, r.snapshot_id);
+    try out.writeAll(",\"function\":");
+    if (full) try wire.functionEntity(out, function) else try wire.functionSummary(out, function, nodes.len);
+    try out.writeAll(",\"bodyEffectRequirements\":");
+    try writeRequirements(out, focus.requirements);
+    if (focus.wait_path) |path| {
+        try out.writeAll(",\"mayWait\":true,\"waitPath\":");
+        try model.writeString(out, path);
+    }
+    try out.writeAll(",\"aborts\":");
+    try writeAborts(out, focus.aborts, wanted);
     if (full) {
-        try out.writeAll("],\"nodeTypes\":[");
+        try out.writeAll(",\"nodeTypes\":[");
         for (focus.node_types, 0..) |item, index| {
             if (index > 0) try out.writeByte(',');
             try out.writeAll("{\"nodeId\":");
@@ -1258,8 +1274,9 @@ fn compactFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: 
             if (item.type) |t| try wire.typeRef(out, t, model.arrayItems(function, "typeParameters")) else try out.writeAll("null");
             try out.writeByte('}');
         }
+        try out.writeByte(']');
     }
-    try out.writeAll("],\"callers\":");
+    try out.writeAll(",\"callers\":");
     try writeSites(out, focus.callers);
     try out.writeAll(",\"callees\":");
     try writeSites(out, focus.callees);
@@ -1484,4 +1501,44 @@ fn kindIsField(item: Value, name: []const u8, comptime expected: []const u8) boo
     if (units.len != expected.len) return false;
     for (units, expected) |unit, c| if (unit != c) return false;
     return true;
+}
+
+// ---------------------------------------------------------------- viewFunction
+
+/// `viewFunction`: the committed function's Function Focus page, written beside the snapshot.
+pub fn viewFunction(r: *Request, out: *Writer) Fail!void {
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "viewFunction request", &.{ "id", "op", "function", "functionId", "output" }, &.{ "id", "op" })) |message| return r.fail("{s}", .{message});
+    const by_name, const by_id = .{ r.root.get("function") != null, r.root.get("functionId") != null };
+    if (by_name == by_id) return r.fail("viewFunction requires exactly one of function and functionId.", .{});
+    const wanted = if (by_name) model.decoded(model.property(try resolve(r, "function", r.root, "function", &.{"function"}), "id").?) else try utf16(r.a, try exactId(r, "functionId"));
+    const output = if (r.root.get("output") != null) try requiredString(r, r.root, "output") else null;
+    const function = for (model.arrayItems(r.model, "functions")) |item| {
+        if (same(item, wanted)) break item;
+    } else {
+        r.rejection = .{ .code = "SemanticQueryFailure", .message = try std.fmt.allocPrint(r.a, "No function has the ID '{s}'.", .{model.utf8(wanted)}) };
+        return error.Rejected;
+    };
+    const id_text = model.utf8(wanted);
+    // `ViewerArtifact.focusFileName`: named by the function's ID, its UTF-8 bytes in lower-case hex.
+    const name = try std.fmt.allocPrint(r.a, "nyrwvy-focus-function-{x}.html", .{id_text});
+    const content = try viewer.page(r.a, try viewer.focusData(r.a, r.model, r.snapshot_id, function));
+    switch (try view_file.write(r.a, r.snapshot_path, output, ".html", name, viewer.header(), content)) {
+        .refused => |message| {
+            r.rejection = .{ .code = "ViewWriteFailed", .message = message };
+            return error.Rejected;
+        },
+        .internal => {
+            r.rejection = .{ .code = "InternalError", .message = "Unexpected internal failure; this request was not applied and the session is unchanged." };
+            return error.Rejected;
+        },
+        .written => |path| {
+            try out.writeAll("{\"functionId\":");
+            try writeId(out, wanted);
+            try out.writeAll(",\"displayName\":");
+            try model.writeString(out, model.decoded(model.property(function, "displayName").?));
+            try out.writeAll(",\"kind\":\"functionFocus\",\"mediaType\":\"text/html; charset=utf-8\",\"path\":");
+            try @import("root").writeString(out, path);
+            try out.writeByte('}');
+        },
+    }
 }

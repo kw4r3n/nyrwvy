@@ -174,7 +174,7 @@ fn signature(out: *Writer, item: Value) !void {
 }
 
 /// `semanticType`.
-fn semanticType(out: *Writer, item: Value) !void {
+pub fn semanticType(out: *Writer, item: Value) !void {
     const names = model.arrayItems(item, "typeParameters");
     var first = true;
     try out.writeByte('{');
@@ -202,7 +202,7 @@ fn semanticType(out: *Writer, item: Value) !void {
 }
 
 /// `capabilityEntity`.
-fn capability(out: *Writer, item: Value) !void {
+pub fn capability(out: *Writer, item: Value) !void {
     var first = true;
     try out.writeByte('{');
     try identity(out, &first, item);

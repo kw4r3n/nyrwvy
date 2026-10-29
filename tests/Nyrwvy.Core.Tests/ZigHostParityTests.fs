@@ -139,56 +139,59 @@ module ZigHostParityTests =
             if comparable expected <> comparable actual then
                 failwithf "%s line %d: %s\n F#:  %s\n Zig: %s" label (index + 1) request expected actual)
 
+    /// Snapshots with the constructs the examples lack (aborts, waits, open obligations, long
+    /// literals, Bytes updates), written into `dir`.
+    let private constructedSnapshots (dir: string) =
+        let fixture = MilestoneZeroGraph.create ()
+        // An open obligation: a parameter added with the call site left missing.
+        let incomplete =
+            Transaction.simulate fixture.Snapshot
+                { Id = StableId.createForTesting<TransactionTag> "zig-host-add-policy"
+                  BaseSnapshotId = fixture.Snapshot.Id
+                  ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "zig-host-incomplete"
+                  Operations =
+                    [ AddFunctionParameter
+                        { TargetFunctionId = fixture.ValidateFunctionId
+                          NewParameterId = StableId.createForTesting<ParameterTag> "zig-host-policy"
+                          NewParameterDisplayName = "policy"
+                          NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
+                          CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, StableId.createForTesting<ObligationTag> "zig-host-obligation") ] } ] }
+            |> function Proposed simulation -> simulation.ProposedSnapshot | Rejected diagnostics -> failwithf "%A" diagnostics
+        // Literals longer than the summaries (256 units) and the outline (64 units) show, with a
+        // surrogate pair at each cut, and a body whose outline passes its byte budget.
+        let long =
+            let fn name resultType (nodes: SemanticNode list) =
+                { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> ("zig-host-" + name); DisplayName = name
+                  TypeParameters = []; Parameters = []; ResultType = TypeRef.Primitive resultType; RequiredEffects = []
+                  Body = { Nodes = nodes; ResultNodeId = (List.last nodes).Id } }
+            let literal name text = fn name PrimitiveType.String [ { Id = StableId.createForTesting<GraphNodeTag> ("zig-host-" + name); Kind = SemanticNodeKind.StringLiteral text } ]
+            let node index = StableId.createForTesting<GraphNodeTag> $"zig-host-wide-{index:D3}"
+            let wide =
+                fn "wide" PrimitiveType.Bool
+                    [ yield { Id = node 0; Kind = SemanticNodeKind.BoolLiteral true }
+                      for index in 1 .. 400 -> { Id = node index; Kind = SemanticNodeKind.BoolNot(node (index - 1)) } ]
+            { Snapshot.empty (StableId.createForTesting<SnapshotTag> "zig-host-long") with
+                Functions =
+                  [ literal "long" ("long" + String.replicate 251 "a" + "😀" + String.replicate 200 "b")
+                    { literal "split" (String.replicate 63 "y" + "😀z") with MustNotWait = true }
+                    wide ] }
+        // Bytes updates that write in place and that must copy (`copiedUpdates`).
+        let ownership = Path.Combine(dir, "ownership.json")
+        do
+            use session = AuthoringSession.createNew ownership |> unwrap
+            BytesTests.ownershipFunctions session |> ignore
+            session.Close()
+        (RecordCodecAllKindsTests.allKindSnapshots () @ [ fixture.Snapshot; incomplete; long ]
+         |> List.mapi (fun index snapshot ->
+             let path = Path.Combine(dir, $"kinds-{index}.json")
+             File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap)
+             path))
+        @ [ ownership ]
+
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host answers queries built from each snapshot as the F# host does`` () =
         withDirectory (fun dir ->
-            // The examples lack some constructs (aborts, waits, open obligations); the all-kinds snapshots have them.
-            let constructed =
-                let fixture = MilestoneZeroGraph.create ()
-                // An open obligation: a parameter added with the call site left missing.
-                let incomplete =
-                    Transaction.simulate fixture.Snapshot
-                        { Id = StableId.createForTesting<TransactionTag> "zig-host-add-policy"
-                          BaseSnapshotId = fixture.Snapshot.Id
-                          ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "zig-host-incomplete"
-                          Operations =
-                            [ AddFunctionParameter
-                                { TargetFunctionId = fixture.ValidateFunctionId
-                                  NewParameterId = StableId.createForTesting<ParameterTag> "zig-host-policy"
-                                  NewParameterDisplayName = "policy"
-                                  NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
-                                  CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, StableId.createForTesting<ObligationTag> "zig-host-obligation") ] } ] }
-                    |> function Proposed simulation -> simulation.ProposedSnapshot | Rejected diagnostics -> failwithf "%A" diagnostics
-                // Literals longer than the summaries (256 units) and the outline (64 units) show, with a
-                // surrogate pair at each cut, and a body whose outline passes its byte budget.
-                let long =
-                    let fn name resultType (nodes: SemanticNode list) =
-                        { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> ("zig-host-" + name); DisplayName = name
-                          TypeParameters = []; Parameters = []; ResultType = TypeRef.Primitive resultType; RequiredEffects = []
-                          Body = { Nodes = nodes; ResultNodeId = (List.last nodes).Id } }
-                    let literal name text = fn name PrimitiveType.String [ { Id = StableId.createForTesting<GraphNodeTag> ("zig-host-" + name); Kind = SemanticNodeKind.StringLiteral text } ]
-                    let node index = StableId.createForTesting<GraphNodeTag> $"zig-host-wide-{index:D3}"
-                    let wide =
-                        fn "wide" PrimitiveType.Bool
-                            [ yield { Id = node 0; Kind = SemanticNodeKind.BoolLiteral true }
-                              for index in 1 .. 400 -> { Id = node index; Kind = SemanticNodeKind.BoolNot(node (index - 1)) } ]
-                    { Snapshot.empty (StableId.createForTesting<SnapshotTag> "zig-host-long") with
-                        Functions =
-                          [ literal "long" ("long" + String.replicate 251 "a" + "😀" + String.replicate 200 "b")
-                            literal "split" (String.replicate 63 "y" + "😀z")
-                            wide ] }
-                // Bytes updates that write in place and that must copy (`copiedUpdates`).
-                let ownership = Path.Combine(dir, "ownership.json")
-                do
-                    use session = AuthoringSession.createNew ownership |> unwrap
-                    BytesTests.ownershipFunctions session |> ignore
-                    session.Close()
-                (RecordCodecAllKindsTests.allKindSnapshots () @ [ fixture.Snapshot; incomplete; long ]
-                 |> List.mapi (fun index snapshot ->
-                     let path = Path.Combine(dir, $"kinds-{index}.json")
-                     File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap)
-                     path))
-                @ [ ownership ]
+            let constructed = constructedSnapshots dir
             let answered = Text.StringBuilder()
             for snapshot in snapshots dir @ constructed do
                 use session = AuthoringSession.openReadOnly snapshot |> unwrap
@@ -205,6 +208,143 @@ module ZigHostParityTests =
                 if not (row.StartsWith "#") then
                     let shown = $"\"kind\":{{\"kind\":\"{row.Split('|')[1]}\""
                     Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it."))
+
+    /// `viewFunction` writes pages beside the snapshot, so each host gets its own copy of the snapshot's
+    /// directory: the replies are compared with that directory masked, and the pages byte for byte.
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host writes viewFunction pages as the F# host does`` () =
+        withDirectory (fun dir ->
+            let quote (text: string) = JsonSerializer.Serialize text
+            let pages = Text.StringBuilder()
+            let replies = Text.StringBuilder()
+            let sources = snapshots (Path.Combine(dir, "json") |> fun d -> Directory.CreateDirectory d |> ignore; d) @ constructedSnapshots (Path.Combine(dir, "constructed") |> fun d -> Directory.CreateDirectory d |> ignore; d)
+            for index, source in List.indexed sources do
+                // Each host's copy of the snapshot's directory, with the setups the error cases need.
+                let copy (host: string) =
+                    let target = Path.Combine(dir, $"{index}-{host}")
+                    Directory.CreateDirectory target |> ignore
+                    for file in Directory.GetFiles(Path.GetDirectoryName source) do File.Copy(file, Path.Combine(target, Path.GetFileName file))
+                    Directory.CreateDirectory(Path.Combine(target, "elsewhere")) |> ignore
+                    File.CreateSymbolicLink(Path.Combine(target, "link"), Path.Combine(target, "elsewhere")) |> ignore
+                    File.WriteAllText(Path.Combine(target, "own.html"), "<p>a person's page</p>")
+                    File.WriteAllText(Path.Combine(target, "plain.html"), "not a directory")
+                    target, Path.Combine(target, Path.GetFileName source)
+                let fsharpDir, fsharpSnapshot = copy "fsharp"
+                let zigDir, zigSnapshot = copy "zig"
+                use session = AuthoringSession.openReadOnly fsharpSnapshot |> unwrap
+                let functions = session.Declarations().Functions
+                let id (value: StableId<'Kind>) = StableId.value value
+                let requests =
+                    [ for position, item in List.indexed functions do
+                          yield $"""{{"id":"v","op":"viewFunction","functionId":{quote (id item.Id)}}}"""
+                          yield $"""{{"id":"v","op":"viewFunction","function":{quote item.DisplayName},"output":"views/{position}.html"}}"""
+                      match functions with
+                      | first :: _ ->
+                          let at (output: string) = $"""{{"id":"v","op":"viewFunction","functionId":{quote (id first.Id)},"output":{quote output}}}"""
+                          // A page this tool wrote is replaced; the others are refused.
+                          yield at "views/0.html"
+                          yield! [ ""; "  "; "page.txt"; "../outside.html"; "/elsewhere/outside.html"; "link/page.html"; "own.html"; "plain.html/page.html"; "nested/deeper/page.HTML"; "page.html\u0000.html" ] |> List.map at
+                          yield $"""{{"id":"v","op":"viewFunction","functionId":{quote (id first.Id)},"output":3}}"""
+                      | [] -> ()
+                      yield """{"id":"v","op":"viewFunction"}"""
+                      yield """{"id":"v","op":"viewFunction","function":"x","functionId":"y"}"""
+                      yield """{"id":"v","op":"viewFunction","functionId":"missing"}"""
+                      yield """{"id":"v","op":"viewFunction","functionId":"missing","extra":1}""" ]
+                let code, errors, answers = run true [ "open"; "--snapshot"; zigSnapshot; "--read-only" ] requests
+                Assert.True((code = 0), errors)
+                let fsharp = requests |> List.map (AuthoringProtocol.executeLine session >> fun reply -> reply.Replace(fsharpDir, "<dir>"))
+                fsharp |> List.iter (replies.Append >> ignore)
+                sameAnswers (Path.GetFileName source) fsharp (answers |> List.map (fun reply -> reply.Replace(zigDir, "<dir>"))) requests
+                let written (root: string) =
+                    Directory.GetFiles(root, "*.html", SearchOption.AllDirectories)
+                    |> Array.map (fun file -> Path.GetRelativePath(root, file))
+                    |> Array.sort
+                    |> Array.toList
+                Assert.Equal<string list>(written fsharpDir, written zigDir)
+                for file in written fsharpDir do
+                    let expected = File.ReadAllBytes(Path.Combine(fsharpDir, file))
+                    Assert.True((expected = File.ReadAllBytes(Path.Combine(zigDir, file))), $"{Path.GetFileName source}: {file} differs.")
+                    pages.Append(Text.Encoding.UTF8.GetString expected) |> ignore
+            for shown in [ "\"role\":\"UnionVariant\""; "\"sourceFieldId\":\""; "\"kind\":\"capabilityConstruct\""; "\"waitPath\":\""; "\"mustNotWait\":true"; "\"referencedCapabilities\":[{"; "\"originTransactionId\":\""; "\"role\":\"CallArgument\""; "\"kind\":\"CallsFunction\""; "\"bits\":\"" ] do
+                Assert.True(pages.ToString().Contains shown, $"No F# page shows {shown}; the parity test does not cover it.")
+            for shown in [ "output must not be blank."; "output must name a .html file."; "output must stay inside"; "is one."; "is one or is not a directory."; "without the generated-file marker"; "\"kind\":\"functionFocus\"" ] do
+                Assert.True(replies.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it."))
+
+    /// `ValueDependency.ofNode` as the Zig host reads it (tools/zig/host/dependency_roles.txt): per
+    /// node kind, in dependency order, the snapshot property that holds each operand and its role.
+    /// `name[]` stands for each item of an array: a node ID (`ListItem` and `FunctionArgument` with
+    /// the item's index) or a binding whose `valueNodeId` is the operand (the role keyed by its target).
+    /// Each kind is built with every optional part present and a fresh ID in every place, then read
+    /// back from its serialized form.
+    let dependencyRoleTable () =
+        let mutable next = 0
+        let fresh () =
+            next <- next + 1
+            $"zig-roles-{next:D4}"
+        let flags = Reflection.BindingFlags.Public ||| Reflection.BindingFlags.NonPublic
+        let rec sample (t: Type) : obj =
+            if t = typeof<string> then box (fresh ())
+            elif t = typeof<int64> then box 0L
+            elif t = typeof<int> then box 0
+            elif t = typeof<uint64> then box 0UL
+            elif t = typeof<bool> then box false
+            elif t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<list<_>> then
+                let item = t.GetGenericArguments()[0]
+                let cons = t.GetMethod("Cons")
+                let empty = t.GetProperty("Empty").GetValue(null)
+                cons.Invoke(null, [| sample item; cons.Invoke(null, [| sample item; empty |]) |])
+            elif t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<option<_>> then
+                t.GetMethod("Some").Invoke(null, [| sample (t.GetGenericArguments()[0]) |])
+            elif t = typeof<TypeRef> then box (TypeRef.Primitive PrimitiveType.Int64)
+            elif t = typeof<ValueGraph> then box ({ Nodes = []; ResultNodeId = StableId.createForTesting<GraphNodeTag> (fresh ()) }: ValueGraph)
+            elif Microsoft.FSharp.Reflection.FSharpType.IsTuple t then
+                Microsoft.FSharp.Reflection.FSharpValue.MakeTuple(Microsoft.FSharp.Reflection.FSharpType.GetTupleElements t |> Array.map sample, t)
+            elif Microsoft.FSharp.Reflection.FSharpType.IsRecord(t, flags) then
+                Microsoft.FSharp.Reflection.FSharpValue.MakeRecord(t, Microsoft.FSharp.Reflection.FSharpType.GetRecordFields(t, flags) |> Array.map (fun field -> sample field.PropertyType), flags)
+            elif Microsoft.FSharp.Reflection.FSharpType.IsUnion(t, flags) then
+                let case = Microsoft.FSharp.Reflection.FSharpType.GetUnionCases(t, flags)[0]
+                Microsoft.FSharp.Reflection.FSharpValue.MakeUnion(case, case.GetFields() |> Array.map (fun field -> sample field.PropertyType), flags)
+            else failwithf "No sample for %s." t.FullName
+        let rows =
+            [ for case in Microsoft.FSharp.Reflection.FSharpType.GetUnionCases(typeof<SemanticNodeKind>) do
+                  let kind = Microsoft.FSharp.Reflection.FSharpValue.MakeUnion(case, case.GetFields() |> Array.map (fun field -> sample field.PropertyType)) :?> SemanticNodeKind
+                  let node = { Id = StableId.createForTesting<GraphNodeTag> (fresh ()); Kind = kind }
+                  let snapshot =
+                      { Snapshot.empty (StableId.createForTesting<SnapshotTag> "zig-roles") with
+                          Functions =
+                            [ { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "zig-roles"; DisplayName = "roles"
+                                TypeParameters = []; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Int64; RequiredEffects = []
+                                Body = { Nodes = [ node ]; ResultNodeId = node.Id } } ] }
+                  use document = JsonDocument.Parse(SnapshotCodec.serializeUnvalidated snapshot |> Result.defaultWith (failwithf "%A"))
+                  let json = (document.RootElement.GetProperty("functions")[0]).GetProperty("body").GetProperty("nodes")[0]
+                  let entries =
+                      ValueDependency.ofNode node
+                      |> List.map (fun dependency ->
+                          let wanted = StableId.value dependency.NodeId
+                          let role = (Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(dependency.Role, typeof<ValueDependencyRole>) |> fst).Name
+                          let places =
+                              [ for property in json.EnumerateObject() do
+                                    match property.Value.ValueKind with
+                                    | JsonValueKind.String when property.Value.GetString() = wanted -> yield property.Name
+                                    | JsonValueKind.Array ->
+                                        for item in property.Value.EnumerateArray() do
+                                            match item.ValueKind with
+                                            | JsonValueKind.String when item.GetString() = wanted -> yield property.Name + "[]"
+                                            | JsonValueKind.Object when (match item.TryGetProperty "valueNodeId" with | true, value -> value.GetString() = wanted | _ -> false) -> yield property.Name + "[]"
+                                            | _ -> ()
+                                    | _ -> () ]
+                          match places with
+                          | [ place ] -> place + ":" + role
+                          | other -> failwithf "%s: operand %s is at %A." case.Name wanted other)
+                  // The items of one array are one entry.
+                  let entries = entries |> List.fold (fun acc entry -> match acc with | last :: _ when last = entry && entry.Contains "[]" -> acc | _ -> entry :: acc) [] |> List.rev
+                  json.GetProperty("kind").GetString(), entries ]
+        rows |> List.sortWith (fun (x, _) (y, _) -> String.CompareOrdinal(x, y)) |> List.map (fun (kind, entries) -> kind + "|" + String.concat " " entries + "\n") |> String.concat ""
+
+    [<Fact>]
+    let ``The Zig host's dependency roles match ValueDependency.ofNode`` () =
+        let file = Path.Combine(ZigModelReaderSupport.root (), "tools", "zig", "host", "dependency_roles.txt")
+        Assert.True((dependencyRoleTable () = File.ReadAllText file), "tools/zig/host/dependency_roles.txt is stale.")
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host fails to start as the F# host does`` () =

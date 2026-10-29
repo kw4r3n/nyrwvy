@@ -1384,6 +1384,9 @@ module SnapshotCodec =
 
     let private writeSnapshot dependencyMarker snapshot = writeSnapshotAt None dependencyMarker snapshot
 
+    /// The writer's JSON of a snapshot that need not be valid, for tests that read node shapes back.
+    let internal serializeUnvalidated (snapshot: Snapshot) = writeSnapshot None snapshot
+
     /// Whether a function body nests graphs deeper than any encoding of `maxJsonDepth` can hold:
     /// every graph level costs at least three containers (graph, node list, node). Checked before
     /// validation, whose recursion over nested graphs would otherwise overflow the stack first.
