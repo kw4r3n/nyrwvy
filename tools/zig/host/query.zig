@@ -1542,3 +1542,25 @@ pub fn viewFunction(r: *Request, out: *Writer) Fail!void {
         },
     }
 }
+
+// ---------------------------------------------------------------- executionReadiness
+
+/// `executionReadiness`: whether the committed snapshot projects and lowers to an execution program.
+pub fn executionReadiness(r: *Request, out: *Writer) Fail!void {
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "executionReadiness request", &.{ "id", "op" }, &.{ "id", "op" })) |message| return r.fail("{s}", .{message});
+    switch (model.executionReadinessOf(r.a, r.model)) {
+        .ready => |count| {
+            try out.writeAll("{\"kind\":\"ready\",\"sourceSnapshotId\":");
+            try @import("root").writeString(out, r.snapshot_id);
+            try out.print(",\"functionCount\":{d}}}", .{count});
+        },
+        .projection => |case| {
+            r.rejection = .{ .code = "SemanticProjectionFailure", .message = case };
+            return error.Rejected;
+        },
+        .lowering => |case| {
+            r.rejection = .{ .code = "ExecutionLoweringFailure", .message = case };
+            return error.Rejected;
+        },
+    }
+}
