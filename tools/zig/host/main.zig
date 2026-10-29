@@ -104,27 +104,94 @@ fn requiredString(a: std.mem.Allocator, root: std.json.ObjectMap, name: []const 
 }
 
 /// One request line to its response line, as `AuthoringProtocol.executeLine` answers it.
-fn execute(a: std.mem.Allocator, out: *std.Io.Writer, line: []const u8) !void {
+/// `std.json` refuses a `\uD800`-style escape of a lone surrogate, which .NET parses and refuses only
+/// when the string is read. Each such escape becomes `\ufdd0`, of the same length, and the readers
+/// answer as F# does (`query.readable`, `query.lookable`); `line` is null when the line has none.
+/// `root_key`: a property name of the request object has one, so reading `id` throws.
+/// shortcut: a line that also spells U+FDD0 itself keeps the parse failure; mark by path if that matters.
+const Masked = struct { line: ?[]u8 = null, root_key: bool = false };
+
+fn maskLoneSurrogates(a: std.mem.Allocator, line: []const u8) !Masked {
+    if (std.mem.indexOf(u8, line, "\\u") == null) return .{};
+    var masked: Masked = .{};
+    var genuine = std.mem.indexOf(u8, line, query.lone_mark) != null;
+    var in_string = false;
+    var spoiled = false;
+    var depth: usize = 0;
+    var i: usize = 0;
+    while (i < line.len) : (i += 1) {
+        const c = line[i];
+        if (!in_string) {
+            in_string = c == '"';
+            spoiled = false;
+            if (c == '{' or c == '[') depth += 1;
+            if (c == '}' or c == ']') depth -|= 1;
+        } else if (c == '"') {
+            in_string = false;
+            const rest = std.mem.trimStart(u8, line[i + 1 ..], " \t\r\n");
+            if (spoiled and rest.len > 0 and rest[0] == ':') {
+                if (depth == 1) masked.root_key = true;
+            }
+        } else if (c == '\\') {
+            if (i + 5 >= line.len or line[i + 1] != 'u') {
+                i += 1;
+                continue;
+            }
+            const unit = std.fmt.parseInt(u16, line[i + 2 .. i + 6], 16) catch {
+                i += 5;
+                continue;
+            };
+            const low = struct {
+                fn at(text: []const u8, at_: usize) bool {
+                    if (at_ + 5 >= text.len or text[at_] != '\\' or text[at_ + 1] != 'u') return false;
+                    const next = std.fmt.parseInt(u16, text[at_ + 2 .. at_ + 6], 16) catch return false;
+                    return next >= 0xDC00 and next <= 0xDFFF;
+                }
+            }.at;
+            if (unit >= 0xD800 and unit <= 0xDBFF and low(line, i + 6)) {
+                i += 11;
+                continue;
+            }
+            if (unit == 0xFDD0) genuine = true;
+            if (unit >= 0xD800 and unit <= 0xDFFF) {
+                if (masked.line == null) masked.line = try a.dupe(u8, line);
+                @memcpy(masked.line.?[i .. i + 6], "\\ufdd0");
+                spoiled = true;
+            }
+            i += 5;
+        }
+    }
+    return if (genuine) .{} else masked;
+}
+
+fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
     // The model reader's helpers allocate from the request's arena, not a freed earlier one.
     model_reader.useAllocator(a);
+    const masked = try maskLoneSurrogates(a, given);
+    query.masked = masked.line != null;
+    const line = masked.line orelse given;
     if (std.mem.trim(u8, line, " \t\r\n").len == 0) return failure(out, null, "ProtocolError", "Empty request line; expected one JSON object.");
     // The F# message carries .NET's parser text after this prefix; the parity test compares the prefix.
     if (tooDeep(line)) return failure(out, null, "ProtocolError", "Invalid JSON: maximum depth exceeded.");
     const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, line, .{ .duplicate_field_behavior = .use_last }) catch |e|
         return failure(out, null, "ProtocolError", try std.fmt.allocPrint(a, "Invalid JSON: {s}", .{@errorName(e)}));
     if (parsed != .object) return failure(out, null, "ProtocolError", "Expected a JSON object.");
+    if (masked.root_key) return failure(out, null, "SessionError", query.lone_message);
     var problem: []const u8 = "";
     const id = requiredString(a, parsed.object, "id", &problem) catch |e| switch (e) {
         Problem.Protocol => return failure(out, null, "ProtocolError", problem),
         else => return e,
     };
+    if (query.masked and std.mem.indexOf(u8, id, query.lone_mark) != null) return failure(out, null, "SessionError", query.lone_message);
     const op = requiredString(a, parsed.object, "op", &problem) catch |e| switch (e) {
         Problem.Protocol => return failure(out, id, "ProtocolError", problem),
         else => return e,
     };
+    if (query.masked and std.mem.indexOf(u8, op, query.lone_mark) != null) return failure(out, id, "SessionError", query.lone_message);
     // `encodeProposal` reads `detail` (and, for a full review, `structuredReview`) of every request before its operation.
     if (parsed.object.get("detail")) |detail| {
         const text = if (detail == .string) detail.string else "";
+        if (query.masked and std.mem.indexOf(u8, text, query.lone_mark) != null) return failure(out, id, "SessionError", query.lone_message);
         const full = std.mem.eql(u8, text, "full");
         if (!full and !std.mem.eql(u8, text, "compact") and !(std.mem.eql(u8, op, "readFunction") and std.mem.eql(u8, text, "outline")))
             return failure(out, id, "ProtocolError", "detail must be \"compact\" or \"full\".");

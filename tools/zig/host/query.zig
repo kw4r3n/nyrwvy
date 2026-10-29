@@ -38,6 +38,27 @@ pub const Request = struct {
     }
 };
 
+/// What a lone surrogate escape reads as once `main.maskLoneSurrogates` has replaced it, and whether this request has one.
+pub const lone_mark = "\u{FDD0}";
+pub var masked = false;
+pub const lone_message = "Cannot read incomplete UTF-16 JSON text as string with missing low surrogate.";
+
+/// `JsonElement.GetString` throws on a lone surrogate, which `executeLine` answers as `SessionError`
+/// (the parity test compares that code only).
+/// .NET's property lookup reads the names of the object, so one with a lone surrogate throws as `readable` does.
+pub fn lookable(r: *Request, object: std.json.ObjectMap) Fail!void {
+    if (!masked) return;
+    for (object.keys()) |key| _ = try readable(r, key);
+}
+
+pub fn readable(r: *Request, text: []const u8) Fail![]const u8 {
+    if (masked and std.mem.indexOf(u8, text, lone_mark) != null) {
+        r.rejection = .{ .code = "SessionError", .message = lone_message };
+        return error.Rejected;
+    }
+    return text;
+}
+
 /// `String.CompareOrdinal` of UTF-8 text: UTF-16 unit order, where a supplementary code point
 /// (a surrogate pair) sorts below U+E000..U+FFFF.
 fn ordinal(_: void, x: []const u8, y: []const u8) bool {
@@ -124,7 +145,7 @@ fn duplicateNames(a: Allocator, line: []const u8, path: []const []const u8) !boo
 fn requiredString(r: *Request, object: std.json.ObjectMap, name: []const u8) Fail![]const u8 {
     const value = object.get(name) orelse return r.fail("Missing required property '{s}'.", .{name});
     if (value != .string) return r.fail("Property '{s}' must be a JSON string.", .{name});
-    return value.string;
+    return readable(r, value.string);
 }
 
 // ---------------------------------------------------------------- text
@@ -323,9 +344,10 @@ fn stringOf(a: Allocator, text: []const u8) ![]const u8 {
 fn resolve(r: *Request, kind: []const u8, object: std.json.ObjectMap, key: []const u8, path: []const []const u8) Fail!Value {
     const items = try visible(r, kind);
     const selector = object.get(key) orelse return r.fail("Missing required property '{s}'.", .{key});
-    if (selector == .string) return exactOne(r, kind, selector.string, items);
+    if (selector == .string) return exactOne(r, kind, try readable(r, selector.string), items);
     if (selector != .object) return r.fail("Expected a JSON object.", .{});
     const fields = &.{ "id", "name", "dependencySnapshotId", "ownership" };
+    try lookable(r, selector.object);
     if (try fieldProblem(r.a, r.line, path, selector.object, try std.fmt.allocPrint(r.a, "{s} selector", .{kind}), fields, &.{})) |message| return r.fail("{s}", .{message});
     var guards: [4]?[]const u8 = .{ null, null, null, null };
     inline for (fields, 0..) |field, index| {
@@ -666,7 +688,7 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
         var names: std.ArrayList([]const u8) = .empty;
         for (value.array.items) |item| {
             if (item != .string) return r.fail("roots entries must be function names.", .{});
-            try names.append(r.a, item.string);
+            try names.append(r.a, try readable(r, item.string));
         }
         root_names = names.items;
     }
@@ -1585,7 +1607,7 @@ pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
     }
     for (try d.array(root, "requiredEffects")) |item| {
         if (item != .string) return r.fail("requiredEffects entries must be stable-ID strings.", .{});
-        _ = try d.stableId("requiredEffects", item.string);
+        _ = try d.stableId("requiredEffects", try readable(r, item.string));
     }
     if (r.root.get("expectedSnapshotId") != null) _ = try d.stableId("expectedSnapshotId", try d.requiredString(root, "expectedSnapshotId"));
     _ = try d.requiredString(root, "displayName");
@@ -1594,7 +1616,7 @@ pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
     if (r.root.get("typeParameters") != null) {
         for (try d.array(root, "typeParameters")) |item| {
             if (item != .string) return r.fail("typeParameters must list type parameter names as strings.", .{});
-            if (isBlank(try utf16(r.a, item.string))) return r.fail("Type parameter names must not be blank.", .{});
+            if (isBlank(try utf16(r.a, try readable(r, item.string)))) return r.fail("Type parameter names must not be blank.", .{});
             _ = try d.stableId("typeParameters", item.string);
         }
     }
