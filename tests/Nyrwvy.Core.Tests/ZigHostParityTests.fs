@@ -645,3 +645,48 @@ module ZigHostResolvedParityTests =
                     sidecar path [ embedded ])
             Assert.True(cases > 40, $"{cases} cases")
             Assert.True(outcomes.Count >= 12 && outcomes |> Seq.exists (fun line -> line.Contains "Dependencies declare"), String.Join("\n", outcomes)))
+
+/// Its own class, so xunit runs it beside the other host parity tests.
+module ZigTypedModelTests =
+    open ZigHostParityTests
+
+    /// The Zig host's typed model (tools/zig/model-reader/typed.zig) reads what an F# commit writes
+    /// and writes it back byte for byte (`model-reader --typed-roundtrip`), resolved snapshots with
+    /// their dependency marker, and gives the F# fingerprints of a plain one.
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The typed model writes snapshots as the F# writer does`` () =
+        withDirectory (fun dir ->
+            let reader = ZigTools.tool "model-reader" |> Result.mapError (fun (code, message) -> $"{code}: {message}") |> unwrap
+            let roundTrip name (expected: string) (fingerprints: string option) =
+                let input, output = Path.Combine(dir, name + ".in.json"), Path.Combine(dir, name + ".out.json")
+                File.WriteAllText(input, expected, Text.UTF8Encoding false)
+                let info = ProcessStartInfo(reader, [ "--typed-roundtrip"; input; output ])
+                info.RedirectStandardOutput <- true
+                info.RedirectStandardError <- true
+                use zig = Process.Start info
+                let printed = zig.StandardOutput.ReadToEnd()
+                let errors = zig.StandardError.ReadToEnd()
+                zig.WaitForExit()
+                Assert.True((zig.ExitCode = 0), $"{name}: {errors}")
+                let written = if File.Exists output then File.ReadAllText output else ""
+                if written <> expected then
+                    let at = Seq.zip expected written |> Seq.tryFindIndex (fun (x, y) -> x <> y) |> Option.defaultValue (min expected.Length written.Length)
+                    let around (text: string) = if at < text.Length then text.Substring(max 0 (at - 80), min 160 (text.Length - max 0 (at - 80))) else "<end>"
+                    failwithf "%s: the written text differs at %d (%s)\n F#:  %s\n Zig: %s" name at printed (around expected) (around written)
+                Assert.Equal(defaultArg fingerprints "resolved\n", printed)
+            let plain name (snapshot: Snapshot) =
+                let fingerprints = $"snapshot {SnapshotFingerprint.compute snapshot |> unwrap |> SnapshotFingerprint.value}\nsemantic {SemanticFingerprint.compute snapshot |> unwrap |> SemanticFingerprint.value}\n"
+                roundTrip name (SnapshotCodec.serialize snapshot |> unwrap) (Some fingerprints)
+            // What a commit of each example writes, and of its resolved form (the declarations as an
+            // imported dependency, the functions local), as `serializeWithDependency` writes it.
+            for index, path in List.indexed (snapshots (Path.Combine(dir, "json") |> fun d -> Directory.CreateDirectory d |> ignore; d)) do
+                use session = AuthoringSession.openReadOnly path |> unwrap
+                let snapshot = session.CommitJson() |> unwrap |> SnapshotCodec.deserialize |> unwrap
+                plain $"example-{index}" snapshot
+                let dependency = { snapshot with Id = StableId.createForTesting<SnapshotTag> $"zig-typed-dependency-{index}"; ParentId = None; Functions = []; Obligations = [] }
+                let local = { snapshot with Types = []; Effects = []; Capabilities = [] }
+                roundTrip $"resolved-{index}" (SnapshotCodec.serializeResolved dependency local |> unwrap) None
+            for index, snapshot in List.indexed (RecordCodecAllKindsTests.allKindSnapshots () @ [ (MilestoneZeroGraph.create ()).Snapshot ]) do
+                plain $"kinds-{index}" snapshot
+            for index, path in List.indexed (constructedSnapshots (Path.Combine(dir, "constructed") |> fun d -> Directory.CreateDirectory d |> ignore; d)) do
+                plain $"constructed-{index}" (SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap))

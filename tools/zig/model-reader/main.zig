@@ -2067,6 +2067,8 @@ fn canonicalJson(source: []const u8) Failure![]const u8 {
 /// The dependency a resolved document must name (`SnapshotCodec.readDocument`): its snapshot ID and
 /// the SHA-256 of its minimum-version canonical text. Null when the caller checks the marker.
 var expected_marker: ?struct { id: Str, digest: Str } = null;
+/// The dependency marker a resolved document's canonical text carries (`serializeResolved`), as JSON.
+var write_marker: ?[]const u8 = null;
 
 fn canonicalOf(root: Value) Failure![]const u8 {
     @memset(used, false);
@@ -2098,6 +2100,7 @@ fn canonicalOf(root: Value) Failure![]const u8 {
     var o: Obj = .{};
     o.put("schemaVersion", fmt("{d}", .{write_version orelse current}));
     o.put("snapshotId", if (neutral) quoted(L("semantic-fingerprint-root")) else quoted(snapshot_id));
+    if (!neutral) if (write_marker) |marker| o.put("dependency", marker);
     if (!neutral) o.putOptional("parentSnapshotId", parent);
     o.put("types", types);
     o.put("effects", effects);
@@ -6526,8 +6529,61 @@ fn resetState() void {
     neutral = false;
     legacy_names = .empty;
     expected_marker = null;
+    write_marker = null;
     loadTables();
     loadInstructionNames();
+}
+
+/// The canonical text the F# writer gives a snapshot document at the current schema version
+/// (`SnapshotCodec.serialize`, or `serializeResolved` for a resolved document's local part with
+/// its dependency marker), and, for a plain document, its fingerprints.
+pub const Written = struct { text: []const u8, fingerprints: ?Fingerprints };
+pub fn writtenText(allocator: std.mem.Allocator, source: []const u8) Failure!Written {
+    a = allocator;
+    resetState();
+    // Nothing of this document's form outlives the call (the host reads its model with the same globals).
+    defer {
+        resolved_input = false;
+        write_marker = null;
+    }
+    const root = try parseDocument(source);
+    if (tryProperty("dependency", root)) |marker| {
+        resolved_input = true;
+        var o: Obj = .{};
+        o.put("snapshotId", quoted(try readString("snapshotId", marker)));
+        o.put("digest", quoted(try readString("digest", marker)));
+        write_marker = o.done();
+    }
+    const text_out = try canonicalOf(root);
+    if (resolved_input) return .{ .text = text_out, .fingerprints = null };
+    write_marker = null;
+    return .{ .text = text_out, .fingerprints = try fingerprintsOf(root) };
+}
+
+pub fn currentVersion() i32 {
+    if (current == 0) loadTables();
+    return current;
+}
+
+/// `--typed-roundtrip <in.json> <out.json>`: the document read into the typed model and written
+/// back (`writtenText` of `typed.writeDocument`), then `snapshot`/`semantic` lines for a plain one.
+fn typedRoundTrip(io: std.Io, out: *std.Io.Writer, in_path: []const u8, out_path: []const u8) !void {
+    const typed = @import("typed.zig");
+    const input = try std.Io.Dir.cwd().readFileAlloc(io, in_path, a, .unlimited);
+    resetState();
+    const root = parseDocument(input) catch |e| return printFailure(out, e);
+    resolved_input = root == .object and tryProperty("dependency", root) != null;
+    // The read checks the marker's shape before it is taken.
+    const canonical = canonicalOf(root) catch |e| return printFailure(out, e);
+    const marker: ?typed.Marker = if (resolved_input) .{ .snapshot = decodeString(str(get(root, "dependency"), "snapshotId")) catch unreachable, .digest = decodeString(str(get(root, "dependency"), "digest")) catch unreachable } else null;
+    const tree = parseDocument(canonical) catch unreachable;
+    var interner: typed.Interner = .{ .gpa = a };
+    const generation = try typed.load(a, &interner, tree, marker);
+    var document: std.Io.Writer.Allocating = .init(a);
+    try typed.writeDocument(&document.writer, &interner, &generation, currentVersion());
+    const written = writtenText(a, document.written()) catch |e| return printFailure(out, e);
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = written.text });
+    if (written.fingerprints) |found| try out.print("snapshot {s}\nsemantic {s}\n", .{ found.snapshot, found.semantic }) else try out.writeAll("resolved\n");
 }
 
 /// `--bench <runs> --validate|--execution-ir <in.json>`: the median of `runs` in-process runs after
@@ -6582,8 +6638,9 @@ pub fn main(init: std.process.Init) !void {
         args = rest;
     }
     const typing = lowering or args.len >= 2 and std.mem.eql(u8, args[1], "--typed-ir");
-    if (if (validating) args.len < 3 else if (typing) args.len < 5 or (args.len - 2) % 3 != 0 else args.len < 3 or args.len % 2 == 0) {
-        std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...] | model-reader --validate <in.json> [<in.json> ...] | model-reader --typed-ir|--execution-ir <in.json> <out.json> <entry|-> [...] | model-reader --fingerprints <in.json> [<canonical.json> <normalized.json>]\n", .{});
+    const round_trip = args.len == 4 and std.mem.eql(u8, args[1], "--typed-roundtrip");
+    if (!round_trip and if (validating) args.len < 3 else if (typing) args.len < 5 or (args.len - 2) % 3 != 0 else args.len < 3 or args.len % 2 == 0) {
+        std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...] | model-reader --validate <in.json> [<in.json> ...] | model-reader --typed-ir|--execution-ir <in.json> <out.json> <entry|-> [...] | model-reader --fingerprints <in.json> [<canonical.json> <normalized.json>] | model-reader --typed-roundtrip <in.json> <out.json>\n", .{});
         std.process.exit(64);
     }
     loadTables();
@@ -6604,6 +6661,10 @@ pub fn main(init: std.process.Init) !void {
             try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[4], .data = result.normalized });
         }
         try out.print("snapshot {s}\nsemantic {s}\n", .{ result.snapshot, result.semantic });
+        return out.flush();
+    }
+    if (round_trip) {
+        try typedRoundTrip(init.io, out, args[2], args[3]);
         return out.flush();
     }
     if (validating and args.len == 5 and std.mem.eql(u8, args[2], "--dependency")) {
