@@ -366,10 +366,28 @@ fn isBlank(a: Allocator, text: []const u8) !bool {
 pub fn resolveNames(d: *Decoder, value: *Json, raw: []const u8) Fail!void {
     // Only a recipe whose text names a binder or a reference is rewritten (`resolve`'s guard).
     if (std.mem.indexOf(u8, raw, "Name\"") == null and std.mem.indexOf(u8, raw, "\"name\"") == null) return;
+    if (try hasDuplicates(d, "/body", value.*)) return d.fail("JSON object contains duplicate property names.", .{});
     var frames: std.ArrayList(?Binder) = .empty;
     try visit(d, &frames, value);
     // `ToJsonString` then reads every string of the copy again.
     if (query.masked and std.mem.indexOf(u8, raw, "\\ufdd0") != null) _ = try query.readable(d.r, query.lone_mark);
+}
+
+/// `WireRecipeNames.hasDuplicates`: in document order, each object's names are read (which throws on a
+/// lone surrogate) and checked before its values are.
+fn hasDuplicates(d: *Decoder, path: []const u8, value: Json) Fail!bool {
+    switch (value) {
+        .object => |map| {
+            try query.lookable(d.r, map);
+            if (d.duplicates.contains(path)) return true;
+            for (map.keys(), map.values()) |key, item|
+                if (try hasDuplicates(d, try std.fmt.allocPrint(d.r.a, "{s}/{s}", .{ path, key }), item)) return true;
+        },
+        .array => |items| for (items.items, 0..) |item, index|
+            if (try hasDuplicates(d, try std.fmt.allocPrint(d.r.a, "{s}/{d}", .{ path, index }), item)) return true,
+        else => {},
+    }
+    return false;
 }
 
 const Binder = struct { name: []const u8, slot: []const u8 };

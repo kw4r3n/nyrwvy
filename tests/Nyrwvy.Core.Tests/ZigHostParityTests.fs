@@ -818,8 +818,12 @@ module ZigHostCreateDecodeTests =
           yield raw """{"kind":"stringConcat","left":{"kind":"stringLiteral","value":"a"},"right":{"kind":"unitLiteral","\udc00":1}}"""
           yield raw """{"kind":"stringConcat","left":{"kind":"stringLiteral","value":"a\ud800"},"right":{"kind":"unitLiteral","\udc00":1}}"""
           yield raw """{"kind":"stringConcat","left":3,"right":{"kind":"unitLiteral","\udc00":1}}"""
-          // Not covered: a doubled property under a named recipe, where F# answers InternalError
-          // (an F# bug; Zig answers the intended ProtocolError).
+          yield raw """{"kind":"bind","name":"x","value":{"kind":"unitLiteral","kind":"unitLiteral"},"body":{"kind":"unitLiteral"}}"""
+          yield raw """{"kind":"bind","name":"x","name":"y","value":{"kind":"unitLiteral"},"body":{"kind":"unitLiteral"}}"""
+          yield raw """{"kind":"stringConcat","left":3,"right":{"kind":"bind","name":"x","value":[{"a":1,"a":2}],"body":{"kind":"unitLiteral"}}}"""
+          yield raw """{"kind":"bind","name":"x","value":{"kind":"unitLiteral","\ud800":1,"\udc00":2},"body":{"kind":"unitLiteral"}}"""
+          yield raw """{"kind":"bind","name":1,"value":{"kind":"unitLiteral","\ud800":1},"body":{"kind":"unitLiteral"}}"""
+          yield raw """{"kind":"bind","name":"x","x":1,"x":2,"value":{"kind":"unitLiteral","\ud800":1},"body":{"kind":"unitLiteral"}}"""
           yield raw """{"kind":"float64Literal","bits":"3ff00000\u00000000000"}""" ]
 
     /// Mutations of the request around the recipe.
