@@ -1472,7 +1472,7 @@ pub fn readResolvedDocument(allocator: std.mem.Allocator, dependency: []const u8
     const id = text(decodeString(str(parsed_root, "snapshotId")) catch unreachable);
     validate(merged);
     printIssues(&out.writer) catch oom();
-    if (issues.items.len > 0) return .{ .lines = out.written() };
+    if (issues.items.len > 0) return .{ .lines = out.written(), .validation_issues = issues.items };
     return .{ .lines = out.written(), .fingerprints = fingerprintsOf(merged) catch null, .id = id, .root = merged };
 }
 

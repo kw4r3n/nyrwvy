@@ -835,7 +835,7 @@ fn encodeOperations(r: *query.Request, out: *Writer, result: @import("operation_
     try out.writeAll(if (full or r.capture != null) raw.written() else try projection.compact(r.a, raw.written()));
 }
 
-fn sameValue(x: Value, y: Value) bool {
+pub fn sameValue(x: Value, y: Value) bool {
     if (std.meta.activeTag(x) != std.meta.activeTag(y)) return false;
     return switch (x) {
         .object => |fields| blk: {

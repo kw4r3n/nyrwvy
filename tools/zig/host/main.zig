@@ -647,7 +647,9 @@ pub fn bound(a: std.mem.Allocator, record: bool, source: []const u8) bool {
 }
 
 /// A dependency as the local snapshot resolves against it.
-pub const Dependency = struct { canonical: []const u8, id: []const u8, digest: []const u8, fingerprint: []const u8, subjects: []const []const u8, provenance: wire.Provenance, set: bool = false };
+// The owning reader arena owns root: startup selections live in startup; preview selections
+// remain request-local and must never be installed without copying into retained storage.
+pub const Dependency = struct { root: model_reader.Value, canonical: []const u8, id: []const u8, digest: []const u8, fingerprint: []const u8, subjects: []const []const u8, provenance: wire.Provenance, set: bool = false };
 
 /// A source decoded (`SessionStorage.decodeWith`): records first through the snapshot reader, then
 /// the model reader, unresolved or against `dependency`; a rejection becomes the startup line.
@@ -703,7 +705,7 @@ pub fn decodeDependency(a: std.mem.Allocator, record: bool, source: []const u8, 
 }
 
 fn dependencyOf(read: model_reader.DocumentRead, members: []const wire.Provenance.Member, hidden: []const []const u8) Dependency {
-    return .{ .canonical = read.canonical, .id = read.id, .digest = read.digest, .fingerprint = read.fingerprints.?.snapshot, .subjects = read.subjects, .provenance = .{ .members = members, .hidden = hidden } };
+    return .{ .root = read.root, .canonical = read.canonical, .id = read.id, .digest = read.digest, .fingerprint = read.fingerprints.?.snapshot, .subjects = read.subjects, .provenance = .{ .members = members, .hidden = hidden } };
 }
 
 /// `PinnedDependency.loadFrom`: null without a sidecar; one member, or a set of at least two

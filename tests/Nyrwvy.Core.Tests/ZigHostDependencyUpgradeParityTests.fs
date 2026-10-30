@@ -46,6 +46,10 @@ module ZigHostDependencyUpgradeParityTests =
                 let one = $"""{{"id":"single","op":"previewDependencyUpgrade","source":{quoted source}}}"""
                 let batch = $"""{{"id":"batch","op":"previewDependencyUpgrades","upgrades":[{{"source":{quoted source},"replaces":"{oldId}"}}]}}"""
                 let selected = $"""{{"id":"selection","op":"previewDependencyUpgrades","selection":{{"sources":[{quoted source},{quoted otherPath}],"replaces":["{oldId}"]}}}}"""
+                let badSidecar = Path.Combine(dir, "bad-sidecar.json")
+                let highId = StableIdAllocator.seededPayload "dependency-previews" 900L
+                File.WriteAllText(badSidecar, $"""{{"snapshotId":"{highId}"}}""")
+                File.WriteAllText(badSidecar + ".dependency.json", "{not-json")
                 let failures =
                     [ one.Replace(quoted source, quoted (Path.Combine(dir, "missing.json")))
                       one.Replace("\"source\":", "\"replaces\":\"missing\",\"source\":")
@@ -53,30 +57,39 @@ module ZigHostDependencyUpgradeParityTests =
                       """{"id":"empty","op":"previewDependencyUpgrades","selection":{"sources":[],"replaces":[]}}"""
                       batch.Replace("\"upgrades\":", "\"selection\":{},\"upgrades\":")
                       batch.Replace("\"source\":", "\"extra\":1,\"source\":")
-                      selected.Replace("\"sources\":[", "\"sources\":[false,") ]
+                      selected.Replace("\"sources\":[", "\"sources\":[false,")
+                      one.Replace(quoted source, quoted badSidecar) ]
                 let declarations = """{"id":"declarations","op":"declarations"}"""
-                let requests = [ declarations; one; declarations; batch; declarations; selected; declarations ] @ (failures |> List.collect (fun request -> [ request; declarations ])) @ [ one; declarations; """{"id":"status","op":"status"}"""; """{"id":"proposals","op":"proposals"}""" ]
+                let previews = [ declarations; one; declarations; batch; declarations; selected; declarations ] @ (failures |> List.collect (fun request -> [ request; declarations ])) @ [ one; declarations; """{"id":"status","op":"status"}"""; """{"id":"proposals","op":"proposals"}""" ]
+                let allocate = """{"id":"allocate","op":"simulateCreateType","displayName":"AfterPreviews","typeKind":{"kind":"product","fields":[]}}"""
+                let requests = previews @ [ allocate ]
                 let saved = File.ReadAllBytes localPath, File.ReadAllBytes(localPath + ".dependency.json")
                 let runHost zig =
                     let code, errors, answers = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "dependency-previews" ] zig [ "open"; "--snapshot"; localPath; "--read-only" ] requests
                     Assert.True((code = 0), $"host zig={zig}, exit={code}, stderr={errors}")
                     Assert.Equal(seedWarning, errors)
                     Assert.Equal(requests.Length, answers.Length)
-                    answers |> List.map comparable
+                    answers
                 let expected, actual = runHost false, runHost true
-                for request, (left, right) in List.zip requests (List.zip expected actual) do Assert.True((left = right), $"{request}\nF#: {left}\nZig: {right}")
-                for index in [ 0; 1; 2; 3; 4; 5; 6; requests.Length - 4; requests.Length - 3; requests.Length - 2; requests.Length - 1 ] do success expected[index] |> ignore
+                for request, (left, right) in List.zip requests (List.zip expected actual) do Assert.True((comparable left = comparable right), $"{request}\nF#: {left}\nZig: {right}")
+                for index in [ 0; 1; 2; 3; 4; 5; 6; previews.Length - 4; previews.Length - 3; previews.Length - 2; previews.Length - 1; previews.Length ] do success expected[index] |> ignore
                 for index in 0 .. failures.Length - 1 do
                     let reply = expected[7 + index * 2]
                     use doc = parseDocument reply
                     Assert.False(doc.RootElement.GetProperty("ok").GetBoolean(), reply)
-                Assert.Equal(0, (success expected[requests.Length - 2]).GetProperty("pendingProposalCount").GetInt32())
+                Assert.Equal(0, (success expected[previews.Length - 2]).GetProperty("pendingProposalCount").GetInt32())
+                Assert.InRange(StableIdAllocator.seededCount "dependency-previews" expected[previews.Length], 1L, 899L)
                 Assert.Equal(saved, (File.ReadAllBytes localPath, File.ReadAllBytes(localPath + ".dependency.json"))))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Dependency previews preserve incompatible visibility generic signatures nested imports and source diagnostics`` () =
         withDirectory (fun dir ->
-            let old = library "old"
+            let old =
+                let original = library "old"
+                let fields: SemanticField list =
+                    [ { Id = sid<FieldTag> "first"; DisplayName = "first"; Type = TypeRef.Primitive PrimitiveType.Int64 }
+                      { Id = sid<FieldTag> "last"; DisplayName = "last"; Type = TypeRef.Primitive PrimitiveType.Int64 } ]
+                { original with Types = [ { original.Types.Head with Kind = SemanticTypeKind.Product fields } ] }
             let local =
                 { Snapshot.empty (sid<SnapshotTag> "app") with
                     Types = [ { Id = sid<TypeTag> "holder"; DisplayName = "Holder"; TypeParameters = []; Exported = true
@@ -95,6 +108,11 @@ module ZigHostDependencyUpgradeParityTests =
             let invalidRoot = System.Text.Json.Nodes.JsonNode.Parse(SnapshotCodec.serializeResolved old local |> unwrap).AsObject()
             invalidRoot.Remove("dependency") |> ignore
             File.WriteAllText(invalid, invalidRoot.ToJsonString())
+            let resolvedInvalid = Path.Combine(dir, "resolved-invalid.json")
+            let invalidResolvedRoot = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText path)
+            invalidResolvedRoot.["types"].[0].["fields"].[0].["type"].["typeId"] <- System.Text.Json.Nodes.JsonValue.Create(StableId.value (sid<TypeTag> "missing"))
+            File.WriteAllText(resolvedInvalid, invalidResolvedRoot.ToJsonString())
+            File.Copy(path + ".dependency.json", resolvedInvalid + ".dependency.json")
             let broken = Path.Combine(dir, "broken.json")
             File.WriteAllText(broken, "{\"schemaVersion\":")
             let same = save "same" old
@@ -102,11 +120,18 @@ module ZigHostDependencyUpgradeParityTests =
             let nestedLocal = Snapshot.empty (sid<SnapshotTag> "nested")
             File.WriteAllText(source, SnapshotCodec.serializeResolved old nestedLocal |> unwrap)
             File.WriteAllText(source + ".dependency.json", (memberOf old (Some("snapshotJson", SnapshotCodec.serialize old |> unwrap)) "nested-provenance.json").ToJsonString())
+            let reordered = save "reordered" { old with Id = sid<SnapshotTag> "reordered" }
+            let root = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText reordered)
+            let fields = (root.["types"].[0].["fields"]).AsArray()
+            let reversed = fields |> Seq.map (fun field -> field.DeepClone()) |> Seq.rev |> Array.ofSeq
+            fields.Clear()
+            for field in reversed do fields.Add field
+            File.WriteAllText(reordered, root.ToJsonString())
             let preview source = $"""{{"id":"p","op":"previewDependencyUpgrade","source":{quoted source}}}"""
             let declarations = """{"id":"d","op":"declarations"}"""
             let requests =
                 [ yield declarations
-                  for source in [ hidden; removed; generic; invalid; broken; same; path; source ] do
+                  for source in [ hidden; removed; generic; invalid; broken; same; path; source; reordered; resolvedInvalid ] do
                       yield preview source
                       yield declarations
                   yield $"""{{"id":"duplicate","op":"previewDependencyUpgrades","upgrades":[{{"source":{quoted hidden},"source":{quoted removed},"replaces":"{StableId.value old.Id}"}}]}}"""
@@ -118,12 +143,13 @@ module ZigHostDependencyUpgradeParityTests =
                 Assert.True((code = 0), $"host zig={zig}, exit={code}, stderr={errors}")
                 Assert.Equal("", errors)
                 Assert.Equal(requests.Length, answers.Length)
-                answers |> List.map comparable
+                answers
             let expected, actual = runHost false, runHost true
-            for request, (left, right) in List.zip requests (List.zip expected actual) do Assert.True((left = right), $"{request}\nF#: {left}\nZig: {right}")
+            for request, (left, right) in List.zip requests (List.zip expected actual) do Assert.True((comparable left = comparable right), $"{request}\nF#: {left}\nZig: {right}")
             for index in [ 1; 3; 5 ] do Assert.False((success expected[index]).GetProperty("compatible").GetBoolean())
             success expected[15] |> ignore
-            for index in [ 7; 9; 11; 13; 17; 19 ] do
+            Assert.Equal(1, (success expected[17]).GetProperty("changed").GetArrayLength())
+            for index in [ 7; 9; 11; 13; 19; 21; 23 ] do
                 use doc = parseDocument expected[index]
                 Assert.False(doc.RootElement.GetProperty("ok").GetBoolean(), expected[index]))
 
@@ -150,12 +176,20 @@ module ZigHostDependencyUpgradeParityTests =
                     Assert.Equal(requests.Length, answers.Length)
                     answers
                 let expected, actual = runHost false, runHost true
-                for request, (left, right) in List.zip requests (List.zip expected actual) do Assert.True((left = right), $"{request}\nF#: {left}\nZig: {right}")
+                for request, (left, right) in List.zip requests (List.zip expected actual) do Assert.True((comparable left = comparable right), $"{request}\nF#: {left}\nZig: {right}")
                 expected
             File.WriteAllText(path, SnapshotCodec.serialize app |> unwrap)
             let first = selection ("[" + quoted source + "]") "[]"
             let replies = runPair [ one; batch; first; """{"id":"d","op":"declarations"}""" ]
             success replies[2] |> ignore
+            let bytesSource = Path.Combine(dir, "bytes.json")
+            let bytesFields: SemanticField list =
+                [ { Id = sid<FieldTag> "bytes"; DisplayName = "data"; Type = TypeRef.Primitive PrimitiveType.Bytes } ]
+            let bytesType = { old.Types.Head with Kind = SemanticTypeKind.Product bytesFields }
+            let bytesLibrary = { old with Id = sid<SnapshotTag> "bytes"; Types = [ bytesType ] }
+            File.WriteAllText(bytesSource, (SnapshotCodec.serialize bytesLibrary |> unwrap).Replace("\"schemaVersion\":24", "\"schemaVersion\":23"))
+            File.WriteAllText(path, (SnapshotCodec.serialize app |> unwrap).Replace("\"schemaVersion\":24", "\"schemaVersion\":21"))
+            success (runPair [ selection ("[" + quoted bytesSource + "]") "[]" ]).Head |> ignore
             let selected = DependencyGraph.combine [ old; other ] |> unwrap
             File.WriteAllText(path, SnapshotCodec.serializeResolved selected app |> unwrap)
             let manifest = System.Text.Json.Nodes.JsonObject()
