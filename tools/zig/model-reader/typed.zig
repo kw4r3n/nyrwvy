@@ -40,7 +40,7 @@ const Table = struct {
 };
 
 /// The interned texts of one session.
-// shortcut: entries are never reclaimed; the compaction the design describes comes with the second generation (3c, 3e).
+// All entries belong to live generations until session close. Commit/reject (3e) must compact dead entries.
 pub const Interner = struct {
     gpa: Allocator,
     ids: [std.enums.values(Domain).len]Table = @splat(.{}),
@@ -109,7 +109,7 @@ pub const Body = struct {
 pub const Marker = struct { snapshot: Str, digest: Str };
 
 /// One immutable snapshot.
-// shortcut: one generation, never freed; the reference-counted arenas and path-copied tables come with proposals (3c).
+// Arena ownership is held by the session; a proposal retains its base and shares its unchanged records.
 pub const Generation = struct {
     snapshot: Id,
     parent: Id,
@@ -464,6 +464,26 @@ pub fn load(arena: Allocator, interner: *Interner, root: Value, marker: ?Marker)
         .functions = try l.records(Function, reader.arrayItems(root, "functions"), Loader.loadFunction),
         .obligations = try l.records(Obligation, reader.arrayItems(root, "obligations"), Loader.loadObligation),
     };
+}
+
+/// Path-copy the function table; all unchanged declarations and bodies remain immutable/shared.
+/// The caller keeps the base generation's arena alive for this generation's lifetime.
+pub fn withFunction(arena: Allocator, interner: *Interner, base: *const Generation, snapshot: Str, item: Value) !Generation {
+    var l: Loader = .{ .arena = arena, .interner = interner };
+    const created = try arena.create(Function);
+    created.* = try l.loadFunction(item);
+    const functions = try arena.alloc(*const Function, base.functions.len + 1);
+    @memcpy(functions[0..base.functions.len], base.functions);
+    functions[base.functions.len] = created;
+    const Order = struct {
+        fn less(i: *const Interner, x: *const Function, y: *const Function) bool { return i.less(.function, x.id, y.id); }
+    };
+    std.mem.sort(*const Function, functions, @as(*const Interner, interner), Order.less);
+    var result = base.*;
+    result.snapshot = try interner.id(.snapshot, snapshot);
+    result.parent = base.snapshot;
+    result.functions = functions;
+    return result;
 }
 
 // ---------------------------------------------------------------- writing

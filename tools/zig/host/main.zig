@@ -10,6 +10,7 @@ const snapshot_reader = @import("snapshot_reader");
 const wire = @import("wire.zig");
 const query = @import("query.zig");
 const ids = @import("ids.zig");
+const proposals = @import("proposals.zig");
 
 /// The open snapshot: what `status` reports, the model (merged with the dependency, if any) and
 /// the selected dependency. All live in `startup`.
@@ -176,7 +177,7 @@ fn maskLoneSurrogates(a: std.mem.Allocator, line: []const u8) !Masked {
 
 fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
     // The model reader's helpers allocate from the request's arena, not a freed earlier one.
-    model_reader.useAllocator(a);
+    model_reader.beginRequest(a);
     const masked = try maskLoneSurrogates(a, given);
     query.masked = masked.line != null;
     const line = masked.line orelse given;
@@ -219,7 +220,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         try out.writeAll(",\"semanticFingerprint\":");
         try writeString(out, fingerprints.semantic);
         // `build` names each host's own build; the parity test masks it.
-        return out.writeAll(",\"pendingProposalCount\":0,\"build\":\"nyrwvy-zig-host\"}}");
+        return out.print(",\"pendingProposalCount\":{d},\"build\":\"nyrwvy-zig-host\"}}}}", .{proposals.count()});
     }
     const plain = [_][]const u8{ "dependency", "declarations", "proposals" };
     for (plain) |name| if (std.mem.eql(u8, op, name)) {
@@ -246,10 +247,10 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
             try out.writeAll("}");
         } else if (std.mem.eql(u8, op, "declarations")) {
             try wire.declarations(a, out, canonical(), if (selection) |d| d.provenance else null);
-        } else try out.writeAll("{\"count\":0,\"proposals\":[]}");
+        } else try proposals.listing(a, out, snapshot_id);
         return out.writeByte('}');
     };
-    // No proposal exists until simulate is ported: these answer `ProposalNotFound` once their input reads.
+    // Pending proposals are registered by simulation; review paging is not ported yet.
     if (std.mem.eql(u8, op, "readProposal") or std.mem.eql(u8, op, "viewProposal")) {
         const read = std.mem.eql(u8, op, "readProposal");
         const allowed: []const []const u8 = if (read) &.{ "id", "op", "proposalId", "path", "offset", "limit", "structuredReview" } else &.{ "id", "op", "proposalId", "output" };
@@ -263,6 +264,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
             Problem.Protocol => return failure(out, id, "ProtocolError", problem),
             else => return e,
         };
+        if (proposals.find(proposal) != null) return failure(out, id, "UnsupportedOperation", "The Zig host does not read pending proposal reviews yet.");
         return failure(out, id, "ProposalNotFound", try std.fmt.allocPrint(a, "No pending proposal has the ID '{s}'; it was committed, rejected, or discarded when its session closed.", .{proposal}));
     }
     const queries = [_]struct { []const u8, *const fn (*query.Request, *std.Io.Writer) anyerror!void }{
@@ -277,7 +279,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
     .{ "simulateCreateFunctionByName", query.simulateCreateFunctionByName },
     };
     for (queries) |entry| if (std.mem.eql(u8, op, entry[0])) {
-        var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .model = canonical(), .provenance = if (selection) |d| d.provenance else null, .snapshot_id = snapshot_id, .snapshot_path = snapshot_path };
+        var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .model = canonical(), .provenance = if (selection) |d| d.provenance else null, .snapshot_id = snapshot_id, .snapshot_fingerprint = fingerprints.snapshot, .snapshot_path = snapshot_path };
         var result: std.Io.Writer.Allocating = .init(a);
         entry[1](&request, &result.writer) catch |e| switch (e) {
             error.Rejected => return failureWith(out, id, request.rejection.code, request.rejection.message, request.rejection.details),
@@ -649,6 +651,7 @@ pub fn main(init: std.process.Init) !void {
     var out_buffer: [1 << 16]u8 = undefined;
     var writer = std.Io.File.stdout().writer(init.io, &out_buffer);
     const out = &writer.interface;
+    defer proposals.deinit();
     while (true) {
         line.clearRetainingCapacity();
         _ = try reader.interface.streamDelimiterEnding(&line.writer, '\n');
