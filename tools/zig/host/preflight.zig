@@ -174,6 +174,12 @@ pub fn validateRecipeBounds(r: *query.Request, body: *const Node) Fail!void {
 /// `simulateGroupWith`'s checks before inference, in F#'s order. F# allocates the fresh type-parameter
 /// identities between the first check and the second, even if a later check rejects.
 pub fn run(r: *query.Request, c: Creation) Fail![]const TypeParameter {
+    return runWith(r, c, true);
+}
+pub fn runReplacement(r: *query.Request, c: Creation) Fail![]const TypeParameter {
+    return runWith(r, c, false);
+}
+fn runWith(r: *query.Request, c: Creation, unique: bool) Fail![]const TypeParameter {
     const a = r.a;
     try validateTypeParameters(r, c);
     var introduced: std.ArrayList([]const u8) = .empty;
@@ -186,7 +192,7 @@ pub fn run(r: *query.Request, c: Creation) Fail![]const TypeParameter {
     }
     if (!std.mem.eql(u8, c.expected_snapshot_id, r.snapshot_id)) return rejected(r, "StructuralExpectedBaseMismatch", "The function-creation request targets a different base snapshot.");
     if (try recipe.isBlank(a, c.display_name)) return rejected(r, "FunctionCreationDisplayNameBlank", "Function display name must not be blank.");
-    for (model.arrayItems(r.model, "functions")) |item| if (std.mem.eql(u8, query.nameOf(item), c.display_name))
+    if (unique) for (model.arrayItems(r.model, "functions")) |item| if (std.mem.eql(u8, query.nameOf(item), c.display_name))
         return rejected(r, "FunctionCreationDuplicateDisplayName", try std.fmt.allocPrint(a, "A function named '{s}' already exists; function display names must be unique.", .{c.display_name}));
     for (c.parameters, 0..) |p, index| if (try recipe.isBlank(a, p.name))
         return rejected(r, "FunctionCreationParameterDisplayNameBlank", try std.fmt.allocPrint(a, "Parameter at index {d} must have a nonblank display name.", .{index}));
