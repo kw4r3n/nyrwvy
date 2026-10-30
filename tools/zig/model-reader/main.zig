@@ -1905,6 +1905,24 @@ pub fn typeValue(t: TypeRef) Value {
     return .{ .object = members.items };
 }
 
+/// `OneShotPayloadRequirements.derive`, for recipe inference; all IDs are decoded UTF-8.
+pub const OneShotRequirement = struct { function: []const u8, parameters: []const []const u8 };
+pub fn oneShotPayloadRequirementsOf(allocator: std.mem.Allocator, root: Value) []const OneShotRequirement {
+    a = allocator;
+    prepareContext(root);
+    const functions = arrayOf(root, "functions");
+    const resolvers = a.alloc(Resolver, functions.len) catch oom();
+    for (functions, resolvers) |function, *r| r.* = Resolver.init(function);
+    const derived = deriveOneShotRequirements(functions, instantiations(functions, resolvers));
+    const out = a.alloc(OneShotRequirement, derived.count()) catch oom();
+    for (derived.keys(), derived.values(), out) |key, parameters, *entry| {
+        const ids = a.alloc([]const u8, parameters.count()) catch oom();
+        for (parameters.keys(), ids) |parameter, *id| id.* = text(dec(keyId(parameter)));
+        entry.* = .{ .function = text(dec(keyId(key))), .parameters = ids };
+    }
+    return out;
+}
+
 /// `SemanticQuery.focusFunction`'s derived facts for `function` of `root` (the session's model).
 pub fn focusOf(allocator: std.mem.Allocator, root: Value, function: Value) Focus {
     a = allocator;
@@ -5092,6 +5110,30 @@ fn oneShotParameters(t: TypeRef, out: *Set) void {
     }
 }
 
+/// Initial payload requirements, closed over transitive and recursive generic instantiations.
+fn deriveOneShotRequirements(functions: []const Value, calls: []const Instantiation) Requirements {
+    var derived: Requirements = .empty;
+    for (functions) |function| {
+        var payload: Set = .empty;
+        oneShotParameters(typeRefOf(get(function, "resultType")), &payload);
+        for (arrayOf(function, "parameters")) |parameter| oneShotParameters(parameterType(parameter), &payload);
+        var nodes: List(Value) = .empty;
+        collectNodes(get(function, "body"), &nodes);
+        for (nodes.items) |node| {
+            if (isName(str(node, "kind"), "oneShotCreate")) {
+                oneShotParameters(builtin("oneShot", &.{typeRefOf(get(node, "valueType"))}), &payload);
+            } else {
+                var types: List(TypeRef) = .empty;
+                payloadTypeRefs(node, &types);
+                for (types.items) |t| oneShotParameters(t, &payload);
+            }
+        }
+        derived.put(a, idKey(str(function, "id")), payload) catch oom();
+    }
+    propagate(&derived, calls);
+    return derived;
+}
+
 /// `OneShotPayloadRequirements.derive`.
 var one_shot_requirements: Requirements = .empty;
 
@@ -5135,24 +5177,14 @@ fn rejectTaskBoundInputs(name: Str, node: Value, input: Str, comptime input_labe
 /// (`OneShotPayloadRequirements.invalidCallbackUses`); they also set `one_shot_requirements`.
 fn instantiationRules(functions: []const Value, resolvers: []Resolver) void {
     const calls = instantiations(functions, resolvers);
-    one_shot_requirements = .empty;
+    one_shot_requirements = deriveOneShotRequirements(functions, calls);
     var crossing: Requirements = .empty;
     for (functions, resolvers) |function, *r| {
         var nodes: List(Value) = .empty;
         collectNodes(get(function, "body"), &nodes);
-        var payload: Set = .empty;
-        oneShotParameters(typeRefOf(get(function, "resultType")), &payload);
-        for (arrayOf(function, "parameters")) |parameter| oneShotParameters(parameterType(parameter), &payload);
         var crosses: Set = .empty;
         for (nodes.items) |node| {
             const kind = str(node, "kind");
-            if (isName(kind, "oneShotCreate")) {
-                oneShotParameters(builtin("oneShot", &.{typeRefOf(get(node, "valueType"))}), &payload);
-            } else {
-                var types: List(TypeRef) = .empty;
-                payloadTypeRefs(node, &types);
-                for (types.items) |t| oneShotParameters(t, &payload);
-            }
             // The node's own type carries the worker result.
             if (isName(kind, "taskStart") or isName(kind, "parallelAll")) {
                 var ids: List(Str) = .empty;
@@ -5162,10 +5194,8 @@ fn instantiationRules(functions: []const Value, resolvers: []Resolver) void {
                 for (ids.items) |id| if (r.nodeType(id)) |t| occurringIds(t, &crosses);
             }
         }
-        one_shot_requirements.put(a, idKey(str(function, "id")), payload) catch oom();
         crossing.put(a, idKey(str(function, "id")), crosses) catch oom();
     }
-    propagate(&one_shot_requirements, calls);
     propagate(&crossing, calls);
 
     var reported: Set = .empty;

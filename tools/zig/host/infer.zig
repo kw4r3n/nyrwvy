@@ -270,13 +270,16 @@ const Infer = struct {
     c: preflight.Creation,
     /// The request's own type parameters (declared or derived), fresh identities in F#.
     local: []const []const u8,
-    /// The innermost node whose inference failed (`track`), located by `run`.
+    /// The innermost node whose own check produced the propagating diagnostic (`track`), located by
+    /// `run`: a node that reports another diagnostic than the one recorded displaces it.
     failed: ?*const Node = null,
+    failed_diagnostic: query.Diagnostic = .{},
     /// `InferenceCache`: each node's successful result under the frames it was inferred in. A node is
     /// inferred along one path, so one entry per node suffices; without it a generic constructor's
     /// field values (derived type arguments, then the bindings) would be inferred twice per level.
     values: std.AutoHashMapUnmanaged(*const Node, Cached(TypeRef)) = .empty,
     completions: std.AutoHashMapUnmanaged(*const Node, Cached(Completion)) = .empty,
+    one_shot_requirements: ?[]const model.OneShotRequirement = null,
 
     fn Cached(comptime T: type) type {
         return struct { frames: ?*const Frame, value: T };
@@ -611,7 +614,7 @@ const Infer = struct {
     fn infer(self: *Infer, frames: ?*const Frame, node: *const Node) Fail!TypeRef {
         if (self.values.get(node)) |known| if (known.frames == frames) return known.value;
         const value = self.inferNode(frames, node) catch |e| {
-            if (e == error.Rejected and self.failed == null) self.failed = node;
+            if (e == error.Rejected) self.track(node);
             return e;
         };
         try self.values.put(self.a, node, .{ .frames = frames, .value = value });
@@ -621,11 +624,18 @@ const Infer = struct {
     fn inferCompletion(self: *Infer, frames: ?*const Frame, node: *const Node) Fail!Completion {
         if (self.completions.get(node)) |known| if (known.frames == frames) return known.value;
         const value = self.inferCompletionNode(frames, node) catch |e| {
-            if (e == error.Rejected and self.failed == null) self.failed = node;
+            if (e == error.Rejected) self.track(node);
             return e;
         };
         try self.completions.put(self.a, node, .{ .frames = frames, .value = value });
         return value;
+    }
+
+    fn track(self: *Infer, node: *const Node) void {
+        const d = self.r.diagnostic;
+        if (self.failed != null and same(self.failed_diagnostic.code, d.code) and same(self.failed_diagnostic.message, d.message)) return;
+        self.failed = node;
+        self.failed_diagnostic = d;
     }
 
     fn typeMismatch(self: *Infer, role: []const u8, side: []const u8, expected: TypeRef, actual: TypeRef) Fail {
@@ -780,7 +790,7 @@ const Infer = struct {
                 .aborts => self.reject("AbortValueUse", try self.fmt("An abrupt expression cannot be used as a value in {s}.", .{description})),
             };
         }
-        // shortcut: callbacks, calls, capabilities, tasks and exceptions are inferred in a later step (3c-3c).
+        if (try self.inferMore(frames, node)) |t| return t;
         return self.unsupported(try self.fmt(unported, .{ try uncapitalized(a, case), (try recipePath(a, "body", self.c.body, node)).? }));
     }
 
@@ -869,6 +879,659 @@ const Infer = struct {
         }
         if (missing.items.len > 0) return self.reject("PureExpressionTypeArgumentsRequired", try self.fmt("{s} of {s} cannot derive type parameter {s} from its field values; give typeArguments.", .{ role, owner_name, try std.mem.join(a, ", ", missing.items) }));
         return arguments.items;
+    }
+
+    // ------------------------------------------------------------ functions and effects
+
+    const Param = struct { id: []const u8, name: []const u8, type: TypeRef };
+    /// A declared function as inference reads it.
+    const Function = struct { id: []const u8, name: []const u8, parameters: []const Param, result: TypeRef, effects: []const []const u8, generic: bool };
+
+    fn functionOf(self: *Infer, id: []const u8) Fail!?Function {
+        const declared = preflight.declaration(self.r, "functions", id) orelse return null;
+        var effects: std.ArrayList([]const u8) = .empty;
+        for (model.arrayItems(declared, "requiredEffects")) |e| try effects.append(self.a, text(e));
+        return .{ .id = id, .name = query.nameOf(declared), .parameters = try self.paramsOf(declared), .result = try typeOf(self.a, model.property(declared, "resultType").?), .effects = effects.items, .generic = model.arrayItems(declared, "typeParameters").len > 0 };
+    }
+
+    fn paramsOf(self: *Infer, declared: Value) Fail![]const Param {
+        const items = model.arrayItems(declared, "parameters");
+        const out = try self.a.alloc(Param, items.len);
+        for (items, out) |item, *slot| slot.* = .{ .id = query.idOf(item), .name = query.nameOf(item), .type = try typeOf(self.a, model.property(item, "type").?) };
+        return out;
+    }
+
+    /// `DiagnosticText.functionName`: `'name' (id)`.
+    fn callbackName(self: *Infer, f: Function) Fail![]const u8 {
+        return self.describe(f.name, f.id);
+    }
+
+    /// `DiagnosticText.signature`: `(line: String, acc: Int64) -> Int64`.
+    fn callbackSignature(self: *Infer, f: Function) Fail![]const u8 {
+        var parts: std.ArrayList([]const u8) = .empty;
+        for (f.parameters) |p| try parts.append(self.a, try self.fmt("{s}: {s}", .{ p.name, try self.ty(p.type) }));
+        return self.fmt("({s}) -> {s}", .{ try std.mem.join(self.a, ", ", parts.items), try self.ty(f.result) });
+    }
+
+    /// `PureFunctions.isPure`: no required effects, no intrinsically effectful node, transitively.
+    fn isPure(self: *Infer, id: []const u8) Fail!bool {
+        var seen: std.ArrayList([]const u8) = .empty;
+        var pending: std.ArrayList([]const u8) = .empty;
+        try pending.append(self.a, id);
+        while (pending.pop()) |current| {
+            if (preflight.contains(seen.items, current)) continue;
+            try seen.append(self.a, current);
+            const declared = preflight.declaration(self.r, "functions", current) orelse return false;
+            if (model.arrayItems(declared, "requiredEffects").len > 0) return false;
+            for (model.bodyNodes(self.a, declared)) |node| {
+                const kind = prop(node, "kind");
+                for ([_][]const u8{ "parallelAll", "cancellationRequested", "useResource", "exceptionCatch", "exceptionRethrow", "cancellationShield", "taskScope", "taskStart", "taskWait", "oneShotCreate", "oneShotComplete", "oneShotWait", "taskCancel", "capabilityInvoke" }) |effectful| if (same(kind, effectful)) return false;
+                for (model.functionIdsOf(node)) |target| try pending.append(self.a, model.utf8(target));
+            }
+        }
+        return true;
+    }
+
+    /// `missingEffect`: the first of `effects` the function being created does not declare.
+    fn missingEffect(self: *Infer, effects: []const []const u8) ?[]const u8 {
+        for (effects) |e| if (!preflight.contains(self.c.required_effects, e)) return e;
+        return null;
+    }
+
+    fn effectLabel(self: *Infer, id: []const u8) Fail![]const u8 {
+        return if (preflight.declaration(self.r, "effects", id)) |e| self.describe(query.nameOf(e), id) else self.fmt("'{s}'", .{id});
+    }
+
+    fn missingEffectError(self: *Infer, subject: []const u8, id: []const u8) Fail {
+        return self.reject("ExpressionCallMissingEffectRequirement", try self.fmt("{s} requires effect {s} not declared by {s}.", .{ subject, try self.effectLabel(id), description }));
+    }
+
+    /// `TaskTypes.mentionsScope`.
+    fn mentionsScope(t: TypeRef) bool {
+        switch (t) {
+            .builtin => |b| {
+                if (same(b.generic, "taskScope")) return true;
+                for (b.arguments) |arg| if (mentionsScope(arg)) return true;
+                return false;
+            },
+            .named => |n| {
+                for (n.arguments) |arg| if (mentionsScope(arg)) return true;
+                return false;
+            },
+            .function => |f| {
+                for (f.parameters) |p| if (mentionsScope(p)) return true;
+                return mentionsScope(f.result.*);
+            },
+            .primitive, .capability, .type_parameter => return false,
+        }
+    }
+
+    const Context = struct { unbound: []const Param, subst: Subst };
+
+    /// `validateCallbackContext`: types the context bindings and returns the unbound parameters.
+    fn validateCallbackContext(self: *Infer, frames: ?*const Frame, role: []const u8, callback: Function, context: []const recipe.Pair) Fail!Context {
+        const a = self.a;
+        var ids: std.ArrayList([]const u8) = .empty;
+        for (context) |pair| try ids.append(a, pair.id);
+        if (preflight.repeated(ids.items)) |id| return self.reject("PureExpressionDuplicateCallArgument", try self.fmt("{s} binds callback parameter '{s}' more than once.", .{ role, id }));
+        var subst: Subst = .empty;
+        for (context) |pair| {
+            const parameter = for (callback.parameters) |p| {
+                if (same(p.id, pair.id)) break p;
+            } else return self.reject("PureExpressionCallArgumentTargetNotFound", try self.fmt("{s} context binds '{s}', which is not a parameter of callback {s}: {s}.", .{ role, pair.id, try self.callbackName(callback), try self.callbackSignature(callback) }));
+            const actual = try self.infer(frames, pair.value);
+            if (!try matchType(a, &subst, parameter.type, actual))
+                return self.reject("PureExpressionCallbackContextTypeMismatch", try self.fmt("{s} context value for parameter {s} of callback {s} has type {s}, but the parameter expects {s}.", .{ role, try self.describe(parameter.name, pair.id), try self.callbackName(callback), try self.ty(actual), try self.ty(parameter.type) }));
+        }
+        var unbound: std.ArrayList(Param) = .empty;
+        for (callback.parameters) |p| if (!preflight.contains(ids.items, p.id)) try unbound.append(a, p);
+        return .{ .unbound = unbound.items, .subst = subst };
+    }
+
+    fn callbackNotFound(self: *Infer, role: []const u8, id: []const u8) Fail {
+        return self.reject("PureExpressionCallbackNotFound", try self.fmt("{s} callback function '{s}' does not exist.", .{ role, id }));
+    }
+
+    fn arityMismatch(self: *Infer, role: []const u8, callback: Function, wanted: []const u8, context_count: usize) Fail {
+        return self.reject("PureExpressionCallbackArityMismatch", try self.fmt("{s} callback function {s} must have exactly {s} not bound by context; it has type {s} and context binds {d}.", .{ role, try self.callbackName(callback), wanted, try self.callbackSignature(callback), context_count }));
+    }
+
+    fn effectsNotAllowed(self: *Infer, role: []const u8, what: []const u8, callback: Function, fix: []const u8) Fail {
+        return self.reject("PureExpressionCallbackEffectsNotAllowed", try self.fmt("{s} {s} {s} must be pure, including its transitive calls and ambient task or cancellation behavior.{s}", .{ role, what, try self.callbackName(callback), fix }));
+    }
+
+    const Resolved = struct { callback: Function, subst: Subst };
+
+    /// `validateListCallback`: one unbound parameter of the item type, pure, Bool for a predicate.
+    fn validateListCallback(self: *Infer, frames: ?*const Frame, role: []const u8, id: []const u8, context: []const recipe.Pair, item: TypeRef, predicate: bool) Fail!Resolved {
+        const callback = (try self.functionOf(id)) orelse return self.callbackNotFound(role, id);
+        var ctx = try self.validateCallbackContext(frames, role, callback, context);
+        if (ctx.unbound.len != 1) return self.arityMismatch(role, callback, "one parameter", context.len);
+        if (!try matchType(self.a, &ctx.subst, ctx.unbound[0].type, item))
+            return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("{s} callback function {s} input type does not match the source list item type {s}; the callback has type {s}.", .{ role, try self.callbackName(callback), try self.ty(item), try self.callbackSignature(callback) }));
+        if (predicate and !eqlType(try substitute(self.a, &ctx.subst, callback.result), primitive("bool")))
+            return self.reject("PureExpressionCallbackResultTypeMismatch", try self.fmt("{s} predicate {s} must return Bool; it has type {s}.", .{ role, try self.callbackName(callback), try self.callbackSignature(callback) }));
+        if (!try self.isPure(callback.id)) {
+            // `effectsFix`.
+            const fix = if (std.mem.startsWith(u8, role, "List") or same(role, "MapFromList")) " To run effects once per item, in order, use ListEffectFold instead (its folder takes the accumulator and the item)." else " Do the effectful work outside the callback and pass only pure values into it.";
+            return self.effectsNotAllowed(role, "callback function", callback, fix);
+        }
+        return .{ .callback = callback, .subst = ctx.subst };
+    }
+
+    /// `validateCaseCallback`: the Option and Result callbacks; returns the substituted result type.
+    fn validateCaseCallback(self: *Infer, frames: ?*const Frame, role: []const u8, id: []const u8, context: []const recipe.Pair, payload: TypeRef, payload_name: []const u8) Fail!struct { Function, TypeRef } {
+        const callback = (try self.functionOf(id)) orelse return self.callbackNotFound(role, id);
+        var ctx = try self.validateCallbackContext(frames, role, callback, context);
+        if (ctx.unbound.len != 1) return self.arityMismatch(role, callback, "one parameter", context.len);
+        if (!try matchType(self.a, &ctx.subst, ctx.unbound[0].type, payload))
+            return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("{s} callback function {s} input type does not match the {s} type {s}; the callback has type {s}.", .{ role, try self.callbackName(callback), payload_name, try self.ty(payload), try self.callbackSignature(callback) }));
+        if (!try self.isPure(callback.id)) return self.effectsNotAllowed(role, "callback function", callback, "");
+        return .{ callback, try substitute(self.a, &ctx.subst, callback.result) };
+    }
+
+    /// `validateLessThanCallback`: two unbound parameters of the item type, returning Bool, pure.
+    fn validateLessThanCallback(self: *Infer, frames: ?*const Frame, role: []const u8, id: []const u8, context: []const recipe.Pair, item: TypeRef) Fail!void {
+        const callback = (try self.functionOf(id)) orelse return self.callbackNotFound(role, id);
+        var ctx = try self.validateCallbackContext(frames, role, callback, context);
+        if (ctx.unbound.len != 2) return self.reject("PureExpressionCallbackArityMismatch", try self.fmt("{s} callback function {s} must have exactly two parameters not bound by context (left, right); it has type {s} and context binds {d}.", .{ role, try self.callbackName(callback), try self.callbackSignature(callback), context.len }));
+        if (!try matchType(self.a, &ctx.subst, ctx.unbound[0].type, item) or !try matchType(self.a, &ctx.subst, ctx.unbound[1].type, item))
+            return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("{s} callback function {s} input types must both match the source list item type {s}; the callback has type {s}.", .{ role, try self.callbackName(callback), try self.ty(item), try self.callbackSignature(callback) }));
+        if (!eqlType(try substitute(self.a, &ctx.subst, callback.result), primitive("bool")))
+            return self.reject("PureExpressionCallbackResultTypeMismatch", try self.fmt("{s} less-than callback {s} must return Bool; it has type {s}.", .{ role, try self.callbackName(callback), try self.callbackSignature(callback) }));
+        if (!try self.isPure(callback.id)) return self.effectsNotAllowed(role, "callback function", callback, "");
+    }
+
+    fn shapeMismatch(self: *Infer, role: []const u8, side: []const u8, shape: []const u8, actual: TypeRef) Fail {
+        return self.reject("PureExpressionOperandTypeMismatch", try self.fmt("{s} {s} operand requires {s}, but the recipe produces {s}.", .{ role, side, shape, try self.ty(actual) }));
+    }
+
+    fn listItem(self: *Infer, role: []const u8, side: []const u8, t: TypeRef) Fail!TypeRef {
+        return (builtinOf(t, "list", 1) orelse return self.shapeMismatch(role, side, "List<T>", t))[0];
+    }
+
+    fn mapEntry(self: *Infer, role: []const u8, t: TypeRef) Fail![]const TypeRef {
+        return builtinOf(t, "map", 2) orelse self.shapeMismatch(role, "map", "Map<K, V>", t);
+    }
+
+    fn setItem(self: *Infer, role: []const u8, t: TypeRef) Fail!TypeRef {
+        return (builtinOf(t, "set", 1) orelse return self.shapeMismatch(role, "set", "Set<T>", t))[0];
+    }
+
+    /// A folder with `arity` unbound parameters (`what` names them), checked against `inputs` in order.
+    fn validateFolder(self: *Infer, frames: ?*const Frame, role: []const u8, id: []const u8, context: []const recipe.Pair, what: []const u8, inputs: []const TypeRef) Fail!struct { Function, ?Subst } {
+        const folder = (try self.functionOf(id)) orelse return self.reject("PureExpressionCallbackNotFound", try self.fmt("{s} folder '{s}' does not exist.", .{ role, id }));
+        var ctx = try self.validateCallbackContext(frames, role, folder, context);
+        if (ctx.unbound.len != inputs.len) return self.reject("PureExpressionCallbackArityMismatch", try self.fmt("{s} folder {s} must have exactly {s} not bound by context {s}; it has type {s} and context binds {d}.", .{ role, try self.callbackName(folder), if (inputs.len == 3) "three parameters" else "two parameters", what, try self.callbackSignature(folder), context.len }));
+        for (ctx.unbound, inputs) |p, input| if (!try matchType(self.a, &ctx.subst, p.type, input)) return .{ folder, null };
+        return .{ folder, ctx.subst };
+    }
+
+    fn folderTypeText(self: *Infer, inputs: []const TypeRef) Fail![]const u8 {
+        var parts: std.ArrayList([]const u8) = .empty;
+        for (inputs) |input| try parts.append(self.a, try self.ty(input));
+        return std.mem.join(self.a, ", ", parts.items);
+    }
+
+    /// Kinds that name functions, capabilities, effects, tasks and exceptions; null for any other.
+    fn inferMore(self: *Infer, frames: ?*const Frame, node: *const Node) Fail!?TypeRef {
+        const a = self.a;
+        const case = node.case;
+        if (same(case, "ListFold") or same(case, "ListScan") or same(case, "SetFold")) {
+            const source = try self.infer(frames, child(node, 0));
+            const item = if (same(case, "SetFold")) try self.setItem(case, source) else try self.listItem(case, "source", source);
+            const seed = try self.infer(frames, child(node, 1));
+            const folder, const matched = try self.validateFolder(frames, case, node.slots[2].data.id, node.slots[3].data.pairs, "(accumulator, item)", &.{ seed, item });
+            if (matched) |s| {
+                const result = try substitute(a, &s, folder.result);
+                if (eqlType(result, seed)) {
+                    if (!try self.isPure(folder.id)) return self.effectsNotAllowed(case, "folder", folder, "");
+                    return if (same(case, "ListScan")) try generic(a, "list", &.{seed}) else seed;
+                }
+                if (same(case, "ListFold")) if (builtinOf(result, "result", 2)) |r| if (eqlType(r[0], seed))
+                    return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("ListFold folder {s} must return the accumulator type {s}; the folder has type {s}. To stop at the first Err, use ListEffectFold with the same seed and folder: it accepts a pure folder returning Result<S, E> and yields Result<S, E>.", .{ try self.callbackName(folder), try self.ty(seed), try self.callbackSignature(folder) }));
+            }
+            return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("{s} folder {s} must have type (accumulator, item) -> accumulator, here ({s}) -> {s}; the folder has type {s}.", .{ case, try self.callbackName(folder), try self.folderTypeText(&.{ seed, item }), try self.ty(seed), try self.callbackSignature(folder) }));
+        }
+        if (same(case, "MapFold")) {
+            const entry = try self.mapEntry(case, try self.infer(frames, child(node, 0)));
+            const seed = try self.infer(frames, child(node, 1));
+            const folder, const matched = try self.validateFolder(frames, case, node.slots[2].data.id, node.slots[3].data.pairs, "(accumulator, key, value)", &.{ seed, entry[0], entry[1] });
+            if (matched) |s| if (eqlType(try substitute(a, &s, folder.result), seed)) {
+                if (!try self.isPure(folder.id)) return self.effectsNotAllowed(case, "folder", folder, "");
+                return seed;
+            };
+            return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("MapFold folder {s} must have type (accumulator, key, value) -> accumulator, here ({s}) -> {s}; the folder has type {s}.", .{ try self.callbackName(folder), try self.folderTypeText(&.{ seed, entry[0], entry[1] }), try self.ty(seed), try self.callbackSignature(folder) }));
+        }
+        if (same(case, "MapFilter") or same(case, "MapMapValues")) {
+            const source = try self.infer(frames, child(node, 0));
+            const entry = try self.mapEntry(case, source);
+            const id = node.slots[1].data.id;
+            const callback = (try self.functionOf(id)) orelse return self.reject("PureExpressionCallbackNotFound", try self.fmt("{s} callback '{s}' does not exist.", .{ case, id }));
+            const context = node.slots[2].data.pairs;
+            var ctx = try self.validateCallbackContext(frames, case, callback, context);
+            if (ctx.unbound.len != 2) return self.reject("PureExpressionCallbackArityMismatch", try self.fmt("{s} callback {s} must have exactly two parameters not bound by context (key, value); it has type {s} and context binds {d}.", .{ case, try self.callbackName(callback), try self.callbackSignature(callback), context.len }));
+            const matched = try matchType(a, &ctx.subst, ctx.unbound[0].type, entry[0]) and try matchType(a, &ctx.subst, ctx.unbound[1].type, entry[1]);
+            if (same(case, "MapFilter")) {
+                if (matched and eqlType(try substitute(a, &ctx.subst, callback.result), primitive("bool"))) {
+                    if (!try self.isPure(callback.id)) return self.effectsNotAllowed(case, "callback", callback, "");
+                    return source;
+                }
+                return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("MapFilter callback {s} must have type (key, value) -> Bool, here ({s}) -> Bool; the callback has type {s}.", .{ try self.callbackName(callback), try self.folderTypeText(entry), try self.callbackSignature(callback) }));
+            }
+            if (matched) {
+                if (!try self.isPure(callback.id)) return self.effectsNotAllowed(case, "callback", callback, "");
+                return try generic(a, "map", &.{ entry[0], try substitute(a, &ctx.subst, callback.result) });
+            }
+            return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("MapMapValues callback {s} must have type (key, value) -> U, here ({s}) -> U; the callback has type {s}.", .{ try self.callbackName(callback), try self.folderTypeText(entry), try self.callbackSignature(callback) }));
+        }
+        if (same(case, "ListEffectFold")) {
+            const item = try self.listItem(case, "source", try self.infer(frames, child(node, 0)));
+            const seed = try self.infer(frames, child(node, 1));
+            const folder, const matched = try self.validateFolder(frames, case, node.slots[2].data.id, node.slots[3].data.pairs, "(accumulator, item)", &.{ seed, item });
+            const s = matched orelse return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("ListEffectFold folder {s} must take (accumulator, item), here ({s}); the folder has type {s}.", .{ try self.callbackName(folder), try self.folderTypeText(&.{ seed, item }), try self.callbackSignature(folder) }));
+            if (self.missingEffect(folder.effects)) |e| return self.missingEffectError(try self.fmt("ListEffectFold folder {s}", .{try self.callbackName(folder)}), e);
+            const result = try substitute(a, &s, folder.result);
+            if (eqlType(result, seed)) return seed;
+            if (builtinOf(result, "result", 2)) |r| if (eqlType(r[0], seed)) return result;
+            return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("ListEffectFold folder {s} must return the accumulator type S or Result<S, E>, here {s} or Result<{s}, E>; the folder has type {s}.", .{ try self.callbackName(folder), try self.ty(seed), try self.ty(seed), try self.callbackSignature(folder) }));
+        }
+        if (same(case, "ListZipWith")) {
+            const left = try self.listItem(case, "left", try self.infer(frames, child(node, 0)));
+            const right = try self.listItem(case, "right", try self.infer(frames, child(node, 1)));
+            const id = node.slots[2].data.id;
+            const combiner = (try self.functionOf(id)) orelse return self.reject("PureExpressionCallbackNotFound", try self.fmt("ListZipWith combiner '{s}' does not exist.", .{id}));
+            const context = node.slots[3].data.pairs;
+            var ctx = try self.validateCallbackContext(frames, case, combiner, context);
+            if (ctx.unbound.len != 2) return self.reject("PureExpressionCallbackArityMismatch", try self.fmt("ListZipWith combiner {s} must have exactly two parameters not bound by context (left item, right item); it has type {s} and context binds {d}.", .{ try self.callbackName(combiner), try self.callbackSignature(combiner), context.len }));
+            if (!try matchType(a, &ctx.subst, ctx.unbound[0].type, left) or !try matchType(a, &ctx.subst, ctx.unbound[1].type, right))
+                return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("ListZipWith combiner {s} must take (left item, right item), here ({s}, {s}); the combiner has type {s}.", .{ try self.callbackName(combiner), try self.ty(left), try self.ty(right), try self.callbackSignature(combiner) }));
+            if (!try self.isPure(combiner.id)) return self.effectsNotAllowed(case, "combiner", combiner, "");
+            return try generic(a, "list", &.{try substitute(a, &ctx.subst, combiner.result)});
+        }
+        if (same(case, "ListMap") or same(case, "ListFlatMap") or same(case, "MapFromList") or same(case, "ListFilter") or same(case, "ListAny") or same(case, "ListFindIndex") or same(case, "ListAll")) {
+            const source = try self.infer(frames, child(node, 0));
+            const item = try self.listItem(case, "source", source);
+            const predicate = same(case, "ListFilter") or same(case, "ListAny") or same(case, "ListFindIndex") or same(case, "ListAll");
+            const resolved = try self.validateListCallback(frames, case, node.slots[1].data.id, node.slots[2].data.pairs, item, predicate);
+            if (same(case, "ListFilter")) return source;
+            if (same(case, "ListAny") or same(case, "ListAll")) return primitive("bool");
+            if (same(case, "ListFindIndex")) return try generic(a, "option", &.{primitive("int64")});
+            const result = try substitute(a, &resolved.subst, resolved.callback.result);
+            if (same(case, "ListMap")) return try generic(a, "list", &.{result});
+            if (same(case, "ListFlatMap")) {
+                if (builtinOf(result, "list", 1) != null) return result;
+                return self.reject("PureExpressionCallbackResultTypeMismatch", try self.fmt("ListFlatMap mapper {s} must return List<R>, not {s}; it has type {s}. Use ListMap for a mapper that returns one item.", .{ try self.callbackName(resolved.callback), try self.ty(result), try self.callbackSignature(resolved.callback) }));
+            }
+            if (!try self.isEquatable(result)) return self.reject("MapKeyTypeNotEquatable", try self.fmt("Map key type is not equatable: {s}", .{try self.explainEquatable(result)}));
+            return try generic(a, "map", &.{ result, item });
+        }
+        if (same(case, "SetFilter") or same(case, "SetMap")) {
+            const source = try self.infer(frames, child(node, 0));
+            const item = try self.setItem(case, source);
+            const resolved = try self.validateListCallback(frames, case, node.slots[1].data.id, node.slots[2].data.pairs, item, same(case, "SetFilter"));
+            if (same(case, "SetFilter")) return source;
+            const result = try substitute(a, &resolved.subst, resolved.callback.result);
+            if (!try self.isEquatable(result)) return self.reject("SetItemTypeNotEquatable", try self.fmt("Set item type is not equatable: {s}", .{try self.explainEquatable(result)}));
+            return try generic(a, "set", &.{result});
+        }
+        if (same(case, "ListSortBy") or same(case, "ListMinBy") or same(case, "ListMaxBy")) {
+            const source = try self.infer(frames, child(node, 0));
+            const item = try self.listItem(case, "source", source);
+            try self.validateLessThanCallback(frames, case, node.slots[1].data.id, node.slots[2].data.pairs, item);
+            return if (same(case, "ListSortBy")) source else try generic(a, "option", &.{item});
+        }
+        if (same(case, "OptionMap") or same(case, "OptionAndThen")) {
+            const source = try self.infer(frames, child(node, 0));
+            const item = builtinOf(source, "option", 1) orelse return self.shapeMismatch(case, "option", "Option<T>", source);
+            const callback, const mapped = try self.validateCaseCallback(frames, case, node.slots[1].data.id, node.slots[2].data.pairs, item[0], "Some value");
+            if (same(case, "OptionMap")) return try generic(a, "option", &.{mapped});
+            if (builtinOf(mapped, "option", 1) != null) return mapped;
+            return self.reject("PureExpressionCallbackResultTypeMismatch", try self.fmt("OptionAndThen callback function {s} must return Option<R>; it has type {s}.", .{ try self.callbackName(callback), try self.callbackSignature(callback) }));
+        }
+        if (same(case, "ResultMap") or same(case, "ResultMapErr") or same(case, "ResultAndThen")) {
+            const source = try self.infer(frames, child(node, 0));
+            const parts = builtinOf(source, "result", 2) orelse return self.shapeMismatch(case, "result", "Result<T, E>", source);
+            if (same(case, "ResultMapErr")) {
+                _, const mapped = try self.validateCaseCallback(frames, case, node.slots[1].data.id, node.slots[2].data.pairs, parts[1], "Err error");
+                return try generic(a, "result", &.{ parts[0], mapped });
+            }
+            const callback, const mapped = try self.validateCaseCallback(frames, case, node.slots[1].data.id, node.slots[2].data.pairs, parts[0], "Ok value");
+            if (same(case, "ResultMap")) return try generic(a, "result", &.{ mapped, parts[1] });
+            if (builtinOf(mapped, "result", 2)) |bound| if (eqlType(bound[1], parts[1])) return mapped;
+            return self.reject("PureExpressionCallbackResultTypeMismatch", try self.fmt("ResultAndThen callback function {s} must return Result<R, {s}>; it has type {s}.", .{ try self.callbackName(callback), try self.ty(parts[1]), try self.callbackSignature(callback) }));
+        }
+        if (same(case, "ParallelAll")) {
+            const source = try self.infer(frames, child(node, 0));
+            const id = node.slots[1].data.id;
+            const item = try self.listItem(case, "source", source);
+            const worker = (try self.functionOf(id)) orelse return self.reject("PureExpressionCallbackNotFound", try self.fmt("ParallelAll worker '{s}' does not exist.", .{id}));
+            var ctx = try self.validateCallbackContext(frames, case, worker, node.slots[2].data.pairs);
+            if (ctx.unbound.len != 1 or !try matchType(a, &ctx.subst, ctx.unbound[0].type, item))
+                return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("ParallelAll worker {s} must have exactly one parameter not bound by context, of the item type {s}; the worker has type {s}.", .{ try self.callbackName(worker), try self.ty(item), try self.callbackSignature(worker) }));
+            if (self.missingEffect(worker.effects)) |e| return self.missingEffectError(try self.fmt("ParallelAll worker {s}", .{try self.callbackName(worker)}), e);
+            const result = try substitute(a, &ctx.subst, worker.result);
+            const parts = builtinOf(result, "result", 2) orelse return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("ParallelAll worker {s} must return Result<U, E>, not {s}.", .{ try self.callbackName(worker), try self.ty(result) }));
+            return try generic(a, "result", &.{ try generic(a, "list", &.{parts[0]}), parts[1] });
+        }
+        if (same(case, "TaskStart")) {
+            const scope_result = self.infer(frames, child(node, 0));
+            const scope_failure = try self.failureOf(TypeRef, scope_result);
+            const item = self.infer(frames, child(node, 3)) catch |e| return if (scope_failure) |d| self.reject(d.code, d.message) else e;
+            if (scope_failure) |d| return self.reject(d.code, d.message);
+            const scope = try scope_result;
+            if (!eqlType(scope, try generic(a, "taskScope", &.{}))) return self.reject("TaskStartScopeTypeMismatch", try self.fmt("TaskStart scope must be a TaskScope, not {s}.", .{try self.ty(scope)}));
+            const id = node.slots[1].data.id;
+            const worker = (try self.functionOf(id)) orelse return self.reject("PureExpressionCallbackNotFound", try self.fmt("TaskStart worker '{s}' does not exist.", .{id}));
+            var ctx = try self.validateCallbackContext(frames, case, worker, node.slots[2].data.pairs);
+            if (ctx.unbound.len != 1 or !try matchType(a, &ctx.subst, ctx.unbound[0].type, item))
+                return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("TaskStart worker {s} must have exactly one parameter not bound by context, of the item type {s}; the worker has type {s}.", .{ try self.callbackName(worker), try self.ty(item), try self.callbackSignature(worker) }));
+            if (self.missingEffect(worker.effects)) |e| return self.missingEffectError(try self.fmt("TaskStart worker {s}", .{try self.callbackName(worker)}), e);
+            const result = try substitute(a, &ctx.subst, worker.result);
+            if (builtinOf(result, "result", 2) == null) return self.reject("PureExpressionCallbackInputTypeMismatch", try self.fmt("TaskStart worker {s} must return Result<U, E>, not {s}.", .{ try self.callbackName(worker), try self.ty(result) }));
+            return try generic(a, "task", &.{result});
+        }
+        if (same(case, "CancellationShield") or same(case, "TaskScope")) {
+            const id = node.slots[0].data.id;
+            const body = (try self.functionOf(id)) orelse return self.reject("PureExpressionCallbackNotFound", try self.fmt("{s} body '{s}' does not exist.", .{ case, id }));
+            var ctx = try self.validateCallbackContext(frames, case, body, node.slots[1].data.pairs);
+            const scope = if (same(case, "TaskScope")) try generic(a, "taskScope", &.{}) else primitive("unit");
+            if (ctx.unbound.len != 1 or !try matchType(a, &ctx.subst, ctx.unbound[0].type, scope))
+                return self.reject(try self.fmt("{s}BodyMismatch", .{case}), try self.fmt("{s} body {s} must have exactly one parameter not bound by context, of type {s}; the body has type {s}.", .{ case, try self.callbackName(body), if (same(case, "TaskScope")) "TaskScope" else "Unit", try self.callbackSignature(body) }));
+            if (self.missingEffect(body.effects)) |e| return self.missingEffectError(try self.fmt("{s} body {s}", .{ case, try self.callbackName(body) }), e);
+            const result = try substitute(a, &ctx.subst, body.result);
+            if (builtinOf(result, "result", 2) != null) return result;
+            return self.reject(try self.fmt("{s}ResultMismatch", .{case}), try self.fmt("{s} body {s} must return Result<T, E>, not {s}.", .{ case, try self.callbackName(body), try self.ty(result) }));
+        }
+        if (same(case, "UseResource")) {
+            const acquired = try self.infer(frames, child(node, 0));
+            const parts = builtinOf(acquired, "result", 2) orelse return self.reject("UseResourceAcquireTypeMismatch", try self.fmt("UseResource acquisition must produce Result<R, E>, not {s}.", .{try self.ty(acquired)}));
+            const body_id = node.slots[3].data.id;
+            const operation_id = node.slots[2].data.id;
+            const body = (try self.functionOf(body_id)) orelse return self.reject("PureExpressionCallbackNotFound", try self.fmt("UseResource body '{s}' does not exist.", .{body_id}));
+            const owner_capability, const operation = (try self.operationOf(operation_id)) orelse return self.reject("ExpressionCapabilityOperationNotFound", try self.fmt("UseResource references unknown release operation '{s}'.", .{operation_id}));
+            // F# types the context and the receiver together; the context's diagnostic wins.
+            const context = self.validateCallbackContext(frames, case, body, node.slots[4].data.pairs);
+            const context_failure = try self.failureOf(Context, context);
+            const receiver = self.infer(frames, child(node, 1)) catch |e| return if (context_failure) |d| self.reject(d.code, d.message) else e;
+            if (context_failure) |d| return self.reject(d.code, d.message);
+            var ctx = try context;
+            if (ctx.unbound.len != 1 or !try matchType(a, &ctx.subst, ctx.unbound[0].type, parts[0]))
+                return self.reject("UseResourceBodyMismatch", try self.fmt("UseResource body {s} must have exactly one parameter not bound by context, of the acquired resource type {s}; the body has type {s}.", .{ try self.callbackName(body), try self.ty(parts[0]), try self.callbackSignature(body) }));
+            if (!eqlType(receiver, .{ .capability = query.idOf(owner_capability) })) return self.reject("UseResourceReleaseReceiverMismatch", "UseResource release capability value does not own the release operation.");
+            const body_result = try substitute(a, &ctx.subst, body.result);
+            const effects = try appended(a, body.effects, prop(operation, "effectId"));
+            if (self.missingEffect(effects)) |e| return self.missingEffectError("UseResource", e);
+            const result_parts = builtinOf(body_result, "result", 2);
+            if (result_parts == null or !eqlType(result_parts.?[1], parts[1]))
+                return self.reject("UseResourceResultMismatch", try self.fmt("UseResource body {s} must return Result<T, E> with the acquisition error type E = {s}; it returns {s}.", .{ try self.callbackName(body), try self.ty(parts[1]), try self.ty(body_result) }));
+            const operation_parameters = model.arrayItems(operation, "parameters");
+            const operation_result = try typeOf(a, model.property(operation, "resultType").?);
+            const releases_result = eqlType(operation_result, try generic(a, "result", &.{ primitive("unit"), parts[1] }));
+            if (operation_parameters.len == 1 and eqlType(try typeOf(a, model.property(operation_parameters[0], "type").?), parts[0]) and (eqlType(operation_result, primitive("unit")) or releases_result)) return body_result;
+            return self.reject("UseResourceReleaseSignatureMismatch", "The release operation must take exactly the resource and return Unit or Result<Unit, E>.");
+        }
+        if (same(case, "ExceptionCatch")) {
+            const body_result = self.exceptionCallback(frames, "body", node.slots[0].data.id, node.slots[1].data.pairs, primitive("unit"));
+            const body_failure = try self.failureOf(TypeRef, body_result);
+            const handler = self.exceptionCallback(frames, "handler", node.slots[2].data.id, node.slots[3].data.pairs, try generic(a, "exception", &.{})) catch |e| return if (body_failure) |d| self.reject(d.code, d.message) else e;
+            if (body_failure) |d| return self.reject(d.code, d.message);
+            const body = try body_result;
+            if (eqlType(body, handler) and builtinOf(body, "result", 2) != null) return body;
+            return self.reject("ExceptionCatchResultMismatch", "ExceptionCatch callbacks must return the same Result<T, E>.");
+        }
+        if (same(case, "ExceptionIsCancellation") or same(case, "ExceptionMessage")) {
+            const value = try self.infer(frames, child(node, 0));
+            if (builtinOf(value, "exception", 0) == null) return self.reject("ExceptionValueTypeMismatch", try self.fmt("{s} requires Exception.", .{case}));
+            return primitive(if (same(case, "ExceptionMessage")) "string" else "bool");
+        }
+        if (same(case, "ExceptionRethrow")) {
+            const result = node.slots[1].data.type;
+            try preflight.validateTypeRef(self.r, result);
+            if (builtinOf(try self.infer(frames, child(node, 0)), "exception", 0) == null) return self.reject("ExceptionValueTypeMismatch", "ExceptionRethrow requires Exception.");
+            return result;
+        }
+        if (same(case, "TaskWait") or same(case, "OneShotWait")) {
+            // The limit is typed first, but the first operand's diagnostic wins.
+            var limit_failure: ?query.Diagnostic = null;
+            if (slotNamed(node, "limit")) |limit| {
+                const limit_type = self.infer(frames, limit.data.recipe) catch |e| blk: {
+                    if (e != error.Rejected) return e;
+                    limit_failure = self.r.diagnostic;
+                    break :blk null;
+                };
+                if (limit_type) |t| if (!eqlType(t, try generic(a, "option", &.{primitive("int64")}))) {
+                    limit_failure = if (same(case, "TaskWait"))
+                        .{ .code = "TaskWaitLimitTypeMismatch", .message = try self.fmt("TaskWait limit requires Option<Int64>, not {s}.", .{try self.ty(t)}) }
+                    else
+                        .{ .code = "OneShotLimitTypeMismatch", .message = "OneShotWait requires Option<Int64> limit." };
+                };
+            }
+            const first = try self.infer(frames, child(node, 0));
+            if (limit_failure) |d| return self.reject(d.code, d.message);
+            if (same(case, "TaskWait")) {
+                if (builtinOf(first, "list", 1)) |items| if (builtinOf(items[0], "task", 1)) |result| return try generic(a, "list", &.{try generic(a, "option", &.{result[0]})});
+                return self.reject("TaskWaitInputTypeMismatch", try self.fmt("TaskWait requires List<Task<T>>, not {s}.", .{try self.ty(first)}));
+            }
+            const value = builtinOf(first, "oneShot", 1) orelse return self.reject("OneShotCellTypeMismatch", "OneShotWait requires OneShot<T>.");
+            return try generic(a, "option", &.{value[0]});
+        }
+        if (same(case, "OneShotCreate")) {
+            const scope = try self.infer(frames, child(node, 0));
+            const value = node.slots[1].data.type;
+            try preflight.validateTypeRef(self.r, value);
+            if (!eqlType(scope, try generic(a, "taskScope", &.{}))) return self.reject("OneShotScopeTypeMismatch", "OneShotCreate requires TaskScope.");
+            if (mentionsScope(value)) return self.reject("OneShotScopePayloadUnsupported", "A OneShot payload cannot contain TaskScope.");
+            return try generic(a, "oneShot", &.{value});
+        }
+        if (same(case, "OneShotComplete")) {
+            const cell_result = self.infer(frames, child(node, 0));
+            const cell_failure = try self.failureOf(TypeRef, cell_result);
+            const value = self.infer(frames, child(node, 1)) catch |e| return if (cell_failure) |d| self.reject(d.code, d.message) else e;
+            if (cell_failure) |d| return self.reject(d.code, d.message);
+            const cell = try cell_result;
+            const expected = builtinOf(cell, "oneShot", 1) orelse return self.reject("OneShotCellTypeMismatch", "OneShotComplete requires OneShot<T>.");
+            if (!eqlType(expected[0], value)) return self.reject("OneShotValueTypeMismatch", "OneShotComplete payload must match the cell's exact type.");
+            return primitive("bool");
+        }
+        if (same(case, "TaskCancel")) {
+            const task = try self.infer(frames, child(node, 0));
+            if (builtinOf(task, "task", 1) == null) return self.reject("TaskCancelInputTypeMismatch", try self.fmt("TaskCancel requires Task<T>, not {s}.", .{try self.ty(task)}));
+            return primitive("unit");
+        }
+        if (same(case, "CapabilityConstruct")) return try self.capabilityConstruct(node.slots[1].data.id, node.slots[0].data.implementations);
+        if (same(case, "FunctionReference")) {
+            const id = node.slots[0].data.id;
+            const f = (try self.functionOf(id)) orelse return self.reject("UnknownFunctionReference", "The referenced function does not exist.");
+            if (f.generic) return self.reject("GenericFunctionReferenceUnsupported", "Use a monomorphic wrapper for a generic function reference.");
+            if (!try self.isPure(id)) return self.reject("ImpureFunctionReference", "Function references require transitive purity and no ambient cancellation reads.");
+            const parameters = try a.alloc(TypeRef, f.parameters.len);
+            for (f.parameters, parameters) |p, *slot| slot.* = p.type;
+            const result = try a.create(TypeRef);
+            result.* = f.result;
+            return .{ .function = .{ .parameters = parameters, .result = result } };
+        }
+        if (same(case, "FunctionInvoke")) {
+            const value = try self.infer(frames, child(node, 0));
+            const arguments = node.slots[1].data.recipes;
+            if (value != .function) return self.reject("FunctionInvokeTargetTypeMismatch", "Function invocation requires a function value.");
+            if (value.function.parameters.len != arguments.len) return self.reject("FunctionInvokeArityMismatch", "Function invocation arguments must match its positional parameter count.");
+            for (value.function.parameters, arguments) |expected, argument| if (!eqlType(try self.infer(frames, argument), expected))
+                return self.reject("FunctionInvokeArgumentTypeMismatch", "Function invocation argument has the wrong type.");
+            return value.function.result.*;
+        }
+        if (same(case, "DirectCall")) return try self.directCall(frames, node);
+        if (same(case, "SelfCall")) return try self.selfCall(frames, node.slots[0].data.pairs);
+        if (same(case, "CapabilityInvoke")) return try self.capabilityInvoke(frames, node);
+        return null;
+    }
+
+    fn slotNamed(node: *const Node, name: []const u8) ?recipe.Slot {
+        for (node.slots) |slot| if (same(slot.name, name)) return slot;
+        return null;
+    }
+
+    /// An `ExceptionCatch` callback: one unbound input of `input`, its effects declared, its result substituted.
+    fn exceptionCallback(self: *Infer, frames: ?*const Frame, role: []const u8, id: []const u8, context: []const recipe.Pair, input: TypeRef) Fail!TypeRef {
+        const callback = (try self.functionOf(id)) orelse return self.reject("PureExpressionCallbackNotFound", try self.fmt("ExceptionCatch {s} function does not exist.", .{role}));
+        var ctx = try self.validateCallbackContext(frames, "ExceptionCatch", callback, context);
+        if (ctx.unbound.len != 1 or !try matchType(self.a, &ctx.subst, ctx.unbound[0].type, input))
+            return self.reject("ExceptionCatchCallbackMismatch", try self.fmt("ExceptionCatch {s} must have one unbound input of type {s}.", .{ role, try self.ty(input) }));
+        if (self.missingEffect(callback.effects)) |e| return self.missingEffectError("ExceptionCatch", e);
+        return substitute(self.a, &ctx.subst, callback.result);
+    }
+
+    /// `capabilityOperationsById`: the owning capability and the operation.
+    fn operationOf(self: *Infer, id: []const u8) Fail!?struct { Value, Value } {
+        for (model.arrayItems(self.r.model, "capabilities")) |capability| for (model.arrayItems(capability, "operations")) |operation| if (same(query.idOf(operation), id)) return .{ capability, operation };
+        return null;
+    }
+
+    /// `CapabilityImplementations.validate`: the first problem, in its order.
+    fn capabilityConstruct(self: *Infer, capability_id: []const u8, implementations: []const recipe.Implementation) Fail!TypeRef {
+        const a = self.a;
+        const capability = preflight.declaration(self.r, "capabilities", capability_id) orelse return self.reject("UnknownCapabilityConstructTarget", "A capability construction must name an existing capability.");
+        const operations = model.arrayItems(capability, "operations");
+        var ids: std.ArrayList([]const u8) = .empty;
+        for (implementations) |i| try ids.append(a, i.operation);
+        if (preflight.repeated(ids.items) != null) return self.reject("DuplicateCapabilityImplementation", "Each capability operation must have exactly one implementation.");
+        var covered = operations.len == ids.items.len;
+        for (operations) |operation| if (!preflight.contains(ids.items, query.idOf(operation))) {
+            covered = false;
+        };
+        if (!covered) return self.reject("CapabilityImplementationSetMismatch", "Implementations must cover exactly the operations of the constructed capability.");
+        for (implementations) |i| {
+            const f = (try self.functionOf(i.function)) orelse return self.reject("UnknownCapabilityImplementationFunction", try self.fmt("Implementation function '{s}' does not exist.", .{i.function}));
+            const operation = for (operations) |operation| {
+                if (same(query.idOf(operation), i.operation)) break operation;
+            } else continue;
+            if (f.generic) return self.reject("GenericCapabilityImplementationUnsupported", "Use a monomorphic wrapper for a generic implementation function.");
+            if (!try self.isPure(f.id)) return self.reject("ImpureCapabilityImplementation", try self.fmt("Implementation '{s}' must be transitively pure, including ambient cancellation behavior.", .{i.function}));
+            const operation_parameters = model.arrayItems(operation, "parameters");
+            var matches = operation_parameters.len == f.parameters.len and eqlType(f.result, try typeOf(a, model.property(operation, "resultType").?));
+            if (matches) for (operation_parameters, f.parameters) |op, p| if (!eqlType(try typeOf(a, model.property(op, "type").?), p.type)) {
+                matches = false;
+            };
+            if (!matches) return self.reject("CapabilityImplementationSignatureMismatch", try self.fmt("Implementation '{s}' must match operation '{s}' parameter order, parameter types and result type exactly.", .{ i.function, i.operation }));
+        }
+        return .{ .capability = capability_id };
+    }
+
+    /// `DirectCall` with `validateCallArguments`.
+    fn directCall(self: *Infer, frames: ?*const Frame, node: *const Node) Fail!TypeRef {
+        const a = self.a;
+        const id = node.slots[0].data.id;
+        const bindings = node.slots[1].data.pairs;
+        const callee = (try self.functionOf(id)) orelse return self.reject("PureExpressionCallTargetNotFound", try self.fmt("DirectCall references unknown function '{s}'.", .{id}));
+        if (self.missingEffect(callee.effects)) |e| return self.missingEffectError(try self.fmt("DirectCall callee {s}", .{try self.callbackName(callee)}), e);
+        var ids: std.ArrayList([]const u8) = .empty;
+        for (bindings) |pair| try ids.append(a, pair.id);
+        if (preflight.repeated(ids.items)) |duplicate| return self.reject("PureExpressionDuplicateCallArgument", try self.fmt("DirectCall binds parameter '{s}' more than once.", .{duplicate}));
+        for (bindings) |pair| {
+            for (callee.parameters) |p| {
+                if (same(p.id, pair.id)) break;
+            } else return self.reject("PureExpressionCallArgumentTargetNotFound", try self.fmt("DirectCall targets parameter '{s}' not owned by callee {s}: {s}.", .{ pair.id, try self.callbackName(callee), try self.callbackSignature(callee) }));
+        }
+        for (callee.parameters) |p| if (!preflight.contains(ids.items, p.id))
+            return self.reject("PureExpressionCallArgumentMissing", try self.fmt("DirectCall is missing required parameter {s} for callee {s}: {s}.", .{ try self.describe(p.name, p.id), try self.callbackName(callee), try self.callbackSignature(callee) }));
+        // The function being created has no identity yet, so no call is a self call here.
+        var subst: Subst = .empty;
+        for (callee.parameters) |p| {
+            const value = for (bindings) |pair| {
+                if (same(pair.id, p.id)) break pair.value;
+            } else unreachable;
+            const actual = try self.infer(frames, value);
+            var attempt = try subst.clone(a);
+            if (!try matchType(a, &attempt, p.type, actual)) {
+                const pair = try self.tyPair(try substitute(a, &subst, p.type), actual);
+                return self.reject("PureExpressionCallArgumentTypeMismatch", try self.fmt("DirectCall parameter {s} of callee {s} requires {s}, but the recipe produces {s}.", .{ try self.describe(p.name, p.id), try self.callbackName(callee), pair[0], pair[1] }));
+            }
+            subst = attempt;
+        }
+        // The snapshot-wide derivation is lazy and shared by every generic call in this request.
+        for (subst.values()) |bound| if (mentionsScope(bound)) {
+            if (self.one_shot_requirements == null) self.one_shot_requirements = model.oneShotPayloadRequirementsOf(a, self.r.model);
+            for (self.one_shot_requirements.?) |requirement| if (same(requirement.function, callee.id)) {
+                for (requirement.parameters) |parameter| if (subst.get(parameter)) |actual| if (mentionsScope(actual))
+                    return self.reject("OneShotScopePayloadUnsupported", "This generic call would place TaskScope inside a OneShot payload, directly or through another generic call.");
+                break;
+            };
+            break;
+        };
+        return substitute(a, &subst, callee.result);
+    }
+
+    /// `SelfCall`: the function being created, at its own parameter types.
+    fn selfCall(self: *Infer, frames: ?*const Frame, arguments: []const recipe.Pair) Fail!TypeRef {
+        const count = self.c.parameters.len;
+        // `tryFindDuplicate`: the first slot, by first occurrence, that repeats.
+        for (arguments, 0..) |pair, index| if (countSlot(arguments[0..index], pair.slot) == 0 and countSlot(arguments[index + 1 ..], pair.slot) > 0)
+            return self.reject("PureExpressionDuplicateCallArgument", try self.fmt("SelfCall binds parameter slot {d} more than once.", .{pair.slot}));
+        for (arguments) |pair| if (pair.slot < 0 or pair.slot >= count)
+            return self.reject("PureExpressionCallArgumentTargetNotFound", try self.fmt("SelfCall targets parameter slot {d}, but {s} has {d} parameter(s). {s}", .{ pair.slot, description, count, try self.describeOwnerParameters() }));
+        for (self.c.parameters, 0..) |p, slot| {
+            if (countSlot(arguments, @intCast(slot)) == 0) return self.reject("PureExpressionCallArgumentMissing", try self.fmt("SelfCall is missing required parameter slot {d} ('{s}') of {s}.", .{ slot, p.name, description }));
+        }
+        for (self.c.parameters, 0..) |p, slot| {
+            const value = for (arguments) |pair| {
+                if (pair.slot == slot) break pair.value;
+            } else unreachable;
+            const actual = try self.infer(frames, value);
+            if (!eqlType(actual, p.type)) {
+                const pair = try self.tyPair(p.type, actual);
+                return self.reject("PureExpressionCallArgumentTypeMismatch", try self.fmt("SelfCall parameter slot {d} requires {s}, but the recipe produces {s}. A function calls itself at its own parameter types; there is no polymorphic recursion.", .{ slot, pair[0], pair[1] }));
+            }
+        }
+        return self.c.result_type;
+    }
+
+    fn countSlot(arguments: []const recipe.Pair, slot: i64) usize {
+        var n: usize = 0;
+        for (arguments) |pair| if (pair.slot == slot) {
+            n += 1;
+        };
+        return n;
+    }
+
+    /// `CapabilityInvoke` with `validateCapabilityArguments`.
+    fn capabilityInvoke(self: *Infer, frames: ?*const Frame, node: *const Node) Fail!TypeRef {
+        const a = self.a;
+        const id = node.slots[1].data.id;
+        const bindings = node.slots[2].data.pairs;
+        const capability, const operation = (try self.operationOf(id)) orelse return self.reject("ExpressionCapabilityOperationNotFound", try self.fmt("CapabilityInvoke references unknown operation '{s}'.", .{id}));
+        const operation_label = try self.describe(query.nameOf(operation), id);
+        const receiver = try self.infer(frames, child(node, 0));
+        const owner_type: TypeRef = .{ .capability = query.idOf(capability) };
+        if (!eqlType(receiver, owner_type)) return self.reject("ExpressionCapabilityValueTypeMismatch", try self.fmt("CapabilityInvoke operation {s} requires {s}, but the receiver produces {s}.", .{ operation_label, try self.ty(owner_type), try self.ty(receiver) }));
+        const effect = prop(operation, "effectId");
+        if (!preflight.contains(self.c.required_effects, effect)) return self.reject("ExpressionCapabilityMissingEffectRequirement", try self.fmt("CapabilityInvoke operation {s} requires effect {s} not declared by {s}.", .{ operation_label, try self.effectLabel(effect), description }));
+        var ids: std.ArrayList([]const u8) = .empty;
+        for (bindings) |pair| try ids.append(a, pair.id);
+        if (preflight.repeated(ids.items)) |duplicate| return self.reject("ExpressionDuplicateCapabilityArgument", try self.fmt("CapabilityInvoke binds parameter '{s}' more than once.", .{duplicate}));
+        const parameters = model.arrayItems(operation, "parameters");
+        var matched = parameters.len == bindings.len;
+        for (parameters) |p| if (!preflight.contains(ids.items, query.idOf(p))) {
+            matched = false;
+        };
+        if (!matched) return self.reject("ExpressionCapabilityArgumentSetMismatch", try self.fmt("CapabilityInvoke must bind exactly the parameters declared by operation {s}.", .{operation_label}));
+        for (parameters) |p| {
+            const value = for (bindings) |pair| {
+                if (same(pair.id, query.idOf(p))) break pair.value;
+            } else unreachable;
+            const expected = try typeOf(a, model.property(p, "type").?);
+            const actual = try self.infer(frames, value);
+            if (!eqlType(actual, expected)) {
+                const pair = try self.tyPair(expected, actual);
+                return self.reject("ExpressionCapabilityArgumentTypeMismatch", try self.fmt("CapabilityInvoke parameter {s} of operation {s} requires {s}, but the recipe produces {s}.", .{ try self.describe(query.nameOf(p), query.idOf(p)), operation_label, pair[0], pair[1] }));
+            }
+        }
+        return typeOf(a, model.property(operation, "resultType").?);
+    }
+
+    /// A rejection a sibling operand's diagnostic must not displace: F# types operand pairs together
+    /// and reports the first (`| Error error, _ | _, Error error`).
+    fn failureOf(self: *Infer, comptime T: type, result: Fail!T) Fail!?query.Diagnostic {
+        if (result) |_| return null else |e| return if (e == error.Rejected) self.r.diagnostic else e;
     }
 
     // ------------------------------------------------------------ completions
@@ -1001,6 +1664,11 @@ fn pathName(case: []const u8, slot: []const u8) []const u8 {
         .{ "OptionGetOrDefault", "default", "defaultValue" }, .{ "ResultGetOrDefault", "default", "defaultValue" },
         .{ "MapGetOrDefault", "default", "defaultValue" },   .{ "MapInsert", "value", "end" },
     };
+    if (same(slot, "value") and (same(case, "ExceptionMessage") or same(case, "ExceptionIsCancellation") or same(case, "ExceptionRethrow"))) return "exceptionValue";
+    if (same(slot, "map") and (same(case, "MapFold") or same(case, "MapFilter") or same(case, "MapMapValues"))) return "source";
+    if (same(slot, "set") and (same(case, "SetFold") or same(case, "SetFilter") or same(case, "SetMap"))) return "source";
+    if (same(slot, "option") and (same(case, "OptionMap") or same(case, "OptionAndThen"))) return "source";
+    if (same(slot, "result") and (same(case, "ResultMap") or same(case, "ResultMapErr") or same(case, "ResultAndThen"))) return "source";
     for (renamed) |entry| if (same(entry[0], case) and same(entry[1], slot)) return entry[2];
     return slot;
 }
