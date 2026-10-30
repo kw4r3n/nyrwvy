@@ -497,7 +497,7 @@ pub fn withDeclarations(arena: Allocator, interner: *Interner, base: *const Gene
     var result = base.*;
     result.snapshot = try interner.id(.snapshot, snapshot);
     result.parent = base.snapshot;
-    inline for (.{ .{ "types", Type, Loader.loadType, Domain.type }, .{ "effects", Effect, Loader.loadEffect, Domain.effect }, .{ "capabilities", Capability, Loader.loadCapability, Domain.capability } }) |entry| {
+    inline for (.{ .{ "functions", Function, Loader.loadFunction, Domain.function }, .{ "types", Type, Loader.loadType, Domain.type }, .{ "effects", Effect, Loader.loadEffect, Domain.effect }, .{ "capabilities", Capability, Loader.loadCapability, Domain.capability } }) |entry| {
         if (std.mem.eql(u8, group, entry[0])) {
             const old = @field(base, entry[0]);
             const records = try arena.alloc(*const entry[1], old.len + items.len);

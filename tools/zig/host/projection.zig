@@ -12,6 +12,11 @@ fn bytes(a: Allocator, value: Value) ![]const u8 {
     return out.written();
 }
 
+// FunctionCreation.Batch is a boxed F# list: JSON writes an array, but projection treats it as a scalar.
+fn boxedBatch(path: []const u8, value: Value) bool {
+    return value == .array and std.mem.endsWith(u8, path, "/batch");
+}
+
 const Project = struct {
     a: Allocator,
     depth: usize,
@@ -41,6 +46,7 @@ const Project = struct {
 
     fn visit(self: *Project, depth: usize, path: []const u8, value: Value) anyerror!Value {
         const a = self.a;
+        if (boxedBatch(path, value)) return value;
         if (m.same(path, "/proposalId") or m.same(path, "/detail") or (std.mem.endsWith(u8, path, "/kind") and value == .string and value.string.len <= 64)) return value;
         if (value == .string and !m.same(path, self.root_path) and identityPath(path)) {
             if (value.string.len <= 256) return value;
@@ -119,6 +125,7 @@ fn select(r: *@import("query.zig").Request, root: Value, path: []const u8) !Valu
     if (path.len == 0) return root;
     if (path[0] != '/') return r.fail("path must be an RFC 6901 JSON pointer, or empty for the review root.", .{});
     var value = root;
+    var scalar = false;
     var parts = std.mem.splitScalar(u8, path[1..], '/');
     while (parts.next()) |part| {
         var i: usize = 0;
@@ -128,6 +135,7 @@ fn select(r: *@import("query.zig").Request, root: Value, path: []const u8) !Valu
             i += 1;
         }
         const key = try std.mem.replaceOwned(u8, r.a, try std.mem.replaceOwned(u8, r.a, part, "~1", "/"), "~0", "~");
+        if (scalar) return r.fail("Cannot traverse a scalar at path '{s}'.", .{path});
         switch (value) {
             .object => value = model.property(value, key) orelse return r.fail("No proposal review value at path '{s}'.", .{path}),
             .array => |items| {
@@ -137,6 +145,7 @@ fn select(r: *@import("query.zig").Request, root: Value, path: []const u8) !Valu
             },
             else => return r.fail("Cannot traverse a scalar at path '{s}'.", .{path}),
         }
+        scalar = m.same(key, "batch") and value == .array;
     }
     return value;
 }
@@ -163,8 +172,9 @@ fn pair(text: []const u16, at: usize) bool {
 
 pub fn page(r: *@import("query.zig").Request, out: *std.Io.Writer, id: []const u8, current: bool, structured: bool, raw: []const u8, path: []const u8, offset_arg: i32, limit: i32) !void {
     const source = try select(r, try model.parseValue(r.a, raw), path);
-    const total = switch (source) { .array => |v| v.len, .object => |v| v.len, .string => |v| v.len, else => @as(usize, 1) };
-    const kind: []const u8 = switch (source) { .array => "array", .object => "object", .string => "stringUtf16", else => "scalar" };
+    const scalar = boxedBatch(path, source);
+    const total = if (scalar) @as(usize, 1) else switch (source) { .array => |v| v.len, .object => |v| v.len, .string => |v| v.len, else => @as(usize, 1) };
+    const kind: []const u8 = if (scalar) "scalar" else switch (source) { .array => "array", .object => "object", .string => "stringUtf16", else => "scalar" };
     if (offset_arg < 0 or @as(usize, @intCast(offset_arg)) > total) return r.fail("offset must be within the selected value's totalCount.", .{});
     if (limit < 1 or limit > @as(i32, if (source == .string) 1024 else 20)) return r.fail("limit must be 1..20 items/properties, or 1..1024 UTF-16 code units for a String.", .{});
     const offset: usize = @intCast(offset_arg);
@@ -177,7 +187,7 @@ pub fn page(r: *@import("query.zig").Request, out: *std.Io.Writer, id: []const u
         }
     }
     while (true) {
-        const value: Value = switch (source) {
+        const value: Value = if (scalar) (if (count == 0) .json_null else source) else switch (source) {
             .array => |v| .{ .array = v[offset..][0..count] },
             .object => |v| .{ .object = v[offset..][0..count] },
             .string => |v| .{ .string = v[offset..][0..count] },
@@ -187,7 +197,7 @@ pub fn page(r: *@import("query.zig").Request, out: *std.Io.Writer, id: []const u
         const direct = try pageHeader(r.a, id, current, structured, path, kind, offset, total, count, value, original, &.{});
         if (direct.len <= 8192) return out.writeAll(direct);
         for ([_][2]usize{ .{ 4, 128 }, .{ 2, 64 }, .{ 1, 32 }, .{ 0, 0 } }) |limits| {
-            var p: Project = .{ .a = r.a, .depth = 8, .receipt = false, .arrays = limits[0], .text = limits[1], .root_path = path, .root_offset = if (source == .array) offset else null };
+            var p: Project = .{ .a = r.a, .depth = 8, .receipt = false, .arrays = limits[0], .text = limits[1], .root_path = path, .root_offset = if (source == .array and !scalar) offset else null };
             const projected = try p.visit(0, path, value);
             const result = try pageHeader(r.a, id, current, structured, path, kind, offset, total, count, projected, original, p.omissions.items);
             if (result.len <= 8192) return out.writeAll(result);

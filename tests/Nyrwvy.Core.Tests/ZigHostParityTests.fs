@@ -3153,3 +3153,109 @@ module ZigHostDeclarationParityTests =
                     use reply = parseDocument replies[index]
                     Assert.False(reply.RootElement.GetProperty("ok").GetBoolean(), replies[index])
                 Assert.Contains("ImportedDeclarationNotExported", replies[4]))
+
+module ZigHostFunctionBatchParityTests =
+    open ZigHostParityTests
+
+    let private integer = """{"kind":"primitive","primitive":"int64"}"""
+    let private literal = """{"kind":"int64Literal","value":"1"}"""
+    let private fn name body =
+        $"""{{"displayName":"{name}","exported":true,"mustNotWait":true,"parameters":[],"resultType":{integer},"requiredEffects":[],"body":{body}}}"""
+    let private batch functions = $"""{{"id":"batch","op":"simulateCreateFunctionsByName","functions":[{String.concat "," functions}]}}"""
+    let private success (reply: string) =
+        use doc = parseDocument reply
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean(), reply)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Function batches preserve ordered creation aggregation and post failure allocator parity`` () =
+        withDirectory (fun dir ->
+            let source = Path.Combine(dir, "functions.json")
+            File.WriteAllText(source, SnapshotCodec.serialize (ZigHostCreateInferenceTests.snapshot ()) |> unwrap)
+            let ordered = batch [ fn "first" literal; fn "second" """{"kind":"directCall","function":"first","arguments":[]}""" ]
+            let invalids =
+                [ batch []
+                  """{"id":"batch","op":"simulateCreateFunctionsByName","functions":{}}"""
+                  batch [ fn "later" """{"kind":"directCall","function":"notYet","arguments":[]}"""; fn "notYet" literal ]
+                  batch [ fn "dup" literal; fn "dup" literal ]
+                  batch [ fn "bad" """{"kind":"boolLiteral","value":true}""" ]
+                  batch [ (fn "malformed" literal).Replace("\"parameters\":[]", "\"parameters\":{}") ]
+                  batch [ (fn "marker" literal).Replace("\"mustNotWait\":true", "\"mustNotWait\":1") ]
+                  batch [ fn "unresolved" """{"kind":"directCall","function":"unknown","arguments":[]}"""; fn "createdBeforeRejection" literal ]
+                  batch [ fn "unresolved" """{"kind":"directCall","function":"unknown","arguments":[]}"""; fn "invalidPreflight" """{"kind":"boolLiteral","value":true}""" ]
+                  batch [ "{}"; "null"; fn "bad" """{"kind":"directCall","function":"unknown","arguments":[]}""" ]
+                  batch [ (fn "duplicate" literal).Replace("\"displayName\":\"duplicate\"", "\"displayName\":\"duplicate\",\"displayName\":\"duplicate\"") ] ]
+            let requests =
+                [ for line in invalids do
+                      yield line
+                      yield ordered
+                  yield ordered
+                  yield batch [ fn "recursive" """{"kind":"directCall","function":"recursive","arguments":[]}""" ]
+                  yield batch [ """{"displayName":"newGeneric","typeParameters":["Z","A"],"parameters":[{"displayName":"z","type":{"kind":"typeParameter","name":"Z"}},{"displayName":"a","type":{"kind":"typeParameter","name":"A"}}],"resultType":{"kind":"typeParameter","name":"A"},"requiredEffects":[],"body":{"kind":"parameter","name":"a"}}"""; fn "following" literal ]
+                  let node = JsonNode.Parse(ordered).AsObject()
+                  node["detail"] <- JsonValue.Create "full"
+                  yield node.ToJsonString()
+                  node["structuredReview"] <- JsonValue.Create true
+                  yield node.ToJsonString()
+                  yield """{"id":"list","op":"proposals"}""" ]
+            let expected, actual = seededPair "function-batch" source requests
+            Assert.Equal<string list>(expected, actual)
+            for i in 0 .. invalids.Length - 1 do
+                use rejected = parseDocument expected[i * 2]
+                Assert.False(rejected.RootElement.GetProperty("ok").GetBoolean(), expected[i * 2])
+                success expected[i * 2 + 1]
+            for reply in expected |> List.skip (invalids.Length * 2) do success reply)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Function batch files lifecycle reviews and persistence agree in both formats`` () =
+        withDirectory (fun dir ->
+            for records in [ false; true ] do
+                let case = Path.Combine(dir, string records)
+                let input = Path.Combine(case, "input")
+                Directory.CreateDirectory input |> ignore
+                let source = Path.Combine(input, if records then "snapshot.nyrec" else "snapshot.json")
+                let snapshot = Snapshot.empty (StableId.createForTesting<SnapshotTag> "018bcfe5-6700-7000-8000-000000000001")
+                File.WriteAllText(source, if records then RecordCodec.serialize snapshot |> unwrap else SnapshotCodec.serialize snapshot |> unwrap)
+                let first = fn "first" literal
+                let second = (fn "second" literal).Replace("\"body\":" + literal, "\"bodyFile\":\"body.json\"")
+                File.WriteAllText(Path.Combine(input, "body.json"), literal)
+                File.WriteAllText(Path.Combine(input, "functions.json"), $"[{first},{second}]")
+                File.WriteAllText(Path.Combine(input, "bad.json"), "{}")
+                let operation op id = $"""{{"id":"lifecycle","op":"{op}","proposalId":"{id}"}}"""
+                let proposal reply =
+                    success reply
+                    use doc = parseDocument reply
+                    doc.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+                let fsharp, zig =
+                    seededWritablePair "function-batch-files" source case (fun _ send ->
+                        for line in
+                            [ """{"id":"batch","op":"simulateCreateFunctionsByName","functionsFile":"../outside.json"}"""
+                              """{"id":"batch","op":"simulateCreateFunctionsByName","functionsFile":"bad.json"}"""
+                              """{"id":"batch","op":"simulateCreateFunctionsByName","functions":[],"functionsFile":"functions.json"}""" ] do
+                            use reply = parseDocument (send line)
+                            Assert.False(reply.RootElement.GetProperty("ok").GetBoolean())
+                        let request = """{"id":"batch","op":"simulateCreateFunctionsByName","functionsFile":"functions.json","detail":"full"}"""
+                        let stale = send request |> proposal
+                        let current = send request |> proposal
+                        let inspect id =
+                            send (operation "viewProposal" id) |> success
+                            for structured in [ "false"; "true" ] do
+                                send $"""{{"id":"page","op":"readProposal","proposalId":"{id}","structuredReview":{structured},"path":"/review/batch","limit":1}}""" |> success
+                                Assert.Contains("Cannot traverse a scalar", send $"""{{"id":"page","op":"readProposal","proposalId":"{id}","structuredReview":{structured},"path":"/review/batch/0"}}""")
+                        inspect stale
+                        inspect current
+                        send (operation "commit" current) |> success
+                        inspect stale
+                        Assert.Contains("StaleBaseSnapshot", send (operation "commit" stale))
+                        send (operation "reject" stale) |> success
+                        Assert.Contains("ProposalNotFound", send (operation "readProposal" stale))
+                        send """{"id":"list","op":"proposals"}""" |> success
+                        send """{"id":"d","op":"declarations"}""" |> success)
+                for directory in [ fsharp; zig ] do
+                    let path = Path.Combine(directory, Path.GetFileName source)
+                    let requests = [ """{"id":"s","op":"status"}"""; """{"id":"f","op":"readFunction","function":"second","detail":"full"}""" ]
+                    let readHost zig =
+                        let code, errors, replies = run zig [ "open"; "--snapshot"; path; "--read-only" ] requests
+                        Assert.True((code = 0), errors)
+                        replies |> List.iter success
+                        List.map comparable replies
+                    Assert.Equal<string list>(readHost false, readHost true))
