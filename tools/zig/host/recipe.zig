@@ -382,7 +382,7 @@ pub const Decoder = struct {
     }
 
     /// `exactOne` among the `group` members of a declaration, labelled `label` (with `args`).
-    fn member(self: *Decoder, comptime label: []const u8, args: anytype, parent: query.Value, group: []const u8, wanted: []const u8) Fail!query.Value {
+    pub fn member(self: *Decoder, comptime label: []const u8, args: anytype, parent: query.Value, group: []const u8, wanted: []const u8) Fail!query.Value {
         return query.exactOne(self.r, try std.fmt.allocPrint(self.r.a, label, args), wanted, model.arrayItems(parent, group));
     }
 
@@ -985,7 +985,7 @@ fn bindTypes(d: *Decoder, ts: []const TypeRef) Fail![]const TypeRef {
     return out;
 }
 
-fn bindType(d: *Decoder, t: TypeRef) Fail!TypeRef {
+pub fn bindType(d: *Decoder, t: TypeRef) Fail!TypeRef {
     return switch (t) {
         .type_parameter => |name| blk: {
             const f = d.owner.?.existing.?;
