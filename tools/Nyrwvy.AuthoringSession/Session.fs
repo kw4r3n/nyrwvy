@@ -1030,6 +1030,8 @@ module internal PinnedDependency =
         // Read directly: File.Exists treats permission failures as absence.
         try
             let manifest = File.ReadAllText(manifestPath, Encoding.UTF8)
+            // The guard covers every text a session reads, the embedded dependency included.
+            StableIdAllocator.observe manifest
             use document = JsonDocument.Parse(manifest)
             let root = document.RootElement
             match root.TryGetProperty("dependencies") with

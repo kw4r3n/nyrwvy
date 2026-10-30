@@ -25,14 +25,17 @@ module ZigHostParityTests =
     let internal zigHost () = ZigTools.tool "host" |> Result.mapError (fun (code, message) -> $"{code}: {message}") |> unwrap
     let internal fsharpHost = Path.Combine(AppContext.BaseDirectory, "Nyrwvy.AuthoringSession.dll")
 
-    /// Starts a host on `arguments`; `requests` are written and its input closed unless `hold`.
-    let internal start (zig: bool) (arguments: string list) =
+    /// Starts a redirected host on `arguments`, with optional per-process environment overrides.
+    let internal startWithEnvironment (environment: (string * string) list) (zig: bool) (arguments: string list) =
         let info = if zig then ProcessStartInfo(zigHost (), arguments) else ProcessStartInfo("dotnet", fsharpHost :: arguments)
         info.RedirectStandardInput <- true
         info.RedirectStandardOutput <- true
         info.RedirectStandardError <- true
         info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
+        for name, value in environment do info.Environment[name] <- value
         Process.Start info
+
+    let internal start zig arguments = startWithEnvironment [] zig arguments
 
     /// How long a host may go without answering before the run fails.
     let internal silence = TimeSpan.FromSeconds 60.0
@@ -40,8 +43,8 @@ module ZigHostParityTests =
     /// Exit code, stderr and stdout lines of a host run to the end of `requests`. Output is read
     /// while the requests are written, so a host blocked on a full stdout never deadlocks the run,
     /// and a host that stops answering for `silence` is killed and named.
-    let internal run zig arguments (requests: string list) =
-        use host = start zig arguments
+    let internal runWithEnvironment environment zig arguments (requests: string list) =
+        use host = startWithEnvironment environment zig arguments
         let lines = Collections.Concurrent.ConcurrentQueue<string>()
         let mutable last = DateTime.UtcNow
         let reading =
@@ -69,6 +72,8 @@ module ZigHostParityTests =
         writing.Wait()
         host.WaitForExit()
         host.ExitCode, errors.Result.Trim(), lines |> Seq.filter ((<>) "") |> Seq.toList
+
+    let internal run zig arguments requests = runWithEnvironment [] zig arguments requests
 
     let internal snapshots (dir: string) =
         let root = ZigModelReaderSupport.root ()
@@ -218,7 +223,6 @@ module ZigHostParityTests =
     /// first names the kind it stopped at and its path.
     let internal unportedKindReply (zig: string) = zig.Contains "\"code\":\"UnsupportedOperation\",\"message\":\"The Zig host does not infer "
     let internal unportedKindPath (zig: string) = Regex.Match(zig, "does not infer [A-Za-z0-9]+ recipes yet \\(at (body[^ ]*)\\)").Groups[1].Value
-    let internal typeParameterIdentityReply (zig: string) = zig.Contains "\"message\":\"The Zig host does not spell allocated type-parameter identities in diagnostics yet.\""
 
     /// `locate`'s suffix on an inference diagnostic: the failing node's path, or None for a preflight one.
     let internal locatedPath (message: string) =
@@ -229,16 +233,11 @@ module ZigHostParityTests =
     let internal atOrBelow (ancestor: string) (path: string) =
         path = ancestor || path.StartsWith(ancestor + ".") || path.StartsWith(ancestor + "[")
 
-    /// A UUID in `text` that `request` does not spell: an identity the F# host allocated.
-    let internal spellsAllocatedId (request: string) (text: string) =
-        Regex.Matches(text, "[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}") |> Seq.exists (fun m -> not (request.Contains m.Value))
-
     /// Whether the Zig reply to a create request matches the F# one: a `ProtocolError`, a preflight or
     /// an inference `SimulationRejected` byte for byte, a `SessionError` by code, and
     /// `UnsupportedOperation` for every other reply (the simulation itself is not ported yet). An
     /// inference rejection may instead be the Zig host's fixed `UnsupportedOperation` when the request
-    /// reaches a kind it does not infer, or declares a type parameter whose fresh F# identity the
-    /// diagnostic would spell.
+    /// reaches a kind it does not infer.
     let internal createReplyMatches (request: string) (fsharp: string) (zig: string) =
         use reply = JsonDocument.Parse fsharp
         match reply.RootElement.TryGetProperty "error" with
@@ -258,10 +257,39 @@ module ZigHostParityTests =
                     // result-type check); one from a sibling F# reached later still counts as a mismatch.
                     fsharp = zig
                     || (unportedKindReply zig && hasUnportedKind request && (located |> Option.forall (fun path -> atOrBelow (unportedKindPath zig) path || atOrBelow path (unportedKindPath zig))))
-                    || (typeParameterIdentityReply zig && request.Contains "\"typeParameter\"" && spellsAllocatedId request message)
                 else zig.Contains "\"code\":\"UnsupportedOperation\""
             | _ -> zig.Contains "\"code\":\"UnsupportedOperation\""
         | _ -> zig.Contains "\"code\":\"UnsupportedOperation\""
+
+    let internal seedWarning = "Warning: NYRWVY_TEST_ID_SEED is set, so new IDs are deterministic test IDs. Use it only on test copies."
+
+    /// Separate processes and separate copies: the process-wide seed counter cannot be shared
+    /// with the in-process rejection corpora. No successful creates until materialization lands.
+    let internal seededPair (seed: string) (source: string) (requests: string list) =
+        withDirectory (fun dir ->
+            let copy (name: string) =
+                let target = Path.Combine(dir, name)
+                Directory.CreateDirectory target |> ignore
+                let original = Path.GetDirectoryName source
+                for file in Directory.GetFiles(original, "*", SearchOption.AllDirectories) do
+                    let destination = Path.Combine(target, Path.GetRelativePath(original, file))
+                    Directory.CreateDirectory(Path.GetDirectoryName destination) |> ignore
+                    File.Copy(file, destination)
+                target, Path.Combine(target, Path.GetFileName source)
+            let fsharpDir, fsharpSnapshot = copy "fsharp"
+            let zigDir, zigSnapshot = copy "zig"
+            let environment = [ "NYRWVY_TEST_ID_SEED", seed ]
+            let runHost zig (directory: string) (path: string) =
+                let code, errors, answers = runWithEnvironment environment zig [ "open"; "--snapshot"; path; "--read-only" ] requests
+                Assert.True((code = 0), errors)
+                Assert.Equal(seedWarning, errors)
+                Assert.Equal(requests.Length, answers.Length)
+                answers |> List.map (fun reply -> reply.Replace(directory, "<dir>"))
+            let fsharp = runHost false fsharpDir fsharpSnapshot
+            let zig = runHost true zigDir zigSnapshot
+            for request, (expected, actual) in List.zip requests (List.zip fsharp zig) do
+                Assert.True(createReplyMatches request expected actual, $"{request}\n F#:  {expected}\n Zig: {actual}")
+            fsharp, zig)
 
     /// Whether the F# reply is a preflight rejection, which the Zig host must answer byte for byte.
     let internal isPreflightRejection (fsharp: string) = preflightCodes |> Set.exists (fun code -> fsharp.Contains $"\"code\":\"{code}\"")
@@ -489,46 +517,23 @@ module ZigHostSeedTests =
     [<Fact; Trait("Suite", "Extended")>]
     let ``The F# host allocates the same IDs for the same seed`` () =
         withDirectory (fun dir ->
-            let session seed =
-                let path = Path.Combine(dir, $"{seed}-{Guid.NewGuid():N}.json")
-                File.WriteAllText(path, SnapshotCodec.serialize (MilestoneZeroGraph.create ()).Snapshot |> unwrap)
-                let info = ProcessStartInfo("dotnet", [ fsharpHost; "open"; "--snapshot"; path ])
-                info.RedirectStandardInput <- true
-                info.RedirectStandardOutput <- true
-                info.RedirectStandardError <- true
-                info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
-                info.Environment["NYRWVY_TEST_ID_SEED"] <- seed
-                use host = Process.Start info
-                host.StandardInput.Write(
-                    """{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[{"displayName":"x","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}"""
-                    + "\n")
-                host.StandardInput.Close()
-                let output = host.StandardOutput.ReadToEnd()
-                host.WaitForExit()
-                output
-            let first = session "parity"
-            Assert.Contains("\"proposalId\":\"018bcfe5-68", first)
-            Assert.Equal(first, session "parity")
-            Assert.NotEqual<string>(first, session "other")
-            // A snapshot that already holds this seed's IDs (a seeded run's commit): the count starts
-            // past them, and the host warns that the seed is set.
-            let path = Path.Combine(dir, "seeded.json")
+            let request =
+                """{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}"""
+            let session (seed: string) (text: string) =
+                let path = Path.Combine(dir, $"{Guid.NewGuid():N}.json")
+                File.WriteAllText(path, text)
+                let code, errors, answers = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", seed ] false [ "open"; "--snapshot"; path; "--read-only" ] [ request ]
+                Assert.True((code = 0), errors)
+                Assert.Equal(seedWarning, errors)
+                Assert.Single answers
             let fixture = MilestoneZeroGraph.create ()
+            let text = SnapshotCodec.serialize fixture.Snapshot |> unwrap
+            let first = session "parity" text
+            Assert.Contains("\"proposalId\":\"018bcfe5-68", first)
+            Assert.Equal(first, session "parity" text)
+            Assert.NotEqual<string>(first, session "other" text)
             let taken = StableIdAllocator.seededPayload "parity" 30L
-            File.WriteAllText(path, (SnapshotCodec.serialize fixture.Snapshot |> unwrap).Replace(StableId.value fixture.ValidateFunctionId, taken))
-            let info = ProcessStartInfo("dotnet", [ fsharpHost; "open"; "--snapshot"; path ])
-            info.RedirectStandardInput <- true
-            info.RedirectStandardOutput <- true
-            info.RedirectStandardError <- true
-            info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
-            info.Environment["NYRWVY_TEST_ID_SEED"] <- "parity"
-            use host = Process.Start info
-            host.StandardInput.Write("""{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}""" + "\n")
-            host.StandardInput.Close()
-            let output = host.StandardOutput.ReadToEnd()
-            let errors = host.StandardError.ReadToEnd()
-            host.WaitForExit()
-            Assert.Contains("NYRWVY_TEST_ID_SEED is set", errors)
+            let output = session "parity" (text.Replace(StableId.value fixture.ValidateFunctionId, taken))
             use reply = JsonDocument.Parse output
             let proposal = reply.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
             Assert.True(StableIdAllocator.seededCount "parity" proposal > 30L, proposal))
@@ -1781,7 +1786,7 @@ module ZigHostCreateInferenceTests =
           withTypeParameters [ parameter "x" (typeParameter "T") ] unitT (access (slot 0) "zig-point-x")
           withTypeParameters [ parameter "x" (typeParameter "T") ] unitT (construct "zig-Pair" [ bound "zig-pair-first" (slot 0); bound "zig-pair-second" (listEmpty int64T) ])
           withTypeParameters [ parameter "x" (typeParameter "T") ] (generic "list" [ typeParameter "T" ]) (recipe "productUpdate" [ "typeId", quoted "zig-Point"; "source", slot 0; "fields", array [ bound "zig-point-x" int ] ])
-          line [ parameter "x" (typeParameter "Point") ] unitT (recipe "listConstruct" [ "itemType", named "zig-Point" []; "items", array [ slot 0 ] ]) ] @ more
+        ] @ more
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host infers simulateCreateFunction bodies as the F# host does`` () =
@@ -1810,7 +1815,84 @@ module ZigHostCreateInferenceTests =
                 if unportedKindReply zig then mismatches.Add $"{request}\n Zig did not infer: {zig}"
             let shownText = answered.ToString().Replace("\\u0027", "'").Replace("\\u003C", "<").Replace("\\u003E", ">")
             // The wire spells one `otherwise` arm, so a second one is a decode rejection.
-            for shown in Set.toList (Set.remove "PureExpressionMatchOtherwiseDuplicate" inferenceCodes) @ [ "This generic call would place TaskScope inside a OneShot payload, directly or through another generic call."; "At body.exceptionValue (listLength)"; "At body.source (listLength)"; "At body.task (listLength)"; "At body.context[0].value (listLength)"; "At body.arguments[0] (listLength)"; "(type parameter "; "The slot is found at depths 0, 1;"; "Visible frames, innermost first: depth 0 = Bind body (binds Value)"; "binds 'radius'"; "(not a declared field)"; "At body.end (listLength)"; "At body.defaultValue (listLength)"; "At body.key (listLength)"; "At body.left (listLength)"; "At body.right (listLength)"; "At body.items[1] (listLength)"; "At body.fields[1].value (listLength)"; "At body.arms[2].body (listLength)"; "At body.arms[1].body (listLength)"; "At body.fields[0].value (originalTarget)"; "At body.arms[0].body (originalTarget)"; "At body.right (originalTarget)"; "The function body produces T, but the requested result type is Int64."; "found T and Int64"; "but the source recipe produces T. At body (fieldAccess)."; "but the source recipe produces T. At body (productUpdate)."; "requires List<T>, but the recipe produces List<Int64>"; "The function body produces " + String.replicate 30 "Box<" + "Int64" + String.replicate 30 ">" + ", but"; "The function body produces " + String.replicate 28 "Maybe<" + "Point" + String.replicate 28 ">" + ", but"; "Exception<> is not equatable"; "at Shape.circle.radius"; "at List item"; "type parameters are never equatable" ] do
+            for shown in Set.toList (Set.remove "PureExpressionMatchOtherwiseDuplicate" inferenceCodes) @ [ "This generic call would place TaskScope inside a OneShot payload, directly or through another generic call."; "At body.exceptionValue (listLength)"; "At body.source (listLength)"; "At body.task (listLength)"; "At body.context[0].value (listLength)"; "At body.arguments[0] (listLength)"; "The slot is found at depths 0, 1;"; "Visible frames, innermost first: depth 0 = Bind body (binds Value)"; "binds 'radius'"; "(not a declared field)"; "At body.end (listLength)"; "At body.defaultValue (listLength)"; "At body.key (listLength)"; "At body.left (listLength)"; "At body.right (listLength)"; "At body.items[1] (listLength)"; "At body.fields[1].value (listLength)"; "At body.arms[2].body (listLength)"; "At body.arms[1].body (listLength)"; "At body.fields[0].value (originalTarget)"; "At body.arms[0].body (originalTarget)"; "At body.right (originalTarget)"; "The function body produces T, but the requested result type is Int64."; "found T and Int64"; "but the source recipe produces T. At body (fieldAccess)."; "but the source recipe produces T. At body (productUpdate)."; "requires List<T>, but the recipe produces List<Int64>"; "The function body produces " + String.replicate 30 "Box<" + "Int64" + String.replicate 30 ">" + ", but"; "The function body produces " + String.replicate 28 "Maybe<" + "Point" + String.replicate 28 ">" + ", but"; "Exception<> is not equatable"; "at Shape.circle.radius"; "at List item"; "type parameters are never equatable" ] do
                 Assert.True(shownText.Contains shown, $"No F# reply shows {shown}; the inference parity test does not cover it.")
             Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
             Assert.True(located > 60, $"Only {located} Zig replies locate their diagnostic."))
+
+    /// Same mismatch as the old in-process corpus: the type parameter and declared type both
+    /// render as Point, so `typeRefPairIn` must disambiguate with the freshly allocated ID.
+    let private genericMismatch =
+        """{"id":"g","op":"simulateCreateFunction","displayName":"made","parameters":[{"displayName":"x","type":{"kind":"typeParameter","name":"Point"}}],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"kind":"listConstruct","itemType":{"kind":"named","typeId":"zig-Point"},"items":[{"kind":"parameterSlot","index":0}]}}"""
+
+    let private diagnosticMessage (reply: string) =
+        use parsed = JsonDocument.Parse reply
+        parsed.RootElement.GetProperty("error").GetProperty("details").GetProperty("diagnostics").[0].GetProperty("message").GetString()
+
+    let private assertFresh n (reply: string) =
+        let expected = StableIdAllocator.seededPayload "parity" n
+        Assert.Contains($"Point (type parameter {expected})", diagnosticMessage reply)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The seeded hosts spell consecutive fresh type parameter IDs`` () =
+        withDirectory (fun dir ->
+            let path = Path.Combine(dir, "generic.json")
+            File.WriteAllText(path, SnapshotCodec.serialize (snapshot ()) |> unwrap)
+            let exact = genericMismatch.Replace("\"name\":\"Point\"", "\"typeParameterId\":\"Point\"")
+            let symbolic = genericMismatch.Replace("simulateCreateFunction", "simulateCreateFunctionByName").Replace("\"typeId\":\"zig-Point\"", "\"name\":\"Point\"").Replace("\"kind\":\"parameterSlot\",\"index\":0", "\"kind\":\"parameter\",\"name\":\"x\"")
+            let fsharp, zig = seededPair "parity" path [ genericMismatch; exact; symbolic ]
+            for replies in [ fsharp; zig ] do
+                replies |> List.iteri (fun i reply -> assertFresh (int64 i + 1L) reply))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Preflight rejection consumes fresh type parameter IDs in declaration order`` () =
+        withDirectory (fun dir ->
+            let path = Path.Combine(dir, "generic.json")
+            File.WriteAllText(path, SnapshotCodec.serialize (snapshot ()) |> unwrap)
+            let declared = JsonNode.Parse genericMismatch
+            declared["typeParameters"] <- JsonNode.Parse "[\"Other\",\"Point\"]"
+            declared["parameters"].AsArray().Add(JsonNode.Parse """{"displayName":"y","type":{"kind":"typeParameter","name":"Other"}}""")
+            let rejected = declared.DeepClone()
+            rejected["expectedSnapshotId"] <- JsonValue.Create "wrong-base"
+            let invalid = declared.DeepClone()
+            invalid["typeParameters"] <- JsonNode.Parse "[\"Other\",\"Point\",\"Unused\"]"
+            let fsharp, zig = seededPair "parity" path [ invalid.ToJsonString(); rejected.ToJsonString(); declared.ToJsonString(); genericMismatch ]
+            for replies in [ fsharp; zig ] do
+                Assert.Contains("FunctionCreationTypeParameterNotInferable", replies[0])
+                Assert.Contains("StructuralExpectedBaseMismatch", replies[1])
+                // Validation allocates nothing; stale base consumes two. Point is second in the
+                // declared list (not parameter occurrence order), then the derived request takes 5.
+                assertFresh 4L replies[2]
+                assertFresh 5L replies[3])
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The seeded hosts observe existing IDs before allocating`` () =
+        withDirectory (fun dir ->
+            let taken = StableIdAllocator.seededPayload "parity" 30L
+            let text = (SnapshotCodec.serialize (snapshot ()) |> unwrap).Replace("\"zig-twice\"", JsonSerializer.Serialize taken)
+            // JSON only: the record form needs a real snapshot ID, and the guard reads the same text either way.
+            let source = Path.Combine(dir, "guard.json")
+            File.WriteAllText(source, text)
+            let fsharp, zig = seededPair "parity" source [ genericMismatch; genericMismatch ]
+            for replies in [ fsharp; zig ] do
+                assertFresh 31L replies[0]
+                assertFresh 32L replies[1])
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Without a seed the Zig host allocates real UUIDv7 identities`` () =
+        withDirectory (fun dir ->
+            let source = Path.Combine(dir, "generic.json")
+            File.WriteAllText(source, SnapshotCodec.serialize (snapshot ()) |> unwrap)
+            // Empty is unset, even if the parent test process inherited a seed.
+            let code, errors, replies = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "" ] true [ "open"; "--snapshot"; source; "--read-only" ] [ genericMismatch; genericMismatch ]
+            Assert.True((code = 0), errors)
+            Assert.Equal("", errors)
+            Assert.Equal(2, replies.Length)
+            let ids = replies |> List.map (fun reply ->
+                let found = Regex.Match(diagnosticMessage reply, "Point \\(type parameter ([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\\)")
+                Assert.True(found.Success, reply)
+                let value = found.Groups[1].Value
+                let milliseconds = Convert.ToInt64(value.Replace("-", "").Substring(0, 12), 16)
+                Assert.InRange(milliseconds, DateTimeOffset.UtcNow.AddMinutes(-5.0).ToUnixTimeMilliseconds(), DateTimeOffset.UtcNow.AddMinutes(1.0).ToUnixTimeMilliseconds())
+                value)
+            Assert.NotEqual<string>(ids[0], ids[1]))

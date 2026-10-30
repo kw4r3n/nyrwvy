@@ -9,6 +9,7 @@ const model_reader = @import("model_reader");
 const snapshot_reader = @import("snapshot_reader");
 const wire = @import("wire.zig");
 const query = @import("query.zig");
+const ids = @import("ids.zig");
 
 /// The open snapshot: what `status` reports, the model (merged with the dependency, if any) and
 /// the selected dependency. All live in `startup`.
@@ -412,6 +413,7 @@ fn open(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only: bool) !v
     // `File.ReadAllText`: a UTF-8 byte order mark is dropped, ill-formed bytes become U+FFFD.
     const unmarked = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
     const source: []const u8 = if (std.unicode.utf8ValidateSlice(unmarked)) unmarked else try std.fmt.allocPrint(a, "{f}", .{std.unicode.fmtUtf8(unmarked)});
+    ids.observe(source);
     const record = std.mem.endsWith(u8, path, ".nyrec");
     const read = openSource(io, a, path, record, source) catch {
         // `openUsing`'s recovery hints: an interrupted replacement or first addition is named.
@@ -509,6 +511,7 @@ fn loadSidecar(io: std.Io, a: std.mem.Allocator, manifest_path: []const u8) Star
         error.FileNotFound => return null,
         else => return fail(a, "DependencyFailure: {s}", .{@errorName(e)}),
     };
+    ids.observe(bytes);
     const invalid = "DependencyFailure: Invalid dependency manifest or source path.";
     const text = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
     const root = std.json.parseFromSliceLeaky(std.json.Value, a, text, .{ .duplicate_field_behavior = .use_last }) catch return fail(a, invalid, .{});
@@ -575,6 +578,7 @@ fn loadMember(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap) St
         const bytes = std.Io.Dir.cwd().readFileAlloc(io, source_path, a, .unlimited) catch |e| return fail(a, "IoFailure: {s}", .{@errorName(e)});
         const unmarked = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
         const content: []const u8 = if (std.unicode.utf8ValidateSlice(unmarked)) unmarked else std.fmt.allocPrint(a, "{f}", .{std.unicode.fmtUtf8(unmarked)}) catch return fail(a, "out of memory", .{});
+        ids.observe(content);
         const record = std.mem.endsWith(u8, source_path, ".nyrec");
         if (bound(a, record, content)) return fail(a, "DependencyFailure: The dependency sidecar '{s}.dependency.json' is missing. Restore the exact sidecar that belongs to this snapshot; pinning a new version cannot recover a lost selection.", .{source_path});
         break :blk try decodeDependency(a, record, content, source_path, false);
@@ -625,6 +629,7 @@ fn combineMembers(a: std.mem.Allocator, members: []const Dependency) Startup!Dep
 }
 
 pub fn main(init: std.process.Init) !void {
+    ids.init(init.environ_map.get("NYRWVY_TEST_ID_SEED"));
     const process_arena = init.arena.allocator();
     const all = try init.minimal.args.toSlice(process_arena);
     // `CommandLine.parse`: `--allow-host-sources` anywhere, then exactly one of the open forms.

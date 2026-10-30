@@ -5,11 +5,14 @@ const std = @import("std");
 const model = @import("model_reader");
 const query = @import("query.zig");
 const recipe = @import("recipe.zig");
+const ids = @import("ids.zig");
 
 const Allocator = std.mem.Allocator;
 const Fail = anyerror;
 const TypeRef = recipe.TypeRef;
 const Node = recipe.Node;
+
+pub const TypeParameter = struct { name: []const u8, id: []const u8 };
 
 pub const Parameter = struct { name: []const u8, type: TypeRef };
 
@@ -169,10 +172,18 @@ fn validateRecipeBounds(r: *query.Request, body: *const Node) Fail!void {
 }
 
 /// `simulateGroupWith`'s checks before inference, in F#'s order. F# allocates the fresh type-parameter
-/// identities between the first check and the second; no reply here shows them.
-pub fn run(r: *query.Request, c: Creation) Fail!void {
+/// identities between the first check and the second, even if a later check rejects.
+pub fn run(r: *query.Request, c: Creation) Fail![]const TypeParameter {
     const a = r.a;
     try validateTypeParameters(r, c);
+    var introduced: std.ArrayList([]const u8) = .empty;
+    for (c.parameters) |p| try occurring(a, p.type, &introduced);
+    const declared = c.type_parameters orelse introduced.items;
+    const fresh = try a.alloc(TypeParameter, declared.len);
+    for (declared, fresh) |name, *parameter| {
+        const id = try ids.next();
+        parameter.* = .{ .name = name, .id = try a.dupe(u8, &id) };
+    }
     if (!std.mem.eql(u8, c.expected_snapshot_id, r.snapshot_id)) return rejected(r, "StructuralExpectedBaseMismatch", "The function-creation request targets a different base snapshot.");
     if (try recipe.isBlank(a, c.display_name)) return rejected(r, "FunctionCreationDisplayNameBlank", "Function display name must not be blank.");
     for (model.arrayItems(r.model, "functions")) |item| if (std.mem.eql(u8, query.nameOf(item), c.display_name))
@@ -185,4 +196,5 @@ pub fn run(r: *query.Request, c: Creation) Fail!void {
     for (c.required_effects) |id| if (declaration(r, "effects", id) == null)
         return rejected(r, "FunctionCreationRequiredEffectNotFound", try std.fmt.allocPrint(a, "Required effect '{s}' does not exist.", .{id}));
     try validateRecipeBounds(r, c.body);
+    return fresh;
 }
