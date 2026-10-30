@@ -275,6 +275,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         .{ "simulateCreateCapability", @import("declarations.zig").createCapability },
         .{ "simulateCreateCapabilityByName", @import("declarations.zig").createCapability },
         .{ "simulateCreateFunctionsByName", @import("function_batch.zig").create },
+        .{ "simulateBatchByName", @import("mixed_batch.zig").simulate },
         .{ "simulateOperations", @import("operation_engine.zig").simulateRequest },
         .{ "simulateOperationsByName", @import("operation_engine.zig").simulateRequest },
         .{ "simulateCreateFunction", query.simulateCreateFunction },
