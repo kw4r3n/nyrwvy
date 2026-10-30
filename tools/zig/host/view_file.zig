@@ -99,7 +99,7 @@ const directory_flags: linux.O = .{ .DIRECTORY = true, .CLOEXEC = true };
 /// `ConfinedDirectory.openBelow` and `writeFile`: `directory` (following links: the caller's anchor),
 /// then each parent below it without following links, creating missing ones, then `content` into a
 /// new temporary file there, renamed over the target name.
-fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u8, name: []const u8, content: []const u8) !Outcome {
+fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u8, name: []const u8, content: []const u8, snapshot: bool) !Outcome {
     var current: i32 = blk: {
         const fd = linux.openat(linux.AT.FDCWD, try a.dupeSentinel(u8, directory, 0), directory_flags, 0);
         if (linux.errno(fd) != .SUCCESS) return failure(a, linux.errno(fd), "open", directory);
@@ -126,8 +126,11 @@ fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u
     }
     var random: [16]u8 = undefined;
     if (linux.getrandom(&random, random.len, 0) != random.len) return .{ .refused = "I/O error: no random bytes for a temporary name." };
-    // Not derived from `name`, so a target name near the 255-byte limit still fits.
-    const temporary = try std.fmt.allocPrintSentinel(a, ".nyrwvy-{x}.tmp", .{random}, 0);
+    // Viewer names stay short; snapshot temporaries match the startup recovery sweep.
+    const temporary = if (snapshot)
+        try std.fmt.allocPrintSentinel(a, ".{s}.{x}.tmp", .{ name, random }, 0)
+    else
+        try std.fmt.allocPrintSentinel(a, ".nyrwvy-{x}.tmp", .{random}, 0);
     const fd = linux.openat(current, temporary, .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .NOFOLLOW = true, .CLOEXEC = true }, 0o666);
     if (linux.errno(fd) != .SUCCESS) return failure(a, linux.errno(fd), "create", temporary);
     var renamed = false;
@@ -150,6 +153,11 @@ fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u
     return .{ .written = "" };
 }
 
+/// Snapshot publication already holds the snapshot lock; unlike viewer output it replaces any file.
+pub fn replaceAtomic(a: Allocator, path: []const u8, content: []const u8) !Outcome {
+    return writeConfined(a, std.fs.path.dirname(path) orelse "/", &.{}, std.fs.path.basename(path), content, true);
+}
+
 /// `ViewerFile.write` of `content` for the snapshot at `snapshot_path` (absolute): to `requested`,
 /// or to `default_name` in the default directory.
 pub fn write(a: Allocator, snapshot_path: []const u8, requested: ?[]const u8, extension: []const u8, default_name: []const u8, header: []const u8, content: []const u8) !Outcome {
@@ -170,7 +178,7 @@ pub fn write(a: Allocator, snapshot_path: []const u8, requested: ?[]const u8, ex
     var components: std.ArrayList([]const u8) = .empty;
     var parts = std.mem.tokenizeScalar(u8, try std.fs.path.relativeAlloc(a, "/", null, directory, path), '/');
     while (parts.next()) |part| try components.append(a, part);
-    const outcome = try writeConfined(a, directory, components.items[0 .. components.items.len - 1], components.items[components.items.len - 1], content);
+    const outcome = try writeConfined(a, directory, components.items[0 .. components.items.len - 1], components.items[components.items.len - 1], content, false);
     return switch (outcome) {
         .written => .{ .written = path },
         else => outcome,

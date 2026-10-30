@@ -26,16 +26,23 @@ pub const Request = struct {
     a: Allocator,
     line: []const u8,
     root: std.json.ObjectMap,
-    /// The open model in canonical order and the selected dependency's provenance.
+    /// The open model (materialization order after commit) and the selected dependency's provenance.
     model: Value,
     provenance: ?wire.Provenance,
     snapshot_id: []const u8 = "",
     snapshot_fingerprint: []const u8 = "",
     /// The snapshot file, absolute, beside which views are written.
     snapshot_path: []const u8 = "",
+    session_invalidated: bool = false,
     rejection: Rejection = .{ .code = "", .message = "" },
     /// The diagnostic behind a `SimulationRejected` rejection, for a message appended to later.
     diagnostic: Diagnostic = .{},
+
+    fn ensureUsable(self: *Request) Fail!void {
+        if (!self.session_invalidated) return;
+        self.rejection = .{ .code = "SessionInvalidated", .message = "The session was invalidated by external modification." };
+        return error.Rejected;
+    }
 
     pub fn fail(self: *Request, comptime format: []const u8, args: anytype) Fail {
         self.rejection = .{ .code = "ProtocolError", .message = try std.fmt.allocPrint(self.a, format, args) };
@@ -1300,7 +1307,15 @@ fn focusFields(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: [
     try out.writeAll("{\"snapshotId\":");
     try @import("root").writeString(out, r.snapshot_id);
     try out.writeAll(",\"function\":");
-    if (full and structured) try wire.functionEntity(out, function) else if (full) try wire.functionNodes(out, function, nodes) else try wire.functionSummary(out, function, nodes.len);
+    if (full and structured) {
+        // Committed materialized bodies retain traversal order for compact/plain focus. WireGraph
+        // independently sorts nodes and arms, including before the session is reopened from disk.
+        const canonical = model.canonicalRoot(r.a, r.model);
+        for (model.arrayItems(canonical, "functions")) |item| if (same(item, wanted)) {
+            try wire.functionEntity(out, item);
+            break;
+        };
+    } else if (full) try wire.functionNodes(out, function, nodes) else try wire.functionSummary(out, function, nodes.len);
     try out.writeAll(",\"bodyEffectRequirements\":");
     try writeRequirements(out, focus.requirements);
     if (focus.wait_path) |path| {
@@ -1663,6 +1678,7 @@ pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
     try recipe.resolveNames(&d, "/body", body, try recipe.rawProperty(r.a, r.line, "body"));
     const tree = try d.recipe("/body", body.*);
     const creation: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
+    try r.ensureUsable();
     const fresh = try preflight.run(r, creation);
     var inferred = try infer.run(r, creation, fresh);
     try @import("proposals.zig").create(r, out, creation, fresh, &inferred);
@@ -1696,6 +1712,7 @@ pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
     for (try d.array(root, "requiredEffects"), 0..) |item, i| try effects.append(r.a, idOf(try d.selector(try std.fmt.allocPrint(r.a, "/requiredEffects/{d}", .{i}), item, "effect")));
     const tree = try @import("recipe_file.zig").input(&d, "body", "bodyFile");
     const creation: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
+    try r.ensureUsable();
     const fresh = try preflight.run(r, creation);
     var inferred = try infer.run(r, creation, fresh);
     try @import("proposals.zig").create(r, out, creation, fresh, &inferred);
@@ -1743,6 +1760,7 @@ pub fn simulateReplaceTarget(r: *Request, out: *Writer) Fail!void {
     const replacement = r.root.getPtr("replacement").?;
     try recipe.resolveNames(&d, "/replacement", replacement, try recipe.rawProperty(r.a, r.line, "replacement"));
     const tree = try d.recipe("/replacement", replacement.*);
+    try r.ensureUsable();
     try @import("target.zig").simulate(r, out, function_id, expected, result_id, tree);
 }
 
@@ -1758,6 +1776,7 @@ pub fn simulateReplaceTargetByName(r: *Request, out: *Writer) Fail!void {
     for (parameters, names) |p, *name| name.* = nameOf(p);
     d.owner = .{ .name = nameOf(target), .parameters = names, .existing = target };
     const tree = try recipe.bindExistingTypes(&d, try @import("recipe_file.zig").input(&d, "replacement", "replacementFile"));
+    try r.ensureUsable();
     try @import("target.zig").simulate(r, out, idOf(target), expected, result_id, tree);
 }
 
@@ -1768,6 +1787,7 @@ fn usesOriginal(a: Allocator, node: *const recipe.Node) Fail!bool {
 }
 
 fn replaceBody(r: *Request, out: *Writer, function_id: []const u8, expected: []const u8, result_id: []const u8, tree: *const recipe.Node) Fail!void {
+    try r.ensureUsable();
     if (!std.mem.eql(u8, expected, r.snapshot_id)) return preflight.rejected(r, "StructuralExpectedBaseMismatch", "The structural request targets a different base snapshot.");
     const target = preflight.declaration(r, "functions", function_id) orelse return preflight.rejected(r, "StructuralTargetNotFound", "The target function does not exist.");
     const current = model.utf8(model.decoded(model.property(model.property(target, "body").?, "resultNodeId").?));

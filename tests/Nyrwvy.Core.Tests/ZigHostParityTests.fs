@@ -79,6 +79,40 @@ module ZigHostParityTests =
 
     let internal run zig arguments requests = runWithEnvironment [] zig arguments requests
 
+    /// Record IDs must be UUIDs in every domain, unlike JSON's permissive test IDs. Keep the
+    /// graph and its names/literals intact, using a seed distinct from any host transcript seed.
+    let internal recordFixture name (snapshot: Snapshot) =
+        let ids = Collections.Generic.Dictionary<string, string>(StringComparer.Ordinal)
+        let mapped text =
+            match ids.TryGetValue text with
+            | true, id -> id
+            | _ ->
+                let id = StableIdAllocator.seededPayload ("record-fixture:" + name) (int64 ids.Count + 1L)
+                ids.Add(text, id)
+                id
+        let rec rewrite identity (node: JsonNode) : JsonNode =
+            match node with
+            | null -> null
+            | :? JsonObject as o ->
+                for key in [ for property in o -> property.Key ] do
+                    // FunctionInvoke has bare node IDs in arguments; other argument arrays contain objects.
+                    let isId =
+                        key = "id" || key.EndsWith("Id", StringComparison.Ordinal) || key.EndsWith("Ids", StringComparison.Ordinal)
+                        || key = "requiredEffects" || key = "arguments"
+                    let rewritten = rewrite isId o[key]
+                    if not (obj.ReferenceEquals(rewritten, o[key])) then o[key] <- rewritten
+                node
+            | :? JsonArray as items ->
+                for index in 0 .. items.Count - 1 do
+                    let rewritten = rewrite identity items[index]
+                    if not (obj.ReferenceEquals(rewritten, items[index])) then items[index] <- rewritten
+                node
+            | _ when identity -> JsonValue.Create(mapped (node.GetValue<string>())) :> JsonNode
+            | _ -> node
+        let json = SnapshotCodec.serialize snapshot |> unwrap
+        let node = JsonNode.Parse(json, documentOptions = JsonDocumentOptions(MaxDepth = SnapshotCodec.maxJsonDepth))
+        rewrite false node |> fun root -> SnapshotCodec.deserialize (root.ToJsonString()) |> unwrap
+
     let internal snapshots (dir: string) =
         let root = ZigModelReaderSupport.root ()
         let records = Directory.GetFiles(Path.Combine(root, "examples"), "*.nyrec", SearchOption.AllDirectories) |> Array.toList
@@ -303,6 +337,74 @@ module ZigHostParityTests =
             for request, (expected, actual) in List.zip requests (List.zip fsharp zig) do
                 Assert.True(createReplyMatches request expected actual, $"{request}\n F#:  {expected}\n Zig: {actual}")
             fsharp, zig)
+
+    /// Writable seeded pair. The caller owns `directory`, so output remains available for cross-host
+    /// reopen checks. Capture the entire tree after each commit, including failed commits.
+    let internal seededWritablePair (seed: string) (source: string) (directory: string) (transcript: string -> (string -> string) -> unit) =
+        let files (root: string) =
+            Directory.GetFiles(root, "*", SearchOption.AllDirectories)
+            |> Array.map (fun file ->
+                // The active host holds FileShare.None on its empty lock file. Its length tells
+                // us its complete content without opening a conflicting shared read handle.
+                let bytes = if FileInfo(file).Length = 0L then Array.empty<byte> else File.ReadAllBytes file
+                Path.GetRelativePath(root, file), bytes)
+            |> Map.ofArray
+        let runHost zig name =
+            let target = Path.Combine(directory, name)
+            Directory.CreateDirectory target |> ignore
+            let original = Path.GetDirectoryName source
+            for file in Directory.GetFiles(original, "*", SearchOption.AllDirectories) do
+                let destination = Path.Combine(target, Path.GetRelativePath(original, file))
+                Directory.CreateDirectory(Path.GetDirectoryName destination) |> ignore
+                File.Copy(file, destination)
+            let path = Path.Combine(target, Path.GetFileName source)
+            use host = startWithEnvironment [ "NYRWVY_TEST_ID_SEED", seed ] zig [ "open"; "--snapshot"; path ]
+            let errors = host.StandardError.ReadToEndAsync()
+            let replies = ResizeArray<string * string>()
+            let trees = ResizeArray<Map<string, byte[]>>()
+            let stopped request =
+                try host.StandardInput.Close() with :? IOException -> ()
+                if not (host.WaitForExit(int silence.TotalMilliseconds)) then
+                    host.Kill true
+                    host.WaitForExit()
+                let stderr = errors.GetAwaiter().GetResult()
+                failwithf "The %s host closed stdout without answering. Snapshot: %s\nRequest: %s\nExit code: %d\nStderr:\n%s"
+                    name path request host.ExitCode stderr
+            let send request =
+                try
+                    host.StandardInput.WriteLine(request: string)
+                    host.StandardInput.Flush()
+                with :? IOException -> stopped request
+                let reading = host.StandardOutput.ReadLineAsync()
+                if not (reading.Wait silence) then
+                    host.Kill true
+                    failwithf "Host did not answer %s" request
+                let reply = reading.Result
+                // EOF can be a startup failure as well as a request crash.
+                if isNull reply then stopped request
+                replies.Add(request, comparable (reply.Replace(target, "<dir>")))
+                use doc = parseDocument request
+                if doc.RootElement.GetProperty("op").GetString() = "commit" then trees.Add(files target)
+                reply
+            try transcript path send
+            finally
+                try host.StandardInput.Close() with :? IOException -> ()
+                if not (host.WaitForExit(int silence.TotalMilliseconds)) then
+                    host.Kill true
+                    host.WaitForExit()
+            Assert.Equal(0, host.ExitCode)
+            Assert.Equal(seedWarning, errors.Result.Trim())
+            target, List.ofSeq replies, List.ofSeq trees
+        let fsharpDir, expected, expectedTrees = runHost false "fsharp"
+        let zigDir, actual, actualTrees = runHost true "zig"
+        Assert.Equal(expected.Length, actual.Length)
+        for (request, wanted), (actualRequest, found) in List.zip expected actual do
+            Assert.Equal(request, actualRequest)
+            Assert.Equal(wanted, found)
+        for wanted, found in List.zip (expectedTrees @ [ files fsharpDir ]) (actualTrees @ [ files zigDir ]) do
+            Assert.Equal<string list>(wanted |> Map.keys |> Seq.toList, found |> Map.keys |> Seq.toList)
+            for KeyValue(name, bytes) in wanted do Assert.True((bytes = found[name]), $"File differs: {name}")
+        fsharpDir, zigDir
 
     /// Whether the F# reply is a preflight rejection, which the Zig host must answer byte for byte.
     let internal isPreflightRejection (fsharp: string) = preflightCodes |> Set.exists (fun code -> fsharp.Contains $"\"code\":\"{code}\"")
@@ -652,7 +754,7 @@ module ZigHostStartupParityTests =
                     let arguments = [ "open"; "--snapshot"; path ] @ (if readOnly then [ "--read-only" ] else [])
                     let fsharp, zig = run false arguments [], run true arguments []
                     let shown (code, errors, _) = $"{code} {comparable errors}"
-                    Assert.True(shown fsharp = shown zig, $"{name}:\n F#:  {shown fsharp}\n Zig: {shown zig}")
+                    Assert.True((shown fsharp = shown zig), $"{name}:\n F#:  {shown fsharp}\n Zig: {shown zig}")
                     let code, _, _ = fsharp
                     Assert.True((code = 2), $"{name}: the F# host started")
             // A legacy schema (9 to 20) reads only with F#; the Zig host names the migration instead.
@@ -847,6 +949,7 @@ module ZigTypedModelTests =
                     let around (text: string) = if at < text.Length then text.Substring(max 0 (at - 80), min 160 (text.Length - max 0 (at - 80))) else "<end>"
                     failwithf "%s: the records differ at %d\n F#:  %s\n Zig: %s" name at (around expectedRecords) (around writtenRecords)
             let plain name (snapshot: Snapshot) =
+                let snapshot = recordFixture name snapshot
                 let fingerprints = $"snapshot {SnapshotFingerprint.compute snapshot |> unwrap |> SnapshotFingerprint.value}\nsemantic {SemanticFingerprint.compute snapshot |> unwrap |> SemanticFingerprint.value}\n"
                 roundTrip name (SnapshotCodec.serialize snapshot |> unwrap) (Some fingerprints)
             // What a commit of each example writes, and of its resolved form (the declarations as an
@@ -855,7 +958,9 @@ module ZigTypedModelTests =
                 use session = AuthoringSession.openReadOnly path |> unwrap
                 let snapshot = session.CommitJson() |> unwrap |> SnapshotCodec.deserialize |> unwrap
                 plain $"example-{index}" snapshot
-                let dependency = { snapshot with Id = StableId.createForTesting<SnapshotTag> $"zig-typed-dependency-{index}"; ParentId = None; Functions = []; Obligations = [] }
+                let snapshot = recordFixture $"resolved-{index}" snapshot
+                let dependencyId = StableIdAllocator.seededPayload "record-fixture:typed-dependency" (int64 index + 1L) |> StableId.createForTesting<SnapshotTag>
+                let dependency = { snapshot with Id = dependencyId; ParentId = None; Functions = []; Obligations = [] }
                 let local = { snapshot with Types = []; Effects = []; Capabilities = [] }
                 roundTrip $"resolved-{index}" (SnapshotCodec.serializeResolved dependency local |> unwrap) None
             for index, snapshot in List.indexed (RecordCodecAllKindsTests.allKindSnapshots () @ [ (MilestoneZeroGraph.create ()).Snapshot ]) do
@@ -1086,7 +1191,7 @@ module ZigHostCreateDecodeTests =
             let shownText = answered.ToString()
             for shown in Set.toList (Set.remove "FunctionCreationTypeParameterNameBlank" preflightCodes) @ [ "Largest subtrees within the limit" ] do
                 Assert.True(shownText.Contains shown, $"No F# reply shows {shown}; the decode parity test does not cover it.")
-            Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
+            Assert.True((mismatches.Count = 0), $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
             Assert.True(rejected > 1000, $"Only {rejected} requests are decode rejections.")
             Assert.True(preflight > 100, $"Only {preflight} requests are preflight rejections."))
 
@@ -1342,7 +1447,7 @@ module ZigHostCreateByNameTests =
             let preflightShown = Set.toList (Set.difference preflightCodes (set [ "FunctionCreationTypeParameterNameBlank"; "FunctionCreationRequiredEffectNotFound"; "FunctionCreationDuplicateDisplayName" ]))
             for shown in [ "Unknown function '"; "Unknown type '"; "Unknown capability '"; "Unknown effect '"; "Unknown field on "; "Unknown variant on "; "Unknown field on variant "; "Unknown operation on "; "Unknown parameter on operation "; "Unknown parameter on "; "Unknown new function parameter"; " Available: "; "is not a product type"; "is not a union type"; "is the function being created"; "keepUnlisted applies only"; "No current function matches the explicit declaration selector"; "Selector ownership must be local or imported."; "Unsupported symbolic expression recipe kind"; "Unsupported symbolic type kind"; "already exists. Choose a unique name"; "Pass exactly one of body and bodyFile."; "Ambiguous new function parameter 'x'."; "Ambiguous parameter on made 'x'."; "Current candidates (advice only)"; "SimulationRejected"; "Largest subtrees within the limit" ] @ preflightShown do
                 Assert.True(shownText.Contains shown, $"No F# reply shows {shown}; the by-name parity test does not cover it.")
-            Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
+            Assert.True((mismatches.Count = 0), $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
             Assert.True(rejected > 1000, $"Only {rejected} requests are decode rejections.")
             Assert.True(preflight > 100, $"Only {preflight} requests are preflight rejections."))
 
@@ -1816,7 +1921,7 @@ module ZigHostCreateInferenceTests =
             // The wire spells one `otherwise` arm, so a second one is a decode rejection.
             for shown in Set.toList (Set.remove "PureExpressionMatchOtherwiseDuplicate" inferenceCodes) @ [ "This generic call would place TaskScope inside a OneShot payload, directly or through another generic call."; "At body.exceptionValue (listLength)"; "At body.source (listLength)"; "At body.task (listLength)"; "At body.context[0].value (listLength)"; "At body.arguments[0] (listLength)"; "The slot is found at depths 0, 1;"; "Visible frames, innermost first: depth 0 = Bind body (binds Value)"; "binds 'radius'"; "(not a declared field)"; "At body.end (listLength)"; "At body.defaultValue (listLength)"; "At body.key (listLength)"; "At body.left (listLength)"; "At body.right (listLength)"; "At body.items[1] (listLength)"; "At body.fields[1].value (listLength)"; "At body.arms[2].body (listLength)"; "At body.arms[1].body (listLength)"; "At body.fields[0].value (originalTarget)"; "At body.arms[0].body (originalTarget)"; "At body.right (originalTarget)"; "The function body produces T, but the requested result type is Int64."; "found T and Int64"; "but the source recipe produces T. At body (fieldAccess)."; "but the source recipe produces T. At body (productUpdate)."; "requires List<T>, but the recipe produces List<Int64>"; "The function body produces " + String.replicate 30 "Box<" + "Int64" + String.replicate 30 ">" + ", but"; "The function body produces " + String.replicate 28 "Maybe<" + "Point" + String.replicate 28 ">" + ", but"; "Exception<> is not equatable"; "at Shape.circle.radius"; "at List item"; "type parameters are never equatable" ] do
                 Assert.True(shownText.Contains shown, $"No F# reply shows {shown}; the inference parity test does not cover it.")
-            Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
+            Assert.True((mismatches.Count = 0), $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
             Assert.True(located > 60, $"Only {located} Zig replies locate their diagnostic."))
 
     /// Post-order and binding allocation across mixed compact/full successes and failures.
@@ -2408,3 +2513,189 @@ module ZigHostReplaceBodyTests =
             for index in [ 1; 4 ] do
                 use reply = parseDocument replies[index]
                 Assert.True(reply.RootElement.GetProperty("ok").GetBoolean(), replies[index]))
+
+
+module ZigHostCommitParityTests =
+    open ZigHostParityTests
+
+    let private create name =
+        $"""{{"id":"create","op":"simulateCreateFunctionByName","displayName":"{name}","parameters":[],"resultType":{{"kind":"primitive","primitive":"unit"}},"requiredEffects":[],"body":{{"kind":"bind","value":{{"kind":"int64Literal","value":7}},"body":{{"kind":"bind","value":{{"kind":"stringLiteral","value":"kept"}},"body":{{"kind":"unitLiteral"}}}}}}}}"""
+    let private proposal (reply: string) =
+        use doc = parseDocument reply
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean(), reply)
+        doc.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+    let private operation op id = $"""{{"id":"{op}","op":"{op}","proposalId":"{id}"}}"""
+    let private reads =
+        [ """{"id":"s","op":"status"}"""
+          """{"id":"d","op":"declarations"}"""
+          """{"id":"p","op":"proposals"}"""
+          """{"id":"f","op":"readFunction","function":"made","detail":"full"}"""
+          """{"id":"fc","op":"readFunction","function":"made","detail":"compact"}"""
+          """{"id":"fo","op":"readFunction","function":"made","detail":"outline"}"""
+          """{"id":"q","op":"search","text":"made"}"""
+          """{"id":"e","op":"executionReadiness"}""" ]
+    let private succeeded (reply: string) =
+        use doc = parseDocument reply
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean(), reply)
+
+    [<Fact>]
+    let ``Record fixtures round-trip without consuming transcript IDs`` () =
+        let snapshots =
+            ZigHostCreateInferenceTests.snapshot ()
+            :: (MilestoneZeroGraph.create ()).Snapshot
+            :: RecordCodecAllKindsTests.allKindSnapshots ()
+        for index, snapshot in List.indexed snapshots do
+            let fixture = recordFixture $"roundtrip-{index}" snapshot
+            let records = RecordCodec.serialize fixture |> unwrap
+            let restored = RecordCodec.deserialize records |> unwrap
+            Assert.Equal(records, RecordCodec.serialize restored |> unwrap)
+            Assert.Equal(SnapshotCodec.serialize fixture |> unwrap, SnapshotCodec.serialize restored |> unwrap)
+            for seed in [ "commit-parity"; "commit-legacy-record" ] do
+                Assert.Equal(0L, StableIdAllocator.seededCount seed records)
+        // These fixed UUIDv7 timestamps predate every seeded allocator's range.
+        for id in [ "018bcfe5-6700-7000-8000-000000000001"; "018bcfe5-6700-7000-8000-000000000002" ] do
+            let snapshot = Snapshot.empty (StableId.createForTesting<SnapshotTag> id)
+            let records = RecordCodec.serialize snapshot |> unwrap
+            Assert.Equal(snapshot, RecordCodec.deserialize records |> unwrap)
+            for seed in [ "commit-parity"; "commit-legacy-record" ] do
+                Assert.Equal(0L, StableIdAllocator.seededCount seed records)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Commit and reject persist identical files and install the next base in both formats`` () =
+        withDirectory (fun dir ->
+            for records in [ false; true ] do
+                for resolved in [ false; true ] do
+                    let case = Path.Combine(dir, $"{records}-{resolved}")
+                    let input = Path.Combine(case, "input")
+                    Directory.CreateDirectory input |> ignore
+                    let dependency = ZigHostCreateInferenceTests.snapshot () |> recordFixture "commit-dependency"
+                    let local = Snapshot.empty (StableId.createForTesting<SnapshotTag> "018bcfe5-6700-7000-8000-000000000001")
+                    let json = if resolved then SnapshotCodec.serializeResolved dependency local |> unwrap else SnapshotCodec.serialize local |> unwrap
+                    let source = Path.Combine(input, if records then "snapshot.nyrec" else "snapshot.json")
+                    let text = if records then RecordCodec.ofJson json else json
+                    if records then
+                        let restored = if resolved then RecordCodec.deserializeResolved dependency text |> unwrap else RecordCodec.deserialize text |> unwrap
+                        let encoded = if resolved then RecordCodec.serializeResolved dependency restored |> unwrap else RecordCodec.serialize restored |> unwrap
+                        Assert.Equal(text, encoded)
+                    File.WriteAllText(source, text)
+                    if resolved then
+                        let manifest = memberOf dependency (Some("snapshotJson", SnapshotCodec.serialize dependency |> unwrap)) "library.json"
+                        File.WriteAllText(source + ".dependency.json", manifest.ToJsonString())
+                        File.WriteAllText(source + ".dependency.json.previous", "old recovery copy\n")
+                    File.WriteAllText(source + ".backends.json", "{\"targets\": [\"csharp\"]}\n")
+                    File.WriteAllText(source + ".previous", "unchanged\n")
+                    let fsharpDir, zigDir =
+                        seededWritablePair "commit-parity" source case (fun _ send ->
+                            let first = send (create "made") |> proposal
+                            let stale = send (create "stale") |> proposal
+                            send (operation "commit" first) |> succeeded
+                            for request in reads do send request |> succeeded
+                            let rejected = send (operation "commit" stale)
+                            Assert.Contains("StaleBaseSnapshot", rejected)
+                            send (operation "reject" stale) |> succeeded
+                            let replacement = send """{"id":"replace","op":"simulateReplaceBodyByName","function":"made","detail":"full","replacement":{"kind":"unitLiteral"}}""" |> proposal
+                            send (operation "commit" replacement) |> succeeded
+                            for request in reads do send request |> succeeded
+                            let last = send (create "forgotten") |> proposal
+                            send (operation "reject" last) |> succeeded
+                            Assert.Contains("ProposalNotFound", send (operation "reject" last))
+                            Assert.Contains("ProposalNotFound", send (operation "reject" "unknown")))
+                    // Each output is opened by the other implementation, on the very same path.
+                    for output in [ fsharpDir; zigDir ] do
+                        let path = Path.Combine(output, Path.GetFileName source)
+                        let runRead zig =
+                            let code, errors, replies = run zig [ "open"; "--snapshot"; path; "--read-only" ] reads
+                            Assert.True((code = 0), errors)
+                            replies |> List.map comparable
+                        Assert.Equal<string list>(runRead false, runRead true))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Commit decoding read-only precedence and rejection agree`` () =
+        withDirectory (fun dir ->
+            let source = Path.Combine(dir, "snapshot.json")
+            File.WriteAllText(source, SnapshotCodec.serialize (Snapshot.empty (StableId.createForTesting<SnapshotTag> "commit-readonly")) |> unwrap)
+            let discovered, _ = seededPair "commit-readonly" source [ create "made" ]
+            let pending = proposal discovered.Head
+            let requests =
+                [ create "made"
+                  operation "commit" "unknown"
+                  operation "commit" pending
+                  operation "reject" pending
+                  operation "reject" pending
+                  """{"id":"c","op":"commit","allowIncomplete":"bad","proposalId":3}"""
+                  """{"id":"c","op":"commit","proposalId":"x","proposalId":"y"}"""
+                  """{"id":"c","op":"commit","proposalId":null}"""
+                  """{"id":"c","op":"commit","proposalId":""}"""
+                  """{"id":"c","op":"commit","extra":true}"""
+                  """{"id":"c","op":"reject","proposalId":false}"""
+                  operation "reject" "unknown" ]
+            let expected, actual = seededPair "commit-readonly" source requests
+            Assert.Equal<string list>(expected, actual)
+            Assert.Contains("ReadOnlySession", expected[1]))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``External modification invalidates publication without overwriting the changed file`` () =
+        withDirectory (fun dir ->
+            let input = Path.Combine(dir, "input")
+            Directory.CreateDirectory input |> ignore
+            let source = Path.Combine(input, "snapshot.json")
+            File.WriteAllText(source, SnapshotCodec.serialize (Snapshot.empty (StableId.createForTesting<SnapshotTag> "commit-external")) |> unwrap)
+            seededWritablePair "commit-external" source dir (fun path send ->
+                let pending = send (create "made") |> proposal
+                File.AppendAllText(path, "\n")
+                Assert.Contains("ExternalModification", send (operation "commit" pending))
+                Assert.Contains("SessionInvalidated", send (operation "commit" pending))
+                Assert.Contains("SessionInvalidated", send (operation "reject" pending))
+                Assert.Contains("SessionInvalidated", send (create "after-external"))) |> ignore)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Blocking obligations require explicit allowIncomplete at commit`` () =
+        withDirectory (fun dir ->
+            let fixture = MilestoneZeroGraph.create ()
+            let incomplete =
+                Transaction.simulate fixture.Snapshot
+                    { Id = StableId.createForTesting<TransactionTag> "commit-incomplete"
+                      BaseSnapshotId = fixture.Snapshot.Id
+                      ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "commit-incomplete"
+                      Operations =
+                        [ AddFunctionParameter
+                            { TargetFunctionId = fixture.ValidateFunctionId
+                              NewParameterId = StableId.createForTesting<ParameterTag> "commit-policy"
+                              NewParameterDisplayName = "extraPolicy"
+                              NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
+                              CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, StableId.createForTesting<ObligationTag> "commit-missing") ] } ] }
+                |> function
+                | Proposed result -> result.ProposedSnapshot
+                | Rejected errors -> failwithf "%A" errors
+            let input = Path.Combine(dir, "input")
+            Directory.CreateDirectory input |> ignore
+            let source = Path.Combine(input, "snapshot.json")
+            File.WriteAllText(source, SnapshotCodec.serialize incomplete |> unwrap)
+            seededWritablePair "commit-incomplete" source dir (fun _ send ->
+                let pending = send (create "made") |> proposal
+                Assert.Contains("BlockingObligations", send (operation "commit" pending))
+                send $"""{{"id":"allow","op":"commit","proposalId":"{pending}","allowIncomplete":true}}""" |> succeeded
+                for request in reads do send request |> ignore) |> ignore)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Record commits can reread a legacy record dependency after each request arena is freed`` () =
+        withDirectory (fun dir ->
+            let input = Path.Combine(dir, "input")
+            Directory.CreateDirectory input |> ignore
+            let dependency = ZigHostCreateInferenceTests.snapshot () |> recordFixture "commit-dependency"
+            let library = Path.Combine(input, "library.nyrec")
+            let libraryText = RecordCodec.serialize dependency |> unwrap
+            Assert.Equal(libraryText, RecordCodec.deserialize libraryText |> unwrap |> RecordCodec.serialize |> unwrap)
+            File.WriteAllText(library, libraryText)
+            let local = Snapshot.empty (StableId.createForTesting<SnapshotTag> "018bcfe5-6700-7000-8000-000000000002")
+            let source = Path.Combine(input, "snapshot.nyrec")
+            let text = RecordCodec.serializeResolved dependency local |> unwrap
+            Assert.Equal(text, RecordCodec.deserializeResolved dependency text |> unwrap |> RecordCodec.serializeResolved dependency |> unwrap)
+            File.WriteAllText(source, text)
+            // A legacy selection's absolute authority is immutable and shared by both sessions.
+            File.WriteAllText(source + ".dependency.json", (memberOf dependency None library).ToJsonString())
+            seededWritablePair "commit-legacy-record" source dir (fun _ send ->
+                for name in [ "made"; "other"; "last" ] do
+                    let pending = send (create name) |> proposal
+                    send (operation "commit" pending) |> succeeded
+                    for request in reads do send request |> succeeded) |> ignore)

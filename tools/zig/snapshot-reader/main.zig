@@ -102,8 +102,11 @@ fn parseShape(s: []const u8) Shape {
 }
 
 fn loadKinds() void {
-    kinds = .init(a);
-    member_kinds = .init(a);
+    if (kinds_loaded) return;
+    // Both entry points reuse these immutable tables across request arenas.
+    const table_allocator = std.heap.page_allocator;
+    kinds = .init(table_allocator);
+    member_kinds = .init(table_allocator);
     var lines = std.mem.tokenizeScalar(u8, kind_table_text, '\n');
     while (lines.next()) |line| {
         const colon = std.mem.indexOf(u8, line, ": ").?;
@@ -113,7 +116,7 @@ fn loadKinds() void {
         var tokens = std.mem.splitScalar(u8, line[colon + 2 ..], ' ');
         while (tokens.next()) |whole| {
             if (eql(whole, "id") or eql(whole, "kind") or eql(whole, "typeParameterId")) {
-                keys.append(a, .{ .json = whole, .record = whole, .shape = .meta, .optional = false, .omit_empty = false }) catch oom();
+                keys.append(table_allocator, .{ .json = whole, .record = whole, .shape = .meta, .optional = false, .omit_empty = false }) catch oom();
                 continue;
             }
             var token = whole;
@@ -125,11 +128,12 @@ fn loadKinds() void {
             const shape_at = std.mem.indexOfScalar(u8, token, ':').?;
             const shape = parseShape(token[shape_at + 1 ..]);
             if (shape == .members) member_kinds.put(shape.members, {}) catch oom();
-            keys.append(a, .{ .json = token[0..slash], .record = token[slash + 1 .. shape_at], .shape = shape, .optional = optional, .omit_empty = omit_empty }) catch oom();
+            keys.append(table_allocator, .{ .json = token[0..slash], .record = token[slash + 1 .. shape_at], .shape = shape, .optional = optional, .omit_empty = omit_empty }) catch oom();
         }
         const name = if (eq_at) |i| head[0..i] else head;
         kinds.put(name, .{ .name = name, .json_kind = if (eq_at) |i| head[i + 1 ..] else null, .keys = keys.items }) catch oom();
     }
+    kinds_loaded = true;
 }
 
 /// Declaration groups in schema order: the JSON collection and the subject domain.
@@ -1217,8 +1221,7 @@ pub fn readRecords(allocator: std.mem.Allocator, input: []const u8, dependency_s
     a = allocator;
     external = .empty;
     for (dependency_subjects) |subject| external.put(a, subject, {}) catch oom();
-    if (!kinds_loaded) loadKinds();
-    kinds_loaded = true;
+    loadKinds();
     text = if (std.unicode.utf8ValidateSlice(input)) input else fmt("{f}", .{std.unicode.fmtUtf8(input)});
     if (decode()) |json| {
         const line = if (deferred) |d| fmt("deferred {d}:{d}: {s}", .{ d.line, d.column, d.message }) else "ok";
