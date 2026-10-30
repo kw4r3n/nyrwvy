@@ -24,7 +24,8 @@ pub fn simulateRequest(r: *query.Request, out: *std.Io.Writer) anyerror!void {
     const op = r.root.get("op").?.string;
     const symbolic = std.mem.endsWith(u8, op, "ByName");
     const allowed: []const []const u8 = if (symbolic) &.{ "id", "op", "type", "sourceVariant", "displayName", "additionalFields", "structuredReview", "detail", "expectedSnapshotId" } else &.{ "id", "op", "typeId", "sourceVariantId", "displayName", "additionalFields", "structuredReview", "detail", "expectedSnapshotId" };
-    var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
+    // Additional field types resolve declaration names without a function generic context.
+    var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line), .owner = if (symbolic) .{ .name = "" } else null };
     const root: std.json.Value = .{ .object = r.root };
     try d.ensureFields("", root, try std.fmt.allocPrint(r.a, "{s} request", .{op}), allowed, allowed[0..5]);
     var owner_type: Value = .json_null;

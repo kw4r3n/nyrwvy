@@ -271,3 +271,40 @@ module ZigHostStructuralMigrationsParityTests =
                         use parsed = parseDocument reply
                         parsed.RootElement.GetProperty("result").GetProperty("value").GetRawText()
                     Assert.Equal(reviewed original, reviewed after)) |> ignore)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``By name structural declaration types resolve names recursively without leaking into exact requests`` () =
+        withDirectory (fun dir ->
+            let snapshot = fixture ()
+            let path = Path.Combine(dir, "symbolic-types.json")
+            File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap)
+            let impl = snapshot.Functions |> List.find (fun f -> f.DisplayName = "implementation")
+            let make byName kind shape =
+                let choice = if byName then """{"kind":"named","name":"Choice"}""" else """{"kind":"named","typeId":"sm-choice"}"""
+                let capability = if byName then """{"kind":"capability","name":"Values"}""" else """{"kind":"capability","capabilityId":"sm-cap"}"""
+                let functionType = $"""{{"kind":"function","parameters":[{choice}],"resultType":{capability}}}"""
+                let typ = if shape = "named" then choice elif shape = "capability" then capability else $"""{{"kind":"builtinGeneric","generic":"option","arguments":[{functionType}]}}"""
+                let line = (request snapshot byName kind).Replace(stringJson, typ, StringComparison.Ordinal)
+                if kind <> "field" then
+                    if kind = "union" then mutate line (fun root -> root["additionalFields"].[0].["type"] <- JsonNode.Parse typ) else line
+                else
+                    let value =
+                        if shape = "named" then
+                            if byName then $"""{{"kind":"unionConstruct","type":"Choice","variant":"A","fields":[{{"field":"value","value":{literal}}}]}}"""
+                            else $"""{{"kind":"unionConstruct","variantId":"sm-A","fields":[{{"fieldId":"sm-A-value","value":{literal}}}]}}"""
+                        elif shape = "capability" then
+                            if byName then """{"kind":"capabilityConstruct","capability":"Values","implementations":[{"operation":"read","function":"implementation"}]}"""
+                            else $"""{{"kind":"capabilityConstruct","capabilityId":"sm-cap","implementations":[{{"operationId":"sm-read","functionId":{q (StableId.value impl.Id)}}}]}}"""
+                        else $"""{{"kind":"optionNone","itemType":{functionType}}}"""
+                    mutate line (fun root -> root["functionRewrites"].[1].["replacement"].["fields"].[0].["value"] <- JsonNode.Parse value)
+            let lines =
+                [ for kind in ["field"; "capability"; "union"] do
+                    for shape in ["named"; "capability"; "nested"] do
+                        // Every symbolic request is followed by the equivalent exact surface.
+                        for byName in [true;false] do
+                            let line = make byName kind shape
+                            yield line
+                            yield mutate line (fun root -> root["detail"] <- JsonValue.Create "full"; root["structuredReview"] <- JsonValue.Create true) ]
+            let expected, actual = seededPair "structural-symbolic-types" path lines
+            Assert.Equal<string list>(expected, actual)
+            for line in expected do use parsed = parseDocument line in Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))

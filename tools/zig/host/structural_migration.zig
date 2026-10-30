@@ -64,7 +64,8 @@ pub fn simulateRequest(r: *query.Request, out: *std.Io.Writer) anyerror!void {
     const symbolic = std.mem.endsWith(u8, op, "ByName");
     const field = std.mem.indexOf(u8, op, "ProductField") != null;
     const allowed: []const []const u8 = if (field) (if (symbolic) &.{ "id", "op", "type", "field", "newFieldType", "functionRewrites", "structuredReview", "detail", "expectedSnapshotId" } else &.{ "id", "op", "fieldId", "newFieldType", "functionRewrites", "structuredReview", "detail", "expectedSnapshotId" }) else (if (symbolic) &.{ "id", "op", "capability", "operation", "parameterTypes", "resultType", "functionRepairs", "structuredReview", "detail", "expectedSnapshotId" } else &.{ "id", "op", "operationId", "parameterTypes", "resultType", "functionRepairs", "structuredReview", "detail", "expectedSnapshotId" });
-    var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
+    // Resolve declaration type names before each repair installs its existing-function context.
+    var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line), .owner = if (symbolic) .{ .name = "" } else null };
     const root: Json = .{ .object = r.root };
     const context = if (field) (if (symbolic) "field type migration by name" else "simulateProductFieldTypeMigration request") else (if (symbolic) "operation signature migration by name" else "operation signature migration");
     try d.ensureFields("", root, context, allowed, allowed[0 .. allowed.len - 3]);
