@@ -19,13 +19,13 @@ var snapshot_path: []const u8 = "";
 var fingerprints: model_reader.Fingerprints = undefined;
 var model_root: model_reader.Value = .json_null;
 var canonical_model: ?model_reader.Value = null;
-var selection: ?Dependency = null;
+pub var selection: ?Dependency = null;
 var startup: std.mem.Allocator = undefined;
 var writable = false;
 var session_changed = false;
-var invalidated = false;
-var persisted_source: []const u8 = "";
-var dependency_manifest: ?[]const u8 = null;
+pub var invalidated = false;
+pub var persisted_source: []const u8 = "";
+pub var dependency_manifest: ?[]const u8 = null;
 pub var host_io: std.Io = undefined;
 
 /// The model in canonical order, built on first use.
@@ -259,6 +259,8 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         return out.writeByte('}');
     };
     const queries = [_]struct { []const u8, *const fn (*query.Request, *std.Io.Writer) anyerror!void }{
+        .{ "previewDependencyUpgrade", @import("dependency_upgrade.zig").preview },
+        .{ "previewDependencyUpgrades", @import("dependency_upgrade.zig").preview },
         .{ "search", query.search },
         .{ "references", query.references },
         .{ "unreferenced", query.unreferenced },
@@ -306,10 +308,50 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
     return failure(out, id, "UnsupportedOperation", try std.fmt.allocPrint(a, "Unsupported operation '{s}'.", .{op}));
 }
 
-fn readText(a: std.mem.Allocator, path: []const u8) ![]const u8 {
+pub fn readText(a: std.mem.Allocator, path: []const u8) ![]const u8 {
     const bytes = try std.Io.Dir.cwd().readFileAlloc(host_io, path, a, .unlimited);
     const text = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
     return if (std.unicode.utf8ValidateSlice(text)) text else try std.fmt.allocPrint(a, "{f}", .{std.unicode.fmtUtf8(text)});
+}
+
+/// Exact persisted source and sidecar guards shared by previews and publication.
+pub fn verifyPersisted(a: std.mem.Allocator) !?query.Rejection {
+    if (dependency_manifest) |expected| {
+        const sidecar = try std.mem.concat(a, u8, &.{ snapshot_path, ".dependency.json" });
+        const sidecar_stat = std.Io.Dir.cwd().statFile(host_io, sidecar, .{}) catch null;
+        const actual = if (sidecar_stat == null or sidecar_stat.?.kind != .file) "" else readText(a, sidecar) catch |e| switch (e) {
+            error.FileNotFound => "",
+            else => return .{ .code = "IoFailure", .message = @errorName(e) },
+        };
+        var unchanged = std.mem.eql(u8, actual, expected);
+        // Embedded source paths are provenance only. A legacy pin still reads its authority;
+        // transient read failures do not invalidate an otherwise usable session.
+        if (unchanged and !selection.?.provenance.members[0].embedded) {
+            const current = loadSidecar(host_io, a, sidecar) catch blk: {
+                if (std.mem.startsWith(u8, failure_line, "IoFailure: ")) return .{ .code = "IoFailure", .message = failure_line[11..] };
+                break :blk null;
+            };
+            unchanged = current != null and std.mem.eql(u8, current.?.fingerprint, selection.?.fingerprint) and std.mem.eql(u8, current.?.id, selection.?.id);
+        }
+        if (!unchanged) {
+            invalidated = true;
+            return .{ .code = "DependencyFailure", .message = "The dependency selection changed outside this session." };
+        }
+    }
+    const stat = std.Io.Dir.cwd().statFile(host_io, snapshot_path, .{}) catch null;
+    if (stat == null or stat.?.kind != .file) {
+        invalidated = true;
+        return .{ .code = "ExternalModification", .message = "The snapshot file changed outside this session." };
+    }
+    const current = readText(a, snapshot_path) catch |e| switch (e) {
+        error.FileNotFound => "",
+        else => return .{ .code = "IoFailure", .message = @errorName(e) },
+    };
+    if (!std.mem.eql(u8, current, persisted_source)) {
+        invalidated = true;
+        return .{ .code = "ExternalModification", .message = "The snapshot file changed outside this session." };
+    }
+    return null;
 }
 
 fn commitRejected(a: std.mem.Allocator, out: *std.Io.Writer, id: []const u8, code: []const u8, message: []const u8) !void {
@@ -368,42 +410,8 @@ fn publish(a: std.mem.Allocator, out: *std.Io.Writer, id: []const u8, op: []cons
         if (std.mem.eql(u8, model_reader.utf8(model_reader.decoded(model_reader.property(o, "status").?)), "open")) try obligations.append(a, query.idOf(o));
     }
     if (!allow_incomplete and obligations.items.len > 0) return commitRejected(a, out, id, "BlockingObligations", try std.fmt.allocPrint(a, "The proposed snapshot has blocking obligations: {s}.{s}", .{try std.mem.join(a, ", ", obligations.items), if (p.operations) @as([]const u8, " Use AllowBlockingObligations explicitly to publish it.") else ""}));
-    // Ordinary commits do not rewrite the manifest, backend targets or .previous recovery files.
-    if (dependency_manifest) |expected| {
-        const sidecar = try std.mem.concat(a, u8, &.{ snapshot_path, ".dependency.json" });
-        const sidecar_stat = std.Io.Dir.cwd().statFile(host_io, sidecar, .{}) catch null;
-        const actual = if (sidecar_stat == null or sidecar_stat.?.kind != .file) "" else readText(a, sidecar) catch |e| switch (e) {
-            error.FileNotFound => "",
-            else => return failure(out, id, "IoFailure", @errorName(e)),
-        };
-        var unchanged = std.mem.eql(u8, actual, expected);
-        // Embedded source paths are provenance only. A legacy pin still reads its authority;
-        // transient read failures do not invalidate an otherwise usable session.
-        if (unchanged and !selection.?.provenance.members[0].embedded) {
-            const current = loadSidecar(host_io, a, sidecar) catch blk: {
-                if (std.mem.startsWith(u8, failure_line, "IoFailure: ")) return failure(out, id, "IoFailure", failure_line[11..]);
-                break :blk null;
-            };
-            unchanged = current != null and std.mem.eql(u8, current.?.fingerprint, selection.?.fingerprint) and std.mem.eql(u8, current.?.id, selection.?.id);
-        }
-        if (!unchanged) {
-            invalidated = true;
-            return failure(out, id, "DependencyFailure", "The dependency selection changed outside this session.");
-        }
-    }
-    const stat = std.Io.Dir.cwd().statFile(host_io, snapshot_path, .{}) catch null;
-    if (stat == null or stat.?.kind != .file) {
-        invalidated = true;
-        return failure(out, id, "ExternalModification", "The snapshot file changed outside this session.");
-    }
-    const current = readText(a, snapshot_path) catch |e| switch (e) {
-        error.FileNotFound => "",
-        else => return failure(out, id, "IoFailure", @errorName(e)),
-    };
-    if (!std.mem.eql(u8, current, persisted_source)) {
-        invalidated = true;
-        return failure(out, id, "ExternalModification", "The snapshot file changed outside this session.");
-    }
+    // Ordinary commits leave the manifest, backend targets and recovery copies unchanged.
+    if (try verifyPersisted(a)) |changed| return failureWith(out, id, changed.code, changed.message, changed.details);
     var persisted_model = p.model;
     if (selection) |d| {
         const imported = try model_reader.parseValue(a, d.canonical);
@@ -604,9 +612,11 @@ fn open(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only: bool) !v
 
 /// A startup failure on its way to stderr: the line `WireEncode.startupMessage` prints.
 const Startup = error{ Startup, OutOfMemory };
-var failure_line: []const u8 = "";
+pub var failure_line: []const u8 = "";
+pub var failure_details: []const u8 = "";
 
 fn fail(a: std.mem.Allocator, comptime format: []const u8, args: anytype) Startup {
+    failure_details = "";
     failure_line = std.fmt.allocPrint(a, format, args) catch "out of memory";
     return error.Startup;
 }
@@ -630,18 +640,18 @@ fn matches(io: std.Io, a: std.mem.Allocator, manifest: []const u8, record: bool,
 }
 
 /// `SessionStorage.requireSidecarForResolvedSource`: whether the snapshot names a dependency.
-fn bound(a: std.mem.Allocator, record: bool, source: []const u8) bool {
+pub fn bound(a: std.mem.Allocator, record: bool, source: []const u8) bool {
     if (record) return std.mem.indexOf(u8, source[0 .. std.mem.indexOfScalar(u8, source, '\n') orelse source.len], " dependency=") != null;
     const root = std.json.parseFromSliceLeaky(std.json.Value, a, source, .{ .duplicate_field_behavior = .use_last }) catch return false;
     return root == .object and root.object.get("dependency") != null;
 }
 
 /// A dependency as the local snapshot resolves against it.
-const Dependency = struct { canonical: []const u8, id: []const u8, digest: []const u8, fingerprint: []const u8, subjects: []const []const u8, provenance: wire.Provenance, set: bool = false };
+pub const Dependency = struct { canonical: []const u8, id: []const u8, digest: []const u8, fingerprint: []const u8, subjects: []const []const u8, provenance: wire.Provenance, set: bool = false };
 
 /// A source decoded (`SessionStorage.decodeWith`): records first through the snapshot reader, then
 /// the model reader, unresolved or against `dependency`; a rejection becomes the startup line.
-fn readSource(a: std.mem.Allocator, record: bool, source: []const u8, dependency: ?Dependency) Startup!model_reader.DocumentRead {
+pub fn readSource(a: std.mem.Allocator, record: bool, source: []const u8, dependency: ?Dependency) Startup!model_reader.DocumentRead {
     var record_line: ?[]const u8 = null;
     var json: []const u8 = source;
     if (record) {
@@ -655,14 +665,35 @@ fn readSource(a: std.mem.Allocator, record: bool, source: []const u8, dependency
         model_reader.readResolvedDocument(a, d.canonical, d.id, d.digest, json)
     else
         model_reader.readDocument(a, json);
-    if (codecProblem(a, record_line, read.lines) catch "out of memory") |message| return fail(a, "SnapshotCodecFailure: {s}", .{message});
+    if (codecProblem(a, record_line, read.lines) catch "out of memory") |message| {
+        const rejected = fail(a, "SnapshotCodecFailure: {s}", .{message});
+        if (read.validation_issues.len > 0) {
+            failure_details = codecDetails(a, read) catch return error.OutOfMemory;
+        }
+        return rejected;
+    }
     if (read.fingerprints == null) return fail(a, "SnapshotCodecFailure: The snapshot could not be fingerprinted.", .{});
     return read;
 }
 
+fn codecDetails(a: std.mem.Allocator, read: model_reader.DocumentRead) ![]const u8 {
+    var details: std.Io.Writer.Allocating = .init(a);
+    try details.writer.writeAll("{\"issues\":[");
+    for (read.validation_issues, 0..) |issue, index| {
+        if (index > 0) try details.writer.writeByte(',');
+        try details.writer.writeAll("{\"code\":");
+        try writeString(&details.writer, issue.code);
+        try details.writer.writeAll(",\"message\":");
+        try writeString(&details.writer, model_reader.utf8(issue.message));
+        try details.writer.writeByte('}');
+    }
+    try details.writer.writeAll("]}");
+    return details.written();
+}
+
 /// `SessionStorage.decodeCompleteDependency`: a dependency source decoded, with no open obligation.
 /// `path` and `embedded` are the manifest's (`SourcePath`, `IsEmbedded`).
-fn decodeDependency(a: std.mem.Allocator, record: bool, source: []const u8, path: []const u8, embedded: bool) Startup!Dependency {
+pub fn decodeDependency(a: std.mem.Allocator, record: bool, source: []const u8, path: []const u8, embedded: bool) Startup!Dependency {
     const read = try readSource(a, record, source, null);
     if (read.open_obligations) return fail(a, "DependencyFailure: The selected dependency has open obligations; complete it before pinning.", .{});
     const keys = model_reader.declarationKeys(a, read.root);
@@ -677,7 +708,7 @@ fn dependencyOf(read: model_reader.DocumentRead, members: []const wire.Provenanc
 
 /// `PinnedDependency.loadFrom`: null without a sidecar; one member, or a set of at least two
 /// embedded members combined (`DependencyGraph.combine`).
-fn loadSidecar(io: std.Io, a: std.mem.Allocator, manifest_path: []const u8) Startup!?Dependency {
+pub fn loadSidecar(io: std.Io, a: std.mem.Allocator, manifest_path: []const u8) Startup!?Dependency {
     const bytes = std.Io.Dir.cwd().readFileAlloc(io, manifest_path, a, .unlimited) catch |e| switch (e) {
         error.FileNotFound => return null,
         else => return fail(a, "DependencyFailure: {s}", .{@errorName(e)}),
@@ -704,7 +735,7 @@ fn loadSidecar(io: std.Io, a: std.mem.Allocator, manifest_path: []const u8) Star
 
 /// `PinnedDependency.loadMember`: the embedded content or the file at `path`, whose fingerprint
 /// and snapshot ID must be the recorded ones.
-fn loadMember(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap) Startup!Dependency {
+pub fn loadMember(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap) Startup!Dependency {
     const invalid = "DependencyFailure: Invalid dependency manifest or source path.";
     var fields: std.ArrayList([]const u8) = .empty;
     for (manifest.keys()) |key| fields.append(a, key) catch return fail(a, "out of memory", .{});
@@ -761,7 +792,7 @@ fn loadMember(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap) St
 
 /// `PinnedDependency.combine`: the members under the import collision policy, as one dependency
 /// whose ID derives from the members' fingerprints (`DependencyGraph.combinedId`).
-fn combineMembers(a: std.mem.Allocator, members: []const Dependency) Startup!Dependency {
+pub fn combineMembers(a: std.mem.Allocator, members: []const Dependency) Startup!Dependency {
     var fingerprints_sorted: std.ArrayList([]const u8) = .empty;
     var texts: std.ArrayList([]const u8) = .empty;
     for (members) |member| {
