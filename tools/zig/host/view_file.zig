@@ -47,7 +47,7 @@ fn isLink(a: Allocator, path: []const u8) !bool {
 
 /// `linkedComponent`: the first existing component below `directory` on the way to `path`, the file
 /// included, that is a symbolic link.
-fn linkedComponent(a: Allocator, directory: []const u8, path: []const u8) !?[]const u8 {
+pub fn linkedComponent(a: Allocator, directory: []const u8, path: []const u8) !?[]const u8 {
     const relative = try std.fs.path.relativeAlloc(a, "/", null, directory, path);
     var current: []const u8 = directory;
     var parts = std.mem.tokenizeScalar(u8, relative, '/');

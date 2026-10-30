@@ -239,12 +239,12 @@ fn bindSig(a: Allocator, bindings: *Subst, pattern: SigType, actual: TypeRef) Fa
 
 // ---------------------------------------------------------------- scope frames
 
-const Completion = union(enum) { normal: TypeRef, aborts };
-const Key = union(enum) { value, err, field: []const u8 };
-const Binding = struct { key: Key, type: TypeRef };
-const FrameKind = union(enum) { union_arm: []const []const u8, bind_body, option_some, option_none, result_ok, result_err };
+pub const Completion = union(enum) { normal: TypeRef, aborts };
+pub const Key = union(enum) { value, err, field: []const u8 };
+pub const Binding = struct { key: Key, type: TypeRef };
+pub const FrameKind = union(enum) { union_arm: []const []const u8, bind_body, option_some, option_none, result_ok, result_err };
 /// `PatternTypeFrame`, innermost first.
-const Frame = struct { kind: FrameKind, slots: []const Binding, next: ?*const Frame };
+pub const Frame = struct { kind: FrameKind, slots: []const Binding, next: ?*const Frame };
 
 fn eqlKey(x: Key, y: Key) bool {
     if (std.meta.activeTag(x) != std.meta.activeTag(y)) return false;
@@ -263,6 +263,7 @@ pub const Infer = struct {
     a: Allocator,
     c: preflight.Creation,
     existing: ?Value = null,
+    original: ?TypeRef = null,
     description: []const u8 = "the function being created",
     /// The request's own type parameters (declared or derived), fresh identities in F#.
     local: []const []const u8,
@@ -666,7 +667,7 @@ pub const Infer = struct {
         const a = self.a;
         const case = node.case;
         if (signatureOf(case)) |entry| return self.fixedSignature(frames, node, entry);
-        if (same(case, "OriginalTarget")) return self.reject("OriginalTargetOutsideTargetedReplacement", "originalTarget is accepted only in the replacement of a targeted replacement.");
+        if (same(case, "OriginalTarget")) return self.original orelse self.reject("OriginalTargetOutsideTargetedReplacement", "originalTarget is accepted only in the replacement of a targeted replacement.");
         if (same(case, "Parameter")) {
             const id = node.slots[0].data.id;
             if (self.existing) |f| for (model.arrayItems(f, "parameters")) |p| {
@@ -1721,15 +1722,20 @@ pub fn run(r: *query.Request, c: preflight.Creation, fresh: []const preflight.Ty
 }
 
 pub fn runIn(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Value) Fail!Infer {
+    return runTarget(r, c, fresh, existing, null, null, null);
+}
+
+pub fn runTarget(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Value, original: ?TypeRef, frames: ?*const Frame, target_type: ?Completion) Fail!Infer {
     var local: std.ArrayList([]const u8) = .empty;
     for (c.parameters) |p| try preflight.occurring(r.a, p.type, &local);
     var self: Infer = .{ .r = r, .a = r.a, .c = c, .local = c.type_parameters orelse local.items, .fresh = fresh };
     self.existing = existing;
+    self.original = original;
     if (existing) |f| {
         self.local = &.{};
         self.description = try self.fmt("target function {s}", .{try self.describe(query.nameOf(f), query.idOf(f))});
     }
-    const completion = self.inferCompletion(null, c.body) catch |e| switch (e) {
+    const completion = self.inferCompletion(frames, c.body) catch |e| switch (e) {
         error.Unsupported => return error.Rejected,
         error.Rejected => {
             // `locate`: the failing node's path and kind, appended to the message.
@@ -1739,7 +1745,13 @@ pub fn runIn(r: *query.Request, c: preflight.Creation, fresh: []const preflight.
         },
         else => return e,
     };
-    if (completion == .normal and !eqlType(completion.normal, c.result_type)) {
+    if (target_type) |t| {
+        if (completion == .normal and t == .normal and !eqlType(completion.normal, t.normal)) {
+            var renderer = self;
+            renderer.existing = null;
+            return preflight.rejected(r, "TargetedExpressionTypeMismatch", try std.fmt.allocPrint(r.a, "The replacement recipe produces {s}, but the target node produces {s}.", .{ try renderer.ty(completion.normal), try renderer.ty(t.normal) }));
+        }
+    } else if (completion == .normal and !eqlType(completion.normal, c.result_type)) {
         if (existing != null) {
             // The workflow's final check uses snapshot names, not the inference owner's extras.
             var renderer = self;

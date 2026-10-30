@@ -1940,6 +1940,17 @@ pub fn oneShotPayloadRequirementsOf(allocator: std.mem.Allocator, root: Value) [
     return out;
 }
 
+/// Targeted replacement needs to distinguish an abrupt node from an unavailable completion.
+/// Like Resolver/byId, id is the model's raw string (not decoded UTF-16).
+pub const NodeCompletion = union(enum) { normal: Value, aborts };
+pub fn completionOf(allocator: std.mem.Allocator, root: Value, function: Value, id: Str) ?NodeCompletion {
+    a = allocator;
+    prepareContext(root);
+    var resolver = Resolver.init(function);
+    const completion = resolver.completion(id) orelse return null;
+    return switch (completion) { .normal => |t| .{ .normal = typeValue(t) }, .aborts => .aborts };
+}
+
 /// `SemanticQuery.focusFunction`'s derived facts for `function` of `root` (the session's model).
 pub fn focusOf(allocator: std.mem.Allocator, root: Value, function: Value) Focus {
     a = allocator;

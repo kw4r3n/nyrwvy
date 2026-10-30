@@ -21,6 +21,7 @@ var model_root: model_reader.Value = .json_null;
 var canonical_model: ?model_reader.Value = null;
 var selection: ?Dependency = null;
 var startup: std.mem.Allocator = undefined;
+pub var host_io: std.Io = undefined;
 
 /// The model in canonical order, built on first use.
 fn canonical() model_reader.Value {
@@ -78,7 +79,7 @@ fn failureWith(out: *std.Io.Writer, id: ?[]const u8, code: []const u8, message: 
 }
 
 /// Whether `line` nests deeper than `max_depth`, counting brackets outside strings.
-fn tooDeep(line: []const u8) bool {
+pub fn tooDeep(line: []const u8) bool {
     var depth: usize = 0;
     var in_string = false;
     var i: usize = 0;
@@ -122,7 +123,7 @@ fn requiredString(a: std.mem.Allocator, root: std.json.ObjectMap, name: []const 
 /// shortcut: a line that also spells U+FDD0 itself keeps the parse failure; mark by path if that matters.
 const Masked = struct { line: ?[]u8 = null, root_key: bool = false };
 
-fn maskLoneSurrogates(a: std.mem.Allocator, line: []const u8) !Masked {
+pub fn maskLoneSurrogates(a: std.mem.Allocator, line: []const u8) !Masked {
     if (std.mem.indexOf(u8, line, "\\u") == null) return .{};
     var masked: Masked = .{};
     var genuine = std.mem.indexOf(u8, line, query.lone_mark) != null;
@@ -278,6 +279,8 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         .{ "simulateCreateFunction", query.simulateCreateFunction },
         .{ "simulateCreateFunctionByName", query.simulateCreateFunctionByName },
         .{ "simulateReplaceBody", query.simulateReplaceBody },
+        .{ "simulateReplaceTarget", query.simulateReplaceTarget },
+        .{ "simulateReplaceTargetByName", query.simulateReplaceTargetByName },
         .{ "simulateReplaceBodyByName", query.simulateReplaceBodyByName },
     };
     for (queries) |entry| if (std.mem.eql(u8, op, entry[0])) {
@@ -648,6 +651,7 @@ pub fn main(init: std.process.Init) !void {
     try open(init.io, process_arena, args.items[2], read_only);
 
     var in_buffer: [1 << 16]u8 = undefined;
+    host_io = init.io;
     var reader = std.Io.File.stdin().reader(init.io, &in_buffer);
     var line: std.Io.Writer.Allocating = .init(std.heap.page_allocator);
     var out_buffer: [1 << 16]u8 = undefined;
