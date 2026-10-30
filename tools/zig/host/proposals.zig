@@ -1017,6 +1017,10 @@ fn checkImports(r: *query.Request, candidate: Value, diff: ?Value) !void {
 }
 
 pub fn publishMigration(r: *query.Request, out: *Writer, result: @import("migration.zig").Result) !void {
+    if (r.provenance) |provenance| for (provenance.members) |member| {
+        for (result.touched_types) |id_| if (preflight.contains(member.keys, try std.fmt.allocPrint(r.a, "type:{s}", .{id_}))) return invalidSnapshot(r, "ImportedDeclarationModified", "Dependency declarations are read-only; no proposal was registered.");
+        for (result.touched_capabilities) |id_| if (preflight.contains(member.keys, try std.fmt.allocPrint(r.a, "capability:{s}", .{id_}))) return invalidSnapshot(r, "ImportedDeclarationModified", "Dependency declarations are read-only; no proposal was registered.");
+    };
     try checkImports(r, result.candidate, null);
     try initialize(r);
     const arena = try newArena();
@@ -1036,7 +1040,9 @@ pub fn publishMigration(r: *query.Request, out: *Writer, result: @import("migrat
     try encodeMigration(r, &structured.writer, result, root, proof, true, true);
     const functions = try a.alloc(Value, result.rewritten.len);
     for (result.rewritten, functions) |f, *item| item.* = @import("operation_model.zig").find(owned, "functions", query.idOf(f)).?;
-    try pending.append(std.heap.page_allocator, .{ .arena = arena, .id = try a.dupe(u8, model.utf8(model.decoded(result.transaction))), .base_id = try a.dupe(u8, r.snapshot_id), .generation = generation, .model = root, .session_model = owned, .created_function = .json_null, .receipt = proof, .full_review = try a.dupe(u8, plain.written()), .structured_review = try a.dupe(u8, structured.written()), .name = "", .migration = .{ .kind = result.kind, .summary = try a.dupe(u8, result.summary), .functions = functions } });
+    const changed_types = try a.alloc(Value, result.touched_types.len);
+    for (result.touched_types, changed_types) |tid, *item| item.* = @import("operation_model.zig").find(root, "types", tid).?;
+    try pending.append(std.heap.page_allocator, .{ .arena = arena, .id = try a.dupe(u8, model.utf8(model.decoded(result.transaction))), .base_id = try a.dupe(u8, r.snapshot_id), .generation = generation, .model = root, .session_model = owned, .created_function = .json_null, .receipt = proof, .full_review = try a.dupe(u8, plain.written()), .structured_review = try a.dupe(u8, structured.written()), .name = "", .migration = .{ .kind = result.kind, .summary = try a.dupe(u8, result.summary), .functions = functions, .types = changed_types } });
     registered = true;
     const full = if (r.root.get("detail")) |value| m.same(value.string, "full") else false;
     const structured_review = if (r.root.get("structuredReview")) |value| value == .bool and value.bool else false;
@@ -1045,32 +1051,31 @@ pub fn publishMigration(r: *query.Request, out: *Writer, result: @import("migrat
 fn encodeMigration(r: *query.Request, out: *Writer, result: @import("migration.zig").Result, root: Value, proof: []const u8, full: bool, structured: bool) !void {
     var raw: Writer.Allocating = .init(r.a);
     const w = &raw.writer;
-    try w.writeAll("{\"proposalId\":");
-    try m.write(w, result.transaction);
+    try w.writeAll("{\"proposalId\":"); try m.write(w, result.transaction);
     try w.print(",\"detail\":\"{s}\",\"review\":{{\"kind\":\"{s}\",\"receipt\":", .{ if (full) @as([]const u8, "full") else "compact", result.kind });
     try w.writeAll(proof);
-    try w.writeAll(",\"readiness\":");
-    try readiness(w, root);
-    try w.writeAll(",\"diff\":");
-    try m.write(w, result.diff);
+    try w.writeAll(",\"readiness\":"); try readiness(w, root);
+    if (result.review_fields == .object) {
+        for (result.review_fields.object) |field_| {
+            try w.writeByte(',');
+            try model.writeString(w, field_.name);
+            try w.writeByte(':');
+            try m.write(w, field_.value);
+        }
+    } else {
+    try w.writeAll(",\"diff\":"); try m.write(w, result.diff);
     try w.writeAll(",\"functionEffects\":[");
     const sorted = try r.a.dupe(Value, result.rewritten);
-    std.mem.sort(Value, sorted, {}, struct {
-        fn less(_: void, x: Value, y: Value) bool {
-            return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt;
-        }
-    }.less);
+    std.mem.sort(Value, sorted, {}, struct { fn less(_: void, x: Value, y: Value) bool { return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt; } }.less);
     for (sorted, 0..) |f, i| {
         if (i > 0) try w.writeByte(',');
-        try w.writeAll("{\"functionId\":");
-        try m.write(w, model.property(f, "id").?);
-        try w.writeAll(",\"declaredEffectIds\":");
-        try m.write(w, model.property(f, "requiredEffects").?);
-        try w.writeAll(",\"bodyEffectRequirements\":");
-        try query.writeRequirements(w, model.focusOf(r.a, root, f).requirements);
+        try w.writeAll("{\"functionId\":"); try m.write(w, model.property(f, "id").?);
+        try w.writeAll(",\"declaredEffectIds\":"); try m.write(w, model.property(f, "requiredEffects").?);
+        try w.writeAll(",\"bodyEffectRequirements\":"); try query.writeRequirements(w, model.focusOf(r.a, root, f).requirements);
         try w.writeByte('}');
     }
     try w.writeByte(']');
+    }
     if (full) {
         try w.writeAll(",\"rewrittenFunctions\":[");
         for (result.rewritten, 0..) |f, i| {
@@ -1086,6 +1091,28 @@ fn encodeMigration(r: *query.Request, out: *Writer, result: @import("migration.z
 fn migrationSummary(a: Allocator, p: *const Pending, current: Value) ![]const u8 {
     const migration = p.migration.?;
     const parameter = m.same(migration.kind, "parameterTypeMigration");
+    if (m.same(migration.kind, "productFieldTypeMigration") or m.same(migration.kind, "capabilityOperationSignatureMigration")) {
+        const review = model.property(try model.parseValue(a, p.full_review), "review").?;
+        const diff = model.property(review, "diff").?;
+        const edit = @import("operation_model.zig");
+        if (m.same(migration.kind, "productFieldTypeMigration")) {
+            const change = model.property(diff, "fieldChange").?;
+            const tid = edit.text(change, "typeId");
+            const fid = edit.text(change, "fieldId");
+            const t = edit.find(current, "types", tid);
+            const type_name = if (t) |item| try std.fmt.allocPrint(a, "'{s}'", .{query.nameOf(item)}) else tid;
+            var field_name: []const u8 = fid;
+            for (model.arrayItems(current, "types")) |item| {
+                for (model.arrayItems(item, "fields")) |field_| if (edit.hasId(field_, fid)) { field_name = try std.fmt.allocPrint(a, "'{s}'", .{query.nameOf(field_)}); };
+                for (model.arrayItems(item, "variants")) |variant| for (model.arrayItems(variant, "fields")) |field_| if (edit.hasId(field_, fid)) { field_name = try std.fmt.allocPrint(a, "'{s}'", .{query.nameOf(field_)}); };
+            }
+            return std.fmt.allocPrint(a, "productFieldTypeMigration of {s} field {s}", .{ type_name, field_name });
+        }
+        const cid = edit.text(diff, "capabilityId");
+        const c = edit.find(current, "capabilities", cid);
+        const cap_name = if (c) |item| try std.fmt.allocPrint(a, "'{s}'", .{query.nameOf(item)}) else cid;
+        return std.fmt.allocPrint(a, "capabilityOperationSignatureMigration of {s} operation '{s}'", .{ cap_name, query.nameOf(model.property(diff, "newOperation").?) });
+    }
     if (!parameter and !m.same(migration.kind, "resultTypeMigration")) return migration.summary;
     const review = model.property(try model.parseValue(a, p.full_review), "review").?;
     const change = model.property(model.property(review, "diff").?, if (parameter) "parameterChange" else "resultChange").?;
