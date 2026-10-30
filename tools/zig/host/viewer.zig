@@ -398,11 +398,16 @@ fn writeSorted(a: Allocator, out: *Writer, ids: []const Str) !void {
 
 /// `ViewerData.ofFocus` of `function` in `root`, the open model; `snapshot_id` is its snapshot.
 pub fn focusData(a: Allocator, root: Value, snapshot_id: []const u8, function: Value) ![]const u8 {
+    return std.mem.concat(a, u8, &.{ "{\"view\":\"functionFocus\",\"focus\":", try focusValue(a, root, snapshot_id, function), "}" });
+}
+
+/// Shared by Function Focus and the committed/proposed sides of a Change Review.
+pub fn focusValue(a: Allocator, root: Value, snapshot_id: []const u8, function: Value) ![]const u8 {
     const wanted = decodedAt(function, "id");
     const focus = model.focusOf(a, root, function);
     var data: Writer.Allocating = .init(a);
     const out = &data.writer;
-    try out.writeAll("{\"view\":\"functionFocus\",\"focus\":{\"snapshotId\":");
+    try out.writeAll("{\"snapshotId\":");
     try @import("root").writeString(out, snapshot_id);
     try out.writeAll(",\"function\":");
     try writeSignature(out, function, true);
@@ -523,6 +528,6 @@ pub fn focusData(a: Allocator, root: Value, snapshot_id: []const u8, function: V
     for (focus.node_types) |item| try viewer.types.put(a, model.utf8(item.id), item.type);
     try out.writeAll(",\"graph\":");
     try viewer.graph(out, model.property(function, "body").?);
-    try out.writeAll("}}");
+    try out.writeByte('}');
     return data.written();
 }
