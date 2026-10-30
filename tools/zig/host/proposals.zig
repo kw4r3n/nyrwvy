@@ -14,14 +14,15 @@ const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 
 /// The base arena owns the session interner and committed records. Each proposal owns only its
-/// added record/body and pointer table. Until commit/reject (3e), all live until session close;
-/// there are no dead interned entries to compact. Never retain a request-arena pointer here.
+/// added record/body and pointer table. Committed arenas retain shared ancestors until close.
+/// Never retain a request-arena pointer here.
 pub const Pending = struct {
     arena: *std.heap.ArenaAllocator,
     id: []const u8,
     base_id: []const u8,
     generation: typed.Generation,
     model: Value,
+    session_model: Value,
     // Preserve graph traversal order for WireEncodeCommon; model is canonical for WireGraph.
     created_function: Value,
     receipt: []const u8,
@@ -33,6 +34,7 @@ var storage: ?*std.heap.ArenaAllocator = null;
 var interner: typed.Interner = undefined;
 var base: typed.Generation = undefined;
 var pending: std.ArrayList(Pending) = .empty;
+var committed: std.ArrayList(*std.heap.ArenaAllocator) = .empty;
 
 fn newArena() !*std.heap.ArenaAllocator {
     const arena = try std.heap.page_allocator.create(std.heap.ArenaAllocator);
@@ -45,6 +47,9 @@ fn freeArena(arena: *std.heap.ArenaAllocator) void {
 }
 pub fn deinit() void {
     for (pending.items) |p| freeArena(p.arena);
+    for (committed.items) |arena| freeArena(arena);
+    committed.deinit(std.heap.page_allocator);
+    committed = .empty;
     pending.deinit(std.heap.page_allocator);
     pending = .empty;
     if (storage) |arena| freeArena(arena);
@@ -54,6 +59,36 @@ pub fn count() usize { return pending.items.len; }
 pub fn find(wanted: []const u8) ?*const Pending {
     for (pending.items) |*p| if (m.same(p.id, wanted)) return p;
     return null;
+}
+
+/// Reserve before the disk write: installing a successfully persisted generation cannot fail.
+pub fn prepareInstall() !void {
+    try committed.ensureUnusedCapacity(std.heap.page_allocator, 1);
+}
+pub fn install(wanted: []const u8) void {
+    for (pending.items, 0..) |p, i| if (m.same(p.id, wanted)) {
+        base = p.generation;
+        committed.appendAssumeCapacity(p.arena);
+        _ = pending.orderedRemove(i);
+        return;
+    };
+    unreachable;
+}
+pub fn reject(wanted: []const u8) void {
+    for (pending.items, 0..) |p, i| if (m.same(p.id, wanted)) {
+        freeArena(p.arena);
+        _ = pending.orderedRemove(i);
+        return;
+    };
+    unreachable;
+}
+pub fn document(a: Allocator, p: *const Pending) ![]const u8 {
+    var out: Writer.Allocating = .init(a);
+    try typed.writeDocument(&out.writer, &interner, &p.generation, model.currentVersion());
+    return out.written();
+}
+pub fn writeReadiness(out: *Writer, root: Value) !void {
+    try readiness(out, root);
 }
 
 fn initialize(r: *query.Request) !void {
@@ -187,7 +222,7 @@ pub fn publish(r: *query.Request, out: *Writer, created: Value, previous: ?Value
     const proposal_id = try a.dupe(u8, model.utf8(model.decoded(transaction)));
     try pending.append(std.heap.page_allocator, .{
         .arena = arena, .id = proposal_id, .base_id = try a.dupe(u8, r.snapshot_id),
-        .generation = generation, .model = root, .created_function = proposed, .receipt = proof, .name = try a.dupe(u8, query.nameOf(created)), .replacing = previous != null, .target_node = if (change) |c| try a.dupe(u8, c.target) else null,
+        .generation = generation, .model = root, .session_model = owned_model, .created_function = proposed, .receipt = proof, .name = try a.dupe(u8, query.nameOf(created)), .replacing = previous != null, .target_node = if (change) |c| try a.dupe(u8, c.target) else null,
     });
     registered = true;
     model.useAllocator(r.a);
