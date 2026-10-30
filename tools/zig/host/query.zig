@@ -1652,8 +1652,8 @@ pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
     try recipe.resolveNames(&d, body, try recipe.rawProperty(r.a, r.line, "body"));
     const tree = try d.recipe("/body", body.*);
     const creation: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
-    try preflight.run(r, creation);
-    try infer.run(r, creation);
+    const fresh = try preflight.run(r, creation);
+    try infer.run(r, creation, fresh);
 }
 
 /// `simulateCreateFunctionByName` as `functionCreationByName` reads it, then the preflight and the inference.
@@ -1695,6 +1695,6 @@ pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
     try recipe.resolveNames(&d, inline_body.?, try recipe.rawProperty(r.a, r.line, "body"));
     const tree = try d.recipe("/body", inline_body.?.*);
     const creation: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
-    try preflight.run(r, creation);
-    try infer.run(r, creation);
+    const fresh = try preflight.run(r, creation);
+    try infer.run(r, creation, fresh);
 }

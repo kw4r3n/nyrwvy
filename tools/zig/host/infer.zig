@@ -1,9 +1,8 @@
 //! Type inference of a decoded `simulateCreateFunction(ByName)` body, as `ExpressionRecipeInference`
 //! runs it for the function being created, and the result-type check after it
 //! (`FunctionCreationResultTypeMismatch`). Each rejection is a `SimulationRejected` reply located at
-//! its node (`locate`: ` At body.… (kind).`). A recipe kind not ported yet, a diagnostic that would
-//! spell an allocated type-parameter identity, and a body that infers cleanly each answer a fixed
-//! `UnsupportedOperation` (see `unported`, `type_parameter_identity`, `not_materialized`).
+//! its node (`locate`: ` At body.… (kind).`). A recipe kind not ported yet and a body that
+//! infers cleanly answer a fixed `UnsupportedOperation` (see `unported`, `not_materialized`).
 const std = @import("std");
 const model = @import("model_reader");
 const query = @import("query.zig");
@@ -18,7 +17,6 @@ const Value = query.Value;
 
 /// `UnsupportedOperation` messages; the parity tests tell them apart.
 pub const unported = "The Zig host does not infer {s} recipes yet (at {s}).";
-pub const type_parameter_identity = "The Zig host does not spell allocated type-parameter identities in diagnostics yet.";
 pub const not_materialized = "The Zig host infers simulateCreateFunction bodies but does not materialize proposals yet.";
 
 const description = "the function being created";
@@ -270,6 +268,7 @@ const Infer = struct {
     c: preflight.Creation,
     /// The request's own type parameters (declared or derived), fresh identities in F#.
     local: []const []const u8,
+    fresh: []const preflight.TypeParameter,
     /// The innermost node whose own check produced the propagating diagnostic (`track`), located by
     /// `run`: a node that reports another diagnostic than the one recorded displaces it.
     failed: ?*const Node = null,
@@ -326,8 +325,8 @@ const Infer = struct {
             .capability => |id| return if (preflight.declaration(self.r, "capabilities", id)) |d| query.nameOf(d) else try self.fmt("capability '{s}'", .{id}),
             .function => |f| return self.fmt("({s}) -> {s}", .{ try self.renderList(f.parameters, mode), try self.render(f.result.*, mode) }),
             .type_parameter => |id| {
-                // The request's type parameters are fresh identities in F#; a message spelling one is not answered.
-                if (preflight.contains(self.local, id)) return if (mode == .with_ids) self.unsupported(type_parameter_identity) else id;
+                for (self.fresh) |p| if (same(p.name, id))
+                    return if (mode == .with_ids) self.fmt("{s} (type parameter {s})", .{ p.name, p.id }) else p.name;
                 const name = self.declaredTypeParameterName(id) orelse id;
                 return if (mode == .with_ids) self.fmt("{s} (type parameter {s})", .{ name, id }) else name;
             },
@@ -1691,11 +1690,11 @@ fn recipePath(a: Allocator, path: []const u8, node: *const Node, target: *const 
 }
 
 /// Infers the body after the preflight and checks it against the result type; a body that passes
-/// answers `not_materialized` until 3c-4.
-pub fn run(r: *query.Request, c: preflight.Creation) Fail!void {
+/// answers `not_materialized` until 3c-4b.
+pub fn run(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter) Fail!void {
     var local: std.ArrayList([]const u8) = .empty;
     for (c.parameters) |p| try preflight.occurring(r.a, p.type, &local);
-    var self: Infer = .{ .r = r, .a = r.a, .c = c, .local = c.type_parameters orelse local.items };
+    var self: Infer = .{ .r = r, .a = r.a, .c = c, .local = c.type_parameters orelse local.items, .fresh = fresh };
     const completion = self.inferCompletion(null, c.body) catch |e| switch (e) {
         error.Unsupported => return error.Rejected,
         error.Rejected => {
@@ -1709,7 +1708,7 @@ pub fn run(r: *query.Request, c: preflight.Creation) Fail!void {
     if (completion == .normal and !eqlType(completion.normal, c.result_type)) {
         return preflight.rejected(r, "FunctionCreationResultTypeMismatch", try std.fmt.allocPrint(r.a, "The function body produces {s}, but the requested result type is {s}.", .{ try self.ty(completion.normal), try self.ty(c.result_type) }));
     }
-    // shortcut: materialization, the transaction and the review come in 3c-4.
+    // shortcut: materialization, the transaction and the review come in 3c-4b.
     r.rejection = .{ .code = "UnsupportedOperation", .message = not_materialized };
     return error.Rejected;
 }
