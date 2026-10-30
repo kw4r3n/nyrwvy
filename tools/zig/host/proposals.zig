@@ -467,8 +467,8 @@ pub fn listing(a: Allocator, out: *Writer, current: []const u8, current_model: V
         try out.print(",\"kind\":\"{s}\",\"baseSnapshotId\":", .{proposalKind(&p)});
         try @import("root").writeString(out, p.base_id);
         try out.writeAll(if (m.same(current, p.base_id)) ",\"baseIsCurrent\":true,\"summary\":" else ",\"baseIsCurrent\":false,\"summary\":");
-        if (p.migration) |migration| {
-            try @import("root").writeString(out, migration.summary);
+        if (p.migration != null) {
+            try @import("root").writeString(out, try migrationSummary(a, &p, current_model));
         } else if (p.batch) |captures| {
             try @import("root").writeString(out, try batchSummary(&summary_request, captures));
         } else if (p.operations) {
@@ -1065,4 +1065,22 @@ fn encodeMigration(r: *query.Request, out: *Writer, result: @import("migration.z
     }
     try w.writeAll("}}");
     try out.writeAll(if (full) raw.written() else try projection.compact(r.a, raw.written()));
+}
+
+fn migrationSummary(a: Allocator, p: *const Pending, current: Value) ![]const u8 {
+    const migration = p.migration.?;
+    const parameter = m.same(migration.kind, "parameterTypeMigration");
+    if (!parameter and !m.same(migration.kind, "resultTypeMigration")) return migration.summary;
+    const review = model.property(try model.parseValue(a, p.full_review), "review").?;
+    const change = model.property(model.property(review, "diff").?, if (parameter) "parameterChange" else "resultChange").?;
+    const fid = @import("operation_model.zig").text(change, "functionId");
+    const f = @import("operation_model.zig").find(current, "functions", fid);
+    const name = if (f) |item| try std.fmt.allocPrint(a, "'{s}'", .{query.nameOf(item)}) else fid;
+    if (!parameter) return std.fmt.allocPrint(a, "resultTypeMigration of {s}", .{name});
+    const pid = @import("operation_model.zig").text(change, "parameterId");
+    var parameter_name: []const u8 = pid;
+    for (model.arrayItems(current, "functions")) |function| for (model.arrayItems(function, "parameters")) |item| {
+        if (m.same(query.idOf(item), pid)) parameter_name = try std.fmt.allocPrint(a, "'{s}'", .{query.nameOf(item)});
+    };
+    return std.fmt.allocPrint(a, "parameterTypeMigration of {s} parameter {s}", .{ name, parameter_name });
 }

@@ -136,14 +136,18 @@ fn rewriteTree(r: *query.Request, context: Context, node: *const Node) anyerror!
     if (!m.same(node.case, "DirectCall")) {
         for (node.slots) |s| {
             var uses_target = false;
-            if (s.data == .id and m.same(s.name, "functionId") and m.same(s.data.id, query.idOf(context.target))) uses_target = true;
+            if (s.data == .id and (m.same(s.name, "functionId") or std.mem.endsWith(u8, s.name, "FunctionId")) and m.same(s.data.id, query.idOf(context.target))) uses_target = true;
             if (s.data == .implementations) for (s.data.implementations) |impl| { if (m.same(impl.function, query.idOf(context.target))) uses_target = true; };
             if (uses_target) return reject(r, context.prefix, "UnsupportedRewriteUse", try std.fmt.allocPrint(r.a, "{s} uses the target function '{s}' as a callback or function value; this bounded migration rewrites only direct calls to the target.", .{ if (context.temporary != null) try std.fmt.allocPrint(r.a, "Caller '{s}' rewrite", .{query.idOf(context.owner)}) else "The target replacement", query.idOf(context.target) }));
         }
     }
     // The recipe shape already lists all child fields; preserve its evaluation order.
     const slots = try r.a.dupe(recipe.Slot, node.slots);
-    for (slots) |*s| switch (s.data) {
+    for (0..slots.len) |step| {
+        // F# rewrites TaskStart's item before its context, despite its constructor order.
+        const index = if (m.same(node.case, "TaskStart") and step >= 2) 5 - step else step;
+        const s = &slots[index];
+        switch (s.data) {
         .recipe => |n| s.data = .{ .recipe = try rewriteTree(r, context, n) },
         .recipes => |ns| {
             const mapped = try r.a.alloc(*const Node, ns.len);
@@ -161,7 +165,8 @@ fn rewriteTree(r: *query.Request, context: Context, node: *const Node) anyerror!
             s.data = .{ .arms = mapped };
         },
         else => {},
-    };
+        }
+    }
     const result = try make(r, node.case, slots);
     if (m.same(node.case, "DirectCall") and m.same(slot(node, "functionId").?.id, query.idOf(context.target))) {
         const pairs = try r.a.dupe(recipe.Pair, slot(result, "arguments").?.pairs);
