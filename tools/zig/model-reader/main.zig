@@ -1296,6 +1296,7 @@ fn fingerprintsOf(root: Value) Failure!Fingerprints {
 /// and on acceptance its two fingerprints. `allocator` holds the result.
 pub const DocumentRead = struct {
     lines: []const u8,
+    validation_issues: []const Issue = &.{},
     fingerprints: ?Fingerprints = null,
     /// The model read (for a resolved document, the merged one), in document order.
     root: Value = .json_null,
@@ -1402,7 +1403,7 @@ pub fn readDocument(allocator: std.mem.Allocator, source: []const u8) DocumentRe
         const root = parsed_root;
         validate(root);
         printIssues(&out.writer) catch oom();
-        if (issues.items.len > 0) return .{ .lines = out.written() };
+        if (issues.items.len > 0) return .{ .lines = out.written(), .validation_issues = issues.items };
         const found = fingerprintsOf(root) catch return .{ .lines = out.written() };
         var open = false;
         for (arrayOf(root, "obligations")) |obligation| open = open or isName(str(obligation, "status"), "open");

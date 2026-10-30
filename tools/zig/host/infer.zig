@@ -17,8 +17,6 @@ const Value = query.Value;
 /// `UnsupportedOperation` messages; the parity tests tell them apart.
 pub const unported = "The Zig host does not infer {s} recipes yet (at {s}).";
 
-const description = "the function being created";
-
 fn same(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
 }
@@ -78,7 +76,7 @@ fn builtinOf(t: TypeRef, name: []const u8, arity: usize) ?[]const TypeRef {
 }
 
 /// A type of the open model (canonical snapshot JSON) as a `TypeRef`.
-fn typeOf(a: Allocator, v: Value) Fail!TypeRef {
+pub fn typeOf(a: Allocator, v: Value) Fail!TypeRef {
     const kind = prop(v, "kind");
     if (same(kind, "primitive")) return primitive(prop(v, "primitive"));
     if (same(kind, "named")) return .{ .named = .{ .id = prop(v, "typeId"), .arguments = try typesOf(a, model.arrayItems(v, "arguments")) } };
@@ -264,6 +262,8 @@ pub const Infer = struct {
     r: *query.Request,
     a: Allocator,
     c: preflight.Creation,
+    existing: ?Value = null,
+    description: []const u8 = "the function being created",
     /// The request's own type parameters (declared or derived), fresh identities in F#.
     local: []const []const u8,
     fresh: []const preflight.TypeParameter,
@@ -317,6 +317,9 @@ pub const Infer = struct {
 
     /// `TypeParameters.names snapshot`: the display name of a declared type parameter.
     fn declaredTypeParameterName(self: *Infer, id: []const u8) ?[]const u8 {
+        if (self.existing) |f| for (model.arrayItems(f, "typeParameters")) |p| {
+            if (same(prop(p, "typeParameterId"), id)) return query.nameOf(p);
+        };
         for ([_][]const u8{ "types", "functions" }) |group| for (model.arrayItems(self.r.model, group)) |item| for (model.arrayItems(item, "typeParameters")) |p| {
             if (same(prop(p, "typeParameterId"), id)) return query.nameOf(p);
         };
@@ -514,10 +517,13 @@ pub const Infer = struct {
 
     /// `describeOwnerParameters` for the function being created: slots have no IDs yet.
     fn describeOwnerParameters(self: *Infer) Fail![]const u8 {
-        if (self.c.parameters.len == 0) return self.fmt("{s} has no parameters.", .{description});
+        if (self.c.parameters.len == 0) return self.fmt("{s} has no parameters.", .{self.description});
         var entries: std.ArrayList([]const u8) = .empty;
-        for (self.c.parameters, 0..) |p, slot| try entries.append(self.a, try self.fmt("{d} = '{s}'", .{ slot, p.name }));
-        return self.fmt("Parameters of {s}: {s}.", .{ description, try std.mem.join(self.a, ", ", entries.items) });
+        for (self.c.parameters, 0..) |p, slot| {
+            const label = if (self.existing) |f| try self.describe(p.name, query.idOf(model.arrayItems(f, "parameters")[slot])) else try self.fmt("'{s}'", .{p.name});
+            try entries.append(self.a, try self.fmt("{d} = {s}", .{ slot, label }));
+        }
+        return self.fmt("Parameters of {s}: {s}.", .{ self.description, try std.mem.join(self.a, ", ", entries.items) });
     }
 
     // ------------------------------------------------------------ pattern references
@@ -662,16 +668,19 @@ pub const Infer = struct {
         if (signatureOf(case)) |entry| return self.fixedSignature(frames, node, entry);
         if (same(case, "OriginalTarget")) return self.reject("OriginalTargetOutsideTargetedReplacement", "originalTarget is accepted only in the replacement of a targeted replacement.");
         if (same(case, "Parameter")) {
-            // The function being created owns no parameter by ID yet.
             const id = node.slots[0].data.id;
+            if (self.existing) |f| for (model.arrayItems(f, "parameters")) |p| {
+                if (same(query.idOf(p), id)) return typeOf(a, model.property(p, "type").?);
+            };
             const foreign = blk: {
                 for (model.arrayItems(self.r.model, "functions")) |f| for (model.arrayItems(f, "parameters")) |p| if (same(query.idOf(p), id))
                     break :blk try self.fmt("Parameter {s} of function {s}", .{ try self.describe(query.nameOf(p), id), try self.describe(query.nameOf(f), query.idOf(f)) });
                 break :blk try self.fmt("Parameter '{s}'", .{id});
             };
-            return self.reject("PureExpressionParameterOutOfScope", try self.fmt("{s} is not owned by {s}. {s}", .{ foreign, description, try self.describeOwnerParameters() }));
+            return self.reject("PureExpressionParameterOutOfScope", try self.fmt("{s} is not owned by {s}. {s}", .{ foreign, self.description, try self.describeOwnerParameters() }));
         }
         if (same(case, "ParameterSlot")) {
+            if (self.existing != null) return self.reject("PureExpressionParameterSlotUnavailable", "ParameterSlot is available only while creating a new function.");
             const index = node.slots[0].data.int;
             if (index < 0 or index >= self.c.parameters.len) return self.reject("PureExpressionParameterSlotOutOfRange", try self.fmt("Parameter slot {d} is outside the requested parameter list. {s}", .{ index, try self.describeOwnerParameters() }));
             return self.c.parameters[@intCast(index)].type;
@@ -796,7 +805,7 @@ pub const Infer = struct {
         if (isCompletionKind(case)) {
             return switch (try self.inferCompletion(frames, node)) {
                 .normal => |t| t,
-                .aborts => self.reject("AbortValueUse", try self.fmt("An abrupt expression cannot be used as a value in {s}.", .{description})),
+                .aborts => self.reject("AbortValueUse", try self.fmt("An abrupt expression cannot be used as a value in {s}.", .{self.description})),
             };
         }
         if (try self.inferMore(frames, node)) |t| return t;
@@ -952,7 +961,7 @@ pub const Infer = struct {
     }
 
     fn missingEffectError(self: *Infer, subject: []const u8, id: []const u8) Fail {
-        return self.reject("ExpressionCallMissingEffectRequirement", try self.fmt("{s} requires effect {s} not declared by {s}.", .{ subject, try self.effectLabel(id), description }));
+        return self.reject("ExpressionCallMissingEffectRequirement", try self.fmt("{s} requires effect {s} not declared by {s}.", .{ subject, try self.effectLabel(id), self.description }));
     }
 
     /// `TaskTypes.mentionsScope`.
@@ -1443,13 +1452,20 @@ pub const Infer = struct {
         }
         for (callee.parameters) |p| if (!preflight.contains(ids.items, p.id))
             return self.reject("PureExpressionCallArgumentMissing", try self.fmt("DirectCall is missing required parameter {s} for callee {s}: {s}.", .{ try self.describe(p.name, p.id), try self.callbackName(callee), try self.callbackSignature(callee) }));
-        // The function being created has no identity yet, so no call is a self call here.
+        const is_self = if (self.existing) |f| same(query.idOf(f), id) else false;
         var subst: Subst = .empty;
         for (callee.parameters) |p| {
             const value = for (bindings) |pair| {
                 if (same(pair.id, p.id)) break pair.value;
             } else unreachable;
             const actual = try self.infer(frames, value);
+            if (is_self) {
+                if (!eqlType(p.type, actual)) {
+                    const pair = try self.tyPair(p.type, actual);
+                    return self.reject("PureExpressionCallArgumentTypeMismatch", try self.fmt("DirectCall parameter {s} of {s} requires {s}, but the recipe produces {s}. A function calls itself at its own parameter types; there is no polymorphic recursion.", .{ try self.describe(p.name, p.id), self.description, pair[0], pair[1] }));
+                }
+                continue;
+            }
             var attempt = try subst.clone(a);
             if (!try matchType(a, &attempt, p.type, actual)) {
                 const pair = try self.tyPair(try substitute(a, &subst, p.type), actual);
@@ -1477,9 +1493,9 @@ pub const Infer = struct {
         for (arguments, 0..) |pair, index| if (countSlot(arguments[0..index], pair.slot) == 0 and countSlot(arguments[index + 1 ..], pair.slot) > 0)
             return self.reject("PureExpressionDuplicateCallArgument", try self.fmt("SelfCall binds parameter slot {d} more than once.", .{pair.slot}));
         for (arguments) |pair| if (pair.slot < 0 or pair.slot >= count)
-            return self.reject("PureExpressionCallArgumentTargetNotFound", try self.fmt("SelfCall targets parameter slot {d}, but {s} has {d} parameter(s). {s}", .{ pair.slot, description, count, try self.describeOwnerParameters() }));
+            return self.reject("PureExpressionCallArgumentTargetNotFound", try self.fmt("SelfCall targets parameter slot {d}, but {s} has {d} parameter(s). {s}", .{ pair.slot, self.description, count, try self.describeOwnerParameters() }));
         for (self.c.parameters, 0..) |p, slot| {
-            if (countSlot(arguments, @intCast(slot)) == 0) return self.reject("PureExpressionCallArgumentMissing", try self.fmt("SelfCall is missing required parameter slot {d} ('{s}') of {s}.", .{ slot, p.name, description }));
+            if (countSlot(arguments, @intCast(slot)) == 0) return self.reject("PureExpressionCallArgumentMissing", try self.fmt("SelfCall is missing required parameter slot {d} ('{s}') of {s}.", .{ slot, p.name, self.description }));
         }
         for (self.c.parameters, 0..) |p, slot| {
             const value = for (arguments) |pair| {
@@ -1513,7 +1529,7 @@ pub const Infer = struct {
         const owner_type: TypeRef = .{ .capability = query.idOf(capability) };
         if (!eqlType(receiver, owner_type)) return self.reject("ExpressionCapabilityValueTypeMismatch", try self.fmt("CapabilityInvoke operation {s} requires {s}, but the receiver produces {s}.", .{ operation_label, try self.ty(owner_type), try self.ty(receiver) }));
         const effect = prop(operation, "effectId");
-        if (!preflight.contains(self.c.required_effects, effect)) return self.reject("ExpressionCapabilityMissingEffectRequirement", try self.fmt("CapabilityInvoke operation {s} requires effect {s} not declared by {s}.", .{ operation_label, try self.effectLabel(effect), description }));
+        if (!preflight.contains(self.c.required_effects, effect)) return self.reject("ExpressionCapabilityMissingEffectRequirement", try self.fmt("CapabilityInvoke operation {s} requires effect {s} not declared by {s}.", .{ operation_label, try self.effectLabel(effect), self.description }));
         var ids: std.ArrayList([]const u8) = .empty;
         for (bindings) |pair| try ids.append(a, pair.id);
         if (preflight.repeated(ids.items)) |duplicate| return self.reject("ExpressionDuplicateCapabilityArgument", try self.fmt("CapabilityInvoke binds parameter '{s}' more than once.", .{duplicate}));
@@ -1563,11 +1579,11 @@ pub const Infer = struct {
     fn inferCompletionNode(self: *Infer, frames: ?*const Frame, node: *const Node) Fail!Completion {
         const case = node.case;
         if (same(case, "Abort")) {
-            const result = builtinOf(self.c.result_type, "result", 2) orelse return self.reject("AbortOwnerResultTypeMismatch", try self.fmt("Abort requires {s} to return Result<T, E>.", .{description}));
+            const result = builtinOf(self.c.result_type, "result", 2) orelse return self.reject("AbortOwnerResultTypeMismatch", try self.fmt("Abort requires {s} to return Result<T, E>.", .{self.description}));
             const actual = try self.infer(frames, child(node, 0));
             if (eqlType(actual, result[1])) return .aborts;
             const pair = try self.tyPair(result[1], actual);
-            return self.reject("AbortPayloadTypeMismatch", try self.fmt("Abort payload has type {s}, but {s} requires {s}.", .{ pair[1], description, pair[0] }));
+            return self.reject("AbortPayloadTypeMismatch", try self.fmt("Abort payload has type {s}, but {s} requires {s}.", .{ pair[1], self.description, pair[0] }));
         }
         if (same(case, "Conditional")) {
             const condition = try self.infer(frames, child(node, 0));
@@ -1701,20 +1717,35 @@ fn recipePath(a: Allocator, path: []const u8, node: *const Node, target: *const 
 
 /// Infers the body after the preflight and checks it against the result type.
 pub fn run(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter) Fail!Infer {
+    return runIn(r, c, fresh, null);
+}
+
+pub fn runIn(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Value) Fail!Infer {
     var local: std.ArrayList([]const u8) = .empty;
     for (c.parameters) |p| try preflight.occurring(r.a, p.type, &local);
     var self: Infer = .{ .r = r, .a = r.a, .c = c, .local = c.type_parameters orelse local.items, .fresh = fresh };
+    self.existing = existing;
+    if (existing) |f| {
+        self.local = &.{};
+        self.description = try self.fmt("target function {s}", .{try self.describe(query.nameOf(f), query.idOf(f))});
+    }
     const completion = self.inferCompletion(null, c.body) catch |e| switch (e) {
         error.Unsupported => return error.Rejected,
         error.Rejected => {
             // `locate`: the failing node's path and kind, appended to the message.
-            if (try recipePath(r.a, "body", c.body, self.failed.?)) |path|
+            if (try recipePath(r.a, if (existing != null) "replacement" else "body", c.body, self.failed.?)) |path|
                 return preflight.rejected(r, r.diagnostic.code, try std.fmt.allocPrint(r.a, "{s} At {s} ({s}).", .{ r.diagnostic.message, path, try uncapitalized(r.a, self.failed.?.case) }));
             return e;
         },
         else => return e,
     };
     if (completion == .normal and !eqlType(completion.normal, c.result_type)) {
+        if (existing != null) {
+            // The workflow's final check uses snapshot names, not the inference owner's extras.
+            var renderer = self;
+            renderer.existing = null;
+            return preflight.rejected(r, "PureExpressionResultTypeMismatch", try std.fmt.allocPrint(r.a, "The replacement recipe produces {s}, but the target function returns {s}.", .{ try renderer.ty(completion.normal), try renderer.ty(c.result_type) }));
+        }
         return preflight.rejected(r, "FunctionCreationResultTypeMismatch", try std.fmt.allocPrint(r.a, "The function body produces {s}, but the requested result type is {s}.", .{ try self.ty(completion.normal), try self.ty(c.result_type) }));
     }
     return self;

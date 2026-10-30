@@ -276,7 +276,9 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         .{ "viewFunction", query.viewFunction },
         .{ "executionReadiness", query.executionReadiness },
         .{ "simulateCreateFunction", query.simulateCreateFunction },
-    .{ "simulateCreateFunctionByName", query.simulateCreateFunctionByName },
+        .{ "simulateCreateFunctionByName", query.simulateCreateFunctionByName },
+        .{ "simulateReplaceBody", query.simulateReplaceBody },
+        .{ "simulateReplaceBodyByName", query.simulateReplaceBodyByName },
     };
     for (queries) |entry| if (std.mem.eql(u8, op, entry[0])) {
         var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .model = canonical(), .provenance = if (selection) |d| d.provenance else null, .snapshot_id = snapshot_id, .snapshot_fingerprint = fingerprints.snapshot, .snapshot_path = snapshot_path };

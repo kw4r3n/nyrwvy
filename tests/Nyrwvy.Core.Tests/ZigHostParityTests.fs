@@ -870,7 +870,7 @@ module ZigHostCreateDecodeTests =
 
     /// A valid instance of each exact-ID recipe kind, built from tools/zig/host/recipe_kinds.txt
     /// (every allowed property present), and the requests that break it one way at a time.
-    let private recipeRequests () =
+    let internal recipeRequests () =
         let rows =
             File.ReadAllLines(Path.Combine(ZigModelReaderSupport.root (), "tools", "zig", "host", "recipe_kinds.txt"))
             |> Array.filter (fun line -> not (line.StartsWith "#"))
@@ -1132,7 +1132,7 @@ module ZigHostCreateByNameTests =
 
     /// Requests for a session's declarations: a valid instance of each by-name recipe kind (from
     /// tools/zig/host/recipe_kinds_byname.txt), broken one way at a time, and the signature around it.
-    let private requests (declarations: AuthoringDeclarations) (snapshotId: string) =
+    let internal requests (declarations: AuthoringDeclarations) (snapshotId: string) =
         let first fallback items = items |> List.tryHead |> Option.defaultValue fallback
         let products = declarations.Types |> List.choose (fun t -> match t.Kind with SemanticTypeKind.Product fields when not fields.IsEmpty -> Some(t.DisplayName, fields.Head.DisplayName) | _ -> None)
         // Prefer members with members of their own; fall back to any, so names still resolve partway.
@@ -1364,7 +1364,7 @@ module ZigHostCreateInferenceTests =
 
     /// Declarations the inference diagnostics name: a product, generic products, a union with a
     /// Float64 field, a generic union, a recursive product and a function with a parameter.
-    let private snapshot () =
+    let internal snapshot () =
         let types =
             [ declared "Point" [] (SemanticTypeKind.Product [ field "point-x" int64T; field "point-y" int64T ])
               declared "Box" [ t "box", "T" ] (SemanticTypeKind.Product [ field "box-item" (TypeRef.TypeParameter(t "box")) ])
@@ -1445,7 +1445,7 @@ module ZigHostCreateInferenceTests =
 
     /// Requests reaching each inference diagnostic, the location suffix through each renamed field,
     /// F#'s traversal order around kinds the Zig host does not infer, and the type-parameter cases.
-    let private requests () =
+    let internal requests () =
         let primitive name = $"""{{"kind":"primitive","primitive":"{name}"}}"""
         let unitT, int64T, boolT, stringT, float64T = primitive "unit", primitive "int64", primitive "bool", primitive "string", primitive "float64"
         let named id (arguments: string list) = $"""{{"kind":"named","typeId":"{id}","arguments":[{String.Join(",", arguments)}]}}"""
@@ -2011,3 +2011,272 @@ module ZigHostCreateInferenceTests =
                 Assert.InRange(milliseconds, DateTimeOffset.UtcNow.AddMinutes(-5.0).ToUnixTimeMilliseconds(), DateTimeOffset.UtcNow.AddMinutes(1.0).ToUnixTimeMilliseconds())
                 value)
             Assert.NotEqual<string>(ids[0], ids[1]))
+
+/// Body maintenance uses the existing owner's identities, not create-time parameter slots.
+module ZigHostReplaceBodyTests =
+    open ZigHostParityTests
+
+    let private quoted (text: string) = JsonSerializer.Serialize text
+    let private unit = """{"kind":"unitLiteral"}"""
+    let private int = """{"kind":"int64Literal","value":7}"""
+    let private bool = """{"kind":"boolLiteral","value":true}"""
+
+    let private exact (f: SemanticFunction) body =
+        $"""{{"id":"r","op":"simulateReplaceBody","functionId":{quoted (StableId.value f.Id)},"expectedCurrentResultNodeId":{quoted (StableId.value f.Body.ResultNodeId)},"replacement":{body}}}"""
+
+    let private symbolic (f: SemanticFunction) body =
+        $"""{{"id":"r","op":"simulateReplaceBodyByName","function":{{"id":{quoted (StableId.value f.Id)}}},"replacement":{body}}}"""
+
+    let private changed (line: string) (change: JsonObject -> unit) =
+        let root = JsonNode.Parse(line).AsObject()
+        change root
+        root.ToJsonString()
+
+    let private fullReviews (lines: string list) =
+        [ for line in lines do
+              yield line
+              yield changed line (fun root -> root["detail"] <- JsonValue.Create "full")
+              yield changed line (fun root -> root["detail"] <- JsonValue.Create "full"; root["structuredReview"] <- JsonValue.Create true) ]
+
+    // Keep the raw body text: reserializing it would discard duplicate properties and escapes.
+    let private bodies (requests: string list) =
+        [ for request in requests do
+              use doc = parseDocument request
+              match doc.RootElement.TryGetProperty "body" with
+              | true, body when not (body.GetRawText().Contains "originalTarget") -> yield body.GetRawText()
+              | _ -> () ]
+
+    let private strictPair seed source requests =
+        let expected, actual = seededPair seed source requests
+        for wanted, found in List.zip expected actual do
+            // Existing accepted difference: .NET's lone-surrogate exception text is not ported.
+            if wanted.Contains "\"code\":\"SessionError\"" then Assert.Equal(sessionErrorCode wanted, sessionErrorCode found)
+            else Assert.Equal(wanted, found)
+        expected
+
+    let private mutations (f: SemanticFunction) =
+        [ for line in [ exact f unit; symbolic f unit ] do
+              use doc = parseDocument line
+              let names = doc.RootElement.EnumerateObject() |> Seq.map (fun p -> p.Name) |> Seq.filter (fun n -> n <> "id" && n <> "op") |> Seq.toList
+              yield changed line (fun root -> root["extra"] <- JsonValue.Create true)
+              for name in names do
+                  yield changed line (fun root -> root.Remove name |> ignore)
+                  for value in [ "null"; "3"; "[]"; "{}"; "true"; "\"\""; "\" \"" ] do
+                      yield changed line (fun root -> root[name] <- JsonNode.Parse value)
+              for name in [ "detail"; "structuredReview"; "expectedSnapshotId" ] do
+                  yield changed line (fun root -> root[name] <- JsonValue.Create 3)
+              yield changed line (fun root -> root["expectedSnapshotId"] <- JsonValue.Create "old")
+          yield changed (exact f unit) (fun root -> root["functionId"] <- JsonValue.Create "missing")
+          yield changed (exact f unit) (fun root -> root["expectedCurrentResultNodeId"] <- JsonValue.Create "old")
+          yield changed (symbolic f unit) (fun root -> root["expectedResultNodeId"] <- JsonValue.Create "old")
+          yield changed (symbolic f unit) (fun root -> root["function"] <- JsonValue.Create f.DisplayName)
+          for selector in [ "\"missing\""; "{\"name\":\"missing\"}"; "{\"id\":\"missing\"}"; "{\"ownership\":\"bad\"}"; "{\"name\":3}"; "{\"extra\":true}" ] do
+              yield changed (symbolic f unit) (fun root -> root["function"] <- JsonNode.Parse selector)
+          // Field read order: exact IDs read function, base, result, recipe; symbolic reads selector first.
+          yield changed (exact f unit) (fun root -> root["functionId"] <- JsonValue.Create 3; root["expectedSnapshotId"] <- JsonValue.Create 3)
+          yield changed (exact f unit) (fun root -> root["expectedSnapshotId"] <- JsonValue.Create 3; root["expectedCurrentResultNodeId"] <- JsonValue.Create 3)
+          yield changed (symbolic f unit) (fun root -> root["function"] <- JsonValue.Create "missing"; root["expectedSnapshotId"] <- JsonValue.Create 3)
+          yield changed (symbolic f unit) (fun root -> root["replacementFile"] <- JsonValue.Create "nope.json") ]
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host decodes exact and symbolic body replacements with byte parity`` () =
+        withDirectory (fun dir ->
+            let inference = Path.Combine(dir, "inference.json")
+            File.WriteAllText(inference, SnapshotCodec.serialize (ZigHostCreateInferenceTests.snapshot ()) |> unwrap)
+            let mutable protocols = 0
+            for source in inference :: snapshots dir do
+                use session = AuthoringSession.openReadOnly source |> unwrap
+                let declarations = session.Declarations()
+                let f = declarations.Functions.Head
+                let requests =
+                    mutations f
+                    @ (bodies (ZigHostCreateDecodeTests.recipeRequests ()) |> List.map (exact f))
+                    @ (bodies (ZigHostCreateByNameTests.requests declarations (StableId.value session.SnapshotId)) |> List.map (symbolic f))
+                let replies = strictPair "replace-decode" source requests
+                protocols <- protocols + (replies |> List.filter (fun r -> r.Contains "\"code\":\"ProtocolError\"") |> List.length)
+            Assert.True(protocols > 1000, $"Only {protocols} decode rejections."))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Replacement duplicate checks use the recipe root before named binding resolution and decoding`` () =
+        withDirectory (fun dir ->
+            let snapshot = ZigHostCreateInferenceTests.snapshot ()
+            let source = Path.Combine(dir, "duplicates.json")
+            File.WriteAllText(source, SnapshotCodec.serialize snapshot |> unwrap)
+            let f = snapshot.Functions.Head
+            // Raw strings retain duplicates, including objects inside arrays that decoding never reaches.
+            let bodies =
+                [ """{"kind":"stringConcat","left":3,"right":{"kind":"bind","name":"x","value":[{"a":1,"a":2}],"body":{"kind":"unitLiteral"}}}"""
+                  """{"kind":"bind","name":"x","name":"y","value":{"kind":"unitLiteral"},"body":{"kind":"unitLiteral"}}"""
+                  """{"kind":"stringConcat","left":{"kind":"patternReference","name":"missing"},"right":[{"a":1,"a":2}]}"""
+                  // Without a name marker, preserve decode order instead of scanning for duplicates first.
+                  """{"kind":"stringConcat","left":3,"right":{"kind":"unitLiteral","kind":"unitLiteral"}}"""
+                  """{"kind":"stringConcat","left":{"kind":"unitLiteral"},"right":{"kind":"unitLiteral","kind":"unitLiteral"}}""" ]
+            let requests = [ for request in [ exact f; symbolic f ] do for body in bodies do yield request body ]
+            let replies = strictPair "replace-duplicates" source requests
+            for index, reply in List.indexed replies do
+                use parsed = parseDocument reply
+                let error = parsed.RootElement.GetProperty("error")
+                Assert.Equal("ProtocolError", error.GetProperty("code").GetString())
+                let message = error.GetProperty("message").GetString()
+                if index % bodies.Length <> 3 then Assert.Equal("JSON object contains duplicate property names.", message)
+                else Assert.NotEqual<string>("JSON object contains duplicate property names.", message))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host infers replacement recipes in their existing owner context`` () =
+        withDirectory (fun dir ->
+            let snapshot = ZigHostCreateInferenceTests.snapshot ()
+            let source = Path.Combine(dir, "inference.json")
+            File.WriteAllText(source, SnapshotCodec.serialize snapshot |> unwrap)
+            let find name = snapshot.Functions |> List.find (fun f -> f.DisplayName = name)
+            let f = find "unit"
+            let generic = find "generic"
+            let parameter (p: SemanticParameter) = $"""{{"kind":"parameter","parameterId":{quoted (StableId.value p.Id)}}}"""
+            let genericCall value = $"""{{"kind":"directCall","functionId":"zig-generic","arguments":[{{"parameterId":"zig-generic-p0","value":{value}}}]}}"""
+            let lines =
+                (bodies (ZigHostCreateInferenceTests.requests ()) |> List.map (exact f))
+                @ [ exact generic (genericCall int)
+                    exact generic (genericCall (parameter generic.Parameters.Head))
+                    exact generic (parameter (find "twice").Parameters.Head)
+                    exact f """{"kind":"parameter","parameterId":"unknown"}"""
+                    exact f """{"kind":"parameterSlot","index":0}"""
+                    exact generic int
+                    symbolic generic """{"kind":"parameter","name":"p0"}"""
+                    symbolic generic """{"kind":"directCall","function":"generic","arguments":[],"keepUnlisted":true}"""
+                    symbolic generic """{"kind":"directCall","function":{"id":"zig-generic"},"arguments":[],"keepUnlisted":true}"""
+                    symbolic generic """{"kind":"listEmpty","itemType":{"kind":"typeParameter","name":"T"}}"""
+                    symbolic generic """{"kind":"listEmpty","itemType":{"kind":"typeParameter","name":"missing"}}"""
+                    exact (find "twice") int
+                    exact (find "twice") $"""{{"kind":"abort","error":{int}}}""" ]
+            let replies = strictPair "replace-inference" source lines
+            let text = String.concat "\n" replies
+            for code in [ "PureExpressionParameterOutOfScope"; "PureExpressionParameterSlotUnavailable"; "PureExpressionResultTypeMismatch"; "PureExpressionCallArgumentTypeMismatch"; "AbortOwnerResultTypeMismatch" ] do
+                Assert.Contains(code, text)
+            Assert.Contains("At replacement", text))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host mixes seeded body replacement and create proposals in every review form`` () =
+        withDirectory (fun dir ->
+            let inference = Path.Combine(dir, "inference.json")
+            File.WriteAllText(inference, SnapshotCodec.serialize (ZigHostCreateInferenceTests.snapshot ()) |> unwrap)
+            for source in inference :: snapshots dir do
+                use session = AuthoringSession.openReadOnly source |> unwrap
+                let functions = session.Declarations().Functions
+                let lines =
+                    [ for f in functions do
+                          // A complete self call preserves the result type and existing parameter IDs.
+                          let args = f.Parameters |> List.mapi (fun i p -> $"""{{"slot":{i},"value":{{"kind":"parameter","parameterId":{quoted (StableId.value p.Id)}}}}}""") |> String.concat ","
+                          yield exact f $"""{{"kind":"selfCall","arguments":[{args}]}}"""
+                          yield symbolic f $"""{{"kind":"directCall","function":{{"id":{quoted (StableId.value f.Id)}}},"arguments":[],"keepUnlisted":true}}"""
+                          yield exact f $"""{{"kind":"bind","value":{int},"body":{{"kind":"selfCall","arguments":[{args}]}}}}"""
+                          // Both successes and mismatches between other successes consume the same IDs.
+                          yield exact f bool
+                          yield exact f unit
+                          yield changed (exact f unit) (fun root -> root["expectedCurrentResultNodeId"] <- JsonValue.Create "stale") ]
+                    |> fullReviews
+                let create = """{"id":"c","op":"simulateCreateFunction","displayName":"replace-test-created","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"kind":"unitLiteral"}}"""
+                let requests = create :: lines @ [ create; """{"id":"p","op":"proposals"}"""; """{"id":"s","op":"status"}"""; """{"id":"d","op":"declarations"}""" ]
+                let replies = strictPair "replace-mixed" source requests
+                let successes = replies |> List.filter (fun reply -> reply.Contains "\"kind\":\"replaceBody\"")
+                Assert.True(successes.Length >= functions.Length * 9, $"Only {successes.Length} successful replacement reviews."))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Replacement validation failures consume IDs and compact reviews project oversized names`` () =
+        withDirectory (fun dir ->
+            let original = ZigHostCreateInferenceTests.snapshot ()
+            let snapshot =
+                { original with
+                    Functions =
+                        original.Functions |> List.map (fun f ->
+                            if f.DisplayName = "unit" then { f with MustNotWait = true }
+                            elif f.DisplayName = "identity" then { f with DisplayName = String.replicate 20000 "x" }
+                            else f) }
+            let f = snapshot.Functions |> List.find (fun f -> f.DisplayName = "unit")
+            let large = snapshot.Functions |> List.find (fun f -> f.DisplayName.Length = 20000)
+            let source = Path.Combine(dir, "validation.json")
+            File.WriteAllText(source, SnapshotCodec.serialize snapshot |> unwrap)
+            let wait = """{"kind":"bind","value":{"kind":"taskWait","tasks":{"kind":"listEmpty","itemType":{"kind":"builtinGeneric","generic":"task","arguments":[{"kind":"primitive","primitive":"int64"}]}},"mode":"all"},"body":{"kind":"unitLiteral"}}"""
+            let readParameter = $"""{{"kind":"parameter","parameterId":{quoted (StableId.value large.Parameters.Head.Id)}}}"""
+            let lines = [ exact f wait; exact f unit; exact large readParameter; symbolic f wait; exact f unit ] |> fullReviews
+            let replies = strictPair "replace-validation" source lines
+            Assert.Contains("MustNotWaitFunctionWaits", replies[0])
+            use compact = parseDocument replies[6]
+            Assert.True(compact.RootElement.GetProperty("result").GetProperty("projection").GetProperty("requiresDetailedReview").GetBoolean()))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Body replacement refuses bodies referenced by any obligation`` () =
+        withDirectory (fun dir ->
+            let fixture = MilestoneZeroGraph.create ()
+            let obligationId = StableId.createForTesting<ObligationTag> "replace-obligation"
+            let simulate snapshot name operations =
+                Transaction.simulate snapshot
+                    { Id = StableId.createForTesting<TransactionTag> ("replace-" + name)
+                      BaseSnapshotId = snapshot.Id
+                      ProposedSnapshotId = StableId.createForTesting<SnapshotTag> ("replace-" + name)
+                      Operations = operations }
+                |> function Proposed result -> result.ProposedSnapshot | Rejected errors -> failwithf "%A" errors
+            let incomplete =
+                simulate fixture.Snapshot "incomplete"
+                    [ AddFunctionParameter
+                        { TargetFunctionId = fixture.ValidateFunctionId
+                          NewParameterId = StableId.createForTesting<ParameterTag> "replace-policy"
+                          NewParameterDisplayName = "extraPolicy"
+                          NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
+                          CallSitePlans = [ LeaveMissing(fixture.MainValidateCallNodeId, obligationId) ] } ]
+            let resolved =
+                simulate incomplete "resolved"
+                    [ ResolveMissingArgument { TargetObligationId = obligationId; ResolutionValueNodeId = fixture.MainPolicyNodeId } ]
+            for index, snapshot in List.indexed [ incomplete; resolved ] do
+                let source = Path.Combine(dir, $"obligations-{index}.json")
+                File.WriteAllText(source, SnapshotCodec.serialize snapshot |> unwrap)
+                let lines =
+                    [ for obligation in snapshot.Obligations do
+                          let f = snapshot.Functions |> List.find (fun f -> ValueGraph.collectNodes f.Body |> List.exists (fun n -> n.Id = obligation.CallNodeId))
+                          let args = f.Parameters |> List.mapi (fun i p -> $"""{{"slot":{i},"value":{{"kind":"parameter","parameterId":{quoted (StableId.value p.Id)}}}}}""") |> String.concat ","
+                          yield exact f $"""{{"kind":"selfCall","arguments":[{args}]}}"""
+                          yield symbolic f $"""{{"kind":"directCall","function":{{"id":{quoted (StableId.value f.Id)}}},"arguments":[],"keepUnlisted":true}}""" ]
+                let replies = strictPair "replace-obligation" source lines
+                Assert.NotEmpty replies
+                for reply in replies do Assert.Contains("StructuralBodyReferencedByObligation", reply))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Deferred replacement paths have precise unsupported replies`` () =
+        withDirectory (fun dir ->
+            let snapshot = ZigHostCreateInferenceTests.snapshot ()
+            let f = snapshot.Functions.Head
+            let source = Path.Combine(dir, "gates.json")
+            File.WriteAllText(source, SnapshotCodec.serialize snapshot |> unwrap)
+            let file = changed (symbolic f unit) (fun root -> root.Remove "replacement" |> ignore; root["replacementFile"] <- JsonValue.Create "nope.json")
+            let lines = [ exact f """{"kind":"originalTarget"}"""; symbolic f """{"kind":"originalTarget"}"""; file ]
+            let code, errors, replies = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "replace-gates" ] true [ "open"; "--snapshot"; source; "--read-only" ] lines
+            Assert.Equal(0, code)
+            Assert.Equal(seedWarning, errors)
+            Assert.Equal(3, replies.Length)
+            for reply in replies do Assert.Contains("\"code\":\"UnsupportedOperation\"", reply)
+            Assert.Contains("The Zig host does not simulate originalTarget body replacements yet.", replies[0])
+            Assert.Contains("The Zig host does not simulate originalTarget body replacements yet.", replies[1])
+            Assert.Contains("The Zig host does not read replacementFile yet.", replies[2]))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Replacement registration protects imported functions and hidden dependency references`` () =
+        withDirectory (fun dir ->
+            let original = ZigHostCreateInferenceTests.snapshot ()
+            let dependency = { original with Functions = original.Functions |> List.map (fun f -> if f.DisplayName = "identity" then { f with Exported = false } else f) }
+            let imported = dependency.Functions |> List.find (fun f -> f.DisplayName = "twice")
+            let nodeId = StableId.createForTesting<GraphNodeTag> "replace-local-node"
+            let localFunction =
+                { imported with Id = StableId.createForTesting<FunctionTag> "replace-local"; DisplayName = "local"
+                                Parameters = []; Body = { Nodes = [ { Id = nodeId; Kind = SemanticNodeKind.BoolLiteral true } ]; ResultNodeId = nodeId } }
+            let local = { Snapshot.empty (StableId.createForTesting<SnapshotTag> "replace-local-snapshot") with Functions = [ localFunction ] }
+            let source = Path.Combine(dir, "resolved.json")
+            File.WriteAllText(source, SnapshotCodec.serializeResolved dependency local |> unwrap)
+            let manifest = memberOf dependency (Some("snapshotJson", SnapshotCodec.serialize dependency |> unwrap)) "library.json"
+            File.WriteAllText(source + ".dependency.json", manifest.ToJsonString())
+            let hiddenCall = $"""{{"kind":"bind","value":{{"kind":"directCall","functionId":"zig-identity","arguments":[{{"parameterId":"zig-identity-p0","value":{int}}}]}},"body":{bool}}}"""
+            let requests = [ exact imported bool; exact localFunction bool; symbolic imported bool; exact localFunction hiddenCall; exact localFunction bool ]
+            let replies = strictPair "replace-imports" source requests
+            Assert.Contains("ImportedDeclarationModified", replies[0])
+            Assert.Contains("ImportedDeclarationModified", replies[2])
+            Assert.Contains("ImportedDeclarationNotExported", replies[3])
+            for index in [ 1; 4 ] do
+                use reply = parseDocument replies[index]
+                Assert.True(reply.RootElement.GetProperty("ok").GetBoolean(), replies[index]))

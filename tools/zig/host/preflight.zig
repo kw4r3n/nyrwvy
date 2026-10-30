@@ -147,7 +147,7 @@ fn larger(_: void, x: Subtree, y: Subtree) bool {
 }
 
 /// `validateRecipeBounds`: depth before node count, the latter naming the largest extractable subtrees.
-fn validateRecipeBounds(r: *query.Request, body: *const Node) Fail!void {
+pub fn validateRecipeBounds(r: *query.Request, body: *const Node) Fail!void {
     const a = r.a;
     const depth = try depthOf(a, body);
     if (depth > max_depth) return rejected(r, "StructuralRecipeDepthLimitExceeded", try std.fmt.allocPrint(a, "The structural recipe is deeper than {d} nodes (it is {d} nodes deep).", .{ max_depth, depth }));

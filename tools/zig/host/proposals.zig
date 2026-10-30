@@ -25,6 +25,7 @@ pub const Pending = struct {
     created_function: Value,
     receipt: []const u8,
     name: []const u8,
+    replacing: bool = false,
 };
 var storage: ?*std.heap.ArenaAllocator = null;
 var interner: typed.Interner = undefined;
@@ -96,13 +97,28 @@ fn readiness(out: *Writer, root: Value) !void {
 
 pub fn create(r: *query.Request, out: *Writer, c: preflight.Creation, fresh: []const preflight.TypeParameter, inferred: *infer.Infer) !void {
     const created = try m.function(r, c, fresh, inferred);
+    try publish(r, out, created, null);
+}
+
+pub fn replace(r: *query.Request, out: *Writer, target: Value, body: *const @import("recipe.zig").Node, inferred: *infer.Infer) !void {
+    var materializer: m.Materializer = .{ .a = r.a, .r = r, .types = inferred, .fresh = &.{}, .function_id = model.property(target, "id").?, .parameters = model.arrayItems(target, "parameters") };
+    const graph = try materializer.graph(null, body);
+    const fields = try r.a.dupe(model.Member, target.object);
+    for (fields) |*f| if (m.same(model.utf8(f.name), "body")) { f.value = graph; break; };
+    try publish(r, out, .{ .object = fields }, target);
+}
+
+fn publish(r: *query.Request, out: *Writer, created: Value, previous: ?Value) !void {
     // simulateCandidate allocates these only after materialization, even when validation fails.
     const transaction = try m.id(r.a);
     const snapshot = try m.id(r.a);
     // Validate before interning: rejected candidates leave no dead session IDs/strings.
-    const functions = try r.a.alloc(Value, model.arrayItems(r.model, "functions").len + 1);
-    @memcpy(functions[0 .. functions.len - 1], model.arrayItems(r.model, "functions"));
-    functions[functions.len - 1] = created;
+    const old_functions = model.arrayItems(r.model, "functions");
+    const functions = try r.a.alloc(Value, old_functions.len + @as(usize, if (previous != null) 0 else 1));
+    @memcpy(functions[0..old_functions.len], old_functions);
+    if (previous) |old| {
+        for (functions) |*f| if (m.same(query.idOf(f.*), query.idOf(old))) { f.* = created; break; };
+    } else functions[functions.len - 1] = created;
     var fields: std.ArrayList(model.Member) = .empty;
     for (r.model.object) |f| {
         const name = model.utf8(f.name);
@@ -117,7 +133,38 @@ pub fn create(r: *query.Request, out: *Writer, c: preflight.Creation, fresh: []c
     var candidate: Writer.Allocating = .init(r.a);
     try m.write(&candidate.writer, .{ .object = fields.items });
     const read = model.readDocument(r.a, candidate.written());
+    if (previous != null and read.validation_issues.len > 0) {
+        var details: Writer.Allocating = .init(r.a);
+        try details.writer.writeAll("{\"diagnostics\":[");
+        for (read.validation_issues, 0..) |issue, i| {
+            if (i > 0) try details.writer.writeByte(',');
+            try details.writer.writeAll("{\"code\":\"InvalidProposedSnapshot\",\"message\":");
+            const prefix = try std.unicode.utf8ToUtf16LeAlloc(r.a, try std.fmt.allocPrint(r.a, "{s}: ", .{issue.code}));
+            try model.writeString(&details.writer, try std.mem.concat(r.a, u16, &.{ prefix, issue.message }));
+            try details.writer.writeByte('}');
+        }
+        try details.writer.writeAll("]}");
+        r.rejection = .{ .code = "SimulationRejected", .message = "The structural request was rejected.", .details = details.written() };
+        return error.Rejected;
+    }
     if (read.root == .json_null or read.fingerprints == null) return unsupported(r, validation_bail);
+    if (previous) |old| if (r.provenance) |provenance| {
+        if (try imported(r, provenance, "function", query.idOf(old)))
+            return invalidSnapshot(r, "ImportedDeclarationModified", "Dependency declarations are read-only; no proposal was registered.");
+        var hidden_names: std.ArrayList([]const u8) = .empty;
+        for ([_][2][]const u8{ .{ "types", "type" }, .{ "functions", "function" }, .{ "effects", "effect" }, .{ "capabilities", "capability" } }) |group| for (model.arrayItems(read.root, group[0])) |item| {
+            const key = try std.fmt.allocPrint(r.a, "{s}:{s}", .{ group[1], query.idOf(item) });
+            if (!preflight.contains(provenance.hidden, key)) continue;
+            const references = model.referencesTo(r.a, read.root, group[1], model.decoded(model.property(item, "id").?)) orelse continue;
+            for (references) |reference| {
+                if (!try imported(r, provenance, @tagName(reference.owner), model.utf8(reference.owner_id))) {
+                    try hidden_names.append(r.a, try std.fmt.allocPrint(r.a, "{s} '{s}' ({s})", .{ group[1], query.nameOf(item), query.idOf(item) }));
+                    break;
+                }
+            }
+        };
+        if (hidden_names.items.len > 0) return invalidSnapshot(r, "ImportedDeclarationNotExported", try std.fmt.allocPrint(r.a, "The dependency does not export {s}; a dependent may refer only to exported declarations. No proposal was registered.", .{try std.mem.join(r.a, ", ", hidden_names.items)}));
+    };
     try initialize(r);
     const arena = try newArena();
     var registered = false;
@@ -138,7 +185,7 @@ pub fn create(r: *query.Request, out: *Writer, c: preflight.Creation, fresh: []c
     const proposal_id = try a.dupe(u8, model.utf8(model.decoded(transaction)));
     try pending.append(std.heap.page_allocator, .{
         .arena = arena, .id = proposal_id, .base_id = try a.dupe(u8, r.snapshot_id),
-        .generation = generation, .model = root, .created_function = proposed, .receipt = proof, .name = try a.dupe(u8, c.display_name),
+        .generation = generation, .model = root, .created_function = proposed, .receipt = proof, .name = try a.dupe(u8, query.nameOf(created)), .replacing = previous != null,
     });
     registered = true;
     model.useAllocator(r.a);
@@ -149,11 +196,28 @@ pub fn create(r: *query.Request, out: *Writer, c: preflight.Creation, fresh: []c
     const full = if (r.root.get("detail")) |detail| m.same(detail.string, "full") else false;
     const structured = if (r.root.get("structuredReview")) |value| value == .bool and value.bool else false;
     try w.writeAll(if (full) ",\"detail\":\"full\"" else ",\"detail\":\"compact\"");
-    try w.writeAll(",\"review\":{\"kind\":\"createFunction\",\"receipt\":");
+    try w.writeAll(if (previous != null) ",\"review\":{\"kind\":\"replaceBody\",\"receipt\":" else ",\"review\":{\"kind\":\"createFunction\",\"receipt\":");
     try w.writeAll(proof);
     try w.writeAll(",\"readiness\":");
     try readiness(w, root);
-    try w.writeAll(",\"createdFunction\":");
+    if (previous) |old| {
+        try w.writeAll(",\"diff\":{\"ownerFunctionId\":");
+        try m.write(w, model.property(old, "id").?);
+        try w.writeAll(",\"oldResultNodeId\":");
+        try m.write(w, model.property(model.property(old, "body").?, "resultNodeId").?);
+        try w.writeAll(",\"newResultNodeId\":");
+        try m.write(w, model.property(model.property(proposed, "body").?, "resultNodeId").?);
+        try w.writeAll(",\"removedNodeIds\":");
+        const removed = try r.a.dupe(Value, model.bodyNodes(r.a, old));
+        std.mem.sort(Value, removed, {}, struct {
+            fn less(_: void, x: Value, y: Value) bool { return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt; }
+        }.less);
+        try nodeIds(w, removed);
+        try w.writeAll(",\"addedNodeIds\":");
+        try nodeIds(w, model.bodyNodes(r.a, proposed));
+        try w.writeByte('}');
+    }
+    try w.writeAll(if (previous != null) ",\"proposedFunction\":" else ",\"createdFunction\":");
     // Plain reviews retain materialization order; WireGraph uses canonical node/arm order.
     const nodes = model.bodyNodes(r.a, proposed);
     if (!full) {
@@ -187,11 +251,35 @@ pub fn listing(a: Allocator, out: *Writer, current: []const u8) !void {
         if (i > 0) try out.writeByte(',');
         try out.writeAll("{\"proposalId\":");
         try @import("root").writeString(out, p.id);
-        try out.writeAll(",\"kind\":\"createFunction\",\"baseSnapshotId\":");
+        try out.writeAll(if (p.replacing) ",\"kind\":\"replaceBody\",\"baseSnapshotId\":" else ",\"kind\":\"createFunction\",\"baseSnapshotId\":");
         try @import("root").writeString(out, p.base_id);
         try out.writeAll(if (m.same(current, p.base_id)) ",\"baseIsCurrent\":true,\"summary\":" else ",\"baseIsCurrent\":false,\"summary\":");
-        try @import("root").writeString(out, try std.fmt.allocPrint(a, "createFunction '{s}'", .{p.name}));
+        try @import("root").writeString(out, try std.fmt.allocPrint(a, "{s}'{s}'", .{ if (p.replacing) @as([]const u8, "replaceBody of ") else "createFunction ", p.name }));
         try out.writeByte('}');
     }
     try out.writeAll("]}");
+}
+
+fn nodeIds(out: *Writer, nodes: []const Value) !void {
+    try out.writeByte('[');
+    for (nodes, 0..) |node, i| {
+        if (i > 0) try out.writeByte(',');
+        try m.write(out, model.property(node, "id").?);
+    }
+    try out.writeByte(']');
+}
+
+fn imported(r: *query.Request, provenance: wire.Provenance, kind: []const u8, wanted: []const u8) !bool {
+    const key = try std.fmt.allocPrint(r.a, "{s}:{s}", .{ kind, wanted });
+    for (provenance.members) |provider| if (preflight.contains(provider.keys, key)) return true;
+    return false;
+}
+
+fn invalidSnapshot(r: *query.Request, code: []const u8, message: []const u8) anyerror {
+    r.rejection = .{
+        .code = "SnapshotCodecFailure",
+        .message = try std.fmt.allocPrint(r.a, "The snapshot is invalid: {s}: {s}", .{ code, message }),
+        .details = try std.fmt.allocPrint(r.a, "{{\"issues\":[{{\"code\":{s},\"message\":{s}}}]}}", .{ try query.stringOf(r.a, code), try query.stringOf(r.a, message) }),
+    };
+    return error.Rejected;
 }

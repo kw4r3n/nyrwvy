@@ -166,7 +166,7 @@ pub fn duplicatePaths(a: Allocator, line: []const u8) !std.StringHashMapUnmanage
 }
 
 /// The function a by-name recipe is written for (`WireSymbolic.ParameterContext.NewFunction`).
-pub const Owner = struct { name: []const u8, parameters: []const []const u8 = &.{} };
+pub const Owner = struct { name: []const u8, parameters: []const []const u8 = &.{}, existing: ?query.Value = null };
 
 pub const Decoder = struct {
     r: *query.Request,
@@ -492,6 +492,14 @@ pub const Decoder = struct {
         return self.node("parameterSlot", try self.r.a.dupe(Slot, &.{.{ .name = "index", .data = .{ .int = @intCast(index) } }}));
     }
 
+    fn parameterRecipe(self: *Decoder, name: []const u8) Fail!*const Node {
+        if (self.owner.?.existing) |f| {
+            const p = try self.member("parameter on {s}", .{query.nameOf(f)}, f, "parameters", name);
+            return self.node("parameter", try self.r.a.dupe(Slot, &.{.{ .name = "parameterId", .data = .{ .id = query.idOf(p) } }}));
+        }
+        return self.parameterSlot(try self.exactName("new function parameter", name, self.owner.?.parameters));
+    }
+
     /// The by-name `directCall`: a call naming the function being created is a self call.
     fn directCall(self: *Decoder, path: []const u8, value: Json) Fail!*const Node {
         try self.ensureFields(path, value, "direct-call recipe", &.{ "kind", "function", "arguments", "keepUnlisted" }, &.{ "kind", "function", "arguments" });
@@ -503,8 +511,8 @@ pub const Decoder = struct {
         const owner = self.owner.?;
         const a = self.r.a;
         var arguments: std.ArrayList(Pair) = .empty;
-        if (callee_name != null and std.mem.eql(u8, callee_name.?, owner.name)) {
-            if (try self.functionNamed(owner.name)) return self.fail("Ambiguous function '{s}'.", .{owner.name});
+        if ((callee_name != null and std.mem.eql(u8, callee_name.?, owner.name)) or (if (owner.existing) |f| if (selected) |callee| std.mem.eql(u8, query.idOf(f), query.idOf(callee)) else false else false)) {
+            if (owner.existing == null and try self.functionNamed(owner.name)) return self.fail("Ambiguous function '{s}'.", .{owner.name});
             const label = try std.fmt.allocPrint(a, "parameter on {s}", .{owner.name});
             var named = try a.alloc(bool, owner.parameters.len);
             @memset(named, false);
@@ -516,7 +524,7 @@ pub const Decoder = struct {
                 try arguments.append(a, .{ .slot = @intCast(slot), .value = try self.recipe(try self.at(item_path, "value"), try self.property(item, "value")) });
             }
             if (keep) for (owner.parameters, named, 0..) |name, done, slot| if (!done) {
-                try arguments.append(a, .{ .slot = @intCast(slot), .value = try self.parameterSlot(try self.exactName("new function parameter", name, owner.parameters)) });
+                try arguments.append(a, .{ .slot = @intCast(slot), .value = try self.parameterRecipe(name) });
             };
             return self.node("selfCall", try a.dupe(Slot, &.{.{ .name = "arguments", .data = .{ .pairs = arguments.items } }}));
         } else if (keep) {
@@ -602,7 +610,7 @@ pub const Decoder = struct {
             const name = read.name;
             const here = try self.at(path, name);
             const data: ?Data = switch (read.shape) {
-                .pname => return self.parameterSlot(try self.exactName("new function parameter", try self.requiredString(value, name), self.owner.?.parameters)),
+                .pname => return self.parameterRecipe(try self.requiredString(value, name)),
                 .fnref => blk: {
                     const function = try self.referencedFunction(path, value, name);
                     callbacks[callback_count] = .{ .name = name, .function = function };
@@ -764,10 +772,10 @@ pub fn isBlank(a: Allocator, text: []const u8) !bool {
 /// `WireRecipeNames.resolve`: before decoding, a `patternReference` by `name` becomes the
 /// `scopeDepth` and `slot` of the innermost binder in the same recipe that declares the name, and
 /// the binder names are dropped. Frames are pushed as inference pushes them.
-pub fn resolveNames(d: *Decoder, value: *Json, raw: []const u8) Fail!void {
+pub fn resolveNames(d: *Decoder, path: []const u8, value: *Json, raw: []const u8) Fail!void {
     // Only a recipe whose text names a binder or a reference is rewritten (`resolve`'s guard).
     if (std.mem.indexOf(u8, raw, "Name\"") == null and std.mem.indexOf(u8, raw, "\"name\"") == null) return;
-    if (try hasDuplicates(d, "/body", value.*)) return d.fail("JSON object contains duplicate property names.", .{});
+    if (try hasDuplicates(d, path, value.*)) return d.fail("JSON object contains duplicate property names.", .{});
     var frames: std.ArrayList(?Binder) = .empty;
     try visit(d, &frames, value);
     // `ToJsonString` then reads every string of the copy again.
@@ -918,4 +926,58 @@ pub fn rawProperty(a: Allocator, line: []const u8, key: []const u8) ![]const u8 
             name_next = true;
         }
     }
+}
+
+/// WireSymbolic.recipeForExistingFunction binds type parameters only after the whole recipe decoded.
+pub fn bindExistingTypes(d: *Decoder, node: *const Node) Fail!*const Node {
+    const slots = try d.r.a.dupe(Slot, node.slots);
+    for (slots) |*slot| switch (slot.data) {
+        .type => |t| slot.data = .{ .type = try bindType(d, t) },
+        .types => |ts| slot.data = .{ .types = try bindTypes(d, ts) },
+        .recipe => |n| slot.data = .{ .recipe = try bindExistingTypes(d, n) },
+        .recipes => |ns| {
+            const out = try d.r.a.alloc(*const Node, ns.len);
+            for (ns, out) |n, *v| v.* = try bindExistingTypes(d, n);
+            slot.data = .{ .recipes = out };
+        },
+        .pairs => |ps| {
+            const out = try d.r.a.dupe(Pair, ps);
+            for (out) |*p| p.value = try bindExistingTypes(d, p.value);
+            slot.data = .{ .pairs = out };
+        },
+        .arms => |arms| {
+            const out = try d.r.a.dupe(Arm, arms);
+            for (out) |*arm| arm.body = try bindExistingTypes(d, arm.body);
+            slot.data = .{ .arms = out };
+        },
+        else => {},
+    };
+    const out = try d.r.a.create(Node);
+    out.* = .{ .case = node.case, .slots = slots };
+    return out;
+}
+
+fn bindTypes(d: *Decoder, ts: []const TypeRef) Fail![]const TypeRef {
+    const out = try d.r.a.alloc(TypeRef, ts.len);
+    for (ts, out) |t, *v| v.* = try bindType(d, t);
+    return out;
+}
+
+fn bindType(d: *Decoder, t: TypeRef) Fail!TypeRef {
+    return switch (t) {
+        .type_parameter => |name| blk: {
+            const f = d.owner.?.existing.?;
+            const p = try d.member("type parameter on {s}", .{query.nameOf(f)}, f, "typeParameters", name);
+            break :blk .{ .type_parameter = model.utf8(model.decoded(model.property(p, "typeParameterId").?)) };
+        },
+        .named => |n| .{ .named = .{ .id = n.id, .arguments = try bindTypes(d, n.arguments) } },
+        .builtin => |b| .{ .builtin = .{ .generic = b.generic, .arguments = try bindTypes(d, b.arguments) } },
+        .function => |f| blk: {
+            const parameters = try bindTypes(d, f.parameters);
+            const result = try d.r.a.create(TypeRef);
+            result.* = try bindType(d, f.result.*);
+            break :blk .{ .function = .{ .parameters = parameters, .result = result } };
+        },
+        else => t,
+    };
 }

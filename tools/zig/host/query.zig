@@ -1649,7 +1649,7 @@ pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
     const type_parameters = try typeParameterNames(r, &d, root);
     const result_type = try d.typeRef("/resultType", try d.property(root, "resultType"));
     const body = root.object.getPtr("body").?;
-    try recipe.resolveNames(&d, body, try recipe.rawProperty(r.a, r.line, "body"));
+    try recipe.resolveNames(&d, "/body", body, try recipe.rawProperty(r.a, r.line, "body"));
     const tree = try d.recipe("/body", body.*);
     const creation: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
     const fresh = try preflight.run(r, creation);
@@ -1692,10 +1692,84 @@ pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
         return error.Rejected;
     }
     if (inline_body == null or file != null) return r.fail("Pass exactly one of body and bodyFile.", .{});
-    try recipe.resolveNames(&d, inline_body.?, try recipe.rawProperty(r.a, r.line, "body"));
+    try recipe.resolveNames(&d, "/body", inline_body.?, try recipe.rawProperty(r.a, r.line, "body"));
     const tree = try d.recipe("/body", inline_body.?.*);
     const creation: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
     const fresh = try preflight.run(r, creation);
     var inferred = try infer.run(r, creation, fresh);
     try @import("proposals.zig").create(r, out, creation, fresh, &inferred);
+}
+
+// ---------------------------------------------------------------- simulateReplaceBody
+
+pub fn simulateReplaceBody(r: *Request, out: *Writer) Fail!void {
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateReplaceBody request", &.{ "id", "op", "functionId", "expectedCurrentResultNodeId", "replacement", "structuredReview", "detail", "expectedSnapshotId" }, &.{ "id", "op", "functionId", "expectedCurrentResultNodeId", "replacement" })) |message| return r.fail("{s}", .{message});
+    var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
+    const root: std.json.Value = .{ .object = r.root };
+    const function_id = try d.stableId("functionId", try d.requiredString(root, "functionId"));
+    const expected = try expectedSnapshotId(r, &d, root);
+    const result_id = try d.stableId("expectedCurrentResultNodeId", try d.requiredString(root, "expectedCurrentResultNodeId"));
+    const replacement = r.root.getPtr("replacement").?;
+    try recipe.resolveNames(&d, "/replacement", replacement, try recipe.rawProperty(r.a, r.line, "replacement"));
+    const tree = try d.recipe("/replacement", replacement.*);
+    try replaceBody(r, out, function_id, expected, result_id, tree);
+}
+
+pub fn simulateReplaceBodyByName(r: *Request, out: *Writer) Fail!void {
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateReplaceBodyByName request", &.{ "id", "op", "function", "replacement", "replacementFile", "structuredReview", "detail", "expectedSnapshotId", "expectedResultNodeId" }, &.{ "id", "op", "function" })) |message| return r.fail("{s}", .{message});
+    var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
+    const root: std.json.Value = .{ .object = r.root };
+    const target = try d.selector("/function", try d.property(root, "function"), "function");
+    const expected = try expectedSnapshotId(r, &d, root);
+    const result_id = if (r.root.get("expectedResultNodeId") != null)
+        try d.stableId("expectedResultNodeId", try d.requiredString(root, "expectedResultNodeId"))
+    else model.utf8(model.decoded(model.property(model.property(target, "body").?, "resultNodeId").?));
+    const parameters = model.arrayItems(target, "parameters");
+    const names = try r.a.alloc([]const u8, parameters.len);
+    for (parameters, names) |p, *name| name.* = nameOf(p);
+    d.owner = .{ .name = nameOf(target), .parameters = names, .existing = target };
+    const inline_body, const file = .{ r.root.getPtr("replacement"), r.root.get("replacementFile") };
+    if (inline_body == null and file != null) {
+        if (file.? != .string or isBlank(try utf16(r.a, try readable(r, file.?.string)))) return r.fail("replacementFile must be a file path.", .{});
+        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host does not read replacementFile yet." };
+        return error.Rejected;
+    }
+    if (inline_body == null or file != null) return r.fail("Pass exactly one of replacement and replacementFile.", .{});
+    try recipe.resolveNames(&d, "/replacement", inline_body.?, try recipe.rawProperty(r.a, r.line, "replacement"));
+    const tree = try recipe.bindExistingTypes(&d, try d.recipe("/replacement", inline_body.?.*));
+    try replaceBody(r, out, idOf(target), expected, result_id, tree);
+}
+
+fn usesOriginal(a: Allocator, node: *const recipe.Node) Fail!bool {
+    if (std.mem.eql(u8, node.case, "OriginalTarget")) return true;
+    for (try recipe.children(a, node)) |child| if (try usesOriginal(a, child)) return true;
+    return false;
+}
+
+fn replaceBody(r: *Request, out: *Writer, function_id: []const u8, expected: []const u8, result_id: []const u8, tree: *const recipe.Node) Fail!void {
+    if (!std.mem.eql(u8, expected, r.snapshot_id)) return preflight.rejected(r, "StructuralExpectedBaseMismatch", "The structural request targets a different base snapshot.");
+    const target = preflight.declaration(r, "functions", function_id) orelse return preflight.rejected(r, "StructuralTargetNotFound", "The target function does not exist.");
+    const current = model.utf8(model.decoded(model.property(model.property(target, "body").?, "resultNodeId").?));
+    if (!std.mem.eql(u8, current, result_id)) return preflight.rejected(r, "StructuralExpectedResultMismatch", "The target function result node changed after inspection.");
+    if (try usesOriginal(r.a, tree)) {
+        // shortcut: Session reroutes these to replaceTarget; its pruning and review belong to 3d-2.
+        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host does not simulate originalTarget body replacements yet." };
+        return error.Rejected;
+    }
+    try preflight.validateRecipeBounds(r, tree);
+    const parameters = model.arrayItems(target, "parameters");
+    const owner_parameters = try r.a.alloc(preflight.Parameter, parameters.len);
+    for (parameters, owner_parameters) |p, *v| v.* = .{ .name = nameOf(p), .type = try infer.typeOf(r.a, model.property(p, "type").?) };
+    const effects = model.arrayItems(target, "requiredEffects");
+    const owner_effects = try r.a.alloc([]const u8, effects.len);
+    for (effects, owner_effects) |e, *v| v.* = model.utf8(model.decoded(e));
+    const owner: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = nameOf(target), .type_parameters = null, .parameters = owner_parameters, .result_type = try infer.typeOf(r.a, model.property(target, "resultType").?), .required_effects = owner_effects, .body = tree };
+    var inferred = try infer.runIn(r, owner, &.{}, target);
+    const nodes = model.bodyNodes(r.a, target);
+    for (model.arrayItems(r.model, "obligations")) |obligation| {
+        const call = model.utf8(model.decoded(model.property(obligation, "callNodeId").?));
+        for (nodes) |node| if (std.mem.eql(u8, idOf(node), call))
+            return preflight.rejected(r, "StructuralBodyReferencedByObligation", try std.fmt.allocPrint(r.a, "Obligation '{s}' targets the body being replaced.", .{idOf(obligation)}));
+    }
+    try @import("proposals.zig").replace(r, out, target, tree, &inferred);
 }
