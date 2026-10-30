@@ -2699,3 +2699,122 @@ module ZigHostCommitParityTests =
                     let pending = send (create name) |> proposal
                     send (operation "commit" pending) |> succeeded
                     for request in reads do send request |> succeeded) |> ignore)
+
+module ZigHostProposalParityTests =
+    open ZigHostParityTests
+
+    let private proposal (reply: string) =
+        use doc = parseDocument reply
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean(), reply)
+        doc.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+
+    let private operation op id = $"""{{"id":"{op}","op":"{op}","proposalId":"{id}"}}"""
+
+    let private create detail =
+        // A traversal order different from canonical node order, plus UTF-16 paging boundaries.
+        $"""{{"id":"create","op":"simulateCreateFunctionByName","displayName":"made","parameters":[],"resultType":{{"kind":"primitive","primitive":"string"}},"requiredEffects":[],{detail}"body":{{"kind":"stringConcat","left":{{"kind":"stringLiteral","value":"a😀b"}},"right":{{"kind":"stringLiteral","value":"tail"}}}}}}"""
+
+    let private read id fields = $"""{{"id":"read","op":"readProposal","proposalId":"{id}"{fields}}}"""
+
+    let private exercise (send: string -> string) id label =
+        for structured in [ "false"; "true" ] do
+            for path in [ ""; "/review"; "/review/receipt"; "/review/receipt/transactionId"; "/detail" ] do
+                for offset, limit in [ 0, 1; 1, 2; 0, 20 ] do
+                    send (read id $""", "structuredReview":{structured},"path":"{path}","offset":{offset},"limit":{limit}""") |> ignore
+        send (operation "viewProposal" id) |> ignore
+        send $"""{{"id":"view","op":"viewProposal","proposalId":"{id}","output":"views/{label}.html"}}""" |> ignore
+        // The same generated page can be replaced, but unrelated files cannot.
+        send $"""{{"id":"view","op":"viewProposal","proposalId":"{id}","output":"views/{label}.html"}}""" |> ignore
+        for output in [ ""; "wrong.txt"; "../escape.html"; "ordinary.html"; "blocked/page.html" ] do
+            send $"""{{"id":"view","op":"viewProposal","proposalId":"{id}","output":"{output}"}}""" |> ignore
+        for fields in
+            [ ",\"path\":\"not-a-pointer\""; ",\"path\":\"/~2\""; ",\"path\":\"/absent\""
+              ",\"path\":\"/detail/x\""; ",\"offset\":-1"; ",\"offset\":99999"; ",\"limit\":0"
+              ",\"limit\":21"; ",\"offset\":-0"; ",\"offset\":1.0"; ",\"limit\":2147483648"; ",\"structuredReview\":null"
+              ",\"detail\":\"compact\""; ",\"detail\":\"full\""; ",\"path\":null"; ",\"offset\":null,\"limit\":null" ] do
+            send (read id fields) |> ignore
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Pending reviews and pages match for creates body and targeted replacements including stale handles`` () =
+        withDirectory (fun dir ->
+            let input = Path.Combine(dir, "input")
+            Directory.CreateDirectory input |> ignore
+            let source = Path.Combine(input, "snapshot.json")
+            File.WriteAllText(source, SnapshotCodec.serialize (Snapshot.empty (StableId.createForTesting<SnapshotTag> "proposal-pages")) |> unwrap)
+            File.WriteAllText(Path.Combine(input, "ordinary.html"), "not generated")
+            File.WriteAllText(Path.Combine(input, "blocked"), "not a directory")
+            seededWritablePair "proposal-pages" source dir (fun _ send ->
+                for id in [ "unknown"; "" ] do
+                    send (read id ",\"structuredReview\":null,\"offset\":null") |> ignore
+                    send (operation "viewProposal" id) |> ignore
+                for request in
+                    [ """{"id":"bad","op":"readProposal"}"""
+                      """{"id":"bad","op":"readProposal","proposalId":3,"path":null}"""
+                      """{"id":"bad","op":"readProposal","proposalId":3}"""
+                      """{"id":"bad","op":"readProposal","proposalId":"unknown","proposalId":"again"}"""
+                      """{"id":"bad","op":"viewProposal","proposalId":3,"output":null}"""
+                      """{"id":"bad","op":"viewProposal","proposalId":"unknown","output":null}"""
+                      """{"id":"bad","op":"viewProposal","proposalId":"unknown","extra":true}""" ] do
+                    send request |> ignore
+                let stale = send (create "") |> proposal
+                exercise send stale "create-compact"
+                for detail in [ "\"detail\":\"full\","; "\"detail\":\"full\",\"structuredReview\":true," ] do
+                    let pending = send (create detail) |> proposal
+                    exercise send pending (if detail.Contains "structuredReview" then "create-structured" else "create-full")
+                    send (operation "reject" pending) |> ignore
+                    send (read pending "") |> ignore
+                    send (operation "viewProposal" pending) |> ignore
+                let installed = send (create "") |> proposal
+                send (operation "commit" installed) |> ignore
+                send (read installed "") |> ignore
+                send (operation "viewProposal" installed) |> ignore
+                exercise send stale "stale"
+                send """{"id":"list","op":"proposals"}""" |> ignore
+                send """{"id":"status","op":"status"}""" |> ignore
+                for detail, fields in [ "compact", "\"detail\":\"compact\""; "full", "\"detail\":\"full\""; "structured", "\"detail\":\"full\",\"structuredReview\":true" ] do
+                    let body = send $"""{{"id":"body","op":"simulateReplaceBodyByName","function":"made",{fields},"replacement":{{"kind":"stringLiteral","value":"a😀b"}}}}""" |> proposal
+                    exercise send body ("body-" + detail)
+                    // Read the full stored function to test string and graph pagination paths.
+                    for structured in [ "false"; "true" ] do
+                        for path in [ "/review/proposedFunction"; "/review/proposedFunction/body/nodes"; "/review/proposedFunction/nodes" ] do
+                            send (read body $""", "structuredReview":{structured},"path":"{path}" """) |> ignore
+                    for offset, limit in [ 0, 2; 1, 1; 1, 2; 2, 2; 4, 20; 0, 1025 ] do
+                        send (read body $""", "path":"/review/proposedFunction/body/nodes/0/kind/value","offset":{offset},"limit":{limit}""") |> ignore
+                    send (operation "reject" body) |> ignore
+                use focus = parseDocument (send """{"id":"focus","op":"readFunction","function":"made","detail":"compact"}""")
+                let target = focus.RootElement.GetProperty("result").GetProperty("function").GetProperty("body").GetProperty("resultNodeId").GetString()
+                for detail, fields in [ "compact", "\"detail\":\"compact\""; "full", "\"detail\":\"full\""; "structured", "\"detail\":\"full\",\"structuredReview\":true" ] do
+                    let replacement = send $"""{{"id":"target","op":"simulateReplaceTargetByName","function":"made","targetNodeId":"{target}",{fields},"replacement":{{"kind":"stringLiteral","value":"changed"}}}}""" |> proposal
+                    exercise send replacement ("target-" + detail)
+                    for path in [ "/review/diff"; "/review/baseFocus"; "/review/proposedFocus" ] do
+                        send (read replacement $""", "path":"{path}" """) |> ignore
+                    send (operation "reject" replacement) |> ignore
+                send (operation "reject" stale) |> ignore
+                send (read stale "") |> ignore
+                send (operation "viewProposal" stale) |> ignore) |> ignore)
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Proposal page budgets preserve original array indices and full engine review pages`` () =
+        withDirectory (fun dir ->
+            let input = Path.Combine(dir, "input")
+            Directory.CreateDirectory input |> ignore
+            let source = Path.Combine(input, "snapshot.json")
+            File.WriteAllText(source, SnapshotCodec.serialize (Snapshot.empty (StableId.createForTesting<SnapshotTag> "proposal-budget")) |> unwrap)
+            let literal = String.replicate 2048 "x" + "😀"
+            // 41 recipe nodes, only 2 levels deep; the long sibling literals force page cuts.
+            let items = List.replicate 40 $"""{{"kind":"stringLiteral","value":"{literal}"}}""" |> String.concat ","
+            let body = $"""{{"kind":"listConstruct","itemType":{{"kind":"primitive","primitive":"string"}},"items":[{items}]}}"""
+            seededWritablePair "proposal-budget" source dir (fun _ send ->
+                let pending = send $"""{{"id":"wide","op":"simulateCreateFunctionByName","displayName":"wide","parameters":[],"resultType":{{"kind":"builtinGeneric","generic":"list","arguments":[{{"kind":"primitive","primitive":"string"}}]}},"requiredEffects":[],"body":{body}}}""" |> proposal
+                for structured in [ "false"; "true" ] do
+                    for path in [ ""; "/review"; "/review/createdFunction"; "/review/createdFunction/body/nodes" ] do
+                        for offset in [ 0; 1 ] do
+                            let reply = send (read pending $""", "structuredReview":{structured},"path":"{path}","offset":{offset}""")
+                            Assert.True(Text.Encoding.UTF8.GetByteCount(reply) < 8400, reply)
+                            use doc = parseDocument reply
+                            Assert.True(doc.RootElement.GetProperty("ok").GetBoolean(), reply)
+                            if structured = "true" && path = "/review/createdFunction/body/nodes" then
+                                Assert.True(doc.RootElement.GetProperty("result").GetProperty("projection").GetProperty("requiresDetailedReview").GetBoolean(), reply)
+                for path in [ "/review/createdFunction/body/nodes/01"; "/review/createdFunction/body/nodes/-1"; "/review/createdFunction/body/nodes/~01" ] do
+                    send (read pending $""", "path":"{path}" """) |> ignore
+                send (operation "viewProposal" pending) |> ignore) |> ignore)

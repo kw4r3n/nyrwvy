@@ -258,23 +258,6 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         } else try proposals.listing(a, out, snapshot_id);
         return out.writeByte('}');
     };
-    // Pending proposals are registered by simulation; review paging is not ported yet.
-    if (std.mem.eql(u8, op, "readProposal") or std.mem.eql(u8, op, "viewProposal")) {
-        const read = std.mem.eql(u8, op, "readProposal");
-        const allowed: []const []const u8 = if (read) &.{ "id", "op", "proposalId", "path", "offset", "limit", "structuredReview" } else &.{ "id", "op", "proposalId", "output" };
-        if (try fieldProblem(a, line, parsed.object, try std.fmt.allocPrint(a, "{s} request", .{op}), allowed, &.{ "id", "op", "proposalId" })) |message| return failure(out, id, "ProtocolError", message);
-        const optional = if (read) "path" else "output";
-        if (parsed.object.get(optional) != null) _ = requiredString(a, parsed.object, optional, &problem) catch |e| switch (e) {
-            Problem.Protocol => return failure(out, id, "ProtocolError", problem),
-            else => return e,
-        };
-        const proposal = requiredString(a, parsed.object, "proposalId", &problem) catch |e| switch (e) {
-            Problem.Protocol => return failure(out, id, "ProtocolError", problem),
-            else => return e,
-        };
-        if (proposals.find(proposal) != null) return failure(out, id, "UnsupportedOperation", "The Zig host does not read pending proposal reviews yet.");
-        return failure(out, id, "ProposalNotFound", try std.fmt.allocPrint(a, "No pending proposal has the ID '{s}'; it was committed, rejected, or discarded when its session closed.", .{proposal}));
-    }
     const queries = [_]struct { []const u8, *const fn (*query.Request, *std.Io.Writer) anyerror!void }{
         .{ "search", query.search },
         .{ "references", query.references },
@@ -282,6 +265,8 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         .{ "bindingScopes", query.bindingScopes },
         .{ "readFunction", query.readFunction },
         .{ "viewFunction", query.viewFunction },
+        .{ "readProposal", proposals.readProposal },
+        .{ "viewProposal", proposals.viewProposal },
         .{ "executionReadiness", query.executionReadiness },
         .{ "simulateCreateFunction", query.simulateCreateFunction },
         .{ "simulateCreateFunctionByName", query.simulateCreateFunctionByName },

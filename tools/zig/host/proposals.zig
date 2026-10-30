@@ -26,6 +26,9 @@ pub const Pending = struct {
     // Preserve graph traversal order for WireEncodeCommon; model is canonical for WireGraph.
     created_function: Value,
     receipt: []const u8,
+    // Immutable wire reviews retain the simulation base, even after a later commit.
+    full_review: []const u8,
+    structured_review: []const u8,
     name: []const u8,
     replacing: bool = false,
     target_node: ?[]const u8 = null,
@@ -220,18 +223,27 @@ pub fn publish(r: *query.Request, out: *Writer, created: Value, previous: ?Value
     const root = model.canonicalRoot(a, owned_model);
     const proof = try receipt(a, transaction, snapshot, r, read.fingerprints.?);
     const proposal_id = try a.dupe(u8, model.utf8(model.decoded(transaction)));
+    var plain: Writer.Allocating = .init(r.a);
+    var structured_out: Writer.Allocating = .init(r.a);
+    try encodeReview(r, &plain.writer, created, previous, change, transaction, snapshot, root, proposed, proof, true, false);
+    try encodeReview(r, &structured_out.writer, created, previous, change, transaction, snapshot, root, proposed, proof, true, true);
     try pending.append(std.heap.page_allocator, .{
         .arena = arena, .id = proposal_id, .base_id = try a.dupe(u8, r.snapshot_id),
-        .generation = generation, .model = root, .session_model = owned_model, .created_function = proposed, .receipt = proof, .name = try a.dupe(u8, query.nameOf(created)), .replacing = previous != null, .target_node = if (change) |c| try a.dupe(u8, c.target) else null,
+        .generation = generation, .model = root, .session_model = owned_model, .created_function = proposed, .receipt = proof, .full_review = try a.dupe(u8, plain.written()), .structured_review = try a.dupe(u8, structured_out.written()), .name = try a.dupe(u8, query.nameOf(created)), .replacing = previous != null, .target_node = if (change) |c| try a.dupe(u8, c.target) else null,
     });
     registered = true;
+    const full = if (r.root.get("detail")) |detail| m.same(detail.string, "full") else false;
+    const structured = if (r.root.get("structuredReview")) |value| value == .bool and value.bool else false;
+    try encodeReview(r, out, created, previous, change, transaction, snapshot, root, proposed, proof, full, structured);
+}
+
+fn encodeReview(r: *query.Request, out: *Writer, created: Value, previous: ?Value, change: ?targeted.Change, transaction: Value, snapshot: Value, root: Value, proposed: Value, proof: []const u8, full: bool, structured: bool) !void {
+    const created_id = model.decoded(model.property(created, "id").?);
     model.useAllocator(r.a);
     var raw: Writer.Allocating = .init(r.a);
     const w = &raw.writer;
     try w.writeAll("{\"proposalId\":");
     try m.write(w, transaction);
-    const full = if (r.root.get("detail")) |detail| m.same(detail.string, "full") else false;
-    const structured = if (r.root.get("structuredReview")) |value| value == .bool and value.bool else false;
     try w.writeAll(if (full) ",\"detail\":\"full\"" else ",\"detail\":\"compact\"");
     try w.writeAll(if (change != null) ",\"review\":{\"kind\":\"replaceTarget\",\"receipt\":" else if (previous != null) ",\"review\":{\"kind\":\"replaceBody\",\"receipt\":" else ",\"review\":{\"kind\":\"createFunction\",\"receipt\":");
     try w.writeAll(proof);
@@ -337,4 +349,102 @@ fn invalidSnapshot(r: *query.Request, code: []const u8, message: []const u8) any
         .details = try std.fmt.allocPrint(r.a, "{{\"issues\":[{{\"code\":{s},\"message\":{s}}}]}}", .{ try query.stringOf(r.a, code), try query.stringOf(r.a, message) }),
     };
     return error.Rejected;
+}
+
+fn text(r: *query.Request, name: []const u8) ![]const u8 {
+    const value = r.root.get(name) orelse return r.fail("Missing required property '{s}'.", .{name});
+    if (value != .string) return r.fail("Property '{s}' must be a JSON string.", .{name});
+    return query.readable(r, value.string);
+}
+
+fn lookup(r: *query.Request, wanted: []const u8) !*const Pending {
+    if (r.session_invalidated) {
+        r.rejection = .{ .code = "SessionInvalidated", .message = "The session was invalidated by external modification." };
+        return error.Rejected;
+    }
+    return find(wanted) orelse {
+        r.rejection = .{ .code = "ProposalNotFound", .message = try std.fmt.allocPrint(r.a, "No pending proposal has the ID '{s}'; it was committed, rejected, or discarded when its session closed.", .{wanted}) };
+        return error.Rejected;
+    };
+}
+
+fn integer(r: *query.Request, name: []const u8, fallback: i32) !i32 {
+    const value = r.root.get(name) orelse return fallback;
+    if (value == .integer or value == .float or value == .number_string) {
+        // TryGetInt32 rejects decimals/exponents but accepts -0; std.json normalizes -0 to Float.
+        const raw = model.property(try model.parseValue(r.a, r.line), name).?;
+        return std.fmt.parseInt(i32, raw.number, 10) catch return r.fail("{s} must be a JSON Int32.", .{name});
+    }
+    return r.fail("{s} must be a JSON Int32.", .{name});
+}
+
+pub fn readProposal(r: *query.Request, out: *Writer) !void {
+    if (try query.fieldProblem(r.a, r.line, &.{}, r.root, "readProposal request", &.{ "id", "op", "proposalId", "path", "offset", "limit", "structuredReview" }, &.{ "id", "op", "proposalId" })) |message| return r.fail("{s}", .{message});
+    const path = if (r.root.get("path") != null) try text(r, "path") else "";
+    const p = try lookup(r, try text(r, "proposalId"));
+    var structured = true;
+    if (r.root.get("structuredReview")) |value| {
+        if (value != .bool) return r.fail("Property 'structuredReview' must be a JSON boolean.", .{});
+        structured = value.bool;
+    }
+    const offset = try integer(r, "offset", 0);
+    const limit = try integer(r, "limit", 20);
+    try projection.page(r, out, p.id, m.same(r.snapshot_id, p.base_id), structured, if (structured) p.structured_review else p.full_review, path, offset, limit);
+}
+
+pub fn viewProposal(r: *query.Request, out: *Writer) !void {
+    if (try query.fieldProblem(r.a, r.line, &.{}, r.root, "viewProposal request", &.{ "id", "op", "proposalId", "output" }, &.{ "id", "op", "proposalId" })) |message| return r.fail("{s}", .{message});
+    const wanted = try text(r, "proposalId");
+    const output = if (r.root.get("output") != null) try text(r, "output") else null;
+    const p = try lookup(r, wanted);
+    const current = m.same(r.snapshot_id, p.base_id);
+    const viewer = @import("viewer.zig");
+    var data: Writer.Allocating = .init(r.a);
+    const w = &data.writer;
+    try w.writeAll("{\"view\":\"proposalReview\",\"transactionId\":");
+    try @import("root").writeString(w, p.id);
+    try w.writeAll(",\"proposalKind\":");
+    try @import("root").writeString(w, if (p.target_node != null) "replaceTarget" else if (p.replacing) "replaceBody" else "createFunction");
+    try w.writeAll(",\"baseSnapshotId\":");
+    try @import("root").writeString(w, p.base_id);
+    const snapshot = model.utf8(model.decoded(model.property(p.model, "snapshotId").?));
+    try w.writeAll(",\"proposedSnapshotId\":");
+    try @import("root").writeString(w, snapshot);
+    try w.writeAll(if (current) ",\"baseIsCommitted\":true,\"readiness\":" else ",\"baseIsCommitted\":false,\"readiness\":");
+    try readiness(w, p.model);
+    try w.writeAll(",\"changedFunctions\":[{\"committed\":");
+    var before: ?Value = null;
+    const id = query.idOf(p.created_function);
+    const committed_root = model.canonicalRoot(r.a, r.model);
+    if (current) for (model.arrayItems(committed_root, "functions")) |f| {
+        if (m.same(query.idOf(f), id)) { before = f; break; }
+    };
+    if (before) |f| try w.writeAll(try viewer.focusValue(r.a, committed_root, r.snapshot_id, f)) else try w.writeAll("null");
+    try w.writeAll(",\"proposed\":");
+    const function = for (model.arrayItems(p.model, "functions")) |f| {
+        if (m.same(query.idOf(f), id)) break f;
+    } else unreachable;
+    try w.writeAll(try viewer.focusValue(r.a, p.model, snapshot, function));
+    try w.writeAll("}],\"declaredTypes\":[],\"declaredCapabilities\":[],\"declaredEffects\":[],\"engineReview\":");
+    try w.writeAll(p.structured_review);
+    try w.writeByte('}');
+    const name = try std.fmt.allocPrint(r.a, "nyrwvy-change-review-transaction-{x}.html", .{p.id});
+    const content = try viewer.page(r.a, data.written());
+    switch (try @import("view_file.zig").write(r.a, r.snapshot_path, output, ".html", name, viewer.header(), content)) {
+        .refused => |message| {
+            r.rejection = .{ .code = "ViewWriteFailed", .message = message };
+            return error.Rejected;
+        },
+        .internal => {
+            r.rejection = .{ .code = "InternalError", .message = "Unexpected internal failure; this request was not applied and the session is unchanged." };
+            return error.Rejected;
+        },
+        .written => |path| {
+            try out.writeAll("{\"proposalId\":");
+            try @import("root").writeString(out, p.id);
+            try out.writeAll(",\"kind\":\"changeReview\",\"mediaType\":\"text/html; charset=utf-8\",\"path\":");
+            try @import("root").writeString(out, path);
+            try out.writeByte('}');
+        },
+    }
 }
