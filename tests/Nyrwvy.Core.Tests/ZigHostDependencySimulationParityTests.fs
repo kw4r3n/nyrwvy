@@ -279,7 +279,17 @@ module ZigHostDependencySimulationParityTests =
                         let line = request named true source |> fun line -> mutate line (fun n -> n["selection"].["replaces"] <- JsonNode.Parse "[]"; n["repairs"] <- JsonNode.Parse "{}")
                         yield line
                         yield mutate line (fun n -> n["expectedSnapshotId"] <- JsonValue.Create "stale") ]
-                for reply in strictPair standalone firstRequests do Assert.Equal("DependencyFailure", rejected reply))
+                for reply in strictPair standalone firstRequests do Assert.Equal("DependencyFailure", rejected reply)
+                let upgradeGuards =
+                    [ for op in [ "simulateDependencyUpgrade"; "simulateDependencyUpgradeByName" ] do
+                        yield $"""{{"id":"guard","op":"{op}","upgrades":[],"repairs":{{}}}}"""
+                        yield """{"id":"allocate","op":"simulateCreateEffect","displayName":"AfterGuard","exported":true}""" ]
+                let replies = strictPair standalone upgradeGuards
+                for index in [ 0; 2 ] do
+                    Assert.Equal("DependencyFailure", rejected replies[index])
+                    use parsed = parseDocument replies[index]
+                    Assert.Equal("This workspace has no dependency to upgrade; add one with a selection whose replaces is empty.", parsed.RootElement.GetProperty("error").GetProperty("message").GetString())
+                    success replies[index + 1] |> ignore)
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Dependency repair commits invalidate changed snapshot and dependency sidecar files`` () =

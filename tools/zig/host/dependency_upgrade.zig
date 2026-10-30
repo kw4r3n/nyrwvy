@@ -263,7 +263,7 @@ pub fn planChange(r: *query.Request) !Plan {
         };
     }
     try checkPersisted(r);
-    if (has_upgrades and host.selection == null) return failure(r, "This workspace has no dependency to upgrade.");
+    if (has_upgrades and host.selection == null) return failure(r, if (simulation) "This workspace has no dependency to upgrade; add one with a selection whose replaces is empty." else "This workspace has no dependency to upgrade.");
     const current = try members(r);
     var changed: std.ArrayList(Replacement) = .empty;
     var selected: std.ArrayList(Pinned) = .empty;
