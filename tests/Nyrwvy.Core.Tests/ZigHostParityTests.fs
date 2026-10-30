@@ -2818,3 +2818,338 @@ module ZigHostProposalParityTests =
                 for path in [ "/review/createdFunction/body/nodes/01"; "/review/createdFunction/body/nodes/-1"; "/review/createdFunction/body/nodes/~01" ] do
                     send (read pending $""", "path":"{path}" """) |> ignore
                 send (operation "viewProposal" pending) |> ignore) |> ignore)
+
+/// Step 4a only: declaration intents, shared publication, persistence and review artifacts.
+module ZigHostDeclarationParityTests =
+    open ZigHostParityTests
+
+    let private quoted (text: string) = JsonSerializer.Serialize text
+    let private mutate (line: string) change =
+        let node = JsonNode.Parse(line).AsObject()
+        change node
+        node.ToJsonString()
+    let private request op fields = $"""{{"id":"declaration","op":"{op}",{fields}}}"""
+    let private primitive = """{"kind":"primitive","primitive":"int64"}"""
+    let private named name = $"""{{"kind":"named","name":{quoted name}}}"""
+    let private listOf t = $"""{{"kind":"builtinGeneric","generic":"list","arguments":[{t}]}}"""
+    let private field name t = $"""{{"displayName":{quoted name},"type":{t}}}"""
+    let private product fields = $"""{{"kind":"product","fields":[{String.concat "," fields}]}}"""
+    let private declaration name kind = $""" "displayName":{quoted name},"typeKind":{kind}"""
+    let private create op name kind = request op (declaration name kind)
+    let private group =
+        let a = declaration "NewA" (product [ field "next" (named "NewB") ])
+        let b = declaration "NewB" """{"kind":"union","variants":[{"displayName":"End","fields":[]},{"displayName":"More","fields":[{"displayName":"value","type":{"kind":"named","name":"NewA"}}]}]}"""
+        request "simulateCreateTypesByName" $""" "types":[{{{a}}},{{{b}}}]"""
+    let private capability byName =
+        let effect = if byName then "\"effect\":\"io\"" else "\"effectId\":\"zig-io\""
+        request (if byName then "simulateCreateCapabilityByName" else "simulateCreateCapability")
+            $""" "displayName":"NewCapability","exported":true,"taskBound":true,"operations":[{{"displayName":"read","parameters":[{{"displayName":"key","type":{primitive}}}],"resultType":{{"kind":"builtinGeneric","generic":"result","arguments":[{primitive},{{"kind":"primitive","primitive":"string"}}]}},{effect},"mayWait":true}}]"""
+    let private succeeded (reply: string) =
+        use doc = parseDocument reply
+        Assert.True(doc.RootElement.GetProperty("ok").GetBoolean(), reply)
+    let private proposal (reply: string) =
+        succeeded reply
+        use doc = parseDocument reply
+        doc.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+    let private operation op id = request op $""" "proposalId":{quoted id}"""
+    let private strict seed source requests =
+        let expected, actual = seededPair seed source requests
+        Assert.Equal<string list>(expected, actual)
+        expected
+    let private fullReviews lines =
+        lines |> List.collect (fun line ->
+            [ line
+              mutate line (fun root -> root["detail"] <- JsonValue.Create "full")
+              mutate line (fun root -> root["detail"] <- JsonValue.Create "full"; root["structuredReview"] <- JsonValue.Create true) ])
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Declaration creation matches exact symbolic generic recursive and group successes`` () =
+        withDirectory (fun dir ->
+            let source = Path.Combine(dir, "declarations.json")
+            let snapshot = ZigHostCreateInferenceTests.snapshot ()
+            File.WriteAllText(source, SnapshotCodec.serialize snapshot |> unwrap)
+            let generic =
+                create "simulateCreateType" "NewGeneric" (product [ field "value" """{"kind":"typeParameter","name":"T"}""" ])
+                |> fun line -> mutate line (fun root -> root["typeParameters"] <- JsonNode.Parse("[\"T\"]"))
+            let successes =
+                [ create "simulateCreateType" "NewProduct" (product [ field "x" primitive ])
+                  create "simulateCreateTypeByName" "NewProduct" (product [ field "point" (named "Point") ])
+                  generic
+                  generic.Replace("simulateCreateType", "simulateCreateTypeByName")
+                  create "simulateCreateTypeByName" "NewTree" (product [ field "children" (listOf (named "NewTree")) ])
+                  create "simulateCreateTypeByName" "NewUnion" """{"kind":"union","variants":[{"displayName":"Empty","fields":[]},{"displayName":"Full","fields":[{"displayName":"x","type":{"kind":"primitive","primitive":"int64"}}]}]}"""
+                  (create "simulateCreateTypeByName" "GenericTree" """{"kind":"product","fields":[{"displayName":"value","type":{"kind":"typeParameter","name":"T"}},{"displayName":"children","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"named","name":"GenericTree","arguments":[{"kind":"typeParameter","name":"T"}]}]}}]}"""
+                  |> fun line -> mutate line (fun root -> root["typeParameters"] <- JsonNode.Parse("[\"T\"]")))
+                  group
+                  request "simulateCreateTypesByName" """ "types":[{"displayName":"GA","exported":true,"typeParameters":["T"],"typeKind":{"kind":"product","fields":[{"displayName":"bs","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"named","name":"GB","arguments":[{"kind":"typeParameter","name":"T"}]}]}}]}},{"displayName":"GB","typeParameters":["U"],"typeKind":{"kind":"product","fields":[{"displayName":"as","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"named","name":"GA","arguments":[{"kind":"typeParameter","name":"U"}]}]}}]}}]"""
+                  request "simulateCreateTypesByName" $""" "types":[{{{declaration "Solo" (product [])}}}]"""
+                  request "simulateCreateEffect" """ "displayName":"NewEffect" """
+                  request "simulateCreateEffect" """ "displayName":"NewEffect","exported":true"""
+                  capability false
+                  capability true
+                  mutate (capability false) (fun root ->
+                      root.Remove "exported" |> ignore
+                      root.Remove "taskBound" |> ignore
+                      (root["operations"].AsArray()).[0]["failureType"] <- null)
+                  (create "simulateCreateType" "GenericUnion" """{"kind":"union","variants":[{"displayName":"None","fields":[]},{"displayName":"Some","fields":[{"displayName":"value","type":{"kind":"typeParameter","name":"T"}}]}]}"""
+                   |> fun line -> mutate line (fun root -> root["typeParameters"] <- JsonNode.Parse("[\"T\"]"))) ]
+                |> fullReviews
+            let replies = strict "declaration-success" source (successes @ [ """{"id":"p","op":"proposals"}"""; """{"id":"d","op":"declarations"}""" ])
+            for reply in replies do succeeded reply
+            for reply in replies |> List.take successes.Length do
+                use doc = parseDocument reply
+                let kind = doc.RootElement.GetProperty("result").GetProperty("review").GetProperty("kind").GetString()
+                Assert.Contains(kind, [ "createType"; "createTypes"; "createEffect"; "createCapability" ])
+            // No declaration from an uncommitted proposal may leak into the base.
+            Assert.DoesNotContain("NewProduct", List.last replies)
+            Assert.DoesNotContain("NewCapability", List.last replies))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Declaration rejection decoding validation and allocation order match`` () =
+        withDirectory (fun dir ->
+            let source = Path.Combine(dir, "declarations.json")
+            File.WriteAllText(source, SnapshotCodec.serialize (ZigHostCreateInferenceTests.snapshot ()) |> unwrap)
+            let good = create "simulateCreateTypeByName" "NewType" (product [ field "x" primitive ])
+            let bad =
+                [ create "simulateCreateType" "" (product [])
+                  create "simulateCreateType" "Point" (product [])
+                  create "simulateCreateTypeByName" "Point" (product [])
+                  create "simulateCreateType" "Unknown" (product [ field "x" """{"kind":"named","typeId":"absent"}""" ])
+                  create "simulateCreateType" "Unknown" (product [ field "x" """{"kind":"capability","capabilityId":"absent"}""" ])
+                  create "simulateCreateTypeByName" "Unknown" (product [ field "x" (named "absent") ])
+                  create "simulateCreateType" "Parameter" (product [ field "x" """{"kind":"typeParameter","name":"T"}""" ])
+                  create "simulateCreateTypeByName" "Cycle" (product [ field "x" (named "Cycle") ])
+                  create "simulateCreateTypeByName" "Blank" (product [ field " " primitive ])
+                  create "simulateCreateTypeByName" "Duplicate" (product [ field "x" primitive; field "x" primitive ])
+                  create "simulateCreateTypeByName" "BadArity" (product [ field "x" (named "Box") ])
+                  create "simulateCreateType" "BadBuiltin" (product [ field "x" """{"kind":"builtinGeneric","generic":"map","arguments":[]}""" ])
+                  request "simulateCreateTypesByName" """ "types":[]"""
+                  request "simulateCreateTypesByName" $""" "types":[{{{declaration "Same" (product [])}}},{{{declaration "Same" (product [])}}}]"""
+                  mutate good (fun root -> root["expectedSnapshotId"] <- JsonValue.Create "stale")
+                  mutate good (fun root -> root["typeParameters"] <- JsonNode.Parse("[\"T\",\"T\"]"))
+                  request "simulateCreateEffect" """ "displayName":" " """
+                  request "simulateCreateEffect" """ "displayName":"io" """
+                  request "simulateCreateCapability" """ "displayName":"IO","operations":[]"""
+                  request "simulateCreateCapabilityByName" """ "displayName":"IO","operations":null"""
+                  (capability false).Replace("zig-io", "absent")
+                  (capability true).Replace("\"io\"", "\"absent\"")
+                  (capability false).Replace("\"key\"", "\" \"")
+                  (capability false).Replace("\"read\"", "\" \"")
+                  (capability true).Replace("\"mayWait\":true", "\"mayWait\":null")
+                  (capability false).Replace("\"mayWait\":true", "\"failureType\":{},\"mayWait\":true")
+                  mutate (capability false) (fun root ->
+                      let operations = root["operations"].AsArray()
+                      let firstOperation = operations.[0]
+                      operations.Add(firstOperation.DeepClone()))
+                  mutate (capability false) (fun root ->
+                      let firstOperation = (root["operations"].AsArray()).[0]
+                      let parameters = (firstOperation["parameters"]).AsArray()
+                      let firstParameter = parameters.[0]
+                      parameters.Add(firstParameter.DeepClone())) ]
+            let malformed =
+                [ for line in [ good; group; capability true; capability false; request "simulateCreateEffect" """ "displayName":"NewEffect" """ ] do
+                      for key in [ "displayName"; "exported"; "expectedSnapshotId"; "extra" ] do
+                          yield mutate line (fun root -> root[key] <- JsonValue.Create 7)
+                      yield mutate line (fun root -> root.Remove "op" |> ignore)
+                      yield line.Replace("\"id\":\"declaration\"", "\"id\":\"declaration\",\"id\":\"twice\"")
+                  yield good.Replace("\"fields\":[", "\"fields\":[3,")
+                  yield good.Replace("\"type\":", "\"unknown\":true,\"type\":") ]
+            // A successful request after every failure pins the ID stream, not merely error text.
+            let requests = (bad @ malformed) |> List.collect (fun line -> [ line; good ])
+            let replies = strict "declaration-rejection" source requests
+            for pair in replies |> List.chunkBySize 2 do
+                use rejected = parseDocument pair[0]
+                Assert.False(rejected.RootElement.GetProperty("ok").GetBoolean(), pair[0])
+                succeeded pair[1])
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Declaration proposals page render commit persist and reopen through either host`` () =
+        withDirectory (fun dir ->
+            for records, resolved in [ false, false; true, false; false, true; true, true ] do
+                let case = Path.Combine(dir, string records + "-" + string resolved)
+                let input = Path.Combine(case, "input")
+                Directory.CreateDirectory input |> ignore
+                let source = Path.Combine(input, if records then "snapshot.nyrec" else "snapshot.json")
+                let empty = Snapshot.empty (StableId.createForTesting<SnapshotTag> "018bcfe5-6700-7000-8000-000000000001")
+                let dependency = ZigHostCreateInferenceTests.snapshot () |> recordFixture "declaration-dependency"
+                let json = if resolved then SnapshotCodec.serializeResolved dependency empty |> unwrap else SnapshotCodec.serialize empty |> unwrap
+                File.WriteAllText(source, if records then RecordCodec.ofJson json else json)
+                if resolved then
+                    let manifest = memberOf dependency (Some("snapshotJson", SnapshotCodec.serialize dependency |> unwrap)) "library.json"
+                    File.WriteAllText(source + ".dependency.json", manifest.ToJsonString())
+                let fsharp, zig =
+                    seededWritablePair "declaration-persistence" source case (fun _ send ->
+                        let stale = send group |> proposal
+                        let effect = send (request "simulateCreateEffect" """ "displayName":"NewEffect","exported":true """) |> proposal
+                        let inspect id =
+                            for structured in [ "false"; "true" ] do
+                                send (request "readProposal" $""" "proposalId":{quoted id},"structuredReview":{structured},"path":"/review","offset":0,"limit":2""") |> succeeded
+                            send (operation "viewProposal" id) |> succeeded
+                            send """{"id":"p","op":"proposals"}""" |> succeeded
+                        inspect stale
+                        inspect effect
+                        send (operation "commit" effect) |> succeeded
+                        inspect stale
+                        Assert.Contains("StaleBaseSnapshot", send (operation "commit" stale))
+                        send (operation "reject" stale) |> succeeded
+                        Assert.Contains("ProposalNotFound", send (operation "readProposal" stale))
+                        let types = send group |> proposal
+                        inspect types
+                        send (operation "commit" types) |> succeeded
+                        let wide = create "simulateCreateType" "Wide" (product [ for i in 0 .. 119 -> field (string i + String.replicate 200 "x") primitive ])
+                        for line in fullReviews [ wide ] do
+                            let pending = send line |> proposal
+                            inspect pending
+                            send (request "readProposal" $""" "proposalId":{quoted pending},"path":"/review/createdType/typeKind/fields","offset":8,"limit":3""") |> succeeded
+                            send (operation "reject" pending) |> succeeded
+                        let cap = (capability true).Replace("\"io\"", "\"NewEffect\"")
+                        let pending = send cap |> proposal
+                        inspect pending
+                        send (operation "commit" pending) |> succeeded
+                        // Existing function publication must still work after each declaration family.
+                        let functionId = send """{"id":"f","op":"simulateCreateFunctionByName","displayName":"made","parameters":[],"requiredEffects":[],"resultType":{"kind":"primitive","primitive":"unit"},"body":{"kind":"unitLiteral"}}""" |> proposal
+                        send (operation "commit" functionId) |> succeeded
+                        send """{"id":"d","op":"declarations"}""" |> succeeded)
+                for directory in [ fsharp; zig ] do
+                    let path = Path.Combine(directory, Path.GetFileName source)
+                    let reads = [ """{"id":"s","op":"status"}"""; """{"id":"d","op":"declarations"}"""; """{"id":"f","op":"readFunction","function":"made","detail":"full"}""" ]
+                    let readHost zig =
+                        let code, errors, replies = run zig [ "open"; "--snapshot"; path; "--read-only" ] reads
+                        Assert.True((code = 0), errors)
+                        replies |> List.iter succeeded
+                        List.map comparable replies
+                    Assert.Equal<string list>(readHost false, readHost true))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Unseeded declaration reviews sort members without reordering parameters`` () =
+        let names (items: JsonElement) =
+            items.EnumerateArray() |> Seq.map (fun item -> item.GetProperty("displayName").GetString()) |> Seq.toList
+        let sorted count (items: JsonElement) =
+            let ids = items.EnumerateArray() |> Seq.map (fun item -> item.GetProperty("id").GetString()) |> Seq.toList
+            Assert.Equal(count, ids.Length)
+            Assert.Equal<string list>(List.sort ids, ids)
+        let check key (item: JsonElement) =
+            if key = "createdCapability" then
+                let operations = item.GetProperty("operations")
+                sorted 8 operations
+                for operation in operations.EnumerateArray() do
+                    Assert.Equal<string list>([ "z"; "a" ], names (operation.GetProperty("parameters")))
+            else
+                Assert.Equal<string list>([ "Z"; "A" ], names (item.GetProperty("typeParameters")))
+                let kind = item.GetProperty("typeKind")
+                if kind.GetProperty("kind").GetString() = "product" then sorted 12 (kind.GetProperty("fields"))
+                else
+                    let variants = kind.GetProperty("variants")
+                    sorted 4 variants
+                    for variant in variants.EnumerateArray() do sorted 4 (variant.GetProperty("fields"))
+        let fields count = [ for i in 1 .. count -> field (string i) primitive ]
+        let generic line = mutate line (fun root -> root["typeParameters"] <- JsonNode.Parse("[\"Z\",\"A\"]"))
+        let variants =
+            [ for i in 1 .. 4 ->
+                  $"""{{"displayName":"V{i}","fields":[{String.concat "," (fields 4)}]}}""" ] |> String.concat ","
+        let operations =
+            [ for i in 1 .. 8 ->
+                  $"""{{"displayName":"op{i}","parameters":[{field "z" primitive},{field "a" primitive}],"resultType":{primitive},"effect":"io"}}""" ] |> String.concat ","
+        let cases =
+            [ "createdType", "declaredTypes", generic (create "simulateCreateType" "SortedProduct" (product (fields 12)))
+              "createdType", "declaredTypes", generic (create "simulateCreateType" "SortedUnion" $"""{{"kind":"union","variants":[{variants}]}}""")
+              "createdCapability", "declaredCapabilities", request "simulateCreateCapabilityByName" $""" "displayName":"SortedCapability","operations":[{operations}]""" ]
+        withDirectory (fun dir ->
+            // Each host checks its own random IDs, never compares them with the other host.
+            for zig in [ false; true ] do
+                let directory = Path.Combine(dir, string zig)
+                Directory.CreateDirectory directory |> ignore
+                let source = Path.Combine(directory, "snapshot.json")
+                File.WriteAllText(source, SnapshotCodec.serialize (ZigHostCreateInferenceTests.snapshot ()) |> unwrap)
+                use host = startWithEnvironment [ "NYRWVY_TEST_ID_SEED", "" ] zig [ "open"; "--snapshot"; source ]
+                let errors = host.StandardError.ReadToEndAsync()
+                let send (line: string) =
+                    host.StandardInput.WriteLine line
+                    host.StandardInput.Flush()
+                    let reading = host.StandardOutput.ReadLineAsync()
+                    if not (reading.Wait silence) then
+                        host.Kill true
+                        failwithf "Host did not answer %s" line
+                    let reply = reading.Result
+                    Assert.False(isNull reply, "Host closed stdout")
+                    succeeded reply
+                    reply
+                try
+                    for key, viewerKey, line in cases do
+                        for simulation in fullReviews [ line ] do
+                            let reply = send simulation
+                            let pending = proposal reply
+                            use doc = parseDocument reply
+                            check key (doc.RootElement.GetProperty("result").GetProperty("review").GetProperty(key))
+                            for structured in [ "false"; "true" ] do
+                                let page = send (request "readProposal" $""" "proposalId":{quoted pending},"structuredReview":{structured},"path":"/review/{key}","limit":20""")
+                                use pageDoc = parseDocument page
+                                let result = pageDoc.RootElement.GetProperty("result")
+                                Assert.True(result.GetProperty("projection").GetProperty("complete").GetBoolean(), page)
+                                check key (result.GetProperty("value"))
+                            send (request "viewProposal" $""" "proposalId":{quoted pending},"output":"review.html" """) |> ignore
+                            let html = File.ReadAllText(Path.Combine(directory, "review.html"))
+                            let data = Regex.Match(html, """(?s)<script type="application/json" id="nyrwvy-data">(.*?)</script>""")
+                            Assert.True(data.Success, "Missing viewer data")
+                            let viewJson = data.Groups.[1].Value
+                            use view = parseDocument viewJson
+                            let declared = view.RootElement.GetProperty(viewerKey).EnumerateArray() |> Seq.exactlyOne
+                            check key declared
+                            check key (view.RootElement.GetProperty("engineReview").GetProperty("review").GetProperty(key))
+                            send (operation "reject" pending) |> ignore
+                finally
+                    host.StandardInput.Close()
+                    if not (host.WaitForExit(int silence.TotalMilliseconds)) then
+                        host.Kill true
+                        host.WaitForExit()
+                Assert.Equal(0, host.ExitCode)
+                Assert.Equal("", errors.Result.Trim()))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Declaration selectors honor ambiguity dependency guards and hidden imports`` () =
+        withDirectory (fun dir ->
+            let original = ZigHostCreateInferenceTests.snapshot ()
+            let duplicate: SemanticType =
+                { original.Types.Head with Id = StableId.createForTesting<TypeTag> "another-point"; Kind = SemanticTypeKind.Product [] }
+            let ambiguous = { original with Types = original.Types @ [ duplicate ] }
+            let source = Path.Combine(dir, "ambiguous.json")
+            File.WriteAllText(source, SnapshotCodec.serialize ambiguous |> unwrap)
+            let ambiguousRequest = create "simulateCreateTypeByName" "NewPoint" (product [ field "x" (named "Point") ])
+            let explicitRequest = ambiguousRequest.Replace("\"name\":\"Point\"", "\"name\":{\"id\":\"zig-Point\",\"ownership\":\"local\"}")
+            let replies = strict "declaration-ambiguous" source [ ambiguousRequest; explicitRequest ]
+            Assert.Contains("Ambiguous type", replies.Head)
+            succeeded replies[1]
+            let originalDependency = { original with Types = original.Types |> List.map (fun t -> if t.DisplayName = "Point" then { t with Exported = false } else t) }
+            let local = Snapshot.empty (StableId.createForTesting<SnapshotTag> "018bcfe5-6700-7000-8000-000000000011")
+            for records in [ false; true ] do
+                let dependency = if records then recordFixture "declaration-guard-dependency" originalDependency else originalDependency
+                let case = Path.Combine(dir, "dependency-" + string records)
+                Directory.CreateDirectory case |> ignore
+                let path = Path.Combine(case, if records then "snapshot.nyrec" else "snapshot.json")
+                let json = SnapshotCodec.serializeResolved dependency local |> unwrap
+                let serialized = if records then RecordCodec.ofJson json else json
+                if records then
+                    Assert.Equal(serialized, RecordCodec.deserializeResolved dependency serialized |> unwrap |> RecordCodec.serializeResolved dependency |> unwrap)
+                File.WriteAllText(path, serialized)
+                let manifest = memberOf dependency (Some("snapshotJson", SnapshotCodec.serialize dependency |> unwrap)) "library.json"
+                File.WriteAllText(path + ".dependency.json", manifest.ToJsonString())
+                let pin = quoted (StableId.value dependency.Id)
+                let typeId name = dependency.Types |> List.find (fun t -> t.DisplayName = name) |> fun t -> quoted (StableId.value t.Id)
+                let selector = $"""{{"id":{typeId "Shape"},"name":"Shape","ownership":"imported","dependencySnapshotId":{pin}}}"""
+                let good = create "simulateCreateTypeByName" "NewShape" (product [ field "shape" $"""{{"kind":"named","name":{selector}}}""" ])
+                let hidden = create "simulateCreateType" "NewPoint" (product [ field "point" $"""{{"kind":"named","typeId":{typeId "Point"}}}""" ])
+                let lines =
+                    [ good
+                      good.Replace("\"imported\"", "\"local\"")
+                      good.Replace(pin, "\"wrong-pin\"")
+                      good.Replace(typeId "Shape", typeId "Point").Replace("\"name\":\"Shape\"", "\"name\":\"Point\"")
+                      hidden
+                      ambiguousRequest
+                      capability true
+                      group ]
+                let replies = strict "declaration-dependency" path lines
+                for index in [ 0; 6; 7 ] do succeeded replies[index]
+                for index in [ 1; 2; 3; 4; 5 ] do
+                    use reply = parseDocument replies[index]
+                    Assert.False(reply.RootElement.GetProperty("ok").GetBoolean(), replies[index])
+                Assert.Contains("ImportedDeclarationNotExported", replies[4]))

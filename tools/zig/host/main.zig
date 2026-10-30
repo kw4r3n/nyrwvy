@@ -268,6 +268,12 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         .{ "readProposal", proposals.readProposal },
         .{ "viewProposal", proposals.viewProposal },
         .{ "executionReadiness", query.executionReadiness },
+        .{ "simulateCreateType", @import("declarations.zig").createType },
+        .{ "simulateCreateTypeByName", @import("declarations.zig").createType },
+        .{ "simulateCreateTypesByName", @import("declarations.zig").createType },
+        .{ "simulateCreateEffect", @import("declarations.zig").createEffect },
+        .{ "simulateCreateCapability", @import("declarations.zig").createCapability },
+        .{ "simulateCreateCapabilityByName", @import("declarations.zig").createCapability },
         .{ "simulateCreateFunction", query.simulateCreateFunction },
         .{ "simulateCreateFunctionByName", query.simulateCreateFunctionByName },
         .{ "simulateReplaceBody", query.simulateReplaceBody },
@@ -334,17 +340,17 @@ fn publish(a: std.mem.Allocator, out: *std.Io.Writer, id: []const u8, op: []cons
         proposals.reject(wanted);
         return;
     }
-    if (!std.mem.eql(u8, snapshot_id, p.base_id)) return commitRejected(a, out, id, "StaleBaseSnapshot", "The workspace advanced beyond the reviewed structural proposal.");
+    if (!std.mem.eql(u8, snapshot_id, p.base_id)) return commitRejected(a, out, id, "StaleBaseSnapshot", if (p.declaration) |d| try std.fmt.allocPrint(a, "The workspace advanced beyond the reviewed {s}-declaration proposal.", .{d.subject}) else "The workspace advanced beyond the reviewed structural proposal.");
     const document = try proposals.document(a, p);
     const validated = model_reader.readDocument(a, document);
     const proof = try model_reader.parseValue(a, p.receipt);
     const value = @import("materialize.zig");
     if (!std.mem.eql(u8, fingerprints.snapshot, model_reader.utf8(model_reader.decoded(model_reader.property(proof, "baseSnapshotFingerprint").?))))
         return commitRejected(a, out, id, "PreviewReceiptBaseMismatch", "The current base content differs from the reviewed base.");
-    const next_fingerprints = validated.fingerprints orelse return commitRejected(a, out, id, "FingerprintFailure", "The proposed fingerprint could not be recomputed.");
+    const next_fingerprints = validated.fingerprints orelse return commitRejected(a, out, id, "FingerprintFailure", if (p.declaration != null) "The proposed snapshot fingerprint could not be recomputed." else "The proposed fingerprint could not be recomputed.");
     if (!std.mem.eql(u8, next_fingerprints.snapshot, model_reader.utf8(model_reader.decoded(model_reader.property(proof, "proposedSnapshotFingerprint").?))) or
         !std.mem.eql(u8, next_fingerprints.semantic, model_reader.utf8(model_reader.decoded(model_reader.property(proof, "proposedSemanticFingerprint").?))))
-        return commitRejected(a, out, id, "PreviewReceiptResultMismatch", "The proposed state differs from the reviewed receipt.");
+        return commitRejected(a, out, id, "PreviewReceiptResultMismatch", if (p.declaration) |d| try std.fmt.allocPrint(a, "The proposed {s} declaration differs from the reviewed result.", .{d.subject}) else "The proposed state differs from the reviewed receipt.");
     var obligations: std.ArrayList([]const u8) = .empty;
     for (model_reader.arrayItems(p.model, "obligations")) |o| {
         if (std.mem.eql(u8, model_reader.utf8(model_reader.decoded(model_reader.property(o, "status").?)), "open")) try obligations.append(a, query.idOf(o));

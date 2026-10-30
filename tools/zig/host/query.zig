@@ -38,7 +38,7 @@ pub const Request = struct {
     /// The diagnostic behind a `SimulationRejected` rejection, for a message appended to later.
     diagnostic: Diagnostic = .{},
 
-    fn ensureUsable(self: *Request) Fail!void {
+    pub fn ensureUsable(self: *Request) Fail!void {
         if (!self.session_invalidated) return;
         self.rejection = .{ .code = "SessionInvalidated", .message = "The session was invalidated by external modification." };
         return error.Rejected;

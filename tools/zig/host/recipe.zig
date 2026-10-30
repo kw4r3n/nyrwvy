@@ -168,11 +168,14 @@ pub fn duplicatePaths(a: Allocator, line: []const u8) !std.StringHashMapUnmanage
 /// The function a by-name recipe is written for (`WireSymbolic.ParameterContext.NewFunction`).
 pub const Owner = struct { name: []const u8, parameters: []const []const u8 = &.{}, existing: ?query.Value = null };
 
+pub const GroupType = struct { name: []const u8, id: []const u8 };
+
 pub const Decoder = struct {
     r: *query.Request,
     duplicates: std.StringHashMapUnmanaged(void),
     /// Set for a by-name request: recipes and types are then `WireSymbolic`'s.
     owner: ?Owner = null,
+    type_group: []const GroupType = &.{},
 
     fn fail(self: *Decoder, comptime format: []const u8, args: anytype) Fail {
         return self.r.fail(format, args);
@@ -351,6 +354,11 @@ pub const Decoder = struct {
             const name = try self.property(value, "name");
             if (name == .string) _ = try query.readable(self.r, name.string);
             const arguments = try self.typeArguments(path, value, "arguments");
+            if (name == .string) {
+                const text = try query.readable(self.r, name.string);
+                for (self.type_group) |item| if (eql(u8, item.name, text))
+                    return .{ .named = .{ .id = item.id, .arguments = arguments } };
+            }
             return .{ .named = .{ .id = query.idOf(try self.selector(try self.at(path, "name"), name, "type")), .arguments = arguments } };
         } else if (eql(u8, kind, "capability")) {
             try self.ensureFields(path, value, "capability type", &.{ "kind", "name" }, &.{ "kind", "name" });
