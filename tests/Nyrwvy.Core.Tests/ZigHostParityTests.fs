@@ -239,7 +239,7 @@ module ZigHostParityTests =
 
     /// Whether the Zig reply to a create request matches the F# one: a `ProtocolError`, a preflight or
     /// an inference `SimulationRejected` byte for byte, a `SessionError` by code, and
-    /// successful compact replies byte for byte. An
+    /// successful compact and full replies byte for byte. An
     /// inference rejection may instead be the Zig host's fixed `UnsupportedOperation` when the request
     /// reaches a kind it does not infer.
     let internal createReplyMatches (request: string) (fsharp: string) (zig: string) =
@@ -264,11 +264,7 @@ module ZigHostParityTests =
                     || (unportedKindReply zig && hasUnportedKind request && (located |> Option.forall (fun path -> atOrBelow (unportedKindPath zig) path || atOrBelow path (unportedKindPath zig))))
                 else fsharp = zig || (code = "InvalidProposedSnapshot" && zig.Contains "The Zig host does not word proposed-snapshot validation failures yet.")
             | _ -> fsharp = zig
-        | _ ->
-            use input = parseDocument request
-            let root = input.RootElement
-            let full = match root.TryGetProperty "detail" with true, value -> value.GetString() = "full" | _ -> false
-            fsharp = zig || (full && zig.Contains "The Zig host does not encode full proposal reviews yet.")
+        | _ -> fsharp = zig
 
     [<Fact>]
     let ``Deep reply parsing preserves byte-exact create comparisons`` () =
@@ -1828,9 +1824,9 @@ module ZigHostCreateInferenceTests =
             Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
             Assert.True(located > 60, $"Only {located} Zig replies locate their diagnostic."))
 
-    /// Post-order and binding allocation across successes and failures, plus the compact budget.
+    /// Post-order and binding allocation across mixed compact/full successes and failures.
     [<Fact; Trait("Suite", "Extended")>]
-    let ``The Zig host materializes compact create proposals with seeded byte parity`` () =
+    let ``The Zig host materializes compact and full create proposals with seeded byte parity`` () =
         withDirectory (fun dir ->
             let primitive name = $"""{{"kind":"primitive","primitive":"{name}"}}"""
             let intT, stringT, unitT = primitive "int64", primitive "string", primitive "unit"
@@ -1891,22 +1887,52 @@ module ZigHostCreateInferenceTests =
                       """{"kind":"capabilityConstruct","capabilityId":"zig-IO","implementations":[{"operationId":"zig-release","functionId":"zig-release"},{"operationId":"zig-read","functionId":"zig-identity"}]}"""
                   (exact [ parameter "io" """{"kind":"capability","capabilityId":"zig-IO"}""" ] intT
                       $"""{{"kind":"capabilityInvoke","capabilityValue":{slot},"operationId":"zig-read","arguments":[{{"capabilityParameterId":"zig-read-p","value":{int}}}]}}""").Replace("\"requiredEffects\":[]", "\"requiredEffects\":[\"zig-io\"]") ]
-            let expected, actual = seededPair "materialize" path (common @ constructed)
+            // Each create (including rejections) is followed by both full encodings. Later list/status
+            // reads check registration and ID consumption without changing the committed snapshot.
+            let withFullReviews (requests: string list) =
+                requests |> List.collect (fun line ->
+                    use parsed = parseDocument line
+                    let op = parsed.RootElement.GetProperty("op").GetString()
+                    if op = "simulateCreateFunction" || op = "simulateCreateFunctionByName" then
+                        let full = line.Insert(1, "\"detail\":\"full\",")
+                        [ line; full; full.Insert(1, "\"structuredReview\":true,") ]
+                    else [ line ])
+            let compactRequests = common @ constructed @ List.skip (common.Length - 3) common
+            let fullRequests = withFullReviews compactRequests
+            let expected, actual = seededPair "materialize" path fullRequests
             Assert.Equal<string list>(expected, actual)
-            use cut = parseDocument expected[7]
+            let compactReplies =
+                (fullRequests, expected) ||> List.zip
+                |> List.choose (fun (line, reply) -> if line.Contains "\"detail\":\"full\"" then None else Some reply)
+            use cut = parseDocument compactReplies[7]
             Assert.True(cut.RootElement.GetProperty("result").GetProperty("projection").GetProperty("requiresDetailedReview").GetBoolean())
             // Pin successful coverage: equal error replies are not a materialization test.
             for index in [ 0; 2; 3; 4; 5; 6; 7; 8; 9; 12 ] do
-                use parsed = parseDocument expected[index]
-                Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), expected[index])
+                use parsed = parseDocument compactReplies[index]
+                Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), compactReplies[index])
             for index in [ common.Length + 3; common.Length + 4 ] do
-                use parsed = parseDocument expected[index]
-                Assert.True(parsed.RootElement.GetProperty("result").GetProperty("review").GetProperty("mayWait").GetBoolean(), expected[index])
-            for reply in List.skip common.Length expected do
+                use parsed = parseDocument compactReplies[index]
+                Assert.True(parsed.RootElement.GetProperty("result").GetProperty("review").GetProperty("mayWait").GetBoolean(), compactReplies[index])
+            for reply in List.skip common.Length compactReplies do
                 use parsed = parseDocument reply
                 Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), reply)
+            for index in 0 .. fullRequests.Length - 1 do
+                if fullRequests[index].Contains "\"detail\":\"full\"" then
+                    use parsed = parseDocument expected[index]
+                    // Full reviews of successful compact requests must themselves succeed.
+                    let compactIndex = if fullRequests[index].Contains "structuredReview" then index - 2 else index - 1
+                    use compact = parseDocument expected[compactIndex]
+                    Assert.Equal(compact.RootElement.GetProperty("ok").GetBoolean(), parsed.RootElement.GetProperty("ok").GetBoolean())
+                    if parsed.RootElement.GetProperty("ok").GetBoolean() then
+                        let result = parsed.RootElement.GetProperty("result")
+                        Assert.Equal("full", result.GetProperty("detail").GetString())
+                        Assert.False(fst (result.TryGetProperty "projection"))
+                        let name = result.GetProperty("review").GetProperty("createdFunction").GetProperty("displayName").GetString()
+                        if name.Length >= 20000 then Assert.True(Text.Encoding.UTF8.GetByteCount(expected[index]) > 16384)
+                        let body = result.GetProperty("review").GetProperty("createdFunction").GetProperty("body")
+                        Assert.True(body.GetProperty("nodes").GetArrayLength() > 0)
             for source in snapshots dir do
-                let expected, actual = seededPair "materialize-examples" source common
+                let expected, actual = seededPair "materialize-examples" source (withFullReviews common)
                 Assert.Equal<string list>(expected, actual))
 
     /// Same mismatch as the old in-process corpus: the type parameter and declared type both
