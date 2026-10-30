@@ -223,7 +223,7 @@ fn isWhiteSpace(unit: u16) bool {
     };
 }
 
-fn isBlank(units: []const u16) bool {
+pub fn isBlank(units: []const u16) bool {
     for (units) |unit| if (!isWhiteSpace(unit)) return false;
     return true;
 }
@@ -828,9 +828,9 @@ pub fn unreferenced(r: *Request, out: *Writer) Fail!void {
 // ---------------------------------------------------------------- bindingScopes
 
 /// `BindingFrame`: a nested scope that binds (Bool operands and branches open none).
-const Frame = struct { owner: Value, role: []const u8, variants: []const Value = &.{}, bindings: []const Binding };
+pub const Frame = struct { owner: Value, role: []const u8, variants: []const Value = &.{}, bindings: []const Binding };
 /// A frame's binding: its slot (`field` with the source field, `value` or `error`) and pattern.
-const Binding = struct { slot: []const u8, field: ?Value = null, pattern: Value };
+pub const Binding = struct { slot: []const u8, field: ?Value = null, pattern: Value };
 
 fn kindIs(node: Value, comptime kind: []const u8) bool {
     const units = model.decoded(model.property(node, "kind").?);
@@ -840,7 +840,7 @@ fn kindIs(node: Value, comptime kind: []const u8) bool {
 }
 
 /// `WireEncodeCommon.bindingFrames` up to the node `wanted`: its enclosing frames, innermost first.
-fn framesAt(a: Allocator, graph: Value, enclosing: []const Frame, wanted: Str) !?[]const Frame {
+pub fn framesAt(a: Allocator, graph: Value, enclosing: []const Frame, wanted: Str) !?[]const Frame {
     for (model.arrayItems(graph, "nodes")) |node| {
         if (std.mem.eql(u16, model.decoded(model.property(node, "id").?), wanted)) return enclosing;
         const Nested = struct { graph: Value, frame: ?Frame };
@@ -1285,11 +1285,22 @@ pub fn writeAborts(out: *Writer, aborts: []const model.Abort, owner: Str) !void 
 
 /// `focusFields`: compact (the function summarized) or, for `full`, with the structured body and the node types.
 fn compactFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: []const Value, full: bool) !void {
+    return focusFields(r, out, function, wanted, nodes, full, true);
+}
+
+/// A complete focus object for embedding as a review property.
+pub fn reviewFocus(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: []const Value, full: bool, structured: bool) !void {
+    try focusFields(r, out, function, wanted, nodes, full, structured);
+    try out.writeByte('}');
+}
+
+/// Leave the object open so readFunction can append its detail-specific fields.
+fn focusFields(r: *Request, out: *Writer, function: Value, wanted: Str, nodes: []const Value, full: bool, structured: bool) !void {
     const focus = model.focusOf(r.a, r.model, function);
     try out.writeAll("{\"snapshotId\":");
     try @import("root").writeString(out, r.snapshot_id);
     try out.writeAll(",\"function\":");
-    if (full) try wire.functionEntity(out, function) else try wire.functionSummary(out, function, nodes.len);
+    if (full and structured) try wire.functionEntity(out, function) else if (full) try wire.functionNodes(out, function, nodes) else try wire.functionSummary(out, function, nodes.len);
     try out.writeAll(",\"bodyEffectRequirements\":");
     try writeRequirements(out, focus.requirements);
     if (focus.wait_path) |path| {
@@ -1683,17 +1694,7 @@ pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
     const result_type = try d.anyType("/resultType", try d.property(root, "resultType"));
     var effects: std.ArrayList([]const u8) = .empty;
     for (try d.array(root, "requiredEffects"), 0..) |item, i| try effects.append(r.a, idOf(try d.selector(try std.fmt.allocPrint(r.a, "/requiredEffects/{d}", .{i}), item, "effect")));
-    // `recipeInput`: exactly one of `body` and `bodyFile`.
-    const inline_body, const file = .{ r.root.getPtr("body"), r.root.get("bodyFile") };
-    if (inline_body == null and file != null) {
-        if (file.? != .string or isBlank(try utf16(r.a, try readable(r, file.?.string)))) return r.fail("bodyFile must be a file path.", .{});
-        // shortcut: bodyFile is not read yet (`confinedJsonFile`); port it with the simulation (3c-4).
-        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host does not read bodyFile yet." };
-        return error.Rejected;
-    }
-    if (inline_body == null or file != null) return r.fail("Pass exactly one of body and bodyFile.", .{});
-    try recipe.resolveNames(&d, "/body", inline_body.?, try recipe.rawProperty(r.a, r.line, "body"));
-    const tree = try d.recipe("/body", inline_body.?.*);
+    const tree = try @import("recipe_file.zig").input(&d, "body", "bodyFile");
     const creation: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
     const fresh = try preflight.run(r, creation);
     var inferred = try infer.run(r, creation, fresh);
@@ -1728,16 +1729,36 @@ pub fn simulateReplaceBodyByName(r: *Request, out: *Writer) Fail!void {
     const names = try r.a.alloc([]const u8, parameters.len);
     for (parameters, names) |p, *name| name.* = nameOf(p);
     d.owner = .{ .name = nameOf(target), .parameters = names, .existing = target };
-    const inline_body, const file = .{ r.root.getPtr("replacement"), r.root.get("replacementFile") };
-    if (inline_body == null and file != null) {
-        if (file.? != .string or isBlank(try utf16(r.a, try readable(r, file.?.string)))) return r.fail("replacementFile must be a file path.", .{});
-        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host does not read replacementFile yet." };
-        return error.Rejected;
-    }
-    if (inline_body == null or file != null) return r.fail("Pass exactly one of replacement and replacementFile.", .{});
-    try recipe.resolveNames(&d, "/replacement", inline_body.?, try recipe.rawProperty(r.a, r.line, "replacement"));
-    const tree = try recipe.bindExistingTypes(&d, try d.recipe("/replacement", inline_body.?.*));
+    const tree = try recipe.bindExistingTypes(&d, try @import("recipe_file.zig").input(&d, "replacement", "replacementFile"));
     try replaceBody(r, out, idOf(target), expected, result_id, tree);
+}
+
+pub fn simulateReplaceTarget(r: *Request, out: *Writer) Fail!void {
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateReplaceTarget request", &.{ "id", "op", "functionId", "targetNodeId", "replacement", "structuredReview", "detail", "expectedSnapshotId" }, &.{ "id", "op", "functionId", "targetNodeId", "replacement" })) |message| return r.fail("{s}", .{message});
+    var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
+    const root: std.json.Value = .{ .object = r.root };
+    const function_id = try d.stableId("functionId", try d.requiredString(root, "functionId"));
+    const expected = try expectedSnapshotId(r, &d, root);
+    const result_id = try d.stableId("targetNodeId", try d.requiredString(root, "targetNodeId"));
+    const replacement = r.root.getPtr("replacement").?;
+    try recipe.resolveNames(&d, "/replacement", replacement, try recipe.rawProperty(r.a, r.line, "replacement"));
+    const tree = try d.recipe("/replacement", replacement.*);
+    try @import("target.zig").simulate(r, out, function_id, expected, result_id, tree);
+}
+
+pub fn simulateReplaceTargetByName(r: *Request, out: *Writer) Fail!void {
+    if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateReplaceTargetByName request", &.{ "id", "op", "function", "replacement", "replacementFile", "structuredReview", "detail", "expectedSnapshotId", "targetNodeId" }, &.{ "id", "op", "function", "targetNodeId" })) |message| return r.fail("{s}", .{message});
+    var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
+    const root: std.json.Value = .{ .object = r.root };
+    const target = try d.selector("/function", try d.property(root, "function"), "function");
+    const expected = try expectedSnapshotId(r, &d, root);
+    const result_id = try d.stableId("targetNodeId", try d.requiredString(root, "targetNodeId"));
+    const parameters = model.arrayItems(target, "parameters");
+    const names = try r.a.alloc([]const u8, parameters.len);
+    for (parameters, names) |p, *name| name.* = nameOf(p);
+    d.owner = .{ .name = nameOf(target), .parameters = names, .existing = target };
+    const tree = try recipe.bindExistingTypes(&d, try @import("recipe_file.zig").input(&d, "replacement", "replacementFile"));
+    try @import("target.zig").simulate(r, out, idOf(target), expected, result_id, tree);
 }
 
 fn usesOriginal(a: Allocator, node: *const recipe.Node) Fail!bool {
@@ -1752,9 +1773,7 @@ fn replaceBody(r: *Request, out: *Writer, function_id: []const u8, expected: []c
     const current = model.utf8(model.decoded(model.property(model.property(target, "body").?, "resultNodeId").?));
     if (!std.mem.eql(u8, current, result_id)) return preflight.rejected(r, "StructuralExpectedResultMismatch", "The target function result node changed after inspection.");
     if (try usesOriginal(r.a, tree)) {
-        // shortcut: Session reroutes these to replaceTarget; its pruning and review belong to 3d-2.
-        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig host does not simulate originalTarget body replacements yet." };
-        return error.Rejected;
+        return @import("target.zig").simulate(r, out, function_id, expected, result_id, tree);
     }
     try preflight.validateRecipeBounds(r, tree);
     const parameters = model.arrayItems(target, "parameters");

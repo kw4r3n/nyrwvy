@@ -43,8 +43,8 @@ pub fn write(out: *std.Io.Writer, value: Value) anyerror!void {
     }
 }
 
-const Binding = struct { slot: []const u8, field: ?[]const u8 = null, value: Value };
-const Frame = struct { bindings: []const Binding, next: ?*const Frame };
+pub const Binding = struct { slot: []const u8, field: ?[]const u8 = null, value: Value };
+pub const Frame = struct { bindings: []const Binding, next: ?*const Frame };
 
 pub const Materializer = struct {
     a: Allocator,
@@ -53,6 +53,7 @@ pub const Materializer = struct {
     fresh: []const preflight.TypeParameter,
     function_id: Value,
     parameters: []const Value,
+    original: ?Value = null,
 
     pub fn typeRef(self: *Materializer, t: recipe.TypeRef) anyerror!Value {
         const a = self.a;
@@ -135,6 +136,10 @@ pub const Materializer = struct {
 
     fn materializeNode(self: *Materializer, frames: ?*const Frame, n: *const Node, nodes: *std.ArrayList(Value)) anyerror!Value {
         const a = self.a;
+        if (same(n.case, "OriginalTarget")) {
+            try nodes.appendSlice(a, model.arrayItems(self.original.?, "nodes"));
+            return model.property(self.original.?, "resultNodeId").?;
+        }
         const kind = try a.dupe(u8, n.case);
         kind[0] = std.ascii.toLower(kind[0]);
         var fields: std.ArrayList(model.Member) = .empty;

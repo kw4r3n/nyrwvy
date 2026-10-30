@@ -63,7 +63,7 @@ const Place = struct { property: []const u8, array: bool, role: []const u8 };
 
 var dependency_roles: ?std.StringHashMapUnmanaged([]const Place) = null;
 
-fn placesOf(kind: []const u8) []const Place {
+pub fn placesOf(kind: []const u8) []const Place {
     if (dependency_roles == null) {
         const a = std.heap.page_allocator;
         var table: std.StringHashMapUnmanaged([]const Place) = .empty;
@@ -87,7 +87,7 @@ fn placesOf(kind: []const u8) []const Place {
 }
 
 /// `ValueDependency.ofNode`, each as `dependencyRole` and the operand's `nodeId`.
-fn writeDependencies(out: *Writer, node: Value, kind: []const u8) !void {
+pub fn writeDependencies(out: *Writer, node: Value, kind: []const u8) !void {
     try out.writeByte('[');
     var count: usize = 0;
     for (placesOf(kind)) |place| {

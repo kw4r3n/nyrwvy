@@ -7,6 +7,7 @@ const preflight = @import("preflight.zig");
 const infer = @import("infer.zig");
 const m = @import("materialize.zig");
 const projection = @import("projection.zig");
+const targeted = @import("target.zig");
 const wire = @import("wire.zig");
 const Value = model.Value;
 const Allocator = std.mem.Allocator;
@@ -26,6 +27,7 @@ pub const Pending = struct {
     receipt: []const u8,
     name: []const u8,
     replacing: bool = false,
+    target_node: ?[]const u8 = null,
 };
 var storage: ?*std.heap.ArenaAllocator = null;
 var interner: typed.Interner = undefined;
@@ -97,7 +99,7 @@ fn readiness(out: *Writer, root: Value) !void {
 
 pub fn create(r: *query.Request, out: *Writer, c: preflight.Creation, fresh: []const preflight.TypeParameter, inferred: *infer.Infer) !void {
     const created = try m.function(r, c, fresh, inferred);
-    try publish(r, out, created, null);
+    try publish(r, out, created, null, null);
 }
 
 pub fn replace(r: *query.Request, out: *Writer, target: Value, body: *const @import("recipe.zig").Node, inferred: *infer.Infer) !void {
@@ -105,10 +107,10 @@ pub fn replace(r: *query.Request, out: *Writer, target: Value, body: *const @imp
     const graph = try materializer.graph(null, body);
     const fields = try r.a.dupe(model.Member, target.object);
     for (fields) |*f| if (m.same(model.utf8(f.name), "body")) { f.value = graph; break; };
-    try publish(r, out, .{ .object = fields }, target);
+    try publish(r, out, .{ .object = fields }, target, null);
 }
 
-fn publish(r: *query.Request, out: *Writer, created: Value, previous: ?Value) !void {
+pub fn publish(r: *query.Request, out: *Writer, created: Value, previous: ?Value, change: ?targeted.Change) !void {
     // simulateCandidate allocates these only after materialization, even when validation fails.
     const transaction = try m.id(r.a);
     const snapshot = try m.id(r.a);
@@ -185,7 +187,7 @@ fn publish(r: *query.Request, out: *Writer, created: Value, previous: ?Value) !v
     const proposal_id = try a.dupe(u8, model.utf8(model.decoded(transaction)));
     try pending.append(std.heap.page_allocator, .{
         .arena = arena, .id = proposal_id, .base_id = try a.dupe(u8, r.snapshot_id),
-        .generation = generation, .model = root, .created_function = proposed, .receipt = proof, .name = try a.dupe(u8, query.nameOf(created)), .replacing = previous != null,
+        .generation = generation, .model = root, .created_function = proposed, .receipt = proof, .name = try a.dupe(u8, query.nameOf(created)), .replacing = previous != null, .target_node = if (change) |c| try a.dupe(u8, c.target) else null,
     });
     registered = true;
     model.useAllocator(r.a);
@@ -196,11 +198,14 @@ fn publish(r: *query.Request, out: *Writer, created: Value, previous: ?Value) !v
     const full = if (r.root.get("detail")) |detail| m.same(detail.string, "full") else false;
     const structured = if (r.root.get("structuredReview")) |value| value == .bool and value.bool else false;
     try w.writeAll(if (full) ",\"detail\":\"full\"" else ",\"detail\":\"compact\"");
-    try w.writeAll(if (previous != null) ",\"review\":{\"kind\":\"replaceBody\",\"receipt\":" else ",\"review\":{\"kind\":\"createFunction\",\"receipt\":");
+    try w.writeAll(if (change != null) ",\"review\":{\"kind\":\"replaceTarget\",\"receipt\":" else if (previous != null) ",\"review\":{\"kind\":\"replaceBody\",\"receipt\":" else ",\"review\":{\"kind\":\"createFunction\",\"receipt\":");
     try w.writeAll(proof);
     try w.writeAll(",\"readiness\":");
     try readiness(w, root);
-    if (previous) |old| {
+    if (change) |c| {
+        try w.writeAll(",\"diff\":");
+        try targeted.diff(r, w, previous.?, proposed, c, root);
+    } else if (previous) |old| {
         try w.writeAll(",\"diff\":{\"ownerFunctionId\":");
         try m.write(w, model.property(old, "id").?);
         try w.writeAll(",\"oldResultNodeId\":");
@@ -217,27 +222,42 @@ fn publish(r: *query.Request, out: *Writer, created: Value, previous: ?Value) !v
         try nodeIds(w, model.bodyNodes(r.a, proposed));
         try w.writeByte('}');
     }
-    try w.writeAll(if (previous != null) ",\"proposedFunction\":" else ",\"createdFunction\":");
-    // Plain reviews retain materialization order; WireGraph uses canonical node/arm order.
-    const nodes = model.bodyNodes(r.a, proposed);
-    if (!full) {
-        try wire.functionSummary(w, proposed, nodes.len);
-    } else if (structured) {
-        const canonical = for (model.arrayItems(root, "functions")) |item| {
-            if (std.mem.eql(u16, model.decoded(model.property(item, "id").?), created_id)) break item;
-        } else unreachable;
-        try wire.functionEntity(w, canonical);
+    if (change != null) {
+        try w.writeAll(",\"baseFocus\":");
+        const old = previous.?;
+        try query.reviewFocus(r, w, old, model.decoded(model.property(old, "id").?), model.bodyNodes(r.a, old), full, structured);
+        var candidate_request = r.*;
+        candidate_request.model = root;
+        candidate_request.snapshot_id = model.utf8(model.decoded(snapshot));
+        try w.writeAll(",\"proposedFocus\":");
+        const focus_function = if (structured) blk: {
+            for (model.arrayItems(root, "functions")) |f| if (std.mem.eql(u16, model.decoded(model.property(f, "id").?), created_id)) break :blk f;
+            unreachable;
+        } else proposed;
+        try query.reviewFocus(&candidate_request, w, focus_function, created_id, model.bodyNodes(r.a, focus_function), full, structured);
     } else {
-        try wire.functionNodes(w, proposed, nodes);
-    }
-    const focus = model.focusOf(r.a, root, proposed);
-    try w.writeAll(",\"bodyEffectRequirements\":");
-    try query.writeRequirements(w, focus.requirements);
-    try w.writeAll(",\"aborts\":");
-    try query.writeAborts(w, focus.aborts, model.decoded(model.property(created, "id").?));
-    if (focus.wait_path) |path| {
-        try w.writeAll(",\"mayWait\":true,\"waitPath\":");
-        try model.writeString(w, path);
+        try w.writeAll(if (previous != null) ",\"proposedFunction\":" else ",\"createdFunction\":");
+        // Plain reviews retain materialization order; WireGraph uses canonical node/arm order.
+        const nodes = model.bodyNodes(r.a, proposed);
+        if (!full) {
+            try wire.functionSummary(w, proposed, nodes.len);
+        } else if (structured) {
+            const canonical = for (model.arrayItems(root, "functions")) |item| {
+                if (std.mem.eql(u16, model.decoded(model.property(item, "id").?), created_id)) break item;
+            } else unreachable;
+            try wire.functionEntity(w, canonical);
+        } else {
+            try wire.functionNodes(w, proposed, nodes);
+        }
+        const focus = model.focusOf(r.a, root, proposed);
+        try w.writeAll(",\"bodyEffectRequirements\":");
+        try query.writeRequirements(w, focus.requirements);
+        try w.writeAll(",\"aborts\":");
+        try query.writeAborts(w, focus.aborts, model.decoded(model.property(created, "id").?));
+        if (focus.wait_path) |path| {
+            try w.writeAll(",\"mayWait\":true,\"waitPath\":");
+            try model.writeString(w, path);
+        }
     }
     try w.writeAll("}}");
     try out.writeAll(if (full) raw.written() else try projection.compact(r.a, raw.written()));
@@ -251,10 +271,10 @@ pub fn listing(a: Allocator, out: *Writer, current: []const u8) !void {
         if (i > 0) try out.writeByte(',');
         try out.writeAll("{\"proposalId\":");
         try @import("root").writeString(out, p.id);
-        try out.writeAll(if (p.replacing) ",\"kind\":\"replaceBody\",\"baseSnapshotId\":" else ",\"kind\":\"createFunction\",\"baseSnapshotId\":");
+        try out.writeAll(if (p.target_node != null) ",\"kind\":\"replaceTarget\",\"baseSnapshotId\":" else if (p.replacing) ",\"kind\":\"replaceBody\",\"baseSnapshotId\":" else ",\"kind\":\"createFunction\",\"baseSnapshotId\":");
         try @import("root").writeString(out, p.base_id);
         try out.writeAll(if (m.same(current, p.base_id)) ",\"baseIsCurrent\":true,\"summary\":" else ",\"baseIsCurrent\":false,\"summary\":");
-        try @import("root").writeString(out, try std.fmt.allocPrint(a, "{s}'{s}'", .{ if (p.replacing) @as([]const u8, "replaceBody of ") else "createFunction ", p.name }));
+        try @import("root").writeString(out, try std.fmt.allocPrint(a, "{s}'{s}'", .{ if (p.target_node) |id| try std.fmt.allocPrint(a, "replaceTarget {s} in ", .{id}) else if (p.replacing) @as([]const u8, "replaceBody of ") else "createFunction ", p.name }));
         try out.writeByte('}');
     }
     try out.writeAll("]}");

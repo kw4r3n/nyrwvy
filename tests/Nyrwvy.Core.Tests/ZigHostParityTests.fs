@@ -245,7 +245,6 @@ module ZigHostParityTests =
     let internal createReplyMatches (request: string) (fsharp: string) (zig: string) =
         use reply = parseDocument fsharp
         match reply.RootElement.TryGetProperty "error" with
-        | _ when zig.Contains "The Zig host does not read bodyFile yet." -> request.Contains "\"bodyFile\""
         | true, error ->
             match error.GetProperty("code").GetString() with
             | "SessionError" -> sessionErrorCode fsharp = sessionErrorCode zig
@@ -1335,13 +1334,9 @@ module ZigHostCreateByNameTests =
                 let expected, answers = seededPair "create-by-name" snapshot lines
                 for request, (fsharp, zig) in List.zip lines (List.zip expected answers) do
                     answered.Append(fsharp) |> ignore
-                    if request.Contains "\"bodyFile\":\"nope.json\"" then
-                        // The Zig host does not read bodyFile yet (a documented shortcut).
-                        if not (zig.Contains "\"code\":\"UnsupportedOperation\"") then mismatches.Add $"{request}\n Zig: {zig}"
-                    else
-                        if fsharp.Contains "\"code\":\"ProtocolError\"" then rejected <- rejected + 1
-                        if isPreflightRejection fsharp then preflight <- preflight + 1
-                        if not (createReplyMatches request fsharp zig) then mismatches.Add $"{Path.GetFileName snapshot}: {request}\n F#:  {fsharp}\n Zig: {zig}"
+                    if fsharp.Contains "\"code\":\"ProtocolError\"" then rejected <- rejected + 1
+                    if isPreflightRejection fsharp then preflight <- preflight + 1
+                    if not (createReplyMatches request fsharp zig) then mismatches.Add $"{Path.GetFileName snapshot}: {request}\n F#:  {fsharp}\n Zig: {zig}"
             let shownText = answered.ToString().Replace("\\u0027", "'")
             // Of the preflight, a blank type-parameter name, a taken display name and an unknown effect, type or capability ID are decode rejections by name.
             let preflightShown = Set.toList (Set.difference preflightCodes (set [ "FunctionCreationTypeParameterNameBlank"; "FunctionCreationRequiredEffectNotFound"; "FunctionCreationDuplicateDisplayName" ]))
@@ -2043,7 +2038,7 @@ module ZigHostReplaceBodyTests =
         [ for request in requests do
               use doc = parseDocument request
               match doc.RootElement.TryGetProperty "body" with
-              | true, body when not (body.GetRawText().Contains "originalTarget") -> yield body.GetRawText()
+              | true, body -> yield body.GetRawText()
               | _ -> () ]
 
     let private strictPair seed source requests =
@@ -2196,7 +2191,10 @@ module ZigHostReplaceBodyTests =
             File.WriteAllText(source, SnapshotCodec.serialize snapshot |> unwrap)
             let wait = """{"kind":"bind","value":{"kind":"taskWait","tasks":{"kind":"listEmpty","itemType":{"kind":"builtinGeneric","generic":"task","arguments":[{"kind":"primitive","primitive":"int64"}]}},"mode":"all"},"body":{"kind":"unitLiteral"}}"""
             let readParameter = $"""{{"kind":"parameter","parameterId":{quoted (StableId.value large.Parameters.Head.Id)}}}"""
-            let lines = [ exact f wait; exact f unit; exact large readParameter; symbolic f wait; exact f unit ] |> fullReviews
+            let original = """{"kind":"originalTarget"}"""
+            let longLiteral = quoted (String.replicate 255 "x" + "🚀" + String.replicate 300 "y")
+            let wrap = $"""{{"kind":"bind","value":{{"kind":"stringLiteral","value":{longLiteral}}},"body":{original}}}"""
+            let lines = [ exact f wait; exact f unit; exact large readParameter; symbolic f wait; exact f unit; exact large original; exact f wrap ] |> fullReviews
             let replies = strictPair "replace-validation" source lines
             Assert.Contains("MustNotWaitFunctionWaits", replies[0])
             use compact = parseDocument replies[6]
@@ -2236,25 +2234,155 @@ module ZigHostReplaceBodyTests =
                           yield symbolic f $"""{{"kind":"directCall","function":{{"id":{quoted (StableId.value f.Id)}}},"arguments":[],"keepUnlisted":true}}""" ]
                 let replies = strictPair "replace-obligation" source lines
                 Assert.NotEmpty replies
-                for reply in replies do Assert.Contains("StructuralBodyReferencedByObligation", reply))
+                for reply in replies do Assert.Contains("StructuralBodyReferencedByObligation", reply)
+                let targets =
+                    [ for obligation in snapshot.Obligations do
+                          let f = snapshot.Functions |> List.find (fun f -> ValueGraph.collectNodes f.Body |> List.exists (fun n -> n.Id = obligation.CallNodeId))
+                          yield changed (exact f """{"kind":"originalTarget"}""") (fun root ->
+                              root["op"] <- JsonValue.Create "simulateReplaceTarget"
+                              root.Remove "expectedCurrentResultNodeId" |> ignore
+                              root["targetNodeId"] <- JsonValue.Create (StableId.value obligation.CallNodeId)) ] |> fullReviews
+                for reply in strictPair "replace-target-obligation" source targets do
+                    Assert.Contains("TargetedExpressionReferencedByObligation", reply))
 
     [<Fact; Trait("Suite", "Extended")>]
-    let ``Deferred replacement paths have precise unsupported replies`` () =
+    let ``File recipes share confined parsing and seeded successful transcripts`` () =
         withDirectory (fun dir ->
             let snapshot = ZigHostCreateInferenceTests.snapshot ()
-            let f = snapshot.Functions.Head
-            let source = Path.Combine(dir, "gates.json")
+            let f = snapshot.Functions |> List.find (fun f -> f.DisplayName = "unit")
+            let source = Path.Combine(dir, "files.json")
             File.WriteAllText(source, SnapshotCodec.serialize snapshot |> unwrap)
-            let file = changed (symbolic f unit) (fun root -> root.Remove "replacement" |> ignore; root["replacementFile"] <- JsonValue.Create "nope.json")
-            let lines = [ exact f """{"kind":"originalTarget"}"""; symbolic f """{"kind":"originalTarget"}"""; file ]
-            let code, errors, replies = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "replace-gates" ] true [ "open"; "--snapshot"; source; "--read-only" ] lines
-            Assert.Equal(0, code)
-            Assert.Equal(seedWarning, errors)
-            Assert.Equal(3, replies.Length)
-            for reply in replies do Assert.Contains("\"code\":\"UnsupportedOperation\"", reply)
-            Assert.Contains("The Zig host does not simulate originalTarget body replacements yet.", replies[0])
-            Assert.Contains("The Zig host does not simulate originalTarget body replacements yet.", replies[1])
-            Assert.Contains("The Zig host does not read replacementFile yet.", replies[2]))
+            File.WriteAllText(Path.Combine(dir, "valid.json"), unit)
+            File.WriteAllText(Path.Combine(dir, "wrap.json"), """{"kind":"bind","value":{"kind":"originalTarget"},"body":{"kind":"patternReference","slot":"value","scopeDepth":0}}""")
+            File.WriteAllText(Path.Combine(dir, "invalid.json"), "{")
+            File.WriteAllText(Path.Combine(dir, "large.json"), String.replicate 1048577 " ")
+            File.WriteAllText(Path.Combine(dir, "deep.json"), String.replicate 836 "[" + "0" + String.replicate 836 "]")
+            File.WriteAllText(Path.Combine(dir, "duplicate.json"), """{"kind":"unitLiteral","kind":"unitLiteral"}""")
+            // A recipe's String literal may contain a seeded ID. This read uses Parse(stream),
+            // not SessionStorage.readText, and must NOT advance the restart guard.
+            let seeded = StableIdAllocator.seededPayload "file-recipes" 1000L
+            File.WriteAllText(Path.Combine(dir, "id.json"), $"""{{"kind":"stringLiteral","value":{quoted seeded}}}""")
+            Directory.CreateDirectory(Path.Combine(dir, "nested")) |> ignore
+            Directory.CreateSymbolicLink(Path.Combine(dir, "link"), Path.Combine(dir, "nested")) |> ignore
+            File.WriteAllText(Path.Combine(dir, "nested", "valid.json"), unit)
+            let create = """{"id":"r","op":"simulateCreateFunctionByName","displayName":"fromFile","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"kind":"unitLiteral"}}"""
+            let target = changed (symbolic f unit) (fun root ->
+                root["op"] <- JsonValue.Create "simulateReplaceTargetByName"
+                root["targetNodeId"] <- JsonValue.Create (StableId.value f.Body.ResultNodeId))
+            let fileInput inlineName (fileName: string) line (value: string) = changed line (fun root ->
+                root.Remove inlineName |> ignore
+                root[fileName] <- JsonNode.Parse value)
+            let lines =
+                [ for line, inlineName, fileName in [ create, "body", "bodyFile"; symbolic f unit, "replacement", "replacementFile"; target, "replacement", "replacementFile" ] do
+                      for value in [ quoted "valid.json"; quoted "nested/../valid.json"; quoted "../outside.json"; quoted "."; quoted "link/valid.json"; quoted "missing.json"; quoted "large.json"; quoted "invalid.json"; quoted "deep.json"; quoted "duplicate.json"; "3"; "null"; quoted ""; quoted " "; quoted "bad\u0000name" ] do
+                          yield fileInput inlineName fileName line value
+                      yield fileInput inlineName fileName line (quoted "valid.json")
+                      yield changed line (fun root -> root[fileName] <- JsonValue.Create "valid.json")
+                      yield changed line (fun root -> root.Remove inlineName |> ignore)
+                  yield fileInput "replacement" "replacementFile" (symbolic f unit) (quoted "wrap.json")
+                  yield fileInput "replacement" "replacementFile" target (quoted "wrap.json")
+                  yield fileInput "body" "bodyFile" (changed create (fun root -> root["resultType"] <- JsonNode.Parse """{"kind":"primitive","primitive":"string"}""")) (quoted "id.json")
+                  yield create
+                  yield exact f unit ] |> fullReviews
+            // Run against the same immutable directory: seededPair copies regular inputs, which
+            // would dereference the directory link this corpus specifically needs to reject.
+            let runFiles zig =
+                let code, errors, replies = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "file-recipes" ] zig [ "open"; "--snapshot"; source; "--read-only" ] lines
+                Assert.Equal(0, code)
+                Assert.Equal(seedWarning, errors)
+                replies
+            let replies = runFiles false
+            let actual = runFiles true
+            Assert.Equal(replies.Length, actual.Length)
+            for expected, found in List.zip replies actual do Assert.Equal(expected, found)
+            let text = String.concat "\n" replies
+            for message in [ "must stay inside"; "must not pass through"; "must name an existing JSON file"; "exceeds 1 MiB"; "must contain valid JSON"; "must be a file path"; "cannot be read as a JSON file" ] do
+                Assert.Contains(message, text)
+            Assert.Contains("\"kind\":\"replaceTarget\"", text)
+            Assert.Contains("\"kind\":\"createFunction\"", text))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Target review focuses are complete sibling objects and errors leave the host alive`` () =
+        withDirectory (fun dir ->
+            let snapshot = ZigHostCreateInferenceTests.snapshot ()
+            let f = snapshot.Functions |> List.find (fun f -> f.DisplayName = "unit")
+            let source = Path.Combine(dir, "focus.json")
+            File.WriteAllText(source, SnapshotCodec.serialize snapshot |> unwrap)
+            File.WriteAllText(Path.Combine(dir, "invalid.json"), "{")
+            let original = """{"kind":"originalTarget"}"""
+            let target = changed (symbolic f original) (fun root ->
+                root["op"] <- JsonValue.Create "simulateReplaceTargetByName"
+                root["targetNodeId"] <- JsonValue.Create (StableId.value f.Body.ResultNodeId))
+            let invalid = changed target (fun root ->
+                root.Remove "replacement" |> ignore
+                root["replacementFile"] <- JsonValue.Create "invalid.json")
+            let proposals = [ exact f original; symbolic f original; target ] |> fullReviews
+            let read = $"""{{"id":"read","op":"readFunction","functionId":{quoted (StableId.value f.Id)}}}"""
+            let reads = [ "compact"; "outline"; "full" ] |> List.map (fun detail -> changed read (fun root -> root["detail"] <- JsonValue.Create detail))
+            let lines = invalid :: proposals @ [ invalid ] @ reads
+            let replies = strictPair "target-focus-json" source lines
+            Assert.Contains("must contain valid JSON", replies.Head)
+            for reply in replies |> List.skip 1 |> List.take proposals.Length do
+                use doc = parseDocument reply
+                Assert.True(doc.RootElement.GetProperty("ok").GetBoolean(), reply)
+                let review = doc.RootElement.GetProperty("result").GetProperty("review")
+                Assert.Equal("replaceTarget", review.GetProperty("kind").GetString())
+                // A missing brace used to nest proposedFocus inside baseFocus, then either
+                // crash compact projection with error.Json or emit truncated full JSON.
+                Assert.Equal(JsonValueKind.Object, review.GetProperty("baseFocus").ValueKind)
+                Assert.Equal(JsonValueKind.Object, review.GetProperty("proposedFocus").ValueKind)
+            Assert.Equal(lines.Length, replies.Length))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Targeted replacements retain identities and match every review form`` () =
+        withDirectory (fun dir ->
+            let source = Path.Combine(dir, "targeted.json")
+            File.WriteAllText(source, SnapshotCodec.serialize (ZigHostCreateInferenceTests.snapshot ()) |> unwrap)
+            let original = """{"kind":"originalTarget"}"""
+            let wrap = """{"kind":"bind","value":{"kind":"originalTarget"},"body":{"kind":"patternReference","scopeDepth":0,"slot":"value"}}"""
+            let repeated = """{"kind":"bind","value":{"kind":"originalTarget"},"body":{"kind":"originalTarget"}}"""
+            let bad = """{"kind":"boolNot","value":{"kind":"originalTarget"}}"""
+            let targeted byName (f: SemanticFunction) node body =
+                changed ((if byName then symbolic else exact) f body) (fun root ->
+                    root["op"] <- JsonValue.Create (if byName then "simulateReplaceTargetByName" else "simulateReplaceTarget")
+                    root.Remove "expectedCurrentResultNodeId" |> ignore
+                    root.Remove "expectedResultNodeId" |> ignore
+                    root["targetNodeId"] <- JsonValue.Create (StableId.value node))
+            let mutable successes = 0
+            for path in source :: snapshots dir do
+                use session = AuthoringSession.openReadOnly path |> unwrap
+                let functions = session.Declarations().Functions
+                let requests =
+                    [ for f in functions do
+                          // Body wrappers take the same target path, including the allocated old-root ID
+                          // when inference rejects after originalTarget has been captured.
+                          for body in [ original; wrap; repeated; bad ] do
+                              yield exact f body
+                              yield symbolic f body
+                          for n in ValueGraph.collectNodes f.Body do
+                              for byName in [ false; true ] do
+                                  for body in [ original; wrap; repeated; bad; unit; bool; int
+                                                """{"kind":"patternReference","scopeDepth":0,"slot":"value"}"""
+                                                """{"kind":"patternReference","scopeDepth":0,"slot":"error"}"""
+                                                """{"kind":"abort","error":{"kind":"int64Literal","value":7}}""" ] do
+                                      yield targeted byName f n.Id body
+                          for byName in [ false; true ] do
+                              let line = targeted byName f f.Body.ResultNodeId original
+                              yield changed line (fun root -> root["targetNodeId"] <- JsonValue.Create "missing")
+                              yield changed line (fun root -> root["expectedSnapshotId"] <- JsonValue.Create "stale")
+                              for key in [ "targetNodeId"; "replacement" ] do
+                                  yield changed line (fun root -> root.Remove key |> ignore)
+                                  yield changed line (fun root -> root[key] <- JsonValue.Create 3)
+                          yield exact f unit ]
+                    |> fullReviews
+                let requests = requests @ [ """{"id":"p","op":"proposals"}"""; """{"id":"s","op":"status"}"""; """{"id":"d","op":"declarations"}""" ]
+                let replies = strictPair "targeted-replacements" path requests
+                for reply in replies do
+                    use doc = parseDocument reply
+                    if doc.RootElement.GetProperty("ok").GetBoolean() then
+                        successes <- successes + 1
+                Assert.Contains("TargetedExpressionOriginalTargetRepeated", String.concat "\n" replies)
+            Assert.True(successes > 100, $"Only {successes} successful target/create replies."))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Replacement registration protects imported functions and hidden dependency references`` () =
