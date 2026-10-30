@@ -93,14 +93,17 @@ fn combine(r: *query.Request, items: []const Pinned) !struct { host.Dependency, 
     return .{ combined, try write(r.a, try m.object(r.a, &.{try m.member(r.a, "dependencies", .{ .array = manifests })})) };
 }
 fn merged(r: *query.Request, selected: host.Dependency) !struct { Value, Value } {
+    const saved = host.readSource(r.a, std.mem.endsWith(u8, r.snapshot_path, ".nyrec"), host.persisted_source, host.selection) catch return storageFailure(r);
+    return mergeModel(r, saved.root, selected);
+}
+pub fn mergeModel(r: *query.Request, root: Value, selected: host.Dependency) !struct { Value, Value } {
     const imported = if (host.selection) |old| old.root else try m.object(r.a, &.{});
     const next = selected.root;
-    const saved = host.readSource(r.a, std.mem.endsWith(u8, r.snapshot_path, ".nyrec"), host.persisted_source, host.selection) catch return storageFailure(r);
-    var local = saved.root;
-    var candidate = try edit.set(r.a, saved.root, "schemaVersion", try m.number(r.a, model.currentVersion()));
+    var local = root;
+    var candidate = try edit.set(r.a, root, "schemaVersion", try m.number(r.a, model.currentVersion()));
     for ([_][]const u8{ "types", "effects", "capabilities", "functions", "obligations" }) |name| {
         var own: std.ArrayList(Value) = .empty;
-        for (model.arrayItems(saved.root, name)) |item| if (edit.find(imported, name, query.idOf(item)) == null) try own.append(r.a, item);
+        for (model.arrayItems(root, name)) |item| if (edit.find(imported, name, query.idOf(item)) == null) try own.append(r.a, item);
         local = try edit.set(r.a, local, name, .{ .array = own.items });
         candidate = try edit.set(r.a, candidate, name, .{ .array = try std.mem.concat(r.a, Value, &.{ model.arrayItems(next, name), own.items }) });
     }
@@ -234,6 +237,7 @@ pub fn preview(r: *query.Request, out: *Writer) !void {
 
 pub fn planChange(r: *query.Request) !Plan {
     var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
+    const simulation = std.mem.startsWith(u8, r.root.get("op").?.string, "simulate");
     const has_upgrades = r.root.get("upgrades") != null;
     const has_selection = r.root.get("selection") != null;
     if (has_upgrades == has_selection) return r.fail("Name exactly one of upgrades or selection.", .{});
@@ -249,9 +253,12 @@ pub fn planChange(r: *query.Request) !Plan {
     } else {
         const selected = r.root.get("selection").?;
         if (selected != .object) return r.fail("Expected a JSON object.", .{});
-        try d.ensureFields("/selection", selected, "dependency selection upgrade", &.{ "sources", "replaces" }, &.{ "sources", "replaces" });
+        try d.ensureFields("/selection", selected, if (simulation) "dependency selection" else "dependency selection upgrade", &.{ "sources", "replaces" }, &.{ "sources", "replaces" });
         for ([_][]const u8{ "sources", "replaces" }) |name| for (try d.array(selected, name)) |item| {
-            if (item != .string) return r.fail("{s} entries must be strings.", .{name});
+            if (item != .string) {
+                if (simulation) return r.fail("Selection entries must be strings.", .{});
+                return r.fail("{s} entries must be strings.", .{name});
+            }
             try (if (m.same(name, "sources")) &sources else &replaces).append(r.a, try query.readable(r, item.string));
         };
     }
