@@ -165,7 +165,7 @@ The reading:
 - **Per-request work is small.** Reads take 0–3 ms. A proposal with its review takes 43–64 ms, and its commit 22–35 ms. Neither split was measured between Zig tools and F# session logic.
 - **runPure on Rhifill is C#-bound, not Zig-bound.** The first run of an entry takes 0.4–0.6 s (C# emit and compile), on top of a 1.3 s warm-up the host hides in the background. A repeat takes 7–12 ms. For comparison, the Zig route's lowering and emitter for the whole merged model take 27 and 13 ms (the rows above), but this workspace does not use them.
 
-## Operation-slice host start (2026-10-31)
+## Operation and mixed-batch host start (2026-10-31)
 
 Candidate `610f91e`, measured by `ZigSpeed: AuthoringSession ops on Rhifill` on a copy of the current resolved `app/nyr/workspace.json` (456 KiB merged model). Each value is the median of 9 runs after one warm-up, on one machine; compilation is outside the timing. Host load varied during this run, so these are observations for this machine and run, not a stable performance ratio.
 
@@ -174,7 +174,16 @@ Candidate `610f91e`, measured by `ZigSpeed: AuthoringSession ops on Rhifill` on 
 | resolved workspace: spawn to first status reply | 724.1 | 54.6 |
 | merged model copy: spawn to first status reply | 582.1 | 57.0 |
 
-With `NYRWVY_RUNPURE_WARMUP=0`, F#'s resolved-workspace start was 823.3 ms. Both `ZigSpeed` tests passed; mixed-batch measurements are still pending.
+With `NYRWVY_RUNPURE_WARMUP=0`, F#'s resolved-workspace start was 823.3 ms. Both `ZigSpeed` tests passed. These startup rows do not measure mixed-batch throughput.
+
+Follow-up candidate `8954a0ee`: a second `ZigSpeed` run measured the same current resolved Rhifill copy (456 KiB merged). Each value is the median of 9 runs after one warm-up, on one machine; compilation is outside the timing. The task's builds and tests were not running during this measurement; that does not establish that the machine was otherwise idle.
+
+| | F# host | Zig host |
+|---|---:|---:|
+| resolved workspace: spawn to first status reply | 611.6 | 49.6 |
+| merged model copy: spawn to first status reply | 509.8 | 54.0 |
+
+With `NYRWVY_RUNPURE_WARMUP=0`, F#'s resolved-workspace start was 603.5 ms. Both `ZigSpeed` tests passed. This remains a startup comparison; mixed-batch throughput was not measured.
 
 ## F# and Zig on equal terms (2026-10-28)
 
