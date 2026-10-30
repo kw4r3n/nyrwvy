@@ -1482,6 +1482,15 @@ fn utf16Of(bytes: []const u8) Str {
 
 // ---------------------------------------------------------------- for the session host
 
+/// The typed session generation and its writer.
+pub const session_model = @import("typed.zig");
+
+/// Parse a wire/model value without resetting the snapshot reader's tables.
+pub fn parseValue(allocator: std.mem.Allocator, source: []const u8) Failure!Value {
+    a = allocator;
+    return parseDocument(source);
+}
+
 /// A model in the writer's canonical order (`SnapshotCodec.serialize`): declarations and their
 /// members sorted by ID, as the host's encoders list them. `allocator` holds the result.
 pub fn canonicalRoot(allocator: std.mem.Allocator, root: Value) Value {
@@ -1504,6 +1513,13 @@ pub fn arrayItems(element: Value, name: []const u8) []const Value {
 }
 
 /// Makes `allocator` (a request's arena) hold what the reader's helpers allocate from now on.
+/// Derived reader state is request-local. Discard it before changing arenas; in particular no
+/// table from a failed proposal may be consulted by a later query of the committed snapshot.
+pub fn beginRequest(allocator: std.mem.Allocator) void {
+    a = allocator;
+    resetState();
+}
+
 pub fn useAllocator(allocator: std.mem.Allocator) void {
     a = allocator;
 }

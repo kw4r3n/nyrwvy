@@ -18,6 +18,10 @@ open Xunit
 module ZigHostParityTests =
     let internal unwrap = function Ok x -> x | Error e -> failwithf "%A" e
 
+    // Successful proposals can carry signatures deeper than JsonDocument's default 64 levels.
+    let internal parseDocument (json: string) =
+        JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = WireInput.requestMaxJsonDepth))
+
     let internal comparable (line: string) =
         let masked = Regex.Replace(line, "\"build\":\"[^\"]*\"", "\"build\":\"…\"")
         Regex.Replace(masked, "(Invalid JSON: |not valid JSON: ).*", "$1…")
@@ -235,12 +239,13 @@ module ZigHostParityTests =
 
     /// Whether the Zig reply to a create request matches the F# one: a `ProtocolError`, a preflight or
     /// an inference `SimulationRejected` byte for byte, a `SessionError` by code, and
-    /// `UnsupportedOperation` for every other reply (the simulation itself is not ported yet). An
+    /// successful compact replies byte for byte. An
     /// inference rejection may instead be the Zig host's fixed `UnsupportedOperation` when the request
     /// reaches a kind it does not infer.
     let internal createReplyMatches (request: string) (fsharp: string) (zig: string) =
-        use reply = JsonDocument.Parse fsharp
+        use reply = parseDocument fsharp
         match reply.RootElement.TryGetProperty "error" with
+        | _ when zig.Contains "The Zig host does not read bodyFile yet." -> request.Contains "\"bodyFile\""
         | true, error ->
             match error.GetProperty("code").GetString() with
             | "SessionError" -> sessionErrorCode fsharp = sessionErrorCode zig
@@ -257,14 +262,27 @@ module ZigHostParityTests =
                     // result-type check); one from a sibling F# reached later still counts as a mismatch.
                     fsharp = zig
                     || (unportedKindReply zig && hasUnportedKind request && (located |> Option.forall (fun path -> atOrBelow (unportedKindPath zig) path || atOrBelow path (unportedKindPath zig))))
-                else zig.Contains "\"code\":\"UnsupportedOperation\""
-            | _ -> zig.Contains "\"code\":\"UnsupportedOperation\""
-        | _ -> zig.Contains "\"code\":\"UnsupportedOperation\""
+                else fsharp = zig || (code = "InvalidProposedSnapshot" && zig.Contains "The Zig host does not word proposed-snapshot validation failures yet.")
+            | _ -> fsharp = zig
+        | _ ->
+            use input = parseDocument request
+            let root = input.RootElement
+            let full = match root.TryGetProperty "detail" with true, value -> value.GetString() = "full" | _ -> false
+            fsharp = zig || (full && zig.Contains "The Zig host does not encode full proposal reviews yet.")
+
+    [<Fact>]
+    let ``Deep reply parsing preserves byte-exact create comparisons`` () =
+        let nested value = String.replicate 80 "[" + value + String.replicate 80 "]"
+        let request = "{\"body\":" + nested "0" + "}"
+        let reply value = "{\"ok\":true,\"result\":" + nested value + "}"
+        Assert.True(createReplyMatches request (reply "0") (reply "0"))
+        Assert.False(createReplyMatches request (reply "0") (reply "1"))
+        Assert.False(createReplyMatches request (reply "0") (reply "0" + " "))
 
     let internal seedWarning = "Warning: NYRWVY_TEST_ID_SEED is set, so new IDs are deterministic test IDs. Use it only on test copies."
 
     /// Separate processes and separate copies: the process-wide seed counter cannot be shared
-    /// with the in-process rejection corpora. No successful creates until materialization lands.
+    /// with other tests. Successful and rejected requests share one ID stream.
     let internal seededPair (seed: string) (source: string) (requests: string list) =
         withDirectory (fun dir ->
             let copy (name: string) =
@@ -284,7 +302,7 @@ module ZigHostParityTests =
                 Assert.True((code = 0), errors)
                 Assert.Equal(seedWarning, errors)
                 Assert.Equal(requests.Length, answers.Length)
-                answers |> List.map (fun reply -> reply.Replace(directory, "<dir>"))
+                answers |> List.map (fun reply -> reply.Replace(directory, "<dir>") |> comparable)
             let fsharp = runHost false fsharpDir fsharpSnapshot
             let zig = runHost true zigDir zigSnapshot
             for request, (expected, actual) in List.zip requests (List.zip fsharp zig) do
@@ -442,7 +460,7 @@ module ZigHostParityTests =
                             [ { MustNotWait = false; Exported = true; Id = StableId.createForTesting<FunctionTag> "zig-roles"; DisplayName = "roles"
                                 TypeParameters = []; Parameters = []; ResultType = TypeRef.Primitive PrimitiveType.Int64; RequiredEffects = []
                                 Body = { Nodes = [ node ]; ResultNodeId = node.Id } } ] }
-                  use document = JsonDocument.Parse(SnapshotCodec.serializeUnvalidated snapshot |> Result.defaultWith (failwithf "%A"))
+                  use document = parseDocument (SnapshotCodec.serializeUnvalidated snapshot |> Result.defaultWith (failwithf "%A"))
                   let json = (document.RootElement.GetProperty("functions")[0]).GetProperty("body").GetProperty("nodes")[0]
                   let entries =
                       ValueDependency.ofNode node
@@ -534,7 +552,7 @@ module ZigHostSeedTests =
             Assert.NotEqual<string>(first, session "other" text)
             let taken = StableIdAllocator.seededPayload "parity" 30L
             let output = session "parity" (text.Replace(StableId.value fixture.ValidateFunctionId, taken))
-            use reply = JsonDocument.Parse output
+            use reply = parseDocument output
             let proposal = reply.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
             Assert.True(StableIdAllocator.seededCount "parity" proposal > 30L, proposal))
 
@@ -1060,15 +1078,12 @@ module ZigHostCreateDecodeTests =
             File.WriteAllText(path, SnapshotCodec.serialize (MilestoneZeroGraph.create ()).Snapshot |> unwrap)
             use session = AuthoringSession.openReadOnly path |> unwrap
             let requests = recipeRequests () @ requestMutations () @ preflightRequests (session.Declarations()) (StableId.value session.SnapshotId)
-            let code, errors, answers = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
-            Assert.True((code = 0), errors)
-            Assert.Equal(requests.Length, answers.Length)
+            let expected, answers = seededPair "create-decode" path requests
             let mutable rejected = 0
             let mutable preflight = 0
             let mismatches = ResizeArray<string>()
             let answered = Text.StringBuilder()
-            for request, zig in List.zip requests answers do
-                let fsharp = AuthoringProtocol.executeLine session request
+            for request, (fsharp, zig) in List.zip requests (List.zip expected answers) do
                 answered.Append(fsharp) |> ignore
                 if fsharp.Contains "\"code\":\"ProtocolError\"" then rejected <- rejected + 1
                 if isPreflightRejection fsharp then preflight <- preflight + 1
@@ -1321,11 +1336,8 @@ module ZigHostCreateByNameTests =
             for snapshot in snapshots dir do
                 use session = AuthoringSession.openReadOnly snapshot |> unwrap
                 let lines = requests (session.Declarations()) (StableId.value session.SnapshotId)
-                let code, errors, answers = run true [ "open"; "--snapshot"; snapshot; "--read-only" ] lines
-                Assert.True((code = 0), errors)
-                Assert.Equal(lines.Length, answers.Length)
-                for request, zig in List.zip lines answers do
-                    let fsharp = AuthoringProtocol.executeLine session request
+                let expected, answers = seededPair "create-by-name" snapshot lines
+                for request, (fsharp, zig) in List.zip lines (List.zip expected answers) do
                     answered.Append(fsharp) |> ignore
                     if request.Contains "\"bodyFile\":\"nope.json\"" then
                         // The Zig host does not read bodyFile yet (a documented shortcut).
@@ -1793,21 +1805,17 @@ module ZigHostCreateInferenceTests =
         withDirectory (fun dir ->
             let path = Path.Combine(dir, "inference.json")
             File.WriteAllText(path, SnapshotCodec.serialize (snapshot ()) |> unwrap)
-            use session = AuthoringSession.openReadOnly path |> unwrap
             let lines = requests ()
             // Built before the clock starts: the first run of a changed host compiles it.
             zigHost () |> ignore
             let clock = Stopwatch.StartNew()
-            let code, errors, answers = run true [ "open"; "--snapshot"; path; "--read-only" ] lines
-            // The deep generic constructors would take 2^30 inferences without the cache.
-            Assert.True(clock.Elapsed < TimeSpan.FromSeconds 20.0, $"The Zig host took {clock.Elapsed} to answer the inference corpus.")
-            Assert.True((code = 0), errors)
-            Assert.Equal(lines.Length, answers.Length)
+            let expected, answers = seededPair "create-inference" path lines
+            // Both subprocesses run here; deep generic constructors still must remain linear.
+            Assert.True(clock.Elapsed < TimeSpan.FromSeconds 40.0, $"The seeded pair took {clock.Elapsed} to answer the inference corpus.")
             let mismatches = ResizeArray<string>()
             let answered = Text.StringBuilder()
             let mutable located = 0
-            for request, zig in List.zip lines answers do
-                let fsharp = AuthoringProtocol.executeLine session request
+            for request, (fsharp, zig) in List.zip lines (List.zip expected answers) do
                 answered.Append(fsharp) |> ignore
                 if (locatedPath zig).IsSome then located <- located + 1
                 if not (createReplyMatches request fsharp zig) then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
@@ -1820,13 +1828,94 @@ module ZigHostCreateInferenceTests =
             Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
             Assert.True(located > 60, $"Only {located} Zig replies locate their diagnostic."))
 
+    /// Post-order and binding allocation across successes and failures, plus the compact budget.
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host materializes compact create proposals with seeded byte parity`` () =
+        withDirectory (fun dir ->
+            let primitive name = $"""{{"kind":"primitive","primitive":"{name}"}}"""
+            let intT, stringT, unitT = primitive "int64", primitive "string", primitive "unit"
+            let parameterT = """{"kind":"typeParameter","name":"T"}"""
+            let parameter name typ = $"""{{"displayName":"{name}","type":{typ}}}"""
+            let int = """{"kind":"int64Literal","value":7}"""
+            let unit = """{"kind":"unitLiteral"}"""
+            let pattern = """{"kind":"patternReference","scopeDepth":0,"slot":"value"}"""
+            let slot = """{"kind":"parameterSlot","index":0}"""
+            let request op name (parameters: string list) resultType body =
+                $"""{{"id":"c","op":"{op}","displayName":"{name}","parameters":[{String.Join(",", parameters)}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
+            let exact parameters resultType body = request "simulateCreateFunction" "made" parameters resultType body
+            let symbolic parameters resultType body = request "simulateCreateFunctionByName" "made" parameters resultType body
+            let optionMatch = $"""{{"kind":"matchOption","input":{{"kind":"optionSome","value":{int}}},"someBody":{pattern},"noneBody":{int}}}"""
+            let resultMatch = $"""{{"kind":"matchResult","input":{{"kind":"resultOk","errorType":{stringT},"value":{int}}},"okBody":{pattern},"errBody":{int}}}"""
+            let bind = $"""{{"kind":"bind","value":{int},"body":{{"kind":"bind","value":{pattern},"body":{{"kind":"patternReference","scopeDepth":1,"slot":"value"}}}}}}"""
+            let large = request "simulateCreateFunction" (String.replicate 20000 "x") [] unitT unit
+            let common =
+                [ exact [] unitT unit
+                  exact [] unitT int // inference rejection between successes
+                  exact [ parameter "x" parameterT ] parameterT slot
+                  symbolic [ parameter "x" parameterT ] parameterT """{"kind":"parameter","name":"x"}"""
+                  exact [] intT bind
+                  symbolic [] intT optionMatch
+                  exact [] intT resultMatch
+                  large
+                  exact [] intT int
+                  exact [ parameter "x" intT ] intT $"""{{"kind":"selfCall","arguments":[{{"slot":0,"value":{slot}}}]}}"""
+                  symbolic [ parameter "x" intT ] intT """{"kind":"directCall","function":"made","arguments":[],"keepUnlisted":true}"""
+                  exact [ parameter "x" parameterT ] unitT slot // rejected after allocating a fresh type parameter
+                  exact [] intT int
+                  """{"id":"p","op":"proposals"}"""
+                  """{"id":"s","op":"status"}"""
+                  """{"id":"d","op":"declarations"}""" ]
+            let path = Path.Combine(dir, "inference.json")
+            File.WriteAllText(path, SnapshotCodec.serialize (snapshot ()) |> unwrap)
+            let cellT = """{"kind":"builtinGeneric","generic":"oneShot","arguments":[{"kind":"primitive","primitive":"int64"}]}"""
+            let optionIntT = """{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]}"""
+            let constructed =
+                [ // An abort-only body has no normal result, but still materializes and reports aborts.
+                  exact [] """{"kind":"builtinGeneric","generic":"result","arguments":[{"kind":"primitive","primitive":"int64"},{"kind":"primitive","primitive":"string"}]}"""
+                      """{"kind":"abort","error":{"kind":"stringLiteral","value":"stopped"}}"""
+                  exact [] stringT $"""{{"kind":"matchResult","input":{{"kind":"resultErr","okType":{intT},"error":{{"kind":"stringLiteral","value":"error"}}}},"okBody":{{"kind":"stringLiteral","value":"ok"}},"errBody":{{"kind":"patternReference","scopeDepth":0,"slot":"error"}}}}"""
+                  // Exercise JSON escaping and UTF-16 truncation in the compact projection.
+                  (symbolic [] stringT """{"kind":"stringLiteral","value":"quoted \" and \uD83D\uDE00"}""").Replace("\"displayName\":\"made\"", "\"displayName\":" + JsonSerializer.Serialize(String.replicate 3000 "😀界\"\n"))
+                  // Waiting nodes exercise optional operands and the focus wait-path fields.
+                  exact [ parameter "cell" cellT ] optionIntT $"""{{"kind":"oneShotWait","cell":{slot}}}"""
+                  symbolic [ parameter "cell" cellT ] optionIntT """{"kind":"oneShotWait","cell":{"kind":"parameter","name":"cell"},"limit":{"kind":"optionNone","itemType":{"kind":"primitive","primitive":"int64"}}}"""
+                  // Calls and contexts arrive backwards; allocation follows declaration order.
+                  exact [] intT $"""{{"kind":"directCall","functionId":"zig-pair","arguments":[{{"parameterId":"zig-pair-p1","value":{int}}},{{"parameterId":"zig-pair-p0","value":{int}}}]}}"""
+                  exact [] """{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"primitive","primitive":"int64"}]}"""
+                      $"""{{"kind":"listMap","source":{{"kind":"listConstruct","itemType":{intT},"items":[{int}]}},"functionId":"zig-pair","context":[{{"parameterId":"zig-pair-p1","value":{int}}}]}}"""
+                  symbolic [] intT $"""{{"kind":"directCall","function":"pair","arguments":[{{"parameter":"p1","value":{int}}},{{"parameter":"p0","value":{int}}}]}}"""
+                  exact [] """{"kind":"named","typeId":"zig-Box","arguments":[{"kind":"primitive","primitive":"int64"}]}"""
+                      $"""{{"kind":"productConstruct","typeId":"zig-Box","fields":[{{"fieldId":"zig-box-item","value":{int}}}]}}"""
+                  exact [] intT $"""{{"kind":"matchUnion","input":{{"kind":"unionConstruct","variantId":"zig-square","fields":[{{"fieldId":"zig-square-side","value":{int}}}]}},"arms":[{{"variantId":"zig-square","body":{{"kind":"patternReference","slot":"field","scopeDepth":0,"fieldId":"zig-square-side"}}}},{{"variantId":"zig-dot","body":{int}}},{{"variantId":"zig-circle","body":{int}}}]}}"""
+                  exact [] """{"kind":"capability","capabilityId":"zig-IO"}"""
+                      """{"kind":"capabilityConstruct","capabilityId":"zig-IO","implementations":[{"operationId":"zig-release","functionId":"zig-release"},{"operationId":"zig-read","functionId":"zig-identity"}]}"""
+                  (exact [ parameter "io" """{"kind":"capability","capabilityId":"zig-IO"}""" ] intT
+                      $"""{{"kind":"capabilityInvoke","capabilityValue":{slot},"operationId":"zig-read","arguments":[{{"capabilityParameterId":"zig-read-p","value":{int}}}]}}""").Replace("\"requiredEffects\":[]", "\"requiredEffects\":[\"zig-io\"]") ]
+            let expected, actual = seededPair "materialize" path (common @ constructed)
+            Assert.Equal<string list>(expected, actual)
+            use cut = parseDocument expected[7]
+            Assert.True(cut.RootElement.GetProperty("result").GetProperty("projection").GetProperty("requiresDetailedReview").GetBoolean())
+            // Pin successful coverage: equal error replies are not a materialization test.
+            for index in [ 0; 2; 3; 4; 5; 6; 7; 8; 9; 12 ] do
+                use parsed = parseDocument expected[index]
+                Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), expected[index])
+            for index in [ common.Length + 3; common.Length + 4 ] do
+                use parsed = parseDocument expected[index]
+                Assert.True(parsed.RootElement.GetProperty("result").GetProperty("review").GetProperty("mayWait").GetBoolean(), expected[index])
+            for reply in List.skip common.Length expected do
+                use parsed = parseDocument reply
+                Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), reply)
+            for source in snapshots dir do
+                let expected, actual = seededPair "materialize-examples" source common
+                Assert.Equal<string list>(expected, actual))
+
     /// Same mismatch as the old in-process corpus: the type parameter and declared type both
     /// render as Point, so `typeRefPairIn` must disambiguate with the freshly allocated ID.
     let private genericMismatch =
         """{"id":"g","op":"simulateCreateFunction","displayName":"made","parameters":[{"displayName":"x","type":{"kind":"typeParameter","name":"Point"}}],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"kind":"listConstruct","itemType":{"kind":"named","typeId":"zig-Point"},"items":[{"kind":"parameterSlot","index":0}]}}"""
 
     let private diagnosticMessage (reply: string) =
-        use parsed = JsonDocument.Parse reply
+        use parsed = parseDocument reply
         parsed.RootElement.GetProperty("error").GetProperty("details").GetProperty("diagnostics").[0].GetProperty("message").GetString()
 
     let private assertFresh n (reply: string) =

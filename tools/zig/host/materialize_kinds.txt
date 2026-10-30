@@ -1,0 +1,211 @@
+# Materialization: recipe kind|snapshot property:shape:recipe slot, in allocation order.
+# Mirrors ExpressionRecipeMaterialization; declaration-bound lists are ordered by their owner.
+abort|errorNodeId:id:error
+bits32Add|leftNodeId:id:left rightNodeId:id:right
+bits32And|leftNodeId:id:left rightNodeId:id:right
+bits32FromInt64|valueNodeId:id:value
+bits32Not|valueNodeId:id:value
+bits32Or|leftNodeId:id:left rightNodeId:id:right
+bits32RotateRight|valueNodeId:id:value amountNodeId:id:amount
+bits32ShiftLeft|valueNodeId:id:value amountNodeId:id:amount
+bits32ShiftRight|valueNodeId:id:value amountNodeId:id:amount
+bits32ToInt64|valueNodeId:id:value
+bits32Xor|leftNodeId:id:left rightNodeId:id:right
+boolAnd|leftNodeId:id:left right:graph:right
+boolLiteral|value:bool:value
+boolNot|operandNodeId:id:value
+boolOr|leftNodeId:id:left right:graph:right
+bytesAppend|bytesNodeId:id:bytes valueNodeId:id:value
+bytesConcat|leftNodeId:id:left rightNodeId:id:right
+bytesEmpty|
+bytesFill|lengthNodeId:id:length valueNodeId:id:value
+bytesFromLatin1|valueNodeId:id:value
+bytesGet|bytesNodeId:id:bytes indexNodeId:id:index
+bytesLength|valueNodeId:id:value
+bytesSet|bytesNodeId:id:bytes indexNodeId:id:index valueNodeId:id:value
+bytesSlice|bytesNodeId:id:bytes startNodeId:id:start endNodeId:id:end
+bytesToLatin1|valueNodeId:id:value
+cancellationRequested|
+cancellationShield|bodyFunctionId:id:bodyFunctionId context:ctx:context
+capabilityConstruct|capabilityId:id:capabilityId implementations:impls:implementations
+capabilityInvoke|capabilityValueNodeId:id:capabilityValue operationId:id:operationId arguments:capargs:arguments
+conditional|conditionNodeId:id:condition whenTrue:graph:whenTrue whenFalse:graph:whenFalse
+directCall|targetFunctionId:id:functionId arguments:args:arguments
+exceptionCatch|bodyFunctionId:id:bodyFunctionId bodyContext:ctx:bodyContext handlerFunctionId:id:handlerFunctionId handlerContext:ctx:handlerContext
+exceptionIsCancellation|valueNodeId:id:value
+exceptionMessage|valueNodeId:id:value
+exceptionRethrow|valueNodeId:id:value resultType:type:resultType
+fieldAccess|sourceNodeId:id:source fieldId:id:fieldId
+float64Abs|valueNodeId:id:value
+float64Add|leftNodeId:id:left rightNodeId:id:right
+float64Ceiling|valueNodeId:id:value
+float64Divide|leftNodeId:id:left rightNodeId:id:right
+float64Equal|leftNodeId:id:left rightNodeId:id:right
+float64FloorModulo|leftNodeId:id:left rightNodeId:id:right
+float64FloorToInt64|valueNodeId:id:value
+float64Floor|valueNodeId:id:value
+float64IsFinite|valueNodeId:id:value
+float64IsInfinite|valueNodeId:id:value
+float64IsNaN|valueNodeId:id:value
+float64LessThan|leftNodeId:id:left rightNodeId:id:right
+float64Literal|bits:bits:bits
+float64Max|leftNodeId:id:left rightNodeId:id:right
+float64Min|leftNodeId:id:left rightNodeId:id:right
+float64Multiply|leftNodeId:id:left rightNodeId:id:right
+float64Negate|valueNodeId:id:value
+float64RoundToInt64|valueNodeId:id:value
+float64Round|valueNodeId:id:value digitsNodeId:id:digits
+float64Sqrt|valueNodeId:id:value
+float64Subtract|leftNodeId:id:left rightNodeId:id:right
+float64ToString|valueNodeId:id:value
+float64Truncate|valueNodeId:id:value
+functionInvoke|functionValueNodeId:id:functionValue arguments:ids:arguments
+functionReference|targetFunctionId:id:functionId
+int64BitAnd|leftNodeId:id:left rightNodeId:id:right
+int64BitNot|valueNodeId:id:value
+int64BitOr|leftNodeId:id:left rightNodeId:id:right
+int64BitXor|leftNodeId:id:left rightNodeId:id:right
+int64CheckedAdd|leftNodeId:id:left rightNodeId:id:right
+int64CheckedMultiply|leftNodeId:id:left rightNodeId:id:right
+int64CheckedSubtract|leftNodeId:id:left rightNodeId:id:right
+int64Equal|leftNodeId:id:left rightNodeId:id:right
+int64FloorDivide|leftNodeId:id:left rightNodeId:id:right
+int64FloorModulo|leftNodeId:id:left rightNodeId:id:right
+int64GreaterThanOrEqual|leftNodeId:id:left rightNodeId:id:right
+int64GreaterThan|leftNodeId:id:left rightNodeId:id:right
+int64LessThanOrEqual|leftNodeId:id:left rightNodeId:id:right
+int64LessThan|leftNodeId:id:left rightNodeId:id:right
+int64Literal|value:int:value
+int64Max|leftNodeId:id:left rightNodeId:id:right
+int64Min|leftNodeId:id:left rightNodeId:id:right
+int64ShiftLeft|valueNodeId:id:value countNodeId:id:count
+int64ShiftRight|valueNodeId:id:value countNodeId:id:count
+int64ToFloat64|valueNodeId:id:value
+int64ToHexString|valueNodeId:id:value
+int64ToString|valueNodeId:id:value
+int64WrappingAbs|valueNodeId:id:value
+int64WrappingAdd|leftNodeId:id:left rightNodeId:id:right
+int64WrappingMultiply|leftNodeId:id:left rightNodeId:id:right
+int64WrappingSubtract|leftNodeId:id:left rightNodeId:id:right
+listAll|sourceListNodeId:id:source predicateFunctionId:id:functionId context:ctx:context
+listAny|sourceListNodeId:id:source predicateFunctionId:id:functionId context:ctx:context
+listAppendItem|listNodeId:id:list itemNodeId:id:item
+listConcat|leftListNodeId:id:left rightListNodeId:id:right
+listConstruct|itemType:type:itemType itemNodeIds:ids:items
+listContains|listNodeId:id:list itemNodeId:id:item
+listDropLast|listNodeId:id:value
+listEffectFold|sourceListNodeId:id:source seedNodeId:id:seed folderFunctionId:id:functionId context:ctx:context
+listEmpty|itemType:type:itemType
+listFilter|sourceListNodeId:id:source predicateFunctionId:id:functionId context:ctx:context
+listFindIndex|sourceListNodeId:id:source predicateFunctionId:id:functionId context:ctx:context
+listFlatMap|sourceListNodeId:id:source mapperFunctionId:id:functionId context:ctx:context
+listFold|sourceListNodeId:id:source seedNodeId:id:seed folderFunctionId:id:functionId context:ctx:context
+listIndexOf|listNodeId:id:list itemNodeId:id:item
+listInsertAt|listNodeId:id:list indexNodeId:id:index itemNodeId:id:item
+listItemAt|listNodeId:id:list indexNodeId:id:index
+listLastIndexOf|listNodeId:id:list itemNodeId:id:item
+listLast|listNodeId:id:value
+listLength|listNodeId:id:value
+listMap|sourceListNodeId:id:source mapperFunctionId:id:functionId context:ctx:context
+listMaxBy|sourceListNodeId:id:source lessThanFunctionId:id:functionId context:ctx:context
+listMinBy|sourceListNodeId:id:source lessThanFunctionId:id:functionId context:ctx:context
+listRange|startNodeId:id:start endNodeId:id:end
+listRemoveAt|listNodeId:id:list indexNodeId:id:index
+listReverse|listNodeId:id:value
+listScan|sourceListNodeId:id:source seedNodeId:id:seed folderFunctionId:id:functionId context:ctx:context
+listSetAt|listNodeId:id:list indexNodeId:id:index itemNodeId:id:item
+listSlice|listNodeId:id:list startNodeId:id:start endNodeId:id:end
+listSortBy|sourceListNodeId:id:source lessThanFunctionId:id:functionId context:ctx:context
+listZipWith|leftListNodeId:id:left rightListNodeId:id:right combinerFunctionId:id:functionId context:ctx:context
+mapContainsKey|mapNodeId:id:map keyNodeId:id:key
+mapEmpty|keyType:type:keyType valueType:type:valueType
+mapFilter|sourceMapNodeId:id:map keepFunctionId:id:functionId context:ctx:context
+mapFold|sourceMapNodeId:id:map seedNodeId:id:seed folderFunctionId:id:functionId context:ctx:context
+mapFromList|sourceListNodeId:id:source keyOfFunctionId:id:functionId context:ctx:context
+mapGetOrDefault|mapNodeId:id:map keyNodeId:id:key defaultNodeId:id:default
+mapGet|mapNodeId:id:map keyNodeId:id:key
+mapInsert|mapNodeId:id:map keyNodeId:id:key valueNodeId:id:value
+mapKeys|mapNodeId:id:value
+mapMapValues|sourceMapNodeId:id:map mapperFunctionId:id:functionId context:ctx:context
+mapRemove|mapNodeId:id:map keyNodeId:id:key
+mapSize|mapNodeId:id:value
+mapUnion|leftMapNodeId:id:left rightMapNodeId:id:right
+mapValues|mapNodeId:id:value
+oneShotComplete|cellNodeId:id:cell valueNodeId:id:value
+oneShotCreate|scopeNodeId:id:scope valueType:type:valueType
+oneShotWait|cellNodeId:id:cell limitNodeId:optid:limit
+optionAndThen|sourceOptionNodeId:id:option binderFunctionId:id:functionId context:ctx:context
+optionGetOrDefault|optionNodeId:id:option defaultNodeId:id:default
+optionIsSome|valueNodeId:id:value
+optionMap|sourceOptionNodeId:id:option mapperFunctionId:id:functionId context:ctx:context
+optionNone|itemType:type:itemType
+optionOkOr|optionNodeId:id:option errorNodeId:id:error
+optionSome|valueNodeId:id:value
+parallelAll|sourceListNodeId:id:source workerFunctionId:id:workerFunctionId context:ctx:context
+productConstruct|typeId:id:typeId typeArguments:targs:typeArguments fields:fields:fields
+productUpdate|typeId:id:typeId sourceNodeId:id:source fields:fields:fields
+resultAndThen|sourceResultNodeId:id:result binderFunctionId:id:functionId context:ctx:context
+resultErrValue|valueNodeId:id:value
+resultErr|okType:type:okType errorNodeId:id:error
+resultGetOrDefault|resultNodeId:id:result defaultNodeId:id:default
+resultIsOk|valueNodeId:id:value
+resultMapErr|sourceResultNodeId:id:result mapperFunctionId:id:functionId context:ctx:context
+resultMap|sourceResultNodeId:id:result mapperFunctionId:id:functionId context:ctx:context
+resultOkValue|valueNodeId:id:value
+resultOk|errorType:type:errorType valueNodeId:id:value
+setContains|setNodeId:id:set itemNodeId:id:item
+setDifference|leftSetNodeId:id:left rightSetNodeId:id:right
+setEmpty|itemType:type:itemType
+setFilter|sourceSetNodeId:id:set predicateFunctionId:id:functionId context:ctx:context
+setFold|sourceSetNodeId:id:set seedNodeId:id:seed folderFunctionId:id:functionId context:ctx:context
+setFromList|listNodeId:id:value
+setInsert|setNodeId:id:set itemNodeId:id:item
+setIntersection|leftSetNodeId:id:left rightSetNodeId:id:right
+setIsSubset|leftSetNodeId:id:left rightSetNodeId:id:right
+setMap|sourceSetNodeId:id:set mapperFunctionId:id:functionId context:ctx:context
+setRemove|setNodeId:id:set itemNodeId:id:item
+setSize|setNodeId:id:value
+setToList|setNodeId:id:value
+setUnion|leftSetNodeId:id:left rightSetNodeId:id:right
+stringCodePoints|valueNodeId:id:value
+stringConcat|leftNodeId:id:left rightNodeId:id:right
+stringContains|valueNodeId:id:value substringNodeId:id:substring
+stringDecodeUtf8Lossy|valueNodeId:id:value
+stringEncodeUtf8|valueNodeId:id:value
+stringEndsWith|valueNodeId:id:value suffixNodeId:id:suffix
+stringEqual|leftNodeId:id:left rightNodeId:id:right
+stringFromCodePoint|valueNodeId:id:value
+stringIndexOf|valueNodeId:id:value substringNodeId:id:substring fromNodeId:id:from
+stringIsEmpty|valueNodeId:id:value
+stringJoin|listNodeId:id:list separatorNodeId:id:separator
+stringLastIndexOfBefore|valueNodeId:id:value substringNodeId:id:substring endNodeId:id:end
+stringLastIndexOf|valueNodeId:id:value substringNodeId:id:substring
+stringLength|valueNodeId:id:value
+stringLessThan|leftNodeId:id:left rightNodeId:id:right
+stringLiteral|value:lit:value
+stringParseFloat64|valueNodeId:id:value
+stringParseInt64Hex|valueNodeId:id:value
+stringParseInt64|valueNodeId:id:value
+stringRepeat|textNodeId:id:text countNodeId:id:count
+stringReplace|valueNodeId:id:value patternNodeId:id:pattern replacementNodeId:id:replacement
+stringSlice|valueNodeId:id:value startNodeId:id:start endNodeId:id:end
+stringSpanBack|valueNodeId:id:value setNodeId:id:set endNodeId:id:end
+stringSpan|valueNodeId:id:value setNodeId:id:set fromNodeId:id:from
+stringSplitLines|valueNodeId:id:value breaksNodeId:id:breaks
+stringSplit|valueNodeId:id:value separatorNodeId:id:separator
+stringStartsWith|valueNodeId:id:value prefixNodeId:id:prefix
+stringToCodePoint|valueNodeId:id:value
+stringToLower|valueNodeId:id:value
+stringToUpper|valueNodeId:id:value
+stringTrimEnd|valueNodeId:id:value
+stringTrimStart|valueNodeId:id:value
+stringTrim|valueNodeId:id:value
+stringUtf8ByteCount|valueNodeId:id:value
+taskCancel|taskNodeId:id:task
+taskScope|bodyFunctionId:id:bodyFunctionId context:ctx:context
+taskStart|scopeNodeId:id:scope itemNodeId:id:item workerFunctionId:id:workerFunctionId context:ctx:context
+taskWait|tasksNodeId:id:tasks mode:mode:mode limitNodeId:optid:limit
+unionConstruct|variantId:id:variantId typeArguments:targs:typeArguments fields:fields:fields
+unitLiteral|
+useResource|acquireNodeId:id:acquire releaseCapabilityNodeId:id:releaseCapability releaseOperationId:id:releaseOperationId bodyFunctionId:id:bodyFunctionId context:ctx:context
+valueEqual|leftNodeId:id:left rightNodeId:id:right

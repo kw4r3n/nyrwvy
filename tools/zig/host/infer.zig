@@ -1,8 +1,7 @@
 //! Type inference of a decoded `simulateCreateFunction(ByName)` body, as `ExpressionRecipeInference`
 //! runs it for the function being created, and the result-type check after it
 //! (`FunctionCreationResultTypeMismatch`). Each rejection is a `SimulationRejected` reply located at
-//! its node (`locate`: ` At body.… (kind).`). A recipe kind not ported yet and a body that
-//! infers cleanly answer a fixed `UnsupportedOperation` (see `unported`, `not_materialized`).
+//! its node (`locate`: ` At body.… (kind).`). Successful inference retains its type cache for materialization.
 const std = @import("std");
 const model = @import("model_reader");
 const query = @import("query.zig");
@@ -17,7 +16,6 @@ const Value = query.Value;
 
 /// `UnsupportedOperation` messages; the parity tests tell them apart.
 pub const unported = "The Zig host does not infer {s} recipes yet (at {s}).";
-pub const not_materialized = "The Zig host infers simulateCreateFunction bodies but does not materialize proposals yet.";
 
 const description = "the function being created";
 
@@ -262,7 +260,7 @@ const ResolvedArm = struct { variants: []const Variant, body: *const Node, binds
 
 // ---------------------------------------------------------------- inference
 
-const Infer = struct {
+pub const Infer = struct {
     r: *query.Request,
     a: Allocator,
     c: preflight.Creation,
@@ -279,6 +277,18 @@ const Infer = struct {
     values: std.AutoHashMapUnmanaged(*const Node, Cached(TypeRef)) = .empty,
     completions: std.AutoHashMapUnmanaged(*const Node, Cached(Completion)) = .empty,
     one_shot_requirements: ?[]const model.OneShotRequirement = null,
+
+    /// Materialization recovers only value positions and constructors. Successful inference
+    /// has visited these under their lexical frame; abrupt completions cannot occupy a value.
+    pub fn recovered(self: *const Infer, node: *const Node) TypeRef {
+        return self.values.get(node).?.value;
+    }
+
+    pub fn materializationArms(self: *Infer, node: *const Node) Fail![]const ResolvedArm {
+        const input = self.recovered(node.slots[0].data.recipe).named;
+        const declared = self.typeDeclaration(input.id).?;
+        return self.resolveUnionArms(try self.variantsOf(declared, input.arguments), node.slots[1].data.arms);
+    }
 
     fn Cached(comptime T: type) type {
         return struct { frames: ?*const Frame, value: T };
@@ -1689,9 +1699,8 @@ fn recipePath(a: Allocator, path: []const u8, node: *const Node, target: *const 
     return null;
 }
 
-/// Infers the body after the preflight and checks it against the result type; a body that passes
-/// answers `not_materialized` until 3c-4b.
-pub fn run(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter) Fail!void {
+/// Infers the body after the preflight and checks it against the result type.
+pub fn run(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter) Fail!Infer {
     var local: std.ArrayList([]const u8) = .empty;
     for (c.parameters) |p| try preflight.occurring(r.a, p.type, &local);
     var self: Infer = .{ .r = r, .a = r.a, .c = c, .local = c.type_parameters orelse local.items, .fresh = fresh };
@@ -1708,7 +1717,5 @@ pub fn run(r: *query.Request, c: preflight.Creation, fresh: []const preflight.Ty
     if (completion == .normal and !eqlType(completion.normal, c.result_type)) {
         return preflight.rejected(r, "FunctionCreationResultTypeMismatch", try std.fmt.allocPrint(r.a, "The function body produces {s}, but the requested result type is {s}.", .{ try self.ty(completion.normal), try self.ty(c.result_type) }));
     }
-    // shortcut: materialization, the transaction and the review come in 3c-4b.
-    r.rejection = .{ .code = "UnsupportedOperation", .message = not_materialized };
-    return error.Rejected;
+    return self;
 }

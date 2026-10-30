@@ -30,6 +30,7 @@ pub const Request = struct {
     model: Value,
     provenance: ?wire.Provenance,
     snapshot_id: []const u8 = "",
+    snapshot_fingerprint: []const u8 = "",
     /// The snapshot file, absolute, beside which views are written.
     snapshot_path: []const u8 = "",
     rejection: Rejection = .{ .code = "", .message = "" },
@@ -1626,7 +1627,6 @@ fn expectedSnapshotId(r: *Request, d: *recipe.Decoder, root: std.json.Value) Fai
 /// `simulateCreateFunction`: the request read as `Protocol.fs` reads it, field by field in the
 /// order F# evaluates them, with each rejection, then the preflight and the inference.
 pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
-    _ = out;
     if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateCreateFunction request", &.{ "id", "op", "displayName", "exported", "mustNotWait", "typeParameters", "parameters", "resultType", "requiredEffects", "body", "structuredReview", "detail", "expectedSnapshotId" }, &.{ "id", "op", "displayName", "parameters", "resultType", "requiredEffects", "body" })) |message| return r.fail("{s}", .{message});
     var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
     var root: std.json.Value = .{ .object = r.root };
@@ -1653,12 +1653,12 @@ pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
     const tree = try d.recipe("/body", body.*);
     const creation: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
     const fresh = try preflight.run(r, creation);
-    try infer.run(r, creation, fresh);
+    var inferred = try infer.run(r, creation, fresh);
+    try @import("proposals.zig").create(r, out, creation, fresh, &inferred);
 }
 
 /// `simulateCreateFunctionByName` as `functionCreationByName` reads it, then the preflight and the inference.
 pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
-    _ = out;
     if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateCreateFunctionByName request", &.{ "id", "op", "displayName", "exported", "mustNotWait", "typeParameters", "parameters", "resultType", "requiredEffects", "body", "bodyFile", "structuredReview", "detail", "expectedSnapshotId" }, &.{ "id", "op", "displayName", "parameters", "resultType", "requiredEffects" })) |message| return r.fail("{s}", .{message});
     var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
     const root: std.json.Value = .{ .object = r.root };
@@ -1696,5 +1696,6 @@ pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
     const tree = try d.recipe("/body", inline_body.?.*);
     const creation: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
     const fresh = try preflight.run(r, creation);
-    try infer.run(r, creation, fresh);
+    var inferred = try infer.run(r, creation, fresh);
+    try @import("proposals.zig").create(r, out, creation, fresh, &inferred);
 }
