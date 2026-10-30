@@ -32,6 +32,7 @@ pub const Pending = struct {
     name: []const u8,
     declaration: ?Declaration = null,
     operations: bool = false,
+    migration: ?struct { kind: []const u8, summary: []const u8, functions: []const Value } = null,
     batch: ?[]const query.Capture = null,
     operation_summary_data: Value = .json_null,
     replacing: bool = false,
@@ -368,7 +369,7 @@ fn declarationEntity(out: *Writer, group: []const u8, item: Value) !void {
 }
 
 pub fn proposalKind(p: *const Pending) []const u8 {
-    return if (p.batch != null) "batch" else if (p.operations) "operations" else if (p.declaration) |d| d.kind else if (p.target_node != null) "replaceTarget" else if (p.replacing) "replaceBody" else "createFunction";
+    return if (p.migration) |migration| migration.kind else if (p.batch != null) "batch" else if (p.operations) "operations" else if (p.declaration) |d| d.kind else if (p.target_node != null) "replaceTarget" else if (p.replacing) "replaceBody" else "createFunction";
 }
 
 fn encodeReview(r: *query.Request, out: *Writer, created: Value, previous: ?Value, change: ?targeted.Change, transaction: Value, snapshot: Value, root: Value, proposed: Value, proof: []const u8, full: bool, structured: bool) !void {
@@ -466,7 +467,9 @@ pub fn listing(a: Allocator, out: *Writer, current: []const u8, current_model: V
         try out.print(",\"kind\":\"{s}\",\"baseSnapshotId\":", .{proposalKind(&p)});
         try @import("root").writeString(out, p.base_id);
         try out.writeAll(if (m.same(current, p.base_id)) ",\"baseIsCurrent\":true,\"summary\":" else ",\"baseIsCurrent\":false,\"summary\":");
-        if (p.batch) |captures| {
+        if (p.migration) |migration| {
+            try @import("root").writeString(out, migration.summary);
+        } else if (p.batch) |captures| {
             try @import("root").writeString(out, try batchSummary(&summary_request, captures));
         } else if (p.operations) {
             try @import("root").writeString(out, try @import("operation_engine.zig").summaryOperations(&summary_request, p.operation_summary_data));
@@ -632,7 +635,7 @@ pub fn viewProposal(r: *query.Request, out: *Writer) !void {
             try w.writeAll(",\"engineReview\":");
         } else {
             try w.writeAll(",\"changedFunctions\":[");
-            const functions = if (p.declaration) |d| d.items else &.{p.created_function};
+            const functions = if (p.migration) |migration| migration.functions else if (p.declaration) |d| d.items else &.{p.created_function};
             for (functions, 0..) |changed, i| {
                 if (i > 0) try w.writeByte(',');
                 try w.writeAll("{\"committed\":");
@@ -680,41 +683,7 @@ pub fn viewProposal(r: *query.Request, out: *Writer) !void {
 }
 
 pub fn publishOperations(r: *query.Request, out: *Writer, result: @import("operation_engine.zig").Result) !void {
-    if (r.provenance) |provenance| {
-        var hidden_names: std.ArrayList([]const u8) = .empty;
-        for ([_][2][]const u8{ .{ "types", "type" }, .{ "functions", "function" }, .{ "effects", "effect" }, .{ "capabilities", "capability" } }) |category| {
-            for (model.arrayItems(r.model, category[0])) |old| {
-                if (!try imported(r, provenance, category[1], query.idOf(old))) continue;
-                const proposed = @import("operation_model.zig").find(result.candidate, category[0], query.idOf(old));
-                var touched = false;
-                if (m.same(category[0], "functions") or m.same(category[0], "types")) {
-                    for (try affected(r, result.candidate, result.diff, m.same(category[0], "functions"))) |id| {
-                        if (std.mem.eql(u16, model.decoded(id), model.decoded(model.property(old, "id").?))) {
-                            touched = true;
-                            break;
-                        }
-                    }
-                } else if (m.same(category[0], "capabilities")) {
-                    for ([_][]const u8{ "capabilityOperationsAdded", "capabilityOperationsRemoved" }) |key| for (model.arrayItems(result.diff, key)) |change| {
-                        if (m.same(@import("operation_model.zig").text(change, "ownerCapabilityId"), query.idOf(old))) touched = true;
-                    };
-                }
-                if (touched or proposed == null or !sameValue(old, proposed.?)) return invalidSnapshot(r, "ImportedDeclarationModified", "Dependency declarations are read-only; no proposal was registered.");
-            }
-            for (model.arrayItems(result.candidate, category[0])) |item| {
-                const key = try std.fmt.allocPrint(r.a, "{s}:{s}", .{ category[1], query.idOf(item) });
-                if (!preflight.contains(provenance.hidden, key)) continue;
-                const references = model.referencesTo(r.a, result.candidate, category[1], model.decoded(model.property(item, "id").?)) orelse continue;
-                for (references) |reference| {
-                    if (!try imported(r, provenance, @tagName(reference.owner), model.utf8(reference.owner_id))) {
-                        try hidden_names.append(r.a, try std.fmt.allocPrint(r.a, "{s} '{s}' ({s})", .{ category[1], query.nameOf(item), query.idOf(item) }));
-                        break;
-                    }
-                }
-            }
-        }
-        if (hidden_names.items.len > 0) return invalidSnapshot(r, "ImportedDeclarationNotExported", try std.fmt.allocPrint(r.a, "The dependency does not export {s}; a dependent may refer only to exported declarations. No proposal was registered.", .{try std.mem.join(r.a, ", ", hidden_names.items)}));
-    }
+    try checkImports(r, result.candidate, result.diff);
     if (r.capture) |capture| {
         const canonical = model.canonicalRoot(r.a, result.candidate);
         var source: Writer.Allocating = .init(r.a);
@@ -1001,4 +970,99 @@ fn batchViewIds(a: Allocator, captures: []const query.Capture, functions: bool) 
         }
     }
     return ids.items;
+}
+
+fn checkImports(r: *query.Request, candidate: Value, diff: ?Value) !void {
+    if (r.provenance) |provenance| {
+        var hidden_names: std.ArrayList([]const u8) = .empty;
+        for ([_][2][]const u8{ .{ "types", "type" }, .{ "functions", "function" }, .{ "effects", "effect" }, .{ "capabilities", "capability" } }) |category| {
+            for (model.arrayItems(r.model, category[0])) |old| {
+                if (!try imported(r, provenance, category[1], query.idOf(old))) continue;
+                const proposed = @import("operation_model.zig").find(candidate, category[0], query.idOf(old));
+                var touched = false;
+                if (m.same(category[0], "functions") or m.same(category[0], "types")) {
+                    if (diff != null) for (try affected(r, candidate, diff.?, m.same(category[0], "functions"))) |id| {
+                        if (std.mem.eql(u16, model.decoded(id), model.decoded(model.property(old, "id").?))) {
+                            touched = true;
+                            break;
+                        }
+                    };
+                } else if (m.same(category[0], "capabilities")) {
+                    if (diff != null) for ([_][]const u8{ "capabilityOperationsAdded", "capabilityOperationsRemoved" }) |key| for (model.arrayItems(diff.?, key)) |change| {
+                        if (m.same(@import("operation_model.zig").text(change, "ownerCapabilityId"), query.idOf(old))) touched = true;
+                    };
+                }
+                if (touched or proposed == null or !sameValue(old, proposed.?)) return invalidSnapshot(r, "ImportedDeclarationModified", "Dependency declarations are read-only; no proposal was registered.");
+            }
+            for (model.arrayItems(candidate, category[0])) |item| {
+                const key = try std.fmt.allocPrint(r.a, "{s}:{s}", .{ category[1], query.idOf(item) });
+                if (!preflight.contains(provenance.hidden, key)) continue;
+                const references = model.referencesTo(r.a, candidate, category[1], model.decoded(model.property(item, "id").?)) orelse continue;
+                for (references) |reference| {
+                    if (!try imported(r, provenance, @tagName(reference.owner), model.utf8(reference.owner_id))) {
+                        try hidden_names.append(r.a, try std.fmt.allocPrint(r.a, "{s} '{s}' ({s})", .{ category[1], query.nameOf(item), query.idOf(item) }));
+                        break;
+                    }
+                }
+            }
+        }
+        if (hidden_names.items.len > 0) return invalidSnapshot(r, "ImportedDeclarationNotExported", try std.fmt.allocPrint(r.a, "The dependency does not export {s}; a dependent may refer only to exported declarations. No proposal was registered.", .{try std.mem.join(r.a, ", ", hidden_names.items)}));
+    }
+}
+
+pub fn publishMigration(r: *query.Request, out: *Writer, result: @import("migration.zig").Result) !void {
+    try checkImports(r, result.candidate, null);
+    try initialize(r);
+    const arena = try newArena();
+    var registered = false;
+    defer if (!registered) freeArena(arena);
+    const a = arena.allocator();
+    const generation = try typed.withChanges(a, &interner, &base, r.model, result.candidate);
+    var source: Writer.Allocating = .init(r.a);
+    try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
+    const owned = try orderedProjection(a, try model.parseValue(a, try a.dupe(u8, source.written())), result.candidate);
+    const root = model.canonicalRoot(a, owned);
+    const read = model.readDocument(r.a, source.written());
+    const proof = try receipt(a, result.transaction, result.snapshot, r, read.fingerprints.?);
+    var plain: Writer.Allocating = .init(r.a);
+    var structured: Writer.Allocating = .init(r.a);
+    try encodeMigration(r, &plain.writer, result, root, proof, true, false);
+    try encodeMigration(r, &structured.writer, result, root, proof, true, true);
+    const functions = try a.alloc(Value, result.rewritten.len);
+    for (result.rewritten, functions) |f, *item| item.* = @import("operation_model.zig").find(owned, "functions", query.idOf(f)).?;
+    try pending.append(std.heap.page_allocator, .{ .arena = arena, .id = try a.dupe(u8, model.utf8(model.decoded(result.transaction))), .base_id = try a.dupe(u8, r.snapshot_id), .generation = generation, .model = root, .session_model = owned, .created_function = .json_null, .receipt = proof, .full_review = try a.dupe(u8, plain.written()), .structured_review = try a.dupe(u8, structured.written()), .name = "", .migration = .{ .kind = result.kind, .summary = try a.dupe(u8, result.summary), .functions = functions } });
+    registered = true;
+    const full = if (r.root.get("detail")) |value| m.same(value.string, "full") else false;
+    const structured_review = if (r.root.get("structuredReview")) |value| value == .bool and value.bool else false;
+    try encodeMigration(r, out, result, root, proof, full, structured_review);
+}
+fn encodeMigration(r: *query.Request, out: *Writer, result: @import("migration.zig").Result, root: Value, proof: []const u8, full: bool, structured: bool) !void {
+    var raw: Writer.Allocating = .init(r.a);
+    const w = &raw.writer;
+    try w.writeAll("{\"proposalId\":"); try m.write(w, result.transaction);
+    try w.print(",\"detail\":\"{s}\",\"review\":{{\"kind\":\"{s}\",\"receipt\":", .{ if (full) @as([]const u8, "full") else "compact", result.kind });
+    try w.writeAll(proof);
+    try w.writeAll(",\"readiness\":"); try readiness(w, root);
+    try w.writeAll(",\"diff\":"); try m.write(w, result.diff);
+    try w.writeAll(",\"functionEffects\":[");
+    const sorted = try r.a.dupe(Value, result.rewritten);
+    std.mem.sort(Value, sorted, {}, struct { fn less(_: void, x: Value, y: Value) bool { return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt; } }.less);
+    for (sorted, 0..) |f, i| {
+        if (i > 0) try w.writeByte(',');
+        try w.writeAll("{\"functionId\":"); try m.write(w, model.property(f, "id").?);
+        try w.writeAll(",\"declaredEffectIds\":"); try m.write(w, model.property(f, "requiredEffects").?);
+        try w.writeAll(",\"bodyEffectRequirements\":"); try query.writeRequirements(w, model.focusOf(r.a, root, f).requirements);
+        try w.writeByte('}');
+    }
+    try w.writeByte(']');
+    if (full) {
+        try w.writeAll(",\"rewrittenFunctions\":[");
+        for (result.rewritten, 0..) |f, i| {
+            if (i > 0) try w.writeByte(',');
+            if (structured) try wire.functionEntity(w, @import("operation_model.zig").find(root, "functions", query.idOf(f)).?) else try wire.functionNodes(w, f, model.bodyNodes(r.a, f));
+        }
+        try w.writeByte(']');
+    }
+    try w.writeAll("}}");
+    try out.writeAll(if (full) raw.written() else try projection.compact(r.a, raw.written()));
 }

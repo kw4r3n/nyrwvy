@@ -175,7 +175,7 @@ fn sorted(a: Allocator, nodes: []const Value) anyerror![]Value {
     std.mem.sort(Value, copy, {}, struct { fn less(_: void, x: Value, y: Value) bool { return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt; } }.less);
     return copy;
 }
-fn summaries(r: *query.Request, out: *Writer, f: Value, nodes: []const Value) anyerror!void {
+pub fn summaries(r: *query.Request, out: *Writer, f: Value, nodes: []const Value) anyerror!void {
     try out.writeByte('[');
     for (nodes, 0..) |n, i| { if (i > 0) try out.writeByte(','); try summary(r, out, f, n); }
     try out.writeByte(']');
