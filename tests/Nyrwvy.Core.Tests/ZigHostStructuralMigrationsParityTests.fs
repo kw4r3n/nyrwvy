@@ -200,9 +200,12 @@ module ZigHostStructuralMigrationsParityTests =
                                     | SemanticNodeKind.MatchUnion(input, arms) when f.DisplayName = "match" ->
                                         let arms = arms |> List.mapi (fun index arm ->
                                             if index <> 0 then arm else
-                                                let binding: PatternBinding = { Id = sid<PatternBindingTag> "inner"; DisplayName = Some "inner"; Type = intT }
+                                                let binding: PatternBinding = { Id = sid<PatternBindingTag> "inner-reference"; DisplayName = Some "inner"; Type = intT }
                                                 let value: SemanticNode = { Id = sid<GraphNodeTag> "inner-reference"; Kind = SemanticNodeKind.PatternReference binding.Id }
-                                                let bound: SemanticNode = { Id = sid<GraphNodeTag> "bind"; Kind = SemanticNodeKind.Bind(arm.Body.ResultNodeId, { ValueBinding = binding; Body = { Nodes = [value]; ResultNodeId = value.Id } }) }
+                                                let list: SemanticNode = { Id = sid<GraphNodeTag> "inner-list"; Kind = SemanticNodeKind.ListConstruct(intT, [value.Id]) }
+                                                let length: SemanticNode = { Id = sid<GraphNodeTag> "inner-length"; Kind = SemanticNodeKind.ListLength list.Id }
+                                                let unused: SemanticNode = { Id = StableId.createForTesting<GraphNodeTag> (StableId.value f.Parameters.Head.Id); Kind = SemanticNodeKind.ParameterReference f.Parameters.Head.Id }
+                                                let bound: SemanticNode = { Id = sid<GraphNodeTag> "bind"; Kind = SemanticNodeKind.Bind(arm.Body.ResultNodeId, { ValueBinding = binding; Body = { Nodes = [value; list; length; unused]; ResultNodeId = length.Id } }) }
                                                 { arm with Body = { Nodes = arm.Body.Nodes @ [bound]; ResultNodeId = bound.Id } })
                                         { n with Kind = SemanticNodeKind.MatchUnion(input, arms) }
                                     | _ -> n)
@@ -263,4 +266,8 @@ module ZigHostStructuralMigrationsParityTests =
                     ok listing
                     Assert.Contains((if kind = "field" then "RenamedPoint" elif kind = "capability" then "RenamedValues" else "Choice"), listing)
                     Assert.DoesNotContain((if kind = "field" then "field \\u0027x\\u0027" elif kind = "capability" then "renamedRead" else "RenamedChoice"), listing)
-                    Assert.Equal(original, send $"""{{"id":"review","op":"readProposal","proposalId":{q pending}}}""")) |> ignore)
+                    let after = send $"""{{"id":"review","op":"readProposal","proposalId":{q pending}}}"""
+                    let reviewed reply =
+                        use parsed = parseDocument reply
+                        parsed.RootElement.GetProperty("result").GetProperty("value").GetRawText()
+                    Assert.Equal(reviewed original, reviewed after)) |> ignore)

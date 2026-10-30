@@ -48,33 +48,43 @@ pub fn simulateRequest(r: *query.Request, out: *std.Io.Writer) anyerror!void {
     try proposals.publishMigration(r, out, try simulate(r, wanted, type_id, source_id, name, fields.items));
 }
 
-// Remap only identity/reference properties; literal strings may equal an old identity.
-fn remap(r: *query.Request, value: Value, key: []const u8, ids: *const Ids) anyerror!Value {
+// Node and binding IDs are different domains; declaration references and literal strings stay intact.
+fn remap(r: *query.Request, value: Value, key: []const u8, nodes: *const Ids, patterns: *const Ids) anyerror!Value {
     switch (value) {
-        .string => return if (m.same(key, "id") or std.mem.endsWith(u8, key, "Id") or m.same(key, "arguments")) ids.get(model.utf8(model.decoded(value))) orelse value else value,
+        .string => {
+            const replacements = if (m.same(key, "patternBindingId")) patterns else if (std.mem.endsWith(u8, key, "NodeId") or std.mem.endsWith(u8, key, "NodeIds") or m.same(key, "arguments")) nodes else return value;
+            return replacements.get(model.utf8(model.decoded(value))) orelse value;
+        },
         .array => |items| {
             const copied = try r.a.alloc(Value, items.len);
-            for (items, copied) |item, *next| next.* = try remap(r, item, key, ids);
+            for (items, copied) |item, *next| next.* = try remap(r, item, key, nodes, patterns);
             return .{ .array = copied };
         },
         .object => |fields| {
             const copied = try r.a.dupe(model.Member, fields);
-            for (copied) |*field| field.value = try remap(r, field.value, model.utf8(field.name), ids);
+            for (copied) |*field| {
+                const name = model.utf8(field.name);
+                if (m.same(name, "id")) {
+                    const replacements = if (model.property(value, "kind") != null) nodes else patterns;
+                    field.value = replacements.get(model.utf8(model.decoded(field.value))) orelse field.value;
+                } else field.value = try remap(r, field.value, name, nodes, patterns);
+            }
             return .{ .object = copied };
         },
         else => return value,
     }
 }
 fn clone(r: *query.Request, outer: []const Value, graph: Value) !struct { graph: Value, ids: Ids } {
-    var ids: Ids = .empty;
+    var nodes: Ids = .empty;
+    var patterns: Ids = .empty;
     const wrapper = try m.object(r.a, &.{try m.member(r.a, "body", graph)});
     for (model.bodyNodes(r.a, wrapper)) |node| {
         const node_id = query.idOf(node);
-        if (!ids.contains(node_id)) try ids.put(r.a, node_id, try m.id(r.a));
+        if (!nodes.contains(node_id)) try nodes.put(r.a, node_id, try m.id(r.a));
     }
-    for (outer) |binding| if (!ids.contains(query.idOf(binding))) try ids.put(r.a, query.idOf(binding), try m.id(r.a));
-    for (model.patternBindings(r.a, graph)) |binding| if (!ids.contains(query.idOf(binding))) try ids.put(r.a, query.idOf(binding), try m.id(r.a));
-    return .{ .graph = try remap(r, graph, "", &ids), .ids = ids };
+    for (outer) |binding| if (!patterns.contains(query.idOf(binding))) try patterns.put(r.a, query.idOf(binding), try m.id(r.a));
+    for (model.patternBindings(r.a, graph)) |binding| if (!patterns.contains(query.idOf(binding))) try patterns.put(r.a, query.idOf(binding), try m.id(r.a));
+    return .{ .graph = try remap(r, graph, "", &nodes, &patterns), .ids = patterns };
 }
 const RepairContext = struct {
     r: *query.Request,
