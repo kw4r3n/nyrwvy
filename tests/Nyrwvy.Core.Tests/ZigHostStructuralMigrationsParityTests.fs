@@ -237,3 +237,30 @@ module ZigHostStructuralMigrationsParityTests =
             for index, line in List.indexed expected do
                 if index % 2 = 0 then Assert.Contains("ImportedDeclarationModified", line)
                 else use parsed = parseDocument line in Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), line))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``Structural proposal summaries resolve current names while reviews remain immutable`` () =
+        withDirectory (fun dir ->
+            for kind in ["field"; "capability"; "union"] do
+                let case = Path.Combine(dir, kind)
+                let input = Path.Combine(case, "input")
+                Directory.CreateDirectory input |> ignore
+                let source = Path.Combine(input, "summary.json")
+                let snapshot = fixture ()
+                File.WriteAllText(source, SnapshotCodec.serialize snapshot |> unwrap)
+                let ok reply = use parsed = parseDocument reply in Assert.True(parsed.RootElement.GetProperty("ok").GetBoolean(), reply)
+                let proposal reply = ok reply; use parsed = parseDocument reply in parsed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
+                let operations =
+                    if kind = "field" then """[{"kind":"renameType","type":"Point","displayName":"RenamedPoint"},{"kind":"renameField","type":"Point","field":"x","displayName":"renamedX"}]"""
+                    elif kind = "capability" then """[{"kind":"renameCapability","capability":"Values","displayName":"RenamedValues"},{"kind":"renameCapabilityOperation","capability":"Values","operation":"read","displayName":"renamedRead"}]"""
+                    else """[{"kind":"renameType","type":"Choice","displayName":"RenamedChoice"}]"""
+                seededWritablePair "structural-summary" source case (fun _ send ->
+                    let pending = send (request snapshot true kind) |> proposal
+                    let original = send $"""{{"id":"review","op":"readProposal","proposalId":{q pending}}}"""
+                    let rename = send $"""{{"id":"rename","op":"simulateOperationsByName","operations":{operations}}}""" |> proposal
+                    send $"""{{"id":"commit","op":"commit","proposalId":{q rename}}}""" |> ok
+                    let listing = send """{"id":"list","op":"proposals"}"""
+                    ok listing
+                    Assert.Contains((if kind = "field" then "RenamedPoint" elif kind = "capability" then "RenamedValues" else "Choice"), listing)
+                    Assert.DoesNotContain((if kind = "field" then "field \\u0027x\\u0027" elif kind = "capability" then "renamedRead" else "RenamedChoice"), listing)
+                    Assert.Equal(original, send $"""{{"id":"review","op":"readProposal","proposalId":{q pending}}}""")) |> ignore)
