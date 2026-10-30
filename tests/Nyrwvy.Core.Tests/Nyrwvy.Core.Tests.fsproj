@@ -184,6 +184,7 @@
     <Compile Include="ZigSnapshotReaderTests.fs" />
     <Compile Include="ZigModelReaderTests.fs" />
     <Compile Include="ZigHostParityTests.fs" />
+    <Compile Include="ZigHostOperationsParityTests.fs" />
     <Compile Include="ZigFingerprintTests.fs" />
     <Compile Include="ZigValidatorTests.fs" />
     <Compile Include="ZigLoweringTests.fs" />

@@ -328,7 +328,8 @@ module ZigHostParityTests =
             let environment = [ "NYRWVY_TEST_ID_SEED", seed ]
             let runHost zig (directory: string) (path: string) =
                 let code, errors, answers = runWithEnvironment environment zig [ "open"; "--snapshot"; path; "--read-only" ] requests
-                Assert.True((code = 0), errors)
+                let next = requests |> List.tryItem answers.Length |> Option.defaultValue "<end of transcript>"
+                Assert.True((code = 0), $"{errors}\nNext unanswered request: {next}")
                 Assert.Equal(seedWarning, errors)
                 Assert.Equal(requests.Length, answers.Length)
                 answers |> List.map (fun reply -> reply.Replace(directory, "<dir>") |> comparable)

@@ -44,7 +44,7 @@ fn uncapitalized(a: Allocator, word: []const u8) ![]const u8 {
 
 // ---------------------------------------------------------------- types
 
-fn eqlType(x: TypeRef, y: TypeRef) bool {
+pub fn eqlType(x: TypeRef, y: TypeRef) bool {
     if (std.meta.activeTag(x) != std.meta.activeTag(y)) return false;
     return switch (x) {
         .primitive => |p| same(p, y.primitive),
@@ -362,7 +362,7 @@ pub const Infer = struct {
         return std.mem.join(self.a, ", ", texts.items);
     }
 
-    fn ty(self: *Infer, t: TypeRef) Fail![]const u8 {
+    pub fn ty(self: *Infer, t: TypeRef) Fail![]const u8 {
         return self.render(t, .owner);
     }
 
@@ -396,7 +396,7 @@ pub const Infer = struct {
         return .{ try self.completion(left), try self.completion(right) };
     }
 
-    fn completion(self: *Infer, c: Completion) Fail![]const u8 {
+    pub fn completion(self: *Infer, c: Completion) Fail![]const u8 {
         return switch (c) {
             .normal => |t| self.ty(t),
             .aborts => "no value (the expression always aborts)",
@@ -491,7 +491,7 @@ pub const Infer = struct {
     // ------------------------------------------------------------ declared types
 
     /// `TypeParameters.instantiate`: a field type as seen through a reference with these arguments.
-    fn instantiate(self: *Infer, declared: Value, arguments: []const TypeRef, t: TypeRef) Fail!TypeRef {
+    pub fn instantiate(self: *Infer, declared: Value, arguments: []const TypeRef, t: TypeRef) Fail!TypeRef {
         const parameters = model.arrayItems(declared, "typeParameters");
         if (parameters.len == 0) return t;
         var s: Subst = .empty;
@@ -1726,6 +1726,15 @@ pub fn runIn(r: *query.Request, c: preflight.Creation, fresh: []const preflight.
 }
 
 pub fn runTarget(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Value, original: ?TypeRef, frames: ?*const Frame, target_type: ?Completion) Fail!Infer {
+    return runWithPath(r, c, fresh, existing, original, frames, target_type, if (existing != null) "replacement" else "body");
+}
+
+/// Infer a structural plan in its lexical frames; its operation owns the completion check.
+pub fn runScoped(r: *query.Request, c: preflight.Creation, existing: Value, frames: ?*const Frame, path: []const u8) Fail!Infer {
+    return runWithPath(r, c, &.{}, existing, null, frames, .aborts, path);
+}
+
+fn runWithPath(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Value, original: ?TypeRef, frames: ?*const Frame, target_type: ?Completion, root_path: []const u8) Fail!Infer {
     var local: std.ArrayList([]const u8) = .empty;
     for (c.parameters) |p| try preflight.occurring(r.a, p.type, &local);
     var self: Infer = .{ .r = r, .a = r.a, .c = c, .local = c.type_parameters orelse local.items, .fresh = fresh };
@@ -1739,7 +1748,7 @@ pub fn runTarget(r: *query.Request, c: preflight.Creation, fresh: []const prefli
         error.Unsupported => return error.Rejected,
         error.Rejected => {
             // `locate`: the failing node's path and kind, appended to the message.
-            if (try recipePath(r.a, if (existing != null) "replacement" else "body", c.body, self.failed.?)) |path|
+            if (try recipePath(r.a, root_path, c.body, self.failed.?)) |path|
                 return preflight.rejected(r, r.diagnostic.code, try std.fmt.allocPrint(r.a, "{s} At {s} ({s}).", .{ r.diagnostic.message, path, try uncapitalized(r.a, self.failed.?.case) }));
             return e;
         },

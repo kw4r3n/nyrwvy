@@ -176,6 +176,8 @@ pub const Decoder = struct {
     /// Set for a by-name request: recipes and types are then `WireSymbolic`'s.
     owner: ?Owner = null,
     type_group: []const GroupType = &.{},
+    /// Exact-ID addUnionVariant recipes can name these newly allocated fields.
+    new_fields: ?[]const model.Value = null,
 
     fn fail(self: *Decoder, comptime format: []const u8, args: anytype) Fail {
         return self.r.fail(format, args);
@@ -209,7 +211,7 @@ pub const Decoder = struct {
         for (required) |field| if (map.get(field) == null) try missing.append(a, field);
         const ordinal = struct {
             fn less(_: void, x: []const u8, y: []const u8) bool {
-                return std.mem.order(u8, x, y) == .lt;
+                return query.ordinal({}, x, y);
             }
         }.less;
         std.mem.sort([]const u8, unknown.items, {}, ordinal);
@@ -733,7 +735,19 @@ pub const Decoder = struct {
                             field_id = try self.id(value, "fieldId");
                         } else if (by_name and !by_id) {
                             const field = try self.requiredString(value, "field");
-                            return self.fail("Pattern reference by field name '{s}' is available only in an addUnionVariant arm body; use fieldId.", .{field});
+                            if (self.new_fields) |fields| {
+                                for (fields) |candidate| {
+                                    if (std.mem.eql(u8, query.nameOf(candidate), field)) {
+                                        field_id = query.idOf(candidate);
+                                        break;
+                                    }
+                                }
+                                if (field_id == null) {
+                                    const names = try self.r.a.alloc([]const u8, fields.len);
+                                    for (fields, names) |candidate, *field_name| field_name.* = query.nameOf(candidate);
+                                    return self.fail("Unknown new variant field '{s}' in a pattern reference; the new variant's fields are: {s}.", .{ field, try std.mem.join(self.r.a, ", ", names) });
+                                }
+                            } else return self.fail("Pattern reference by field name '{s}' is available only in an addUnionVariant arm body; use fieldId.", .{field});
                         } else return self.fail("A field pattern reference takes exactly one of fieldId and field.", .{});
                     } else if (!std.mem.eql(u8, slot, "value") and !std.mem.eql(u8, slot, "error")) return self.fail("Unsupported pattern slot '{s}'.", .{slot});
                     break :blk .{ .pattern = .{ .slot = slot, .field_id = field_id } };

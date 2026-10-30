@@ -73,7 +73,7 @@ pub fn readable(r: *Request, text: []const u8) Fail![]const u8 {
 
 /// `String.CompareOrdinal` of UTF-8 text: UTF-16 unit order, where a supplementary code point
 /// (a surrogate pair) sorts below U+E000..U+FFFF.
-fn ordinal(_: void, x: []const u8, y: []const u8) bool {
+pub fn ordinal(_: void, x: []const u8, y: []const u8) bool {
     var xs = std.unicode.Utf8View.initUnchecked(x).iterator();
     var ys = std.unicode.Utf8View.initUnchecked(y).iterator();
     const unit = struct {
@@ -318,6 +318,11 @@ pub fn visible(r: *const Request, kind: []const u8) ![]const Value {
     for (model.arrayItems(r.model, group)) |item| {
         if (!contains(hidden(r), try std.fmt.allocPrint(r.a, "{s}:{s}", .{ kind, idOf(item) }))) try out.append(r.a, item);
     }
+    std.mem.sort(Value, out.items, {}, struct {
+        fn less(_: void, x: Value, y: Value) bool {
+            return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt;
+        }
+    }.less);
     return out.items;
 }
 

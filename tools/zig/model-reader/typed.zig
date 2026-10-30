@@ -515,6 +515,94 @@ pub fn withDeclarations(arena: Allocator, interner: *Interner, base: *const Gene
     unreachable;
 }
 
+/// Apply a path-copied candidate, preserving unchanged records and function bodies. `before`
+/// and `after` share the original Value slices; the caller retains the base generation's arena.
+/// This supports additions, replacements and removals in every declaration/obligation table.
+pub fn withChanges(arena: Allocator, interner: *Interner, base: *const Generation, before: Value, after: Value) !Generation {
+    var l: Loader = .{ .arena = arena, .interner = interner };
+    var result = base.*;
+    result.snapshot = try l.id(.snapshot, after, "snapshotId");
+    result.parent = base.snapshot;
+    inline for (.{ .{ "functions", Function, Loader.loadFunction, Domain.function }, .{ "types", Type, Loader.loadType, Domain.type }, .{ "effects", Effect, Loader.loadEffect, Domain.effect }, .{ "capabilities", Capability, Loader.loadCapability, Domain.capability }, .{ "obligations", Obligation, Loader.loadObligation, Domain.obligation } }) |entry| {
+        table: {
+        const old_items = reader.arrayItems(before, entry[0]);
+        const new_items = reader.arrayItems(after, entry[0]);
+        if (sameSlice(Value, old_items, new_items)) break :table;
+        const old_records = @field(base, entry[0]);
+        const records = try arena.alloc(*const entry[1], new_items.len);
+        for (new_items, records) |item, *slot| {
+            const id = try l.id(entry[3], item, "id");
+            const old_record = for (old_records) |record| {
+                if (record.id == id) break record;
+            } else null;
+            const old_item = for (old_items) |old| {
+                if (std.mem.eql(u16, reader.decoded(reader.property(old, "id").?), reader.decoded(reader.property(item, "id").?))) break old;
+            } else null;
+            if (old_record != null and old_item != null and sameValue(old_item.?, item)) {
+                slot.* = old_record.?;
+                continue;
+            }
+            const record = try arena.create(entry[1]);
+            if (entry[1] == Function and old_record != null and old_item != null) {
+                record.* = try changedFunction(&l, old_record.?, old_item.?, item);
+            } else record.* = try entry[2](&l, item);
+            slot.* = record;
+        }
+        const Order = struct {
+            fn less(i: *const Interner, x: *const entry[1], y: *const entry[1]) bool {
+                return i.less(entry[3], x.id, y.id);
+            }
+        };
+        std.mem.sort(*const entry[1], records, @as(*const Interner, interner), Order.less);
+        @field(result, entry[0]) = records;
+        }
+    }
+    return result;
+}
+
+fn sameSlice(comptime T: type, x: []const T, y: []const T) bool {
+    return x.ptr == y.ptr and x.len == y.len;
+}
+
+fn sameValue(x: Value, y: Value) bool {
+    return switch (x) {
+        .object => |fields| y == .object and sameSlice(reader.Member, fields, y.object),
+        .array => |items| y == .array and sameSlice(Value, items, y.array),
+        else => false,
+    };
+}
+
+fn changedFunction(l: *Loader, original: *const Function, before: Value, after: Value) !Function {
+    var result = original.*;
+    result.name = try l.displayName(after);
+    result.exported = Loader.flag(after, "exported");
+    result.must_not_wait = Loader.flag(after, "mustNotWait");
+    inline for (.{ "typeParameters", "parameters", "resultType", "requiredEffects", "body" }) |key| {
+        property: {
+        const old = reader.property(before, key);
+        const new = reader.property(after, key);
+        if (old != null and new != null and sameValue(old.?, new.?)) break :property;
+        if (comptime std.mem.eql(u8, key, "typeParameters")) {
+            result.type_parameters = try l.typeParameters(after);
+        } else if (comptime std.mem.eql(u8, key, "parameters")) {
+            result.parameters = try l.typed(.parameter, reader.arrayItems(after, key));
+        } else if (comptime std.mem.eql(u8, key, "resultType")) {
+            result.result = try l.typeRef(new.?);
+        } else if (comptime std.mem.eql(u8, key, "requiredEffects")) {
+            const values = reader.arrayItems(after, key);
+            const effects = try l.arena.alloc(Id, values.len);
+            for (values, effects) |effect, *e| e.* = try l.interner.id(.effect, reader.decoded(effect));
+            result.effects = effects;
+        } else {
+            var builder: BodyBuilder = .{ .loader = l };
+            _ = try builder.graph(new.?);
+            result.body = builder.done();
+        }
+        }
+    }
+    return result;
+}
+
 // ---------------------------------------------------------------- writing
 
 const Writer = std.Io.Writer;
@@ -919,4 +1007,54 @@ pub fn writeDocument(out: *Writer, interner: *const Interner, generation: *const
         try out.writeByte('}');
     }
     try out.writeAll("]}");
+}
+
+test "operation generations path-copy changed tables and share unchanged function bodies" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const before = try reader.parseValue(a,
+        \\{"snapshotId":"base","types":[{"id":"t","displayName":"T","kind":"product","fields":[]}],"effects":[{"id":"e","displayName":"E"}],"capabilities":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}},{"id":"g","displayName":"G","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"m","kind":"unitLiteral"}],"resultNodeId":"m"}}],"obligations":[]}
+    );
+    var interner: Interner = .{ .gpa = a };
+    const original = try load(a, &interner, before, null);
+    const functions = reader.arrayItems(before, "functions");
+    const renamed_fields = try a.dupe(reader.Member, functions[0].object);
+    for (renamed_fields) |*field| if (std.mem.eql(u8, reader.utf8(field.name), "displayName")) {
+        field.value = .{ .string = try std.unicode.utf8ToUtf16LeAlloc(a, "Renamed") };
+        break;
+    };
+    const root_fields = try a.dupe(reader.Member, before.object);
+    for (root_fields) |*field| {
+        const key = reader.utf8(field.name);
+        if (std.mem.eql(u8, key, "snapshotId")) field.value = .{ .string = try std.unicode.utf8ToUtf16LeAlloc(a, "next") };
+        if (std.mem.eql(u8, key, "functions")) field.value = .{ .array = try a.dupe(Value, &.{ .{ .object = renamed_fields }, functions[1] }) };
+        if (std.mem.eql(u8, key, "effects")) field.value = .{ .array = &.{} };
+    }
+    const next = try withChanges(a, &interner, &original, before, .{ .object = root_fields });
+    try std.testing.expect(next.types.ptr == original.types.ptr);
+    try std.testing.expect(next.functions.ptr != original.functions.ptr);
+    try std.testing.expect(next.functions[0] != original.functions[0]);
+    try std.testing.expect(next.functions[1] == original.functions[1]);
+    try std.testing.expect(next.functions[0].body.ids.ptr == original.functions[0].body.ids.ptr);
+    try std.testing.expect(next.functions[0].parameters.ptr == original.functions[0].parameters.ptr);
+    try std.testing.expectEqual(@as(usize, 0), next.effects.len);
+    try std.testing.expectEqual(@as(usize, 1), original.effects.len);
+    try std.testing.expect(std.mem.eql(u16, interner.stringText(original.functions[0].name), &.{'F'}));
+    try std.testing.expectEqual(original.snapshot, next.parent);
+    // A body replacement owns its own node arrays while the base body remains unchanged.
+    const body_fields = try a.dupe(reader.Member, functions[0].object);
+    for (body_fields) |*field| if (std.mem.eql(u8, reader.utf8(field.name), "body")) {
+        field.value = try reader.parseValue(a, "{\"nodes\":[{\"id\":\"replacement\",\"kind\":\"unitLiteral\"}],\"resultNodeId\":\"replacement\"}");
+        break;
+    };
+    const changed_root = try a.dupe(reader.Member, before.object);
+    for (changed_root) |*field| if (std.mem.eql(u8, reader.utf8(field.name), "functions")) {
+        field.value = .{ .array = try a.dupe(Value, &.{.{ .object = body_fields }}) };
+        break;
+    };
+    const replacement = try withChanges(a, &interner, &original, before, .{ .object = changed_root });
+    try std.testing.expectEqual(@as(usize, 1), replacement.functions.len);
+    try std.testing.expect(replacement.functions[0].body.ids.ptr != original.functions[0].body.ids.ptr);
+    try std.testing.expect(std.mem.eql(u16, interner.idText(.node, original.functions[0].body.ids[0]), &.{'n'}));
 }
