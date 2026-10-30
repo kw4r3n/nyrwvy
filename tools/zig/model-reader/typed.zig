@@ -491,6 +491,30 @@ pub fn withFunction(arena: Allocator, interner: *Interner, base: *const Generati
     return result;
 }
 
+/// Append declarations while sharing every unchanged record with the base generation.
+pub fn withDeclarations(arena: Allocator, interner: *Interner, base: *const Generation, snapshot: Str, group: []const u8, items: []const Value) !Generation {
+    var l: Loader = .{ .arena = arena, .interner = interner };
+    var result = base.*;
+    result.snapshot = try interner.id(.snapshot, snapshot);
+    result.parent = base.snapshot;
+    inline for (.{ .{ "types", Type, Loader.loadType, Domain.type }, .{ "effects", Effect, Loader.loadEffect, Domain.effect }, .{ "capabilities", Capability, Loader.loadCapability, Domain.capability } }) |entry| {
+        if (std.mem.eql(u8, group, entry[0])) {
+            const old = @field(base, entry[0]);
+            const records = try arena.alloc(*const entry[1], old.len + items.len);
+            @memcpy(records[0..old.len], old);
+            const added = try l.records(entry[1], items, entry[2]);
+            @memcpy(records[old.len..], added);
+            const Order = struct {
+                fn less(i: *const Interner, x: *const entry[1], y: *const entry[1]) bool { return i.less(entry[3], x.id, y.id); }
+            };
+            std.mem.sort(*const entry[1], records, @as(*const Interner, interner), Order.less);
+            @field(result, entry[0]) = records;
+            return result;
+        }
+    }
+    unreachable;
+}
+
 // ---------------------------------------------------------------- writing
 
 const Writer = std.Io.Writer;
