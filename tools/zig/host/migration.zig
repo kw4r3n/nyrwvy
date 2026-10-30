@@ -12,7 +12,7 @@ const Value = model.Value;
 const Node = recipe.Node;
 const TypeRef = recipe.TypeRef;
 const Rewrite = struct { id: []const u8, body: *const Node };
-pub const Result = struct { kind: []const u8, transaction: Value, snapshot: Value, candidate: Value, diff: Value, rewritten: []const Value, summary: []const u8 };
+pub const Result = struct { kind: []const u8, transaction: Value, snapshot: Value, candidate: Value, diff: Value, rewritten: []const Value, summary: []const u8, review_fields: Value = .json_null, touched_types: []const []const u8 = &.{}, touched_capabilities: []const []const u8 = &.{} };
 
 fn reject(r: *query.Request, prefix: []const u8, suffix: []const u8, message: []const u8) anyerror {
     return preflight.rejected(r, try std.fmt.allocPrint(r.a, "{s}{s}", .{ prefix, suffix }), message);

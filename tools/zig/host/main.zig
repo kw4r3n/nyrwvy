@@ -282,6 +282,12 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         .{ "simulateParameterTypeMigrationByName", @import("migration.zig").simulateRequest },
         .{ "simulateResultTypeMigration", @import("migration.zig").simulateRequest },
         .{ "simulateResultTypeMigrationByName", @import("migration.zig").simulateRequest },
+        .{ "simulateProductFieldTypeMigration", @import("structural_migration.zig").simulateRequest },
+        .{ "simulateProductFieldTypeMigrationByName", @import("structural_migration.zig").simulateRequest },
+        .{ "simulateCapabilityOperationSignatureMigration", @import("structural_migration.zig").simulateRequest },
+        .{ "simulateCapabilityOperationSignatureMigrationByName", @import("structural_migration.zig").simulateRequest },
+        .{ "simulateAddUnionVariantLike", @import("union_evolution.zig").simulateRequest },
+        .{ "simulateAddUnionVariantLikeByName", @import("union_evolution.zig").simulateRequest },
         .{ "simulateOperations", @import("operation_engine.zig").simulateRequest },
         .{ "simulateOperationsByName", @import("operation_engine.zig").simulateRequest },
         .{ "simulateCreateFunction", query.simulateCreateFunction },
@@ -398,17 +404,18 @@ fn publish(a: std.mem.Allocator, out: *std.Io.Writer, id: []const u8, op: []cons
         return;
     }
     const declaration = if (p.declaration) |d| if (!std.mem.eql(u8, d.group, "functions")) p.declaration else null else null;
-    if (!std.mem.eql(u8, snapshot_id, p.base_id)) return commitRejected(a, out, id, "StaleBaseSnapshot", if (declaration) |d| try std.fmt.allocPrint(a, "The workspace advanced beyond the reviewed {s}-declaration proposal.", .{d.subject}) else if (p.operations) "The transaction base snapshot does not match the supplied snapshot." else "The workspace advanced beyond the reviewed structural proposal.");
+    const union_evolution = if (p.migration) |migration| std.mem.eql(u8, migration.kind, "unionVariantEvolution") else false;
+    if (!std.mem.eql(u8, snapshot_id, p.base_id)) return commitRejected(a, out, id, "StaleBaseSnapshot", if (declaration) |d| try std.fmt.allocPrint(a, "The workspace advanced beyond the reviewed {s}-declaration proposal.", .{d.subject}) else if (p.operations) "The transaction base snapshot does not match the supplied snapshot." else if (union_evolution) "The workspace advanced beyond the reviewed Union-variant evolution proposal." else "The workspace advanced beyond the reviewed structural proposal.");
     const document = try proposals.document(a, p);
     const validated = model_reader.readDocument(a, document);
     const proof = try model_reader.parseValue(a, p.receipt);
     const value = @import("materialize.zig");
     if (!std.mem.eql(u8, fingerprints.snapshot, model_reader.utf8(model_reader.decoded(model_reader.property(proof, "baseSnapshotFingerprint").?))))
         return commitRejected(a, out, id, "PreviewReceiptBaseMismatch", if (p.operations) "The current base snapshot fingerprint differs from the reviewed preview receipt." else "The current base content differs from the reviewed base.");
-    const next_fingerprints = validated.fingerprints orelse return commitRejected(a, out, id, "FingerprintFailure", if (declaration != null) "The proposed snapshot fingerprint could not be recomputed." else "The proposed fingerprint could not be recomputed.");
+    const next_fingerprints = validated.fingerprints orelse return commitRejected(a, out, id, "FingerprintFailure", if (declaration != null or union_evolution) "The proposed snapshot fingerprint could not be recomputed." else "The proposed fingerprint could not be recomputed.");
     if (!std.mem.eql(u8, next_fingerprints.snapshot, model_reader.utf8(model_reader.decoded(model_reader.property(proof, "proposedSnapshotFingerprint").?))) or
         !std.mem.eql(u8, next_fingerprints.semantic, model_reader.utf8(model_reader.decoded(model_reader.property(proof, "proposedSemanticFingerprint").?))))
-        return commitRejected(a, out, id, "PreviewReceiptResultMismatch", if (declaration) |d| try std.fmt.allocPrint(a, "The proposed {s} declaration differs from the reviewed result.", .{d.subject}) else if (p.operations) "Re-simulation produced a proposed state different from the reviewed preview receipt." else "The proposed state differs from the reviewed receipt.");
+        return commitRejected(a, out, id, "PreviewReceiptResultMismatch", if (declaration) |d| try std.fmt.allocPrint(a, "The proposed {s} declaration differs from the reviewed result.", .{d.subject}) else if (p.operations) "Re-simulation produced a proposed state different from the reviewed preview receipt." else if (union_evolution) "The proposed Union-variant evolution differs from the reviewed result." else "The proposed state differs from the reviewed receipt.");
     var obligations: std.ArrayList([]const u8) = .empty;
     for (model_reader.arrayItems(p.model, "obligations")) |o| {
         if (std.mem.eql(u8, model_reader.utf8(model_reader.decoded(model_reader.property(o, "status").?)), "open")) try obligations.append(a, query.idOf(o));

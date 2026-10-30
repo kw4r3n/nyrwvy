@@ -1847,6 +1847,14 @@ pub fn bodyNodes(allocator: std.mem.Allocator, function: Value) []const Value {
     return nodes.items;
 }
 
+/// `SemanticFacts.collectPatternBindings`, in lexical scope traversal order.
+pub fn patternBindings(allocator: std.mem.Allocator, graph: Value) []const Value {
+    a = allocator;
+    var bindings: List(Value) = .empty;
+    collectBindings(graph, &bindings);
+    return bindings.items;
+}
+
 /// The facts `SemanticQuery.focusFunction` derives for one function; IDs decoded.
 pub const NodeTypeOf = struct { id: Str, type: ?Value };
 pub const Evidence = struct { effect: Str, node: Str, operation: bool, source: Str };

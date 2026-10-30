@@ -188,6 +188,7 @@
     <Compile Include="ZigHostMixedBatchParityTests.fs" />
     <Compile Include="ZigHostDependencyUpgradeParityTests.fs" />
     <Compile Include="ZigHostMigrationsParityTests.fs" />
+    <Compile Include="ZigHostStructuralMigrationsParityTests.fs" />
     <Compile Include="ZigFingerprintTests.fs" />
     <Compile Include="ZigValidatorTests.fs" />
     <Compile Include="ZigLoweringTests.fs" />

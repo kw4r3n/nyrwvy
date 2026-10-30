@@ -94,18 +94,20 @@ fn checkName(r: *query.Request, subject: []const u8, prefix: []const u8, group: 
         return reject(r, subject, try std.mem.concat(r.a, u8, &.{prefix, "DuplicateDisplayName"}), try std.fmt.allocPrint(r.a, "{s} {s} named '{s}' already exists; {s} display names must be unique.", .{ if (m.same(subject, "effect")) @as([]const u8, "An") else "A", subject, name, subject }));
 }
 
-const Validation = struct {
+pub const Validation = struct {
     r: *query.Request,
     subject: []const u8,
     prefix: []const u8,
     group: []const recipe.GroupType = &.{},
     parameters: []const []const u8 = &.{},
     member: ?[]const u8 = null,
+    structural: bool = false,
 
     fn fail(v: Validation, suffix: []const u8, message: []const u8) anyerror {
+        if (v.structural) return preflight.rejected(v.r, try std.mem.concat(v.r.a, u8, &.{ v.prefix, suffix }), message);
         return reject(v.r, v.subject, try std.mem.concat(v.r.a, u8, &.{v.prefix, suffix}), if (v.member) |name| try std.fmt.allocPrint(v.r.a, "Type '{s}': {s}", .{name, message}) else message);
     }
-    fn typeRef(v: Validation, context: []const u8, t: TypeRef) anyerror!void {
+    pub fn typeRef(v: Validation, context: []const u8, t: TypeRef) anyerror!void {
         const a = v.r.a;
         switch (t) {
             .primitive => {},
