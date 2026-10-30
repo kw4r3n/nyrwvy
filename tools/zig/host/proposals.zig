@@ -202,7 +202,7 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
             try details.writer.writeByte('}');
         }
         try details.writer.writeAll("]}");
-        r.rejection = .{ .code = "SimulationRejected", .message = if (declaration) |d| try std.fmt.allocPrint(r.a, "The {s} declaration was rejected.", .{d.subject}) else "The structural request was rejected.", .details = details.written() };
+        r.rejection = .{ .code = "SimulationRejected", .message = if (declaration) |d| if (m.same(d.group, "functions")) "The structural request was rejected." else try std.fmt.allocPrint(r.a, "The {s} declaration was rejected.", .{d.subject}) else "The structural request was rejected.", .details = details.written() };
         return error.Rejected;
     }
     if (read.root == .json_null or read.fingerprints == null) return unsupported(r, validation_bail);
@@ -245,7 +245,7 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
     const owned_declaration: ?Declaration = if (declaration) |d| blk: {
         const items = try a.alloc(Value, d.items.len);
         for (d.items, items) |item, *owned| {
-            owned.* = for (model.arrayItems(root, d.group)) |entry| {
+            owned.* = for (model.arrayItems(if (m.same(d.group, "functions")) owned_model else root, d.group)) |entry| {
                 if (m.same(query.idOf(item), query.idOf(entry))) break entry;
             } else unreachable;
         }
@@ -267,6 +267,36 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
 
 fn encodeChangeReview(declaration: ?Declaration, r: *query.Request, out: *Writer, created: Value, previous: ?Value, change: ?targeted.Change, transaction: Value, snapshot: Value, root: Value, proposed: Value, proof: []const u8, full: bool, structured: bool) !void {
     if (declaration) |d| {
+        if (m.same(d.group, "functions")) {
+            var encoded: Writer.Allocating = .init(r.a);
+            try encodeReviewRaw(r, &encoded.writer, d.items[0], null, null, transaction, snapshot, root, proposed, proof, full, structured, false);
+            if (d.items.len == 1) return out.writeAll(if (full) encoded.written() else try projection.compact(r.a, encoded.written()));
+            var combined: Writer.Allocating = .init(r.a);
+            const target = &combined.writer;
+            try target.writeAll(encoded.written()[0 .. encoded.written().len - 2]);
+            try target.writeAll(",\"batch\":[");
+            for (d.items[1..], 0..) |item, i| {
+                if (i > 0) try target.writeByte(',');
+                var extra: Writer.Allocating = .init(r.a);
+                try encodeReviewRaw(r, &extra.writer, item, null, null, transaction, snapshot, root, item, proof, full, structured, false);
+                const parsed = try model.parseValue(r.a, extra.written());
+                const review = model.property(parsed, "review").?;
+                try target.writeByte('{');
+                var first = true;
+                for (review.object) |field| {
+                    const key = model.utf8(field.name);
+                    if (m.same(key, "kind") or m.same(key, "receipt") or m.same(key, "readiness")) continue;
+                    if (!first) try target.writeByte(',');
+                    first = false;
+                    try model.writeString(target, field.name);
+                    try target.writeByte(':');
+                    try m.write(target, field.value);
+                }
+                try target.writeByte('}');
+            }
+            try target.writeAll("]}}");
+            return out.writeAll(if (full) combined.written() else try projection.compact(r.a, combined.written()));
+        }
         model.useAllocator(r.a);
         var raw: Writer.Allocating = .init(r.a);
         const w = &raw.writer;
@@ -301,6 +331,10 @@ pub fn proposalKind(p: *const Pending) []const u8 {
 }
 
 fn encodeReview(r: *query.Request, out: *Writer, created: Value, previous: ?Value, change: ?targeted.Change, transaction: Value, snapshot: Value, root: Value, proposed: Value, proof: []const u8, full: bool, structured: bool) !void {
+    return encodeReviewRaw(r, out, created, previous, change, transaction, snapshot, root, proposed, proof, full, structured, true);
+}
+
+fn encodeReviewRaw(r: *query.Request, out: *Writer, created: Value, previous: ?Value, change: ?targeted.Change, transaction: Value, snapshot: Value, root: Value, proposed: Value, proof: []const u8, full: bool, structured: bool, project_result: bool) !void {
     const created_id = model.decoded(model.property(created, "id").?);
     model.useAllocator(r.a);
     var raw: Writer.Allocating = .init(r.a);
@@ -370,7 +404,7 @@ fn encodeReview(r: *query.Request, out: *Writer, created: Value, previous: ?Valu
         }
     }
     try w.writeAll("}}");
-    try out.writeAll(if (full) raw.written() else try projection.compact(r.a, raw.written()));
+    try out.writeAll(if (full or !project_result) raw.written() else try projection.compact(r.a, raw.written()));
 }
 
 pub fn listing(a: Allocator, out: *Writer, current: []const u8) !void {
@@ -386,8 +420,8 @@ pub fn listing(a: Allocator, out: *Writer, current: []const u8) !void {
         try out.writeAll(if (m.same(current, p.base_id)) ",\"baseIsCurrent\":true,\"summary\":" else ",\"baseIsCurrent\":false,\"summary\":");
         if (p.declaration) |d| {
             var names: std.ArrayList([]const u8) = .empty;
-            for (d.items) |item| try names.append(a, try std.fmt.allocPrint(a, "'{s}'", .{query.nameOf(item)}));
-            try @import("root").writeString(out, try std.fmt.allocPrint(a, "{s} {s}", .{d.kind, try std.mem.join(a, ", ", names.items)}));
+            for (d.items) |item| try names.append(a, try std.fmt.allocPrint(a, "{s}'{s}'", .{ if (m.same(d.group, "functions")) @as([]const u8, "createFunction ") else "", query.nameOf(item) }));
+            try @import("root").writeString(out, if (m.same(d.group, "functions")) try std.mem.join(a, "; ", names.items) else try std.fmt.allocPrint(a, "{s} {s}", .{d.kind, try std.mem.join(a, ", ", names.items)}));
         } else try @import("root").writeString(out, try std.fmt.allocPrint(a, "{s}'{s}'", .{ if (p.target_node) |id| try std.fmt.allocPrint(a, "replaceTarget {s} in ", .{id}) else if (p.replacing) @as([]const u8, "replaceBody of ") else "createFunction ", p.name }));
         try out.writeByte('}');
     }
@@ -479,7 +513,7 @@ pub fn viewProposal(r: *query.Request, out: *Writer) !void {
     try @import("root").writeString(w, snapshot);
     try w.writeAll(if (current) ",\"baseIsCommitted\":true,\"readiness\":" else ",\"baseIsCommitted\":false,\"readiness\":");
     try readiness(w, p.model);
-    if (p.declaration) |d| {
+    if (if (p.declaration) |d| if (!m.same(d.group, "functions")) p.declaration else null else null) |d| {
         try w.writeAll(",\"changedFunctions\":[]");
         for ([_][2][]const u8{ .{ "types", "declaredTypes" }, .{ "capabilities", "declaredCapabilities" }, .{ "effects", "declaredEffects" } }) |entry| {
             try w.print(",\"{s}\":[", .{entry[1]});
@@ -497,9 +531,13 @@ pub fn viewProposal(r: *query.Request, out: *Writer) !void {
         }
         try w.writeAll(",\"engineReview\":");
     } else {
-        try w.writeAll(",\"changedFunctions\":[{\"committed\":");
+        try w.writeAll(",\"changedFunctions\":[");
+        const functions = if (p.declaration) |d| d.items else &.{p.created_function};
+        for (functions, 0..) |changed, i| {
+        if (i > 0) try w.writeByte(',');
+        try w.writeAll("{\"committed\":");
         var before: ?Value = null;
-        const id = query.idOf(p.created_function);
+        const id = query.idOf(changed);
         const committed_root = model.canonicalRoot(r.a, r.model);
         if (current) for (model.arrayItems(committed_root, "functions")) |f| {
             if (m.same(query.idOf(f), id)) { before = f; break; }
@@ -510,7 +548,9 @@ pub fn viewProposal(r: *query.Request, out: *Writer) !void {
             if (m.same(query.idOf(f), id)) break f;
         } else unreachable;
         try w.writeAll(try viewer.focusValue(r.a, p.model, snapshot, function));
-        try w.writeAll("}],\"declaredTypes\":[],\"declaredCapabilities\":[],\"declaredEffects\":[],\"engineReview\":");
+        try w.writeByte('}');
+        }
+        try w.writeAll("],\"declaredTypes\":[],\"declaredCapabilities\":[],\"declaredEffects\":[],\"engineReview\":");
     }
     try w.writeAll(p.structured_review);
     try w.writeByte('}');

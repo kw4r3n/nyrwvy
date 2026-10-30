@@ -14,7 +14,7 @@ const Writer = std.Io.Writer;
 const Allocator = std.mem.Allocator;
 
 /// A request this module rejects: the reply's error code and message.
-pub const Rejection = struct { code: []const u8, message: []const u8, details: []const u8 = "" };
+pub const Rejection = struct { code: []const u8, message: []const u8, details: []const u8 = "", fields: []const u8 = "" };
 pub const Answer = union(enum) { result: []const u8, rejected: Rejection };
 
 const Fail = anyerror;
@@ -1687,9 +1687,18 @@ pub fn simulateCreateFunction(r: *Request, out: *Writer) Fail!void {
 /// `simulateCreateFunctionByName` as `functionCreationByName` reads it, then the preflight and the inference.
 pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
     if (try fieldProblem(r.a, r.line, &.{}, r.root, "simulateCreateFunctionByName request", &.{ "id", "op", "displayName", "exported", "mustNotWait", "typeParameters", "parameters", "resultType", "requiredEffects", "body", "bodyFile", "structuredReview", "detail", "expectedSnapshotId" }, &.{ "id", "op", "displayName", "parameters", "resultType", "requiredEffects" })) |message| return r.fail("{s}", .{message});
+    var decoder: recipe.Decoder = .{ .r = r, .duplicates = .empty };
+    const creation = try functionCreationByName(r, try expectedSnapshotId(r, &decoder, .{ .object = r.root }));
+    try r.ensureUsable();
+    const fresh = try preflight.run(r, creation);
+    var inferred = try infer.run(r, creation, fresh);
+    try @import("proposals.zig").create(r, out, creation, fresh, &inferred);
+}
+
+pub fn functionCreationByName(r: *Request, expected_snapshot: []const u8) Fail!preflight.Creation {
     var d: recipe.Decoder = .{ .r = r, .duplicates = try recipe.duplicatePaths(r.a, r.line) };
     const root: std.json.Value = .{ .object = r.root };
-    const expected = try expectedSnapshotId(r, &d, root);
+    const expected = expected_snapshot;
     const display_name = try d.requiredString(root, "displayName");
     for (try visible(r, "function")) |item| if (std.mem.eql(u8, nameOf(item), display_name))
         return r.fail("Function display name '{s}' already exists. Choose a unique name or use the exact-ID authoring surface.", .{display_name});
@@ -1711,11 +1720,7 @@ pub fn simulateCreateFunctionByName(r: *Request, out: *Writer) Fail!void {
     var effects: std.ArrayList([]const u8) = .empty;
     for (try d.array(root, "requiredEffects"), 0..) |item, i| try effects.append(r.a, idOf(try d.selector(try std.fmt.allocPrint(r.a, "/requiredEffects/{d}", .{i}), item, "effect")));
     const tree = try @import("recipe_file.zig").input(&d, "body", "bodyFile");
-    const creation: preflight.Creation = .{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
-    try r.ensureUsable();
-    const fresh = try preflight.run(r, creation);
-    var inferred = try infer.run(r, creation, fresh);
-    try @import("proposals.zig").create(r, out, creation, fresh, &inferred);
+    return preflight.Creation{ .expected_snapshot_id = expected, .display_name = display_name, .type_parameters = type_parameters, .parameters = parameters.items, .result_type = result_type, .required_effects = effects.items, .body = tree };
 }
 
 // ---------------------------------------------------------------- simulateReplaceBody

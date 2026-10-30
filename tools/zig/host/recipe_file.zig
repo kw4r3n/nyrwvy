@@ -10,16 +10,14 @@ fn ioFailure(r: *query.Request, name: []const u8) anyerror {
     return r.fail("{s} cannot be read as a JSON file inside the snapshot's directory.", .{name});
 }
 
-pub fn input(d: *recipe.Decoder, inline_name: []const u8, file_name: []const u8) anyerror!*const recipe.Node {
+pub const Input = struct { value: std.json.Value, source: []const u8 };
+
+pub fn jsonInput(d: *recipe.Decoder, inline_name: []const u8, file_name: []const u8) anyerror!Input {
     const r = d.r;
     const a = r.a;
-    const path = try std.fmt.allocPrint(a, "/{s}", .{inline_name});
     const inline_value = r.root.getPtr(inline_name);
     const file = r.root.get(file_name);
-    if (inline_value != null and file == null) {
-        try recipe.resolveNames(d, path, inline_value.?, try recipe.rawProperty(a, r.line, inline_name));
-        return d.recipe(path, inline_value.?.*);
-    }
+    if (inline_value != null and file == null) return .{ .value = inline_value.?.*, .source = try recipe.rawProperty(a, r.line, inline_name) };
     if (inline_value != null or file == null) return r.fail("Pass exactly one of {s} and {s}.", .{ inline_name, file_name });
     if (file.? != .string) return r.fail("{s} must be a file path.", .{file_name});
     const requested = try query.readable(r, file.?.string);
@@ -49,7 +47,33 @@ pub fn input(d: *recipe.Decoder, inline_name: []const u8, file_name: []const u8)
     const wrapped = try std.fmt.allocPrint(a, "{{\"{s}\":{s}}}", .{ inline_name, json });
     d.duplicates = try recipe.duplicatePaths(a, wrapped);
     query.masked = query.masked or masked.line != null;
-    var value = parsed;
-    try recipe.resolveNames(d, path, &value, json);
-    return d.recipe(path, value);
+    return .{ .value = parsed, .source = json };
+}
+
+pub fn input(d: *recipe.Decoder, inline_name: []const u8, file_name: []const u8) anyerror!*const recipe.Node {
+    const path = try std.fmt.allocPrint(d.r.a, "/{s}", .{inline_name});
+    var value = try jsonInput(d, inline_name, file_name);
+    try recipe.resolveNames(d, path, &value.value, value.source);
+    return d.recipe(path, value.value);
+}
+
+/// Preserve the original item spelling for duplicate-property and surrogate checks.
+pub fn rawArrayItems(a: std.mem.Allocator, source: []const u8) ![]const []const u8 {
+    var scanner = std.json.Scanner.initCompleteInput(a, source);
+    defer scanner.deinit();
+    var depth: usize = 0;
+    var start: usize = 0;
+    var items: std.ArrayList([]const u8) = .empty;
+    while (true) {
+        const before = scanner.cursor;
+        const token = try scanner.nextAlloc(a, .alloc_always);
+        if (token == .end_of_document) return items.items;
+        if (depth == 1 and token != .array_end) start = before;
+        switch (token) {
+            .object_begin, .array_begin => depth += 1,
+            .object_end, .array_end => depth -= 1,
+            else => {},
+        }
+        if (depth == 1 and token != .array_begin) try items.append(a, std.mem.trim(u8, source[start..scanner.cursor], " \t\r\n,"));
+    }
 }
