@@ -1734,7 +1734,7 @@ pub fn runScoped(r: *query.Request, c: preflight.Creation, existing: Value, fram
     return runWithPath(r, c, &.{}, existing, null, frames, .aborts, path);
 }
 
-fn runWithPath(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Value, original: ?TypeRef, frames: ?*const Frame, target_type: ?Completion, root_path: []const u8) Fail!Infer {
+pub fn runWithPath(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Value, original: ?TypeRef, frames: ?*const Frame, target_type: ?Completion, root_path: []const u8) Fail!Infer {
     var local: std.ArrayList([]const u8) = .empty;
     for (c.parameters) |p| try preflight.occurring(r.a, p.type, &local);
     var self: Infer = .{ .r = r, .a = r.a, .c = c, .local = c.type_parameters orelse local.items, .fresh = fresh };
@@ -1748,7 +1748,7 @@ fn runWithPath(r: *query.Request, c: preflight.Creation, fresh: []const prefligh
         error.Unsupported => return error.Rejected,
         error.Rejected => {
             // `locate`: the failing node's path and kind, appended to the message.
-            if (try recipePath(r.a, root_path, c.body, self.failed.?)) |path|
+            if (root_path.len > 0) if (try recipePath(r.a, root_path, c.body, self.failed.?)) |path|
                 return preflight.rejected(r, r.diagnostic.code, try std.fmt.allocPrint(r.a, "{s} At {s} ({s}).", .{ r.diagnostic.message, path, try uncapitalized(r.a, self.failed.?.case) }));
             return e;
         },
