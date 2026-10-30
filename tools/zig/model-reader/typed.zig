@@ -472,9 +472,14 @@ pub fn withFunction(arena: Allocator, interner: *Interner, base: *const Generati
     var l: Loader = .{ .arena = arena, .interner = interner };
     const created = try arena.create(Function);
     created.* = try l.loadFunction(item);
-    const functions = try arena.alloc(*const Function, base.functions.len + 1);
+    const replacing = for (base.functions) |f| {
+        if (f.id == created.id) break true;
+    } else false;
+    const functions = try arena.alloc(*const Function, base.functions.len + @as(usize, if (replacing) 0 else 1));
     @memcpy(functions[0..base.functions.len], base.functions);
-    functions[base.functions.len] = created;
+    if (replacing) {
+        for (functions) |*f| if (f.*.id == created.id) { f.* = created; break; };
+    } else functions[base.functions.len] = created;
     const Order = struct {
         fn less(i: *const Interner, x: *const Function, y: *const Function) bool { return i.less(.function, x.id, y.id); }
     };
