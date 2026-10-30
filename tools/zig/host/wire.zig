@@ -151,6 +151,24 @@ pub fn functionSummary(out: *Writer, item: Value, node_count: usize) !void {
     try out.print(",\"nodeCount\":{d}}}}}", .{node_count});
 }
 
+/// `WireEncodeCommon.functionEntity`: all nodes, including nested graphs, in traversal order.
+pub fn functionNodes(out: *Writer, item: Value, nodes: []const Value) !void {
+    try out.writeByte('{');
+    try signature(out, item);
+    try out.writeAll(",\"body\":{\"nodes\":[");
+    for (nodes, 0..) |node, index| {
+        if (index > 0) try out.writeByte(',');
+        try out.writeAll("{\"id\":");
+        try string(out, model.property(node, "id").?);
+        const kind = model.utf8(model.decoded(model.property(node, "kind").?));
+        // SemanticNodeKind.name is the wire tag with its initial letter capitalized.
+        try out.print(",\"kind\":\"{c}{s}\"}}", .{ std.ascii.toUpper(kind[0]), kind[1..] });
+    }
+    try out.writeAll("],\"resultNodeId\":");
+    try string(out, model.property(model.property(item, "body").?, "resultNodeId").?);
+    try out.writeAll("}}");
+}
+
 fn signature(out: *Writer, item: Value) !void {
     const names = model.arrayItems(item, "typeParameters");
     var first = true;

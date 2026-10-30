@@ -21,6 +21,8 @@ pub const Pending = struct {
     base_id: []const u8,
     generation: typed.Generation,
     model: Value,
+    // Preserve graph traversal order for WireEncodeCommon; model is canonical for WireGraph.
+    created_function: Value,
     receipt: []const u8,
     name: []const u8,
 };
@@ -116,9 +118,6 @@ pub fn create(r: *query.Request, out: *Writer, c: preflight.Creation, fresh: []c
     try m.write(&candidate.writer, .{ .object = fields.items });
     const read = model.readDocument(r.a, candidate.written());
     if (read.root == .json_null or read.fingerprints == null) return unsupported(r, validation_bail);
-    // Before registering: a client that gets no proposal ID must not leave a pending proposal behind.
-    if (r.root.get("detail")) |detail| if (m.same(detail.string, "full"))
-        return unsupported(r, "The Zig host does not encode full proposal reviews yet.");
     try initialize(r);
     const arena = try newArena();
     var registered = false;
@@ -129,12 +128,17 @@ pub fn create(r: *query.Request, out: *Writer, c: preflight.Creation, fresh: []c
     try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
     // Project the owned typed generation for step-2 queries. SnapshotReadiness is validation
     // followed by sorted open-obligation IDs, not execution/lowering readiness.
-    const root = model.canonicalRoot(a, try model.parseValue(a, source.written()));
+    const owned_model = try model.parseValue(a, try a.dupe(u8, source.written()));
+    const created_id = model.decoded(model.property(created, "id").?);
+    const proposed = for (model.arrayItems(owned_model, "functions")) |item| {
+        if (std.mem.eql(u16, model.decoded(model.property(item, "id").?), created_id)) break item;
+    } else unreachable;
+    const root = model.canonicalRoot(a, owned_model);
     const proof = try receipt(a, transaction, snapshot, r, read.fingerprints.?);
     const proposal_id = try a.dupe(u8, model.utf8(model.decoded(transaction)));
     try pending.append(std.heap.page_allocator, .{
         .arena = arena, .id = proposal_id, .base_id = try a.dupe(u8, r.snapshot_id),
-        .generation = generation, .model = root, .receipt = proof, .name = try a.dupe(u8, c.display_name),
+        .generation = generation, .model = root, .created_function = proposed, .receipt = proof, .name = try a.dupe(u8, c.display_name),
     });
     registered = true;
     model.useAllocator(r.a);
@@ -142,14 +146,27 @@ pub fn create(r: *query.Request, out: *Writer, c: preflight.Creation, fresh: []c
     const w = &raw.writer;
     try w.writeAll("{\"proposalId\":");
     try m.write(w, transaction);
-    try w.writeAll(",\"detail\":\"compact\",\"review\":{\"kind\":\"createFunction\",\"receipt\":");
+    const full = if (r.root.get("detail")) |detail| m.same(detail.string, "full") else false;
+    const structured = if (r.root.get("structuredReview")) |value| value == .bool and value.bool else false;
+    try w.writeAll(if (full) ",\"detail\":\"full\"" else ",\"detail\":\"compact\"");
+    try w.writeAll(",\"review\":{\"kind\":\"createFunction\",\"receipt\":");
     try w.writeAll(proof);
     try w.writeAll(",\"readiness\":");
     try readiness(w, root);
     try w.writeAll(",\"createdFunction\":");
-    const nodes = model.bodyNodes(r.a, created);
-    try wire.functionSummary(w, created, nodes.len);
-    const focus = model.focusOf(r.a, root, created);
+    // Plain reviews retain materialization order; WireGraph uses canonical node/arm order.
+    const nodes = model.bodyNodes(r.a, proposed);
+    if (!full) {
+        try wire.functionSummary(w, proposed, nodes.len);
+    } else if (structured) {
+        const canonical = for (model.arrayItems(root, "functions")) |item| {
+            if (std.mem.eql(u16, model.decoded(model.property(item, "id").?), created_id)) break item;
+        } else unreachable;
+        try wire.functionEntity(w, canonical);
+    } else {
+        try wire.functionNodes(w, proposed, nodes);
+    }
+    const focus = model.focusOf(r.a, root, proposed);
     try w.writeAll(",\"bodyEffectRequirements\":");
     try query.writeRequirements(w, focus.requirements);
     try w.writeAll(",\"aborts\":");
@@ -159,7 +176,7 @@ pub fn create(r: *query.Request, out: *Writer, c: preflight.Creation, fresh: []c
         try model.writeString(w, path);
     }
     try w.writeAll("}}");
-    try out.writeAll(try projection.compact(r.a, raw.written()));
+    try out.writeAll(if (full) raw.written() else try projection.compact(r.a, raw.written()));
 }
 
 pub fn listing(a: Allocator, out: *Writer, current: []const u8) !void {
