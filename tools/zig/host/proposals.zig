@@ -31,6 +31,8 @@ pub const Pending = struct {
     structured_review: []const u8,
     name: []const u8,
     declaration: ?Declaration = null,
+    operations: bool = false,
+    operation_summary_data: Value = .json_null,
     replacing: bool = false,
     target_node: ?[]const u8 = null,
 };
@@ -59,7 +61,9 @@ pub fn deinit() void {
     if (storage) |arena| freeArena(arena);
     storage = null;
 }
-pub fn count() usize { return pending.items.len; }
+pub fn count() usize {
+    return pending.items.len;
+}
 pub fn find(wanted: []const u8) ?*const Pending {
     for (pending.items) |*p| if (m.same(p.id, wanted)) return p;
     return null;
@@ -145,7 +149,10 @@ pub fn replace(r: *query.Request, out: *Writer, target: Value, body: *const @imp
     var materializer: m.Materializer = .{ .a = r.a, .r = r, .types = inferred, .fresh = &.{}, .function_id = model.property(target, "id").?, .parameters = model.arrayItems(target, "parameters") };
     const graph = try materializer.graph(null, body);
     const fields = try r.a.dupe(model.Member, target.object);
-    for (fields) |*f| if (m.same(model.utf8(f.name), "body")) { f.value = graph; break; };
+    for (fields) |*f| if (m.same(model.utf8(f.name), "body")) {
+        f.value = graph;
+        break;
+    };
     try publish(r, out, .{ .object = fields }, target, null);
 }
 
@@ -175,7 +182,10 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
     const functions = try r.a.alloc(Value, old_functions.len + @as(usize, if (previous != null) 0 else added.len));
     @memcpy(functions[0..old_functions.len], old_functions);
     if (previous) |old| {
-        for (functions) |*f| if (m.same(query.idOf(f.*), query.idOf(old))) { f.* = created; break; };
+        for (functions) |*f| if (m.same(query.idOf(f.*), query.idOf(old))) {
+            f.* = created;
+            break;
+        };
     } else @memcpy(functions[old_functions.len..], added);
     var fields: std.ArrayList(model.Member) = .empty;
     for (r.model.object) |f| {
@@ -233,7 +243,7 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
     try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
     // Project the owned typed generation for step-2 queries. SnapshotReadiness is validation
     // followed by sorted open-obligation IDs, not execution/lowering readiness.
-    const owned_model = try model.parseValue(a, try a.dupe(u8, source.written()));
+    const owned_model = try orderedProjection(a, try model.parseValue(a, try a.dupe(u8, source.written())), .{ .object = fields.items });
     const created_id = model.decoded(model.property(created, "id").?);
     const proposed = for (model.arrayItems(owned_model, group)) |item| {
         if (std.mem.eql(u16, model.decoded(model.property(item, "id").?), created_id)) break item;
@@ -256,8 +266,20 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
     try encodeChangeReview(owned_declaration, r, &plain.writer, created, previous, change, transaction, snapshot, root, proposed, proof, true, false);
     try encodeChangeReview(owned_declaration, r, &structured_out.writer, created, previous, change, transaction, snapshot, root, proposed, proof, true, true);
     try pending.append(std.heap.page_allocator, .{
-        .arena = arena, .declaration = owned_declaration, .id = proposal_id, .base_id = try a.dupe(u8, r.snapshot_id),
-        .generation = generation, .model = root, .session_model = owned_model, .created_function = proposed, .receipt = proof, .full_review = try a.dupe(u8, plain.written()), .structured_review = try a.dupe(u8, structured_out.written()), .name = try a.dupe(u8, query.nameOf(created)), .replacing = previous != null, .target_node = if (change) |c| try a.dupe(u8, c.target) else null,
+        .arena = arena,
+        .declaration = owned_declaration,
+        .id = proposal_id,
+        .base_id = try a.dupe(u8, r.snapshot_id),
+        .generation = generation,
+        .model = root,
+        .session_model = owned_model,
+        .created_function = proposed,
+        .receipt = proof,
+        .full_review = try a.dupe(u8, plain.written()),
+        .structured_review = try a.dupe(u8, structured_out.written()),
+        .name = try a.dupe(u8, query.nameOf(created)),
+        .replacing = previous != null,
+        .target_node = if (change) |c| try a.dupe(u8, c.target) else null,
     });
     registered = true;
     const full = if (r.root.get("detail")) |detail| m.same(detail.string, "full") else false;
@@ -327,7 +349,7 @@ fn declarationEntity(out: *Writer, group: []const u8, item: Value) !void {
 }
 
 pub fn proposalKind(p: *const Pending) []const u8 {
-    return if (p.declaration) |d| d.kind else if (p.target_node != null) "replaceTarget" else if (p.replacing) "replaceBody" else "createFunction";
+    return if (p.operations) "operations" else if (p.declaration) |d| d.kind else if (p.target_node != null) "replaceTarget" else if (p.replacing) "replaceBody" else "createFunction";
 }
 
 fn encodeReview(r: *query.Request, out: *Writer, created: Value, previous: ?Value, change: ?targeted.Change, transaction: Value, snapshot: Value, root: Value, proposed: Value, proof: []const u8, full: bool, structured: bool) !void {
@@ -359,7 +381,9 @@ fn encodeReviewRaw(r: *query.Request, out: *Writer, created: Value, previous: ?V
         try w.writeAll(",\"removedNodeIds\":");
         const removed = try r.a.dupe(Value, model.bodyNodes(r.a, old));
         std.mem.sort(Value, removed, {}, struct {
-            fn less(_: void, x: Value, y: Value) bool { return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt; }
+            fn less(_: void, x: Value, y: Value) bool {
+                return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt;
+            }
         }.less);
         try nodeIds(w, removed);
         try w.writeAll(",\"addedNodeIds\":");
@@ -407,9 +431,14 @@ fn encodeReviewRaw(r: *query.Request, out: *Writer, created: Value, previous: ?V
     try out.writeAll(if (full or !project_result) raw.written() else try projection.compact(r.a, raw.written()));
 }
 
-pub fn listing(a: Allocator, out: *Writer, current: []const u8) !void {
+pub fn listing(a: Allocator, out: *Writer, current: []const u8, current_model: Value) !void {
+    var summary_request: query.Request = .{ .a = a, .line = "", .root = .empty, .model = current_model, .provenance = null };
     const items = try a.dupe(Pending, pending.items);
-    std.mem.sort(Pending, items, {}, struct { fn less(_: void, x: Pending, y: Pending) bool { return std.mem.order(u8, x.id, y.id) == .lt; } }.less);
+    std.mem.sort(Pending, items, {}, struct {
+        fn less(_: void, x: Pending, y: Pending) bool {
+            return std.mem.order(u8, x.id, y.id) == .lt;
+        }
+    }.less);
     try out.print("{{\"count\":{d},\"proposals\":[", .{items.len});
     for (items, 0..) |p, i| {
         if (i > 0) try out.writeByte(',');
@@ -418,10 +447,12 @@ pub fn listing(a: Allocator, out: *Writer, current: []const u8) !void {
         try out.print(",\"kind\":\"{s}\",\"baseSnapshotId\":", .{proposalKind(&p)});
         try @import("root").writeString(out, p.base_id);
         try out.writeAll(if (m.same(current, p.base_id)) ",\"baseIsCurrent\":true,\"summary\":" else ",\"baseIsCurrent\":false,\"summary\":");
-        if (p.declaration) |d| {
+        if (p.operations) {
+            try @import("root").writeString(out, try @import("operation_engine.zig").summaryOperations(&summary_request, p.operation_summary_data));
+        } else if (p.declaration) |d| {
             var names: std.ArrayList([]const u8) = .empty;
             for (d.items) |item| try names.append(a, try std.fmt.allocPrint(a, "{s}'{s}'", .{ if (m.same(d.group, "functions")) @as([]const u8, "createFunction ") else "", query.nameOf(item) }));
-            try @import("root").writeString(out, if (m.same(d.group, "functions")) try std.mem.join(a, "; ", names.items) else try std.fmt.allocPrint(a, "{s} {s}", .{d.kind, try std.mem.join(a, ", ", names.items)}));
+            try @import("root").writeString(out, if (m.same(d.group, "functions")) try std.mem.join(a, "; ", names.items) else try std.fmt.allocPrint(a, "{s} {s}", .{ d.kind, try std.mem.join(a, ", ", names.items) }));
         } else try @import("root").writeString(out, try std.fmt.allocPrint(a, "{s}'{s}'", .{ if (p.target_node) |id| try std.fmt.allocPrint(a, "replaceTarget {s} in ", .{id}) else if (p.replacing) @as([]const u8, "replaceBody of ") else "createFunction ", p.name }));
         try out.writeByte('}');
     }
@@ -502,58 +533,87 @@ pub fn viewProposal(r: *query.Request, out: *Writer) !void {
     const viewer = @import("viewer.zig");
     var data: Writer.Allocating = .init(r.a);
     const w = &data.writer;
-    try w.writeAll("{\"view\":\"proposalReview\",\"transactionId\":");
-    try @import("root").writeString(w, p.id);
-    try w.writeAll(",\"proposalKind\":");
-    try @import("root").writeString(w, proposalKind(p));
-    try w.writeAll(",\"baseSnapshotId\":");
-    try @import("root").writeString(w, p.base_id);
-    const snapshot = model.utf8(model.decoded(model.property(p.model, "snapshotId").?));
-    try w.writeAll(",\"proposedSnapshotId\":");
-    try @import("root").writeString(w, snapshot);
-    try w.writeAll(if (current) ",\"baseIsCommitted\":true,\"readiness\":" else ",\"baseIsCommitted\":false,\"readiness\":");
-    try readiness(w, p.model);
-    if (if (p.declaration) |d| if (!m.same(d.group, "functions")) p.declaration else null else null) |d| {
-        try w.writeAll(",\"changedFunctions\":[]");
-        for ([_][2][]const u8{ .{ "types", "declaredTypes" }, .{ "capabilities", "declaredCapabilities" }, .{ "effects", "declaredEffects" } }) |entry| {
-            try w.print(",\"{s}\":[", .{entry[1]});
-            if (m.same(d.group, entry[0])) for (d.items, 0..) |item, i| {
-                if (i > 0) try w.writeByte(',');
-                if (m.same(d.group, "effects")) {
-                    try w.writeAll("{\"id\":");
-                    try m.write(w, model.property(item, "id").?);
-                    try w.writeAll(",\"displayName\":");
-                    try m.write(w, model.property(item, "displayName").?);
-                    try w.writeAll(if (model.property(item, "exported") != null) ",\"exported\":true}" else ",\"exported\":false}");
-                } else try declarationEntity(w, d.group, item);
-            };
-            try w.writeByte(']');
+    if (p.operations) {
+        const review = model.property(try model.parseValue(r.a, p.structured_review), "review").?;
+        try w.writeAll("{\"view\":\"changeReview\",\"transactionId\":");
+        try @import("root").writeString(w, p.id);
+        try w.writeAll(",\"baseSnapshotId\":");
+        try @import("root").writeString(w, p.base_id);
+        const snapshot = model.utf8(model.decoded(model.property(p.model, "snapshotId").?));
+        try w.writeAll(",\"proposedSnapshotId\":");
+        try @import("root").writeString(w, snapshot);
+        try w.writeAll(if (current) ",\"baseIsCommitted\":true,\"readiness\":" else ",\"baseIsCommitted\":false,\"readiness\":");
+        var state: Writer.Allocating = .init(r.a);
+        try readiness(&state.writer, p.model);
+        try w.writeAll(if (m.same(state.written(), "{\"kind\":\"semanticallyReady\"}")) "{\"kind\":\"complete\"}" else state.written());
+        for ([_][]const u8{ "diff", "affectedFunctionIds", "affectedTypeIds" }) |key| {
+            try w.print(",\"{s}\":", .{key});
+            try m.write(w, model.property(review, key).?);
         }
-        try w.writeAll(",\"engineReview\":");
+        try w.writeAll(",\"functionFocus\":[");
+        for (model.arrayItems(review, "affectedFunctionIds"), 0..) |id, i| {
+            if (i > 0) try w.writeByte(',');
+            const function = @import("operation_model.zig").find(p.model, "functions", model.utf8(model.decoded(id))).?;
+            try w.writeAll(try viewer.focusValue(r.a, p.model, snapshot, function));
+        }
+        try w.writeAll("]}");
     } else {
-        try w.writeAll(",\"changedFunctions\":[");
-        const functions = if (p.declaration) |d| d.items else &.{p.created_function};
-        for (functions, 0..) |changed, i| {
-        if (i > 0) try w.writeByte(',');
-        try w.writeAll("{\"committed\":");
-        var before: ?Value = null;
-        const id = query.idOf(changed);
-        const committed_root = model.canonicalRoot(r.a, r.model);
-        if (current) for (model.arrayItems(committed_root, "functions")) |f| {
-            if (m.same(query.idOf(f), id)) { before = f; break; }
-        };
-        if (before) |f| try w.writeAll(try viewer.focusValue(r.a, committed_root, r.snapshot_id, f)) else try w.writeAll("null");
-        try w.writeAll(",\"proposed\":");
-        const function = for (model.arrayItems(p.model, "functions")) |f| {
-            if (m.same(query.idOf(f), id)) break f;
-        } else unreachable;
-        try w.writeAll(try viewer.focusValue(r.a, p.model, snapshot, function));
-        try w.writeByte('}');
+        try w.writeAll("{\"view\":\"proposalReview\",\"transactionId\":");
+        try @import("root").writeString(w, p.id);
+        try w.writeAll(",\"proposalKind\":");
+        try @import("root").writeString(w, proposalKind(p));
+        try w.writeAll(",\"baseSnapshotId\":");
+        try @import("root").writeString(w, p.base_id);
+        const snapshot = model.utf8(model.decoded(model.property(p.model, "snapshotId").?));
+        try w.writeAll(",\"proposedSnapshotId\":");
+        try @import("root").writeString(w, snapshot);
+        try w.writeAll(if (current) ",\"baseIsCommitted\":true,\"readiness\":" else ",\"baseIsCommitted\":false,\"readiness\":");
+        try readiness(w, p.model);
+        if (if (p.declaration) |d| if (!m.same(d.group, "functions")) p.declaration else null else null) |d| {
+            try w.writeAll(",\"changedFunctions\":[]");
+            for ([_][2][]const u8{ .{ "types", "declaredTypes" }, .{ "capabilities", "declaredCapabilities" }, .{ "effects", "declaredEffects" } }) |entry| {
+                try w.print(",\"{s}\":[", .{entry[1]});
+                if (m.same(d.group, entry[0])) for (d.items, 0..) |item, i| {
+                    if (i > 0) try w.writeByte(',');
+                    if (m.same(d.group, "effects")) {
+                        try w.writeAll("{\"id\":");
+                        try m.write(w, model.property(item, "id").?);
+                        try w.writeAll(",\"displayName\":");
+                        try m.write(w, model.property(item, "displayName").?);
+                        try w.writeAll(if (model.property(item, "exported") != null) ",\"exported\":true}" else ",\"exported\":false}");
+                    } else try declarationEntity(w, d.group, item);
+                };
+                try w.writeByte(']');
+            }
+            try w.writeAll(",\"engineReview\":");
+        } else {
+            try w.writeAll(",\"changedFunctions\":[");
+            const functions = if (p.declaration) |d| d.items else &.{p.created_function};
+            for (functions, 0..) |changed, i| {
+                if (i > 0) try w.writeByte(',');
+                try w.writeAll("{\"committed\":");
+                var before: ?Value = null;
+                const id = query.idOf(changed);
+                const committed_root = model.canonicalRoot(r.a, r.model);
+                if (current) for (model.arrayItems(committed_root, "functions")) |f| {
+                    if (m.same(query.idOf(f), id)) {
+                        before = f;
+                        break;
+                    }
+                };
+                if (before) |f| try w.writeAll(try viewer.focusValue(r.a, committed_root, r.snapshot_id, f)) else try w.writeAll("null");
+                try w.writeAll(",\"proposed\":");
+                const function = for (model.arrayItems(p.model, "functions")) |f| {
+                    if (m.same(query.idOf(f), id)) break f;
+                } else unreachable;
+                try w.writeAll(try viewer.focusValue(r.a, p.model, snapshot, function));
+                try w.writeByte('}');
+            }
+            try w.writeAll("],\"declaredTypes\":[],\"declaredCapabilities\":[],\"declaredEffects\":[],\"engineReview\":");
         }
-        try w.writeAll("],\"declaredTypes\":[],\"declaredCapabilities\":[],\"declaredEffects\":[],\"engineReview\":");
+        try w.writeAll(p.structured_review);
+        try w.writeByte('}');
     }
-    try w.writeAll(p.structured_review);
-    try w.writeByte('}');
     const name = try std.fmt.allocPrint(r.a, "nyrwvy-change-review-transaction-{x}.html", .{p.id});
     const content = try viewer.page(r.a, data.written());
     switch (try @import("view_file.zig").write(r.a, r.snapshot_path, output, ".html", name, viewer.header(), content)) {
@@ -573,4 +633,189 @@ pub fn viewProposal(r: *query.Request, out: *Writer) !void {
             try out.writeByte('}');
         },
     }
+}
+
+pub fn publishOperations(r: *query.Request, out: *Writer, result: @import("operation_engine.zig").Result) !void {
+    if (r.provenance) |provenance| {
+        var hidden_names: std.ArrayList([]const u8) = .empty;
+        for ([_][2][]const u8{ .{ "types", "type" }, .{ "functions", "function" }, .{ "effects", "effect" }, .{ "capabilities", "capability" } }) |category| {
+            for (model.arrayItems(r.model, category[0])) |old| {
+                if (!try imported(r, provenance, category[1], query.idOf(old))) continue;
+                const proposed = @import("operation_model.zig").find(result.candidate, category[0], query.idOf(old));
+                var touched = false;
+                if (m.same(category[0], "functions") or m.same(category[0], "types")) {
+                    for (try affected(r, result.candidate, result.diff, m.same(category[0], "functions"))) |id| {
+                        if (std.mem.eql(u16, model.decoded(id), model.decoded(model.property(old, "id").?))) {
+                            touched = true;
+                            break;
+                        }
+                    }
+                } else if (m.same(category[0], "capabilities")) {
+                    for ([_][]const u8{ "capabilityOperationsAdded", "capabilityOperationsRemoved" }) |key| for (model.arrayItems(result.diff, key)) |change| {
+                        if (m.same(@import("operation_model.zig").text(change, "ownerCapabilityId"), query.idOf(old))) touched = true;
+                    };
+                }
+                if (touched or proposed == null or !sameValue(old, proposed.?)) return invalidSnapshot(r, "ImportedDeclarationModified", "Dependency declarations are read-only; no proposal was registered.");
+            }
+            for (model.arrayItems(result.candidate, category[0])) |item| {
+                const key = try std.fmt.allocPrint(r.a, "{s}:{s}", .{ category[1], query.idOf(item) });
+                if (!preflight.contains(provenance.hidden, key)) continue;
+                const references = model.referencesTo(r.a, result.candidate, category[1], model.decoded(model.property(item, "id").?)) orelse continue;
+                for (references) |reference| {
+                    if (!try imported(r, provenance, @tagName(reference.owner), model.utf8(reference.owner_id))) {
+                        try hidden_names.append(r.a, try std.fmt.allocPrint(r.a, "{s} '{s}' ({s})", .{ category[1], query.nameOf(item), query.idOf(item) }));
+                        break;
+                    }
+                }
+            }
+        }
+        if (hidden_names.items.len > 0) return invalidSnapshot(r, "ImportedDeclarationNotExported", try std.fmt.allocPrint(r.a, "The dependency does not export {s}; a dependent may refer only to exported declarations. No proposal was registered.", .{try std.mem.join(r.a, ", ", hidden_names.items)}));
+    }
+    try initialize(r);
+    const arena = try newArena();
+    var registered = false;
+    defer if (!registered) freeArena(arena);
+    const a = arena.allocator();
+    const generation = try typed.withChanges(a, &interner, &base, r.model, result.candidate);
+    var source: Writer.Allocating = .init(r.a);
+    try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
+    const owned_model = try orderedProjection(a, try model.parseValue(a, try a.dupe(u8, source.written())), result.candidate);
+    const root = model.canonicalRoot(a, owned_model);
+    const read = model.readDocument(r.a, source.written());
+    const issues = try @import("operation_model.zig").validatedIssues(r, read);
+    if (issues.len > 0) return @import("operation_engine.zig").rejected(r, "InvalidProposedSnapshot", try std.fmt.allocPrint(r.a, "{s}: {s}", .{ issues[0].code, model.utf8(issues[0].message) }));
+    const proof = try receipt(a, result.transaction, result.snapshot, r, read.fingerprints.?);
+    var plain: Writer.Allocating = .init(r.a);
+    var structured: Writer.Allocating = .init(r.a);
+    try encodeOperations(r, &plain.writer, result, root, proof, true, false);
+    try encodeOperations(r, &structured.writer, result, root, proof, true, true);
+    try pending.append(std.heap.page_allocator, .{
+        .arena = arena,
+        .id = try a.dupe(u8, model.utf8(model.decoded(result.transaction))),
+        .base_id = try a.dupe(u8, r.snapshot_id),
+        .generation = generation,
+        .model = root,
+        .session_model = owned_model,
+        .created_function = .json_null,
+        .receipt = proof,
+        .full_review = try a.dupe(u8, plain.written()),
+        .structured_review = try a.dupe(u8, structured.written()),
+        .name = "",
+        .operations = true,
+        .operation_summary_data = try copyValue(a, result.summary_operations),
+    });
+    registered = true;
+    const full = if (r.root.get("detail")) |value| m.same(value.string, "full") else false;
+    const structured_review = if (r.root.get("structuredReview")) |value| value == .bool and value.bool else false;
+    try encodeOperations(r, out, result, root, proof, full, structured_review);
+}
+fn affected(r: *query.Request, root: Value, diff: Value, functions: bool) ![]Value {
+    var ids: std.ArrayList(Value) = .empty;
+    for (diff.object) |field| {
+        const key = model.utf8(field.name);
+        for (field.value.array) |item| {
+            var id: ?Value = null;
+            if (m.same(key, "renames")) {
+                const kind = @import("operation_model.zig").text(item, "kind");
+                if (functions and m.same(kind, "function") or !functions and m.same(kind, "type")) id = model.property(item, "id") else if (functions and m.same(kind, "parameter")) id = model.property(item, "ownerFunctionId") else if (!functions and (m.same(kind, "field") or m.same(kind, "variant"))) id = model.property(item, "ownerTypeId");
+            } else if (m.same(key, "visibilityChanges")) {
+                if (m.same(@import("operation_model.zig").text(item, "kind"), if (functions) "function" else "type")) id = model.property(item, "id");
+            } else if (functions and m.same(key, "attributeChanges")) {
+                if (m.same(@import("operation_model.zig").text(item, "attribute"), "mustNotWait")) id = model.property(item, "id");
+            } else if (functions and m.same(key, "requiredEffectsChanged")) id = model.property(item, "functionId") else id = model.property(item, if (functions) "ownerFunctionId" else "ownerTypeId");
+            if (id) |value| try ids.append(r.a, value);
+            if (functions) {
+                for ([_][]const u8{ "callNodeId", "affectedCallNodeIds", "affectedMatchNodeIds", "affectedConstructNodeIds" }) |node_key| {
+                    const nodes = model.property(item, node_key) orelse continue;
+                    const values = if (nodes == .array) nodes.array else &.{nodes};
+                    for (values) |node_id| for (model.arrayItems(root, "functions")) |function| for (model.bodyNodes(r.a, function)) |node| {
+                        if (std.mem.eql(u16, model.decoded(model.property(node, "id").?), model.decoded(node_id))) try ids.append(r.a, model.property(function, "id").?);
+                    };
+                }
+            }
+        }
+    }
+    std.mem.sort(Value, ids.items, {}, struct {
+        fn less(_: void, x: Value, y: Value) bool {
+            return std.mem.order(u16, model.decoded(x), model.decoded(y)) == .lt;
+        }
+    }.less);
+    var result: std.ArrayList(Value) = .empty;
+    for (ids.items) |id| {
+        if (@import("operation_model.zig").find(root, if (functions) "functions" else "types", model.utf8(model.decoded(id))) == null) continue;
+        if (result.items.len > 0 and std.mem.eql(u16, model.decoded(result.items[result.items.len - 1]), model.decoded(id))) continue;
+        try result.append(r.a, id);
+    }
+    return result.items;
+}
+fn encodeOperations(r: *query.Request, out: *Writer, result: @import("operation_engine.zig").Result, root: Value, proof: []const u8, full: bool, structured: bool) !void {
+    model.useAllocator(r.a);
+    var raw: Writer.Allocating = .init(r.a);
+    const w = &raw.writer;
+    try w.writeAll("{\"proposalId\":");
+    try m.write(w, result.transaction);
+    try w.print(",\"detail\":\"{s}\",\"review\":{{\"kind\":\"operations\",\"receipt\":{s},\"readiness\":", .{ if (full) @as([]const u8, "full") else "compact", proof });
+    try readiness(w, root);
+    try w.writeAll(",\"diff\":");
+    try m.write(w, result.diff);
+    const functions = try affected(r, root, result.diff, true);
+    try w.writeAll(",\"affectedFunctionIds\":");
+    try m.write(w, .{ .array = functions });
+    try w.writeAll(",\"affectedTypeIds\":");
+    try m.write(w, .{ .array = try affected(r, root, result.diff, false) });
+    try w.writeAll(",\"functionFocus\":[");
+    var candidate_request = r.*;
+    candidate_request.model = if (structured) root else result.candidate;
+    candidate_request.snapshot_id = model.utf8(model.decoded(result.snapshot));
+    for (functions, 0..) |id, i| {
+        if (i > 0) try w.writeByte(',');
+        const function = @import("operation_model.zig").find(candidate_request.model, "functions", model.utf8(model.decoded(id))).?;
+        try query.reviewFocus(&candidate_request, w, function, model.decoded(id), model.bodyNodes(r.a, function), full, structured);
+    }
+    try w.writeAll("]}}");
+    try out.writeAll(if (full) raw.written() else try projection.compact(r.a, raw.written()));
+}
+
+fn sameValue(x: Value, y: Value) bool {
+    if (std.meta.activeTag(x) != std.meta.activeTag(y)) return false;
+    return switch (x) {
+        .object => |fields| blk: {
+            if (fields.len != y.object.len) break :blk false;
+            for (fields) |field| {
+                const other = model.property(y, model.utf8(field.name)) orelse break :blk false;
+                if (!sameValue(field.value, other)) break :blk false;
+            }
+            break :blk true;
+        },
+        .array => |items| blk: {
+            if (items.len != y.array.len) break :blk false;
+            for (items, y.array) |left, right| if (!sameValue(left, right)) break :blk false;
+            break :blk true;
+        },
+        .string => std.mem.eql(u16, model.decoded(x), model.decoded(y)),
+        .number => |value| std.mem.eql(u8, value, y.number),
+        else => true,
+    };
+}
+
+fn copyValue(a: Allocator, value: Value) !Value {
+    var source: Writer.Allocating = .init(a);
+    try m.write(&source.writer, value);
+    return model.parseValue(a, source.written());
+}
+
+/// Typed pointer tables sort by ID; semantic snapshot lists retain insertion order for diagnostics.
+fn orderedProjection(a: Allocator, owned: Value, candidate: Value) !Value {
+    const fields = try a.dupe(model.Member, owned.object);
+    for (fields) |*field| {
+        const key = model.utf8(field.name);
+        if (!preflight.contains(&.{ "functions", "types", "effects", "capabilities", "obligations" }, key)) continue;
+        const order = model.arrayItems(candidate, key);
+        const items = try a.alloc(Value, order.len);
+        for (order, items) |source, *item| {
+            item.* = @import("operation_model.zig").find(owned, key, query.idOf(source)) orelse unreachable;
+        }
+        field.value = .{ .array = items };
+    }
+    return .{ .object = fields };
 }

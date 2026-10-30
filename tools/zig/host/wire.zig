@@ -219,6 +219,29 @@ pub fn semanticType(out: *Writer, item: Value) !void {
     try out.writeAll("}}");
 }
 
+/// `WireEncodeCommon.capabilityOperation`, shared by declaration and transaction reviews.
+pub fn capabilityOperation(out: *Writer, operation: Value) !void {
+    var inner = true;
+    try out.writeByte('{');
+    try field(out, &inner, "id");
+    try string(out, model.property(operation, "id").?);
+    try field(out, &inner, "displayName");
+    try string(out, model.property(operation, "displayName").?);
+    try field(out, &inner, "parameters");
+    try typed(out, model.arrayItems(operation, "parameters"), &.{});
+    try field(out, &inner, "resultType");
+    try typeRef(out, model.property(operation, "resultType").?, &.{});
+    try field(out, &inner, "failureType");
+    if (model.property(operation, "failureType")) |failure| try typeRef(out, failure, &.{}) else try out.writeAll("null");
+    try field(out, &inner, "effectId");
+    try string(out, model.property(operation, "effectId").?);
+    if (model.property(operation, "mayWait") != null) {
+        try field(out, &inner, "mayWait");
+        try out.writeAll("true");
+    }
+    try out.writeByte('}');
+}
+
 /// `capabilityEntity`.
 pub fn capability(out: *Writer, item: Value) !void {
     var first = true;
@@ -232,25 +255,7 @@ pub fn capability(out: *Writer, item: Value) !void {
     try out.writeByte('[');
     for (model.arrayItems(item, "operations"), 0..) |operation, index| {
         if (index > 0) try out.writeByte(',');
-        var inner = true;
-        try out.writeByte('{');
-        try field(out, &inner, "id");
-        try string(out, model.property(operation, "id").?);
-        try field(out, &inner, "displayName");
-        try string(out, model.property(operation, "displayName").?);
-        try field(out, &inner, "parameters");
-        try typed(out, model.arrayItems(operation, "parameters"), &.{});
-        try field(out, &inner, "resultType");
-        try typeRef(out, model.property(operation, "resultType").?, &.{});
-        try field(out, &inner, "failureType");
-        if (model.property(operation, "failureType")) |failure| try typeRef(out, failure, &.{}) else try out.writeAll("null");
-        try field(out, &inner, "effectId");
-        try string(out, model.property(operation, "effectId").?);
-        if (model.property(operation, "mayWait") != null) {
-            try field(out, &inner, "mayWait");
-            try out.writeAll("true");
-        }
-        try out.writeByte('}');
+        try capabilityOperation(out, operation);
     }
     try out.writeAll("]}");
 }

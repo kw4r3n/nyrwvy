@@ -1541,11 +1541,11 @@ pub fn executionIrOf(allocator: std.mem.Allocator, root: Value) ?[]const u8 {
 
 /// The functions a node names (`SemanticNodeShape.functionReferences`), decoded, in payload order,
 /// each with whether it is invoked (`FunctionReferenceRole.isInvoked`).
-pub const FunctionRelation = struct { id: Str, invoked: bool };
+pub const FunctionRelation = struct { id: Str, invoked: bool, non_call_label: ?[]const u8 };
 pub fn functionRelationsOf(node: Value) []const FunctionRelation {
     const references = functionReferences(node);
     const out = a.alloc(FunctionRelation, references.len) catch oom();
-    for (references, out) |reference, *relation| relation.* = .{ .id = dec(reference.function_id), .invoked = isInvoked(reference.role) };
+    for (references, out) |reference, *relation| relation.* = .{ .id = dec(reference.function_id), .invoked = isInvoked(reference.role), .non_call_label = switch (reference.role) { .direct_call => null, .pure_callback, .effect_callback => "callback", .worker => "worker", .body => "scoped body", .function_value => "function value", .implementation => "capability implementation" } };
     return out;
 }
 

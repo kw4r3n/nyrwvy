@@ -255,7 +255,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
             try out.writeAll("}");
         } else if (std.mem.eql(u8, op, "declarations")) {
             try wire.declarations(a, out, canonical(), if (selection) |d| d.provenance else null);
-        } else try proposals.listing(a, out, snapshot_id);
+        } else try proposals.listing(a, out, snapshot_id, if (session_changed) model_root else canonical());
         return out.writeByte('}');
     };
     const queries = [_]struct { []const u8, *const fn (*query.Request, *std.Io.Writer) anyerror!void }{
@@ -275,6 +275,8 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         .{ "simulateCreateCapability", @import("declarations.zig").createCapability },
         .{ "simulateCreateCapabilityByName", @import("declarations.zig").createCapability },
         .{ "simulateCreateFunctionsByName", @import("function_batch.zig").create },
+        .{ "simulateOperations", @import("operation_engine.zig").simulateRequest },
+        .{ "simulateOperationsByName", @import("operation_engine.zig").simulateRequest },
         .{ "simulateCreateFunction", query.simulateCreateFunction },
         .{ "simulateCreateFunctionByName", query.simulateCreateFunctionByName },
         .{ "simulateReplaceBody", query.simulateReplaceBody },
@@ -349,22 +351,22 @@ fn publish(a: std.mem.Allocator, out: *std.Io.Writer, id: []const u8, op: []cons
         return;
     }
     const declaration = if (p.declaration) |d| if (!std.mem.eql(u8, d.group, "functions")) p.declaration else null else null;
-    if (!std.mem.eql(u8, snapshot_id, p.base_id)) return commitRejected(a, out, id, "StaleBaseSnapshot", if (declaration) |d| try std.fmt.allocPrint(a, "The workspace advanced beyond the reviewed {s}-declaration proposal.", .{d.subject}) else "The workspace advanced beyond the reviewed structural proposal.");
+    if (!std.mem.eql(u8, snapshot_id, p.base_id)) return commitRejected(a, out, id, "StaleBaseSnapshot", if (declaration) |d| try std.fmt.allocPrint(a, "The workspace advanced beyond the reviewed {s}-declaration proposal.", .{d.subject}) else if (p.operations) "The transaction base snapshot does not match the supplied snapshot." else "The workspace advanced beyond the reviewed structural proposal.");
     const document = try proposals.document(a, p);
     const validated = model_reader.readDocument(a, document);
     const proof = try model_reader.parseValue(a, p.receipt);
     const value = @import("materialize.zig");
     if (!std.mem.eql(u8, fingerprints.snapshot, model_reader.utf8(model_reader.decoded(model_reader.property(proof, "baseSnapshotFingerprint").?))))
-        return commitRejected(a, out, id, "PreviewReceiptBaseMismatch", "The current base content differs from the reviewed base.");
+        return commitRejected(a, out, id, "PreviewReceiptBaseMismatch", if (p.operations) "The current base snapshot fingerprint differs from the reviewed preview receipt." else "The current base content differs from the reviewed base.");
     const next_fingerprints = validated.fingerprints orelse return commitRejected(a, out, id, "FingerprintFailure", if (declaration != null) "The proposed snapshot fingerprint could not be recomputed." else "The proposed fingerprint could not be recomputed.");
     if (!std.mem.eql(u8, next_fingerprints.snapshot, model_reader.utf8(model_reader.decoded(model_reader.property(proof, "proposedSnapshotFingerprint").?))) or
         !std.mem.eql(u8, next_fingerprints.semantic, model_reader.utf8(model_reader.decoded(model_reader.property(proof, "proposedSemanticFingerprint").?))))
-        return commitRejected(a, out, id, "PreviewReceiptResultMismatch", if (declaration) |d| try std.fmt.allocPrint(a, "The proposed {s} declaration differs from the reviewed result.", .{d.subject}) else "The proposed state differs from the reviewed receipt.");
+        return commitRejected(a, out, id, "PreviewReceiptResultMismatch", if (declaration) |d| try std.fmt.allocPrint(a, "The proposed {s} declaration differs from the reviewed result.", .{d.subject}) else if (p.operations) "Re-simulation produced a proposed state different from the reviewed preview receipt." else "The proposed state differs from the reviewed receipt.");
     var obligations: std.ArrayList([]const u8) = .empty;
     for (model_reader.arrayItems(p.model, "obligations")) |o| {
         if (std.mem.eql(u8, model_reader.utf8(model_reader.decoded(model_reader.property(o, "status").?)), "open")) try obligations.append(a, query.idOf(o));
     }
-    if (!allow_incomplete and obligations.items.len > 0) return commitRejected(a, out, id, "BlockingObligations", try std.fmt.allocPrint(a, "The proposed snapshot has blocking obligations: {s}.", .{try std.mem.join(a, ", ", obligations.items)}));
+    if (!allow_incomplete and obligations.items.len > 0) return commitRejected(a, out, id, "BlockingObligations", try std.fmt.allocPrint(a, "The proposed snapshot has blocking obligations: {s}.{s}", .{try std.mem.join(a, ", ", obligations.items), if (p.operations) @as([]const u8, " Use AllowBlockingObligations explicitly to publish it.") else ""}));
     // Ordinary commits do not rewrite the manifest, backend targets or .previous recovery files.
     if (dependency_manifest) |expected| {
         const sidecar = try std.mem.concat(a, u8, &.{ snapshot_path, ".dependency.json" });
