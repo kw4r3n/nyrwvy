@@ -19,6 +19,15 @@ pub const Answer = union(enum) { result: []const u8, rejected: Rejection };
 
 const Fail = anyerror;
 
+/// Request-arena scratch publication; mixed batches never intern or register their steps.
+pub const Capture = struct {
+    candidate: Value = .json_null,
+    full_review: []const u8 = "",
+    structured_review: []const u8 = "",
+    compact_review: []const u8 = "",
+    summary_operations: Value = .json_null,
+};
+
 pub const Diagnostic = struct { code: []const u8 = "", message: []const u8 = "" };
 
 /// The request being answered, and where a rejection's text goes.
@@ -37,6 +46,7 @@ pub const Request = struct {
     rejection: Rejection = .{ .code = "", .message = "" },
     /// The diagnostic behind a `SimulationRejected` rejection, for a message appended to later.
     diagnostic: Diagnostic = .{},
+    capture: ?*Capture = null,
 
     pub fn ensureUsable(self: *Request) Fail!void {
         if (!self.session_invalidated) return;
