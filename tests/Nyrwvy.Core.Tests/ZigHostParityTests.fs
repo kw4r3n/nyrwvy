@@ -169,7 +169,7 @@ module ZigHostParityTests =
               "PureExpressionInvalidTypeRef"; "NamedTypeArityMismatch"; "FunctionCreationDuplicateRequiredEffect"; "FunctionCreationRequiredEffectNotFound"
               "StructuralRecipeDepthLimitExceeded"; "StructuralRecipeNodeLimitExceeded" ]
 
-    /// The diagnostic codes of the ported inference (step 3c-3b), located at their node.
+    /// The diagnostic codes of the ported inference (steps 3c-3b and 3c-3c), located at their node.
     let internal inferenceCodes =
         set [ "PureExpressionOperandTypeMismatch"; "ListIndexOfItemTypeNotEquatable"; "ListLastIndexOfItemTypeNotEquatable"; "ListContainsItemTypeNotEquatable"
               "SetItemTypeNotEquatable"; "MapKeyTypeNotEquatable"; "ValueEqualTypeNotEquatable"; "OriginalTargetOutsideTargetedReplacement"
@@ -179,7 +179,22 @@ module ZigHostParityTests =
               "PureExpressionProductFieldNotFound"; "PureExpressionFieldAccessTypeMismatch"; "PureExpressionEmptyProductUpdate"; "PureExpressionProductUpdateSourceMismatch"
               "PureExpressionUnionVariantNotFound"; "AbortValueUse"; "PureExpressionBranchTypeMismatch"; "AbortPayloadTypeMismatch"; "AbortOwnerResultTypeMismatch"
               "PureExpressionMatchArmDuplicate"; "PureExpressionMatchArmMismatch"; "PureExpressionMatchOtherwiseDuplicate"; "PureExpressionMatchOtherwiseUnused"
-              "PureExpressionMatchInputTypeMismatch"; "FunctionCreationResultTypeMismatch" ]
+              "PureExpressionMatchInputTypeMismatch"; "FunctionCreationResultTypeMismatch"
+              "CancellationShieldBodyMismatch"; "CancellationShieldResultMismatch"; "CapabilityImplementationSetMismatch"
+              "CapabilityImplementationSignatureMismatch"; "DuplicateCapabilityImplementation"; "ExceptionCatchCallbackMismatch"
+              "ExceptionCatchResultMismatch"; "ExceptionValueTypeMismatch"; "ExpressionCallMissingEffectRequirement"
+              "ExpressionCapabilityArgumentSetMismatch"; "ExpressionCapabilityArgumentTypeMismatch"; "ExpressionCapabilityMissingEffectRequirement"
+              "ExpressionCapabilityOperationNotFound"; "ExpressionCapabilityValueTypeMismatch"; "ExpressionDuplicateCapabilityArgument"
+              "FunctionInvokeArgumentTypeMismatch"; "FunctionInvokeArityMismatch"; "FunctionInvokeTargetTypeMismatch"
+              "GenericCapabilityImplementationUnsupported"; "GenericFunctionReferenceUnsupported"; "ImpureCapabilityImplementation"; "ImpureFunctionReference"
+              "OneShotCellTypeMismatch"; "OneShotLimitTypeMismatch"; "OneShotScopePayloadUnsupported"; "OneShotScopeTypeMismatch"; "OneShotValueTypeMismatch"
+              "PureExpressionCallArgumentMissing"; "PureExpressionCallArgumentTargetNotFound"; "PureExpressionCallArgumentTypeMismatch"
+              "PureExpressionCallTargetNotFound"; "PureExpressionCallbackArityMismatch"; "PureExpressionCallbackContextTypeMismatch"
+              "PureExpressionCallbackEffectsNotAllowed"; "PureExpressionCallbackInputTypeMismatch"; "PureExpressionCallbackNotFound"
+              "PureExpressionCallbackResultTypeMismatch"; "PureExpressionDuplicateCallArgument"; "TaskCancelInputTypeMismatch"; "TaskScopeBodyMismatch"
+              "TaskScopeResultMismatch"; "TaskStartScopeTypeMismatch"; "TaskWaitInputTypeMismatch"; "TaskWaitLimitTypeMismatch"
+              "UnknownCapabilityConstructTarget"; "UnknownCapabilityImplementationFunction"; "UnknownFunctionReference"; "UseResourceAcquireTypeMismatch"
+              "UseResourceBodyMismatch"; "UseResourceReleaseReceiverMismatch"; "UseResourceReleaseSignatureMismatch"; "UseResourceResultMismatch" ]
 
     /// The recipe kinds the Zig host infers (tools/zig/host/infer.zig), plus the type kinds a request spells.
     let internal portedKinds =
@@ -187,6 +202,12 @@ module ZigHostParityTests =
               yield! [ "parameter"; "parameterSlot"; "patternReference"; "originalTarget"; "stringLiteral"; "boolLiteral"; "unitLiteral"; "int64Literal"; "float64Literal"
                        "boolAnd"; "boolOr"; "valueEqual"; "listEmpty"; "setEmpty"; "mapEmpty"; "listConstruct"; "productConstruct"; "fieldAccess"; "productUpdate"; "unionConstruct"
                        "optionNone"; "resultOk"; "resultErr"; "abort"; "conditional"; "matchUnion"; "bind"; "matchOption"; "matchResult"
+                       "directCall"; "cancellationShield"; "capabilityConstruct"; "capabilityInvoke"; "exceptionCatch"; "exceptionIsCancellation"; "exceptionMessage"
+                       "exceptionRethrow"; "functionInvoke"; "functionReference"; "listAll"; "listAny"; "listEffectFold"; "listFilter"; "listFindIndex"
+                       "listFlatMap"; "listFold"; "listMap"; "listMaxBy"; "listMinBy"; "listScan"; "listSortBy"; "listZipWith"; "mapFilter"; "mapFold"
+                       "mapFromList"; "mapMapValues"; "oneShotComplete"; "oneShotCreate"; "oneShotWait"; "optionAndThen"; "optionMap"; "parallelAll"
+                       "resultAndThen"; "resultMap"; "resultMapErr"; "selfCall"; "setFilter"; "setFold"; "setMap"; "taskCancel"; "taskScope"; "taskStart"
+                       "taskWait"; "useResource"
                        "primitive"; "named"; "capability"; "typeParameter"; "builtinGeneric"; "function" ] ]
 
     /// Whether the request spells a recipe kind the Zig host does not infer yet.
@@ -1343,7 +1364,71 @@ module ZigHostCreateInferenceTests =
               Parameters = [ { Id = id<ParameterTag> "zig-twice-n"; DisplayName = "n"; Type = int64T } ]
               ResultType = TypeRef.Primitive PrimitiveType.Bool; RequiredEffects = []
               Body = { Nodes = [ { Id = id<GraphNodeTag> "zig-twice-body"; Kind = SemanticNodeKind.BoolLiteral true } ]; ResultNodeId = id<GraphNodeTag> "zig-twice-body" } }
-        { Snapshot.empty (id<SnapshotTag> "zig-host-inference") with Types = types; Functions = [ twice ] }
+        let unitT = TypeRef.Primitive PrimitiveType.Unit
+        let stringT = TypeRef.Primitive PrimitiveType.String
+        let resultT = TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ int64T; stringT ])
+        let scopeT = TypeRef.BuiltinGeneric(BuiltinGenericType.TaskScope, [])
+        let exceptionT = TypeRef.BuiltinGeneric(BuiltinGenericType.Exception, [])
+        let effectId = id<EffectTag> "zig-io"
+        let make name inputs resultType effects typeParameters kinds : SemanticFunction =
+            let nodes: SemanticNode list = kinds |> List.mapi (fun i kind -> { Id = id<GraphNodeTag> ($"zig-{name}-{i}"); Kind = kind })
+            { MustNotWait = false; Exported = true; Id = id<FunctionTag> ("zig-" + name); DisplayName = name; TypeParameters = typeParameters
+              Parameters = inputs |> List.mapi (fun i typ -> { Id = id<ParameterTag> ($"zig-{name}-p{i}"); DisplayName = $"p{i}"; Type = typ })
+              ResultType = resultType; RequiredEffects = effects; Body = { Nodes = nodes; ResultNodeId = (List.last nodes).Id } }
+        let identity name inputs effects = make name inputs (List.head inputs) effects [] [ SemanticNodeKind.ParameterReference(id<ParameterTag> ($"zig-{name}-p0")) ]
+        let worker name input effects =
+            make name [ input ] resultT effects []
+                [ SemanticNodeKind.Int64Literal 1L; SemanticNodeKind.ResultOk(stringT, id<GraphNodeTag> ($"zig-{name}-0")) ]
+        let generic =
+            make "generic" [ TypeRef.TypeParameter(t "fn") ] (TypeRef.TypeParameter(t "fn")) [] [ t "fn", "T" ]
+                [ SemanticNodeKind.ParameterReference(id<ParameterTag> "zig-generic-p0") ]
+        // The maker returns Unit: its OneShot requirement is visible only in the body, and must
+        // propagate through the wrapper's generic call rather than just through its signature.
+        let maker =
+            make "maker" [ scopeT; TypeRef.TypeParameter(t "maker") ] unitT [] [ t "maker", "T" ]
+                [ SemanticNodeKind.ParameterReference(id<ParameterTag> "zig-maker-p0")
+                  SemanticNodeKind.OneShotCreate(id<GraphNodeTag> "zig-maker-0", TypeRef.TypeParameter(t "maker"))
+                  SemanticNodeKind.UnitLiteral ]
+        let forward =
+            make "forward" [ scopeT; TypeRef.TypeParameter(t "forward") ] unitT [] [ t "forward", "T" ]
+                [ SemanticNodeKind.ParameterReference(id<ParameterTag> "zig-forward-p0")
+                  SemanticNodeKind.ParameterReference(id<ParameterTag> "zig-forward-p1")
+                  SemanticNodeKind.DirectCall(maker.Id,
+                      [ { TargetParameterId = id<ParameterTag> "zig-maker-p0"; ValueNodeId = id<GraphNodeTag> "zig-forward-0" }
+                        { TargetParameterId = id<ParameterTag> "zig-maker-p1"; ValueNodeId = id<GraphNodeTag> "zig-forward-1" } ]) ]
+        let nested =
+            make "nested" [ int64T ] (TypeRef.Primitive PrimitiveType.Bool) [] []
+                [ SemanticNodeKind.BoolLiteral true
+                  SemanticNodeKind.Conditional(id<GraphNodeTag> "zig-nested-0",
+                      { Nodes = [ { Id = id<GraphNodeTag> "zig-nested-true"; Kind = SemanticNodeKind.CancellationRequested } ]; ResultNodeId = id<GraphNodeTag> "zig-nested-true" },
+                      { Nodes = [ { Id = id<GraphNodeTag> "zig-nested-false"; Kind = SemanticNodeKind.BoolLiteral false } ]; ResultNodeId = id<GraphNodeTag> "zig-nested-false" }) ]
+        let functions =
+            [ twice; generic; maker; forward; nested
+              identity "identity" [ int64T ] []; identity "pair" [ int64T; int64T ] []; identity "triple" [ int64T; int64T; int64T ] []
+              identity "string" [ stringT ] []; identity "unit" [ unitT ] []; identity "scope" [ scopeT ] []; identity "exception" [ exceptionT ] []
+              identity "effect" [ int64T ] [ effectId ]; identity "effectPair" [ int64T; int64T ] [ effectId ]
+              make "less" [ int64T; int64T ] (TypeRef.Primitive PrimitiveType.Bool) [] [] [ SemanticNodeKind.BoolLiteral true ]
+              make "listMapper" [ int64T ] (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ int64T ])) [] [] [ SemanticNodeKind.ListEmpty int64T ]
+              make "optionMapper" [ int64T ] (TypeRef.BuiltinGeneric(BuiltinGenericType.Option, [ int64T ])) [] [] [ SemanticNodeKind.OptionNone int64T ]
+              make "resultPair" [ int64T; int64T ] resultT [] []
+                  [ SemanticNodeKind.Int64Literal 1L; SemanticNodeKind.ResultOk(stringT, id<GraphNodeTag> "zig-resultPair-0") ]
+              make "transitive" [ int64T ] (TypeRef.Primitive PrimitiveType.Bool) [] []
+                  [ SemanticNodeKind.ParameterReference(id<ParameterTag> "zig-transitive-p0")
+                    SemanticNodeKind.DirectCall(nested.Id, [ { TargetParameterId = id<ParameterTag> "zig-nested-p0"; ValueNodeId = id<GraphNodeTag> "zig-transitive-0" } ]) ]
+              make "release" [ int64T ] unitT [] [] [ SemanticNodeKind.UnitLiteral ]
+              make "float" [ int64T ] (TypeRef.Primitive PrimitiveType.Float64) [] [] [ SemanticNodeKind.Float64Literal(Float64Bits.ofFloat 1.0) ]
+              worker "worker" int64T []; worker "body" unitT []; worker "scopeBody" scopeT []; worker "handler" exceptionT []
+              worker "effectWorker" int64T [ effectId ]; worker "effectBody" unitT [ effectId ] ]
+        let operation name resultType : SemanticCapabilityOperation =
+            { Id = id<CapabilityOperationTag> ("zig-" + name); DisplayName = name; MayWait = false; FailureType = None
+              Parameters = [ { Id = id<CapabilityParameterTag> ("zig-" + name + "-p"); DisplayName = "p"; Type = int64T } ]
+              ResultType = resultType; EffectId = effectId }
+        let capability: SemanticCapability =
+            { Id = id<CapabilityTag> "zig-IO"; DisplayName = "IO"; Exported = true; TaskBound = false
+              Operations = [ operation "read" int64T; operation "release" unitT ] }
+        { Snapshot.empty (id<SnapshotTag> "zig-host-inference") with
+            Types = types; Functions = functions
+            Effects = [ { Id = effectId; DisplayName = "io"; Exported = true } ]; Capabilities = [ capability ] }
 
     /// Requests reaching each inference diagnostic, the location suffix through each renamed field,
     /// F#'s traversal order around kinds the Zig host does not infer, and the type-parameter cases.
@@ -1385,16 +1470,196 @@ module ZigHostCreateInferenceTests =
         let point = construct "zig-Point" [ bound "zig-point-x" int; bound "zig-point-y" int ]
         let dot = unionConstruct "zig-dot" [] []
         let badList = unary "listLength" int
-        let unported = recipe "listMap" [ "source", listEmpty int64T; "functionId", "\"zig-twice\""; "context", "[]" ]
+        let mapped = recipe "listMap" [ "source", listEmpty int64T; "functionId", "\"zig-twice\""; "context", "[]" ]
         let line (parameters: string list) resultType body = $"""{{"id":"i","op":"simulateCreateFunction","displayName":"made","parameters":[{String.Join(",", parameters)}],"resultType":{resultType},"requiredEffects":[],"body":{body}}}"""
         let parameter name (t: string) = $"""{{"displayName":"{name}","type":{t}}}"""
         let withTypeParameters (parameters: string list) resultType body = (line parameters resultType body).Replace("\"requiredEffects\":[]", "\"requiredEffects\":[],\"typeParameters\":[\"T\"]")
+        let context id value = "{\"parameterId\":" + quoted id + ",\"value\":" + value + "}"
+        let callback kind sourceField source name bindings =
+            recipe kind [ sourceField, source; "functionId", quoted ("zig-" + name); "context", array bindings ]
+        let call name bindings = recipe "directCall" [ "functionId", quoted ("zig-" + name); "arguments", array bindings ]
+        let reference name = recipe "functionReference" [ "functionId", quoted ("zig-" + name) ]
+        let invoke value arguments = recipe "functionInvoke" [ "functionValue", value; "arguments", array arguments ]
+        let set = recipe "setEmpty" [ "itemType", int64T ]
+        let map = recipe "mapEmpty" [ "keyType", int64T; "valueType", int64T ]
+        let option = recipe "optionNone" [ "itemType", int64T ]
+        let ok value = recipe "resultOk" [ "errorType", stringT; "value", value ]
+        let body kind name bindings = recipe kind [ "bodyFunctionId", quoted ("zig-" + name); "context", array bindings ]
+        let scopeT, exceptionT = generic "taskScope" [], generic "exception" []
+        let cellT = generic "oneShot" [ int64T ]
+        let implementation operation name = "{\"operationId\":" + quoted ("zig-" + operation) + ",\"functionId\":" + quoted ("zig-" + name) + "}"
+        let capability target implementations = recipe "capabilityConstruct" [ "capabilityId", quoted target; "implementations", array implementations ]
+        let implementations = [ implementation "read" "identity"; implementation "release" "release" ]
+        let cap = capability "zig-IO" implementations
+        let capArgument name value = "{\"capabilityParameterId\":" + quoted name + ",\"value\":" + value + "}"
+        let capInvoke receiver operation bindings = recipe "capabilityInvoke" [ "capabilityValue", receiver; "operationId", quoted operation; "arguments", array bindings ]
+        let resource acquire receiver operation name bindings =
+            recipe "useResource" [ "acquire", acquire; "releaseCapability", receiver; "releaseOperationId", quoted operation; "bodyFunctionId", quoted ("zig-" + name); "context", array bindings ]
+        let catch body handler bodyContext handlerContext =
+            recipe "exceptionCatch" [ "bodyFunctionId", quoted ("zig-" + body); "handlerFunctionId", quoted ("zig-" + handler); "bodyContext", array bodyContext; "handlerContext", array handlerContext ]
+        let start scope name item bindings = recipe "taskStart" [ "scope", scope; "workerFunctionId", quoted ("zig-" + name); "item", item; "context", array bindings ]
+        let wait tasks limit = recipe "taskWait" ([ "tasks", tasks; "mode", quoted "all" ] @ (limit |> Option.toList |> List.map (fun x -> "limit", x)))
+        let cell scope valueType = recipe "oneShotCreate" [ "scope", scope; "valueType", valueType ]
+        let complete cell value = recipe "oneShotComplete" [ "cell", cell; "value", value ]
+        let cellWait cell limit = recipe "oneShotWait" [ "cell", cell; "limit", limit ]
+        let withEffects (request: string) = request.Replace("\"requiredEffects\":[]", "\"requiredEffects\":[\"zig-io\"]")
+        let deep wrap value = [ 1 .. 25 ] |> List.fold (fun value _ -> wrap value) value
+        let more =
+            [ // Every callback role: source shape, missing target, arity, context, input, result and purity.
+              for kind, sourceField, source, name in
+                  [ "listMap", "source", listEmpty int64T, "identity"; "listFlatMap", "source", listEmpty int64T, "identity"
+                    "mapFromList", "source", listEmpty int64T, "identity"; "listFilter", "source", listEmpty int64T, "twice"
+                    "listAny", "source", listEmpty int64T, "twice"; "listAll", "source", listEmpty int64T, "twice"
+                    "listFindIndex", "source", listEmpty int64T, "twice"; "listSortBy", "source", listEmpty int64T, "pair"
+                    "listMinBy", "source", listEmpty int64T, "pair"; "listMaxBy", "source", listEmpty int64T, "pair"
+                    "mapFilter", "map", map, "pair"; "mapMapValues", "map", map, "pair"
+                    "setFilter", "set", set, "twice"; "setMap", "set", set, "identity"
+                    "optionMap", "option", option, "identity"; "optionAndThen", "option", option, "identity"
+                    "resultMap", "result", ok int, "identity"; "resultMapErr", "result", ok int, "string"
+                    "resultAndThen", "result", ok int, "identity" ] do
+                  for source, target, bindings in
+                      [ badList, name, []; int, name, []; source, "missing", []; source, "unit", []; source, "pair", []
+                        source, name, []; source, "generic", []; source, "effect", []; source, "nested", []; source, "transitive", []
+                        source, name, [ context "foreign" badList ]
+                        source, name, [ context "foreign" int; context "foreign" badList ]
+                        source, name, [ context (if name = "twice" then "zig-twice-n" else $"zig-{name}-p0") str ] ] do
+                      line [] unitT (callback kind sourceField source target bindings)
+              line [] unitT (callback "listFilter" "source" (listEmpty int64T) "identity" [])
+              line [] unitT (callback "mapFromList" "source" (listEmpty int64T) "float" [])
+              line [] unitT (callback "setMap" "set" set "float" [])
+              for kind, sourceField, source, target in
+                  [ "listFlatMap", "source", listEmpty int64T, "listMapper"; "listSortBy", "source", listEmpty int64T, "less"
+                    "listMinBy", "source", listEmpty int64T, "less"; "listMaxBy", "source", listEmpty int64T, "less"
+                    "mapFilter", "map", map, "less"; "optionAndThen", "option", option, "optionMapper"
+                    "resultAndThen", "result", ok int, "worker" ] do
+                  line [] unitT (callback kind sourceField source target [])
+              for kind in [ "listFold"; "listEffectFold" ] do
+                  line [] unitT (recipe kind [ "source", listEmpty int64T; "seed", int; "functionId", quoted "zig-resultPair" ])
+              for kind, sourceField, source in [ "listFold", "source", listEmpty int64T; "listScan", "source", listEmpty int64T; "listEffectFold", "source", listEmpty int64T; "mapFold", "map", map; "setFold", "set", set ] do
+                  for target in [ "missing"; "identity"; "pair"; "triple"; "effectPair"; "worker" ] do
+                      line [] unitT (recipe kind [ sourceField, source; "seed", int; "functionId", quoted ("zig-" + target) ])
+                  line [] unitT (recipe kind [ sourceField, badList; "seed", str; "functionId", quoted "zig-missing" ])
+              for target in [ "missing"; "identity"; "pair"; "effectPair" ] do
+                  line [] unitT (recipe "listZipWith" [ "left", listEmpty int64T; "right", listEmpty int64T; "functionId", quoted ("zig-" + target) ])
+              for target in [ "missing"; "identity"; "pair"; "worker"; "effectWorker" ] do
+                  line [] unitT (recipe "parallelAll" [ "source", listEmpty int64T; "workerFunctionId", quoted ("zig-" + target) ])
+              // The symbolic decoder must feed the same inference graph (including callback context).
+              for kind, sourceField, source, name in
+                  [ "listMap", "source", listEmpty int64T, "unit"; "mapFilter", "map", map, "pair"
+                    "setMap", "set", set, "float"; "optionAndThen", "option", option, "identity"
+                    "resultAndThen", "result", ok int, "identity" ] do
+                  (line [] unitT (callback kind sourceField source name []))
+                      .Replace("simulateCreateFunction", "simulateCreateFunctionByName")
+                      .Replace("\"functionId\":\"zig-" + name + "\"", "\"function\":\"" + name + "\"")
+              for kind, name in [ "cancellationShield", "unit"; "taskScope", "scope" ] do
+                  (line [] unitT (body kind name []))
+                      .Replace("simulateCreateFunction", "simulateCreateFunctionByName")
+                      .Replace("\"bodyFunctionId\":\"zig-" + name + "\"", "\"body\":\"" + name + "\"")
+              for name in [ "identity"; "generic" ] do
+                  line [] unitT (recipe "directCall" [ "function", quoted name; "arguments", "[{\"parameter\":\"p0\",\"value\":" + str + "}]" ])
+                  |> fun request -> request.Replace("simulateCreateFunction", "simulateCreateFunctionByName")
+              line [] unitT (recipe "listMap" [ "source", listEmpty int64T; "function", quoted "pair"; "context", "[{\"parameter\":\"p0\",\"value\":" + str + "}]" ])
+              |> fun request -> request.Replace("simulateCreateFunction", "simulateCreateFunctionByName")
+              // Calls validate duplicate/foreign/missing bindings before typing values, in declaration order.
+              for bindings in [ []; [ context "foreign" badList ]; [ context "zig-identity-p0" str ]; [ context "zig-identity-p0" int; context "zig-identity-p0" badList ]; [ context "zig-identity-p0" int ] ] do
+                  line [] unitT (call "identity" bindings)
+              line [] unitT (call "missing" [])
+              line [] unitT (call "effect" [])
+              line [] unitT (call "generic" [ context "zig-generic-p0" badList ])
+              line [] unitT (call "generic" [ context "zig-generic-p0" int ])
+              line [ parameter "scope" scopeT ] unitT (call "generic" [ context "zig-generic-p0" (slot 0) ])
+              for target in [ "maker"; "forward" ] do
+                  line [ parameter "scope" scopeT ] unitT (call target [ context ($"zig-{target}-p0") (slot 0); context ($"zig-{target}-p1") (slot 0) ])
+                  line [ parameter "scope" scopeT ] int64T (call target [ context ($"zig-{target}-p0") (slot 0); context ($"zig-{target}-p1") int ])
+              line [] unitT (binary "stringConcat" int (call "generic" [ context "zig-generic-p0" badList ]))
+              line [] unitT (binary "stringConcat" str (call "generic" [ context "zig-generic-p0" badList ]))
+              for arguments in [ "[]"; "[{\"slot\":2,\"value\":" + badList + "}]"; "[{\"slot\":0,\"value\":" + str + "}]"; "[{\"slot\":0,\"value\":" + int + "},{\"slot\":0,\"value\":" + badList + "}]" ] do
+                  line [ parameter "n" int64T ] unitT (recipe "selfCall" [ "arguments", arguments ])
+              for name in [ "missing"; "generic"; "effect"; "nested"; "transitive"; "identity" ] do
+                  line [] unitT (reference name)
+              for value, arguments in [ int, [ badList ]; reference "identity", []; reference "identity", [ str ]; reference "identity", [ int ] ] do
+                  line [] unitT (invoke value arguments)
+              // Capability implementation coverage and the first failing implementation's diagnostics.
+              line [] unitT (capability "missing" [])
+              line [] unitT (capability "zig-IO" [])
+              line [] unitT (capability "zig-IO" [ implementation "read" "identity"; implementation "read" "identity" ])
+              for name in [ "missing"; "generic"; "effect"; "nested"; "twice"; "identity" ] do
+                  line [] unitT (capability "zig-IO" [ implementation "read" name; implementation "release" "release" ])
+              line [] unitT (capInvoke badList "missing" [])
+              line [] unitT (capInvoke int "zig-read" [])
+              line [] unitT (capInvoke cap "zig-read" [])
+              for arguments in [ []; [ capArgument "foreign" badList ]; [ capArgument "zig-read-p" str ]; [ capArgument "zig-read-p" int; capArgument "zig-read-p" badList ]; [ capArgument "zig-read-p" int ] ] do
+                  line [] unitT (capInvoke cap "zig-read" arguments) |> withEffects
+              // Resource bodies, receiver, effects, result and release signature (in that order).
+              line [] unitT (resource int cap "zig-release" "worker" [])
+              line [] unitT (resource (ok int) cap "missing" "worker" [])
+              line [] unitT (resource (ok int) cap "zig-release" "missing" [])
+              line [] unitT (resource (ok int) cap "zig-release" "unit" [])
+              line [] unitT (resource (ok int) int "zig-release" "worker" [])
+              line [] unitT (resource (ok int) cap "zig-release" "worker" [])
+              line [] unitT (resource (ok int) cap "zig-release" "identity" []) |> withEffects
+              line [] unitT (resource (ok int) cap "zig-read" "worker" []) |> withEffects
+              line [] unitT (resource (ok int) cap "zig-release" "worker" []) |> withEffects
+              line [] unitT (resource (ok int) badList "zig-release" "worker" [ context "foreign" int ])
+              // Exception and task callbacks, including errors in both operands.
+              for bodyName, handler in [ "missing", "handler"; "identity", "handler"; "body", "identity"; "unit", "exception"; "body", "handler"; "effectBody", "handler" ] do
+                  line [] unitT (catch bodyName handler [] [])
+              line [] unitT (catch "body" "handler" [ context "foreign" int ] [ context "foreign" str ])
+              line [] unitT (unary "exceptionMessage" int)
+              line [] unitT (unary "exceptionIsCancellation" int)
+              line [] unitT (recipe "exceptionRethrow" [ "value", int; "resultType", int64T ])
+              for kind, good, wrong in [ "cancellationShield", "body", "unit"; "taskScope", "scopeBody", "scope" ] do
+                  for name in [ "missing"; "identity"; good; wrong ] do line [] unitT (body kind name [])
+              for name in [ "missing"; "identity"; "pair"; "worker"; "effectWorker" ] do
+                  line [ parameter "scope" scopeT ] unitT (start (slot 0) name int [])
+              line [] unitT (start int "worker" int [])
+              line [] unitT (start badList "worker" (unary "stringLength" int) [])
+              for tasks, limit in [ int, None; int, Some int; badList, Some int; badList, Some (unary "stringLength" int); listEmpty (generic "task" [ int64T ]), Some option ] do
+                  line [] unitT (wait tasks limit)
+              line [] unitT (cell int int64T)
+              line [ parameter "scope" scopeT ] unitT (cell (slot 0) (generic "list" [ scopeT ]))
+              line [ parameter "scope" scopeT ] unitT (cell (slot 0) int64T)
+              line [] unitT (complete int int)
+              line [ parameter "cell" cellT ] unitT (complete (slot 0) str)
+              line [] unitT (complete badList (unary "stringLength" int))
+              for value, limit in [ int, option; int, int; badList, int; badList, unary "stringLength" int ] do
+                  line [] unitT (cellWait value limit)
+              line [] unitT (recipe "taskCancel" [ "task", int ])
+              line [] unitT (recipe "taskCancel" [ "task", badList ])
+              for kind in [ "exceptionMessage"; "exceptionIsCancellation" ] do line [] unitT (unary kind badList)
+              line [] unitT (recipe "exceptionRethrow" [ "value", badList; "resultType", int64T ])
+              line [] unitT (callback "mapFilter" "map" badList "pair" [])
+              line [] unitT (callback "setMap" "set" badList "identity" [])
+              line [] unitT (callback "listMap" "source" (listEmpty int64T) "pair" [ context "zig-pair-p0" badList ])
+              line [] unitT (invoke (reference "identity") [ badList ])
+              // 25-deep or wide cases for each family stay inside the preflight bounds and the 20s gate.
+              line [] unitT (deep (fun source -> callback "listMap" "source" source "identity" []) (listEmpty int64T))
+              line [] unitT (deep (fun source -> recipe "listScan" [ "source", source; "seed", int; "functionId", quoted "zig-pair" ]) (listEmpty int64T))
+              line [] unitT (deep (fun source -> callback "mapMapValues" "map" source "pair" []) map)
+              line [] unitT (deep (fun source -> callback "setMap" "set" source "identity" []) set)
+              line [] unitT (deep (fun source -> callback "optionMap" "option" source "identity" []) option)
+              line [] unitT (deep (fun source -> callback "resultMap" "result" source "identity" []) (ok int))
+              line [ parameter "n" int64T ] int64T (deep (fun value -> recipe "selfCall" [ "arguments", "[{\"slot\":0,\"value\":" + value + "}]" ]) (slot 0))
+              line [ parameter "scope" scopeT ] unitT (recipe "listConstruct" [ "itemType", scopeT; "items", array (List.replicate 80 (call "generic" [ context "zig-generic-p0" (slot 0) ])) ])
+              line [ parameter "cell" cellT ] unitT (recipe "listConstruct" [ "itemType", generic "option" [ int64T ]; "items", array (List.replicate 80 (cellWait (slot 0) option)) ])
+              line [ parameter "task" (generic "task" [ int64T ]) ] unitT (recipe "taskCancel" [ "task", slot 0 ])
+              line [] unitT (deep (fun value -> call "identity" [ context "zig-identity-p0" value ]) int)
+              line [] unitT (deep (fun value -> invoke (reference "identity") [ value ]) int)
+              line [] unitT (deep (fun value -> capInvoke cap "zig-read" [ capArgument "zig-read-p" value ]) int) |> withEffects
+              line [] unitT (deep (fun acquire -> resource acquire cap "zig-release" "worker" []) (ok int)) |> withEffects
+              line [ parameter "ex" exceptionT ] unitT (deep (fun value -> recipe "exceptionRethrow" [ "value", value; "resultType", exceptionT ]) (slot 0))
+              line [] unitT (recipe "listConstruct" [ "itemType", generic "result" [ int64T; stringT ]; "items", array (List.replicate 100 (catch "body" "handler" [] [])) ])
+              line [] unitT (recipe "listConstruct" [ "itemType", generic "result" [ int64T; stringT ]; "items", array (List.replicate 100 (body "cancellationShield" "body" [])) ])
+              line [] unitT (recipe "listConstruct" [ "itemType", generic "result" [ int64T; stringT ]; "items", array (List.replicate 100 (body "taskScope" "scopeBody" [])) ])
+              line [ parameter "scope" scopeT ] unitT (recipe "listConstruct" [ "itemType", generic "task" [ generic "result" [ int64T; stringT ] ]; "items", array (List.replicate 80 (start (slot 0) "worker" int [])) ])
+              line [ parameter "scope" scopeT ] unitT (recipe "listConstruct" [ "itemType", cellT; "items", array (List.replicate 100 (cell (slot 0) int64T)) ])
+              line [] unitT (recipe "listConstruct" [ "itemType", generic "result" [ generic "list" [ int64T ]; stringT ]; "items", array (List.replicate 100 (recipe "parallelAll" [ "source", listEmpty int64T; "workerFunctionId", quoted "zig-worker" ])) ]) ]
         [ // Fixed signatures: a fixed operand, a shape, a bound variable, the equatable constraint before the next operand.
           line [] unitT (binary "stringConcat" int str)
           line [] unitT badList
           line [] unitT (recipe "listAppendItem" [ "list", listEmpty int64T; "item", str ])
           line [] unitT (recipe "stringContains" [ "value", int; "substring", str ])
-          line [] unitT (recipe "listIndexOf" [ "list", listEmpty float64T; "item", unported ])
+          line [] unitT (recipe "listIndexOf" [ "list", listEmpty float64T; "item", mapped ])
           line [] unitT (recipe "listLastIndexOf" [ "list", listEmpty float64T; "item", flt ])
           line [] unitT (recipe "listContains" [ "list", listEmpty (named "zig-Shape" []); "item", dot ])
           line [] unitT (unary "setFromList" (listEmpty (generic "list" [ float64T ])))
@@ -1503,10 +1768,10 @@ module ZigHostCreateInferenceTests =
           line [] unitT int
           line [] int64T point
           line [] (named "zig-Box" [ int64T ]) (constructWith "zig-Box" [ stringT ] [ bound "zig-box-item" str ])
-          // Kinds the Zig host does not infer, reached or not in F#'s order.
-          line [] unitT (binary "stringConcat" int unported)
-          line [] unitT (binary "stringConcat" str unported)
-          line [] unitT (conditional bool unported int)
+          // Callback kinds, reached or not in F#'s operand order.
+          line [] unitT (binary "stringConcat" int mapped)
+          line [] unitT (binary "stringConcat" str mapped)
+          line [] unitT (conditional bool mapped int)
           // Type parameters: owner-named in operand messages, fresh identities elsewhere.
           withTypeParameters [ parameter "x" (typeParameter "T") ] int64T (slot 0)
           withTypeParameters [ parameter "x" (typeParameter "T") ] unitT (binary "valueEqual" (slot 0) (slot 0))
@@ -1516,7 +1781,7 @@ module ZigHostCreateInferenceTests =
           withTypeParameters [ parameter "x" (typeParameter "T") ] unitT (access (slot 0) "zig-point-x")
           withTypeParameters [ parameter "x" (typeParameter "T") ] unitT (construct "zig-Pair" [ bound "zig-pair-first" (slot 0); bound "zig-pair-second" (listEmpty int64T) ])
           withTypeParameters [ parameter "x" (typeParameter "T") ] (generic "list" [ typeParameter "T" ]) (recipe "productUpdate" [ "typeId", quoted "zig-Point"; "source", slot 0; "fields", array [ bound "zig-point-x" int ] ])
-          line [ parameter "x" (typeParameter "Point") ] unitT (recipe "listConstruct" [ "itemType", named "zig-Point" []; "items", array [ slot 0 ] ]) ]
+          line [ parameter "x" (typeParameter "Point") ] unitT (recipe "listConstruct" [ "itemType", named "zig-Point" []; "items", array [ slot 0 ] ]) ] @ more
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host infers simulateCreateFunction bodies as the F# host does`` () =
@@ -1541,11 +1806,11 @@ module ZigHostCreateInferenceTests =
                 answered.Append(fsharp) |> ignore
                 if (locatedPath zig).IsSome then located <- located + 1
                 if not (createReplyMatches request fsharp zig) then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
-                // Every kind here is inferred, except the one deliberately unported recipe.
-                if unportedKindReply zig && not (request.Contains "\"kind\":\"listMap\"") then mismatches.Add $"{request}\n Zig did not infer: {zig}"
+                // Every recipe kind in this corpus is inferred, including generic calls.
+                if unportedKindReply zig then mismatches.Add $"{request}\n Zig did not infer: {zig}"
             let shownText = answered.ToString().Replace("\\u0027", "'").Replace("\\u003C", "<").Replace("\\u003E", ">")
             // The wire spells one `otherwise` arm, so a second one is a decode rejection.
-            for shown in Set.toList (Set.remove "PureExpressionMatchOtherwiseDuplicate" inferenceCodes) @ [ "(type parameter "; "The slot is found at depths 0, 1;"; "Visible frames, innermost first: depth 0 = Bind body (binds Value)"; "binds 'radius'"; "(not a declared field)"; "At body.end (listLength)"; "At body.defaultValue (listLength)"; "At body.key (listLength)"; "At body.left (listLength)"; "At body.right (listLength)"; "At body.items[1] (listLength)"; "At body.fields[1].value (listLength)"; "At body.arms[2].body (listLength)"; "At body.arms[1].body (listLength)"; "At body.fields[0].value (originalTarget)"; "At body.arms[0].body (originalTarget)"; "At body.right (originalTarget)"; "The function body produces T, but the requested result type is Int64."; "found T and Int64"; "but the source recipe produces T. At body (fieldAccess)."; "but the source recipe produces T. At body (productUpdate)."; "requires List<T>, but the recipe produces List<Int64>"; "The function body produces " + String.replicate 30 "Box<" + "Int64" + String.replicate 30 ">" + ", but"; "The function body produces " + String.replicate 28 "Maybe<" + "Point" + String.replicate 28 ">" + ", but"; "Exception<> is not equatable"; "at Shape.circle.radius"; "at List item"; "type parameters are never equatable" ] do
+            for shown in Set.toList (Set.remove "PureExpressionMatchOtherwiseDuplicate" inferenceCodes) @ [ "This generic call would place TaskScope inside a OneShot payload, directly or through another generic call."; "At body.exceptionValue (listLength)"; "At body.source (listLength)"; "At body.task (listLength)"; "At body.context[0].value (listLength)"; "At body.arguments[0] (listLength)"; "(type parameter "; "The slot is found at depths 0, 1;"; "Visible frames, innermost first: depth 0 = Bind body (binds Value)"; "binds 'radius'"; "(not a declared field)"; "At body.end (listLength)"; "At body.defaultValue (listLength)"; "At body.key (listLength)"; "At body.left (listLength)"; "At body.right (listLength)"; "At body.items[1] (listLength)"; "At body.fields[1].value (listLength)"; "At body.arms[2].body (listLength)"; "At body.arms[1].body (listLength)"; "At body.fields[0].value (originalTarget)"; "At body.arms[0].body (originalTarget)"; "At body.right (originalTarget)"; "The function body produces T, but the requested result type is Int64."; "found T and Int64"; "but the source recipe produces T. At body (fieldAccess)."; "but the source recipe produces T. At body (productUpdate)."; "requires List<T>, but the recipe produces List<Int64>"; "The function body produces " + String.replicate 30 "Box<" + "Int64" + String.replicate 30 ">" + ", but"; "The function body produces " + String.replicate 28 "Maybe<" + "Point" + String.replicate 28 ">" + ", but"; "Exception<> is not equatable"; "at Shape.circle.radius"; "at List item"; "type parameters are never equatable" ] do
                 Assert.True(shownText.Contains shown, $"No F# reply shows {shown}; the inference parity test does not cover it.")
             Assert.True(mismatches.Count = 0, $"{mismatches.Count} mismatches:\n" + String.Join("\n", mismatches |> Seq.truncate 12))
             Assert.True(located > 60, $"Only {located} Zig replies locate their diagnostic."))
