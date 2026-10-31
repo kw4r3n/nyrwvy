@@ -7,10 +7,11 @@ import { randomUUID } from "node:crypto"
 import { once } from "node:events"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { NyrwvyPlugin } from "../plugin/nyrwvy.ts"
 import { AuthoringClient, openAuthoring, closeAuthoring, requestAuthoring } from "../../tools/nyrwvy-agent/authoring.ts"
 
 function child(source) {
-  return spawn(process.execPath, ["-e", source], { stdio: ["pipe", "pipe", "pipe"] })
+  return spawn(process.execPath, ["-e", source], { detached: true, stdio: ["pipe", "pipe", "pipe"] })
 }
 
 test("authoring transport serializes calls and preserves split JSONL responses", { timeout: 5000 }, async () => {
@@ -149,7 +150,7 @@ test("healthy close drains a final response even when process exit precedes stdo
 
 async function controlledChild(t, source) {
   const runner = spawn(process.execPath, ["-e", `${source}\nprocess.send('ready')`], {
-    stdio: ["pipe", "pipe", "pipe", "ipc"],
+    detached: true, stdio: ["pipe", "pipe", "pipe", "ipc"],
   })
   const messages = []
   const waiters = []
@@ -283,9 +284,11 @@ test("a reply for another request id fails the transport", { timeout: 5000 }, as
 test("a request without an answer fails after the request timeout and stops the child", { timeout: 5000 }, async t => {
   const { client, received, closed } = await controlledChild(t, replyingChild(`() => undefined`))
   t.mock.timers.enable({ apis: ["setTimeout"] })
-  const response = assert.rejects(client.request({ op: "commit" }), /did not answer within 600 s.*outcome is unknown/)
+  const response = assert.rejects(client.request({ op: "commit" }), /did not answer within 900 s.*outcome is unknown/)
   await received("commit")
   t.mock.timers.tick(600_000)
+  assert.equal(client.isReaped, false)
+  t.mock.timers.tick(300_000)
   await response
   await closed
 })
@@ -307,7 +310,7 @@ test("an unreaped child keeps its authoring slot even when the SIGKILL wait expi
       });
       if (${stubborn}) setInterval(() => {}, 1000);
       process.send('ready');
-    `], { stdio: ["pipe", "pipe", "pipe", "ipc"] })
+    `], { detached: true, stdio: ["pipe", "pipe", "pipe", "ipc"] })
     children.push({ runner, ready: once(runner, "message"), closed: new Promise(resolve => runner.once("close", resolve)) })
     return runner
   })
@@ -328,9 +331,10 @@ test("an unreaped child keeps its authoring slot even when the SIGKILL wait expi
   const kill = runner.kill.bind(runner)
   let observeKill
   const signalled = new Promise(resolve => { observeKill = resolve })
-  t.mock.method(runner, "kill", signal => {
-    if (signal === "SIGKILL") { observeKill(); return true }
-    return kill(signal)
+  const signalGroup = process.kill.bind(process)
+  t.mock.method(process, "kill", (pid, signal) => {
+    if (pid === -runner.pid && signal === "SIGKILL") { observeKill(); return true }
+    return signalGroup(pid, signal)
   })
   const eof = once(runner, "message")
   const closing = assert.rejects(closeAuthoring(context), /5000ms after SIGKILL; child ownership is retained/)
@@ -355,7 +359,8 @@ test("an unreaped child keeps its authoring slot even when the SIGKILL wait expi
 function mockRespondingSpawn(t, { silentFirst = false, onSpawn = () => {} } = {}) {
   const actualSpawn = childProcess.spawn
   const children = []
-  t.mock.method(childProcess, "spawn", () => {
+  t.mock.method(childProcess, "spawn", (_command, _args, options) => {
+    assert.equal(options.detached, true)
     const silent = silentFirst && children.length === 0
     const runner = actualSpawn(process.execPath, ["-e", `
       if (${silent}) {
@@ -367,7 +372,7 @@ function mockRespondingSpawn(t, { silentFirst = false, onSpawn = () => {} } = {}
         if (${silent}) process.stderr.write(request.op + '\\n');
         else process.stdout.write(JSON.stringify({ id: request.id, ok: true }) + '\\n');
       });
-    `], { stdio: ["pipe", "pipe", "pipe"] })
+    `], { detached: true, stdio: ["pipe", "pipe", "pipe"] })
     const entry = { runner, requested: silent ? once(runner.stderr, "data") : undefined,
       closed: new Promise(resolve => runner.once("close", resolve)) }
     children.push(entry)
@@ -498,4 +503,95 @@ test("a close racing a failure before spawn releases the reservation for reopeni
   await openAuthoring("create", "second.json", context)
   assert.equal(children.length, 1)
   assert.match(await closeAuthoring(context), /closed/)
+})
+
+test("a null-id parse error answers the pending request without losing the session", { timeout: 5000 }, async t => {
+  const { client } = await controlledChild(t, replyingChild(`request => JSON.stringify(request.op === "invalid"
+    ? { id: null, ok: false, error: "Cannot parse request" }
+    : { id: request.id, ok: true, result: "proposal retained" }) + "\\n"`))
+  assert.deepEqual(JSON.parse(await client.request({ op: "invalid" })), { id: null, ok: false, error: "Cannot parse request" })
+  assert.equal(JSON.parse(await client.request({ op: "status" })).result, "proposal retained")
+  assert.equal(client.isReaped, false)
+})
+
+test("a null-id successful reply is still a transport fault", { timeout: 5000 }, async t => {
+  const { client, closed } = await controlledChild(t, replyingChild(`() => JSON.stringify({ id: null, ok: true }) + "\\n"`))
+  await assert.rejects(client.request({ op: "status" }), /Unexpected AuthoringSession response/)
+  await closed
+})
+
+test("open drops a reaped failed session without requiring close first", { timeout: 5000 }, async t => {
+  const context = { sessionID: randomUUID(), worktree: process.cwd() }
+  const children = mockRespondingSpawn(t)
+  await openAuthoring("create", "first.json", context)
+  children[0].runner.kill("SIGKILL")
+  await children[0].closed
+  await openAuthoring("open", "first.json", context)
+  assert.equal(children.length, 2)
+  assert.equal(JSON.parse(await requestAuthoring({ op: "status" }, context)).ok, true)
+  await closeAuthoring(context)
+})
+
+test("upgrade argv values cannot inject command-line options", async t => {
+  const children = mockRespondingSpawn(t)
+  const context = { sessionID: randomUUID(), worktree: process.cwd() }
+  for (const upgrade of [
+    { expectedFingerprint: "--allow-host-sources" },
+    { expectedFingerprint: "valid", replaces: "--allow-host-sources" },
+    { upgrades: [{ source: "source.json", replaces: "old" }], reviewFingerprint: "--allow-host-sources" },
+    { selection: { sources: ["source.json"], replaces: ["old"] }, reviewFingerprint: "--allow-host-sources" },
+  ]) {
+    await assert.rejects(openAuthoring("upgrade", "fixture.json", context, undefined,
+      "expectedFingerprint" in upgrade ? "source.json" : undefined, undefined, upgrade), /must not start with '-'/)
+  }
+  assert.equal(children.length, 0)
+})
+
+test("OpenCode session deletion closes only that session's authoring child", { timeout: 5000 }, async t => {
+  const worktree = process.cwd()
+  const context = { sessionID: randomUUID(), worktree }
+  const other = { sessionID: randomUUID(), worktree }
+  const children = mockRespondingSpawn(t)
+  await openAuthoring("create", "first.json", context)
+  await openAuthoring("create", "second.json", other)
+  const hooks = await NyrwvyPlugin({ worktree })
+  await hooks.event({ event: { type: "session.deleted", properties: { info: { id: context.sessionID } } } })
+  await children[0].closed
+  assert.equal(children[1].runner.exitCode, null)
+  assert.equal(await closeAuthoring(context), "No active Nyrwvy authoring session.")
+  assert.equal(JSON.parse(await requestAuthoring({ op: "status" }, other)).ok, true)
+  children[1].runner.kill("SIGKILL")
+  await children[1].closed
+  const logged = t.mock.method(console, "error", () => {})
+  await hooks.event({ event: { type: "session.deleted", properties: { info: { id: other.sessionID } } } })
+  assert.equal(logged.mock.callCount(), 1)
+  assert.equal(await closeAuthoring(other), "No active Nyrwvy authoring session.")
+})
+
+test("cancelling signals the child's process group, including its runner", { timeout: 5000 }, async t => {
+  const { runner, client, received, closed } = await controlledChild(t, `
+    const grandchild = require('node:child_process').spawn(process.execPath, ['-e', \`
+      process.on('SIGTERM', () => { process.stderr.write('runner terminated\\\\n'); process.exit(0); });
+      setInterval(() => {}, 1000);
+      process.send('runner ready');
+    \`], { stdio: ['ignore', 'ignore', 'inherit', 'ipc'] });
+    grandchild.on('message', message => process.send(message));
+    require('node:readline').createInterface({ input: process.stdin }).on('line', () => process.send('request'));
+  `)
+  t.after(() => {
+    try { process.kill(-runner.pid, "SIGKILL") } catch (error) {
+      if (error.code !== "ESRCH") throw error
+    }
+  })
+  let stderr = ""
+  runner.stderr.on("data", text => { stderr += text })
+  await received("runner ready")
+  const abort = new AbortController()
+  const response = assert.rejects(client.request({ op: "runPure" }, abort.signal), /cancelled after sending/)
+  await received("request")
+  abort.abort()
+  await response
+  await closed
+  assert.match(stderr, /runner terminated/)
+  assert.equal(client.isReaped, true)
 })

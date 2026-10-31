@@ -331,7 +331,7 @@ module Float64Tests =
             classifierIssues
 
     [<Fact>]
-    let ``JSON preserves binary64 bits while canonicalizing external NaN payloads`` () =
+    let ``JSON preserves canonical binary64 bits and rejects noncanonical text`` () =
         let fixture = createFixture ()
         let json = SnapshotCodec.serializeCanonical fixture.Snapshot |> unwrap "JSON serialization"
         let restoredJson = SnapshotCodec.deserialize json |> unwrap "JSON deserialization"
@@ -350,16 +350,20 @@ module Float64Tests =
         Assert.Contains("\"schemaVersion\":9", json)
         Assert.Contains("\"bits\":\"8000000000000000\"", json)
 
-        let payload = "7ff0000000000001"
-        let canonical = Float64Bits.canonicalNaNBits.ToString("x16", CultureInfo.InvariantCulture)
-        let externalJson = json.Replace(canonical, payload)
-        let canonicalJson =
-            SnapshotCodec.deserialize externalJson
-            |> unwrap "external NaN JSON deserialization"
-            |> SnapshotCodec.serialize
-            |> unwrap "canonical JSON serialization"
-        Assert.DoesNotContain(payload, canonicalJson)
-        Assert.Contains(canonical, canonicalJson)
+        let canonical = Float64Bits.toHex (Float64Bits.create Float64Bits.canonicalNaNBits)
+        for noncanonical in [ "7ff0000000000001"; "fff8000000000000"; "7FF8000000000000" ] do
+            match SnapshotCodec.deserialize (json.Replace(canonical, noncanonical)) with
+            | Error error -> Assert.Contains("canonical", sprintf "%A" error)
+            | Ok _ -> failwithf "Accepted noncanonical Float64 bits %s" noncanonical
+
+    [<Theory>]
+    [<InlineData("3FF0000000000000")>]
+    [<InlineData("7ff8000000000001")>]
+    [<InlineData("fff8000000000000")>]
+    let ``Float64 bits parser rejects noncanonical encodings`` text =
+        match Float64Bits.tryParseHex text with
+        | Error _ -> ()
+        | Ok _ -> failwithf "Accepted noncanonical Float64 bits %s" text
 
     [<Fact>]
     let ``Typed and Execution IR preserve every initial Float64 semantic role and exact literal bits`` () =

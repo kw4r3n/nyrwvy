@@ -159,6 +159,29 @@ module ZigHostParityTests =
                         if comparable expected <> comparable actual then
                             failwithf "%s on %s line %d: %s\n F#:  %s\n Zig: %s" (Path.GetFileName transcript) (Path.GetFileName snapshot) (index + 1) request expected actual))
 
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host discards a partial internal failure and serves the next request`` () =
+        withDirectory (fun dir ->
+            let snapshot = snapshots dir |> List.head
+            let requests =
+                [ """{"id":"before","op":"declarations"}"""
+                  """{"id":"failed","op":"status"}"""
+                  """{"id":"after","op":"declarations"}""" ]
+            let code, errors, answers =
+                runWithEnvironment [ "NYRWVY_TEST_HOST_FAIL_OPERATION", "status" ] true
+                    [ "open"; "--snapshot"; snapshot; "--read-only" ] requests
+            Assert.True((code = 0), errors)
+            Assert.Equal(3, answers.Length)
+            Assert.Equal(
+                """{"id":"failed","ok":false,"error":{"code":"InternalError","message":"Unexpected internal failure; this request was not applied and the session is unchanged."}}""",
+                answers[1])
+            use before = parseDocument answers[0]
+            use after = parseDocument answers[2]
+            Assert.True(before.RootElement.GetProperty("ok").GetBoolean())
+            Assert.True(after.RootElement.GetProperty("ok").GetBoolean())
+            Assert.Equal("after", after.RootElement.GetProperty("id").GetString())
+            Assert.Equal(before.RootElement.GetProperty("result").GetRawText(), after.RootElement.GetProperty("result").GetRawText()))
+
     /// `references`, `search` and `unreferenced` requests built from a session's own declarations:
     /// every declaration and member by exact ID and by display names (as a string and as a
     /// selector object), and searches for parts of their names.

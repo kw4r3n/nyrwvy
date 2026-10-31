@@ -68,11 +68,11 @@ module internal WireSymbolic =
             if ownership |> Option.exists (fun value -> value <> "local" && value <> "imported") then fail "Selector ownership must be local or imported."
             let candidates = items |> List.filter (fun item ->
                 let itemId = getId item
-                let provenance = declarations.Provenance |> List.tryFind (fun p -> p.Kind = kind && p.Id = itemId)
+                let provenance = lazy (declarations.Provenance |> List.tryFind (fun p -> p.Kind = kind && p.Id = itemId))
                 (id |> Option.forall ((=) itemId))
                 && (name |> Option.forall ((=) (getName item)))
-                && (dependency |> Option.forall (fun selected -> provenance |> Option.exists (fun p -> p.Sources |> List.exists (fun source -> source.SnapshotId = selected))))
-                && (ownership |> Option.forall (fun owned -> provenance |> Option.exists (fun p -> p.IsLocal = (owned = "local")))))
+                && (dependency |> Option.forall (fun selected -> provenance.Value |> Option.exists (fun p -> p.Sources |> List.exists (fun source -> source.SnapshotId = selected))))
+                && (ownership |> Option.forall (fun owned -> provenance.Value |> Option.exists (fun p -> p.IsLocal = (owned = "local")))))
             match candidates with
             | [ item ] -> item
             | [] ->

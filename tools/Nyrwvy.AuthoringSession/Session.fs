@@ -303,10 +303,10 @@ module private ProposalReview =
 module private ProposalSummary =
     let private quote (name: string) = $"'{name}'"
 
-    let private named (items: (StableId<'Kind> * string) list) (id: StableId<'Kind>) =
-        items |> List.tryFind (fun (candidate, _) -> candidate = id) |> Option.map (snd >> quote) |> Option.defaultValue (StableId.value id)
+    let private named (items: Map<StableId<'Kind>, string>) (id: StableId<'Kind>) =
+        items |> Map.tryFind id |> Option.map quote |> Option.defaultValue (StableId.value id)
 
-    let rec describe (declarations: AuthoringDeclarations) (review: AuthoringProposalReview) =
+    let lookups (declarations: AuthoringDeclarations) =
         let functions = declarations.Functions |> List.map (fun item -> item.Id, item.DisplayName)
         let types = declarations.Types |> List.map (fun item -> item.Id, item.DisplayName)
         let effects = declarations.Effects |> List.map (fun item -> item.Id, item.DisplayName)
@@ -325,6 +325,10 @@ module private ProposalSummary =
                 match item.Kind with
                 | SemanticTypeKind.Product fields -> fields |> List.map (fun f -> f.Id, f.DisplayName)
                 | SemanticTypeKind.Union variants -> variants |> List.collect (fun v -> v.Fields |> List.map (fun f -> f.Id, f.DisplayName)))
+        (Map.ofList functions, Map.ofList types, Map.ofList effects, Map.ofList capabilities,
+         Map.ofList operations, Map.ofList capabilityParameters, Map.ofList parameters, Map.ofList variants, Map.ofList fields)
+
+    let rec describe (functions, types, effects, capabilities, operations, capabilityParameters, parameters, variants, fields as names) (review: AuthoringProposalReview) =
         let fn = named functions
         let ty = named types
         let rename target =
@@ -392,7 +396,7 @@ module private ProposalSummary =
         | AuthoringProposalReview.CreateEffect item -> $"createEffect {quote item.CreatedEffect.DisplayName}"
         | AuthoringProposalReview.CreateCapability item -> $"createCapability {quote item.CreatedCapability.DisplayName}"
         | AuthoringProposalReview.Batch item ->
-            "batch of " + (item.Steps |> List.map (fun (_, step) -> describe declarations step.Review) |> String.concat "; ")
+            "batch of " + (item.Steps |> List.map (fun (_, step) -> describe names step.Review) |> String.concat "; ")
 
     let kind (review: AuthoringProposalReview) =
         match review with
@@ -1591,7 +1595,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
 
     /// The pending proposals of this session (the `proposals` operation), in proposal-ID order.
     member this.PendingProposals(): AuthoringPendingProposalSummary list =
-        let declarations = this.Declarations()
+        let names = ProposalSummary.lookups (this.Declarations())
         let current = AgentWorkspace.currentSnapshotId workspace
         registered
         |> Seq.map (fun entry ->
@@ -1600,7 +1604,7 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
               Kind = ProposalSummary.kind proposal.Review
               BaseSnapshotId = baseSnapshotId
               BaseIsCurrent = (baseSnapshotId = current)
-              Summary = ProposalSummary.describe declarations proposal.Review })
+              Summary = ProposalSummary.describe names proposal.Review })
         |> Seq.sortBy (fun item -> item.ProposalId)
         |> Seq.toList
 

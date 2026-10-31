@@ -14,6 +14,7 @@ module internal ZigTools =
         try
             let info = ProcessStartInfo(executable)
             info.WorkingDirectory <- workingDirectory
+            info.RedirectStandardInput <- true
             info.RedirectStandardOutput <- true
             info.RedirectStandardError <- true
             // The tools and runners write UTF-8; without this, Windows decodes with the console code page.
@@ -22,6 +23,7 @@ module internal ZigTools =
             for arg in args do info.ArgumentList.Add(arg)
             use child = Process.Start(info)
             if isNull child then Error("RunStartupFailure", $"Could not start {executable}.") else
+                child.StandardInput.Close()
                 // One character beyond the 1 MiB limit, so the check below sees the overflow.
                 let stdout = BoundedOutput.read child.StandardOutput 1048577
                 let stderr = BoundedOutput.read child.StandardError 1048577

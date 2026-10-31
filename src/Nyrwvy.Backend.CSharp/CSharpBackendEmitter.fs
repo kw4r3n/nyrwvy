@@ -296,10 +296,9 @@ module CSharpBackend =
     let private aggressiveInlining =
         "[System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]"
 
-    let private csharpString (text: string) = System.Text.Json.JsonSerializer.Serialize text
 
     let private dllImport (library: string) (symbol: string) =
-        "[System.Runtime.InteropServices.DllImport(" + csharpString library + ", EntryPoint = " + csharpString symbol
+        "[System.Runtime.InteropServices.DllImport(" + escapeStringLiteral library + ", EntryPoint = " + escapeStringLiteral symbol
         + ", ExactSpelling = true, CallingConvention = System.Runtime.InteropServices.CallingConvention.Cdecl)]"
 
     /// Marshalling helpers shared by every table-bound adapter; only blittable types cross P/Invoke.
@@ -493,7 +492,7 @@ module CSharpBackend =
             let fail message =
                 if isResult then "return " + formatType operation.ResultType + ".Err(" + message + ");"
                 else "throw new System.InvalidOperationException(" + message + ");"
-            let symbolText = csharpString call.Symbol
+            let symbolText = escapeStringLiteral call.Symbol
             let maxBuffer = 16 * 1024 * 1024
             // Too small a buffer: the C function wrote the size it needs; run once more with that size.
             for index, argument in indexed do
@@ -518,7 +517,7 @@ module CSharpBackend =
                     let field = "_kept_" + methodName + "_" + string index
                     writer.Line("{ var previous = " + field + "; " + field + " = k" + string index + "; k" + string index + " = System.IntPtr.Zero; if (previous != System.IntPtr.Zero) NyNative.Free(previous); }")
                 | _ -> ()
-            let symbol = csharpString call.Symbol
+            let symbol = escapeStringLiteral call.Symbol
             match call.Failure with
             | None -> ()
             | Some failure ->

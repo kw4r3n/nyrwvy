@@ -39,14 +39,6 @@ module ZigBackend =
 
     let private typeName (typeId: TypeId) (arguments: TypeRef list) = identifier "T_" (StableId.value typeId) + instanceSuffix arguments
 
-    let rec private substitute (map: Map<TypeParameterId, TypeRef>) (typeRef: TypeRef) =
-        match typeRef with
-        | TypeRef.TypeParameter id -> Map.tryFind id map |> Option.defaultValue typeRef
-        | TypeRef.Named(id, arguments) -> TypeRef.Named(id, List.map (substitute map) arguments)
-        | TypeRef.BuiltinGeneric(kind, arguments) -> TypeRef.BuiltinGeneric(kind, List.map (substitute map) arguments)
-        | TypeRef.Function(parameters, result) -> TypeRef.Function(List.map (substitute map) parameters, substitute map result)
-        | other -> other
-
     /// Binds the type parameters in `pattern` so that it matches `actual`.
     let rec private unify (pattern: TypeRef) (actual: TypeRef) (bound: Map<TypeParameterId, TypeRef>) =
         match pattern, actual with
@@ -537,10 +529,10 @@ module ZigBackend =
     let private substituteFunction (map: Map<TypeParameterId, TypeRef>) (fn: ExecutionFunction) =
         if Map.isEmpty map then fn
         else
-            let value (item: ExecutionValue) = { item with Type = substitute map item.Type }
+            let value (item: ExecutionValue) = { item with Type = TypeParameters.substitute map item.Type }
             { fn with
                 TypeParameters = []
-                ResultType = substitute map fn.ResultType
+                ResultType = TypeParameters.substitute map fn.ResultType
                 Parameters = fn.Parameters |> List.map (fun parameter -> { parameter with Value = value parameter.Value })
                 Blocks =
                     fn.Blocks |> List.map (fun block ->
@@ -629,7 +621,7 @@ module ZigBackend =
         let fields (items: ExecutionField list) =
             items
             |> List.sortBy (fun field -> StableId.value field.Id)
-            |> List.map (fun field -> fieldName field.Id + ": " + zig (substitute map field.Type))
+            |> List.map (fun field -> fieldName field.Id + ": " + zig (TypeParameters.substitute map field.Type))
         let name = typeName item.Id arguments
         match item.Kind with
         | ExecutionTypeKind.Product items ->

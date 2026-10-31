@@ -93,7 +93,7 @@ const Generator = struct {
         var expr: []const u8 = undefined;
         switch (t) {
             .primitive => |p| {
-                expr = if (same(p, "unit")) "\"unit\"" else if (same(p, "string")) try s.fmt("CheckedString({s})", .{x}) else if (same(p, "bytes")) try s.fmt("CheckedString({s}.ToLatin1())", .{x}) else if (same(p, "float64")) try s.fmt("BitConverter.DoubleToUInt64Bits({s}).ToString(\"x16\", CultureInfo.InvariantCulture)", .{x}) else try s.fmt("(object){s}", .{x});
+                expr = if (same(p, "unit")) "\"unit\"" else if (same(p, "string")) try s.fmt("CheckedString({s})", .{x}) else if (same(p, "bytes")) try s.fmt("CheckedString({s}.ToLatin1())", .{x}) else if (same(p, "float64")) try s.fmt("(double.IsNaN({s}) ? 0x7ff8000000000000UL : BitConverter.DoubleToUInt64Bits({s})).ToString(\"x16\", CultureInfo.InvariantCulture)", .{ x, x }) else try s.fmt("(object){s}", .{x});
             },
             .named => expr = try s.fmt("Encode{d}({s}, {s})", .{ try s.namedIndex(t, .encode), x, depth }),
             .builtin => |b| {
