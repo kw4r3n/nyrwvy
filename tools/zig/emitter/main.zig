@@ -1,7 +1,7 @@
 //! The Nyrwvy Zig backend emitter: reads one Execution IR JSON file (the form
 //! ExecutionIrSerializer writes) and prints the runPure runner the F# `ZigBackend.runner` produces
 //! for it, dispatching the entry named after the file or else every runnable function. Exit 0
-//! prints the source; exit 2 prints the unsupported constructs, one per line. See
+//! prints the source; exit 2 prints unsupported constructs as JSON strings, one per line. See
 //! docs/decisions/zig-tools.md.
 //!
 //! `runtime.zig`, `runner_support.zig` and `case_mapping.zig` beside this file are text the emitter copies into its
@@ -12,6 +12,12 @@ const json = std.json;
 const runtime = @embedFile("runtime.zig");
 const case_mapping = @embedFile("case_mapping.zig");
 const runner_support = @embedFile("runner_support.zig");
+pub const build_source = @embedFile("main.zig");
+
+pub fn functionName(allocator: std.mem.Allocator, id: []const u8) []const u8 {
+    a = allocator;
+    return identifier("f_", id);
+}
 
 var a: std.mem.Allocator = undefined;
 
@@ -185,6 +191,146 @@ fn typeJson(t: *const Type) []const u8 {
     return out.items;
 }
 
+/// TypeRef.ToString's 80-column union/tuple/list layout, including nested unsupported types.
+const TypeDoc = union(enum) {
+    text: []const u8,
+    line,
+    sequence: []const TypeDoc,
+    nest: struct { by: usize, child: *const TypeDoc },
+    group: *const TypeDoc,
+    aligned: *const TypeDoc,
+
+    fn ptr(doc: TypeDoc) *const TypeDoc {
+        const out = a.create(TypeDoc) catch oom();
+        out.* = doc;
+        return out;
+    }
+    fn seq(docs: []const TypeDoc) TypeDoc {
+        return .{ .sequence = a.dupe(TypeDoc, docs) catch oom() };
+    }
+    fn nested(by: usize, doc: TypeDoc) TypeDoc {
+        return .{ .nest = .{ .by = by, .child = ptr(doc) } };
+    }
+    fn grouped(doc: TypeDoc) TypeDoc {
+        return .{ .aligned = ptr(.{ .group = ptr(doc) }) };
+    }
+    fn case(name: []const u8, payload: TypeDoc) TypeDoc {
+        return grouped(seq(&.{ .{ .text = name }, nested(2, seq(&.{ .line, payload })) }));
+    }
+    fn tuple(first: TypeDoc, second: TypeDoc) TypeDoc {
+        return grouped(seq(&.{ .{ .text = "(" }, first, .{ .text = "," }, nested(1, seq(&.{ .line, second })), .{ .text = ")" } }));
+    }
+};
+
+fn typeDoc(t: *const Type) TypeDoc {
+    return switch (t.*) {
+        .primitive => |kind| TypeDoc.case("Primitive", .{ .text = kind["primitive".len..] }),
+        .capability => |id| TypeDoc.case("Capability", stableIdDoc(id)),
+        .type_parameter => |id| TypeDoc.case("TypeParameter", stableIdDoc(id)),
+        .named => |named| TypeDoc.case("Named", TypeDoc.tuple(TypeDoc.case("StableId", .{ .text = diagnosticId(named.id) }), typesDoc(named.args))),
+        .function => |function| TypeDoc.case("Function", TypeDoc.tuple(typesDoc(function.params), typeDoc(function.result))),
+        .builtin => |builtin| TypeDoc.case("BuiltinGeneric", TypeDoc.tuple(.{ .text = cat(&.{ &.{std.ascii.toUpper(builtin.kind[0])}, builtin.kind[1..] }) }, typesDoc(builtin.args))),
+    };
+}
+
+fn stableIdDoc(id: []const u8) TypeDoc {
+    return TypeDoc.grouped(TypeDoc.seq(&.{ .{ .text = "(" }, TypeDoc.case("StableId", .{ .text = diagnosticId(id) }), .{ .text = ")" } }));
+}
+
+fn diagnosticId(id: []const u8) []const u8 {
+    // StableId's F# union display quotes its payload verbatim, including quotes and backslashes.
+    return cat(&.{ "\"", id, "\"" });
+}
+
+fn typesDoc(types: []const *const Type) TypeDoc {
+    if (types.len == 0) return .{ .text = "[]" };
+    var items: List(TypeDoc) = .empty;
+    for (types, 0..) |t, i| {
+        if (i > 0) items.appendSlice(a, &.{ .{ .text = ";" }, .line }) catch oom();
+        push(TypeDoc, &items, typeDoc(t));
+    }
+    return TypeDoc.grouped(TypeDoc.seq(&.{ .{ .text = "[" }, TypeDoc.nested(1, TypeDoc.seq(items.items)), .{ .text = "]" } }));
+}
+
+const DocFrame = struct { doc: TypeDoc, indent: usize = 0, flat: bool = false };
+
+fn docFits(remaining: usize, stack: []const DocFrame, candidate: DocFrame) bool {
+    var pending_docs: List(DocFrame) = .empty;
+    pending_docs.appendSlice(a, stack) catch oom();
+    push(DocFrame, &pending_docs, candidate);
+    var left = remaining;
+    while (pending_docs.pop()) |frame| switch (frame.doc) {
+        .text => |s| {
+            const length = (std.unicode.utf8ToUtf16LeAlloc(a, s) catch oom()).len;
+            if (length > left) return false;
+            left -= length;
+        },
+        .line => if (!frame.flat) return true else if (left == 0) return false else {
+            left -= 1;
+        },
+        .sequence => |docs| {
+            var i = docs.len;
+            while (i > 0) {
+                i -= 1;
+                push(DocFrame, &pending_docs, .{ .doc = docs[i], .flat = frame.flat });
+            }
+        },
+        .nest => |nested| push(DocFrame, &pending_docs, .{ .doc = nested.child.*, .flat = frame.flat }),
+        .group, .aligned => |child| push(DocFrame, &pending_docs, .{ .doc = child.*, .flat = frame.flat }),
+    };
+    return true;
+}
+
+fn typeDisplay(t: *const Type) []const u8 {
+    var out: List(u8) = .empty;
+    var stack: List(DocFrame) = .empty;
+    push(DocFrame, &stack, .{ .doc = typeDoc(t) });
+    var column: usize = 0;
+    while (stack.pop()) |frame| switch (frame.doc) {
+        .text => |s| {
+            out.appendSlice(a, s) catch oom();
+            column += (std.unicode.utf8ToUtf16LeAlloc(a, s) catch oom()).len;
+        },
+        .line => {
+            if (frame.flat) {
+                push(u8, &out, ' ');
+                column += 1;
+            } else {
+                push(u8, &out, '\n');
+                out.appendNTimes(a, ' ', frame.indent) catch oom();
+                column = frame.indent;
+            }
+        },
+        .sequence => |docs| {
+            var i = docs.len;
+            while (i > 0) {
+                i -= 1;
+                push(DocFrame, &stack, .{ .doc = docs[i], .indent = frame.indent, .flat = frame.flat });
+            }
+        },
+        .nest => |nested| push(DocFrame, &stack, .{ .doc = nested.child.*, .indent = frame.indent + nested.by, .flat = frame.flat }),
+        .aligned => |child| push(DocFrame, &stack, .{ .doc = child.*, .indent = column, .flat = frame.flat }),
+        .group => |child| push(DocFrame, &stack, .{ .doc = child.*, .indent = frame.indent, .flat = frame.flat or docFits(80 -| column, stack.items, .{ .doc = child.*, .flat = true }) }),
+    };
+    return out.items;
+}
+
+test "unsupported type diagnostics preserve the F sharp nested layout" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    a = arena.allocator();
+    var t = newType(.{ .primitive = "primitiveBits32" });
+    for (0..4) |_| {
+        const argument = try a.dupe(*const Type, &.{t});
+        t = newType(.{ .builtin = .{ .kind = "list", .args = argument } });
+    }
+    try std.testing.expectEqualStrings("BuiltinGeneric\n  (List,\n   [BuiltinGeneric\n      (List,\n       [BuiltinGeneric (List, [BuiltinGeneric (List, [Primitive Bits32])])])])", typeDisplay(t));
+    try std.testing.expectEqualStrings("Capability (StableId \"日本😀a\"b\\c\tb\")", typeDisplay(newType(.{ .capability = "日本😀a\"b\\c\tb" })));
+    const framed = try std.json.Stringify.valueAlloc(a, typeDisplay(t), .{});
+    const recovered = try std.json.parseFromSliceLeaky([]const u8, a, framed, .{});
+    try std.testing.expectEqualStrings(typeDisplay(t), recovered);
+}
+
 fn typeListJson(items: []const *const Type) []const u8 {
     var out: List(u8) = .empty;
     push(u8, &out, '[');
@@ -335,7 +481,10 @@ fn arr(o: json.ObjectMap, key: []const u8) []const json.Value {
 fn byId(comptime T: type, items: []T, comptime key: fn (T) []const u8) void {
     const S = struct {
         fn less(_: void, left: T, right: T) bool {
-            return std.mem.order(u8, key(left), key(right)) == .lt;
+            // Stable IDs use String.CompareOrdinal, including supplementary UTF-16 pairs.
+            const x = std.unicode.utf8ToUtf16LeAlloc(a, key(left)) catch oom();
+            const y = std.unicode.utf8ToUtf16LeAlloc(a, key(right)) catch oom();
+            return std.mem.lessThan(u16, x, y);
         }
     };
     std.mem.sort(T, items, {}, S.less);
@@ -536,7 +685,7 @@ fn zigType(t: *const Type, record: bool) ?[]const u8 {
 
 fn zigOf(t: *const Type) ?[]const u8 {
     return zigType(t, true) orelse {
-        problem(cat(&.{ "type ", typeJson(t) }));
+        problem(cat(&.{ "type ", typeDisplay(t) }));
         return null;
     };
 }
@@ -1550,6 +1699,11 @@ fn emit(ordered: []const Function) ?[]const u8 {
         };
         if (problems.items.len == 0) emitFunction(&bodies, instanceName(instance.id, instance.args), fn_, lines.items);
     }
+    // Fake declarations also mention types that no selected function necessarily uses.
+    for (capabilities) |capability| for (capability.operations) |operation| {
+        _ = zigType(operation.result, true);
+        for (operation.parameters) |parameter| _ = zigType(parameter.type, true);
+    };
     // Field types can name further instances, so declarations are emitted until none is new.
     var types_out: List(u8) = .empty;
     var emitted: usize = 0;
@@ -1566,13 +1720,22 @@ fn emit(ordered: []const Function) ?[]const u8 {
 /// `ZigBackend.fakeCapabilities`: scripted fake capabilities for a runPure runner.
 fn fakeCapabilities() ?[]const u8 {
     var seen = std.StringHashMap(void).init(a);
+    var slots: usize = 16;
+    var entries = functions.valueIterator();
+    while (entries.next()) |function| {
+        var count: usize = 0;
+        for (function.parameters) |parameter| if (parameter.value.type.* == .capability) {
+            count += 1;
+        };
+        slots = @max(slots, count);
+    }
     for (capabilities) |capability| for (capability.operations) |operation| {
         var types: List(*const Type) = .empty;
         push(*const Type, &types, operation.result);
         for (operation.parameters) |parameter| push(*const Type, &types, parameter.type);
         for (types.items) |t| {
             if (t.* != .capability and zigType(t, false) != null) continue;
-            const text = cat(&.{ "capability operation type ", typeJson(t) });
+            const text = cat(&.{ "capability operation type ", typeDisplay(t) });
             if (seen.contains(text)) continue;
             seen.put(text, {}) catch oom();
             problem(text);
@@ -1604,7 +1767,7 @@ fn fakeCapabilities() ?[]const u8 {
         }
         line(&out, "};");
         for (capability.operations) |operation| {
-            line(&out, cat(&.{ "var ", identifier("ny_scripts_", operation.id), ": [16]NyScript(", zigType(operation.result, false).?, ") = undefined;" }));
+            line(&out, cat(&.{ "var ", identifier("ny_scripts_", operation.id), ": [", std.fmt.allocPrint(a, "{d}", .{slots}) catch oom(), "]NyScript(", zigType(operation.result, false).?, ") = undefined;" }));
         }
         line(&out, "");
     }
@@ -1765,6 +1928,26 @@ fn emitAll(text: []const u8, entry: ?[]const u8) !?[]const u8 {
     return std.mem.concat(a, u8, &.{ source, fakes, runnerMain(ordered, entry) }) catch oom();
 }
 
+/// The host uses the same emitter as the command-line tool. Every mutable table belongs to
+/// this invocation's allocator; no request-arena reference survives the next call.
+pub const Runner = union(enum) { source: []const u8, unsupported: []const []const u8 };
+pub fn runner(allocator: std.mem.Allocator, text: []const u8, entry: ?[]const u8) !Runner {
+    a = allocator;
+    value_names = .empty;
+    block_names = .empty;
+    problems = .empty;
+    type_order = .empty;
+    pending = .empty;
+    if (try emitAll(text, entry)) |source| return .{ .source = source };
+    var unique: List([]const u8) = .empty;
+    var seen = std.StringHashMap(void).init(a);
+    for (problems.items) |item| {
+        if ((try seen.getOrPut(item)).found_existing) continue;
+        try unique.append(a, item);
+    }
+    return .{ .unsupported = unique.items };
+}
+
 pub fn main(init: std.process.Init) !void {
     a = init.arena.allocator();
     const args = try init.minimal.args.toSlice(a);
@@ -1786,7 +1969,8 @@ pub fn main(init: std.process.Init) !void {
     for (problems.items) |item| {
         if (seen.contains(item)) continue;
         try seen.put(item, {});
-        try out.print("{s}\n", .{item});
+        try std.json.Stringify.value(item, .{}, out);
+        try out.writeByte('\n');
     }
     try out.flush();
     std.process.exit(2);

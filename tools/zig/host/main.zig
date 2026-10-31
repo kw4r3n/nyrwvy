@@ -27,6 +27,7 @@ pub var invalidated = false;
 pub var persisted_source: []const u8 = "";
 pub var dependency_manifest: ?[]const u8 = null;
 pub var host_io: std.Io = undefined;
+pub var host_sources_allowed = false;
 
 /// The model in canonical order, built on first use.
 fn canonical() model_reader.Value {
@@ -259,6 +260,8 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         return out.writeByte('}');
     };
     const queries = [_]struct { []const u8, *const fn (*query.Request, *std.Io.Writer) anyerror!void }{
+        .{ "runPure", @import("run_pure.zig").run },
+        .{ "runPureByName", @import("run_pure.zig").run },
         .{ "simulateDependencyUpgrade", @import("dependency_simulation.zig").simulate },
         .{ "simulateDependencyUpgradeByName", @import("dependency_simulation.zig").simulate },
         .{ "previewDependencyUpgrade", @import("dependency_upgrade.zig").preview },
@@ -893,6 +896,9 @@ pub fn main(init: std.process.Init) !void {
     ids.init(init.environ_map.get("NYRWVY_TEST_ID_SEED"));
     const process_arena = init.arena.allocator();
     const all = try init.minimal.args.toSlice(process_arena);
+    for (all[1..]) |arg| if (std.mem.eql(u8, arg, "--allow-host-sources")) {
+        host_sources_allowed = true;
+    };
     // `CommandLine.parse`: `--allow-host-sources` anywhere, then exactly one of the open forms.
     var args: std.ArrayList([]const u8) = .empty;
     for (all[1..]) |arg| if (!std.mem.eql(u8, arg, "--allow-host-sources")) try args.append(process_arena, arg);
@@ -903,6 +909,7 @@ pub fn main(init: std.process.Init) !void {
         std.process.exit(2);
     }
     host_io = init.io;
+    try @import("run_process.zig").init(process_arena, init.io, init.environ_map);
     try open(init.io, process_arena, args.items[2], read_only);
 
     var in_buffer: [1 << 16]u8 = undefined;

@@ -52,6 +52,8 @@ module ZigHostParityTests =
                 ZigTools.tool "model-reader" |> ignore
             if checkMode && useZigReader then
                 ZigTools.tool "snapshot-reader" |> ignore
+            if enabled "NYRWVY_ZIG_EMITTER_CHECK" then
+                ZigTools.tool "emitter" |> ignore
         Process.Start info
 
     let internal start zig arguments = startWithEnvironment [] zig arguments

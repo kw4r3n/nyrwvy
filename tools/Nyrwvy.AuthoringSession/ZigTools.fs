@@ -100,6 +100,7 @@ module internal ZigTools =
     let private imports =
         dict [ "host", [ "model_reader", [ "tools"; "zig"; "model-reader" ], "main.zig"
                          "snapshot_reader", [ "tools"; "zig"; "snapshot-reader" ], "main.zig"
+                         "zig_emitter", [ "tools"; "zig"; "emitter" ], "main.zig"
                          "viewer_asset", [ "src"; "Nyrwvy.Viewer" ], "asset.zig" ] ]
 
     /// A Zig tool (`tools/zig/<name>` beside mise.toml), built once per process into the cache,

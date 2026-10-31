@@ -772,6 +772,11 @@ module ZigBackend =
         // Field types can name further instances, so declarations are emitted until none is new.
         let declarations = StringBuilder()
         let mutable emitted = 0
+        // Fake declarations can name types absent from the selected functions.
+        for capability in program.Capabilities do
+            for operation in capability.Operations do
+                for itemType in operation.ResultType :: (operation.Parameters |> List.map (fun p -> p.Type)) do
+                    zigType types capabilities record itemType |> ignore
         while problems.Count = 0 && emitted < typeOrder.Count do
             let typeId, arguments = typeOrder[emitted]
             emitted <- emitted + 1
@@ -795,6 +800,10 @@ module ZigBackend =
             |> List.map (fun typeRef -> $"capability operation type {typeRef}")
         if not (List.isEmpty problems) then Error problems
         else
+            let slots =
+                program.Functions
+                |> List.map (fun fn -> fn.Parameters |> List.filter (fun parameter -> match parameter.Value.Type with TypeRef.Capability _ -> true | _ -> false) |> List.length)
+                |> List.fold max 16
             let builder = StringBuilder()
             let line (text: string) = builder.Append(text).Append('\n') |> ignore
             for capability in program.Capabilities do
@@ -813,7 +822,7 @@ module ZigBackend =
                     line "    }"
                 line "};"
                 for operation in capability.Operations do
-                    line ("var " + identifier "ny_scripts_" (StableId.value operation.Id) + ": [16]NyScript(" + (zig operation.ResultType).Value + ") = undefined;")
+                    line ("var " + identifier "ny_scripts_" (StableId.value operation.Id) + $": [{slots}]NyScript(" + (zig operation.ResultType).Value + ") = undefined;")
                 line ""
             Ok(builder.ToString())
 
