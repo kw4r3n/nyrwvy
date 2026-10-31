@@ -28,7 +28,7 @@ type ZigSpeed(output: ITestOutputHelper) =
         try f () finally Environment.SetEnvironmentVariable("NYRWVY_SNAPSHOT_READER", null)
 
     [<Fact; Trait("Suite", "Benchmark")>]
-    member _.``ZigSpeed: runPure Zig backend through both hosts`` () =
+    member _.``ZigSpeed: runPure Zig and CSharp backends through both hosts`` () =
         let dir = Path.Combine(ZigTools.cache, "speed-run-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory dir |> ignore
         try
@@ -45,7 +45,7 @@ type ZigSpeed(output: ITestOutputHelper) =
             let dll = Path.Combine(ZigModelReaderSupport.root (), "tools", "Nyrwvy.AuthoringSession", "bin", "Release", "net10.0", "Nyrwvy.AuthoringSession.dll")
             if not (File.Exists dll) then failwithf "%s is not built (dotnet build -c Release)" dll
             let zigHost = tool "host"
-            let runHost label exe args =
+            let runHost backend label exe args =
                 let info = ProcessStartInfo(exe, args @ [ "open"; "--snapshot"; path; "--read-only" ])
                 info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
                 info.RedirectStandardInput <- true
@@ -62,7 +62,7 @@ type ZigSpeed(output: ITestOutputHelper) =
                     if isNull line then failwithf "%s exited before replying" label
                     line
                 let run () =
-                    host.StandardInput.WriteLine """{"id":"r","op":"runPureByName","function":"echo","backend":"zig","arguments":["hello"],"expected":"hello"}"""
+                    host.StandardInput.WriteLine($"""{{"id":"r","op":"runPureByName","function":"echo","backend":"{backend}","arguments":["hello"],"expected":"hello"}}""")
                     host.StandardInput.Flush()
                     let line = read ()
                     use reply = Text.Json.JsonDocument.Parse line
@@ -89,9 +89,10 @@ type ZigSpeed(output: ITestOutputHelper) =
                     if not host.HasExited then
                         host.Kill true
                         host.WaitForExit()
-            output.WriteLine "runPure Zig backend, same small snapshot; first request may build, repeated requests reuse the runner cache; host startup excluded"
-            runHost "F# host" "dotnet" [ dll ]
-            runHost "Zig host" zigHost []
+            output.WriteLine "runPure Zig and C# backends, same small snapshot; first request may build, repeated requests reuse the backend cache; host startup excluded; F# warm-up disabled"
+            for backend in [ "zig"; "csharp" ] do
+                runHost backend $"F# host (backend={backend})" "dotnet" [ dll ]
+                runHost backend $"Zig host (backend={backend})" zigHost []
         finally Directory.Delete(dir, true)
 
     [<Fact; Trait("Suite", "Benchmark")>]

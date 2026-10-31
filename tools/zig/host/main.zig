@@ -262,6 +262,9 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
     const queries = [_]struct { []const u8, *const fn (*query.Request, *std.Io.Writer) anyerror!void }{
         .{ "runPure", @import("run_pure.zig").run },
         .{ "runPureByName", @import("run_pure.zig").run },
+        .{ "emitCSharp", @import("emit_csharp.zig").run },
+        .{ "verifyChange", @import("change_verification.zig").run },
+        .{ "verifyChangeByName", @import("change_verification.zig").run },
         .{ "simulateDependencyUpgrade", @import("dependency_simulation.zig").simulate },
         .{ "simulateDependencyUpgradeByName", @import("dependency_simulation.zig").simulate },
         .{ "previewDependencyUpgrade", @import("dependency_upgrade.zig").preview },
@@ -895,6 +898,7 @@ pub fn combineMembers(a: std.mem.Allocator, members: []const Dependency) Startup
 pub fn main(init: std.process.Init) !void {
     ids.init(init.environ_map.get("NYRWVY_TEST_ID_SEED"));
     const process_arena = init.arena.allocator();
+    host_io = init.io;
     const all = try init.minimal.args.toSlice(process_arena);
     for (all[1..]) |arg| if (std.mem.eql(u8, arg, "--allow-host-sources")) {
         host_sources_allowed = true;
@@ -902,18 +906,29 @@ pub fn main(init: std.process.Init) !void {
     // `CommandLine.parse`: `--allow-host-sources` anywhere, then exactly one of the open forms.
     var args: std.ArrayList([]const u8) = .empty;
     for (all[1..]) |arg| if (!std.mem.eql(u8, arg, "--allow-host-sources")) try args.append(process_arena, arg);
+    if (args.items.len > 0 and std.mem.eql(u8, args.items[0], "bind-c")) {
+        var output_buffer: [4096]u8 = undefined;
+        var output = std.Io.File.stdout().writer(init.io, &output_buffer);
+        var error_buffer: [4096]u8 = undefined;
+        var errors = std.Io.File.stderr().writer(init.io, &error_buffer);
+        const code = try @import("bind_c.zig").run(process_arena, init.io, args.items[1..], &output.interface, &errors.interface);
+        try output.interface.flush();
+        try errors.interface.flush();
+        if (code != 0) std.process.exit(code);
+        return;
+    }
     const forms = args.items.len >= 3 and std.mem.eql(u8, args.items[0], "open") and std.mem.eql(u8, args.items[1], "--snapshot");
     const read_only = forms and args.items.len == 4 and std.mem.eql(u8, args.items[3], "--read-only");
     if (!forms or !(args.items.len == 3 or read_only)) {
         std.debug.print("{s}", .{usage});
         std.process.exit(2);
     }
-    host_io = init.io;
     try @import("run_process.zig").init(process_arena, init.io, init.environ_map);
+    try @import("run_csharp.zig").init(process_arena, init.io, init.environ_map);
+    defer @import("run_csharp.zig").deinit(init.io);
     try open(init.io, process_arena, args.items[2], read_only);
 
     var in_buffer: [1 << 16]u8 = undefined;
-    host_io = init.io;
     var reader = std.Io.File.stdin().reader(init.io, &in_buffer);
     var line: std.Io.Writer.Allocating = .init(std.heap.page_allocator);
     var out_buffer: [1 << 16]u8 = undefined;

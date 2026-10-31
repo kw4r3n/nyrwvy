@@ -41,15 +41,18 @@ fn backend(r: *q.Request) ![]const u8 {
 
 fn hostSources(r: *q.Request, input: *values.Input) !void {
     if (input.host_sources.len > 16) return values.diagnostic(r, input, "RunHostSourceInvalid", "At most 16 host source files are accepted.");
-    for (input.host_sources) |path| {
+    const texts = try r.a.alloc([]const u8, input.host_sources.len);
+    for (input.host_sources, texts) |path, *text| {
         const full = std.fs.path.resolveAlloc(r.a, &.{ std.fs.path.dirname(r.snapshot_path).?, path }) catch
             return values.diagnostic(r, input, "RunHostSourceInvalid", try std.fmt.allocPrint(r.a, "Host source '{s}' cannot be read.", .{path}));
         const stat = std.Io.Dir.cwd().statFile(root.host_io, full, .{}) catch null;
         if (!std.ascii.eqlIgnoreCase(std.fs.path.extension(full), ".cs") or stat == null or stat.?.kind != .file)
             return values.diagnostic(r, input, "RunHostSourceInvalid", try std.fmt.allocPrint(r.a, "Host source '{s}' is not an existing .cs file.", .{path}));
         if (stat.?.size > 1048576) return values.diagnostic(r, input, "RunHostSourceInvalid", try std.fmt.allocPrint(r.a, "Host source '{s}' exceeds 1 MiB.", .{path}));
-        _ = root.readText(r.a, full) catch return values.diagnostic(r, input, "RunHostSourceInvalid", try std.fmt.allocPrint(r.a, "Host source '{s}' cannot be read.", .{path}));
+        const bytes = std.Io.Dir.cwd().readFileAlloc(root.host_io, full, r.a, .limited(1048576)) catch return values.diagnostic(r, input, "RunHostSourceInvalid", try std.fmt.allocPrint(r.a, "Host source '{s}' cannot be read.", .{path}));
+        text.* = try @import("managed_text.zig").decode(r.a, bytes);
     }
+    input.host_source_texts = texts;
 }
 
 fn loweringError(r: *q.Request, failure: []const u8) !void {
@@ -111,7 +114,7 @@ fn loweringOperand(r: *q.Request, id: []const u8, nodes: []const model.Value) !m
     return m.object(r.a, &.{ try m.member(r.a, "nodeId", try m.string(r.a, id)), try m.member(r.a, "kind", try m.string(r.a, kind)), try m.member(r.a, "displayName", try m.string(r.a, name)) });
 }
 
-fn lowered(r: *q.Request, entry: ?[]const u8) ![]const u8 {
+pub fn lowered(r: *q.Request, entry: ?[]const u8) ![]const u8 {
     return switch (model.executionForEntry(r.a, r.model, entry)) {
         .ir => |ir| ir,
         .projection => |case| {
@@ -145,7 +148,7 @@ fn runner(r: *q.Request, input: *values.Input, reach: []const u8) ![]const u8 {
 }
 
 /// The F# backend installs its virtual clock only for the concurrency/task runtime.
-fn concurrentValue(value: std.json.Value) bool {
+pub fn concurrentValue(value: std.json.Value) bool {
     switch (value) {
         .array => |items| for (items.items) |item| {
             if (concurrentValue(item)) return true;
@@ -176,8 +179,8 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     try hostSources(r, &input);
     try values.validate(r, &input);
     if (m.same(selected, "csharp")) {
-        r.rejection = .{ .code = "UnsupportedOperation", .message = "The Zig session host does not yet support the C# runPure backend." };
-        return error.Rejected;
+        const reach = try lowered(r, input.function_id);
+        return @import("run_csharp.zig").run(r, &input, reach, concurrentValue(try std.json.parseFromSliceLeaky(std.json.Value, r.a, reach, .{})), out);
     }
     if (input.host_sources.len > 0) return values.diagnostic(r, &input, "RunBackendUnsupported", "The Zig backend does not yet support host sources.");
     const reach = try lowered(r, input.function_id);

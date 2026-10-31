@@ -6,6 +6,9 @@
     <Compile Include="CSharpBackendEmitter.fs" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="../../tools/zig/csharp-emitter/runtime/*.cs" Exclude="../../tools/zig/csharp-emitter/runtime/Worker.cs" LogicalName="Nyrwvy.CSharp.Runtime.%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
     <ProjectReference Include="../Nyrwvy.Execution/Nyrwvy.Execution.fsproj" />
   </ItemGroup>

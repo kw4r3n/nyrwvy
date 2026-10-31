@@ -514,7 +514,7 @@ fn text(r: *query.Request, name: []const u8) ![]const u8 {
     return query.readable(r, value.string);
 }
 
-fn lookup(r: *query.Request, wanted: []const u8) !*const Pending {
+pub fn lookup(r: *query.Request, wanted: []const u8) !*const Pending {
     if (r.session_invalidated) {
         r.rejection = .{ .code = "SessionInvalidated", .message = "The session was invalidated by external modification." };
         return error.Rejected;
@@ -554,6 +554,16 @@ pub fn viewProposal(r: *query.Request, out: *Writer) !void {
     const wanted = try text(r, "proposalId");
     const output = if (r.root.get("output") != null) try text(r, "output") else null;
     const p = try lookup(r, wanted);
+    const path = try writeReview(r, p, output, null);
+    try out.writeAll("{\"proposalId\":");
+    try @import("root").writeString(out, p.id);
+    try out.writeAll(",\"kind\":\"changeReview\",\"mediaType\":\"text/html; charset=utf-8\",\"path\":");
+    try @import("root").writeString(out, path);
+    try out.writeByte('}');
+}
+
+/// Same structural review and confined writer; verification adds only immutable evidence data.
+pub fn writeReview(r: *query.Request, p: *const Pending, output: ?[]const u8, verification: ?[]const u8) ![]const u8 {
     const current = m.same(r.snapshot_id, p.base_id);
     const viewer = @import("viewer.zig");
     var data: Writer.Allocating = .init(r.a);
@@ -665,6 +675,10 @@ pub fn viewProposal(r: *query.Request, out: *Writer) !void {
             try w.writeAll("],\"declaredCapabilities\":[],\"declaredEffects\":[],\"engineReview\":");
         }
         try w.writeAll(p.structured_review);
+        if (verification) |evidence| {
+            try w.writeAll(",\"verification\":");
+            try w.writeAll(evidence);
+        }
         try w.writeByte('}');
     }
     const name = try std.fmt.allocPrint(r.a, "nyrwvy-change-review-transaction-{x}.html", .{p.id});
@@ -678,13 +692,7 @@ pub fn viewProposal(r: *query.Request, out: *Writer) !void {
             r.rejection = .{ .code = "InternalError", .message = "Unexpected internal failure; this request was not applied and the session is unchanged." };
             return error.Rejected;
         },
-        .written => |path| {
-            try out.writeAll("{\"proposalId\":");
-            try @import("root").writeString(out, p.id);
-            try out.writeAll(",\"kind\":\"changeReview\",\"mediaType\":\"text/html; charset=utf-8\",\"path\":");
-            try @import("root").writeString(out, path);
-            try out.writeByte('}');
-        },
+        .written => |path| return path,
     }
 }
 
@@ -978,6 +986,15 @@ fn batchViewIds(a: Allocator, captures: []const query.Capture, functions: bool) 
     return ids.items;
 }
 
+/// The pending view's signature owners and touched functions, in its established review order.
+pub fn functionIds(r: *query.Request, p: *const Pending) ![]const Value {
+    if (p.batch) |captures| return batchViewIds(r.a, captures, true);
+    const functions = if (p.migration) |migration| migration.functions else if (p.declaration) |d| (if (m.same(d.group, "functions")) d.items else &.{}) else if (p.created_function != .json_null) &.{p.created_function} else &.{};
+    var ids: std.ArrayList(Value) = .empty;
+    for (functions) |function| try appendDistinct(r.a, &ids, model.property(function, "id").?);
+    return ids.items;
+}
+
 fn checkImports(r: *query.Request, candidate: Value, diff: ?Value) !void {
     if (r.provenance) |provenance| {
         var hidden_names: std.ArrayList([]const u8) = .empty;
@@ -1051,10 +1068,12 @@ pub fn publishMigration(r: *query.Request, out: *Writer, result: @import("migrat
 fn encodeMigration(r: *query.Request, out: *Writer, result: @import("migration.zig").Result, root: Value, proof: []const u8, full: bool, structured: bool) !void {
     var raw: Writer.Allocating = .init(r.a);
     const w = &raw.writer;
-    try w.writeAll("{\"proposalId\":"); try m.write(w, result.transaction);
+    try w.writeAll("{\"proposalId\":");
+    try m.write(w, result.transaction);
     try w.print(",\"detail\":\"{s}\",\"review\":{{\"kind\":\"{s}\",\"receipt\":", .{ if (full) @as([]const u8, "full") else "compact", result.kind });
     try w.writeAll(proof);
-    try w.writeAll(",\"readiness\":"); try readiness(w, root);
+    try w.writeAll(",\"readiness\":");
+    try readiness(w, root);
     if (result.review_fields == .object) {
         for (result.review_fields.object) |field_| {
             try w.writeByte(',');
@@ -1063,18 +1082,26 @@ fn encodeMigration(r: *query.Request, out: *Writer, result: @import("migration.z
             try m.write(w, field_.value);
         }
     } else {
-    try w.writeAll(",\"diff\":"); try m.write(w, result.diff);
-    try w.writeAll(",\"functionEffects\":[");
-    const sorted = try r.a.dupe(Value, result.rewritten);
-    std.mem.sort(Value, sorted, {}, struct { fn less(_: void, x: Value, y: Value) bool { return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt; } }.less);
-    for (sorted, 0..) |f, i| {
-        if (i > 0) try w.writeByte(',');
-        try w.writeAll("{\"functionId\":"); try m.write(w, model.property(f, "id").?);
-        try w.writeAll(",\"declaredEffectIds\":"); try m.write(w, model.property(f, "requiredEffects").?);
-        try w.writeAll(",\"bodyEffectRequirements\":"); try query.writeRequirements(w, model.focusOf(r.a, root, f).requirements);
-        try w.writeByte('}');
-    }
-    try w.writeByte(']');
+        try w.writeAll(",\"diff\":");
+        try m.write(w, result.diff);
+        try w.writeAll(",\"functionEffects\":[");
+        const sorted = try r.a.dupe(Value, result.rewritten);
+        std.mem.sort(Value, sorted, {}, struct {
+            fn less(_: void, x: Value, y: Value) bool {
+                return std.mem.order(u16, model.decoded(model.property(x, "id").?), model.decoded(model.property(y, "id").?)) == .lt;
+            }
+        }.less);
+        for (sorted, 0..) |f, i| {
+            if (i > 0) try w.writeByte(',');
+            try w.writeAll("{\"functionId\":");
+            try m.write(w, model.property(f, "id").?);
+            try w.writeAll(",\"declaredEffectIds\":");
+            try m.write(w, model.property(f, "requiredEffects").?);
+            try w.writeAll(",\"bodyEffectRequirements\":");
+            try query.writeRequirements(w, model.focusOf(r.a, root, f).requirements);
+            try w.writeByte('}');
+        }
+        try w.writeByte(']');
     }
     if (full) {
         try w.writeAll(",\"rewrittenFunctions\":[");
@@ -1103,8 +1130,12 @@ fn migrationSummary(a: Allocator, p: *const Pending, current: Value) ![]const u8
             const type_name = if (t) |item| try std.fmt.allocPrint(a, "'{s}'", .{query.nameOf(item)}) else tid;
             var field_name: []const u8 = fid;
             for (model.arrayItems(current, "types")) |item| {
-                for (model.arrayItems(item, "fields")) |field_| if (edit.hasId(field_, fid)) { field_name = try std.fmt.allocPrint(a, "'{s}'", .{query.nameOf(field_)}); };
-                for (model.arrayItems(item, "variants")) |variant| for (model.arrayItems(variant, "fields")) |field_| if (edit.hasId(field_, fid)) { field_name = try std.fmt.allocPrint(a, "'{s}'", .{query.nameOf(field_)}); };
+                for (model.arrayItems(item, "fields")) |field_| if (edit.hasId(field_, fid)) {
+                    field_name = try std.fmt.allocPrint(a, "'{s}'", .{query.nameOf(field_)});
+                };
+                for (model.arrayItems(item, "variants")) |variant| for (model.arrayItems(variant, "fields")) |field_| if (edit.hasId(field_, fid)) {
+                    field_name = try std.fmt.allocPrint(a, "'{s}'", .{query.nameOf(field_)});
+                };
             }
             return std.fmt.allocPrint(a, "productFieldTypeMigration of {s} field {s}", .{ type_name, field_name });
         }
