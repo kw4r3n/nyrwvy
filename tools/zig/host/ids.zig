@@ -3,11 +3,13 @@ const std = @import("std");
 
 pub const warning = "Warning: NYRWVY_TEST_ID_SEED is set, so new IDs are deterministic test IDs. Use it only on test copies.";
 const epoch = 1_700_000_000_000;
+var host_io: std.Io = undefined;
 var test_seed: ?[]const u8 = null;
 var allocated: u64 = 0;
 
 /// Called once at startup; the environment and its strings live for the process.
-pub fn init(seed: ?[]const u8) void {
+pub fn init(io: std.Io, seed: ?[]const u8) void {
+    host_io = io;
     test_seed = if (seed) |s| (if (s.len == 0) null else s) else null;
     if (test_seed != null) std.debug.print("{s}\n", .{warning});
 }
@@ -79,18 +81,9 @@ pub fn next() ![36]u8 {
         allocated += 1;
         return seeded(seed, allocated);
     }
-    const linux = std.os.linux;
     var random: [10]u8 = undefined;
-    var filled: usize = 0;
-    while (filled < random.len) {
-        const count = linux.getrandom(random[filled..].ptr, random.len - filled, 0);
-        if (linux.errno(count) == .INTR) continue;
-        if (linux.errno(count) != .SUCCESS or count == 0) return error.RandomUnavailable;
-        filled += count;
-    }
-    var now: linux.timespec = undefined;
-    if (linux.errno(linux.clock_gettime(.REALTIME, &now)) != .SUCCESS) return error.ClockUnavailable;
-    const milliseconds: u64 = @intCast(now.sec * 1000 + @divTrunc(now.nsec, 1_000_000));
+    host_io.randomSecure(&random) catch return error.RandomUnavailable;
+    const milliseconds: u64 = @intCast(std.Io.Clock.real.now(host_io).toMilliseconds());
     return payload(milliseconds, random);
 }
 
@@ -121,4 +114,17 @@ test "seeded UUIDv7 payloads and restart guard" {
     test_seed = null;
     observe(&other);
     try std.testing.expectEqual(@as(u64, 31), allocated);
+}
+
+test "unseeded IDs use the host clock and secure entropy" {
+    init(std.testing.io, null);
+    const before = std.Io.Clock.real.now(std.testing.io).toMilliseconds();
+    const first = try next();
+    const after = std.Io.Clock.real.now(std.testing.io).toMilliseconds();
+    var timestamp: u64 = 0;
+    for (first[0..13]) |c| if (c != '-') { timestamp = timestamp * 16 + try std.fmt.charToDigit(c, 16); };
+    try std.testing.expect(timestamp >= @as(u64, @intCast(before)) and timestamp <= @as(u64, @intCast(after)));
+    const second = try next();
+    try std.testing.expect(first[14] == '7' and std.mem.indexOfScalar(u8, "89ab", first[19]) != null);
+    try std.testing.expect(!std.mem.eql(u8, &first, &second));
 }

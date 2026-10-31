@@ -124,20 +124,20 @@ test("suite wrappers forward dotnet arguments once and propagate either stage's 
   } finally { rmSync(fixture, { recursive: true, force: true }) }
 })
 
-test("typed host gate selects both Zig suites and stops after a failure", {
-  skip: spawnSync("fish", ["--version"]).error?.code === "ENOENT" ? "fish is required for wrapper contracts" : false,
-}, () => {
+test("typed host gate selects both Zig suites and stops after a failure", () => {
   const fixture = mkdtempSync(join(tmpdir(), "nyrwvy-typed-host-"))
   const repo = join(fixture, "repository with spaces")
   const calls = join(fixture, "calls")
-  const zig = join(fixture, "fake zig")
+  const preload = join(fixture, "fake zig.cjs")
   mkdirSync(join(repo, "scripts"), { recursive: true })
-  copyFileSync(join(repositoryRoot, "scripts/test-typed-host.fish"), join(repo, "scripts/test-typed-host.fish"))
-  writeFileSync(zig, `#!/usr/bin/env node\nconst fs = require('node:fs');\nfs.appendFileSync(process.env.TYPED_CALLS, JSON.stringify({cwd: process.cwd(), args: process.argv.slice(2)}) + '\\n');\nprocess.exit(Number(process.env.TYPED_FAIL) === fs.readFileSync(process.env.TYPED_CALLS, 'utf8').trim().split('\\n').length ? 23 : 0);\n`, { mode: 0o755 })
-  const run = fail => {
+  for (const file of ["test-typed-host.mjs", "test-typed-host.fish"]) copyFileSync(join(repositoryRoot, "scripts", file), join(repo, "scripts", file))
+  writeFileSync(preload, `const fs = require('node:fs');\nif (!process.argv[1]?.endsWith('test-typed-host.mjs')) {\n  fs.appendFileSync(process.env.TYPED_CALLS, JSON.stringify({cwd: process.cwd(), args: ['test', ...process.argv.slice(2)]}) + '\\n');\n  process.exit(Number(process.env.TYPED_FAIL) === fs.readFileSync(process.env.TYPED_CALLS, 'utf8').trim().split('\\n').length ? 23 : 0);\n}\n`)
+  const run = (fail, fish = false) => {
     writeFileSync(calls, "")
-    const result = spawnSync("fish", ["--no-config", join(repo, "scripts/test-typed-host.fish")], {
-      cwd: fixture, encoding: "utf8", env: { ...process.env, NYRWVY_ZIG: zig, TYPED_CALLS: calls, TYPED_FAIL: String(fail) },
+    const command = fish ? "fish" : process.execPath
+    const args = fish ? ["--no-config", join(repo, "scripts/test-typed-host.fish")] : [join(repo, "scripts/test-typed-host.mjs")]
+    const result = spawnSync(command, args, {
+      cwd: fixture, encoding: "utf8", env: { ...process.env, NODE_OPTIONS: `--require="${preload}"`, NYRWVY_ZIG: process.execPath, TYPED_CALLS: calls, TYPED_FAIL: String(fail) },
     })
     if (result.error) throw result.error
     return { ...result, calls: readFileSync(calls, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)) }
@@ -147,9 +147,10 @@ test("typed host gate selects both Zig suites and stops after a failure", {
     assert.equal(success.status, 0, success.stderr)
     assert.equal(success.calls.length, 2)
     assert.ok(success.calls.every(call => call.cwd === repo))
-    assert.deepEqual(success.calls[0].args, ["test", "-O", "ReleaseSafe", "tools/zig/model-reader/view.zig"])
+    const linkerArgs = process.platform === "darwin" ? ["-lc"] : []
+    assert.deepEqual(success.calls[0].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/model-reader/view.zig"])
     const args = success.calls[1].args
-    assert.deepEqual(args.slice(0, 23), ["test", "-O", "ReleaseSafe", "--test-filter", "typed host reads", "--test-filter", "fresh committed and stale proposal", "--test-filter", "selected typed dependencies retain source member order", "--test-filter", "operation intermediates", "--test-filter", "typed operation name lookup", "--test-filter", "path-copy edits", "--test-filter", "candidate shape failures", "--test-filter", "run declarations hide imported private members", "--test-filter", "mismatch references report visible ownership and sources", "--test-runner", "tools/zig/host/test_runner.zig"])
+    assert.deepEqual(args.slice(0, 31 + linkerArgs.length), ["test", ...linkerArgs, "-O", "ReleaseSafe", "--test-filter", "typed host reads", "--test-filter", "fresh committed and stale proposal", "--test-filter", "selected typed dependencies retain source member order", "--test-filter", "operation intermediates", "--test-filter", "typed operation name lookup", "--test-filter", "path-copy edits", "--test-filter", "candidate shape failures", "--test-filter", "run declarations hide imported private members", "--test-filter", "mismatch references report visible ownership and sources", "--test-filter", "seeded UUIDv7 payloads and restart guard", "--test-filter", "unseeded IDs use the host clock and secure entropy", "--test-filter", "temporary directories use the configured root and are distinct", "--test-filter", "confined recipe paths", "--test-runner", "tools/zig/host/test_runner.zig"])
     for (const arg of ["host=root", "-Mroot=tools/zig/host/main.zig", "-Mbuild_info=tools/zig/host/build_info.zig"]) assert.ok(args.includes(arg))
     const failure = run(1)
     assert.equal(failure.status, 23)
@@ -157,5 +158,6 @@ test("typed host gate selects both Zig suites and stops after a failure", {
     const secondFailure = run(2)
     assert.equal(secondFailure.status, 23)
     assert.equal(secondFailure.calls.length, 2)
+    if (!spawnSync("fish", ["--version"]).error) assert.deepEqual(run(0, true).calls, success.calls)
   } finally { rmSync(fixture, { recursive: true, force: true }) }
 })

@@ -26,7 +26,7 @@ try {
   const buildInfo = join(temporary, "build_info.zig")
   await writeFile(buildInfo, `pub const build = ${JSON.stringify(`nyrwvy-zig-host${commit ? `+${commit}` : ""}`)};\npub const repository_root: ?[]const u8 = ${JSON.stringify(root)};\n`)
   modules.push(["build_info", buildInfo])
-  const args = ["build-exe", `-femit-bin=${built}`, "-O", "ReleaseSafe",
+  const args = ["build-exe", `-femit-bin=${built}`, ...(process.platform === "darwin" ? ["-lc"] : []), "-O", "ReleaseSafe",
     ...modules.flatMap(([name]) => ["--dep", name]), "-Mroot=tools/zig/host/main.zig",
     ...modules.flatMap(([name, path]) => ["-O", "ReleaseSafe", `-M${name}=${path}`])]
   await new Promise((accept, reject) => {

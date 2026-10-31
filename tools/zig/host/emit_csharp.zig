@@ -56,6 +56,18 @@ fn pathOutcome(r: *q.Request, outcome: files.Outcome) ![]const u8 {
         },
     };
 }
+fn differentFiles(r: *q.Request, first: []const u8, second: []const u8) !void {
+    const os = @import("builtin").os.tag;
+    const same_name = if (os == .windows or os == .macos) std.ascii.eqlIgnoreCase(first, second) else emitter.eq(first, second);
+    const aliases = same_name or (files.sameFile(first, second) catch |err| {
+        r.rejection = .{ .code = "EmitWriteFailed", .message = try std.fmt.allocPrint(r.a, "Could not verify distinct output files: {s}.", .{@errorName(err)}) };
+        return error.Rejected;
+    });
+    if (aliases) {
+        r.rejection = .{ .code = "EmitWriteFailed", .message = try std.fmt.allocPrint(r.a, "output and facade must name different files; both resolve to {s}.", .{first}) };
+        return error.Rejected;
+    }
+}
 fn facadeFailure(r: *q.Request, problems: []const facade.Problem) !void {
     var body: std.Io.Writer.Allocating = .init(r.a);
     const w = &body.writer;
@@ -132,11 +144,10 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     if (facade_check != null and facade_check.? == .internal) _ = try pathOutcome(r, facade_check.?);
     const checked_output = if (output_check) |checked| try pathOutcome(r, checked) else null;
     const checked_facade = if (facade_check) |checked| try pathOutcome(r, checked) else null;
-    if (checked_output != null and checked_facade != null and emitter.eq(checked_output.?, checked_facade.?)) {
-        r.rejection = .{ .code = "EmitWriteFailed", .message = try std.fmt.allocPrint(r.a, "output and facade must name different files; both resolve to {s}.", .{checked_output.?}) };
-        return error.Rejected;
-    }
+    if (checked_output != null and checked_facade != null) try differentFiles(r, checked_output.?, checked_facade.?);
     const written = if (output) |path| try pathOutcome(r, try files.write(r.a, r.snapshot_path, path, ".cs", "", marker, artifact.source)) else null;
+    // Initially missing Unicode aliases become observable after publishing the implementation.
+    if (written != null and checked_facade != null) try differentFiles(r, written.?, checked_facade.?);
     const facade_written = if (facade_path) |path| try pathOutcome(r, try files.write(r.a, r.snapshot_path, path, ".cs", "", marker, facade_source.?)) else null;
     try out.writeByte('{');
     if (written) |path| {

@@ -14,6 +14,7 @@ pub fn main(init: std.process.Init.Minimal) !void {
         });
         std.testing.io_instance = .init(std.testing.allocator, .{ .argv0 = .init(init.args), .environ = init.environ });
         std.testing.environ = init.environ;
+        @import("host").ids.init(std.testing.io, null);
         defer {
             std.testing.io_instance.deinit();
             if (std.testing.allocator_instance.deinit() != 0) leaked = true;

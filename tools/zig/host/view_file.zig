@@ -3,7 +3,12 @@
 //! page this tool wrote, and is written through directory handles below that directory and renamed
 //! into place, so a component swapped for a link after the checks cannot carry the write elsewhere.
 const std = @import("std");
-const linux = std.os.linux;
+const windows = @import("builtin").os.tag == .windows;
+const separators = if (windows) "/\\" else "/";
+
+fn getIo() std.Io {
+    return if (@import("builtin").is_test) std.testing.io else @import("main.zig").host_io;
+}
 
 const Allocator = std.mem.Allocator;
 
@@ -34,23 +39,21 @@ fn endsWithIgnoringCase(text: []const u8, suffix: []const u8) bool {
 
 /// `isInside`: the relative path from `directory` is neither rooted nor above it.
 fn isInside(a: Allocator, directory: []const u8, path: []const u8) !bool {
-    const relative = try std.fs.path.relativeAlloc(a, "/", null, directory, path);
-    return !std.fs.path.isAbsolute(relative) and !std.mem.eql(u8, relative, "..") and !std.mem.startsWith(u8, relative, "../");
+    const relative = try std.fs.path.relativeAlloc(a, directory, null, directory, path);
+    return !std.fs.path.isAbsolute(relative) and !std.mem.eql(u8, relative, "..") and !(relative.len > 2 and std.mem.startsWith(u8, relative, "..") and std.mem.indexOfScalar(u8, separators, relative[2]) != null);
 }
 
-fn isLink(a: Allocator, path: []const u8) !bool {
+fn isLink(_: Allocator, path: []const u8) !bool {
     var buffer: [std.fs.max_path_bytes]u8 = undefined;
-    const z = try a.dupeSentinel(u8, path, 0);
-    const rc = linux.readlink(z, &buffer, buffer.len);
-    return linux.errno(rc) == .SUCCESS;
+    return if (std.Io.Dir.cwd().readLink(getIo(), path, &buffer)) |_| true else |_| false;
 }
 
 /// `linkedComponent`: the first existing component below `directory` on the way to `path`, the file
 /// included, that is a symbolic link.
 pub fn linkedComponent(a: Allocator, directory: []const u8, path: []const u8) !?[]const u8 {
-    const relative = try std.fs.path.relativeAlloc(a, "/", null, directory, path);
+    const relative = try std.fs.path.relativeAlloc(a, directory, null, directory, path);
     var current: []const u8 = directory;
-    var parts = std.mem.tokenizeScalar(u8, relative, '/');
+    var parts = std.mem.tokenizeAny(u8, relative, separators);
     while (parts.next()) |part| {
         current = try std.fs.path.join(a, &.{ current, part });
         if (try isLink(a, current)) return current;
@@ -61,97 +64,123 @@ pub fn linkedComponent(a: Allocator, directory: []const u8, path: []const u8) !?
 /// `replaceable`: `path` is not an existing file (`File.Exists` is false for a directory), or it
 /// starts with `header`.
 fn replaceable(a: Allocator, path: []const u8, header: []const u8) !bool {
-    const fd = linux.open(try a.dupeSentinel(u8, path, 0), .{ .ACCMODE = .RDONLY, .CLOEXEC = true }, 0);
-    switch (linux.errno(fd)) {
-        .SUCCESS => {},
-        .NOENT, .NOTDIR => return true,
+    const io = getIo();
+    const file = std.Io.Dir.cwd().openFile(io, path, .{}) catch |err| switch (err) {
+        error.FileNotFound, error.NotDir => return true,
         else => return false,
-    }
-    defer _ = linux.close(@intCast(fd));
+    };
+    defer file.close(io);
+    if ((try file.stat(io)).kind == .directory) return true;
     const buffer = try a.alloc(u8, header.len);
     var filled: usize = 0;
     while (filled < buffer.len) {
-        const rc = linux.read(@intCast(fd), buffer[filled..].ptr, buffer.len - filled);
-        switch (linux.errno(rc)) {
-            .SUCCESS => {},
-            .ISDIR => return true,
+        const count = file.readStreaming(io, &.{buffer[filled..]}) catch |err| switch (err) {
+            error.EndOfStream => break,
             else => return false,
-        }
-        if (rc == 0) break;
-        filled += rc;
+        };
+        if (count == 0) break;
+        filled += count;
     }
     return filled == header.len and std.mem.eql(u8, buffer, header);
 }
 
-fn strerror(e: linux.E) []const u8 {
-    return @tagName(e);
+fn failure(a: Allocator, err: anyerror, operation: []const u8, name: []const u8) !Outcome {
+    if (err == error.SymLinkLoop or err == error.NotDir) return .{ .refused = try std.fmt.allocPrint(a, "output must not pass through a symbolic link or reparse point; {s} is one or is not a directory.", .{name}) };
+    return .{ .refused = try std.fmt.allocPrint(a, "I/O error: {s} {s} failed: {s}", .{ operation, name, @errorName(err) }) };
 }
 
-/// `ConfinedDirectory.failure`: a link or non-directory on the way, or the system's error.
-fn failure(a: Allocator, e: linux.E, operation: []const u8, name: []const u8) !Outcome {
-    if (e == .LOOP or e == .NOTDIR) return .{ .refused = try std.fmt.allocPrint(a, "output must not pass through a symbolic link or reparse point; {s} is one or is not a directory.", .{name}) };
-    // shortcut: the system's message is the errno name, not .NET's strerror text; parity leaves these cases out.
-    return .{ .refused = try std.fmt.allocPrint(a, "I/O error: {s} {s} failed: {s}", .{ operation, name, strerror(e) }) };
-}
-
-const directory_flags: linux.O = .{ .DIRECTORY = true, .CLOEXEC = true };
-
-/// `ConfinedDirectory.openBelow` and `writeFile`: `directory` (following links: the caller's anchor),
-/// then each parent below it without following links, creating missing ones, then `content` into a
-/// new temporary file there, renamed over the target name.
+/// Every descendant is opened relative to the retained parent handle and refuses links.
 fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u8, name: []const u8, content: []const u8, snapshot: bool, exclusive: bool) !Outcome {
-    var current: i32 = blk: {
-        const fd = linux.openat(linux.AT.FDCWD, try a.dupeSentinel(u8, directory, 0), directory_flags, 0);
-        if (linux.errno(fd) != .SUCCESS) return failure(a, linux.errno(fd), "open", directory);
-        break :blk @intCast(fd);
-    };
-    defer _ = linux.close(current);
+    const io = getIo();
+    var current = std.Io.Dir.cwd().openDir(io, directory, .{}) catch |err| return failure(a, err, "open", directory);
+    defer current.close(io);
     for (parents) |part| {
-        const z = try a.dupeSentinel(u8, part, 0);
-        var flags = directory_flags;
-        flags.NOFOLLOW = true;
-        var fd = linux.openat(current, z, flags, 0);
-        var e = linux.errno(fd);
-        if (e == .NOENT) {
-            // The last call's error is reported, as `Marshal.GetLastPInvokeError` reads it.
-            e = linux.errno(linux.mkdirat(current, z, 0o777));
-            if (e == .SUCCESS or e == .EXIST) {
-                fd = linux.openat(current, z, flags, 0);
-                e = linux.errno(fd);
-            }
+        const next = current.openDir(io, part, .{ .follow_symlinks = false }) catch |err| blk: {
+            if (err != error.FileNotFound) return failure(a, err, "open", part);
+            current.createDir(io, part, .default_dir) catch |create_err| switch (create_err) {
+                error.PathAlreadyExists => {},
+                else => return failure(a, create_err, "create", part),
+            };
+            break :blk current.openDir(io, part, .{ .follow_symlinks = false }) catch |open_err| return failure(a, open_err, "open", part);
+        };
+        // Windows opens the reparse point itself; reject it before using it as a parent.
+        const stat = next.stat(io) catch |err| {
+            next.close(io);
+            return failure(a, err, "stat", part);
+        };
+        if (stat.kind != .directory) {
+            next.close(io);
+            return failure(a, error.NotDir, "open", part);
         }
-        if (e != .SUCCESS) return failure(a, e, "open", part);
-        _ = linux.close(current);
-        current = @intCast(fd);
+        current.close(io);
+        current = next;
     }
     var random: [16]u8 = undefined;
-    if (linux.getrandom(&random, random.len, 0) != random.len) return .{ .refused = "I/O error: no random bytes for a temporary name." };
-    // Viewer names stay short; snapshot temporaries match the startup recovery sweep.
-    const temporary = if (snapshot)
-        try std.fmt.allocPrintSentinel(a, ".{s}.{x}.tmp", .{ name, random }, 0)
-    else
-        try std.fmt.allocPrintSentinel(a, ".nyrwvy-{x}.tmp", .{random}, 0);
-    const fd = linux.openat(current, temporary, .{ .ACCMODE = .WRONLY, .CREAT = true, .EXCL = true, .NOFOLLOW = true, .CLOEXEC = true }, 0o666);
-    if (linux.errno(fd) != .SUCCESS) return failure(a, linux.errno(fd), "create", temporary);
+    io.randomSecure(&random) catch return .{ .refused = "I/O error: no random bytes for a temporary name." };
+    const temporary = if (snapshot) try std.fmt.allocPrint(a, ".{s}.{x}.tmp", .{ name, random }) else try std.fmt.allocPrint(a, ".nyrwvy-{x}.tmp", .{random});
+    const file = current.createFile(io, temporary, .{ .exclusive = true }) catch |err| return failure(a, err, "create", temporary);
     var renamed = false;
     defer if (!renamed) {
-        _ = linux.unlinkat(current, temporary, 0);
+        current.deleteFile(io, temporary) catch {};
     };
     {
-        defer _ = linux.close(@intCast(fd));
-        var written: usize = 0;
-        while (written < content.len) {
-            const rc = linux.write(@intCast(fd), content[written..].ptr, content.len - written);
-            if (linux.errno(rc) != .SUCCESS) return .{ .refused = try std.fmt.allocPrint(a, "I/O error: {s}", .{strerror(linux.errno(rc))}) };
-            written += rc;
-        }
-        if (linux.errno(linux.fsync(@intCast(fd))) != .SUCCESS) return .{ .refused = "I/O error: fsync failed." };
+        defer file.close(io);
+        file.writeStreamingAll(io, content) catch |err| return failure(a, err, "write", temporary);
+        file.sync(io) catch |err| return failure(a, err, "sync", temporary);
     }
-    const target = try a.dupeSentinel(u8, name, 0);
-    const rc = if (exclusive) linux.renameat2(current, temporary, current, target, .{ .NOREPLACE = true }) else linux.renameat(current, temporary, current, target);
-    if (linux.errno(rc) != .SUCCESS) return failure(a, linux.errno(rc), "rename", name);
+    if (exclusive) {
+        current.renamePreserve(temporary, current, name, io) catch |err| return failure(a, err, "rename", name);
+    } else current.rename(temporary, current, name, io) catch |err| return failure(a, err, "rename", name);
     renamed = true;
     return .{ .written = "" };
+}
+
+const Identity = struct { device: u64, inode: u64 };
+fn identity(io: std.Io, file: std.Io.File) !Identity {
+    const os = @import("builtin").os.tag;
+    if (os == .windows) {
+        const w = std.os.windows;
+        var status: w.IO_STATUS_BLOCK = undefined;
+        var volume: w.FILE.FS_VOLUME_INFORMATION = undefined;
+        while (true) switch (w.ntdll.NtQueryVolumeInformationFile(file.handle, &status, &volume, @sizeOf(@TypeOf(volume)), .Volume)) {
+            .SUCCESS, .BUFFER_OVERFLOW => return .{ .device = volume.VolumeSerialNumber, .inode = @bitCast((try file.stat(io)).inode) },
+            .CANCELLED => try io.checkCancel(),
+            else => return error.FileIdentityUnavailable,
+        };
+    } else if (os == .linux) {
+        const linux = std.os.linux;
+        var stat: linux.Statx = undefined;
+        while (true) switch (linux.errno(linux.statx(file.handle, "", linux.AT.EMPTY_PATH, .{ .INO = true }, &stat))) {
+            .SUCCESS => {
+                if (!stat.mask.INO) return error.FileIdentityUnavailable;
+                return .{ .device = @as(u64, stat.dev_major) << 32 | stat.dev_minor, .inode = stat.ino };
+            },
+            .INTR => try io.checkCancel(),
+            else => return error.FileIdentityUnavailable,
+        };
+    } else {
+        var stat: std.c.Stat = undefined;
+        while (true) switch (std.posix.errno(std.c.fstat(file.handle, &stat))) {
+            .SUCCESS => return .{ .device = @as(u32, @bitCast(stat.dev)), .inode = stat.ino },
+            .INTR => try io.checkCancel(),
+            else => return error.FileIdentityUnavailable,
+        };
+    }
+}
+/// Filesystem identity catches Unicode/case/normalization aliases without guessing its collation.
+pub fn sameFile(first: []const u8, second: []const u8) !bool {
+    const io = getIo();
+    const left = std.Io.Dir.cwd().openFile(io, first, .{ .follow_symlinks = false, .allow_directory = false }) catch |err| switch (err) {
+        error.FileNotFound, error.NotDir => return false,
+        else => return err,
+    };
+    defer left.close(io);
+    const right = std.Io.Dir.cwd().openFile(io, second, .{ .follow_symlinks = false, .allow_directory = false }) catch |err| switch (err) {
+        error.FileNotFound, error.NotDir => return false,
+        else => return err,
+    };
+    defer right.close(io);
+    return std.meta.eql(try identity(io, left), try identity(io, right));
 }
 
 /// Snapshot publication already holds the snapshot lock; unlike viewer output it replaces any file.
@@ -170,7 +199,7 @@ pub fn check(a: Allocator, snapshot_path: []const u8, requested: ?[]const u8, ex
         const resolved = try std.fs.path.resolveAlloc(a, &.{ directory, given });
         if (!try isInside(a, directory, resolved)) return .{ .refused = try std.fmt.allocPrint(a, "output must stay inside the snapshot's directory {s}; {s} resolves to {s}.", .{ directory, given, resolved }) };
         for ([_][]const u8{ "", ".lock", ".dependency.json", ".backends.json" }) |suffix| {
-            if (std.mem.eql(u8, resolved, try std.mem.concat(a, u8, &.{ snapshot_path, suffix }))) return .{ .refused = try std.fmt.allocPrint(a, "output must not replace the snapshot, its lock or its dependency or backends sidecar; {s} resolves to {s}.", .{ given, resolved }) };
+            if (if (windows) std.ascii.eqlIgnoreCase(resolved, try std.mem.concat(a, u8, &.{ snapshot_path, suffix })) else std.mem.eql(u8, resolved, try std.mem.concat(a, u8, &.{ snapshot_path, suffix }))) return .{ .refused = try std.fmt.allocPrint(a, "output must not replace the snapshot, its lock or its dependency or backends sidecar; {s} resolves to {s}.", .{ given, resolved }) };
         }
         break :blk resolved;
     } else try std.fs.path.join(a, &.{ directory, default_directory_name, default_name });
@@ -187,7 +216,7 @@ pub fn write(a: Allocator, snapshot_path: []const u8, requested: ?[]const u8, ex
         .internal => return .internal,
     };
     var components: std.ArrayList([]const u8) = .empty;
-    var parts = std.mem.tokenizeScalar(u8, try std.fs.path.relativeAlloc(a, "/", null, directory, path), '/');
+    var parts = std.mem.tokenizeAny(u8, try std.fs.path.relativeAlloc(a, directory, null, directory, path), separators);
     while (parts.next()) |part| try components.append(a, part);
     const outcome = try writeConfined(a, directory, components.items[0 .. components.items.len - 1], components.items[components.items.len - 1], content, false, false);
     return switch (outcome) {
@@ -234,4 +263,53 @@ test "exclusive snapshot creation preserves an existing destination and removes 
         count += 1;
     }
     try std.testing.expectEqual(@as(usize, 1), count);
+}
+
+test "portable atomic publication preserves an existing target and cleans temporary files" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+    var temporary = std.testing.tmpDir(.{ .iterate = true });
+    defer temporary.cleanup();
+    const directory = try temporary.dir.realPathFileAlloc(io, ".", a);
+    const target = try std.fs.path.join(a, &.{ directory, "snapshot.json" });
+    try std.testing.expect((try createAtomic(a, target, "first")).written.len == 0);
+    try std.testing.expect((try createAtomic(a, target, "lost")) == .refused);
+    try std.testing.expectEqualStrings("first", try temporary.dir.readFileAlloc(io, "snapshot.json", a, .unlimited));
+    try std.testing.expect((try replaceAtomic(a, target, "next")) == .written);
+    try std.testing.expectEqualStrings("next", try temporary.dir.readFileAlloc(io, "snapshot.json", a, .unlimited));
+    var entries = temporary.dir.iterate();
+    var count: usize = 0;
+    while (try entries.next(io)) |entry| {
+        try std.testing.expectEqualStrings("snapshot.json", entry.name);
+        count += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 1), count);
+}
+
+test "publication identity distinguishes files and detects filesystem aliases" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const io = std.testing.io;
+    var temporary = std.testing.tmpDir(.{});
+    defer temporary.cleanup();
+    const directory = try temporary.dir.realPathFileAlloc(io, ".", a);
+    const first = try std.fs.path.join(a, &.{ directory, "Generated.cs" });
+    const other = try std.fs.path.join(a, &.{ directory, "Other.cs" });
+    const case_alias = try std.fs.path.join(a, &.{ directory, "generated.cs" });
+    try std.testing.expect(!try sameFile(first, case_alias));
+    _ = try createAtomic(a, first, "implementation");
+    _ = try createAtomic(a, other, "other");
+    try std.testing.expect(try sameFile(first, first));
+    try std.testing.expect(!try sameFile(first, other));
+    const case_exists = if (temporary.dir.statFile(io, "generated.cs", .{})) |_| true else |_| false;
+    try std.testing.expectEqual(case_exists, try sameFile(first, case_alias));
+    const composed = try std.fs.path.join(a, &.{ directory, "\u{e9}.cs" });
+    const decomposed = try std.fs.path.join(a, &.{ directory, "e\u{301}.cs" });
+    _ = try createAtomic(a, composed, "unicode implementation");
+    const normalized_exists = if (temporary.dir.statFile(io, "e\u{301}.cs", .{})) |_| true else |_| false;
+    try std.testing.expectEqual(normalized_exists, try sameFile(composed, decomposed));
+    try std.testing.expectEqualStrings("implementation", try temporary.dir.readFileAlloc(io, "Generated.cs", a, .unlimited));
 }

@@ -12,7 +12,7 @@
   ],
   "scripts": {
     "build:host": "node scripts/build-zig-host.mjs",
-    "test:host": "fish scripts/test-typed-host.fish",
+    "test:host": "node scripts/test-typed-host.mjs",
     "typecheck": "npm run typecheck:adapters && npm run typecheck:bun",
     "typecheck:adapters": "tsc --project tsconfig.adapters.json",
     "typecheck:bun": "tsc --project tsconfig.bun.json",

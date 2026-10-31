@@ -2,6 +2,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const lifetime = @import("process_lifetime.zig");
+const windows = @import("builtin").os.tag == .windows;
 pub const Diagnostic = struct { code: []const u8, message: []const u8 };
 
 var compiler: []const u8 = "zig";
@@ -13,13 +14,14 @@ var compiler_digest: [32]u8 = undefined;
 
 pub fn init(a: Allocator, io: std.Io, env: *const std.process.Environ.Map) !void {
     compiler = env.get("NYRWVY_ZIG") orelse "zig";
-    executable_search = env.get("PATH") orelse "/usr/bin:/bin";
+    executable_search = env.get("PATH") orelse if (windows) "" else "/usr/bin:/bin";
     if (compiler.len == 0) compiler = "zig";
     const build_info = @import("build_info");
     const repository_root: ?[]const u8 = if (@hasDecl(build_info, "repository_root")) build_info.repository_root else null;
     directory = repository_root orelse try std.process.currentPathAlloc(io, a);
     const root = if (env.get("XDG_CACHE_HOME")) |path| (if (path.len > 0) path else null) else null;
-    cache = try std.fs.path.join(a, &.{ root orelse try std.fs.path.join(a, &.{ env.get("HOME") orelse ".", ".cache" }), "nyrwvy", "zig-runners" });
+    const base = root orelse if (windows) env.get("LOCALAPPDATA") orelse return error.CacheDirectoryUnavailable else try std.fs.path.join(a, &.{ env.get("HOME") orelse ".", ".cache" });
+    cache = try std.fs.path.join(a, &.{ base, "nyrwvy", "zig-runners" });
 }
 
 pub const Outcome = union(enum) { completed: std.process.RunResult, failed: Diagnostic };
@@ -30,7 +32,7 @@ fn collected(a: Allocator, io: std.Io, spawned: std.process.Child, done: *std.Io
     defer {
         lifetime.unregister(io, .foreground);
         // std.Child.kill sends SIGTERM, which arbitrary compiler wrappers can ignore.
-        if (child.id) |pid| _ = std.os.linux.kill(-pid, .KILL);
+        lifetime.kill(io, .foreground);
         child.kill(io);
     }
     var buffers: std.Io.File.MultiReader.Buffer(2) = undefined;
@@ -47,12 +49,7 @@ fn collected(a: Allocator, io: std.Io, spawned: std.process.Child, done: *std.Io
     }
     try streams.checkAnyError();
     // Keep the leader unreaped until the monitor can no longer signal its group ID.
-    var info: std.os.linux.siginfo_t = undefined;
-    while (true) switch (std.os.linux.errno(std.os.linux.waitid(.PID, child.id.?, &info, std.os.linux.W.EXITED | std.os.linux.W.NOWAIT, null))) {
-        .SUCCESS => break,
-        .INTR => try io.checkCancel(),
-        else => return error.Unexpected,
-    };
+    try lifetime.waitForExit(io, &child);
     lifetime.unregister(io, .foreground);
     const term = try child.wait(io);
     return .{ .term = term, .stdout = try streams.toOwnedSlice(0), .stderr = try streams.toOwnedSlice(1) };
@@ -67,21 +64,19 @@ pub fn launch(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []const u
 
 /// Managed text may use four bytes per UTF-16 unit; its caller applies the decoded text limit.
 pub fn launchBounded(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []const u8, phase: []const u8, seconds: i64, max_bytes: usize) !Outcome {
-    var child = std.process.spawn(io, .{ .argv = argv, .cwd = .{ .path = cwd }, .stdin = .ignore, .stdout = .pipe, .stderr = .pipe, .pgid = 0 }) catch |e|
+    var child = lifetime.spawn(io, .foreground, .{ .argv = argv, .cwd = .{ .path = cwd }, .stdin = .ignore, .stdout = .pipe, .stderr = .pipe }) catch |e|
         return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };
-    const pid = child.id.?;
-    lifetime.register(io, .foreground, pid);
     var done: std.Io.Event = .unset;
     var running = io.concurrent(collected, .{ a, io, child, &done, max_bytes }) catch |e| {
         lifetime.unregister(io, .foreground);
-        _ = std.os.linux.kill(-pid, .KILL);
+        lifetime.kill(io, .foreground);
         child.kill(io);
         return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };
     };
     const deadline: std.Io.Timeout = .{ .deadline = .fromNow(io, .{ .raw = .fromSeconds(seconds), .clock = .awake }) };
     while (!done.isSet()) done.waitTimeout(io, deadline) catch |e| {
         if (e == error.Timeout and std.Io.Clock.Timestamp.compare(.now(io, .awake), .lt, deadline.toTimestamp(io).?)) continue;
-        _ = std.os.linux.kill(-pid, .KILL);
+        lifetime.kill(io, .foreground);
         _ = running.await(io) catch {};
         return .{ .failed = .{ .code = "RunTimeout", .message = try std.fmt.allocPrint(a, "The {s} exceeded its time limit of {d} s.", .{ phase, seconds }) } };
     };
@@ -100,16 +95,16 @@ pub fn processFailure(a: Allocator, result: std.process.RunResult) !Diagnostic {
 }
 
 fn privateDirectory(io: std.Io, path: []const u8) !void {
-    _ = try std.Io.Dir.cwd().createDirPathStatus(io, path, .fromMode(0o700));
+    _ = try std.Io.Dir.cwd().createDirPathStatus(io, path, if (windows) .default_dir else .fromMode(0o700));
 }
 
 pub const Built = union(enum) { executable: []const u8, failed: Diagnostic };
 
 fn invokedCompiler(a: Allocator, io: std.Io) !?[]const u8 {
-    if (std.mem.indexOfScalar(u8, compiler, '/') != null) return try std.fs.path.resolveAlloc(a, &.{ directory, compiler });
-    var paths = std.mem.splitScalar(u8, executable_search, ':');
+    if (std.mem.indexOfScalar(u8, compiler, '/') != null or (windows and std.mem.indexOfScalar(u8, compiler, '\\') != null)) return try std.fs.path.resolveAlloc(a, &.{ directory, compiler });
+    var paths = std.mem.splitScalar(u8, executable_search, std.fs.path.delimiter);
     while (paths.next()) |part| {
-        const path = try std.fs.path.resolveAlloc(a, &.{ directory, part, compiler });
+        const path = try std.fs.path.resolveAlloc(a, &.{ directory, part, if (windows and !std.ascii.endsWithIgnoreCase(compiler, ".exe")) try std.mem.concat(a, u8, &.{ compiler, ".exe" }) else compiler });
         if (std.Io.Dir.cwd().access(io, path, .{ .execute = true })) |_| return path else |_| {}
     }
     return null;
@@ -152,20 +147,23 @@ pub fn build(a: Allocator, io: std.Io, source: []const u8) !Built {
     hash.final(&digest);
     const stem = std.fmt.bytesToHex(digest, .upper);
     const target = try std.fs.path.join(a, &.{ cache, &stem });
-    const binary = try std.fs.path.join(a, &.{ target, "runner" });
+    const binary = try std.fs.path.join(a, &.{ target, if (windows) "runner.exe" else "runner" });
     if (std.Io.Dir.cwd().statFile(io, binary, .{})) |stat| {
         if (stat.kind == .file) return .{ .executable = binary };
     } else |_| {}
     try privateDirectory(io, cache);
     try privateDirectory(io, target);
     const input = try std.fs.path.join(a, &.{ target, "runner.zig" });
-    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = input, .data = source, .flags = .{ .permissions = .fromMode(0o600) } });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = input, .data = source, .flags = .{ .permissions = if (windows) .default_file else .fromMode(0o600) } });
     var random: [16]u8 = undefined;
     io.random(&random);
     const suffix = std.fmt.bytesToHex(random, .lower);
-    const partial = try std.fmt.allocPrint(a, "{s}.{s}", .{ binary, suffix });
+    const partial = try std.fmt.allocPrint(a, "{s}.{s}{s}", .{ binary, suffix, if (windows) ".exe" else "" });
     defer std.Io.Dir.cwd().deleteFile(io, partial) catch {};
-    const built = switch (try launch(a, io, &.{ compiler, "build-exe", input, "-O", "ReleaseSafe", "--cache-dir", try std.fs.path.join(a, &.{ cache, "cache" }), try std.mem.concat(a, u8, &.{ "-femit-bin=", partial }) }, directory, "Zig build", 300)) {
+    var arguments: std.ArrayList([]const u8) = .empty;
+    try arguments.appendSlice(a, &.{ compiler, "build-exe", input, "-O", "ReleaseSafe", "--cache-dir", try std.fs.path.join(a, &.{ cache, "cache" }), try std.mem.concat(a, u8, &.{ "-femit-bin=", partial }) });
+    if (@import("builtin").os.tag == .macos) try arguments.append(a, "-lc");
+    const built = switch (try launch(a, io, arguments.items, directory, "Zig build", 300)) {
         .failed => |failure| return .{ .failed = failure },
         .completed => |result| result,
     };
@@ -175,6 +173,7 @@ pub fn build(a: Allocator, io: std.Io, source: []const u8) !Built {
 }
 
 test "compiler child is bounded even after closing its output streams" {
+    if (@import("builtin").os.tag != .linux) return error.SkipZigTest;
     const a = std.testing.allocator;
     const io = std.testing.io;
     var temporary = std.testing.tmpDir(.{});
@@ -200,6 +199,7 @@ test "compiler child is bounded even after closing its output streams" {
 }
 
 test "child output is bounded while both redirected streams drain" {
+    if (windows) return error.SkipZigTest;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try launch(arena.allocator(), std.testing.io, &.{ "/bin/sh", "-c", "head -c 1048577 /dev/zero; head -c 1048577 /dev/zero >&2" }, ".", "pure function", 5);
@@ -208,6 +208,7 @@ test "child output is bounded while both redirected streams drain" {
 }
 
 test "both child streams drain beyond pipe capacity without deadlock" {
+    if (windows) return error.SkipZigTest;
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const result = try launch(arena.allocator(), std.testing.io, &.{ "/bin/sh", "-c", "head -c 900000 /dev/zero & head -c 900000 /dev/zero >&2 & wait" }, ".", "pure function", 5);
@@ -230,4 +231,19 @@ test "compiler diagnostics decode malformed text before a UTF16 prefix reaches t
     try std.testing.expectEqual(@as(usize, 4096), @import("managed_text.zig").units(clipped.message));
     try std.testing.expect(std.mem.endsWith(u8, clipped.message, "�"));
     try std.testing.expect(std.unicode.utf8ValidateSlice(clipped.message));
+}
+
+test "owned process trees close inherited output pipes on timeout" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const io = std.testing.io;
+    const started = std.Io.Clock.Timestamp.now(io, .awake);
+    const argv: []const []const u8 = if (windows)
+        &.{ "cmd.exe", "/d", "/c", "ping -n 30 127.0.0.1" }
+    else
+        &.{ "/bin/sh", "-c", "trap '' TERM INT; sleep 30" };
+    const outcome = try launch(arena.allocator(), io, argv, ".", "pure function", 1);
+    try std.testing.expect(outcome == .failed);
+    try std.testing.expectEqualStrings("RunTimeout", outcome.failed.code);
+    try std.testing.expect(started.durationTo(.now(io, .awake)).raw.nanoseconds < 10 * std.time.ns_per_s);
 }

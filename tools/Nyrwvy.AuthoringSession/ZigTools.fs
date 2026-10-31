@@ -143,17 +143,18 @@ module internal ZigTools =
                         |> List.map sourceText
                         |> String.concat "\u0000\u0000"
                     // `-O` is a per-module option: it applies to the module defined after it.
-                    let roots =
+                    let moduleRoots =
                         if imported.IsEmpty then [ Path.Combine(sources, "main.zig"); "-O"; "ReleaseSafe" ]
                         else
                             [ yield! [ "-O"; "ReleaseSafe" ]
                               for moduleName, _, _ in imported do yield! [ "--dep"; moduleName ]
                               yield "-Mroot=" + Path.Combine(sources, "main.zig")
                               for moduleName, parts, root in imported do yield! [ "-O"; "ReleaseSafe"; $"-M{moduleName}=" + Path.Combine(below parts, root) ] ]
+                    let roots = if OperatingSystem.IsMacOS() then "-lc" :: moduleRoots else moduleRoots
                     // The build options are part of the key, so a build made with other options is not reused.
                     let options = String.Join(" ", roots |> List.map (fun arg -> if arg.EndsWith ".zig" then Path.GetFileName(Path.GetDirectoryName arg) else arg))
                     let target = Path.Combine(cache, name + "-" + (sha256Hex (text + "\u0000" + options)).Substring(0, 32))
-                    let built = Path.Combine(target, name)
+                    let built = Path.Combine(target, name + (if OperatingSystem.IsWindows() then ".exe" else ""))
                     let result =
                         if File.Exists built then Ok()
                         else

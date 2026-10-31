@@ -6,7 +6,7 @@ const model_reader = @import("model_reader");
 const snapshot_reader = @import("snapshot_reader");
 const wire = @import("wire.zig");
 const query = @import("query.zig");
-const ids = @import("ids.zig");
+pub const ids = @import("ids.zig");
 const proposals = @import("proposals.zig");
 
 /// The open snapshot: what `status` reports, the model (merged with the dependency, if any) and
@@ -950,9 +950,9 @@ pub fn combineMembers(a: std.mem.Allocator, members: []const Dependency) Startup
 }
 
 pub fn main(init: std.process.Init) !void {
-    ids.init(init.environ_map.get("NYRWVY_TEST_ID_SEED"));
     const process_arena = init.arena.allocator();
     host_io = init.io;
+    ids.init(init.io, init.environ_map.get("NYRWVY_TEST_ID_SEED"));
     const all = try init.minimal.args.toSlice(process_arena);
     for (all[1..]) |arg| if (std.mem.eql(u8, arg, "--allow-host-sources")) {
         host_sources_allowed = true;
@@ -1075,6 +1075,9 @@ comptime {
         _ = @import("operation_model.zig");
         _ = @import("run_value.zig");
         _ = @import("structural_migration.zig");
+        _ = @import("ids.zig");
+        _ = @import("run_csharp_build.zig");
+        _ = @import("recipe_file.zig");
     }
 }
 

@@ -36,7 +36,7 @@ fn retire(io: std.Io) void {
     const w = current orelse return;
     current = null;
     lifetime.unregister(io, .worker);
-    if (w.child.id) |pid| _ = std.os.linux.kill(-pid, .KILL);
+    lifetime.kill(io, .worker);
     w.child.kill(io);
     if (w.errors) |*task| _ = task.cancel(io) catch {};
     w.errors_file.close(io);
@@ -81,7 +81,7 @@ fn exchange(a: A, io: std.Io, w: *Worker, request: ?[]const u8, seconds: i64, ph
     while (!done.isSet()) done.waitTimeout(io, deadline) catch |e| {
         if (e == error.Timeout and std.Io.Clock.Timestamp.compare(.now(io, .awake), .lt, deadline.toTimestamp(io).?)) continue;
         // Killing first releases any inherited pipe handles before the reader is joined.
-        if (w.child.id) |pid| _ = std.os.linux.kill(-pid, .KILL);
+        lifetime.kill(io, .worker);
         _ = task.await(io) catch {};
         return .{ .failed = .{ .code = if (request == null) "RunStartupFailure" else "RunTimeout", .message = try std.fmt.allocPrint(a, "The {s} exceeded its time limit of {d} s.", .{ phase, seconds }) } };
     };
@@ -98,12 +98,11 @@ pub fn run(a: A, io: std.Io, worker_assembly: []const u8, assembly: []const u8, 
     if (current) |w| if (w.served >= 64) retire(io);
     if (current == null) {
         const w = try std.heap.page_allocator.create(Worker);
-        w.* = .{ .arena = .init(std.heap.page_allocator), .child = std.process.spawn(io, .{ .argv = &.{ @import("run_csharp_build.zig").dotnet, worker_assembly }, .cwd = .{ .path = std.fs.path.dirname(worker_assembly).? }, .stdin = .pipe, .stdout = .pipe, .stderr = .pipe, .pgid = 0 }) catch |e| {
+        w.* = .{ .arena = .init(std.heap.page_allocator), .child = lifetime.spawn(io, .worker, .{ .argv = &.{ @import("run_csharp_build.zig").dotnet, worker_assembly }, .cwd = .{ .path = std.fs.path.dirname(worker_assembly).? }, .stdin = .pipe, .stdout = .pipe, .stderr = .pipe }) catch |e| {
             std.heap.page_allocator.destroy(w);
             return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };
         }, .last = .now(io, .awake) };
         current = w;
-        lifetime.register(io, .worker, w.child.id.?);
         w.errors_file = w.child.stderr.?;
         w.child.stderr = null;
         w.errors = io.concurrent(stderrRead, .{ w, io }) catch |e| {
@@ -138,7 +137,7 @@ pub fn run(a: A, io: std.Io, worker_assembly: []const u8, assembly: []const u8, 
         const failure = reply.failed;
         if (std.mem.eql(u8, failure.code, "RunInvalidResult")) {
             lifetime.unregister(io, .worker);
-            if (w.child.id) |pid| _ = std.os.linux.kill(-pid, .KILL);
+            lifetime.kill(io, .worker);
             w.child.kill(io);
             const errors = if (w.errors) |*task| try a.dupe(u8, task.await(io) catch |e| @errorName(e)) else "";
             retire(io);

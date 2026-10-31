@@ -10,6 +10,10 @@ on:
         description: Also run the extended suites (scripts/test-extended.fish)
         type: boolean
         default: false
+      native_platforms:
+        description: Run only native host checks on Linux, macOS and Windows
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -20,6 +24,7 @@ permissions:
 
 jobs:
   foundation:
+    if: ${{ !inputs.native_platforms }}
     name: F# foundation build and fast tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -105,4 +110,38 @@ jobs:
       - name: Test extended suites
         if: ${{ inputs.extended }}
         run: fish scripts/test-extended.fish
+
+  host-platform-smoke:
+    if: ${{ inputs.native_platforms }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: '0.17.0'
+      - run: npm ci --no-audit --no-fund
+      - name: Prime the standalone C# compiler packages
+        run: dotnet build tools/zig/host/csharp/Compiler.csproj --configuration Release
+      - run: npm run build:host
+      - run: npm run test:host
+      - name: Test native process lifetime
+        run: zig test -O ReleaseSafe tools/zig/host/process_lifetime.zig ${{ runner.os == 'macOS' && '-lc' || '' }}
+      - name: Test atomic publication
+        run: zig test -O ReleaseSafe tools/zig/host/view_file.zig --test-filter "portable atomic publication" --test-filter "publication identity" ${{ runner.os == 'macOS' && '-lc' || '' }}
+      - name: Test native child cleanup
+        run: zig test -O ReleaseSafe ${{ runner.os == 'macOS' && '-lc' || '' }} --test-filter child --test-filter "owned process trees" --dep build_info -Mroot=tools/zig/host/run_process.zig -O ReleaseSafe -Mbuild_info=tools/zig/host/build_info.zig
+      - name: Exercise native storage and both runtime backends
+        run: node --experimental-strip-types scripts/test-native-platform.mjs
 
