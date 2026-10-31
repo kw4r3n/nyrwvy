@@ -194,6 +194,15 @@ Candidate `77338e1` (Step 5a), same Rhifill copy and startup measurement, median
 
 With `NYRWVY_RUNPURE_WARMUP=0`, F#'s resolved-workspace start was 615.5 ms. Both `ZigSpeed` tests passed. This measures startup only, not migration throughput; it is one machine/run, with other Step 5 work potentially loading the machine.
 
+Final Step 5 source `8691cf9`, same current Rhifill copy (456 KiB merged), median of 9 runs after one warm-up, on one machine with normal background load:
+
+| | F# host | Zig host |
+|---|---:|---:|
+| resolved workspace: spawn to first status reply | 640.5 | 53.1 |
+| merged model copy: spawn to first status reply | 537.2 | 55.9 |
+
+With `NYRWVY_RUNPURE_WARMUP=0`, F#'s resolved-workspace start was 641.9 ms. Both `ZigSpeed` tests passed in 30.09 s. These are startup measurements from one run, not migration throughput.
+
 ## F# and Zig on equal terms (2026-10-28)
 
 The same three tasks, from the same JSON files, in both languages:
