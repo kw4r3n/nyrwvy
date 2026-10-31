@@ -345,5 +345,21 @@ The final `ZigSpeed` run passed 3/3 in 1.0840 min after the typed-read migration
 | Tiny generated echo, C# backend: first | 1,437.5 | 3,849.9 |
 | Tiny generated echo, C# backend: repeated | 2.5 | 3.1 |
 
-These are single-machine measurements under uncontrolled background load; caches are uncontrolled, and first timings are not normalized. The Zig host queries compiler identity on each request, a known repeated-call cost. Treat these rows as observations only: they do not establish a general speedup or a regression against another run. The copied Rhifill C# smoke was repeated with the final native binary; it returned `focus_left` for `actionName` with input `4`, and all 92 original input hashes remained unchanged after benchmarking. The host cutover status and remaining supported-OS question are recorded in [zig-session-host.md](../../docs/decisions/zig-session-host.md).
+These are single-machine measurements under uncontrolled background load; caches are uncontrolled, and first timings are not normalized. The Zig host queries compiler identity on each request, a known repeated-call cost. Treat these rows as observations only: they do not establish a general speedup or a regression against another run. The copied Rhifill C# smoke was repeated with the final native binary; it returned `focus_left` for `actionName` with input `4`, and all 92 original input hashes remained unchanged after benchmarking. The host cutover status and held non-Linux runtime checks are recorded in [zig-session-host.md](../../docs/decisions/zig-session-host.md).
+
+## Step 8 Linux portability candidate benchmark (2026-10-31)
+
+The Linux portability-candidate `ZigSpeed` run passed 3/3 in 2.1222 min. Times are milliseconds:
+
+| Case | F# host (ms) | Native host (ms) |
+|---|---:|---:|
+| Rhifill resolved workspace: startup | 640.8 | 193.8 |
+| Rhifill resolved workspace: startup, F# warm-up off | 645.8 | — |
+| Rhifill merged model: startup | 542.0 | 177.9 |
+| Tiny generated echo, Zig backend: first | 15,238.5 | 16,860.1 |
+| Tiny generated echo, Zig backend: repeated | 0.9 | 221.0 |
+| Tiny generated echo, C# backend: first | 5,844.0 | 15,107.0 |
+| Tiny generated echo, C# backend: repeated | 20.0 | 14.8 |
+
+These are single-machine measurements under uncontrolled background load; caches are uncontrolled and first timings are not normalized. The Zig host queries compiler identity on each request, a known repeated-call cost. The 221.0 ms repeated Zig-backend observation is not by itself evidence of a general regression; the rows do not establish a general speedup or regression against another run. The copied Rhifill C# smoke passed with `actionName` and input `4`, returning `focus_left`; all 92 original input hashes remained unchanged after all benchmark runs. These measurements establish Linux behavior only; non-Linux native runtime checks are currently held, as recorded in [zig-session-host.md](../../docs/decisions/zig-session-host.md).
 
