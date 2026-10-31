@@ -170,7 +170,7 @@ fn nyTextToken(text: []const u8) []const u8 {
 
 /// Writes a value's input tokens, comma separated, exactly as the authoring session writes an
 /// argument, so a call's key compares equal to a keyed case's.
-fn nyTokens(w: *std.Io.Writer, first: *bool, value: anytype) !void {
+fn nyTokens(w: *std.Io.Writer, first: *bool, value: anytype) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .int => try nyToken(w, first, "{d}", .{value}),
@@ -289,7 +289,7 @@ fn nyRespond(comptime R: type, script: *NyScript(R), arguments: anytype) NyError
     }
 }
 
-fn nyEncode(out: *std.Io.Writer, value: anytype) !void {
+fn nyEncode(out: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .int => try out.print("{d}", .{value}),

@@ -1539,6 +1539,21 @@ pub fn executionIrOf(allocator: std.mem.Allocator, root: Value) ?[]const u8 {
     return executionIr(root) catch null;
 }
 
+/// Entry projection and lowering for runPure, using the command-line lowering's selection.
+pub const ExecutionResult = union(enum) { ir: []const u8, projection: []const u8, lowering: []const u8 };
+pub fn executionForEntry(allocator: std.mem.Allocator, root: Value, entry: ?[]const u8) ExecutionResult {
+    a = allocator;
+    const was = validated_input;
+    validated_input = true;
+    defer validated_input = was;
+    const selected = if (entry) |id| selectEntry(root, std.unicode.utf8ToUtf16LeAlloc(a, id) catch oom()) else root;
+    const ir = executionIr(selected) catch |e| {
+        const name = lowering_failure[0 .. std.mem.indexOfScalar(u8, lowering_failure, ':') orelse lowering_failure.len];
+        return if (e == error.Lowering) .{ .lowering = lowering_failure } else .{ .projection = name };
+    };
+    return .{ .ir = ir };
+}
+
 /// The functions a node names (`SemanticNodeShape.functionReferences`), decoded, in payload order,
 /// each with whether it is invoked (`FunctionReferenceRole.isInvoked`).
 pub const FunctionRelation = struct { id: Str, invoked: bool, non_call_label: ?[]const u8 };

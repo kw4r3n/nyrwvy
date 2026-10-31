@@ -9,7 +9,7 @@
 ## Decision
 
 - **Zig tools live under `tools/zig/<tool>/`** and build with the Zig pinned in `mise.toml` (0.17.0), one `zig build-exe main.zig` each, with no `build.zig` and no dependencies beyond `std`.
-- **The emitter (`tools/zig/emitter`) is a port of `ZigBackend.runner`**: the program (`emit`), its scripted fakes (`fakeCapabilities`) and the runner's `main`, which dispatches every runnable function, or only the entry named after the IR file, decoding each argument from the command line. It reads one Execution IR JSON file (the form `ExecutionIrSerializer` writes) and prints the complete runner on standard output (exit 0), or the unsupported constructs one per line (exit 2). Anything else is a failure.
+- **The emitter (`tools/zig/emitter`) is a port of `ZigBackend.runner`**: the program (`emit`), its scripted fakes (`fakeCapabilities`) and the runner's `main`, which dispatches every runnable function, or only the entry named after the IR file, decoding each argument from the command line. It reads one Execution IR JSON file (the form `ExecutionIrSerializer` writes) and prints the complete runner on standard output (exit 0), or one JSON string per unsupported construct on standard output (exit 2); JSON escaping keeps a multiline diagnostic within one line. `PureRun` decodes each JSON string and preserves the diagnostic’s original line breaks. Anything else is a failure.
 - **runPure's Zig route uses it.** The authoring session builds it once per process into the per-user runner cache (`emitter-<hash of its sources>`, moved into place after the build), writes the IR to a temporary file there and reads the runner back, keeping it in memory by emitter build, entry and IR hash so a repeated run skips the tool (the emitter check still compares every call); F# keeps only the run itself (argument tokens, the build of the runner, the reply). The first stage ported `emit` and `fakeCapabilities` alone; the second (same day) moved the runner's `main`, entry selection, `typeOf` and `fakeArgument` too, so the route's code generation is entirely in Zig.
 - **The F# emitter stays as the reference for this stage.** With `NYRWVY_ZIG_EMITTER_CHECK` set (the extended test settings set it), the Zig route also runs the F# emitter and fails with `RunBackendMismatch` on any byte difference, or when only one of them rejects the program; the message lists of two rejections are not compared. So every Zig parity test (`ZigBackendTests`) is also an emitter parity test, and one more test emits every repository snapshot, whole and per entry, through both.
 - **Shared text is one file.** The runtime the emitter copies into every program is `tools/zig/emitter/runtime.zig` (and the runner's token and envelope support `runner_support.zig`), embedded in the F# assembly as a resource and in the Zig emitter by `@embedFile`. The case-mapping runs are computed from .NET's Unicode data in F#, the mapping the C# backend applies; the Zig emitter embeds a generated copy (`case_mapping.zig`), and a fast test fails when it differs from what .NET computes.
@@ -18,7 +18,7 @@
 
 Its output had to become a function of the IR JSON alone, so the Zig port can reproduce it. Neither change alters what a program does.
 
-- **Order:** functions, blocks, capabilities and operations, jump arguments, `ProductUpdate` fields and callback contexts are taken in the order the IR JSON lists them (sorted by ID), not in the in-memory list order.
+- **Order:** functions, blocks, capabilities and operations, jump arguments, `ProductUpdate` fields and callback contexts are taken in the order the IR JSON lists them (sorted by ID). The Zig emitter uses the same ordinal UTF-16 code-unit ordering as F# `String.CompareOrdinal`, including supplementary characters.
 - **Instance names:** a generic instance's suffix hashes the IR JSON of its type arguments instead of F#'s `%A` text, which only .NET can produce. The Zig emitter writes that JSON itself, with System.Text.Json's default escaping, because substituted type arguments are not in its input.
 
 ## Reason
@@ -29,10 +29,9 @@ The emitter's input and output are both text with a byte-exact reference, so the
 
 - runPure's Zig route needs the repository's `tools/zig/emitter` beside `mise.toml` (the place `zigDirectory` already finds); the first Zig run in a process may build the emitter (a few seconds, cached after).
 - A change to the emitter is made in both languages until the F# one is retired; the extended suite reports any difference.
-- Unsupported-construct messages name a type by its IR JSON on the Zig route, not by F#'s `%A` text.
+- Unsupported-construct diagnostics use F# `TypeRef` display spelling, including its multiline form; each complete diagnostic is JSON-string encoded on one stdout line and decoded by the matching `PureRun` path.
 - The emitted source now crosses a process boundary, so runPure's 1 MiB output limit (`RunOutputTooLarge`) applies to it; the runtime and case mapping take about 70 KB, so only very large programs reach it.
 - The check covers only the instruction kinds the extended suite reaches; on 2026-10-27 that is all 192 the emitter knows (one test exists only to reach the kinds no other Zig test used). A new kind needs a checked program too.
-- Strings compare by UTF-8 bytes in Zig and by UTF-16 code units in F#; the two orders differ only beyond the Basic Multilingual Plane, which stable IDs never use.
 
 ## Second tool: the snapshot reader
 

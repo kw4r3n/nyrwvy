@@ -1211,7 +1211,14 @@ module PureRun =
                 |> Result.bind (fun (code, output, errors) ->
                     match code with
                     | 0 -> Ok(Ok output)
-                    | 2 -> Ok(Error(output.Split('\n', StringSplitOptions.RemoveEmptyEntries) |> List.ofArray))
+                    | 2 ->
+                        // A diagnostic can contain TypeRef's multiline display; each line frames one JSON string.
+                        try
+                            let problems = output.Split('\n', StringSplitOptions.RemoveEmptyEntries) |> Array.map JsonSerializer.Deserialize<string>
+                            if problems.Length = 0 || Array.exists isNull problems then
+                                Error(diagnostic "RunInvalidResult" "The Zig emitter did not return its diagnostics.")
+                            else Ok(Error(List.ofArray problems))
+                        with :? JsonException -> Error(diagnostic "RunInvalidResult" "The Zig emitter did not return its diagnostics.")
                     | _ -> Error(processFailure output errors))
                 |> Result.map (fun output ->
                     lock emitCache (fun () ->

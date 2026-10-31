@@ -28,6 +28,73 @@ type ZigSpeed(output: ITestOutputHelper) =
         try f () finally Environment.SetEnvironmentVariable("NYRWVY_SNAPSHOT_READER", null)
 
     [<Fact; Trait("Suite", "Benchmark")>]
+    member _.``ZigSpeed: runPure Zig backend through both hosts`` () =
+        let dir = Path.Combine(ZigTools.cache, "speed-run-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory dir |> ignore
+        try
+            let path = Path.Combine(dir, "workspace.json")
+            do
+                use session = AuthoringSession.createNew path |> ok
+                let request line =
+                    use reply = Text.Json.JsonDocument.Parse(AuthoringProtocol.executeLine session line)
+                    Assert.True(reply.RootElement.GetProperty("ok").GetBoolean(), reply.RootElement.GetRawText())
+                    reply.RootElement.GetProperty("result").Clone()
+                let created = request """{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"echo","parameters":[{"displayName":"value","type":{"kind":"primitive","primitive":"string"}}],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"kind":"parameter","name":"value"}}"""
+                let proposalId = created.GetProperty("proposalId").GetString()
+                request $"""{{"id":"m","op":"commit","proposalId":"{proposalId}"}}""" |> ignore
+            let dll = Path.Combine(ZigModelReaderSupport.root (), "tools", "Nyrwvy.AuthoringSession", "bin", "Release", "net10.0", "Nyrwvy.AuthoringSession.dll")
+            if not (File.Exists dll) then failwithf "%s is not built (dotnet build -c Release)" dll
+            let zigHost = tool "host"
+            let runHost label exe args =
+                let info = ProcessStartInfo(exe, args @ [ "open"; "--snapshot"; path; "--read-only" ])
+                info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
+                info.RedirectStandardInput <- true
+                info.RedirectStandardOutput <- true
+                info.RedirectStandardError <- true
+                use host = Process.Start info
+                let errors = host.StandardError.ReadToEndAsync()
+                let read () =
+                    let reading = host.StandardOutput.ReadLineAsync()
+                    if not (reading.Wait(TimeSpan.FromMinutes 6.)) then
+                        host.Kill true
+                        failwithf "%s timed out" label
+                    let line = reading.Result
+                    if isNull line then failwithf "%s exited before replying" label
+                    line
+                let run () =
+                    host.StandardInput.WriteLine """{"id":"r","op":"runPureByName","function":"echo","backend":"zig","arguments":["hello"],"expected":"hello"}"""
+                    host.StandardInput.Flush()
+                    let line = read ()
+                    use reply = Text.Json.JsonDocument.Parse line
+                    Assert.True(reply.RootElement.GetProperty("ok").GetBoolean(), line)
+                    let result = reply.RootElement.GetProperty("result")
+                    Assert.Equal("hello", result.GetProperty("actual").GetProperty("value").GetString())
+                    Assert.True(result.GetProperty("matches").GetBoolean())
+                try
+                    host.StandardInput.WriteLine """{"id":"s","op":"status"}"""
+                    host.StandardInput.Flush()
+                    use status = Text.Json.JsonDocument.Parse(read ())
+                    Assert.True(status.RootElement.GetProperty("ok").GetBoolean(), status.RootElement.GetRawText())
+                    let first = Stopwatch.StartNew()
+                    run ()
+                    let firstMs = first.Elapsed.TotalMilliseconds
+                    let repeated = median run
+                    host.StandardInput.Close()
+                    if not (host.WaitForExit 10000) then host.Kill true
+                    host.WaitForExit()
+                    Assert.Equal(0, host.ExitCode)
+                    Assert.Equal("", errors.Result.Trim())
+                    output.WriteLine($"{label}: first request {firstMs:F1} ms; repeated median {repeated:F1} ms (9 runs after warm-up)")
+                finally
+                    if not host.HasExited then
+                        host.Kill true
+                        host.WaitForExit()
+            output.WriteLine "runPure Zig backend, same small snapshot; first request may build, repeated requests reuse the runner cache; host startup excluded"
+            runHost "F# host" "dotnet" [ dll ]
+            runHost "Zig host" zigHost []
+        finally Directory.Delete(dir, true)
+
+    [<Fact; Trait("Suite", "Benchmark")>]
     member _.``ZigSpeed: Zig tools against F#`` () =
         let dir = Path.Combine(ZigTools.cache, "speed-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory dir |> ignore
