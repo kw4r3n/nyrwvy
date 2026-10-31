@@ -22,6 +22,13 @@ pub fn jsonInput(d: *recipe.Decoder, inline_name: []const u8, file_name: []const
     if (file.? != .string) return r.fail("{s} must be a file path.", .{file_name});
     const requested = try query.readable(r, file.?.string);
     if (query.isBlank(try std.unicode.utf8ToUtf16LeAlloc(a, requested))) return r.fail("{s} must be a file path.", .{file_name});
+    return load(d, requested, file_name, inline_name);
+}
+
+/// Shared confined JSON reader; an empty inline name keeps decoder paths at the file root.
+pub fn load(d: *recipe.Decoder, requested: []const u8, file_name: []const u8, inline_name: []const u8) anyerror!Input {
+    const r = d.r;
+    const a = r.a;
     if (std.mem.indexOfScalar(u8, requested, 0) != null) return ioFailure(r, file_name);
     const directory = std.fs.path.dirname(r.snapshot_path) orelse "/";
     const full = std.fs.path.resolveAlloc(a, &.{ directory, requested }) catch return ioFailure(r, file_name);
@@ -44,7 +51,7 @@ pub fn jsonInput(d: *recipe.Decoder, inline_name: []const u8, file_name: []const
     const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, json, .{ .duplicate_field_behavior = .use_last }) catch return r.fail("{s} must contain valid JSON.", .{file_name});
     if (bytes.len > limit) return r.fail("{s} exceeds 1 MiB.", .{file_name});
     // Decoder paths and duplicate scans are relative to the same recipe root as inline inputs.
-    const wrapped = try std.fmt.allocPrint(a, "{{\"{s}\":{s}}}", .{ inline_name, json });
+    const wrapped = if (inline_name.len == 0) json else try std.fmt.allocPrint(a, "{{\"{s}\":{s}}}", .{ inline_name, json });
     d.duplicates = try recipe.duplicatePaths(a, wrapped);
     query.masked = query.masked or masked.line != null;
     return .{ .value = parsed, .source = json };

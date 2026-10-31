@@ -12,13 +12,13 @@ const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 const Fail = anyerror;
 const same = mat.same;
-const Field = struct { id: []const u8, value: RunValue };
-const Entry = struct { key: RunValue, value: RunValue };
-const Response = struct { kind: enum { ret, throw, cancellation }, value: ?*RunValue = null, message: []const u8 = "", delay: i64 = 0 };
-const Case = struct { arguments: []Field, responses: []Response };
-const Operation = struct { id: []const u8, responses: []Response = &.{}, cases: ?[]Case = null };
-const Kind = enum { string, boolean, int64, float64, bits32, bytes, unit, list, set, map, option, result, product, union_value, fake, host };
-const RunValue = struct {
+pub const Field = struct { id: []const u8, value: RunValue };
+pub const Entry = struct { key: RunValue, value: RunValue };
+pub const Response = struct { kind: enum { ret, throw, cancellation }, value: ?*RunValue = null, message: []const u8 = "", delay: i64 = 0 };
+pub const Case = struct { arguments: []Field, responses: []Response };
+pub const Operation = struct { id: []const u8, responses: []Response = &.{}, cases: ?[]Case = null };
+pub const Kind = enum { string, boolean, int64, float64, bits32, bytes, unit, list, set, map, option, result, product, union_value, fake, host };
+pub const RunValue = struct {
     kind: Kind,
     type: Type,
     legacy: bool = false,
@@ -33,6 +33,8 @@ const RunValue = struct {
     variant: []const u8 = "",
     operations: []Operation = &.{},
 };
+pub const CapturedCall = struct { parameter_id: []const u8, operation_id: []const u8, arguments: []const Field };
+pub const Capture = struct { actual: ?RunValue = null, calls: []const CapturedCall = &.{} };
 pub const Input = struct {
     function_id: []const u8,
     declarations: model.Value,
@@ -40,8 +42,11 @@ pub const Input = struct {
     arguments: []RunValue,
     expected: ?RunValue,
     host_sources: []const []const u8,
+    host_source_texts: []const []const u8 = &.{},
     has_host_binding: bool = false,
     waiting_responses: bool = false,
+    csharp_symbols: Json = .null,
+    capture: ?*Capture = null,
 };
 fn primitive(name: []const u8) Type {
     return .{ .primitive = name };
@@ -52,11 +57,11 @@ fn generic(a: Allocator, name: []const u8, arguments: []const Type) !Type {
 fn prop(v: model.Value, name: []const u8) []const u8 {
     return model.utf8(model.decoded(model.property(v, name).?));
 }
-fn find(items: []const model.Value, id: []const u8) ?model.Value {
+pub fn find(items: []const model.Value, id: []const u8) ?model.Value {
     for (items) |item| if (same(q.idOf(item), id)) return item;
     return null;
 }
-fn sorted(a: Allocator, items: []const model.Value) ![]model.Value {
+pub fn sorted(a: Allocator, items: []const model.Value) ![]model.Value {
     const out = try a.dupe(model.Value, items);
     std.mem.sort(model.Value, out, {}, struct {
         fn less(_: void, x: model.Value, y: model.Value) bool {
@@ -81,7 +86,7 @@ const dummy_node: recipe.Node = .{ .case = "", .slots = &.{} };
 fn inference(r: *q.Request) infer.Infer {
     return .{ .r = r, .a = r.a, .local = &.{}, .fresh = &.{}, .c = .{ .expected_snapshot_id = "", .display_name = "", .type_parameters = null, .parameters = &.{}, .result_type = primitive("unit"), .required_effects = &.{}, .body = &dummy_node } };
 }
-fn instantiated(r: *q.Request, owner: model.Value, args: []const Type, field: model.Value) !Type {
+pub fn instantiated(r: *q.Request, owner: model.Value, args: []const Type, field: model.Value) !Type {
     var context = inference(r);
     return context.instantiate(owner, args, try infer.typeOf(r.a, model.property(field, "type").?));
 }
@@ -119,7 +124,7 @@ fn named(r: *q.Request, out: *std.ArrayList(model.Member), key: []const u8, id: 
     };
 }
 
-fn declarationView(r: *q.Request) !model.Value {
+pub fn declarationView(r: *q.Request) !model.Value {
     const provenance = r.provenance orelse return r.model;
     if (provenance.hidden.len == 0) return r.model;
     const fields = try r.a.dupe(model.Member, r.model.object);
@@ -677,6 +682,69 @@ pub fn decode(r: *q.Request) Fail!Input {
     }
     return input;
 }
+/// Verification grammar is tagged-only; its names belong to two immutable declaration views.
+pub const VerificationCase = struct { label: []const u8, function_id: []const u8, arguments: []RunValue, expected: ?RunValue };
+pub fn verificationCases(r: *q.Request, candidate: *q.Request, names: bool) Fail![]VerificationCase {
+    const original = r.model;
+    r.model = try declarationView(r);
+    defer r.model = original;
+    const candidate_original = candidate.model;
+    candidate.model = try declarationView(candidate);
+    defer candidate.model = candidate_original;
+    const duplicates = try recipe.duplicatePaths(r.a, r.line);
+    var d: Decoder = .{ .names = names, .d = .{ .r = r, .duplicates = duplicates, .owner = if (names) .{ .name = "" } else null } };
+    var cd: Decoder = .{ .names = names, .d = .{ .r = candidate, .duplicates = duplicates, .owner = if (names) .{ .name = "" } else null } };
+    const root = try std.json.parseFromSliceLeaky(Json, r.a, r.line, .{ .duplicate_field_behavior = .use_last, .parse_numbers = false });
+    const items = try d.d.array(root, "cases");
+    const out = try r.a.alloc(VerificationCase, items.len);
+    const key: []const u8 = if (names) "function" else "functionId";
+    for (items, out, 0..) |item, *slot, i| {
+        const path = try std.fmt.allocPrint(r.a, "/cases/{d}", .{i});
+        try d.d.ensureFields(path, item, "verification case", &.{ "label", key, "arguments", "expectedCandidate" }, &.{ "label", key, "arguments" });
+        const label = try d.d.requiredString(item, "label");
+        const id = if (names) q.idOf(try d.selector(try d.at(path, key), try d.d.property(item, key), "function")) else try d.stableId(item, key);
+        const args = try d.d.array(item, "arguments");
+        const values = try r.a.alloc(RunValue, args.len);
+        for (args, values, 0..) |arg, *value, index| {
+            d.remaining = 8192;
+            d.top = try std.fmt.allocPrint(r.a, "cases[{d}].arguments[{d}]", .{ i, index });
+            value.* = try d.tagged(try d.at(try d.at(path, "arguments"), index), d.top, arg, 0);
+        }
+        var expected: ?RunValue = null;
+        if (item.object.get("expectedCandidate")) |value| {
+            cd.remaining = 8192;
+            cd.top = try std.fmt.allocPrint(r.a, "cases[{d}].expectedCandidate", .{i});
+            expected = cd.tagged(try cd.at(path, "expectedCandidate"), cd.top, value, 0) catch |e| {
+                r.rejection = candidate.rejection;
+                return e;
+            };
+        }
+        slot.* = .{ .label = label, .function_id = id, .arguments = values, .expected = expected };
+    }
+    return out;
+}
+pub fn inputForCase(r: *q.Request, case: VerificationCase, expected: ?RunValue) Fail!Input {
+    const declarations = try declarationView(r);
+    var input: Input = .{ .function_id = case.function_id, .declarations = declarations, .fn_value = find(model.arrayItems(declarations, "functions"), case.function_id) orelse .json_null, .arguments = case.arguments, .expected = expected, .host_sources = &.{} };
+    for (input.arguments) |arg| {
+        if (arg.kind == .host) input.has_host_binding = true;
+        for (arg.operations) |op| {
+            if (op.cases) |cases| {
+                for (cases) |c| {
+                    for (c.responses) |response| {
+                        if (response.kind == .cancellation or response.delay > 0) input.waiting_responses = true;
+                    }
+                }
+            } else {
+                for (op.responses) |response| {
+                    if (response.kind == .cancellation or response.delay > 0) input.waiting_responses = true;
+                }
+            }
+        }
+    }
+    return input;
+}
+
 fn children(a: Allocator, v: RunValue) ![]const RunValue {
     var out: std.ArrayList(RunValue) = .empty;
     for (v.items) |x| try out.append(a, x);
@@ -734,7 +802,7 @@ fn equalRaw(x: RunValue, y: RunValue) bool {
     if (x.payload) |p| if (!equalRaw(p.*, y.payload.?.*)) return false;
     return true;
 }
-fn equal(x: RunValue, y: RunValue) bool {
+pub fn equal(x: RunValue, y: RunValue) bool {
     if (x.kind != y.kind or !infer.eqlType(x.type, y.type) or !same(x.text, y.text) or x.integer != y.integer or x.bits != y.bits or x.boolean != y.boolean or !same(x.variant, y.variant) or x.items.len != y.items.len or x.fields.len != y.fields.len or x.entries.len != y.entries.len or (x.payload == null) != (y.payload == null)) return false;
     for (x.items, y.items) |p, z| if (!equal(p, z)) return false;
     for (x.fields, y.fields) |p, z| if (!same(p.id, z.id) or !equal(p.value, z.value)) return false;
@@ -814,7 +882,7 @@ fn supportedCost(r: *q.Request, t: Type, depth: usize, path: []const Type, budge
     }
     return false;
 }
-fn supported(r: *q.Request, t: Type, depth: usize) !bool {
+pub fn supported(r: *q.Request, t: Type, depth: usize) !bool {
     var budget: usize = 0;
     return supportedCost(r, t, depth, &.{}, &budget);
 }
@@ -1263,6 +1331,7 @@ pub fn tokens(r: *q.Request, input: *Input) Fail![]const []const u8 {
     defer r.model = original_model;
     var out: std.ArrayList([]const u8) = .empty;
     for (input.arguments) |value| {
+        if (value.kind == .host) continue;
         if (value.kind != .fake) {
             try valueTokens(r, value, &out);
             continue;
@@ -1390,7 +1459,13 @@ fn floatText(a: Allocator, value: f64) ![]const u8 {
     if (exponent >= -4 and exponent < 17) return a.dupe(u8, try std.fmt.float.render(&buffer, value, .{ .mode = .decimal }));
     return std.fmt.allocPrint(a, "{s}E{s}{d:0>2}", .{ scientific[0..e], if (exponent < 0) "-" else "+", @abs(exponent) });
 }
-fn encoded(r: *q.Request, v: RunValue) Fail!model.Value {
+pub fn encoded(r: *q.Request, v: RunValue) Fail!model.Value {
+    return encodeValue(r, v, true);
+}
+pub fn encodedInput(r: *q.Request, value: RunValue) Fail!model.Value {
+    return encodeValue(r, value, false);
+}
+fn encodeValue(r: *q.Request, v: RunValue, canonical: bool) Fail!model.Value {
     var fields: std.ArrayList(model.Member) = .empty;
     const kind: []const u8 = switch (v.kind) {
         .string => "string",
@@ -1431,39 +1506,39 @@ fn encoded(r: *q.Request, v: RunValue) Fail!model.Value {
         },
         .list, .set => {
             const t = v.type.builtin.arguments[0];
-            const flat = v.kind == .list and scalarType(t);
+            const flat = v.kind == .list and scalarType(t) and (canonical or v.legacy);
             try fields.append(r.a, try mat.member(r.a, if (flat) "itemKind" else "itemType", if (flat) try mat.string(r.a, t.primitive) else try typeValue(r, t)));
             const items = try r.a.alloc(model.Value, v.items.len);
             for (v.items, items) |item, *slot| {
-                const value = try encoded(r, item);
+                const value = try encodeValue(r, item, canonical);
                 slot.* = if (flat) model.property(value, "value").? else value;
             }
             try fields.append(r.a, try mat.member(r.a, "items", .{ .array = items }));
         },
         .option => {
             const t = v.type.builtin.arguments[0];
-            const flat = scalarType(t);
+            const flat = scalarType(t) and (canonical or v.legacy);
             try fields.append(r.a, try mat.member(r.a, if (flat) "itemKind" else "itemType", if (flat) try mat.string(r.a, t.primitive) else try typeValue(r, t)));
             try fields.append(r.a, try mat.member(r.a, "hasValue", boolJson(v.payload != null)));
             if (v.payload) |payload| {
-                const value = try encoded(r, payload.*);
+                const value = try encodeValue(r, payload.*, canonical);
                 try fields.append(r.a, try mat.member(r.a, "value", if (flat) model.property(value, "value").? else value));
             }
         },
         .result => {
             const ts = v.type.builtin.arguments;
-            const flat = scalarType(ts[0]) and scalarType(ts[1]);
+            const flat = scalarType(ts[0]) and scalarType(ts[1]) and (canonical or v.legacy);
             try fields.append(r.a, try mat.member(r.a, if (flat) "okKind" else "okType", if (flat) try mat.string(r.a, ts[0].primitive) else try typeValue(r, ts[0])));
             try fields.append(r.a, try mat.member(r.a, if (flat) "errorKind" else "errorType", if (flat) try mat.string(r.a, ts[1].primitive) else try typeValue(r, ts[1])));
             try fields.append(r.a, try mat.member(r.a, "isOk", boolJson(v.boolean)));
-            const value = try encoded(r, v.payload.?.*);
+            const value = try encodeValue(r, v.payload.?.*, canonical);
             try fields.append(r.a, try mat.member(r.a, "value", if (flat) model.property(value, "value").? else value));
         },
         .map => {
             try fields.append(r.a, try mat.member(r.a, "keyType", try typeValue(r, v.type.builtin.arguments[0])));
             try fields.append(r.a, try mat.member(r.a, "valueType", try typeValue(r, v.type.builtin.arguments[1])));
             const entries = try r.a.alloc(model.Value, v.entries.len);
-            for (v.entries, entries) |entry, *slot| slot.* = try object(r, .{ .{ "key", try encoded(r, entry.key) }, .{ "value", try encoded(r, entry.value) } });
+            for (v.entries, entries) |entry, *slot| slot.* = try object(r, .{ .{ "key", try encodeValue(r, entry.key, canonical) }, .{ "value", try encodeValue(r, entry.value, canonical) } });
             try fields.append(r.a, try mat.member(r.a, "entries", .{ .array = entries }));
         },
         .product, .union_value => {
@@ -1483,15 +1558,63 @@ fn encoded(r: *q.Request, v: RunValue) Fail!model.Value {
                 var f: std.ArrayList(model.Member) = .empty;
                 try f.append(r.a, try mat.member(r.a, "fieldId", try mat.string(r.a, field.id)));
                 try named(r, &f, "field", field.id);
-                try f.append(r.a, try mat.member(r.a, "value", try encoded(r, field.value)));
+                try f.append(r.a, try mat.member(r.a, "value", try encodeValue(r, field.value, canonical)));
                 slot.* = .{ .object = f.items };
             }
             try fields.append(r.a, try mat.member(r.a, "fields", .{ .array = fs }));
         },
-        .fake, .host => unreachable,
+        .host, .fake => {
+            try fields.append(r.a, try mat.member(r.a, "capabilityId", try mat.string(r.a, v.type.capability)));
+            try named(r, &fields, "capability", v.type.capability);
+            if (v.kind == .host) {
+                try fields.append(r.a, try mat.member(r.a, "implementation", try mat.string(r.a, v.text)));
+                try fields.append(r.a, try mat.member(r.a, "supportsConcurrentCalls", boolJson(v.boolean)));
+            } else {
+                const operations = try r.a.alloc(model.Value, v.operations.len);
+                for (v.operations, operations) |op, *value| {
+                    var members: std.ArrayList(model.Member) = .empty;
+                    try members.append(r.a, try mat.member(r.a, "operationId", try mat.string(r.a, op.id)));
+                    try named(r, &members, "operation", op.id);
+                    if (op.cases) |cases_| {
+                        const cases = try r.a.alloc(model.Value, cases_.len);
+                        for (cases_, cases) |case, *cs| {
+                            const arguments = try r.a.alloc(model.Value, case.arguments.len);
+                            for (case.arguments, arguments) |arg, *out| {
+                                var members_: std.ArrayList(model.Member) = .empty;
+                                try members_.append(r.a, try mat.member(r.a, "capabilityParameterId", try mat.string(r.a, arg.id)));
+                                try named(r, &members_, "parameter", arg.id);
+                                try members_.append(r.a, try mat.member(r.a, "value", try encodeValue(r, arg.value, canonical)));
+                                out.* = .{ .object = members_.items };
+                            }
+                            cs.* = try object(r, .{ .{ "arguments", model.Value{ .array = arguments } }, .{ "responses", try encodeResponses(r, case.responses, canonical) } });
+                        }
+                        try members.append(r.a, try mat.member(r.a, "cases", .{ .array = cases }));
+                    } else try members.append(r.a, try mat.member(r.a, "responses", try encodeResponses(r, op.responses, canonical)));
+                    value.* = .{ .object = members.items };
+                }
+                try fields.append(r.a, try mat.member(r.a, "operations", .{ .array = operations }));
+            }
+        },
     }
     return .{ .object = fields.items };
 }
+fn encodeResponses(r: *q.Request, responses: []const Response, canonical: bool) Fail!model.Value {
+    const out = try r.a.alloc(model.Value, responses.len);
+    for (responses, out) |response, *slot| {
+        var fields: std.ArrayList(model.Member) = .empty;
+        const kind = switch (response.kind) {
+            .ret => "return",
+            .throw => "throw",
+            .cancellation => "awaitCancellation",
+        };
+        try fields.append(r.a, try mat.member(r.a, "kind", try mat.string(r.a, kind)));
+        if (response.value) |value| try fields.append(r.a, try mat.member(r.a, "value", try encodeValue(r, value.*, canonical))) else try fields.append(r.a, try mat.member(r.a, "message", try mat.string(r.a, response.message)));
+        if (response.delay > 0 and response.kind != .cancellation) try fields.append(r.a, try mat.member(r.a, "delayMillis", try mat.string(r.a, try std.fmt.allocPrint(r.a, "{d}", .{response.delay}))));
+        slot.* = .{ .object = fields.items };
+    }
+    return .{ .array = out };
+}
+
 const Difference = struct { path: []const model.Value, expected: RunValue, actual: RunValue };
 fn difference(r: *q.Request, x: RunValue, y: RunValue, path: []const model.Value) Fail!?Difference {
     if (equal(x, y)) return null;
@@ -1527,7 +1650,7 @@ fn valuePath(a: Allocator, path: []const model.Value, step: model.Value) ![]cons
 const Site = struct { parameter: model.Value, operation: model.Value };
 fn sites(r: *q.Request, input: *Input) ![]const Site {
     var out: std.ArrayList(Site) = .empty;
-    for (model.arrayItems(input.fn_value, "parameters"), input.arguments) |parameter, arg| if (arg.kind == .fake) {
+    for (model.arrayItems(input.fn_value, "parameters"), input.arguments) |parameter, arg| if (arg.kind == .fake or arg.kind == .host) {
         const capability = find(model.arrayItems(r.model, "capabilities"), arg.type.capability).?;
         for (try sorted(r.a, model.arrayItems(capability, "operations"))) |operation| try out.append(r.a, .{ .parameter = parameter, .operation = operation });
     };
@@ -1537,6 +1660,7 @@ fn calls(r: *q.Request, input: *Input, json: Json) Fail!model.Value {
     if (json != .array) return invalid(r, input, "The process did not return one JSON result.");
     const all_sites = try sites(r, input);
     const out = try r.a.alloc(model.Value, json.array.items.len);
+    var captured: std.ArrayList(CapturedCall) = .empty;
     for (json.array.items, out) |call, *slot| {
         if (call != .array or call.array.items.len != 2) return invalid(r, input, "The process did not return one JSON result.");
         const data = call.array.items;
@@ -1549,6 +1673,7 @@ fn calls(r: *q.Request, input: *Input, json: Json) Fail!model.Value {
         const args = try r.a.alloc(Field, ps.items.len);
         for (ps.items, data[1].array.items, args) |parameter, value, *arg| arg.* = .{ .id = q.idOf(parameter), .value = try resultValue(r, input, try infer.typeOf(r.a, model.property(parameter, "type").?), value) };
         sortFields(args);
+        if (input.capture != null) try captured.append(r.a, .{ .parameter_id = q.idOf(site.parameter), .operation_id = q.idOf(site.operation), .arguments = args });
         const arguments = try r.a.alloc(model.Value, args.len);
         for (args, arguments) |arg, *value| {
             var f: std.ArrayList(model.Member) = .empty;
@@ -1565,6 +1690,7 @@ fn calls(r: *q.Request, input: *Input, json: Json) Fail!model.Value {
         try f.append(r.a, try mat.member(r.a, "arguments", .{ .array = arguments }));
         slot.* = .{ .object = f.items };
     }
+    if (input.capture) |capture| capture.calls = captured.items;
     return .{ .array = out };
 }
 fn operationNames(r: *q.Request, out: *std.ArrayList(model.Member), id: []const u8) !void {
@@ -1576,12 +1702,41 @@ fn operationNames(r: *q.Request, out: *std.ArrayList(model.Member), id: []const 
     }
     try named(r, out, "operation", id);
 }
+fn csharpFrames(r: *q.Request, input: *Input, names: Json) Fail!model.Value {
+    var frames: std.ArrayList(model.Value) = .empty;
+    if (input.csharp_symbols != .object or names != .array) return .{ .array = frames.items };
+    for (names.array.items) |frame| {
+        if (frames.items.len >= 256) break;
+        if (frame != .string) continue;
+        for ([_][]const u8{ "functions", "capabilityOperations" }) |group| {
+            const symbols = input.csharp_symbols.object.get(group) orelse continue;
+            if (symbols != .array) continue;
+            for (symbols.array.items) |symbol| {
+                if (symbol != .object) continue;
+                const name = symbol.object.get("name") orelse continue;
+                const id = symbol.object.get("id") orelse continue;
+                if (name != .string or id != .string or !same(name.string, frame.string)) continue;
+                var fields: std.ArrayList(model.Member) = .empty;
+                const function = same(group, "functions");
+                try fields.append(r.a, try mat.member(r.a, "kind", try mat.string(r.a, if (function) "function" else "capabilityOperation")));
+                try fields.append(r.a, try mat.member(r.a, if (function) "functionId" else "operationId", try mat.string(r.a, id.string)));
+                if (function) try named(r, &fields, "function", id.string) else try operationNames(r, &fields, id.string);
+                try frames.append(r.a, .{ .object = fields.items });
+                break;
+            }
+        }
+    }
+    return .{ .array = frames.items };
+}
 fn runtimeFailure(r: *q.Request, input: *Input, kind: []const u8, exception_type: []const u8, message: []const u8, recorded: model.Value, exhausted: bool) Fail!void {
+    return runtimeFailureFrames(r, input, kind, exception_type, message, recorded, exhausted, .null);
+}
+fn runtimeFailureFrames(r: *q.Request, input: *Input, kind: []const u8, exception_type: []const u8, message: []const u8, recorded: model.Value, exhausted: bool, frames: Json) Fail!void {
     const code: []const u8 = if (exhausted) "RunBindingExhausted" else if (same(exception_type, "FakeArgumentsUnmatchedException")) "RunBindingNoMatch" else "RunRuntimeFailure";
     diagnostic(r, input, code, message) catch |e| {
         var out: Writer.Allocating = .init(r.a);
         try out.writer.writeAll(r.rejection.fields);
-        const extra = try object(r, .{ .{ "sourceSnapshotId", try mat.string(r.a, r.snapshot_id) }, .{ "failureKind", try mat.string(r.a, kind) }, .{ "exceptionType", try mat.string(r.a, exception_type) }, .{ "frames", model.Value{ .array = &.{} } }, .{ "calls", recorded } });
+        const extra = try object(r, .{ .{ "sourceSnapshotId", try mat.string(r.a, r.snapshot_id) }, .{ "failureKind", try mat.string(r.a, kind) }, .{ "exceptionType", try mat.string(r.a, exception_type) }, .{ "frames", try csharpFrames(r, input, frames) }, .{ "calls", recorded } });
         for (extra.object) |field| {
             try out.writer.writeByte(',');
             try model.writeString(&out.writer, field.name);
@@ -1600,6 +1755,25 @@ pub fn crash(r: *q.Request, input: *Input, exit_code: i32, stderr: []const u8) F
         break;
     };
     return runtimeFailure(r, input, "fatal", if (panic != null) "ZigPanic" else "ZigCrash", panic orelse try std.fmt.allocPrint(r.a, "The Zig program stopped with exit code {d} (for example a stack overflow).", .{exit_code}), .{ .array = &.{} }, false);
+}
+pub fn csharpCrash(r: *q.Request, input: *Input, stdout: []const u8, stderr: []const u8) Fail!void {
+    if (std.mem.indexOf(u8, stderr, "Stack overflow") != null) {
+        var frames: std.array_list.Managed(Json) = .init(r.a);
+        var i: usize = 0;
+        while (i < stderr.len) : (i += 1) {
+            if (!std.mem.startsWith(u8, stderr[i..], "NyF_") and !std.mem.startsWith(u8, stderr[i..], "Op_")) continue;
+            const start = i;
+            i += if (stderr[i] == 'N') @as(usize, 4) else 3;
+            while (i < stderr.len and (std.ascii.isDigit(stderr[i]) or (stderr[i] >= 'A' and stderr[i] <= 'F'))) : (i += 1) {}
+            try frames.append(.{ .string = stderr[start..i] });
+        }
+        const original = r.model;
+        r.model = input.declarations;
+        defer r.model = original;
+        return runtimeFailureFrames(r, input, "fatal", "System.StackOverflowException", "Stack overflow: recursion was too deep. A self DirectCall in tail position runs as a loop (the body's result, a Bind body, a Conditional branch, a match arm or otherwise, or the right operand of BoolAnd/BoolOr); any other self or mutual DirectCall recursion runs on the runner's thread stack, which holds only several thousand frames of a typical function. Make the self call the last step of each continuing branch, or iterate a List with ListFold (for text, over StringCodePoints).", .{ .array = &.{} }, false, .{ .array = frames });
+    }
+    const details = try std.mem.concat(r.a, u8, &.{ stdout, "\n", stderr });
+    return diagnostic(r, input, "RunProcessFailure", try @import("managed_text.zig").prefix(r.a, details, 4096));
 }
 fn envelopeWithinDepth(a: Allocator, text: []const u8) bool {
     var scanner = std.json.Scanner.initCompleteInput(a, text);
@@ -1624,11 +1798,12 @@ pub fn envelope(r: *q.Request, input: *Input, stdout: []const u8, out: *Writer) 
     if (same(tag, "limit") and values.len == 2 and values[1] == .string) return diagnostic(r, input, "RunProcessFailure", values[1].string);
     if (same(tag, "exception") and values.len == 7 and values[1] == .string and values[3] == .array and values[5] == .bool and values[6] == .string) {
         const text = (try parseText(r.a, values[2])) orelse return invalid(r, input, "The process did not return one JSON result.");
-        return runtimeFailure(r, input, values[6].string, values[1].string, text, try calls(r, input, values[4]), values[5].bool);
+        return runtimeFailureFrames(r, input, values[6].string, values[1].string, text, try calls(r, input, values[4]), values[5].bool, values[3]);
     }
     if (!same(tag, "value") or values.len != 3) return invalid(r, input, "The process did not return one JSON result.");
     const actual = try resultValue(r, input, try infer.typeOf(r.a, model.property(input.fn_value, "resultType").?), values[1]);
     const recorded = try calls(r, input, values[2]);
+    if (input.capture) |capture| capture.actual = actual;
     var fields: std.ArrayList(model.Member) = .empty;
     try fields.append(r.a, try mat.member(r.a, "sourceSnapshotId", try mat.string(r.a, r.snapshot_id)));
     try fields.append(r.a, try mat.member(r.a, "functionId", try mat.string(r.a, input.function_id)));

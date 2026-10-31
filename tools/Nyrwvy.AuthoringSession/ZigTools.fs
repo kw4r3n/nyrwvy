@@ -101,7 +101,30 @@ module internal ZigTools =
         dict [ "host", [ "model_reader", [ "tools"; "zig"; "model-reader" ], "main.zig"
                          "snapshot_reader", [ "tools"; "zig"; "snapshot-reader" ], "main.zig"
                          "zig_emitter", [ "tools"; "zig"; "emitter" ], "main.zig"
+                         "csharp_emitter", [ "tools"; "zig"; "csharp-emitter" ], "root.zig"
                          "viewer_asset", [ "src"; "Nyrwvy.Viewer" ], "asset.zig" ] ]
+
+    /// Include embedded resources without hashing the managed helper's build products.
+    let sourceText folder =
+        let excluded (path: string) =
+            let name = Path.GetFileName path
+            name = "bin" || name = "obj" || name = ".zig-cache"
+        let rec files (directory: string) =
+            seq {
+                yield! Directory.GetFiles directory |> Seq.filter (excluded >> not)
+                for child in Directory.GetDirectories directory do
+                    if not (excluded child) then yield! files child
+            }
+        files folder
+        |> Seq.toArray
+        |> Array.sortWith (fun x y -> String.CompareOrdinal(x, y))
+        |> Array.map (fun file ->
+            let contents =
+                if Path.GetExtension file = ".bin" then
+                    "sha256:" + Convert.ToHexString(Security.Cryptography.SHA256.HashData(File.ReadAllBytes file))
+                else File.ReadAllText file
+            Path.GetRelativePath(folder, file) + "\u0000" + contents)
+        |> String.concat "\u0000"
 
     /// A Zig tool (`tools/zig/<name>` beside mise.toml), built once per process into the cache,
     /// keyed by a hash of every file in its directory and in the directories it imports.
@@ -116,11 +139,7 @@ module internal ZigTools =
                     let imported = match imports.TryGetValue name with | true, modules -> modules | _ -> []
                     let text =
                         sources :: (imported |> List.map (fun (_, parts, _) -> below parts))
-                        |> List.map (fun folder ->
-                            Directory.GetFiles folder
-                            |> Array.sortWith (fun x y -> String.CompareOrdinal(x, y))
-                            |> Array.map (fun file -> Path.GetFileName file + "\u0000" + File.ReadAllText file)
-                            |> String.concat "\u0000")
+                        |> List.map sourceText
                         |> String.concat "\u0000\u0000"
                     // `-O` is a per-module option: it applies to the module defined after it.
                     let roots =

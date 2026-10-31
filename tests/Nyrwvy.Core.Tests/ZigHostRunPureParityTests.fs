@@ -298,12 +298,12 @@ module ZigHostRunPureParityTests =
             Assert.Equal("RunProcessFailure", code actual[2]))
 
     [<Fact; Trait("Suite", "Extended")>]
-    let ``native Zig host keeps the staged CSharp gate after shared validation`` () =
+    let ``native Zig host executes CSharp after shared validation`` () =
         withDirectory (fun directory ->
             let path, _ = fixture directory
             let request = (runName "echo" [ "\"value\"" ] None).Replace("\"backend\":\"zig\"", "\"backend\":\"csharp\"")
-            let _, _, replies = run true [ "open"; "--snapshot"; path; "--read-only" ] [ request; request.Replace("\"arguments\":[\"value\"]", "\"arguments\":[]") ]
-            Assert.Equal("UnsupportedOperation", code replies[0])
+            let replies = strictPair path [ request; request.Replace("\"arguments\":[\"value\"]", "\"arguments\":[]") ]
+            Assert.Equal("value", (success replies[0]).GetProperty("actual").GetProperty("value").GetString())
             Assert.Equal("RunArgumentCountMismatch", code replies[1]))
 
     [<Fact; Trait("Suite", "Extended")>]

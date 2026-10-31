@@ -1,6 +1,6 @@
 # Zig path speed
 
-Wall time of the Zig tools against the F# path, warm, as the median of 9 runs after one warm-up, in ms. Runs are local and Release, on one machine, so only the ratios within a run are meaningful. The test is `ZigSpeed` in `tests/Nyrwvy.Core.Tests/ZigSpeedTests.fs` (`Suite=Benchmark`, which neither suite runs):
+Wall time of the Zig tools against the F# path, warm, as the median of 9 runs after one warm-up, in ms. Runs are local and Release, on one machine, so only the ratios within a run are meaningful. The tests are `ZigSpeed` in `tests/Nyrwvy.Core.Tests/ZigSpeedTests.fs` (`Suite=Benchmark`, which neither fast nor extended suite runs):
 
 ```bash
 NYRWVY_SPEED_RHIFILL=<copy of a resolved workspace.json> dotnet test tests/Nyrwvy.Core.Tests -c Release --settings tests/benchmark.runsettings --logger "console;verbosity=detailed"
@@ -222,6 +222,22 @@ These are observations from this machine and run, not universal ratios. Rhifill 
 A separate 31-sample profile of the same source measured cached `runPure` requests at a median of 33.85 ms with default `mise` Zig selection and 5.44 ms with the explicitly pinned Zig binary; the corresponding `zig env` child-process medians were 31.81 ms and 3.86 ms. Direct runner execution was about 0.43–0.48 ms. No runner-cache directories were added during warm calls. The absolute pinned binary can be obtained with `mise which zig` from the repository root and supplied through `NYRWVY_ZIG`; no machine-specific path is recorded here. This profile does not change the benchmark table above or establish parity with the 0.9 ms F#-host runPure result.
 
 Compiler identity is still queried on each request, and no production code changed during profiling. Caching that query is deferred: it must also invalidate when external wrapper or mise compiler-selection dependencies change.
+
+## Step 7 C# backend host benchmark (2026-10-31)
+
+The three `ZigSpeed` facts passed in 1.0929 min. The tiny generated-echo benchmark explicitly selects both `zig` and `csharp` backends through both hosts on the same snapshot, with the same result assertions. Host startup is excluded; status is read before timing. The F# host's `NYRWVY_RUNPURE_WARMUP=0` setting is explicit. First request may include compiler/helper build or cache state; these values are not normalized cold-compile measurements. Repeated is the median of 9 requests after one warm-up. Normal background machine load was not controlled.
+
+| Case | F# host (ms) | Zig host (ms) |
+|---|---:|---:|
+| Rhifill resolved workspace: startup | 615.6 | 58.3 |
+| Rhifill resolved workspace: startup, F# runPure warm-up off | 612.0 | — |
+| Rhifill merged model copy: startup | 509.2 | 56.6 |
+| Tiny generated echo, explicit Zig backend: first request | 14,182.8 | 14,436.9 |
+| Tiny generated echo, explicit Zig backend: repeated | 0.9 | 33.8 |
+| Tiny generated echo, explicit C# backend: first request | 1,461.8 | 5,327.9 |
+| Tiny generated echo, explicit C# backend: repeated | 2.5 | 2.7 |
+
+These are observations from this machine and run, not universal ratios. The Zig host's Zig-backend repeat is particularly sensitive to the existing compiler-identity query (`mise` selection measured about 31 ms in the separate warm-path profile above); the 33.8 ms vs 0.9 ms row does not establish a general runtime difference. The C# first-request values include unnormalized helper/build/cache work, so they do not isolate compilation cost. Rhifill's C#-target `runPureByName(actionName, 4)` returned `focus_left` through the Zig host; this benchmark's tiny echo rows are separate from that Rhifill check.
 
 ## F# and Zig on equal terms (2026-10-28)
 

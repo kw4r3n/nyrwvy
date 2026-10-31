@@ -32,7 +32,7 @@ pub fn init(a: Allocator, io: std.Io, env: *const std.process.Environ.Map) !void
 
 pub const Outcome = union(enum) { completed: std.process.RunResult, failed: Diagnostic };
 
-fn collected(a: Allocator, io: std.Io, spawned: std.process.Child, done: *std.Io.Event) std.process.RunError!std.process.RunResult {
+fn collected(a: Allocator, io: std.Io, spawned: std.process.Child, done: *std.Io.Event, max_bytes: usize) std.process.RunError!std.process.RunResult {
     defer done.set(io);
     var child = spawned;
     defer {
@@ -45,7 +45,7 @@ fn collected(a: Allocator, io: std.Io, spawned: std.process.Child, done: *std.Io
     streams.init(a, io, buffers.toStreams(), &.{ child.stdout.?, child.stderr.? });
     defer streams.deinit();
     while (streams.fill(4096, .none)) |_| {
-        if (streams.reader(0).buffered().len > 1048576 or streams.reader(1).buffered().len > 1048576) return error.StreamTooLong;
+        if (streams.reader(0).buffered().len > max_bytes or streams.reader(1).buffered().len > max_bytes) return error.StreamTooLong;
     } else |e| switch (e) {
         error.EndOfStream => {},
         error.Canceled => return error.Canceled,
@@ -61,11 +61,16 @@ fn collected(a: Allocator, io: std.Io, spawned: std.process.Child, done: *std.Io
 /// its streams then hangs. Kill the process group before awaiting its owner, so neither wait
 /// cancellation nor inherited pipe handles can lose the process before it is reaped.
 pub fn launch(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []const u8, phase: []const u8, seconds: i64) !Outcome {
+    return launchBounded(a, io, argv, cwd, phase, seconds, 1048576);
+}
+
+/// Managed text may use four bytes per UTF-16 unit; its caller applies the decoded text limit.
+pub fn launchBounded(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []const u8, phase: []const u8, seconds: i64, max_bytes: usize) !Outcome {
     var child = std.process.spawn(io, .{ .argv = argv, .cwd = .{ .path = cwd }, .stdin = .ignore, .stdout = .pipe, .stderr = .pipe, .pgid = 0 }) catch |e|
         return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };
     const pid = child.id.?;
     var done: std.Io.Event = .unset;
-    var running = io.concurrent(collected, .{ a, io, child, &done }) catch |e| {
+    var running = io.concurrent(collected, .{ a, io, child, &done, max_bytes }) catch |e| {
         _ = std.os.linux.kill(-pid, .KILL);
         child.kill(io);
         return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };
@@ -86,8 +91,9 @@ pub fn launch(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []const u
 }
 
 pub fn processFailure(a: Allocator, result: std.process.RunResult) !Diagnostic {
-    const details = try std.mem.concat(a, u8, &.{ result.stdout, "\n", result.stderr });
-    return .{ .code = "RunProcessFailure", .message = details[0..@min(details.len, 4096)] };
+    const text = @import("managed_text.zig");
+    const details = try std.mem.concat(a, u8, &.{ try text.decode(a, result.stdout), "\n", try text.decode(a, result.stderr) });
+    return .{ .code = "RunProcessFailure", .message = try text.prefix(a, details, 4096) };
 }
 
 fn privateDirectory(io: std.Io, path: []const u8) !void {
@@ -206,4 +212,19 @@ test "both child streams drain beyond pipe capacity without deadlock" {
     try std.testing.expect(result.completed.term.success());
     try std.testing.expectEqual(@as(usize, 900000), result.completed.stdout.len);
     try std.testing.expectEqual(@as(usize, 900000), result.completed.stderr.len);
+}
+
+test "compiler diagnostics decode malformed text before a UTF16 prefix reaches the wire" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const replaced = try processFailure(a, .{ .term = .{ .exited = 1 }, .stdout = try a.dupe(u8, "\xff"), .stderr = try a.dupe(u8, "\xe1\x80") });
+    try std.testing.expectEqualStrings("�\n�", replaced.message);
+    const ascii = try a.alloc(u8, 4095);
+    @memset(ascii, 'a');
+    const stdout = try std.mem.concat(a, u8, &.{ ascii, "😀" });
+    const clipped = try processFailure(a, .{ .term = .{ .exited = 1 }, .stdout = stdout, .stderr = "" });
+    try std.testing.expectEqual(@as(usize, 4096), @import("managed_text.zig").units(clipped.message));
+    try std.testing.expect(std.mem.endsWith(u8, clipped.message, "�"));
+    try std.testing.expect(std.unicode.utf8ValidateSlice(clipped.message));
 }
