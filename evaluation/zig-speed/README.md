@@ -203,6 +203,26 @@ Final Step 5 source `8691cf9`, same current Rhifill copy (456 KiB merged), media
 
 With `NYRWVY_RUNPURE_WARMUP=0`, F#'s resolved-workspace start was 641.9 ms. Both `ZigSpeed` tests passed in 30.09 s. These are startup measurements from one run, not migration throughput.
 
+## Step 6 runPure host benchmark (2026-10-31)
+
+Measured on source `bbda7c42a17db7a31e99f259371ce1f295ee7de6` by the three `ZigSpeed` tests; all passed in 57.1451 s. The benchmark settings enable `NYRWVY_ZIG_TOOLS=1`. There were no concurrent task builds or tests, but normal background machine load was not controlled. Startup is process spawn to the first `status` reply. Rhifill is the 438,318-byte resolved workspace (456 KiB merged model). The tiny generated-echo timings exclude host startup and explicitly select the Zig backend; its first run may build the runner, while repeated is the median of 9 runs after warm-up.
+
+| Case | F# host (ms) | Zig host (ms) |
+|---|---:|---:|
+| Rhifill resolved workspace: startup | 619.7 | 47.7 |
+| Rhifill merged model copy: startup | 513.5 | 51.3 |
+| Rhifill resolved workspace: startup, runPure warm-up off | 609.1 | — |
+| Tiny generated echo: first explicit Zig-backend run | 13,905.7 | 14,118.2 |
+| Tiny generated echo: repeated run | 0.9 | 33.5 |
+
+These are observations from this machine and run, not universal ratios. Rhifill declares only the C# backend, so its runPure operation remains on the F# host; the Zig host does not establish C# support. On the explicitly selected tiny Zig case, repeated native Zig execution is slower than the F# host's cached Zig-backend run, and the first run is also slightly slower; the measurement does not establish a general runPure speedup.
+
+### Read-only warm-path profile
+
+A separate 31-sample profile of the same source measured cached `runPure` requests at a median of 33.85 ms with default `mise` Zig selection and 5.44 ms with the explicitly pinned Zig binary; the corresponding `zig env` child-process medians were 31.81 ms and 3.86 ms. Direct runner execution was about 0.43–0.48 ms. No runner-cache directories were added during warm calls. The absolute pinned binary can be obtained with `mise which zig` from the repository root and supplied through `NYRWVY_ZIG`; no machine-specific path is recorded here. This profile does not change the benchmark table above or establish parity with the 0.9 ms F#-host runPure result.
+
+Compiler identity is still queried on each request, and no production code changed during profiling. Caching that query is deferred: it must also invalidate when external wrapper or mise compiler-selection dependencies change.
+
 ## F# and Zig on equal terms (2026-10-28)
 
 The same three tasks, from the same JSON files, in both languages:
