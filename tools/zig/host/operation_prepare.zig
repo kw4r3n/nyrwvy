@@ -108,7 +108,7 @@ fn unionVariant(r: *query.Request, owner_id: []const u8, variant: Value, plans: 
         for (plans[i + 1 ..]) |later| if (m.same(later.match, plan.match)) return rejected(r, "UnionMatchArmPlanMismatch", try std.fmt.allocPrint(r.a, "Match node '{s}' has more than one arm plan.", .{plan.match}));
     }
     var extended = r.*;
-    extended.model = try edit.replace(r.a, r.model, "types", try edit.append(r.a, owner, "variants", variant));
+    extended.model = try model.ownTyped(r.a, try edit.replace(r.a, r.model, "types", try edit.append(r.a, owner, "variants", variant)), false);
     const prepared = try r.a.alloc(Arm, plans.len);
     for (plans, prepared) |plan, *result| {
         const site = (try locate(r, plan.match)) orelse return rejected(r, "UnionMatchArmPlanTargetNotFound", try std.fmt.allocPrint(r.a, "Match node '{s}' does not exist in any function.", .{plan.match}));

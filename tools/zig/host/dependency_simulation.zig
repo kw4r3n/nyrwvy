@@ -48,7 +48,7 @@ fn operation(root: Value, id: []const u8) ?Value {
 }
 fn decode(r: *query.Request, plan: planning.Plan, named: bool) !Repairs {
     var names = r.*;
-    names.model = plan.candidate;
+    names.model = try model.ownTyped(r.a, plan.candidate, false);
     names.provenance = plan.dependency.provenance;
     var d: recipe.Decoder = .{ .r = &names, .duplicates = try recipe.duplicatePaths(r.a, r.line), .owner = if (named) .{ .name = "" } else null };
     defer {
@@ -185,7 +185,7 @@ fn applyRepairs(r: *query.Request, plan: planning.Plan, supplied: Repairs) !Resu
         if (!edit.identical(updated, cap)) candidate = try edit.replace(r.a, candidate, "capabilities", updated);
     }
     var materialization = r.*;
-    materialization.model = candidate;
+    materialization.model = try model.ownTyped(r.a, candidate, false);
     materialization.provenance = plan.dependency.provenance;
     defer {
         r.rejection = materialization.rejection;
@@ -256,14 +256,13 @@ fn copyTexts(a: Allocator, source: []const []const u8) ![]const []const u8 {
 }
 /// Every selected graph/provenance/request pointer is owned by the one proposal arena.
 pub fn retain(a: Allocator, r: *query.Request, plan: planning.Plan) !Retained {
-    var source: std.Io.Writer.Allocating = .init(a);
-    try m.write(&source.writer, plan.dependency.root);
-    const read = model.readDocument(a, source.written());
+    const owned = try model.ownTyped(a, plan.dependency.root, false);
+    const read = model.readTypedDocument(a, owned);
     const provenance = plan.dependency.provenance;
     const members = try a.alloc(@import("wire.zig").Provenance.Member, provenance.members.len);
     for (provenance.members, members) |member, *copy| copy.* = .{ .id = try a.dupe(u8, member.id), .fingerprint = try a.dupe(u8, member.fingerprint), .keys = try copyTexts(a, member.keys), .path = try a.dupe(u8, member.path), .embedded = member.embedded };
     return .{
-        .selected = .{ .root = read.root, .canonical = read.canonical, .id = read.id, .digest = read.digest, .fingerprint = read.fingerprints.?.snapshot, .subjects = read.subjects, .provenance = .{ .members = members, .hidden = try copyTexts(a, provenance.hidden) }, .set = plan.dependency.set },
+        .selected = .{ .root = owned, .canonical = read.canonical, .id = read.id, .digest = read.digest, .fingerprint = read.fingerprints.?.snapshot, .subjects = read.subjects, .provenance = .{ .members = members, .hidden = try copyTexts(a, provenance.hidden) }, .set = plan.dependency.set },
         .manifest = try a.dupe(u8, plan.manifest),
         .request = try a.dupe(u8, r.line),
         .review_fingerprint = try a.dupe(u8, plan.fingerprint),

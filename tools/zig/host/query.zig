@@ -337,7 +337,7 @@ pub fn visible(r: *const Request, kind: []const u8) ![]const Value {
 }
 
 /// The members of the selected dependency that provide `kind:id`; none for a local declaration.
-fn sources(r: *const Request, kind: []const u8, id: []const u8) ![]const wire.Provenance.Member {
+pub fn sources(r: *const Request, kind: []const u8, id: []const u8) ![]const wire.Provenance.Member {
     const p = r.provenance orelse return &.{};
     const key = try std.fmt.allocPrint(r.a, "{s}:{s}", .{ kind, id });
     var out: std.ArrayList(wire.Provenance.Member) = .empty;

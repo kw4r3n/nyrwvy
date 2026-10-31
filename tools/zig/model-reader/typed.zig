@@ -47,11 +47,11 @@ pub const Interner = struct {
     strings: Table = .{},
 
     pub fn id(self: *Interner, domain: Domain, text: Str) !Id {
-        return self.ids[@intFromEnum(domain)].intern(self.gpa, text);
+        return self.ids[@backingInt(domain)].intern(self.gpa, text);
     }
 
     pub fn idText(self: *const Interner, domain: Domain, value: Id) Str {
-        return self.ids[@intFromEnum(domain)].texts.items[value];
+        return self.ids[@backingInt(domain)].texts.items[value];
     }
 
     pub fn string(self: *Interner, text: Str) !u32 {
@@ -123,9 +123,9 @@ pub const Generation = struct {
 
 // ---------------------------------------------------------------- node kinds
 
-const Shape = enum { id, ids, type, targs, graph, varm, ctx, args, capargs, fields, lit, bool, int, bits, mode, optid, impls, arms, errarm };
-const Read = struct { name: []const u8, shape: Shape, domain: ?Domain };
-const Kind = struct { name: []const u8, reads: []const Read };
+pub const Shape = enum { id, ids, type, targs, graph, varm, ctx, args, capargs, fields, lit, bool, int, bits, mode, optid, impls, arms, errarm };
+pub const Read = struct { name: []const u8, shape: Shape, domain: ?Domain };
+pub const Kind = struct { name: []const u8, reads: []const Read };
 
 var kinds: ?[]const Kind = null;
 
@@ -146,7 +146,7 @@ fn domainOf(name: []const u8) ?Domain {
     return null;
 }
 
-fn kindTable() []const Kind {
+pub fn kindTable() []const Kind {
     if (kinds) |table| return table;
     const gpa = std.heap.page_allocator;
     var out: std.ArrayList(Kind) = .empty;
@@ -404,7 +404,8 @@ const BodyBuilder = struct {
             .args => try self.targets(payload, value.?.array, "targetParameterId", .parameter),
             .capargs => try self.targets(payload, value.?.array, "targetCapabilityParameterId", .capability_parameter),
             .fields => try self.targets(payload, value.?.array, "targetFieldId", .field),
-            .lit => try self.push(payload, try l.interner.string(reader.decoded(value.?))),
+            // Literal UTF-16 survives shape decoding; semantic validation reports unpaired units.
+            .lit => try self.push(payload, try l.interner.string(value.?.string)),
             .bool => try self.push(payload, @intFromBool(value.? == .json_true)),
             .int => {
                 const bits: u64 = @bitCast(try std.fmt.parseInt(i64, value.?.number, 10));
@@ -470,20 +471,24 @@ pub fn load(arena: Allocator, interner: *Interner, root: Value, marker: ?Marker)
 /// The caller keeps the base generation's arena alive for this generation's lifetime.
 pub fn withFunction(arena: Allocator, interner: *Interner, base: *const Generation, snapshot: Str, item: Value) !Generation {
     var l: Loader = .{ .arena = arena, .interner = interner };
+    const item_id = try l.id(.function, item, "id");
+    const original = for (base.functions) |record| {
+        if (record.id == item_id) break record;
+    } else null;
     const created = try arena.create(Function);
-    created.* = try l.loadFunction(item);
-    const replacing = for (base.functions) |f| {
-        if (f.id == created.id) break true;
-    } else false;
+    created.* = if (original) |record|
+        try changedFunction(&l, record, .{ .typed = .{ .interner = interner, .entity = .{ .function = record } } }, item)
+    else
+        try l.loadFunction(item);
+    const replacing = original != null;
     const functions = try arena.alloc(*const Function, base.functions.len + @as(usize, if (replacing) 0 else 1));
     @memcpy(functions[0..base.functions.len], base.functions);
     if (replacing) {
-        for (functions) |*f| if (f.*.id == created.id) { f.* = created; break; };
+        for (functions) |*f| if (f.*.id == created.id) {
+            f.* = created;
+            break;
+        };
     } else functions[base.functions.len] = created;
-    const Order = struct {
-        fn less(i: *const Interner, x: *const Function, y: *const Function) bool { return i.less(.function, x.id, y.id); }
-    };
-    std.mem.sort(*const Function, functions, @as(*const Interner, interner), Order.less);
     var result = base.*;
     result.snapshot = try interner.id(.snapshot, snapshot);
     result.parent = base.snapshot;
@@ -504,10 +509,6 @@ pub fn withDeclarations(arena: Allocator, interner: *Interner, base: *const Gene
             @memcpy(records[0..old.len], old);
             const added = try l.records(entry[1], items, entry[2]);
             @memcpy(records[old.len..], added);
-            const Order = struct {
-                fn less(i: *const Interner, x: *const entry[1], y: *const entry[1]) bool { return i.less(entry[3], x.id, y.id); }
-            };
-            std.mem.sort(*const entry[1], records, @as(*const Interner, interner), Order.less);
             @field(result, entry[0]) = records;
             return result;
         }
@@ -525,36 +526,30 @@ pub fn withChanges(arena: Allocator, interner: *Interner, base: *const Generatio
     result.parent = base.snapshot;
     inline for (.{ .{ "functions", Function, Loader.loadFunction, Domain.function }, .{ "types", Type, Loader.loadType, Domain.type }, .{ "effects", Effect, Loader.loadEffect, Domain.effect }, .{ "capabilities", Capability, Loader.loadCapability, Domain.capability }, .{ "obligations", Obligation, Loader.loadObligation, Domain.obligation } }) |entry| {
         table: {
-        const old_items = reader.arrayItems(before, entry[0]);
-        const new_items = reader.arrayItems(after, entry[0]);
-        if (sameSlice(Value, old_items, new_items)) break :table;
-        const old_records = @field(base, entry[0]);
-        const records = try arena.alloc(*const entry[1], new_items.len);
-        for (new_items, records) |item, *slot| {
-            const id = try l.id(entry[3], item, "id");
-            const old_record = for (old_records) |record| {
-                if (record.id == id) break record;
-            } else null;
-            const old_item = for (old_items) |old| {
-                if (std.mem.eql(u16, reader.decoded(reader.property(old, "id").?), reader.decoded(reader.property(item, "id").?))) break old;
-            } else null;
-            if (old_record != null and old_item != null and sameValue(old_item.?, item)) {
-                slot.* = old_record.?;
-                continue;
+            const old_items = reader.arrayItems(before, entry[0]);
+            const new_items = reader.arrayItems(after, entry[0]);
+            if (sameValues(old_items, new_items)) break :table;
+            const old_records = @field(base, entry[0]);
+            const records = try arena.alloc(*const entry[1], new_items.len);
+            for (new_items, records) |item, *slot| {
+                const id = try l.id(entry[3], item, "id");
+                const old_record = for (old_records) |record| {
+                    if (record.id == id) break record;
+                } else null;
+                const old_item = for (old_items) |old| {
+                    if (std.mem.eql(u16, reader.decoded(reader.property(old, "id").?), reader.decoded(reader.property(item, "id").?))) break old;
+                } else null;
+                if (old_record != null and old_item != null and sameValue(old_item.?, item)) {
+                    slot.* = old_record.?;
+                    continue;
+                }
+                const record = try arena.create(entry[1]);
+                if (entry[1] == Function and old_record != null and old_item != null) {
+                    record.* = try changedFunction(&l, old_record.?, old_item.?, item);
+                } else record.* = try entry[2](&l, item);
+                slot.* = record;
             }
-            const record = try arena.create(entry[1]);
-            if (entry[1] == Function and old_record != null and old_item != null) {
-                record.* = try changedFunction(&l, old_record.?, old_item.?, item);
-            } else record.* = try entry[2](&l, item);
-            slot.* = record;
-        }
-        const Order = struct {
-            fn less(i: *const Interner, x: *const entry[1], y: *const entry[1]) bool {
-                return i.less(entry[3], x.id, y.id);
-            }
-        };
-        std.mem.sort(*const entry[1], records, @as(*const Interner, interner), Order.less);
-        @field(result, entry[0]) = records;
+            @field(result, entry[0]) = records;
         }
     }
     return result;
@@ -564,12 +559,35 @@ fn sameSlice(comptime T: type, x: []const T, y: []const T) bool {
     return x.ptr == y.ptr and x.len == y.len;
 }
 
-fn sameValue(x: Value, y: Value) bool {
+pub fn sameValue(x: Value, y: Value) bool {
     return switch (x) {
-        .object => |fields| y == .object and sameSlice(reader.Member, fields, y.object),
-        .array => |items| y == .array and sameSlice(Value, items, y.array),
-        else => false,
+        .typed => |reference| if (y == .typed and reference.interner == y.typed.interner and std.meta.activeTag(reference.entity) == std.meta.activeTag(y.typed.entity) and std.meta.eql(reference.entity, y.typed.entity)) true else sameObject(x, y),
+        .object => |fields| if (y == .object and sameSlice(reader.Member, fields, y.object)) true else sameObject(x, y),
+        .array => |items| y == .array and sameValues(items, y.array),
+        .string => |units| y == .string and std.mem.eql(u16, units, y.string),
+        .number => |text| y == .number and std.mem.eql(u8, text, y.number),
+        .json_null => y == .json_null,
+        .json_true => y == .json_true,
+        .json_false => y == .json_false,
     };
+}
+
+fn sameObject(x: Value, y: Value) bool {
+    if (!reader.isObject(y)) return false;
+    const fields = reader.objectMembers(x);
+    if (fields.len != reader.objectMembers(y).len) return false;
+    for (fields) |field| {
+        const other = reader.property(y, reader.utf8(field.name)) orelse return false;
+        if (!sameValue(field.value, other)) return false;
+    }
+    return true;
+}
+
+fn sameValues(x: []const Value, y: []const Value) bool {
+    if (sameSlice(Value, x, y)) return true;
+    if (x.len != y.len) return false;
+    for (x, y) |left, right| if (!sameValue(left, right)) return false;
+    return true;
 }
 
 fn changedFunction(l: *Loader, original: *const Function, before: Value, after: Value) !Function {
@@ -579,25 +597,25 @@ fn changedFunction(l: *Loader, original: *const Function, before: Value, after: 
     result.must_not_wait = Loader.flag(after, "mustNotWait");
     inline for (.{ "typeParameters", "parameters", "resultType", "requiredEffects", "body" }) |key| {
         property: {
-        const old = reader.property(before, key);
-        const new = reader.property(after, key);
-        if (old != null and new != null and sameValue(old.?, new.?)) break :property;
-        if (comptime std.mem.eql(u8, key, "typeParameters")) {
-            result.type_parameters = try l.typeParameters(after);
-        } else if (comptime std.mem.eql(u8, key, "parameters")) {
-            result.parameters = try l.typed(.parameter, reader.arrayItems(after, key));
-        } else if (comptime std.mem.eql(u8, key, "resultType")) {
-            result.result = try l.typeRef(new.?);
-        } else if (comptime std.mem.eql(u8, key, "requiredEffects")) {
-            const values = reader.arrayItems(after, key);
-            const effects = try l.arena.alloc(Id, values.len);
-            for (values, effects) |effect, *e| e.* = try l.interner.id(.effect, reader.decoded(effect));
-            result.effects = effects;
-        } else {
-            var builder: BodyBuilder = .{ .loader = l };
-            _ = try builder.graph(new.?);
-            result.body = builder.done();
-        }
+            const old = reader.property(before, key);
+            const new = reader.property(after, key);
+            if (old != null and new != null and sameValue(old.?, new.?)) break :property;
+            if (comptime std.mem.eql(u8, key, "typeParameters")) {
+                result.type_parameters = try l.typeParameters(after);
+            } else if (comptime std.mem.eql(u8, key, "parameters")) {
+                result.parameters = try l.typed(.parameter, reader.arrayItems(after, key));
+            } else if (comptime std.mem.eql(u8, key, "resultType")) {
+                result.result = try l.typeRef(new.?);
+            } else if (comptime std.mem.eql(u8, key, "requiredEffects")) {
+                const values = reader.arrayItems(after, key);
+                const effects = try l.arena.alloc(Id, values.len);
+                for (values, effects) |effect, *e| e.* = try l.interner.id(.effect, reader.decoded(effect));
+                result.effects = effects;
+            } else {
+                var builder: BodyBuilder = .{ .loader = l };
+                _ = try builder.graph(new.?);
+                result.body = builder.done();
+            }
         }
     }
     return result;
@@ -1018,6 +1036,11 @@ test "operation generations path-copy changed tables and share unchanged functio
     );
     var interner: Interner = .{ .gpa = a };
     const original = try load(a, &interner, before, null);
+    const direct = reader.typed_view.root(&interner, &original, false);
+    const cloned = try reader.ownTyped(a, direct, false);
+    const unchanged = try withChanges(a, &interner, &original, direct, cloned);
+    try std.testing.expect(unchanged.types.ptr == original.types.ptr);
+    try std.testing.expect(unchanged.functions.ptr == original.functions.ptr);
     const functions = reader.arrayItems(before, "functions");
     const renamed_fields = try a.dupe(reader.Member, functions[0].object);
     for (renamed_fields) |*field| if (std.mem.eql(u8, reader.utf8(field.name), "displayName")) {

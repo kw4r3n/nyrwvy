@@ -14,8 +14,6 @@ const proposals = @import("proposals.zig");
 var snapshot_id: []const u8 = "";
 pub var snapshot_path: []const u8 = "";
 var fingerprints: model_reader.Fingerprints = undefined;
-var model_root: model_reader.Value = .json_null;
-var canonical_model: ?model_reader.Value = null;
 pub var selection: ?Dependency = null;
 var startup: std.mem.Allocator = undefined;
 pub var writable = false;
@@ -26,10 +24,12 @@ pub var dependency_manifest: ?[]const u8 = null;
 pub var host_io: std.Io = undefined;
 pub var host_sources_allowed = false;
 
-/// The model in canonical order, built on first use.
+/// Canonical wire order over the committed typed generation.
 fn canonical() model_reader.Value {
-    if (canonical_model == null) canonical_model = model_reader.canonicalRoot(startup, model_root);
-    return canonical_model.?;
+    return proposals.currentModel(true);
+}
+fn currentModel() model_reader.Value {
+    return proposals.currentModel(!session_changed);
 }
 
 // `WireInput.requestMaxJsonDepth`: 3 + 3 * 256 + 64.
@@ -255,7 +255,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
             try out.writeAll("}");
         } else if (std.mem.eql(u8, op, "declarations")) {
             try wire.declarations(a, out, canonical(), if (selection) |d| d.provenance else null);
-        } else try proposals.listing(a, out, snapshot_id, if (session_changed) model_root else canonical());
+        } else try proposals.listing(a, out, snapshot_id, currentModel());
         return out.writeByte('}');
     };
     const queries = [_]struct { []const u8, *const fn (*query.Request, *std.Io.Writer) anyerror!void }{
@@ -305,7 +305,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         .{ "simulateReplaceBodyByName", query.simulateReplaceBodyByName },
     };
     for (queries) |entry| if (std.mem.eql(u8, op, entry[0])) {
-        var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .model = if (session_changed) model_root else canonical(), .provenance = if (selection) |d| d.provenance else null, .snapshot_id = snapshot_id, .snapshot_fingerprint = fingerprints.snapshot, .snapshot_path = snapshot_path, .session_invalidated = invalidated };
+        var request: query.Request = .{ .a = a, .line = line, .root = parsed.object, .model = currentModel(), .provenance = if (selection) |d| d.provenance else null, .snapshot_id = snapshot_id, .snapshot_fingerprint = fingerprints.snapshot, .snapshot_path = snapshot_path, .session_invalidated = invalidated };
         var result: std.Io.Writer.Allocating = .init(a);
         entry[1](&request, &result.writer) catch |e| switch (e) {
             error.Rejected => {
@@ -444,7 +444,7 @@ fn publish(a: std.mem.Allocator, out: *std.Io.Writer, id: []const u8, op: []cons
     }
     if (p.dependency) |dependency| {
         if (selection == null) return failure(out, id, "DependencyFailure", "This workspace has no dependency selection.");
-        var request: query.Request = .{ .a = a, .line = line, .root = root, .model = if (session_changed) model_root else canonical(), .provenance = selection.?.provenance, .snapshot_id = snapshot_id, .snapshot_fingerprint = fingerprints.snapshot, .snapshot_path = snapshot_path, .session_invalidated = invalidated };
+        var request: query.Request = .{ .a = a, .line = line, .root = root, .model = currentModel(), .provenance = selection.?.provenance, .snapshot_id = snapshot_id, .snapshot_fingerprint = fingerprints.snapshot, .snapshot_path = snapshot_path, .session_invalidated = invalidated };
         @import("dependency_simulation.zig").replan(&request, dependency) catch |err| switch (err) {
             error.Rejected => return failureWith(out, id, request.rejection.code, request.rejection.message, request.rejection.details),
             else => return err,
@@ -453,8 +453,7 @@ fn publish(a: std.mem.Allocator, out: *std.Io.Writer, id: []const u8, op: []cons
     const declaration = if (p.declaration) |d| if (!std.mem.eql(u8, d.group, "functions")) p.declaration else null else null;
     const union_evolution = if (p.migration) |migration| std.mem.eql(u8, migration.kind, "unionVariantEvolution") else false;
     if (!std.mem.eql(u8, snapshot_id, p.base_id)) return commitRejected(a, out, id, "StaleBaseSnapshot", if (declaration) |d| try std.fmt.allocPrint(a, "The workspace advanced beyond the reviewed {s}-declaration proposal.", .{d.subject}) else if (p.operations) "The transaction base snapshot does not match the supplied snapshot." else if (union_evolution) "The workspace advanced beyond the reviewed Union-variant evolution proposal." else "The workspace advanced beyond the reviewed structural proposal.");
-    const document = try proposals.document(a, p);
-    const validated = model_reader.readDocument(a, document);
+    const validated = model_reader.readTypedDocument(a, p.model);
     const proof = try model_reader.parseValue(a, p.receipt);
     const value = @import("materialize.zig");
     if (!std.mem.eql(u8, fingerprints.snapshot, model_reader.utf8(model_reader.decoded(model_reader.property(proof, "baseSnapshotFingerprint").?))))
@@ -473,9 +472,9 @@ fn publish(a: std.mem.Allocator, out: *std.Io.Writer, id: []const u8, op: []cons
     var persisted_model = p.model;
     const selected_dependency: ?Dependency = if (p.dependency) |d| d.selected else selection;
     if (selected_dependency) |d| {
-        const imported = try model_reader.parseValue(a, d.canonical);
+        const imported = d.root;
         var fields: std.ArrayList(model_reader.Member) = .empty;
-        for (p.model.object) |field| {
+        for (model_reader.objectMembers(p.model)) |field| {
             const name = model_reader.utf8(field.name);
             if (std.mem.eql(u8, name, "types") or std.mem.eql(u8, name, "effects") or std.mem.eql(u8, name, "capabilities") or std.mem.eql(u8, name, "functions") or std.mem.eql(u8, name, "obligations")) {
                 var locals: std.ArrayList(model_reader.Value) = .empty;
@@ -511,9 +510,7 @@ fn publish(a: std.mem.Allocator, out: *std.Io.Writer, id: []const u8, op: []cons
         selection = d.selected;
         dependency_manifest = d.manifest;
     }
-    model_root = p.session_model;
     session_changed = true;
-    canonical_model = p.model;
     snapshot_id = retained_id;
     fingerprints = retained_fingerprints;
     persisted_source = retained_source;
@@ -684,8 +681,8 @@ pub fn openUsing(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only:
 pub fn install(a: std.mem.Allocator, read: model_reader.DocumentRead) void {
     snapshot_id = read.id;
     fingerprints = read.fingerprints.?;
-    model_root = read.root;
-    canonical_model = null;
+    proposals.loadCommitted(model_reader.canonicalRoot(a, read.root)) catch @panic("out of memory");
+    session_changed = false;
     startup = a;
 }
 
@@ -748,9 +745,18 @@ pub fn readSource(a: std.mem.Allocator, record: bool, source: []const u8, depend
     const read = if (record_line != null and std.mem.startsWith(u8, record_line.?, "error "))
         model_reader.DocumentRead{ .lines = "" }
     else if (dependency) |d|
-        model_reader.readResolvedDocument(a, d.canonical, d.id, d.digest, json)
+        model_reader.readSessionResolvedDocument(a, d.root, d.id, d.digest, json)
     else
-        model_reader.readDocument(a, json);
+        model_reader.readSessionDocument(a, json);
+    return checkedSourceRead(a, record_line, read);
+}
+
+/// Authored/derived models enter semantic validation directly; their encoded bytes are output only.
+pub fn readModel(a: std.mem.Allocator, root: model_reader.Value) Startup!model_reader.DocumentRead {
+    return checkedSourceRead(a, null, model_reader.readCandidate(a, root));
+}
+
+fn checkedSourceRead(a: std.mem.Allocator, record_line: ?[]const u8, read: model_reader.DocumentRead) Startup!model_reader.DocumentRead {
     if (codecProblem(a, record_line, read.lines) catch "out of memory") |message| {
         const rejected = fail(a, "SnapshotCodecFailure: {s}", .{message});
         if (read.validation_issues.len > 0) {
@@ -780,16 +786,26 @@ fn codecDetails(a: std.mem.Allocator, read: model_reader.DocumentRead) ![]const 
 /// `SessionStorage.decodeCompleteDependency`: a dependency source decoded, with no open obligation.
 /// `path` and `embedded` are the manifest's (`SourcePath`, `IsEmbedded`).
 pub fn decodeDependency(a: std.mem.Allocator, record: bool, source: []const u8, path: []const u8, embedded: bool) Startup!Dependency {
-    const read = try readSource(a, record, source, null);
+    return dependencyFromRead(a, try readSource(a, record, source, null), path, embedded);
+}
+
+/// Complete an already decoded and semantically validated typed graph, including flattened pins.
+pub fn dependencyFromRead(a: std.mem.Allocator, read: model_reader.DocumentRead, path: []const u8, embedded: bool) Startup!Dependency {
+    std.debug.assert(read.root == .typed and read.fingerprints != null);
     if (read.open_obligations) return fail(a, "DependencyFailure: The selected dependency has open obligations; complete it before pinning.", .{});
     const keys = model_reader.declarationKeys(a, read.root);
     const own = try a.alloc(wire.Provenance.Member, 1);
     own[0] = .{ .id = read.id, .fingerprint = read.fingerprints.?.snapshot, .keys = keys.all, .path = path, .embedded = embedded };
-    return dependencyOf(read, own, keys.hidden);
+    return dependencyOf(a, read, own, keys.hidden);
 }
 
-fn dependencyOf(read: model_reader.DocumentRead, members: []const wire.Provenance.Member, hidden: []const []const u8) Dependency {
-    return .{ .root = read.root, .canonical = read.canonical, .id = read.id, .digest = read.digest, .fingerprint = read.fingerprints.?.snapshot, .subjects = read.subjects, .provenance = .{ .members = members, .hidden = hidden } };
+fn dependencyOf(a: std.mem.Allocator, read: model_reader.DocumentRead, members: []const wire.Provenance.Member, hidden: []const []const u8) Dependency {
+    const typed = model_reader.session_model;
+    const strings = a.create(typed.Interner) catch @panic("out of memory");
+    strings.* = .{ .gpa = a };
+    const generation = a.create(typed.Generation) catch @panic("out of memory");
+    generation.* = typed.load(a, strings, read.root, null) catch @panic("out of memory");
+    return .{ .root = model_reader.typed_view.root(strings, generation, false), .canonical = read.canonical, .id = read.id, .digest = read.digest, .fingerprint = read.fingerprints.?.snapshot, .subjects = read.subjects, .provenance = .{ .members = members, .hidden = hidden } };
 }
 
 /// `PinnedDependency.loadFrom`: null without a sidecar; one member, or a set of at least two
@@ -897,10 +913,10 @@ fn loadMemberUsing(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMa
 /// whose ID derives from the members' fingerprints (`DependencyGraph.combinedId`).
 pub fn combineMembers(a: std.mem.Allocator, members: []const Dependency) Startup!Dependency {
     var fingerprints_sorted: std.ArrayList([]const u8) = .empty;
-    var texts: std.ArrayList([]const u8) = .empty;
+    var roots: std.ArrayList(model_reader.Value) = .empty;
     for (members) |member| {
         fingerprints_sorted.append(a, member.fingerprint) catch return fail(a, "out of memory", .{});
-        texts.append(a, member.canonical) catch return fail(a, "out of memory", .{});
+        roots.append(a, member.root) catch return fail(a, "out of memory", .{});
     }
     std.mem.sort([]const u8, fingerprints_sorted.items, {}, struct {
         fn less(_: void, x: []const u8, y: []const u8) bool {
@@ -912,7 +928,7 @@ pub fn combineMembers(a: std.mem.Allocator, members: []const Dependency) Startup
     // `Guid(bytes).ToString("D")`: the first three groups are little-endian.
     const d = digest;
     const id = std.fmt.allocPrint(a, "dependency-set-{x:0>2}{x:0>2}{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x}", .{ d[3], d[2], d[1], d[0], d[5], d[4], d[7], d[6], d[8], d[9], d[10..16] }) catch return fail(a, "out of memory", .{});
-    switch (model_reader.combine(a, texts.items, id)) {
+    switch (model_reader.combineSession(a, roots.items, id)) {
         .conflict => |conflict| {
             var providers: std.ArrayList(u8) = .empty;
             for (conflict.names, members) |name, member| if (name) |display| {
@@ -922,11 +938,11 @@ pub fn combineMembers(a: std.mem.Allocator, members: []const Dependency) Startup
             const context = if (providers.items.len == 0) "" else std.fmt.allocPrint(a, " Providing declarations: {s}.", .{providers.items}) catch "";
             return fail(a, "DependencyFailure: Dependencies declare the {s} '{s}' with different content; colliding imported identities are never merged.{s}", .{ conflict.kind, conflict.id, context });
         },
-        .text => |combined| {
-            const read = try readSource(a, false, combined, null);
+        .root => |combined| {
+            const read = try checkedSourceRead(a, null, model_reader.readTypedDocument(a, combined));
             var sources: std.ArrayList(wire.Provenance.Member) = .empty;
             for (members) |member| try sources.append(a, member.provenance.members[0]);
-            var dependency = dependencyOf(read, sources.items, model_reader.declarationKeys(a, read.root).hidden);
+            var dependency = dependencyOf(a, read, sources.items, model_reader.declarationKeys(a, read.root).hidden);
             dependency.set = true;
             return dependency;
         },
@@ -1048,4 +1064,59 @@ test "dependency pair restores a failed snapshot write and preserves recovery on
             try std.testing.expect(!invalidated);
         }
     }
+}
+
+comptime {
+    if (@import("builtin").is_test) {
+        _ = @import("run_pure.zig");
+        _ = @import("proposals.zig");
+        _ = @import("operation_engine.zig");
+        _ = @import("operation_special_decode.zig");
+        _ = @import("operation_model.zig");
+        _ = @import("run_value.zig");
+        _ = @import("structural_migration.zig");
+    }
+}
+
+test "selected typed dependencies retain source member order for upgrade changes" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const first = "{\"id\":\"first\",\"displayName\":\"First\",\"type\":{\"kind\":\"primitive\",\"primitive\":\"unit\"}}";
+    const last = "{\"id\":\"last\",\"displayName\":\"Last\",\"type\":{\"kind\":\"primitive\",\"primitive\":\"unit\"}}";
+    const document = "{{\"schemaVersion\":24,\"snapshotId\":\"dependency\",\"types\":[{{\"id\":\"product\",\"displayName\":\"Product\",\"exported\":true,\"kind\":\"product\",\"fields\":[{s},{s}]}}],\"effects\":[],\"capabilities\":[],\"functions\":[],\"obligations\":[]}}";
+    const before = model_reader.readSessionDocument(a, try std.fmt.allocPrint(a, document, .{ first, last }));
+    const after = model_reader.readSessionDocument(a, try std.fmt.allocPrint(a, document, .{ last, first }));
+    try std.testing.expect(before.fingerprints != null and after.fingerprints != null);
+    const old = dependencyOf(a, before, &.{}, &.{});
+    const next = dependencyOf(a, after, &.{}, &.{});
+    try std.testing.expect(old.root == .typed and next.root == .typed);
+    const old_type = model_reader.arrayItems(old.root, "types")[0];
+    const new_type = model_reader.arrayItems(next.root, "types")[0];
+    try std.testing.expectEqualStrings("first", query.idOf(model_reader.arrayItems(old_type, "fields")[0]));
+    try std.testing.expectEqualStrings("last", query.idOf(model_reader.arrayItems(new_type, "fields")[0]));
+    try std.testing.expect(!proposals.sameValue(old_type, new_type));
+    try std.testing.expectEqualStrings(old.fingerprint, next.fingerprint);
+    try std.testing.expectEqualStrings(old.canonical, next.canonical);
+    const local = try std.fmt.allocPrint(a, "{{\"schemaVersion\":24,\"snapshotId\":\"local\",\"dependency\":{{\"snapshotId\":\"dependency\",\"digest\":\"{s}\"}},\"types\":[],\"effects\":[],\"capabilities\":[],\"functions\":[],\"obligations\":[]}}", .{next.digest});
+    const resolved = model_reader.readSessionResolvedDocument(a, next.root, next.id, next.digest, local);
+    try std.testing.expect(resolved.fingerprints != null);
+    const imported = model_reader.arrayItems(resolved.root, "types")[0];
+    try std.testing.expectEqualStrings("first", query.idOf(model_reader.arrayItems(imported, "fields")[0]));
+    const flattened = try dependencyFromRead(a, try readModel(a, resolved.root), "nested.json", true);
+    try std.testing.expect(flattened.root == .typed);
+    try std.testing.expect(flattened.root.typed.entity.generation != resolved.root.typed.entity.generation);
+    try std.testing.expect(model_reader.property(flattened.root, "dependency") == null);
+    try std.testing.expectEqualStrings("local", flattened.id);
+    try std.testing.expectEqualStrings(resolved.canonical, flattened.canonical);
+    try std.testing.expectEqualStrings(resolved.digest, flattened.digest);
+    try std.testing.expectEqualStrings(resolved.fingerprints.?.snapshot, flattened.fingerprint);
+    try std.testing.expectEqual(@as(usize, 1), flattened.provenance.members.len);
+    try std.testing.expectEqualStrings("nested.json", flattened.provenance.members[0].path);
+    try std.testing.expectEqualStrings("local", flattened.provenance.members[0].id);
+    try std.testing.expect(flattened.provenance.members[0].embedded);
+    var incomplete = resolved;
+    incomplete.open_obligations = true;
+    try std.testing.expectError(error.Startup, dependencyFromRead(a, incomplete, "nested.json", true));
+    try std.testing.expectEqualStrings("DependencyFailure: The selected dependency has open obligations; complete it before pinning.", failure_line);
 }

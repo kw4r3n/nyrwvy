@@ -159,7 +159,7 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     var baseline = r.*;
     var candidate = r.*;
     if (pending) |p| if (!r.session_invalidated and !p.operations) {
-        candidate.model = p.session_model;
+        candidate.model = proposals.pendingModel(p, false);
         if (p.dependency) |dependency| candidate.provenance = dependency.selected.provenance;
     };
     const cases = try values.verificationCases(r, &candidate, m.same(op, "verifyChangeByName"));
@@ -169,7 +169,7 @@ pub fn run(r: *q.Request, out: *std.Io.Writer) !void {
     const p = try proposals.lookup(r, wanted);
     if (!m.same(p.base_id, r.snapshot_id)) return failure(r, "ExternalModification", "The snapshot file changed outside this session.");
     if (p.operations) return failure(r, "DependencyFailure", "Candidate execution is unsupported for operations proposals.");
-    candidate.model = p.session_model;
+    candidate.model = proposals.pendingModel(p, false);
     candidate.snapshot_id = prop(p.model, "snapshotId");
     const receipt = try model.parseValue(r.a, p.receipt);
     candidate.snapshot_fingerprint = prop(receipt, "proposedSnapshotFingerprint");

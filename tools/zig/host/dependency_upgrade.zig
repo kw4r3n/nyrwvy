@@ -54,9 +54,7 @@ pub fn pin(r: *query.Request, source: []const u8) !Pinned {
     if (nested == null and host.bound(r.a, std.mem.endsWith(u8, path, ".nyrec"), content)) return failure(r, try std.fmt.allocPrint(r.a, "The dependency sidecar '{s}.dependency.json' is missing. Restore the exact sidecar that belongs to this snapshot; pinning a new version cannot recover a lost selection.", .{path}));
     const dependency = if (nested) |selected| blk: {
         const resolved = host.readSource(r.a, std.mem.endsWith(u8, path, ".nyrec"), content, selected) catch return storageFailure(r);
-        if (resolved.open_obligations) return failure(r, "The selected dependency has open obligations; complete it before pinning.");
-        const flattened = try write(r.a, resolved.root);
-        break :blk host.decodeDependency(r.a, false, flattened, path, true) catch return storageFailure(r);
+        break :blk host.dependencyFromRead(r.a, resolved, path, true) catch return storageFailure(r);
     } else host.decodeDependency(r.a, std.mem.endsWith(u8, path, ".nyrec"), content, path, true) catch return storageFailure(r);
     const json = (try model.writtenText(r.a, dependency.canonical)).text;
     const is_record = std.mem.endsWith(u8, path, ".nyrec");
@@ -93,8 +91,7 @@ pub fn combine(r: *query.Request, items: []const Pinned) !struct { host.Dependen
     return .{ combined, try write(r.a, try m.object(r.a, &.{try m.member(r.a, "dependencies", .{ .array = manifests })})) };
 }
 fn merged(r: *query.Request, selected: host.Dependency) !struct { Value, Value } {
-    const saved = host.readSource(r.a, std.mem.endsWith(u8, r.snapshot_path, ".nyrec"), host.persisted_source, host.selection) catch return storageFailure(r);
-    return mergeModel(r, saved.root, selected);
+    return mergeModel(r, model.canonicalRoot(r.a, r.model), selected);
 }
 pub fn mergeModel(r: *query.Request, root: Value, selected: host.Dependency) !struct { Value, Value } {
     const imported = if (host.selection) |old| old.root else try m.object(r.a, &.{});
@@ -153,14 +150,15 @@ fn issue(a: Allocator, code: []const u8, message: []const u8) !Value {
     return m.object(a, &.{ try m.member(a, "code", try m.string(a, code)), try m.member(a, "message", try m.string(a, message)) });
 }
 fn compatibility(r: *query.Request, selected: host.Dependency, candidate: Value) !Value {
-    const read = model.readDocument(r.a, try write(r.a, candidate));
+    const read = model.readCandidate(r.a, candidate);
     const diagnostics = try edit.validatedIssues(r, read);
     var issues: std.ArrayList(Value) = .empty;
     for (diagnostics) |diagnostic| try issues.append(r.a, try issue(r.a, diagnostic.code, model.utf8(diagnostic.message)));
     const imported = selected.root;
+    const typed_candidate = try model.ownTyped(r.a, candidate, false);
     for ([_][2][]const u8{ .{ "types", "type" }, .{ "functions", "function" }, .{ "effects", "effect" }, .{ "capabilities", "capability" } }) |group| for (model.arrayItems(imported, group[0])) |item| {
         if (exported(item)) continue;
-        const references = model.referencesTo(r.a, candidate, group[1], model.decoded(model.property(item, "id").?)) orelse continue;
+        const references = model.referencesTo(r.a, typed_candidate, group[1], model.decoded(model.property(item, "id").?)) orelse continue;
         for (references) |reference| {
             const owner_group: []const u8 = switch (reference.owner) {
                 .function => "functions",

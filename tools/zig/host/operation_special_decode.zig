@@ -42,9 +42,9 @@ fn owningFunction(d: *recipe.Decoder, node_id: []const u8) !Value {
 }
 fn containsNode(value: Value, node_id: []const u8) bool {
     switch (value) {
-        .object => |fields| {
+        .object, .typed => {
             if (model.property(value, "id") != null and model.property(value, "kind") != null and edit.hasId(value, node_id)) return true;
-            for (fields) |field| if (containsNode(field.value, node_id)) return true;
+            for (model.objectMembers(value)) |field| if (containsNode(field.value, node_id)) return true;
         },
         .array => |items| for (items) |item| if (containsNode(item, node_id)) return true,
         else => {},
@@ -148,7 +148,7 @@ fn unionVariant(d: *recipe.Decoder, item: Json, path: []const u8, by_name: bool)
     }
     const variant = try m.object(d.r.a, &.{ try m.member(d.r.a, "id", variant_id), try m.member(d.r.a, "displayName", try m.string(d.r.a, name)), try m.member(d.r.a, "fields", .{ .array = allocated_fields }) });
     var request = d.r.*;
-    if (by_name) request.model = try edit.replace(d.r.a, request.model, "types", try edit.append(d.r.a, owner, "variants", variant));
+    if (by_name) request.model = try model.ownTyped(d.r.a, try edit.replace(d.r.a, request.model, "types", try edit.append(d.r.a, owner, "variants", variant)), false);
     local.r = &request;
     var arms: std.ArrayList(types.ArmRecipe) = .empty;
     for (try d.array(item, "arms"), 0..) |arm, i| {
@@ -162,4 +162,21 @@ fn unionVariant(d: *recipe.Decoder, item: Json, path: []const u8, by_name: bool)
         try arms.append(d.r.a, .{ .match = match_id, .body = body });
     }
     return .{ .add_union_variant = .{ .type = query.idOf(owner), .variant = variant, .arms = arms.items } };
+}
+
+test "typed operation name lookup visits nested graph nodes" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    model.beginRequest(a);
+    const decoded = try model.parseValue(a,
+        \\{"snapshotId":"base","types":[],"effects":[],"capabilities":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"input","kind":"unitLiteral"},{"id":"bind","kind":"bind","inputNodeId":"input","boundBody":{"valueBinding":{"id":"binding","type":{"kind":"primitive","primitive":"unit"}},"body":{"nodes":[{"id":"nested","kind":"unitLiteral"}],"resultNodeId":"nested"}}}],"resultNodeId":"bind"}}],"obligations":[]}
+    );
+    const owned = try model.ownTyped(a, decoded, false);
+    var request: query.Request = .{ .a = a, .line = "", .root = .empty, .model = owned, .provenance = null };
+    var decoder: recipe.Decoder = .{ .r = &request, .duplicates = .empty };
+    const function = try owningFunction(&decoder, "nested");
+    try std.testing.expect(function == .typed);
+    try std.testing.expectEqualStrings("f", query.idOf(function));
+    try std.testing.expect(!containsNode(model.property(function, "body").?, "missing"));
 }

@@ -61,7 +61,8 @@ fn remap(r: *query.Request, value: Value, key: []const u8, nodes: *const Ids, pa
             for (items, copied) |item, *next| next.* = try remap(r, item, key, nodes, patterns);
             return .{ .array = copied };
         },
-        .object => |fields| {
+        .object, .typed => {
+            const fields = model.objectMembers(value);
             const copied = try r.a.dupe(model.Member, fields);
             for (copied) |*field| {
                 const name = model.utf8(field.name);

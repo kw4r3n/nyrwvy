@@ -24,9 +24,9 @@ pub fn create(r: *query.Request, out: *std.Io.Writer) anyerror!void {
         var scratch = r.*;
         // A builder sees the original declarations plus successfully materialized predecessors.
         const functions = try std.mem.concat(r.a, model.Value, &.{ model.arrayItems(r.model, "functions"), created.items });
-        const fields = try r.a.dupe(model.Member, r.model.object);
+        const fields = try r.a.dupe(model.Member, model.objectMembers(r.model));
         for (fields) |*field| if (m.same(model.utf8(field.name), "functions")) { field.value = .{ .array = functions }; break; };
-        scratch.model = .{ .object = fields };
+        scratch.model = try model.ownTyped(r.a, .{ .object = fields }, false);
         const source = sources[index];
         scratch.line = source;
         scratch.root = if (item == .object) item.object else .empty;

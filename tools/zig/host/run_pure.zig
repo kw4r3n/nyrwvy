@@ -215,3 +215,47 @@ test "runner dispatch name preserves arbitrary UTF-8 stable IDs" {
     defer std.testing.allocator.free(name);
     try std.testing.expectEqualStrings("f_entry___", name);
 }
+
+test "typed host reads preserve focus viewer lowering and private declaration visibility" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    model.beginRequest(a);
+    const source =
+        \\{"snapshotId":"snapshot","types":[{"id":"hidden","displayName":"Private","kind":"product","fields":[]}],"effects":[],"capabilities":[],"functions":[{"id":"00000000-0000-0000-0000-000000000001","displayName":"Caller","parameters":[],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"nodes":[{"id":"00000000-0000-0000-0000-000000000003","kind":"directCall","targetFunctionId":"00000000-0000-0000-0000-000000000002","arguments":[]}],"resultNodeId":"00000000-0000-0000-0000-000000000003"}},{"id":"00000000-0000-0000-0000-000000000002","displayName":"Literal","parameters":[],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"nodes":[{"id":"00000000-0000-0000-0000-000000000004","kind":"stringLiteral","value":"line\n\uD83D\uDE80"}],"resultNodeId":"00000000-0000-0000-0000-000000000004"}}],"obligations":[]}
+    ;
+    const decoded = try model.parseValue(a, try std.fmt.allocPrint(a, "{{\"schemaVersion\":{d},{s}", .{ model.currentVersion(), source[1..] }));
+    const owned = try model.ownTyped(a, decoded, false);
+    const line = "{\"id\":\"read\",\"op\":\"readFunction\",\"functionId\":\"00000000-0000-0000-0000-000000000002\"}";
+    const request = try std.json.parseFromSliceLeaky(std.json.Value, a, line, .{});
+    var old: q.Request = .{ .a = a, .line = line, .root = request.object, .model = decoded, .provenance = .{ .members = &.{}, .hidden = &.{"type:hidden"} } };
+    var fresh = old;
+    fresh.model = owned;
+    for ([_][]const u8{ "compact", "outline", "full" }) |detail| {
+        try old.root.put(a, "detail", .{ .string = detail });
+        fresh.root = old.root;
+        var before: std.Io.Writer.Allocating = .init(a);
+        model.beginRequest(a);
+        try q.readFunction(&old, &before.writer);
+        var after: std.Io.Writer.Allocating = .init(a);
+        model.beginRequest(a);
+        try q.readFunction(&fresh, &after.writer);
+        try std.testing.expectEqualStrings(before.written(), after.written());
+    }
+    model.beginRequest(a);
+    const before_view = try @import("viewer.zig").focusData(a, decoded, "snapshot", model.arrayItems(decoded, "functions")[1]);
+    model.beginRequest(a);
+    const after_view = try @import("viewer.zig").focusData(a, owned, "snapshot", model.arrayItems(owned, "functions")[1]);
+    try std.testing.expectEqualStrings(before_view, after_view);
+    model.beginRequest(a);
+    const before_ir = try lowered(&old, "00000000-0000-0000-0000-000000000001");
+    model.beginRequest(a);
+    const after_ir = try lowered(&fresh, "00000000-0000-0000-0000-000000000001");
+    try std.testing.expectEqualStrings(before_ir, after_ir);
+    try std.testing.expect(!concurrentValue(try std.json.parseFromSliceLeaky(std.json.Value, a, after_ir, .{})));
+    model.beginRequest(a);
+    const visible = try values.declarationView(&fresh);
+    try std.testing.expect(visible == .typed);
+    try std.testing.expectEqual(@as(usize, 0), model.arrayItems(visible, "types").len);
+    try std.testing.expectEqual(@as(usize, 1), model.arrayItems(owned, "types").len);
+}

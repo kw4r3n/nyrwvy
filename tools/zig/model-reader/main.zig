@@ -83,7 +83,9 @@ fn oneLine(reason: []const u8) []const u8 {
 /// are per unit, and a lone surrogate escape survives where the F# reader keeps one.
 pub const Str = []const u16;
 pub const Member = struct { name: Str, value: Value };
+pub const typed_view = @import("view.zig");
 pub const Value = union(enum) {
+    typed: typed_view.Reference,
     json_null,
     json_true,
     json_false,
@@ -381,7 +383,7 @@ fn plainArray(items: []const Keyed) []const u8 {
 // ---------------------------------------------------------------- the reader's helpers
 
 fn ensureObject(context: []const u8, element: Value) Failure!void {
-    if (element != .object) return invalidShape(fmt("{s} must be a JSON object.", .{context}));
+    if (element != .object and element != .typed) return invalidShape(fmt("{s} must be a JSON object.", .{context}));
 }
 
 fn inNames(name: Str, names: []const []const u8) bool {
@@ -399,7 +401,7 @@ fn lessStr(_: void, left: Str, right: Str) bool {
 
 fn ensureProperties(context: []const u8, required: []const []const u8, allowed: []const []const u8, element: Value) Failure!void {
     try ensureObject(context, element);
-    const members = element.object;
+    const members = objectMembers(element);
     var duplicate = false;
     var unsupported = false;
     for (members, 0..) |member, index| {
@@ -438,8 +440,9 @@ fn ensureProperties(context: []const u8, required: []const []const u8, allowed: 
 
 /// `TryGetProperty`: the last of duplicate names wins.
 fn tryProperty(name: []const u8, element: Value) ?Value {
+    if (element == .typed) return element.typed.property(a, name);
     var found: ?Value = null;
-    for (element.object) |member| {
+    for (objectMembers(element)) |member| {
         if (isName(member.name, name)) found = member.value;
     }
     return found;
@@ -770,10 +773,10 @@ fn loadTables() void {
         if (std.mem.eql(u8, feature, "WaitAttributes")) wait_row = rows.items.len - 1;
         if (std.mem.eql(u8, feature, "Bytes")) bytes_row = rows.items.len - 1;
         const special = [_]struct { []const u8, *?usize }{
-            .{ "GenericTypes", &generic_row },                .{ "DeclarationVisibility", &visibility_row },
+            .{ "GenericTypes", &generic_row },                                    .{ "DeclarationVisibility", &visibility_row },
             .{ "DeclaredFunctionTypeParameters", &declared_type_parameters_row }, .{ "TimedTaskWait", &timed_wait_row },
-            .{ "SharedUnionMatchArm", &shared_arm_row },      .{ "ExceptionBoundary", &exception_row },
-            .{ "OneShot", &one_shot_row },                    .{ "Map", &map_row },
+            .{ "SharedUnionMatchArm", &shared_arm_row },                          .{ "ExceptionBoundary", &exception_row },
+            .{ "OneShot", &one_shot_row },                                        .{ "Map", &map_row },
             .{ "Set", &set_row },
         };
         for (special) |entry| if (std.mem.eql(u8, feature, entry[0])) {
@@ -1360,7 +1363,7 @@ pub fn combine(allocator: std.mem.Allocator, members: []const []const u8, combin
     var out: List(u8) = .empty;
     out.print(a, "{{\"schemaVersion\":{d},\"snapshotId\":{s}", .{ current, quotedAscii(combined_id) }) catch oom();
     const groups = [_]struct { []const u8, []const u8, *const fn (Value) Failure!Keyed }{
-        .{ "types", "type", readType },             .{ "effects", "effect", readEffect },
+        .{ "types", "type", readType },                    .{ "effects", "effect", readEffect },
         .{ "capabilities", "capability", readCapability }, .{ "functions", "function", readFunction },
         .{ "obligations", "obligation", readObligation },
     };
@@ -1392,13 +1395,94 @@ pub fn combine(allocator: std.mem.Allocator, members: []const []const u8, combin
     out.append(a, '}') catch oom();
     return .{ .text = out.items };
 }
+/// Host ingestion: JSON is used only for parsing and ordered shape/version checks. Supported
+/// record schemas already have the current field shapes; the typed root normalizes its version.
+pub fn readSessionDocument(allocator: std.mem.Allocator, source: []const u8) DocumentRead {
+    a = allocator;
+    resetState();
+    emit_text = false;
+    const shape = canonicalJson(source);
+    emit_text = true;
+    _ = shape catch |err| return finishDocument(err);
+    const root = ownTyped(allocator, parsed_root, false) catch oom();
+    return readTypedDocument(allocator, root);
+}
+
+/// Host dependency composition never reconstructs semantic declarations from output JSON.
+pub const SessionCombined = union(enum) {
+    root: Value,
+    conflict: @FieldType(Combined, "conflict"),
+};
+pub fn combineSession(allocator: std.mem.Allocator, members: []const Value, combined_id: []const u8) SessionCombined {
+    a = allocator;
+    resetState();
+    var fields: List(Member) = .empty;
+    fields.append(a, .{ .name = L("schemaVersion"), .value = .{ .number = fmt("{d}", .{current}) } }) catch oom();
+    fields.append(a, .{ .name = L("snapshotId"), .value = .{ .string = utf16Of(combined_id) } }) catch oom();
+    const groups = [_][2][]const u8{ .{ "types", "type" }, .{ "effects", "effect" }, .{ "capabilities", "capability" }, .{ "functions", "function" }, .{ "obligations", "obligation" } };
+    for (groups) |group| {
+        var seen: std.StringArrayHashMapUnmanaged(Value) = .empty;
+        for (members) |member| {
+            std.debug.assert(member == .typed);
+            const root = canonicalRoot(a, member);
+            for (arrayOf(root, group[0])) |item| {
+                const id = text(str(item, "id"));
+                if (seen.get(id)) |existing| {
+                    if (session_model.sameValue(existing, item)) continue;
+                    const names = a.alloc(?[]const u8, members.len) catch oom();
+                    for (members, names) |other, *name| {
+                        name.* = null;
+                        for (arrayOf(other, group[0])) |candidate| if (std.mem.eql(u8, text(str(candidate, "id")), id)) {
+                            name.* = if (tryProperty("displayName", candidate) != null) text(str(candidate, "displayName")) else null;
+                        };
+                    }
+                    return .{ .conflict = .{ .kind = group[1], .id = id, .names = names } };
+                }
+                seen.put(a, id, item) catch oom();
+            }
+        }
+        fields.append(a, .{ .name = utf16Of(group[0]), .value = .{ .array = seen.values() } }) catch oom();
+    }
+    return .{ .root = ownTyped(a, .{ .object = fields.items }, false) catch oom() };
+}
+
 pub fn readDocument(allocator: std.mem.Allocator, source: []const u8) DocumentRead {
     a = allocator;
     resetState();
-    var out: std.Io.Writer.Allocating = .init(a);
     emit_text = false;
-    const read = canonicalJson(source);
+    const shape = canonicalJson(source);
     emit_text = true;
+    return finishDocument(shape);
+}
+
+/// Decode authored candidate fields at their boundary, then validate only the typed model.
+/// Shape failures retain the same diagnostics as readDocument without a JSON round trip.
+pub fn readCandidate(allocator: std.mem.Allocator, root: Value) DocumentRead {
+    if (root == .typed) return readTypedDocument(allocator, root);
+    a = allocator;
+    resetState();
+    emit_text = false;
+    const shape = canonicalOf(root);
+    emit_text = true;
+    _ = shape catch |err| return finishDocument(err);
+    const typed_root = ownTyped(allocator, root, false) catch oom();
+    return readTypedDocument(allocator, typed_root);
+}
+
+/// Validate/fingerprint a typed candidate directly, with the existing reader and validator.
+/// Shape decoding is completed at the input boundary, before constructing this generation.
+pub fn readTypedDocument(allocator: std.mem.Allocator, root: Value) DocumentRead {
+    std.debug.assert(root == .typed);
+    a = allocator;
+    resetState();
+    emit_text = false;
+    const shape = canonicalOf(root);
+    emit_text = true;
+    return finishDocument(shape);
+}
+
+fn finishDocument(read: Failure![]const u8) DocumentRead {
+    var out: std.Io.Writer.Allocating = .init(a);
     if (read) |_| {
         const root = parsed_root;
         validate(root);
@@ -1476,6 +1560,37 @@ pub fn readResolvedDocument(allocator: std.mem.Allocator, dependency: []const u8
     return .{ .lines = out.written(), .fingerprints = fingerprintsOf(merged) catch null, .id = id, .root = merged };
 }
 
+/// Host resolved ingestion checks the local wire document first, then merges typed dependency
+/// declarations and decodes the local records before invoking any semantic validation.
+pub fn readSessionResolvedDocument(allocator: std.mem.Allocator, dependency: Value, dependency_id: []const u8, dependency_digest: []const u8, source: []const u8) DocumentRead {
+    std.debug.assert(dependency == .typed);
+    a = allocator;
+    resetState();
+    resolved_input = true;
+    expected_marker = .{ .id = utf16Of(dependency_id), .digest = utf16Of(dependency_digest) };
+    emit_text = false;
+    const shape = canonicalJson(source);
+    emit_text = true;
+    resolved_input = false;
+    expected_marker = null;
+    _ = shape catch |err| return finishDocument(err);
+    const local = parsed_root;
+    // Pins retain source order for upgrade diffs; a resolved model imports their canonical view.
+    const dependency_root = canonicalRoot(a, dependency);
+    var fields: List(Member) = .empty;
+    for (objectMembers(local)) |member| {
+        if (isName(member.name, "dependency")) continue;
+        var value = member.value;
+        inline for (.{ "types", "effects", "capabilities", "functions", "obligations" }) |name| {
+            if (isName(member.name, name)) value = .{ .array = std.mem.concat(a, Value, &.{ arrayOf(dependency_root, name), member.value.array }) catch oom() };
+        }
+        if (isName(member.name, "schemaVersion")) value = .{ .number = fmt("{d}", .{current}) };
+        fields.append(a, .{ .name = member.name, .value = value }) catch oom();
+    }
+    const root = ownTyped(a, .{ .object = fields.items }, false) catch oom();
+    return readTypedDocument(allocator, root);
+}
+
 /// ASCII or UTF-8 text as UTF-16 units.
 fn utf16Of(bytes: []const u8) Str {
     return std.unicode.utf8ToUtf16LeAlloc(a, bytes) catch oom();
@@ -1496,6 +1611,11 @@ pub fn parseValue(allocator: std.mem.Allocator, source: []const u8) Failure!Valu
 /// members sorted by ID, as the host's encoders list them. `allocator` holds the result.
 pub fn canonicalRoot(allocator: std.mem.Allocator, root: Value) Value {
     a = allocator;
+    if (root == .typed) {
+        var result = root;
+        result.typed.canonical = true;
+        return result;
+    }
     emit_text = true;
     return parseDocument(canonicalOf(root) catch unreachable) catch unreachable;
 }
@@ -1503,6 +1623,32 @@ pub fn canonicalRoot(allocator: std.mem.Allocator, root: Value) Value {
 /// A string property's value (the parse keeps escapes).
 pub fn decoded(value: Value) Str {
     return decodeString(value.string) catch unreachable;
+}
+
+/// Own a typed snapshot directly from decoded boundary fields or another typed view.
+/// This never serializes or parses, and copies interned texts into the receiving arena.
+pub fn ownTyped(allocator: std.mem.Allocator, root: Value, canonical_order: bool) !Value {
+    const strings = try allocator.create(session_model.Interner);
+    strings.* = .{ .gpa = allocator };
+    const generation = try allocator.create(session_model.Generation);
+    const marker: ?session_model.Marker = if (property(root, "dependency")) |dependency| .{
+        .snapshot = try allocator.dupe(u16, decoded(property(dependency, "snapshotId").?)),
+        .digest = try allocator.dupe(u16, decoded(property(dependency, "digest").?)),
+    } else null;
+    generation.* = try session_model.load(allocator, strings, root, marker);
+    return typed_view.root(strings, generation, canonical_order);
+}
+
+pub fn isObject(element: Value) bool {
+    return element == .object or element == .typed;
+}
+
+pub fn objectMembers(element: Value) []const Member {
+    return switch (element) {
+        .typed => |reference| reference.members(a),
+        .object => |members| members,
+        else => &.{},
+    };
 }
 
 pub fn property(element: Value, name: []const u8) ?Value {
@@ -1560,7 +1706,14 @@ pub const FunctionRelation = struct { id: Str, invoked: bool, non_call_label: ?[
 pub fn functionRelationsOf(node: Value) []const FunctionRelation {
     const references = functionReferences(node);
     const out = a.alloc(FunctionRelation, references.len) catch oom();
-    for (references, out) |reference, *relation| relation.* = .{ .id = dec(reference.function_id), .invoked = isInvoked(reference.role), .non_call_label = switch (reference.role) { .direct_call => null, .pure_callback, .effect_callback => "callback", .worker => "worker", .body => "scoped body", .function_value => "function value", .implementation => "capability implementation" } };
+    for (references, out) |reference, *relation| relation.* = .{ .id = dec(reference.function_id), .invoked = isInvoked(reference.role), .non_call_label = switch (reference.role) {
+        .direct_call => null,
+        .pure_callback, .effect_callback => "callback",
+        .worker => "worker",
+        .body => "scoped body",
+        .function_value => "function value",
+        .implementation => "capability implementation",
+    } };
     return out;
 }
 
@@ -1674,9 +1827,9 @@ fn orderOptional(x: ?Str, y: ?Str) std.math.Order {
 }
 
 fn referenceLess(_: void, x: Reference, y: Reference) bool {
-    if (x.owner != y.owner) return @intFromEnum(x.owner) < @intFromEnum(y.owner);
+    if (x.owner != y.owner) return @backingInt(x.owner) < @backingInt(y.owner);
     var o = std.mem.order(u16, x.owner_id, y.owner_id);
-    if (o == .eq) o = std.math.order(@intFromEnum(x.site.tag), @intFromEnum(y.site.tag));
+    if (o == .eq) o = std.math.order(@backingInt(x.site.tag), @backingInt(y.site.tag));
     if (o == .eq) o = orderOptional(x.site.a, y.site.a);
     if (o == .eq) o = std.mem.order(u16, x.site.b, y.site.b);
     if (o == .eq) o = std.mem.order(u8, x.site.role, y.site.role);
@@ -1971,7 +2124,10 @@ pub fn completionOf(allocator: std.mem.Allocator, root: Value, function: Value, 
     prepareContext(root);
     var resolver = Resolver.init(function);
     const completion = resolver.completion(id) orelse return null;
-    return switch (completion) { .normal => |t| .{ .normal = typeValue(t) }, .aborts => .aborts };
+    return switch (completion) {
+        .normal => |t| .{ .normal = typeValue(t) },
+        .aborts => .aborts,
+    };
 }
 
 /// `SemanticQuery.focusFunction`'s derived facts for `function` of `root` (the session's model).
@@ -2507,7 +2663,7 @@ fn typeEql(left: TypeRef, right: TypeRef) bool {
 
 /// A text that identifies a type reference structurally, for sets keyed by types.
 fn typeKey(t: TypeRef, out: *List(u8)) void {
-    out.append(a, "pnftcg"[@intFromEnum(t.kind)]) catch oom();
+    out.append(a, "pnftcg"[@backingInt(t.kind)]) catch oom();
     out.appendSlice(a, idKey(t.name)) catch oom();
     out.append(a, '(') catch oom();
     for (t.args) |arg| typeKey(arg, out);
@@ -2839,7 +2995,7 @@ fn validateNodeTypeRefs(node: Value) void {
 /// `SemanticNodeShape.payloadTypeRefs`: the types a node states in its own payload (the `type`
 /// and `targs` properties of model_kinds.txt).
 fn payloadTypeRefs(node: Value, out: *List(TypeRef)) void {
-    for (node.object) |member| {
+    for (objectMembers(node)) |member| {
         if (isName(member.name, "typeArguments")) {
             out.appendSlice(a, typeRefsOf(member.value.array)) catch oom();
         } else if (inNames(member.name, &.{ "itemType", "keyType", "valueType", "resultType", "okType", "errorType" })) {
@@ -3463,16 +3619,86 @@ fn lessKey(_: void, left: []const u8, right: []const u8) bool {
 /// The kinds `inferNodeType` types from operands or payload. Every other kind is constant, or
 /// has no type of its own (`abort` and the structured kinds, which `tryCompletion` handles).
 const Typed = enum {
-    parameterReference, patternReference, mapEmpty, mapInsert, mapRemove, mapUnion, mapGetOrDefault, mapMapValues,
-    optionGetOrDefault, resultGetOrDefault, optionOkOr, resultOkValue, resultErrValue, optionMap, optionAndThen,
-    resultMap, resultMapErr, resultAndThen, listMinBy, listMaxBy, mapGet, mapFilter, setFilter, setMap, mapKeys,
-    mapValues, setEmpty, setInsert, setRemove, setUnion, setIntersection, setDifference, setToList, setFromList,
-    listEmpty, listConstruct, listItemAt, listLast, listAppendItem, listSlice, listSetAt, listInsertAt, listRemoveAt,
-    listReverse, listDropLast, listFilter, listSortBy, listConcat, listFold, listScan, mapFold, setFold,
-    listEffectFold, useResource, exceptionCatch, exceptionRethrow, cancellationShield, taskScope, taskStart,
-    taskWait, oneShotCreate, oneShotWait, parallelAll, listMap, listZipWith, listFlatMap, mapFromList,
-    capabilityConstruct, functionReference, functionInvoke, directCall, capabilityInvoke, productConstruct,
-    productUpdate, fieldAccess, unionConstruct, optionNone, optionSome, resultOk, resultErr,
+    parameterReference,
+    patternReference,
+    mapEmpty,
+    mapInsert,
+    mapRemove,
+    mapUnion,
+    mapGetOrDefault,
+    mapMapValues,
+    optionGetOrDefault,
+    resultGetOrDefault,
+    optionOkOr,
+    resultOkValue,
+    resultErrValue,
+    optionMap,
+    optionAndThen,
+    resultMap,
+    resultMapErr,
+    resultAndThen,
+    listMinBy,
+    listMaxBy,
+    mapGet,
+    mapFilter,
+    setFilter,
+    setMap,
+    mapKeys,
+    mapValues,
+    setEmpty,
+    setInsert,
+    setRemove,
+    setUnion,
+    setIntersection,
+    setDifference,
+    setToList,
+    setFromList,
+    listEmpty,
+    listConstruct,
+    listItemAt,
+    listLast,
+    listAppendItem,
+    listSlice,
+    listSetAt,
+    listInsertAt,
+    listRemoveAt,
+    listReverse,
+    listDropLast,
+    listFilter,
+    listSortBy,
+    listConcat,
+    listFold,
+    listScan,
+    mapFold,
+    setFold,
+    listEffectFold,
+    useResource,
+    exceptionCatch,
+    exceptionRethrow,
+    cancellationShield,
+    taskScope,
+    taskStart,
+    taskWait,
+    oneShotCreate,
+    oneShotWait,
+    parallelAll,
+    listMap,
+    listZipWith,
+    listFlatMap,
+    mapFromList,
+    capabilityConstruct,
+    functionReference,
+    functionInvoke,
+    directCall,
+    capabilityInvoke,
+    productConstruct,
+    productUpdate,
+    fieldAccess,
+    unionConstruct,
+    optionNone,
+    optionSome,
+    resultOk,
+    resultErr,
 };
 const untyped_kinds = [_][]const u8{ "abort", "conditional", "matchUnion", "bind", "matchOption", "matchResult" };
 
@@ -4135,7 +4361,7 @@ fn isPure(function_id: Str) bool {
         collectNodes(get(function, "body"), &nodes);
         for (nodes.items) |node| {
             if (kindIs(text(str(node, "kind")), effectful_kinds)) return false;
-            for (node.object) |member| {
+            for (objectMembers(node)) |member| {
                 const name = member.name;
                 if (name.len > 10 and isName(name[name.len - 10 ..], "FunctionId")) pending.append(a, member.value.string) catch oom();
             }
@@ -4812,7 +5038,7 @@ fn functionReferences(node: Value) []const FunctionRef {
         out.append(a, .{ .function_id = str(node, "bodyFunctionId"), .role = .body, .arguments = context }) catch oom();
     } else if (kindIs(kind, "parallelAll taskStart")) {
         out.append(a, .{ .function_id = str(node, "workerFunctionId"), .role = .worker, .arguments = context }) catch oom();
-    } else for (node.object) |member| {
+    } else for (objectMembers(node)) |member| {
         // The pure callbacks: the one `…FunctionId` property of a higher-order node.
         const name = member.name;
         if (name.len > 10 and isName(name[name.len - 10 ..], "FunctionId"))
@@ -4856,7 +5082,7 @@ var dependencies_memo: std.AutoHashMapUnmanaged(usize, []const Str) = .empty;
 var observable_memo: std.AutoHashMapUnmanaged(usize, bool) = .empty;
 
 fn nodeKey(node: Value) usize {
-    return @intFromPtr(node.object.ptr);
+    return if (node == .typed) @intFromPtr(&node.typed.entity.node.body.ids[node.typed.entity.node.at]) else @intFromPtr(node.object.ptr);
 }
 
 fn memoDependencies(node: Value) []const Str {
@@ -5763,7 +5989,19 @@ fn selectEntry(root: Value, entry: Str) Value {
     };
     var obligations: List(Value) = .empty;
     for (arrayOf(root, "obligations")) |obligation| if (node_ids.contains(idKey(str(obligation, "callNodeId")))) obligations.append(a, obligation) catch oom();
-    const members = a.dupe(Member, root.object) catch oom();
+    if (root == .typed) {
+        const original = root.typed.entity.generation;
+        const generation = a.create(session_model.Generation) catch oom();
+        generation.* = original.*;
+        const selected_functions = a.alloc(*const session_model.Function, selected.items.len) catch oom();
+        for (selected.items, selected_functions) |function, *record| record.* = function.typed.entity.function;
+        generation.functions = selected_functions;
+        const selected_obligations = a.alloc(*const session_model.Obligation, obligations.items.len) catch oom();
+        for (obligations.items, selected_obligations) |obligation, *record| record.* = obligation.typed.entity.obligation;
+        generation.obligations = selected_obligations;
+        return typed_view.root(root.typed.interner, generation, root.typed.canonical);
+    }
+    const members = a.dupe(Member, objectMembers(root)) catch oom();
     for (members) |*member| {
         if (isName(member.name, "functions")) member.value = .{ .array = selected.items };
         if (isName(member.name, "obligations")) member.value = .{ .array = obligations.items };

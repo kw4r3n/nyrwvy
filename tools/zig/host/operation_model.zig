@@ -19,7 +19,7 @@ pub fn find(root: Value, group: []const u8, id: []const u8) ?Value {
 pub fn set(a: Allocator, value: Value, key: []const u8, replacement: Value) !Value {
     var fields: std.ArrayList(model.Member) = .empty;
     var found = false;
-    for (value.object) |field| {
+    for (model.objectMembers(value)) |field| {
         if (m.same(model.utf8(field.name), key)) {
             try fields.append(a, .{ .name = field.name, .value = replacement });
             found = true;
@@ -31,7 +31,7 @@ pub fn set(a: Allocator, value: Value, key: []const u8, replacement: Value) !Val
 pub fn remove(a: Allocator, value: Value, key: []const u8) !Value {
     if (model.property(value, key) == null) return value;
     var fields: std.ArrayList(model.Member) = .empty;
-    for (value.object) |field| if (!m.same(model.utf8(field.name), key)) try fields.append(a, field);
+    for (model.objectMembers(value)) |field| if (!m.same(model.utf8(field.name), key)) try fields.append(a, field);
     return .{ .object = fields.items };
 }
 pub fn flag(a: Allocator, value: Value, key: []const u8, enabled: bool) !Value {
@@ -59,7 +59,8 @@ pub fn drop(a: Allocator, root: Value, group: []const u8, id: []const u8) !Value
 /// The callback sees the original node after its nested graphs have been visited.
 pub fn mapNodes(a: Allocator, value: Value, context: anytype, comptime transform: anytype) anyerror!Value {
     switch (value) {
-        .object => |fields| {
+        .object, .typed => {
+            const fields = model.objectMembers(value);
             var changed: ?[]model.Member = null;
             for (fields, 0..) |field, i| {
                 const next = try mapNodes(a, field.value, context, transform);
@@ -88,6 +89,7 @@ pub fn mapNodes(a: Allocator, value: Value, context: anytype, comptime transform
 }
 pub fn identical(x: Value, y: Value) bool {
     return switch (x) {
+        .typed => |reference| y == .typed and std.meta.eql(reference, y.typed),
         .object => |xs| y == .object and xs.ptr == y.object.ptr and xs.len == y.object.len,
         .array => |xs| y == .array and xs.ptr == y.array.ptr and xs.len == y.array.len,
         .string => |xs| y == .string and xs.ptr == y.string.ptr and xs.len == y.string.len,
@@ -120,6 +122,25 @@ test "path-copy edits retain untouched records and nested graphs" {
     try std.testing.expect(identical(model.property(old_node, "whenFalse").?, model.property(new_node, "whenFalse").?));
     try std.testing.expect(model.property(model.arrayItems(model.property(old_node, "whenTrue").?, "nodes")[0], "newProperty") == null);
     try std.testing.expect(model.property(model.arrayItems(model.property(new_node, "whenTrue").?, "nodes")[0], "newProperty") != null);
+}
+
+test "path-copy edits typed records without changing their source" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const read = model.readDocument(a, "{\"schemaVersion\":24,\"snapshotId\":\"s\",\"types\":[],\"effects\":[],\"capabilities\":[],\"functions\":[{\"id\":\"f\",\"displayName\":\"F\",\"parameters\":[],\"resultType\":{\"kind\":\"primitive\",\"primitive\":\"unit\"},\"requiredEffects\":[],\"body\":{\"nodes\":[{\"id\":\"n\",\"kind\":\"unitLiteral\"}],\"resultNodeId\":\"n\"}}],\"obligations\":[]}");
+    const root = try model.ownTyped(a, read.root, false);
+    const Context = struct {
+        a: Allocator,
+        fn change(c: @This(), node: Value) !Value {
+            return if (hasId(node, "n")) set(c.a, node, "newProperty", .json_true) else node;
+        }
+    };
+    const result = try mapNodes(a, root, Context{ .a = a }, Context.change);
+    const old_node = model.bodyNodes(a, model.arrayItems(root, "functions")[0])[0];
+    const new_node = model.bodyNodes(a, model.arrayItems(result, "functions")[0])[0];
+    try std.testing.expect(model.property(old_node, "newProperty") == null);
+    try std.testing.expect(model.property(new_node, "newProperty") != null);
 }
 
 pub fn variantIds(a: Allocator, arm: Value) ![]const Value {

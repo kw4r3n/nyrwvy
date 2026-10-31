@@ -20,9 +20,8 @@ pub const Pending = struct {
     arena: *std.heap.ArenaAllocator,
     id: []const u8,
     base_id: []const u8,
-    generation: typed.Generation,
+    generation: *const typed.Generation,
     model: Value,
-    session_model: Value,
     // Preserve graph traversal order for WireEncodeCommon; model is canonical for WireGraph.
     created_function: Value,
     receipt: []const u8,
@@ -78,7 +77,7 @@ pub fn prepareInstall() !void {
 }
 pub fn install(wanted: []const u8) void {
     for (pending.items, 0..) |p, i| if (m.same(p.id, wanted)) {
-        base = p.generation;
+        base = p.generation.*;
         committed.appendAssumeCapacity(p.arena);
         _ = pending.orderedRemove(i);
         return;
@@ -95,20 +94,34 @@ pub fn reject(wanted: []const u8) void {
 }
 pub fn document(a: Allocator, p: *const Pending) ![]const u8 {
     var out: Writer.Allocating = .init(a);
-    try typed.writeDocument(&out.writer, &interner, &p.generation, model.currentVersion());
+    try typed.writeDocument(&out.writer, &interner, p.generation, model.currentVersion());
     return out.written();
 }
 pub fn writeReadiness(out: *Writer, root: Value) !void {
     try readiness(out, root);
 }
 
-fn initialize(r: *query.Request) !void {
-    if (storage != null) return;
+/// Decode once at the boundary; all committed reads thereafter use owned typed records.
+pub fn loadCommitted(root: Value) !void {
+    deinit();
     const arena = try newArena();
     errdefer freeArena(arena);
     interner = .{ .gpa = arena.allocator() };
-    base = try typed.load(arena.allocator(), &interner, r.model, null);
+    base = try typed.load(arena.allocator(), &interner, root, null);
     storage = arena;
+}
+
+pub fn pendingModel(p: *const Pending, canonical_order: bool) Value {
+    return model.typed_view.root(&interner, p.generation, canonical_order);
+}
+
+pub fn currentModel(canonical_order: bool) Value {
+    std.debug.assert(storage != null);
+    return model.typed_view.root(&interner, &base, canonical_order);
+}
+
+fn initialize(_: *query.Request) !void {
+    std.debug.assert(storage != null);
 }
 
 const validation_bail = "The Zig host does not word proposed-snapshot validation failures yet.";
@@ -151,7 +164,7 @@ pub fn create(r: *query.Request, out: *Writer, c: preflight.Creation, fresh: []c
 pub fn replace(r: *query.Request, out: *Writer, target: Value, body: *const @import("recipe.zig").Node, inferred: *infer.Infer) !void {
     var materializer: m.Materializer = .{ .a = r.a, .r = r, .types = inferred, .fresh = &.{}, .function_id = model.property(target, "id").?, .parameters = model.arrayItems(target, "parameters") };
     const graph = try materializer.graph(null, body);
-    const fields = try r.a.dupe(model.Member, target.object);
+    const fields = try r.a.dupe(model.Member, model.objectMembers(target));
     for (fields) |*f| if (m.same(model.utf8(f.name), "body")) {
         f.value = graph;
         break;
@@ -191,7 +204,7 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
         };
     } else @memcpy(functions[old_functions.len..], added);
     var fields: std.ArrayList(model.Member) = .empty;
-    for (r.model.object) |f| {
+    for (model.objectMembers(r.model)) |f| {
         const name = model.utf8(f.name);
         if (m.same(name, "snapshotId") or m.same(name, "parentSnapshotId") or m.same(name, group)) continue;
         try fields.append(r.a, f);
@@ -201,9 +214,7 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
         try m.member(r.a, "parentSnapshotId", try m.string(r.a, r.snapshot_id)),
         try m.member(r.a, group, .{ .array = functions }),
     });
-    var candidate: Writer.Allocating = .init(r.a);
-    try m.write(&candidate.writer, .{ .object = fields.items });
-    const read = model.readDocument(r.a, candidate.written());
+    const read = model.readCandidate(r.a, .{ .object = fields.items });
     if (read.validation_issues.len > 0) {
         var details: Writer.Allocating = .init(r.a);
         try details.writer.writeAll("{\"diagnostics\":[");
@@ -237,7 +248,8 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
         if (hidden_names.items.len > 0) return invalidSnapshot(r, "ImportedDeclarationNotExported", try std.fmt.allocPrint(r.a, "The dependency does not export {s}; a dependent may refer only to exported declarations. No proposal was registered.", .{try std.mem.join(r.a, ", ", hidden_names.items)}));
     };
     if (r.capture) |capture| {
-        const candidate_model: Value = .{ .object = fields.items };
+        const candidate_model = read.root;
+        const typed_created = @import("operation_model.zig").find(candidate_model, group, query.idOf(created)).?;
         const canonical = model.canonicalRoot(r.a, candidate_model);
         const proof = try receipt(r.a, transaction, snapshot, r, read.fingerprints.?);
         const projected_declaration: ?Declaration = if (declaration) |d| blk: {
@@ -248,9 +260,9 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
         var plain: Writer.Allocating = .init(r.a);
         var structured: Writer.Allocating = .init(r.a);
         var compact: Writer.Allocating = .init(r.a);
-        try encodeChangeReview(projected_declaration, r, &plain.writer, created, previous, change, transaction, snapshot, canonical, created, proof, true, false);
-        try encodeChangeReview(projected_declaration, r, &structured.writer, created, previous, change, transaction, snapshot, canonical, created, proof, true, true);
-        try encodeChangeReview(projected_declaration, r, &compact.writer, created, previous, change, transaction, snapshot, canonical, created, proof, false, false);
+        try encodeChangeReview(projected_declaration, r, &plain.writer, created, previous, change, transaction, snapshot, canonical, typed_created, proof, true, false);
+        try encodeChangeReview(projected_declaration, r, &structured.writer, created, previous, change, transaction, snapshot, canonical, typed_created, proof, true, true);
+        try encodeChangeReview(projected_declaration, r, &compact.writer, created, previous, change, transaction, snapshot, canonical, typed_created, proof, false, false);
         capture.* = .{ .candidate = candidate_model, .full_review = plain.written(), .structured_review = structured.written(), .compact_review = compact.written() };
         return;
     }
@@ -259,12 +271,10 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
     var registered = false;
     defer if (!registered) freeArena(arena);
     const a = arena.allocator();
-    const generation = if (declaration) |d| try typed.withDeclarations(a, &interner, &base, model.decoded(snapshot), d.group, d.items) else try typed.withFunction(a, &interner, &base, model.decoded(snapshot), created);
-    var source: Writer.Allocating = .init(r.a);
-    try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
-    // Project the owned typed generation for step-2 queries. SnapshotReadiness is validation
-    // followed by sorted open-obligation IDs, not execution/lowering readiness.
-    const owned_model = try orderedProjection(a, try model.parseValue(a, try a.dupe(u8, source.written())), .{ .object = fields.items });
+    const generation = try a.create(typed.Generation);
+    generation.* = if (declaration) |d| try typed.withDeclarations(a, &interner, &base, model.decoded(snapshot), d.group, d.items) else try typed.withFunction(a, &interner, &base, model.decoded(snapshot), created);
+    // SnapshotReadiness is validation followed by sorted open-obligation IDs.
+    const owned_model = model.typed_view.root(&interner, generation, false);
     const created_id = model.decoded(model.property(created, "id").?);
     const proposed = for (model.arrayItems(owned_model, group)) |item| {
         if (std.mem.eql(u16, model.decoded(model.property(item, "id").?), created_id)) break item;
@@ -293,7 +303,6 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
         .base_id = try a.dupe(u8, r.snapshot_id),
         .generation = generation,
         .model = root,
-        .session_model = owned_model,
         .created_function = proposed,
         .receipt = proof,
         .full_review = try a.dupe(u8, plain.written()),
@@ -699,10 +708,8 @@ pub fn writeReview(r: *query.Request, p: *const Pending, output: ?[]const u8, ve
 pub fn publishOperations(r: *query.Request, out: *Writer, result: @import("operation_engine.zig").Result) !void {
     try checkImports(r, result.candidate, result.diff);
     if (r.capture) |capture| {
-        const canonical = model.canonicalRoot(r.a, result.candidate);
-        var source: Writer.Allocating = .init(r.a);
-        try m.write(&source.writer, result.candidate);
-        const read = model.readDocument(r.a, source.written());
+        const read = model.readCandidate(r.a, result.candidate);
+        const canonical = model.canonicalRoot(r.a, read.root);
         const proof = try receipt(r.a, result.transaction, result.snapshot, r, read.fingerprints.?);
         var plain: Writer.Allocating = .init(r.a);
         var structured: Writer.Allocating = .init(r.a);
@@ -710,7 +717,7 @@ pub fn publishOperations(r: *query.Request, out: *Writer, result: @import("opera
         try encodeOperations(r, &plain.writer, result, canonical, proof, true, false);
         try encodeOperations(r, &structured.writer, result, canonical, proof, true, true);
         try encodeOperations(r, &compact.writer, result, canonical, proof, false, false);
-        capture.* = .{ .candidate = result.candidate, .full_review = plain.written(), .structured_review = structured.written(), .compact_review = compact.written(), .summary_operations = result.summary_operations };
+        capture.* = .{ .candidate = read.root, .full_review = plain.written(), .structured_review = structured.written(), .compact_review = compact.written(), .summary_operations = result.summary_operations };
         return;
     }
     try initialize(r);
@@ -718,12 +725,11 @@ pub fn publishOperations(r: *query.Request, out: *Writer, result: @import("opera
     var registered = false;
     defer if (!registered) freeArena(arena);
     const a = arena.allocator();
-    const generation = try typed.withChanges(a, &interner, &base, r.model, result.candidate);
-    var source: Writer.Allocating = .init(r.a);
-    try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
-    const owned_model = try orderedProjection(a, try model.parseValue(a, try a.dupe(u8, source.written())), result.candidate);
+    const generation = try a.create(typed.Generation);
+    generation.* = try typed.withChanges(a, &interner, &base, r.model, result.candidate);
+    const owned_model = model.typed_view.root(&interner, generation, false);
     const root = model.canonicalRoot(a, owned_model);
-    const read = model.readDocument(r.a, source.written());
+    const read = model.readTypedDocument(r.a, root);
     const issues = try @import("operation_model.zig").validatedIssues(r, read);
     if (issues.len > 0) return @import("operation_engine.zig").rejected(r, "InvalidProposedSnapshot", try std.fmt.allocPrint(r.a, "{s}: {s}", .{ issues[0].code, model.utf8(issues[0].message) }));
     const proof = try receipt(a, result.transaction, result.snapshot, r, read.fingerprints.?);
@@ -737,7 +743,6 @@ pub fn publishOperations(r: *query.Request, out: *Writer, result: @import("opera
         .base_id = try a.dupe(u8, r.snapshot_id),
         .generation = generation,
         .model = root,
-        .session_model = owned_model,
         .created_function = .json_null,
         .receipt = proof,
         .full_review = try a.dupe(u8, plain.written()),
@@ -807,7 +812,8 @@ fn encodeOperations(r: *query.Request, out: *Writer, result: @import("operation_
     try m.write(w, .{ .array = try affected(r, root, result.diff, false) });
     try w.writeAll(",\"functionFocus\":[");
     var candidate_request = r.*;
-    candidate_request.model = if (structured) root else result.candidate;
+    candidate_request.model = root;
+    if (!structured) candidate_request.model.typed.canonical = false;
     candidate_request.snapshot_id = model.utf8(model.decoded(result.snapshot));
     for (functions, 0..) |id, i| {
         if (i > 0) try w.writeByte(',');
@@ -818,7 +824,9 @@ fn encodeOperations(r: *query.Request, out: *Writer, result: @import("operation_
     try out.writeAll(if (full or r.capture != null) raw.written() else try projection.compact(r.a, raw.written()));
 }
 
-pub fn sameValue(x: Value, y: Value) bool {
+pub fn sameValue(original_left: Value, original_right: Value) bool {
+    const x: Value = if (original_left == .typed) .{ .object = model.objectMembers(original_left) } else original_left;
+    const y: Value = if (original_right == .typed) .{ .object = model.objectMembers(original_right) } else original_right;
     if (std.meta.activeTag(x) != std.meta.activeTag(y)) return false;
     return switch (x) {
         .object => |fields| blk: {
@@ -846,22 +854,6 @@ fn copyValue(a: Allocator, value: Value) !Value {
     return model.parseValue(a, source.written());
 }
 
-/// Typed pointer tables sort by ID; semantic snapshot lists retain insertion order for diagnostics.
-fn orderedProjection(a: Allocator, owned: Value, candidate: Value) !Value {
-    const fields = try a.dupe(model.Member, owned.object);
-    for (fields) |*field| {
-        const key = model.utf8(field.name);
-        if (!preflight.contains(&.{ "functions", "types", "effects", "capabilities", "obligations" }, key)) continue;
-        const order = model.arrayItems(candidate, key);
-        const items = try a.alloc(Value, order.len);
-        for (order, items) |source, *item| {
-            item.* = @import("operation_model.zig").find(owned, key, query.idOf(source)) orelse unreachable;
-        }
-        field.value = .{ .array = items };
-    }
-    return .{ .object = fields };
-}
-
 fn batchReview(r: *query.Request, captures: []const query.Capture, transaction: Value, proof: []const u8, root: Value, full: bool, structured: bool) ![]const u8 {
     var fields: std.ArrayList(model.Member) = .empty;
     const first = try model.parseValue(r.a, if (!full) captures[0].compact_review else if (structured) captures[0].structured_review else captures[0].full_review);
@@ -887,9 +879,7 @@ pub fn publishBatch(r: *query.Request, out: *Writer, captures: []const query.Cap
     const snapshot = try m.id(r.a);
     const edit = @import("operation_model.zig");
     const candidate = try edit.set(r.a, try edit.set(r.a, final, "snapshotId", snapshot), "parentSnapshotId", try m.string(r.a, r.snapshot_id));
-    var encoded: Writer.Allocating = .init(r.a);
-    try m.write(&encoded.writer, candidate);
-    const read = model.readDocument(r.a, encoded.written());
+    const read = model.readCandidate(r.a, candidate);
     const issues = try edit.validatedIssues(r, read);
     if (issues.len > 0) return preflight.rejected(r, "InvalidProposedSnapshot", try std.fmt.allocPrint(r.a, "{s}: {s}", .{ issues[0].code, model.utf8(issues[0].message) }));
     try initialize(r);
@@ -897,10 +887,9 @@ pub fn publishBatch(r: *query.Request, out: *Writer, captures: []const query.Cap
     var registered = false;
     defer if (!registered) freeArena(arena);
     const a = arena.allocator();
-    const generation = try typed.withChanges(a, &interner, &base, r.model, candidate);
-    var source: Writer.Allocating = .init(r.a);
-    try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
-    const owned_model = try orderedProjection(a, try model.parseValue(a, try a.dupe(u8, source.written())), candidate);
+    const generation = try a.create(typed.Generation);
+    generation.* = try typed.withChanges(a, &interner, &base, r.model, candidate);
+    const owned_model = model.typed_view.root(&interner, generation, false);
     const root = model.canonicalRoot(a, owned_model);
     const proof = try receipt(a, transaction, snapshot, r, read.fingerprints.?);
     const owned_captures = try a.alloc(query.Capture, captures.len);
@@ -911,7 +900,6 @@ pub fn publishBatch(r: *query.Request, out: *Writer, captures: []const query.Cap
         .base_id = try a.dupe(u8, r.snapshot_id),
         .generation = generation,
         .model = root,
-        .session_model = owned_model,
         .created_function = .json_null,
         .receipt = proof,
         .full_review = try a.dupe(u8, try batchReview(r, captures, transaction, proof, root, true, false)),
@@ -1044,12 +1032,11 @@ pub fn publishMigration(r: *query.Request, out: *Writer, result: @import("migrat
     var registered = false;
     defer if (!registered) freeArena(arena);
     const a = arena.allocator();
-    const generation = try typed.withChanges(a, &interner, &base, r.model, result.candidate);
-    var source: Writer.Allocating = .init(r.a);
-    try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
-    const owned = try orderedProjection(a, try model.parseValue(a, try a.dupe(u8, source.written())), result.candidate);
+    const generation = try a.create(typed.Generation);
+    generation.* = try typed.withChanges(a, &interner, &base, r.model, result.candidate);
+    const owned = model.typed_view.root(&interner, generation, false);
     const root = model.canonicalRoot(a, owned);
-    const read = model.readDocument(r.a, source.written());
+    const read = model.readTypedDocument(r.a, root);
     const proof = try receipt(a, result.transaction, result.snapshot, r, read.fingerprints.?);
     var plain: Writer.Allocating = .init(r.a);
     var structured: Writer.Allocating = .init(r.a);
@@ -1059,7 +1046,7 @@ pub fn publishMigration(r: *query.Request, out: *Writer, result: @import("migrat
     for (result.rewritten, functions) |f, *item| item.* = @import("operation_model.zig").find(owned, "functions", query.idOf(f)).?;
     const changed_types = try a.alloc(Value, result.touched_types.len);
     for (result.touched_types, changed_types) |tid, *item| item.* = @import("operation_model.zig").find(root, "types", tid).?;
-    try pending.append(std.heap.page_allocator, .{ .arena = arena, .id = try a.dupe(u8, model.utf8(model.decoded(result.transaction))), .base_id = try a.dupe(u8, r.snapshot_id), .generation = generation, .model = root, .session_model = owned, .created_function = .json_null, .receipt = proof, .full_review = try a.dupe(u8, plain.written()), .structured_review = try a.dupe(u8, structured.written()), .name = "", .migration = .{ .kind = result.kind, .summary = try a.dupe(u8, result.summary), .functions = functions, .types = changed_types } });
+    try pending.append(std.heap.page_allocator, .{ .arena = arena, .id = try a.dupe(u8, model.utf8(model.decoded(result.transaction))), .base_id = try a.dupe(u8, r.snapshot_id), .generation = generation, .model = root, .created_function = .json_null, .receipt = proof, .full_review = try a.dupe(u8, plain.written()), .structured_review = try a.dupe(u8, structured.written()), .name = "", .migration = .{ .kind = result.kind, .summary = try a.dupe(u8, result.summary), .functions = functions, .types = changed_types } });
     registered = true;
     const full = if (r.root.get("detail")) |value| m.same(value.string, "full") else false;
     const structured_review = if (r.root.get("structuredReview")) |value| value == .bool and value.bool else false;
@@ -1172,12 +1159,11 @@ pub fn publishDependency(r: *query.Request, out: *Writer, result: @import("depen
     var registered = false;
     defer if (!registered) freeArena(arena);
     const a = arena.allocator();
-    const generation = try typed.withChanges(a, &interner, &base, r.model, result.candidate);
-    var source: Writer.Allocating = .init(a);
-    try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
-    const owned = try orderedProjection(a, try model.parseValue(a, source.written()), result.candidate);
+    const generation = try a.create(typed.Generation);
+    generation.* = try typed.withChanges(a, &interner, &base, r.model, result.candidate);
+    const owned = model.typed_view.root(&interner, generation, false);
     const root = model.canonicalRoot(a, owned);
-    const read = model.readDocument(r.a, source.written());
+    const read = model.readTypedDocument(r.a, root);
     const proof = try receipt(a, result.transaction, result.snapshot, r, read.fingerprints.?);
     const dependency = try @import("dependency_simulation.zig").retain(a, r, result.plan);
     const functions = try a.alloc(Value, result.functions.len);
@@ -1195,7 +1181,6 @@ pub fn publishDependency(r: *query.Request, out: *Writer, result: @import("depen
         .base_id = try a.dupe(u8, r.snapshot_id),
         .generation = generation,
         .model = root,
-        .session_model = owned,
         .created_function = .json_null,
         .receipt = proof,
         .full_review = plain.written(),
@@ -1257,4 +1242,51 @@ fn encodeDependency(r: *query.Request, out: *Writer, result: @import("dependency
     }
     try w.writeAll("}}");
     try out.writeAll(if (full) raw.written() else try projection.compact(r.a, raw.written()));
+}
+
+test "fresh committed and stale proposal reads retain only typed generations" {
+    var source_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    const source_a = source_arena.allocator();
+    model.useAllocator(source_a);
+    const source = try model.parseValue(source_a,
+        \\{"snapshotId":"base","types":[],"effects":[],"capabilities":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}}],"obligations":[]}
+    );
+    try loadCommitted(source);
+    defer deinit();
+    source_arena.deinit();
+    var requests = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer requests.deinit();
+    const request_a = requests.allocator();
+    model.beginRequest(request_a);
+    const fresh = currentModel(true);
+    try std.testing.expect(fresh == .typed);
+    const original = model.arrayItems(fresh, "functions")[0];
+    try std.testing.expect(original == .typed);
+    // Rename through the ordinary path-copy input without retaining its request-arena fields.
+    const fields = try request_a.dupe(model.Member, model.objectMembers(original));
+    for (fields) |*field| if (m.same(model.utf8(field.name), "displayName")) {
+        field.value = try m.string(request_a, "Next");
+        break;
+    };
+    const next_arena = try newArena();
+    const next_a = next_arena.allocator();
+    const next_generation = try next_a.create(typed.Generation);
+    next_generation.* = try typed.withFunction(next_a, &interner, &base, model.decoded(try m.string(request_a, "next")), .{ .object = fields });
+    const stale_arena = try newArena();
+    const stale_generation = try stale_arena.allocator().create(typed.Generation);
+    stale_generation.* = base;
+    try pending.append(std.heap.page_allocator, .{ .arena = next_arena, .id = "publish", .base_id = "base", .generation = next_generation, .model = model.typed_view.root(&interner, next_generation, true), .created_function = .json_null, .receipt = "", .full_review = "", .structured_review = "", .name = "" });
+    try pending.append(std.heap.page_allocator, .{ .arena = stale_arena, .id = "stale", .base_id = "base", .generation = stale_generation, .model = model.typed_view.root(&interner, stale_generation, true), .created_function = .json_null, .receipt = "", .full_review = "", .structured_review = "", .name = "" });
+    try prepareInstall();
+    install("publish");
+    try std.testing.expectEqualStrings("next", model.utf8(model.decoded(model.property(currentModel(false), "snapshotId").?)));
+    try std.testing.expectEqualStrings("Next", query.nameOf(model.arrayItems(currentModel(false), "functions")[0]));
+    const stale = find("stale").?;
+    try std.testing.expect(stale.model == .typed);
+    try std.testing.expectEqualStrings("base", model.utf8(model.decoded(model.property(stale.model, "snapshotId").?)));
+    try std.testing.expectEqualStrings("F", query.nameOf(model.arrayItems(pendingModel(stale, false), "functions")[0]));
+    try std.testing.expect(stale.generation.functions[0].body.ids.ptr == next_generation.functions[0].body.ids.ptr);
+    reject("stale");
+    try std.testing.expect(currentModel(false) == .typed);
+    try std.testing.expectEqual(@as(usize, 0), count());
 }

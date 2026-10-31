@@ -331,3 +331,19 @@ The three `ZigSpeed` facts passed in 1.6774 min. These are single-run observatio
 
 Repeated native Zig time includes the compiler-identity query; first-request backend timings include compiler/helper cache setup. The copied Rhifill C# default-adapter smoke is separate from these benchmark rows.
 
+## Step 8 final candidate host benchmark (2026-10-31)
+
+The final `ZigSpeed` run passed 3/3 in 1.0840 min after the typed-read migration. The table reports measured F# and native host times in ms:
+
+| Case | F# host (ms) | Native host (ms) |
+|---|---:|---:|
+| Rhifill resolved workspace: startup | 604.4 | 191.3 |
+| Rhifill resolved workspace: startup, F# warm-up off | 600.7 | — |
+| Rhifill merged model: startup | 500.5 | 175.5 |
+| Tiny generated echo, Zig backend: first | 13,757.1 | 13,879.7 |
+| Tiny generated echo, Zig backend: repeated | 0.9 | 34.6 |
+| Tiny generated echo, C# backend: first | 1,437.5 | 3,849.9 |
+| Tiny generated echo, C# backend: repeated | 2.5 | 3.1 |
+
+These are single-machine measurements under uncontrolled background load; caches are uncontrolled, and first timings are not normalized. The Zig host queries compiler identity on each request, a known repeated-call cost. Treat these rows as observations only: they do not establish a general speedup or a regression against another run. The copied Rhifill C# smoke was repeated with the final native binary; it returned `focus_left` for `actionName` with input `4`, and all 92 original input hashes remained unchanged after benchmarking. The host cutover status and remaining supported-OS question are recorded in [zig-session-host.md](../../docs/decisions/zig-session-host.md).
+

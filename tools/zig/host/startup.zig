@@ -127,9 +127,22 @@ fn create(io: std.Io, a: Allocator, command: Command) !void {
         manifest = combined[1];
     }
     const id = try @import("ids.zig").next();
-    const local = try model.parseValue(a, try std.fmt.allocPrint(a, "{{\"schemaVersion\":{d},\"snapshotId\":\"{s}\",\"types\":[],\"effects\":[],\"capabilities\":[],\"functions\":[],\"obligations\":[]}}", .{ model.currentVersion(), id }));
+    const local = try m.object(a, &.{
+        try m.member(a, "schemaVersion", try m.number(a, model.currentVersion())),
+        try m.member(a, "snapshotId", try m.string(a, &id)),
+        try m.member(a, "types", .{ .array = &.{} }),
+        try m.member(a, "effects", .{ .array = &.{} }),
+        try m.member(a, "capabilities", .{ .array = &.{} }),
+        try m.member(a, "functions", .{ .array = &.{} }),
+        try m.member(a, "obligations", .{ .array = &.{} }),
+    });
+    var candidate = local;
+    if (selected) |dependency| {
+        const imported = model.canonicalRoot(a, dependency.root);
+        inline for (.{ "types", "effects", "capabilities", "functions", "obligations" }) |group| candidate = try edit.set(a, candidate, group, .{ .array = model.arrayItems(imported, group) });
+    }
     const source = try encode(a, path, local, selected);
-    const read = host.readSource(a, std.mem.endsWith(u8, path, ".nyrec"), source, selected) catch host.startupFailure("{s}", .{host.failure_line});
+    const read = host.readModel(a, candidate) catch host.startupFailure("{s}", .{host.failure_line});
     if (manifest) |content| try createAtomic(a, sidecar, content);
     switch (try @import("view_file.zig").createAtomic(a, path, source)) {
         .written => {},
@@ -170,9 +183,11 @@ pub fn persistPin(a: Allocator, source_override: ?[]const u8) !void {
     // A pin may recover a missing legacy authority from an exact copy; verify the bytes, not that old path.
     const sidecar = try std.mem.concat(a, u8, &.{ host.snapshot_path, ".dependency.json" });
     if (try verifyPinPersisted(a, sidecar)) |problem| rejection(problem);
+    const read = host.readModel(a, model.canonicalRoot(a, selected.root)) catch host.startupFailure("{s}", .{host.failure_line});
+    const pinned = host.dependencyFromRead(a, read, path, true) catch host.startupFailure("{s}", .{host.failure_line});
     if (try host.replaceAtomically(a, sidecar, next)) |problem| rejection(problem);
     host.dependency_manifest = next;
-    host.selection = host.decodeDependency(a, false, json, path, true) catch host.startupFailure("{s}", .{host.failure_line});
+    host.selection = pinned;
 }
 fn upgrade(io: std.Io, a: Allocator, command: Command) !void {
     try host.openUsing(io, a, command.path, false, false, null, false);
@@ -192,7 +207,7 @@ fn upgrade(io: std.Io, a: Allocator, command: Command) !void {
         host.startupFailure("WorkspaceValidationFailure: The workspace graph is invalid: {s}: {s}{s}", .{ model.utf8(model.decoded(model.property(first, "code").?)), model.utf8(model.decoded(model.property(first, "message").?)), tail });
     }
     const source = try encode(a, host.snapshot_path, plan.local, plan.dependency);
-    const read = host.readSource(a, std.mem.endsWith(u8, host.snapshot_path, ".nyrec"), source, plan.dependency) catch host.startupFailure("{s}", .{host.failure_line});
+    const read = host.readModel(a, plan.candidate) catch host.startupFailure("{s}", .{host.failure_line});
     if (host.selection != null) {
         if (try host.replaceDependencyPair(a, source, plan.manifest)) |problem| rejection(problem);
     } else {

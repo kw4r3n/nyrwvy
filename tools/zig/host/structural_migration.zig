@@ -175,7 +175,7 @@ fn productAffected(r: *query.Request, type_id: []const u8, field_id: []const u8)
 }
 fn rewriteAll(r: *query.Request, candidate: Value, affected: []const Value, rewrites: []const Rewrite, prefix: []const u8, product_: bool) !Value {
     var next = r.*;
-    next.model = candidate;
+    next.model = try model.ownTyped(r.a, candidate, false);
     var result = candidate;
     var failure: ?query.Rejection = null;
     var diagnostic: query.Diagnostic = .{};
@@ -275,25 +275,28 @@ fn mismatchNames(r: *query.Request, ids_: []const []const u8) ![]const u8 {
     return text.written();
 }
 fn mismatchReferences(r: *query.Request, out: *std.Io.Writer, ids_: []const []const u8) !void {
-    var declaration_text: std.Io.Writer.Allocating = .init(r.a);
-    try wire.declarations(r.a, &declaration_text.writer, r.model, r.provenance);
-    const declarations = try model.parseValue(r.a, declaration_text.written());
+    const functions = try query.visible(r, "function");
     const ids_sorted = try orderedIds(r, ids_);
     try out.writeAll("{\"items\":[");
     for (ids_sorted[0..@min(5, ids_sorted.len)], 0..) |fid, i| {
         if (i > 0) try out.writeByte(',');
-        const f = edit.find(declarations, "functions", fid);
-        var provenance: ?Value = null;
-        for (model.arrayItems(declarations, "provenance")) |p| if (m.same(edit.text(p, "kind"), "function") and edit.hasId(p, fid)) { provenance = p; break; };
+        const f = for (functions) |function| {
+            if (edit.hasId(function, fid)) break function;
+        } else null;
+        const sources = if (f != null) try query.sources(r, "function", fid) else &.{};
         const name = if (f) |function| model.property(function, "displayName").? else try m.string(r.a, "<unknown>");
         const cut = nameCut(name);
-        try out.writeAll("{\"id\":"); try @import("root").writeString(out, fid);
+        try out.writeAll("{\"id\":"); try model.writeString(out, (try m.string(r.a, fid)).string);
         try out.writeAll(",\"displayName\":"); try model.writeString(out, cut);
         try out.print(",\"displayNameTruncated\":{s},\"ownership\":", .{if (cut.len < model.decoded(name).len) @as([]const u8, "true") else "false"});
-        try @import("root").writeString(out, if (provenance) |p| edit.text(p, "ownership") else "unknown");
-        const sources = if (provenance) |p| model.arrayItems(p, "sources") else &.{};
+        try model.writeString(out, (try m.string(r.a, if (f == null) "unknown" else if (sources.len == 0) "local" else "imported")).string);
         try out.writeAll(",\"sources\":[");
-        for (sources[0..@min(5, sources.len)], 0..) |source, j| { if (j > 0) try out.writeByte(','); try m.write(out, source); }
+        for (sources[0..@min(5, sources.len)], 0..) |source, j| {
+            if (j > 0) try out.writeByte(',');
+            try out.writeAll("{\"snapshotId\":"); try model.writeString(out, (try m.string(r.a, source.id)).string);
+            try out.writeAll(",\"fingerprint\":"); try model.writeString(out, (try m.string(r.a, source.fingerprint)).string);
+            try out.writeByte('}');
+        }
         try out.print("],\"sourceCount\":{d},\"sourcesTruncated\":{s}}}", .{ sources.len, if (sources.len > 5) @as([]const u8, "true") else "false" });
     }
     try out.print("],\"totalCount\":{d},\"truncated\":{s}}}", .{ ids_sorted.len, if (ids_sorted.len > 5) @as([]const u8, "true") else "false" });
@@ -398,4 +401,21 @@ fn capability(r: *query.Request, wanted: []const u8, operation_id: []const u8, t
     result.diff = try m.object(r.a, &.{ try m.member(r.a, "capabilityId", model.property(cap.?, "id").?), try m.member(r.a, "oldOperation", try operationWire(r, op)), try m.member(r.a, "newOperation", try operationWire(r, updated_op)), try m.member(r.a, "signatureChanges", .{ .array = signatures.items }), try m.member(r.a, "bodyRewrites", try bodyDiffs(r, result.candidate, affected.items)) });
     result.touched_capabilities = try r.a.dupe([]const u8, &.{query.idOf(cap.?)});
     return result;
+}
+
+test "mismatch references report visible ownership and sources" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const parsed = try model.parseValue(a,
+        \\{"snapshotId":"s","types":[],"effects":[],"capabilities":[],"obligations":[],"functions":[{"id":"local","displayName":"Local","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n1","kind":"unitLiteral"}],"resultNodeId":"n1"}},{"id":"imported","displayName":"Imported","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n2","kind":"unitLiteral"}],"resultNodeId":"n2"}},{"id":"hidden","displayName":"Hidden","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n3","kind":"unitLiteral"}],"resultNodeId":"n3"}}]}
+    );
+    const root = try model.ownTyped(a, parsed, false);
+    var r: query.Request = .{ .a = a, .line = "", .root = .empty, .model = root, .provenance = .{
+        .hidden = &.{"function:hidden"},
+        .members = &.{.{ .id = "source", .fingerprint = "digest", .keys = &.{ "function:imported", "function:hidden" }, .path = "", .embedded = false }},
+    } };
+    var out: std.Io.Writer.Allocating = .init(a);
+    try mismatchReferences(&r, &out.writer, &.{ "local", "imported", "hidden", "missing" });
+    try std.testing.expectEqualStrings("{\"items\":[{\"id\":\"hidden\",\"displayName\":\"\\u003Cunknown\\u003E\",\"displayNameTruncated\":false,\"ownership\":\"unknown\",\"sources\":[],\"sourceCount\":0,\"sourcesTruncated\":false},{\"id\":\"imported\",\"displayName\":\"Imported\",\"displayNameTruncated\":false,\"ownership\":\"imported\",\"sources\":[{\"snapshotId\":\"source\",\"fingerprint\":\"digest\"}],\"sourceCount\":1,\"sourcesTruncated\":false},{\"id\":\"local\",\"displayName\":\"Local\",\"displayNameTruncated\":false,\"ownership\":\"local\",\"sources\":[],\"sourceCount\":0,\"sourcesTruncated\":false},{\"id\":\"missing\",\"displayName\":\"\\u003Cunknown\\u003E\",\"displayNameTruncated\":false,\"ownership\":\"unknown\",\"sources\":[],\"sourceCount\":0,\"sourcesTruncated\":false}],\"totalCount\":4,\"truncated\":false}", out.written());
 }

@@ -30,7 +30,8 @@ pub fn write(out: *std.Io.Writer, value: Value) anyerror!void {
             for (items, 0..) |item, i| { if (i > 0) try out.writeByte(','); try write(out, item); }
             try out.writeByte(']');
         },
-        .object => |fields| {
+        .object, .typed => {
+            const fields = model.objectMembers(value);
             try out.writeByte('{');
             for (fields, 0..) |f, i| {
                 if (i > 0) try out.writeByte(',');

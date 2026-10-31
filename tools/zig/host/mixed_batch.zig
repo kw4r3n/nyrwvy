@@ -31,15 +31,13 @@ pub fn simulate(r: *query.Request, out: *Writer) anyerror!void {
     for (input.value.array.items, sources, captures, 0..) |item, source, *capture, index| {
         capture.* = .{};
         var scratch = r.*;
-        scratch.model = candidate;
+        scratch.model = try model.ownTyped(r.a, candidate, false);
         scratch.line = source;
         scratch.root = if (item == .object) item.object else .empty;
         scratch.capture = capture;
         scratch.snapshot_id = model.utf8(model.decoded(model.property(candidate, "snapshotId").?));
         if (index > 0) {
-            var encoded: Writer.Allocating = .init(r.a);
-            try m.write(&encoded.writer, candidate);
-            scratch.snapshot_fingerprint = model.readDocument(r.a, encoded.written()).fingerprints.?.snapshot;
+            scratch.snapshot_fingerprint = model.readTypedDocument(r.a, scratch.model).fingerprints.?.snapshot;
         }
         if (item == .object) try kindLookup(r, source);
         const label = if (item == .object) blk: {

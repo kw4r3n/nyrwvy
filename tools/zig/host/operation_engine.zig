@@ -30,6 +30,7 @@ fn group(target: types.Target) []const u8 {
     };
 }
 fn subject(root: Value, target: types.Target, id: []const u8) ?Subject {
+    std.debug.assert(root == .typed);
     for (model.arrayItems(root, group(target))) |owner| {
         switch (target) {
             .function, .type, .effect, .capability => if (edit.hasId(owner, id)) return .{ .item = owner },
@@ -62,6 +63,10 @@ const State = struct {
     scheduled: []const Prepared,
     changes: [std.enums.values(DiffKey).len]std.ArrayList(Value) = @splat(.empty),
 
+    fn setRoot(self: *State, root: Value) !void {
+        // Freeze edits before reads; reference validation waits until the existing operation gates.
+        self.root = if (root == .typed) root else try model.ownTyped(self.r.a, root, false);
+    }
     fn add(self: *State, key: DiffKey, value: Value) !void {
         try self.changes[@backingInt(key)].append(self.r.a, value);
     }
@@ -78,7 +83,7 @@ const State = struct {
         if (found.operation) |operation| result = try edit.replace(a, operation, "parameters", result);
         if (found.variant) |variant| result = try edit.replace(a, variant, "fields", result);
         if (found.owner) |owner| result = try edit.replace(a, owner, if (found.operation != null or target == .capabilityOperation) "operations" else if (found.variant != null or target == .variant) "variants" else if (target == .field) "fields" else "parameters", result);
-        self.root = try edit.replace(a, self.root, group(target), result);
+        try self.setRoot(try edit.replace(a, self.root, group(target), result));
     }
     fn rename(self: *State, change: types.Rename) !void {
         if (try recipe.isBlank(self.r.a, change.name)) return self.fail("InvalidDisplayName", "A display name cannot be blank.");
@@ -122,13 +127,14 @@ const State = struct {
         if (adding and present) return self.fail("FunctionRequiredEffectAlreadyPresent", "The function already declares the required effect.");
         if (!adding and !present) return self.fail("FunctionRequiredEffectNotPresent", "The function does not declare the required effect.");
         if (adding) try effects.append(self.r.a, try m.string(self.r.a, change.effect));
-        self.root = try edit.replace(self.r.a, self.root, "functions", try edit.set(self.r.a, function, "requiredEffects", .{ .array = effects.items }));
+        try self.setRoot(try edit.replace(self.r.a, self.root, "functions", try edit.set(self.r.a, function, "requiredEffects", .{ .array = effects.items })));
         try self.add(.requiredEffectsChanged, try m.object(self.r.a, &.{ try m.member(self.r.a, "kind", try m.string(self.r.a, if (adding) "added" else "removed")), try m.member(self.r.a, "functionId", try m.string(self.r.a, change.function)), try m.member(self.r.a, "effectId", try m.string(self.r.a, change.effect)) }));
     }
 };
 
 const OwnedNode = struct { function: Value, node: Value };
 fn nodes(s: *State) ![]const OwnedNode {
+    std.debug.assert(s.root == .typed);
     var result: std.ArrayList(OwnedNode) = .empty;
     for (model.arrayItems(s.root, "functions")) |function| for (model.bodyNodes(s.r.a, function)) |node| try result.append(s.r.a, .{ .function = function, .node = node });
     return result.items;
@@ -143,7 +149,7 @@ fn updateNode(s: *State, id: []const u8, replacement: Value) !void {
     };
     const functions = model.property(s.root, "functions").?;
     const result = try edit.mapNodes(s.r.a, functions, Context{ .id = id, .replacement = replacement }, Context.change);
-    if (!edit.identical(functions, result)) s.root = try edit.set(s.r.a, s.root, "functions", result);
+    if (!edit.identical(functions, result)) try s.setRoot(try edit.set(s.r.a, s.root, "functions", result));
 }
 fn hasKind(node: Value, kind: []const u8) bool {
     return m.same(edit.text(node, "kind"), kind);
@@ -238,13 +244,14 @@ fn resolveMissing(s: *State, request: types.Intent) !void {
     var resolved = try edit.set(s.r.a, obligation, "status", try m.string(s.r.a, "resolved"));
     resolved = try edit.set(s.r.a, resolved, "resolutionTransactionId", s.transaction);
     resolved = try edit.set(s.r.a, resolved, "resolutionValueNodeId", value);
-    s.root = try edit.replace(s.r.a, s.root, "obligations", resolved);
+    try s.setRoot(try edit.replace(s.r.a, s.root, "obligations", resolved));
     try s.add(.obligationsResolved, try m.object(s.r.a, &.{ try m.member(s.r.a, "obligationId", model.property(obligation, "id").?), try m.member(s.r.a, "callNodeId", model.property(obligation, "callNodeId").?), try m.member(s.r.a, "parameterId", model.property(obligation, "parameterId").?), try m.member(s.r.a, "valueNodeId", value) }));
 }
 
 fn insertNodes(a: std.mem.Allocator, value: Value, plans: []const preparation.Construction) anyerror!Value {
     switch (value) {
-        .object => |fields| {
+        .object, .typed => {
+            const fields = model.objectMembers(value);
             var result = value;
             for (fields) |field| {
                 var next = try insertNodes(a, field.value, plans);
@@ -291,7 +298,7 @@ fn addProduct(s: *State, p: Prepared) !void {
     for (model.arrayItems(owner, "fields")) |field| if (m.same(query.nameOf(field), request.field.name)) return s.fail("DuplicateFieldDisplayName", "The product already has a field with this display name.");
     if (subject(s.root, .field, query.idOf(p.member)) != null) return s.fail("DuplicateFieldId", "The new field ID already exists.");
     if (!try idsEqual(a, affected.items, planned)) return s.fail("ProductFieldPlanMismatch", "Every affected ProductConstruct requires exactly one field-value plan.");
-    const inserted = try insertNodes(a, s.root, p.plans.constructions);
+    const inserted = try model.ownTyped(a, try insertNodes(a, s.root, p.plans.constructions), false);
     for (affected.items) |site| {
         const plan = for (p.plans.constructions) |plan| {
             if (edit.hasId(site.node, plan.construct)) break plan;
@@ -300,8 +307,8 @@ fn addProduct(s: *State, p: Prepared) !void {
         const completion = model.completionOf(a, inserted, function, model.decoded(plan.value));
         if (completion == null or completion.? != .normal or !infer.eqlType(try infer.typeOf(a, completion.?.normal), request.field.type)) return s.fail("ProductFieldValueTypeMismatch", "The planned field value must exist in its owning function and have the new field type.");
     }
-    s.root = inserted;
-    s.root = try edit.replace(a, s.root, "types", try edit.append(a, owner, "fields", p.member));
+    try s.setRoot(inserted);
+    try s.setRoot(try edit.replace(a, s.root, "types", try edit.append(a, owner, "fields", p.member)));
     for (affected.items) |site| {
         const plan = for (p.plans.constructions) |plan| {
             if (edit.hasId(site.node, plan.construct)) break plan;
@@ -352,7 +359,7 @@ fn addUnion(s: *State, p: Prepared) !void {
         for (affected.items) |site| try sites.append(a, try std.fmt.allocPrint(a, "'{s}' in function {s}", .{ query.idOf(site.node), try ownedDescription(s, site.function) }));
         return s.fail("UnionMatchArmPlanMismatch", try std.fmt.allocPrint(a, "Every match (matchUnion) over Union '{s}' requires exactly one arm plan for the new variant; the matches are: {s}.", .{ query.nameOf(owner), if (sites.items.len == 0) @as([]const u8, "there are none") else try std.mem.join(a, ", ", sites.items) }));
     }
-    s.root = try edit.replace(a, s.root, "types", try edit.append(a, owner, "variants", variant));
+    try s.setRoot(try edit.replace(a, s.root, "types", try edit.append(a, owner, "variants", variant)));
     for (affected.items) |site| {
         const plan = for (p.plans.arms) |plan| {
             if (edit.hasId(site.node, plan.match)) break plan;
@@ -389,6 +396,7 @@ fn nonCallUses(s: *State, id: []const u8) ![]const []const u8 {
     return users.items;
 }
 fn reconcile(s: *State, function: Value) !Value {
+    std.debug.assert(function == .typed);
     const a = s.r.a;
     var occurring: std.ArrayList([]const u8) = .empty;
     for (model.arrayItems(function, "parameters")) |parameter| try preflight.occurring(a, try infer.typeOf(a, model.property(parameter, "type").?), &occurring);
@@ -421,7 +429,8 @@ fn addParameter(s: *State, p: Prepared) !void {
         .leave_missing => |call| call,
     };
     if (!try idsEqual(a, affected.items, planned)) return s.fail("CallPlanMismatch", "Every affected direct call requires exactly one call-site plan.");
-    s.root = try edit.replace(a, s.root, "functions", try reconcile(s, try edit.append(a, function, "parameters", p.member)));
+    try s.setRoot(try edit.replace(a, s.root, "functions", try edit.append(a, function, "parameters", p.member)));
+    try s.setRoot(try edit.replace(a, s.root, "functions", try reconcile(s, edit.find(s.root, "functions", request.function).?)));
     for (request.calls, p.missing) |plan, missing| switch (plan) {
         .bind => |bind| {
             const node = for (try nodes(s)) |site| {
@@ -431,7 +440,7 @@ fn addParameter(s: *State, p: Prepared) !void {
         },
         .leave_missing => |call| {
             const obligation = try m.object(a, &.{ try m.member(a, "id", missing), try m.member(a, "kind", try m.string(a, "missingArgument")), try m.member(a, "originTransactionId", s.transaction), try m.member(a, "callNodeId", try m.string(a, call)), try m.member(a, "parameterId", model.property(p.member, "id").?), try m.member(a, "status", try m.string(a, "open")) });
-            s.root = try edit.append(a, s.root, "obligations", obligation);
+            try s.setRoot(try edit.append(a, s.root, "obligations", obligation));
             try s.add(.obligationsCreated, try m.object(a, &.{ try m.member(a, "obligationId", missing), try m.member(a, "callNodeId", try m.string(a, call)), try m.member(a, "parameterId", model.property(p.member, "id").?) }));
         },
     };
@@ -480,7 +489,8 @@ fn removeParameter(s: *State, id: []const u8) !void {
     sortIdValues(affected.items);
     for (all) |site| if (hasKind(site.node, "directCall") and m.same(edit.text(site.node, "targetFunctionId"), query.idOf(owner))) try updateNode(s, query.idOf(site.node), try dropBindings(a, site.node, "arguments", "targetParameterId", id));
     const current = edit.find(s.root, "functions", query.idOf(owner)).?;
-    s.root = try edit.replace(a, s.root, "functions", try reconcile(s, try edit.drop(a, current, "parameters", id)));
+    try s.setRoot(try edit.replace(a, s.root, "functions", try edit.drop(a, current, "parameters", id)));
+    try s.setRoot(try edit.replace(a, s.root, "functions", try reconcile(s, edit.find(s.root, "functions", query.idOf(owner)).?)));
     var retired: std.ArrayList(Value) = .empty;
     var kept: std.ArrayList(Value) = .empty;
     for (model.arrayItems(s.root, "obligations")) |obligation| if (m.same(edit.text(obligation, "parameterId"), id)) {
@@ -489,14 +499,12 @@ fn removeParameter(s: *State, id: []const u8) !void {
         try kept.append(a, obligation);
     };
     sortObligations(retired.items);
-    s.root = try edit.set(a, s.root, "obligations", .{ .array = kept.items });
+    try s.setRoot(try edit.set(a, s.root, "obligations", .{ .array = kept.items }));
     try s.add(.parametersRemoved, try m.object(a, &.{ try m.member(a, "ownerFunctionId", model.property(owner, "id").?), try m.member(a, "parameterId", model.property(found.item, "id").?), try m.member(a, "displayName", model.property(found.item, "displayName").?), try m.member(a, "affectedCallNodeIds", .{ .array = affected.items }), try m.member(a, "retiredObligations", .{ .array = retired.items }) }));
 }
 
 fn validate(s: *State, root: Value) !@TypeOf(@as(model.DocumentRead, undefined).validation_issues) {
-    var source: std.Io.Writer.Allocating = .init(s.r.a);
-    try m.write(&source.writer, root);
-    return edit.validatedIssues(s.r, model.readDocument(s.r.a, source.written()));
+    return edit.validatedIssues(s.r, model.readCandidate(s.r.a, root));
 }
 fn addCapability(s: *State, p: Prepared) !void {
     const request = p.intent.add_capability_operation;
@@ -523,7 +531,7 @@ fn addCapability(s: *State, p: Prepared) !void {
         for (affected.items) |site| try sites.append(a, try std.fmt.allocPrint(a, "'{s}' in function {s}", .{ query.idOf(site.node), try ownedDescription(s, site.function) }));
         return s.fail("CapabilityImplementationPlanMismatch", try std.fmt.allocPrint(a, "Every program implementation (capabilityConstruct) of Capability '{s}' requires exactly one implementation plan for the new operation; the constructions are: {s}.", .{ query.nameOf(owner), if (sites.items.len == 0) @as([]const u8, "there are none") else try std.mem.join(a, ", ", sites.items) }));
     }
-    s.root = try edit.replace(a, s.root, "capabilities", try edit.append(a, owner, "operations", operation));
+    try s.setRoot(try edit.replace(a, s.root, "capabilities", try edit.append(a, owner, "operations", operation)));
     for (affected.items) |site| {
         const plan = for (request.implementations) |plan| {
             if (edit.hasId(site.node, plan.construct)) break plan;
@@ -565,7 +573,7 @@ fn removeProduct(s: *State, id: []const u8) !void {
     if (s.changed(.productFieldsAdded, "fieldId", id)) return s.fail("ProductFieldCreatedInTransaction", "Remove a newly added field in a separate reviewed change.");
     if (referenced) return s.fail("ProductFieldStillReferenced", "Repair all field accesses and product updates of this field before removing it.");
     for (affected.items) |site| if (model.arrayItems(site.function, "requiredEffects").len > 0) return s.fail("ProductFieldMayDiscardEffects", "An affected function declares effects; preserve evaluation explicitly before removing its field binding.");
-    s.root = try edit.replace(a, s.root, "types", try edit.drop(a, owner, "fields", id));
+    try s.setRoot(try edit.replace(a, s.root, "types", try edit.drop(a, owner, "fields", id)));
     var affected_ids: std.ArrayList(Value) = .empty;
     for (affected.items) |site| {
         try updateNode(s, query.idOf(site.node), try dropBindings(a, site.node, "fields", "targetFieldId", id));
@@ -586,16 +594,17 @@ fn deletion(intent: types.Intent) ?struct { target: types.Target, id: []const u8
     };
 }
 fn afterScheduled(s: *State, root: Value, current: ?types.Intent) !Value {
-    var result = root;
+    var after = s.*;
+    try after.setRoot(root);
     for (s.scheduled) |p| if (deletion(p.intent)) |deleted| {
         if (current) |operation| if (deletion(operation)) |skip| if (deleted.target == skip.target and m.same(deleted.id, skip.id)) {
             continue;
         };
         if (deleted.target == .capabilityOperation) {
-            if (subject(result, .capabilityOperation, deleted.id)) |found| result = try edit.replace(s.r.a, result, "capabilities", try edit.drop(s.r.a, found.owner.?, "operations", deleted.id));
-        } else result = try edit.drop(s.r.a, result, group(deleted.target), deleted.id);
+            if (subject(after.root, .capabilityOperation, deleted.id)) |found| try after.setRoot(try edit.replace(s.r.a, after.root, "capabilities", try edit.drop(s.r.a, found.owner.?, "operations", deleted.id)));
+        } else try after.setRoot(try edit.drop(s.r.a, after.root, group(deleted.target), deleted.id));
     };
-    return result;
+    return after.root;
 }
 fn deletionSafe(s: *State, before: Value, candidate: Value, scheduled: bool, current: ?types.Intent, code: []const u8, name: []const u8) !void {
     const after_issues = try validate(s, if (scheduled) try afterScheduled(s, candidate, null) else candidate);
@@ -660,8 +669,8 @@ fn deleteDeclaration(s: *State, intent: types.Intent) !void {
             if (m.same(edit.text(obligation, "status"), "open")) return s.fail("FunctionHasObligations", "Resolve open obligations attached to this function before deletion. Deleting the function retires only its resolved obligations, with their exact records in the reviewed diff.");
             try retired.append(a, try obligationRecord(a, obligation));
         }
-        s.root = try edit.drop(a, s.root, "functions", selected.id);
-        s.root = try edit.set(a, s.root, "obligations", .{ .array = kept.items });
+        try s.setRoot(try edit.drop(a, s.root, "functions", selected.id));
+        try s.setRoot(try edit.set(a, s.root, "obligations", .{ .array = kept.items }));
         sortObligations(retired.items);
         var diff = try m.object(a, &.{ try m.member(a, "functionId", model.property(item, "id").?), try m.member(a, "displayName", model.property(item, "displayName").?), try m.member(a, "removedNodeIds", try strings(a, body)) });
         if (retired.items.len > 0) diff = try edit.set(a, diff, "retiredObligations", .{ .array = retired.items });
@@ -684,7 +693,7 @@ fn deleteDeclaration(s: *State, intent: types.Intent) !void {
         .capabilityOperation => "capability operation",
         else => unreachable,
     });
-    s.root = candidate;
+    try s.setRoot(candidate);
     var fields: std.ArrayList(model.Member) = .empty;
     if (found.owner) |owner| try fields.append(a, try m.member(a, "ownerCapabilityId", model.property(owner, "id").?));
     try fields.append(a, try m.member(a, switch (selected.target) {
@@ -764,8 +773,8 @@ fn removeUnion(s: *State, id: []const u8) !void {
         }
     };
     if (effectful) |site| return s.fail("UnionVariantRemovalMayDiscardEffects", try std.fmt.allocPrint(a, "Function {s} declares effects and its match '{s}' has an arm for {s} alone; preserve evaluation explicitly before removing that arm.", .{ try ownedDescription(s, site.function), query.idOf(site.node), description }));
-    const before = s.root;
-    s.root = try edit.replace(a, s.root, "types", try edit.drop(a, owner, "variants", id));
+    const before = try model.ownTyped(a, s.root, false);
+    try s.setRoot(try edit.replace(a, s.root, "types", try edit.drop(a, owner, "variants", id)));
     var affected_ids: std.ArrayList(Value) = .empty;
     for (matches.items) |site| {
         try affected_ids.append(a, model.property(site.node, "id").?);
@@ -841,8 +850,8 @@ pub fn simulate(r: *query.Request, intents: []const types.Intent, expected: []co
         .delete_function, .delete_type, .delete_effect, .delete_capability, .delete_capability_operation => try deleteDeclaration(&state, p.intent),
         .resolve_missing_argument => try resolveMissing(&state, p.intent),
     };
-    state.root = try edit.set(r.a, state.root, "snapshotId", snapshot);
-    state.root = try edit.set(r.a, state.root, "parentSnapshotId", try m.string(r.a, r.snapshot_id));
+    try state.setRoot(try edit.set(r.a, state.root, "snapshotId", snapshot));
+    try state.setRoot(try edit.set(r.a, state.root, "parentSnapshotId", try m.string(r.a, r.snapshot_id)));
     const issues = try validate(&state, state.root);
     if (issues.len > 0) return rejected(r, "InvalidProposedSnapshot", try std.fmt.allocPrint(r.a, "{s}: {s}", .{ issues[0].code, model.utf8(issues[0].message) }));
     var fields: std.ArrayList(model.Member) = .empty;
@@ -988,4 +997,56 @@ pub fn summaryOperations(r: *query.Request, metadata: Value) ![]const u8 {
         };
     }
     return summary(r, intents);
+}
+
+test "operation intermediates keep typed reads through rename field addition and signature repair" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    model.beginRequest(a);
+    const source =
+        \\{"snapshotId":"base","types":[{"id":"t","displayName":"Record","kind":"product","fields":[]}],"effects":[],"capabilities":[],"functions":[{"id":"f","displayName":"Make","parameters":[],"resultType":{"kind":"named","typeId":"t"},"requiredEffects":[],"body":{"nodes":[{"id":"value","kind":"int64Literal","value":7},{"id":"construct","kind":"productConstruct","typeId":"t","fields":[]}],"resultNodeId":"construct"}},{"id":"g","displayName":"Caller","parameters":[],"resultType":{"kind":"named","typeId":"t"},"requiredEffects":[],"body":{"nodes":[{"id":"argument","kind":"int64Literal","value":9},{"id":"call","kind":"directCall","targetFunctionId":"f","arguments":[]}],"resultNodeId":"call"}}],"obligations":[]}
+    ;
+    const decoded = try model.parseValue(a, try std.fmt.allocPrint(a, "{{\"schemaVersion\":{d},{s}", .{ model.currentVersion(), source[1..] }));
+    const base = try model.ownTyped(a, decoded, false);
+    var request: query.Request = .{ .a = a, .line = "", .root = .empty, .model = base, .provenance = null, .snapshot_id = "base" };
+    var state: State = .{ .r = &request, .root = base, .transaction = try m.string(a, "transaction"), .scheduled = &.{} };
+    try state.rename(.{ .target = .function, .id = "f", .name = "Renamed" });
+    try std.testing.expect(state.root == .typed);
+    try std.testing.expectEqualStrings("Renamed", query.nameOf(subject(state.root, .function, "f").?.item));
+    const field = try model.parseValue(a, "{\"id\":\"field\",\"displayName\":\"Value\",\"type\":{\"kind\":\"primitive\",\"primitive\":\"int64\"}}");
+    try addProduct(&state, .{
+        .intent = .{ .add_product_field = .{ .type = "t", .field = .{ .name = "Value", .type = .{ .primitive = "int64" } }, .constructions = &.{} } },
+        .member = field,
+        .plans = .{ .constructions = &.{.{ .construct = "construct", .value = try m.string(a, "value"), .nodes = &.{} }} },
+    });
+    try std.testing.expect(state.root == .typed);
+    try std.testing.expect(subject(state.root, .field, "field").?.item == .typed);
+    const parameter = try model.parseValue(a, "{\"id\":\"parameter\",\"displayName\":\"Input\",\"type\":{\"kind\":\"primitive\",\"primitive\":\"int64\"}}");
+    try addParameter(&state, .{
+        .intent = .{ .add_function_parameter = .{ .function = "f", .field = .{ .name = "Input", .type = .{ .primitive = "int64" } }, .calls = &.{.{ .bind = .{ .call = "call", .value = "argument" } }} } },
+        .member = parameter,
+        .plans = .{},
+        .missing = &.{.json_null},
+    });
+    try std.testing.expect(state.root == .typed);
+    try std.testing.expect(subject(state.root, .parameter, "parameter").?.item == .typed);
+    for (try nodes(&state)) |site| {
+        try std.testing.expect(site.function == .typed and site.node == .typed);
+        if (edit.hasId(site.node, "call")) {
+            const argument = model.arrayItems(site.node, "arguments")[0];
+            try std.testing.expect(argument == .typed);
+            try std.testing.expectEqualStrings("parameter", edit.text(argument, "targetParameterId"));
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 0), model.arrayItems(subject(base, .function, "f").?.item, "parameters").len);
+    try std.testing.expectEqual(@as(usize, 0), model.arrayItems(subject(base, .type, "t").?.item, "fields").len);
+    try std.testing.expectEqual(@as(usize, 0), (try validate(&state, state.root)).len);
+    const line = "{\"id\":\"read\",\"op\":\"readFunction\",\"function\":\"Renamed\",\"detail\":\"full\"}";
+    request.line = line;
+    request.root = (try std.json.parseFromSliceLeaky(std.json.Value, a, line, .{})).object;
+    request.model = state.root;
+    var result: std.Io.Writer.Allocating = .init(a);
+    try query.readFunction(&request, &result.writer);
+    try std.testing.expect(std.mem.indexOf(u8, result.written(), "Renamed") != null);
 }

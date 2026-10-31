@@ -19,7 +19,7 @@ fn has(nodes: []const Value, id: []const u8) bool {
     return false;
 }
 fn changed(a: Allocator, v: Value, key: []const u8, value: Value) anyerror!Value {
-    const fields = try a.dupe(model.Member, v.object);
+    const fields = try a.dupe(model.Member, model.objectMembers(v));
     for (fields) |*f| if (m.same(model.utf8(f.name), key)) { f.value = value; break; };
     return .{ .object = fields };
 }
@@ -50,7 +50,8 @@ fn owning(graph: Value, id: []const u8) ?Value {
 /// Map nested graphs without rewriting any operand IDs. The replacement root retains the target ID.
 fn rewrite(a: Allocator, value: Value, target: []const u8, replacement: []const Value, removed: Set) anyerror!Value {
     switch (value) {
-        .object => |fields| {
+        .object, .typed => {
+            const fields = model.objectMembers(value);
             const copy = try a.dupe(model.Member, fields);
             for (copy) |*f| {
                 if (m.same(model.utf8(f.name), "nodes")) {
@@ -293,7 +294,7 @@ pub fn diff(r: *query.Request, out: *Writer, old: Value, proposed: Value, change
     const previous = for (base_nodes) |n| { if (m.same(query.idOf(n), change.target)) break n; } else unreachable;
     const next = for (new_nodes) |n| { if (m.same(query.idOf(n), change.target)) break n; } else unreachable;
     var candidate = r.*;
-    candidate.model = proposed_root;
+    candidate.model = try model.ownTyped(r.a, proposed_root, false);
     try out.writeAll("{\"ownerFunctionId\":");
     try m.write(out, model.property(old, "id").?);
     try out.writeAll(",\"targetNodeId\":");

@@ -127,14 +127,14 @@ fn named(r: *q.Request, out: *std.ArrayList(model.Member), key: []const u8, id: 
 pub fn declarationView(r: *q.Request) !model.Value {
     const provenance = r.provenance orelse return r.model;
     if (provenance.hidden.len == 0) return r.model;
-    const fields = try r.a.dupe(model.Member, r.model.object);
+    const fields = try r.a.dupe(model.Member, model.objectMembers(r.model));
     inline for (.{ .{ "functions", "function" }, .{ "types", "type" }, .{ "effects", "effect" }, .{ "capabilities", "capability" } }) |group| {
         const items = try q.visible(r, group[1]);
         for (fields) |*field| {
             if (same(model.utf8(model.decoded(.{ .string = field.name })), group[0])) field.value = .{ .array = items };
         }
     }
-    return .{ .object = fields };
+    return model.ownTyped(r.a, .{ .object = fields }, false);
 }
 
 pub fn diagnostic(r: *q.Request, input: *const Input, code: []const u8, message: []const u8) Fail!void {
@@ -1873,7 +1873,7 @@ test "run declarations hide imported private members without changing the model"
     defer arena.deinit();
     const a = arena.allocator();
     const root = try model.parseValue(a,
-        \\{"snapshotId":"snapshot","functions":[],"effects":[],"capabilities":[],"types":[{"id":"hidden","displayName":"Hidden"},{"id":"visible","displayName":"Visible"}]}
+        \\{"schemaVersion":24,"snapshotId":"snapshot","functions":[],"effects":[],"capabilities":[],"obligations":[],"types":[{"id":"hidden","displayName":"Hidden","kind":"product","fields":[]},{"id":"visible","displayName":"Visible","kind":"product","fields":[]}]}
     );
     var request: q.Request = .{ .a = a, .line = "", .root = .empty, .model = root, .provenance = .{ .members = &.{}, .hidden = &.{"type:hidden"} } };
     const view = try declarationView(&request);

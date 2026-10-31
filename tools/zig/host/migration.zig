@@ -92,9 +92,7 @@ pub fn materializeReplacement(r: *query.Request, f: Value, body: *const Node) an
 }
 
 pub fn validate(r: *query.Request, candidate: Value) anyerror!void {
-    var source: std.Io.Writer.Allocating = .init(r.a);
-    try m.write(&source.writer, candidate);
-    const read = model.readDocument(r.a, source.written());
+    const read = model.readCandidate(r.a, candidate);
     const issues = try edit.validatedIssues(r, read);
     if (issues.len == 0) return;
     var details: std.Io.Writer.Allocating = .init(r.a);
@@ -215,7 +213,7 @@ fn remapValue(a: std.mem.Allocator, value: Value, maps: Remap) anyerror!Value {
         for (value.array, items) |v, *o| o.* = try remapValue(a, v, maps);
         return .{ .array = items };
     }
-    if (value != .object) return value;
+    if (!model.isObject(value)) return value;
     var result = value;
     const kind = if (model.property(value, "kind")) |v| model.utf8(model.decoded(v)) else "";
     if (m.same(kind, "typeParameter")) {
@@ -230,7 +228,7 @@ fn remapValue(a: std.mem.Allocator, value: Value, maps: Remap) anyerror!Value {
         for (args) |*arg| for (model.arrayItems(maps.temporary_target, "parameters"), model.arrayItems(maps.target, "parameters")) |t, o| { if (m.same(edit.text(arg.*, "targetParameterId"), query.idOf(t))) arg.* = try edit.set(a, arg.*, "targetParameterId", model.property(o, "id").?); };
         result = try edit.set(a, result, "arguments", .{ .array = args });
     }
-    const fields = try a.dupe(model.Member, result.object);
+    const fields = try a.dupe(model.Member, model.objectMembers(result));
     for (fields) |*f| f.value = try remapValue(a, f.value, maps);
     return .{ .object = fields };
 }
@@ -246,7 +244,7 @@ pub fn bodyDiff(r: *query.Request, candidate: Value, before: Value, after: Value
     try w.writeAll(",\"oldResultNodeId\":"); try m.write(w, model.property(model.property(before, "body").?, "resultNodeId").?);
     try w.writeAll(",\"newResultNodeId\":"); try m.write(w, model.property(model.property(after, "body").?, "resultNodeId").?);
     try w.writeAll(",\"removedNodes\":"); try @import("target.zig").summaries(r, w, before, try sortedNodes(r, before));
-    var next = r.*; next.model = candidate;
+    var next = r.*; next.model = try model.ownTyped(r.a, candidate, false);
     try w.writeAll(",\"addedNodes\":"); try @import("target.zig").summaries(&next, w, after, try sortedNodes(r, after));
     try w.writeByte('}');
     return model.parseValue(r.a, source.written());
@@ -305,7 +303,7 @@ fn simulate(r: *query.Request, parameter: bool, fid: []const u8, pid: []const u8
     temp_root = try edit.set(r.a, temp_root, "parentSnapshotId", try m.string(r.a, r.snapshot_id));
     validate(r, temp_root) catch return wrapped(r, prefix, null);
     var scratch = r.*;
-    scratch.model = temp_root;
+    scratch.model = try model.ownTyped(r.a, temp_root, false);
     scratch.snapshot_id = model.utf8(model.decoded(temp_snapshot));
     const rewritten = try r.a.alloc(Value, originals.len);
     rewritten[0] = try edit.set(r.a, signature, "body", try remapValue(r.a, model.property(temp, "body").?, .{ .original = signature, .temporary = temp, .target = target, .temporary_target = temp }));
