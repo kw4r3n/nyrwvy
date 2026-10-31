@@ -277,17 +277,21 @@ module ZigHostRunPureParityTests =
             let replies = strictPair path [ runName "spin" [] None; runName "constant" [] (Some "7") ]
             Assert.Equal("RunTimeout", code replies[0])
             Assert.True((success replies[1]).GetProperty("matches").GetBoolean())
+            // Fresh identities miss the runner cache while the checked tools stay warm.
+            let failureDirectory = Path.Combine(directory, "compiler-failure")
+            Directory.CreateDirectory failureDirectory |> ignore
+            let failurePath, _ = fixture failureDirectory
             let compiler = Path.Combine(directory, "compiler-fails")
-            File.WriteAllText(compiler, "#!/bin/sh\nif [ \"$1\" = build-exe ]; then printf 'deliberate compiler failure' >&2; exit 1; fi\nexec zig \"$@\"\n")
+            File.WriteAllText(compiler, "#!/bin/sh\nif [ \"$1\" = build-exe ]; then for arg in \"$@\"; do case \"$arg\" in */runner.zig) printf 'deliberate compiler failure' >&2; exit 1;; esac; done; fi\nexec zig \"$@\"\n")
             File.SetUnixFileMode(compiler, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute)
-            let environment = [ "NYRWVY_ZIG", compiler; "XDG_CACHE_HOME", Path.Combine(directory, "compiler-cache") ]
+            let environment = [ "NYRWVY_ZIG", compiler ]
             let requests = [ runName "constant" [] None; """{"id":"status","op":"status"}"""; runName "constant" [] None ]
             let expected =
-                let exitCode, _, replies = runWithEnvironment environment false [ "open"; "--snapshot"; path; "--read-only" ] requests
-                Assert.Equal(0, exitCode)
+                let exitCode, errors, replies = runWithEnvironment environment false [ "open"; "--snapshot"; failurePath; "--read-only" ] requests
+                Assert.True((exitCode = 0), $"F# host exited {exitCode}: {errors}")
                 replies |> List.map comparable
-            let exitCode, _, actual = runWithEnvironment environment true [ "open"; "--snapshot"; path; "--read-only" ] requests
-            Assert.Equal(0, exitCode)
+            let exitCode, errors, actual = runWithEnvironment environment true [ "open"; "--snapshot"; failurePath; "--read-only" ] requests
+            Assert.True((exitCode = 0), $"Zig host exited {exitCode}: {errors}")
             Assert.Equal<string list>(expected, actual |> List.map comparable)
             Assert.Equal("RunProcessFailure", code actual[0])
             success actual[1] |> ignore
