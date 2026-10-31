@@ -14,11 +14,13 @@ The minimum does not mean every imaginable graph transformation. Unsupported sem
 
 ## Setup and direct tools
 
-Build the maintained executable once from the repository root, and rebuild after changing its implementation:
+Build the native host once from the repository root, and rebuild after changing its implementation or switching commits (the executable embeds its Git build identity):
 
 ```sh
-dotnet build tools/Nyrwvy.AuthoringSession --configuration Release
+npm run build:host
 ```
+
+This build needs Node 22.6+ and Zig 0.17.0 on `PATH` or selected with `NYRWVY_ZIG`; mise is the recommended version selector but is not installed by setup. The native host starts without F#. The .NET SDK and `dotnet build tools/zig/host/csharp/Compiler.csproj --configuration Release` are needed for the C# backend. `NYRWVY_HOST_EXECUTABLE` can select an operator override; a `.dll` path is an explicit legacy-host escape hatch and is launched with `dotnet`.
 
 OpenCode discovers `.opencode/tools/nyrwvy.ts`. These ordinary tools are not restricted to an evaluation agent or a temporary evaluation workspace. They use the existing JSONL process transport and one explicitly selected snapshot per OpenCode session.
 

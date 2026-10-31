@@ -43,6 +43,11 @@ jobs:
         with:
           bun-version: '1.4.2'
 
+      - name: Set up the Zig version pinned in mise.toml
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
+        with:
+          version: '0.17.0'
+
       - name: Install locked adapter and typechecking dependencies
         run: npm ci --no-audit --no-fund
 
@@ -58,6 +63,9 @@ jobs:
 
       - name: Build fast test graph
         run: dotnet build tests/Nyrwvy.Core.Tests/Nyrwvy.Core.Tests.fsproj --configuration Release --no-restore
+
+      - name: Build the native session host
+        run: npm run build:host
 
       - name: Install fish for maintained verification entry points
         run: scripts/ci-wait.sh fish
@@ -83,6 +91,13 @@ jobs:
 
       - name: Test MCP transport contract
         run: node scripts/run-node-tests.mjs fast-mcp
+
+      - name: Test the explicit legacy host selection
+        env:
+          NYRWVY_HOST_EXECUTABLE: ${{ github.workspace }}/tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll
+        run: |
+          node scripts/run-node-tests.mjs fast-contracts fast-adapters fast-mcp
+          npm run test:bun
 
       - name: Test extended suites
         if: ${{ inputs.extended }}

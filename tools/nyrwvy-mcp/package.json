@@ -6,7 +6,7 @@
   "type": "module",
   "engines": { "node": ">=22.6.0" },
   "scripts": {
-    "setup": "npm ci --prefix ../.. --no-audit --no-fund && dotnet build ../Nyrwvy.AuthoringSession --configuration Release",
+    "setup": "npm ci --prefix ../.. --no-audit --no-fund && npm --prefix ../.. run build:host && dotnet build ../zig/host/csharp/Compiler.csproj --configuration Release",
     "start": "node --experimental-strip-types server.mjs",
     "test": "node --experimental-strip-types --test server.test.mjs server.shutdown.test.mjs"
   },

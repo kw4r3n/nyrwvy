@@ -102,6 +102,7 @@ module internal ZigTools =
                          "snapshot_reader", [ "tools"; "zig"; "snapshot-reader" ], "main.zig"
                          "zig_emitter", [ "tools"; "zig"; "emitter" ], "main.zig"
                          "csharp_emitter", [ "tools"; "zig"; "csharp-emitter" ], "root.zig"
+                         "build_info", [ "tools"; "zig"; "host" ], "build_info.zig"
                          "viewer_asset", [ "src"; "Nyrwvy.Viewer" ], "asset.zig" ] ]
 
     /// Include embedded resources without hashing the managed helper's build products.

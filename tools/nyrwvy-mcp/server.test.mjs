@@ -15,7 +15,9 @@ async function connect(cwd, workspace, options, extraArgs = []) {
   const client = new Client({ name: "nyrwvy-contract", version: "1.0.0" }, options)
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath,
-      args: ["--experimental-strip-types", serverPath, ...(workspace ? ["--workspace", workspace] : []), ...extraArgs], cwd, stderr: "pipe" }))
+      args: ["--experimental-strip-types", serverPath, ...(workspace ? ["--workspace", workspace] : []), ...extraArgs], cwd,
+      env: { ...(process.env.NYRWVY_HOST_EXECUTABLE ? { NYRWVY_HOST_EXECUTABLE: process.env.NYRWVY_HOST_EXECUTABLE } : {}),
+        ...(process.env.NYRWVY_ZIG ? { NYRWVY_ZIG: process.env.NYRWVY_ZIG } : {}) }, stderr: "pipe" }))
     return client
   } catch (error) { await client.close().catch(() => undefined); throw error }
 }
@@ -128,7 +130,14 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     // A person reviews the pending proposal before it is rejected.
     const review = (await call(first, "view", { proposalId: discard.proposalId })).result
     assert.equal(review.kind, "changeReview")
-    assert.match(await readFile(review.path, "utf8"), /Change Review — replaceBody/)
+    const reviewHtml = await readFile(review.path, "utf8")
+    const embedded = reviewHtml.match(/<script type="application\/json" id="nyrwvy-data">([\s\S]*?)<\/script>/)
+    assert.ok(embedded, "review page embeds viewer data")
+    const reviewData = JSON.parse(embedded[1])
+    assert.equal(reviewData.view, "proposalReview")
+    assert.equal(reviewData.proposalKind, "replaceBody")
+    assert.equal(reviewData.transactionId, discard.proposalId)
+    assert.ok(reviewData.changedFunctions.some(change => change.proposed.function.id === functionId))
     await failed(first, "view", { proposalId: discard.proposalId, function: "value" })
     await call(first, "reject", { proposalId: discard.proposalId })
     await failed(first, "view", { proposalId: discard.proposalId })

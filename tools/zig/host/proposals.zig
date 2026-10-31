@@ -204,7 +204,7 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
     var candidate: Writer.Allocating = .init(r.a);
     try m.write(&candidate.writer, .{ .object = fields.items });
     const read = model.readDocument(r.a, candidate.written());
-    if ((previous != null or declaration != null) and read.validation_issues.len > 0) {
+    if (read.validation_issues.len > 0) {
         var details: Writer.Allocating = .init(r.a);
         try details.writer.writeAll("{\"diagnostics\":[");
         for (read.validation_issues, 0..) |issue, i| {

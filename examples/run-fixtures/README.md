@@ -4,8 +4,10 @@ For repeated verification, save the complete `nyrwvy_request` input as JSON and
 send that object directly. Do not print an encoder's output and copy it back into
 a model tool call. This example changes no graph, tool schema or RunValue contract.
 
-Prerequisites: the repository's Node and .NET versions, `npm ci`, and
-`dotnet build tools/Nyrwvy.AuthoringSession --configuration Release`.
+Prerequisites: Node 22.6+, npm, Zig 0.17.0 on `PATH` or selected with
+`NYRWVY_ZIG`, `npm ci`, and `npm run build:host`. The native host does not need
+F#. The .NET 10 SDK is required when a fixture uses the C# backend; the full
+`npm --prefix tools/nyrwvy-mcp run setup` also builds its compiler helper.
 
 ```sh
 node examples/run-fixtures/client.mjs /path/to/workspace.json case-a.json case-b.json

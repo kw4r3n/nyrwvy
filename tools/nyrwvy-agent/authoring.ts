@@ -89,8 +89,11 @@ export class AuthoringClient {
   get startupFailure(): string | undefined {
     if (!this.reaped || this.replies > 0) return undefined
     if (this.spawnError?.code === "ENOENT") {
-      return `dotnet was not found on the PATH of this process (${this.spawnError.message}). Install the .NET 10 SDK or make dotnet available to the host that launches the server.`
+      return this.defaultHost
+        ? `Native host executable was not found: ${this.executable}. Run npm run build:host from the repository root.`
+        : `Host executable could not be started: ${this.executable} (${this.spawnError.message}).${this.executable === "dotnet" ? " Install .NET or make dotnet available on PATH." : " Check NYRWVY_HOST_EXECUTABLE."}`
     }
+    if (this.spawnError) return `Host executable could not be started: ${this.executable} (${this.spawnError.message}). Check executable permissions and NYRWVY_HOST_EXECUTABLE.`
     // A child killed by this client (a signal, not an exit code) hung rather than failed to start.
     if (typeof this.exitCode !== "number") return undefined
     const detail = this.stderr.trim()
@@ -99,8 +102,13 @@ export class AuthoringClient {
 
   private child: ChildProcessWithoutNullStreams
 
-  constructor(child: ChildProcessWithoutNullStreams) {
+  private executable: string
+  private defaultHost: boolean
+
+  constructor(child: ChildProcessWithoutNullStreams, executable = "dotnet", defaultHost = false) {
     this.child = child
+    this.executable = executable
+    this.defaultHost = defaultHost
     // Registered before readline, so an oversized reply fails before it is parsed.
     let lineLength = 0
     child.stdout.on("data", (chunk: Buffer) => {
@@ -302,9 +310,13 @@ async function launchAuthoring(
   // Node reports a missing cwd as ENOENT on the executable; name the real problem instead.
   if (!(await stat(worktree).catch(() => undefined))?.isDirectory()) throw new Error(`workspace directory does not exist: ${worktree}`)
   const workspace = resolve(worktree, snapshot)
-  const assembly = resolve(context.repositoryRoot ?? context.worktree, "tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll")
+  const root = resolve(context.repositoryRoot ?? context.worktree)
+  const selected = process.env.NYRWVY_HOST_EXECUTABLE
+  const host = resolve(root, selected || `tools/zig/host/bin/nyrwvy-host${process.platform === "win32" ? ".exe" : ""}`)
+  const managed = /\.dll$/i.test(host)
+  const executable = managed ? "dotnet" : host
   // Mode read is open without the workspace lock; the session cannot commit.
-  const args = mode === "read" ? [assembly, "open", "--snapshot", workspace, "--read-only"] : [assembly, mode, "--snapshot", workspace]
+  const args = mode === "read" ? ["open", "--snapshot", workspace, "--read-only"] : [mode, "--snapshot", workspace]
   for (const source of [...(dependency === undefined ? [] : [dependency]), ...(dependencies ?? [])]) {
     args.push("--dependency", resolve(worktree, source))
   }
@@ -322,9 +334,9 @@ async function launchAuthoring(
   }
   const allowHostSources = hostSourcesAllowed(context)
   if (allowHostSources) args.push("--allow-host-sources")
-  const client = new AuthoringClient(spawn("dotnet", args, {
+  const client = new AuthoringClient(spawn(executable, managed ? [host, ...args] : args, {
     cwd: worktree, stdio: ["pipe", "pipe", "pipe"],
-  }))
+  }), executable, !selected)
   sessions.set(sessionKey, client)
   markStarted()
   try {

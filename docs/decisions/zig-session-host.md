@@ -1,6 +1,6 @@
 # Zig session host
 
-Status: accepted 2026-10-28 (owner: "OK, go ahead with recommends"). Steps 0–7 are implemented and operator verified. The F# host remains the default until step 8. Background: [zig-tools.md](zig-tools.md), section "Direction: a whole Zig session host".
+Status: accepted 2026-10-28; Step 8a candidate cutover is blocked on the accepted typed-read architectural gate and remains unmerged/unverified. Steps 0–7 have functional parity evidence; that does not establish that all host reads use the typed model. The F# host remains the default on main. Background: [zig-tools.md](zig-tools.md), section "Direction: a whole Zig session host".
 
 Goal: a separate executable, `nyrwvy-host` built from `tools/zig/`, that speaks the same JSONL protocol as the F# host (`Nyrwvy.AuthoringSession open …`). It reaches parity step by step and then replaces the F# host in one switch. Rules:
 - The Zig host never calls F#.
@@ -200,7 +200,15 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
    - **Shared resources.** Existing F# defaults and reference behavior remain unchanged; shared resources were byte-hash compared with the baseline.
 8. **Switch and removal** (below).
 
-**Adapter executable selection remains a Step 8 prerequisite.** `tools/nyrwvy-agent/authoring.ts` currently launches the F# `Nyrwvy.AuthoringSession.dll` through `dotnet`; MCP delegates to that agent authoring client. The adapters do not yet select the Zig host, and their Node suites have not yet been run against it. Keep this explicit rather than treating the earlier one-setting plan as implemented. Step 8 must add executable selection and pass the Node adapter suites against the Zig host before switching the default.
+**Step 8a candidate:** make the native host the default adapter executable and mark the F# host deprecated for normal use in the same cutover PR. Retain F# as reference code and for legacy-schema migration, with `NYRWVY_HOST_EXECUTABLE`'s explicit `.dll` path as an escape hatch. Relative overrides resolve against the repository root; a `.dll` override launches through `dotnet`, while a native executable launches directly. Build the host explicitly with `npm run build:host` into `tools/zig/host/bin/nyrwvy-host` (`.exe` on Windows); this native-only build needs Node 22.6+ and Zig 0.17.0 on `PATH` or selected with `NYRWVY_ZIG`. MCP setup (`npm --prefix tools/nyrwvy-mcp run setup`) also needs the .NET 10 SDK to build the standalone C# compiler helper for offline C# backend use. mise is the recommended Zig version selector, not a setup dependency. Starting the non-C# host does not require F#. Native CLI create/pin/upgrade are implemented and verified to avoid an F# fallback. Candidate validation results are recorded below, but the accepted typed-read gate remains blocked; main's default and deprecation status change only after typed-read eligibility, review, and merge.
+
+<a id="step-8-blocker--typed-read-architecture-confirmed"></a>
+
+**Step 8 blocker — typed-read architecture (confirmed).** Accepted switch criterion 1 requires every read to use the typed model and no host path to read the model-reader JSON tree. That criterion is not met: [`main.zig`](../../tools/zig/host/main.zig#L17) retains `model_root: model_reader.Value` and lazily canonicalizes it (lines 30–32); `open` assigns `read.root` (line 687); regular requests pass `canonical()` as `request.model` (line 308). The typed proposal candidate path does not remove this fresh-open read path. The typed-read audit did not establish incorrect query results; behavioral parity and this architectural gate are distinct. Do not mark Step 8 ready or relax criterion 1. Typed-read migration requires separate design/review before cutover.
+
+<a id="step-8-candidate-verification-2026-10-31-evidence-not-cutover-approval"></a>
+
+**Step 8 candidate verification (2026-10-31; evidence, not cutover approval).** Release build passed with 0 warnings/errors in 20.27 s; both TypeScript checks passed; full MCP setup built the ReleaseSafe native host and standalone C# compiler helper with 0 warnings/errors. Focused startup parity passed 6/6 in 3.1737 min; strict create validation passed 1/1 in 3.0894 min, including cache build. Final fast suites passed (Core 1,254; Node 55); 21 additional native Node tests bring that total to 76. Legacy-config Node tests had 68 passes and 8 explicit native-only skips (76 total, no failures); Bun passed 3/3 under each host. Maintained suites passed Core 287 (7.7900 min), Extended 6, and Node 4, with no failures or skips. The partition audit found 1,254 fast and 293 extended tests disjoint. Native ReleaseSafe unit runs passed 2/2 and 4/4; one case overlaps between those sets. Eight Node TERM/INT cancellation cases passed. Native create/status passed with dotnet absent and PATH empty; a workspace-default native startup and Zig-backend string echo passed without an `NYRWVY_ZIG` override. The create-validation gap was fixed in the shared error mapper and its previous unconditional fallback removed; latest corrective review `mvw67yzv-c0d722a9` and other corrective reviews found no remaining defects. A copied Rhifill C# default-adapter smoke also passed: the shared adapter selected the actual native binary, opened the copy, and ran manifest-selected `runPureByName(actionName, [4], expected=focus_left)` with `matches: true`; all 92 original Rhifill input hashes remained unchanged. The typed-read blocker above remains unresolved; main's F# default is unchanged.
 
 ## How parity with F# is checked
 
@@ -209,7 +217,7 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
   - **Guard.** A seed set by accident on real data would hand out the same IDs again after every restart. So, under the seed, a host warns on stderr at startup (`Warning: NYRWVY_TEST_ID_SEED is set, so new IDs are deterministic test IDs. Use it only on test copies.`), and every snapshot or sidecar text it reads moves the count past the largest `n` of an ID that the same seed derives (`StableIdAllocator.observe`, over the text, so JSON and records alike). Both hosts read the same files, so their sequences stay equal; a seeded run's IDs are never handed out twice. The Zig host does the same before it allocates its first ID (step 3c-4a); see that step's reference-gap note for the current F# manifest read site.
 - **Files written by commit (step 3e).** Each host runs a transcript against its own copy of the snapshot's directory, and the replies are compared with that directory masked. After every `commit`, every file in both directories is compared byte for byte: the snapshot (`.json` or `.nyrec`), its `.dependency.json` and `.backends.json`, and the `.previous` copies F# keeps. The tests also check that no temporary file is left behind. Each host then reopens the files the other wrote and answers a read transcript the same way. Failures carrying OS text (a read-only directory, a file changed on disk) are compared by code only, as for the views.
 - **Corpus.**
-  - Transcripts recorded from the existing F# session tests: a recording hook in `AuthoringProtocol.executeLine` under an environment variable.
+  - The five files in `tests/host-parity/` are request transcripts, not recorded F# responses. The current differential harness computes F# replies live; no golden-output recording hook in `AuthoringProtocol.executeLine` has been verified. Capture representative F# replies and required snapshot/filesystem inputs before F# removal.
   - The Node adapter tests and the examples.
   - Rhifill: read-only, and writes on copies.
   - Mutated requests: wrong IDs, bad recipes, conflicting proposals, so that error codes and messages match too.
@@ -221,11 +229,11 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
 
 ## The switch
 
-1. All operations have parity, the adapters' Node tests pass against the Zig host, and Rhifill works through the Zig host. Every read works on the typed model; no part of the host reads the model reader's JSON tree any more.
-2. One PR makes the Zig host the default in the adapters and docs, and marks the F# host deprecated in its README and in `docs/decisions/zig-tools.md`.
-3. Tag the last commit with the F# host, for example `fsharp-host-final`, and push the tag, so that the F# version stays on the remote (the user's idea: mark F# deprecated, cut a tag, keep it on the remote).
-4. Before removal, record the corpus responses of the F# host as golden files. After removal, the Zig host is tested against the goldens instead of a live F# host.
-5. A following PR removes the F# projects and the `NYRWVY_ZIG_*_CHECK` modes.
+1. All operations have parity, the adapters' Node tests pass against the Zig host, and Rhifill works through the Zig host. Every read works on the typed model; no part of the host reads the model reader's JSON tree any more. This architectural criterion is currently unfulfilled (see the Step 8 blocker above), independently of functional parity evidence for steps 0–7.
+2. The candidate cutover PR selects the native host by default in the adapters and documentation, marks the F# host deprecated for normal use in its README and in `docs/decisions/zig-tools.md`, and retains the F# reference and `.dll` override path.
+3. After approval to merge the cutover, tag the last F# host commit (for example `fsharp-host-final`) and push that tag so the legacy implementation remains available remotely.
+4. In a later, separate removal PR, capture breadth, runtime, and filesystem golden artifacts from the F# host before deleting it. The checked-in request transcripts alone are not golden responses. Test the Zig host against the frozen evidence after removal.
+5. Only then remove the F# projects and `NYRWVY_ZIG_*_CHECK` modes.
 6. Legacy migration (schemas 9–20) stays in the F# tag only; it is not ported (decided 2026-10-28). The viewer is not ported either: its page is a fixed asset, and the Zig host writes its data (step 2).
 
 ## Accepted differences
@@ -238,4 +246,4 @@ These differences between the hosts are accepted. The parity tests do not cover 
 
 ## Open decisions
 
-- No Step 7 design decision remains open. Step 8 still requires adapter executable selection and Node adapter tests against the Zig host before switching the default.
+- Steps 0–7 have functional parity evidence. The Step 8 candidate's build, adapter, lifecycle, C# smoke, and suite checks passed, but Step 8a remains blocked by the unfulfilled direct typed-read criterion. Golden coverage, tagging, and F# removal are later work and are not complete.

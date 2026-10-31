@@ -50,7 +50,7 @@ async function abnormalServer(t, phase) {
     const alive = setInterval(() => {}, 1000);
   `, { mode: 0o700 })
   const server = spawn(process.execPath, ["--experimental-strip-types", serverPath], {
-    cwd: root, env: { ...process.env, PATH: `${root}:${process.env.PATH}` }, stdio: ["pipe", "pipe", "pipe"],
+    cwd: root, env: { ...process.env, NYRWVY_HOST_EXECUTABLE: join(root, "dotnet") }, stdio: ["pipe", "pipe", "pipe"],
   })
   let stderr = ""
   server.stderr.on("data", chunk => { stderr += chunk })

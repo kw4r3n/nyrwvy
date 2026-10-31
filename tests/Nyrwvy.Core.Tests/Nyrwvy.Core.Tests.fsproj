@@ -184,6 +184,8 @@
     <Compile Include="ZigSnapshotReaderTests.fs" />
     <Compile Include="ZigModelReaderTests.fs" />
     <Compile Include="ZigHostParityTests.fs" />
+    <Compile Include="ZigHostStartupParityTests.fs" />
+    <Compile Include="ZigHostCreateValidationParityTests.fs" />
     <Compile Include="ZigHostRunPureParityTests.fs" />
     <Compile Include="ZigHostCSharpRunParityTests.fs" />
     <Compile Include="ZigHostChangeVerificationParityTests.fs" />

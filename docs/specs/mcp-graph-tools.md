@@ -8,13 +8,13 @@ The official SDK handles both legacy MCP initialization and the 2026-07-28 proto
 
 ## Setup
 
-Requires Node 22.6+ (Node 22 recommended), npm and the .NET 10 SDK. From the repository root, run one setup command:
+The Step 8a native-host adapter cutover is a blocked candidate and is not merged to main. Its accepted direct typed-read architecture gate is unfulfilled: fresh opens still retain and serve the JSON model tree ([evidence](../../tools/zig/host/main.zig#L17)). Build, adapter, lifecycle, copied Rhifill C# smoke, and suite validation passed, but that does not clear the architecture gate or change main's default and F# status. See the [verification record](../decisions/zig-session-host.md#step-8-candidate-verification-2026-10-31-evidence-not-cutover-approval). The native-only build `npm run build:host` requires Node 22.6+ and Zig 0.17.0 on `PATH` or selected with `NYRWVY_ZIG`; mise is the repository-recommended version selector, but setup does not install it. Full MCP setup additionally requires the .NET 10 SDK to build the standalone C# compiler helper (not the F# host). The host is built explicitly into `tools/zig/host/bin/nyrwvy-host` (with `.exe` on Windows); MCP setup builds it with the configured Zig:
 
 ```sh
 npm --prefix tools/nyrwvy-mcp run setup
 ```
 
-This installs the pinned MCP SDK dependencies and builds the existing Release AuthoringSession. It does not install OpenCode, need model credentials, start a network listener, or modify client configuration. Rebuild AuthoringSession after changing its implementation. The MCP client will launch the server itself.
+This installs the pinned MCP SDK dependencies, builds the native host, and builds the standalone C# compiler helper for offline C# backend use. It does not install OpenCode, need model credentials, start a network listener, or modify client configuration. `NYRWVY_HOST_EXECUTABLE` can override the host: relative paths resolve from the repository root, `.dll` paths launch through `dotnet` as an explicit legacy escape hatch, and native executable paths launch directly. Starting the non-C# host does not require F#. The cutover PR will mark the F# host deprecated for normal use, while retaining it as reference code and for legacy-schema migration; main changes only when that PR is merged.
 
 The ordinary server launch command is:
 
@@ -24,11 +24,11 @@ node --experimental-strip-types /absolute/path/nyrwvy/tools/nyrwvy-mcp/server.mj
 
 `--allow-host-sources` (or `NYRWVY_ALLOW_HOST_SOURCES=1` in the server's environment) is an optional server-level opt-in that lets `runPure`/`runPureByName` compile and run `hostSources` C# files; it is off by default. See [Host sources run arbitrary code](#host-sources-run-arbitrary-code) before enabling it.
 
-Use an absolute server path. Relative snapshot paths default to the MCP server process's working directory. For local CLI clients that launch stdio servers in the active project, this makes `nyrwvy_open {snapshot:"planner.snapshot.json"}` naturally create or open `./planner.snapshot.json` in that project.
+Use an absolute server path. Relative snapshot paths default to the MCP server process's working directory. For local CLI clients that launch stdio servers in the active project, this makes `nyrwvy_open {snapshot:"planner.snapshot.json"}` naturally create or open `./planner.snapshot.json` in that project. Snapshot workspace resolution remains independent of the host executable override.
 
 `--workspace /absolute/path/my-project` remains an optional server-level override for a deliberately fixed workspace. In addition, `nyrwvy_open` accepts an optional `workspace` argument so an agent can supply the host-known project directory when a GUI, plugin cache, desktop host, or other MCP launcher starts the server elsewhere. The user therefore does not need to bake a program directory into ordinary MCP registration.
 
-Nyrwvy intentionally does not add a dependency on MCP Roots for this. Roots are deprecated in the 2026-07-28 MCP specification, which recommends passing directories/files through tool parameters, resource URIs, or server configuration for new implementations. The .NET assembly is always located relative to the server's repository, independently of the client project. Use an absolute `node` executable path when a graphical client does not inherit the expected PATH; `dotnet` must also be available to the launched server (see [Claude Desktop](#claude-desktop)).
+Nyrwvy intentionally does not add a dependency on MCP Roots for this. Roots are deprecated in the 2026-07-28 MCP specification, which recommends passing directories/files through tool parameters, resource URIs, or server configuration for new implementations. The native host is resolved relative to the repository, independently of the client project. Use an absolute `node` executable path when a graphical client does not inherit the expected PATH. The .NET SDK is needed for full setup and the C# backend, not for native host startup (see [Claude Desktop](#claude-desktop)).
 
 ### What the path arguments can reach
 
@@ -36,7 +36,7 @@ Nyrwvy intentionally does not add a dependency on MCP Roots for this. Roots are 
 
 ### Startup errors
 
-When the session cannot start, `nyrwvy_open` reports the session's one-line diagnostic (for example `SnapshotFileNotFound: No snapshot file at /project/planner.json. Use create ... to start a new one.`, `SnapshotFileAlreadyExists`, `LockUnavailable` for a snapshot open in another session, or `SnapshotCodecFailure` for a file that is not a snapshot) rather than a lost-response error: nothing was sent, so there is nothing to inspect or replay. A `workspace` that does not exist is reported as such before anything is launched, and a missing `dotnet` as `dotnet was not found on the PATH of this process`.
+When the session cannot start, `nyrwvy_open` reports the session's one-line diagnostic (for example `SnapshotFileNotFound: No snapshot file at /project/planner.json. Use create ... to start a new one.`, `SnapshotFileAlreadyExists`, `LockUnavailable` for a snapshot open in another session, or `SnapshotCodecFailure` for a file that is not a snapshot) rather than a lost-response error: nothing was sent, so there is nothing to inspect or replay. A `workspace` that does not exist is reported as such before anything is launched. Missing `dotnet` affects the C# backend or explicit `.dll` override, not native session startup.
 
 ## Client configuration
 
@@ -87,7 +87,7 @@ Clients with an `mcpServers` configuration use the same command/args; the settin
 
 ### Claude Desktop
 
-Claude Desktop reads the same `mcpServers` shape from `claude_desktop_config.json` (Settings, Developer, Edit Config). It is a GUI and inherits no shell PATH, so name `node` by its absolute path and make sure the directory holding `dotnet` is on the PATH the server receives; otherwise the server itself starts but every `nyrwvy_open` fails with `dotnet was not found on the PATH of this process`. The server launches outside any project, so pass `workspace` on `nyrwvy_open` or fix it with `--workspace`:
+Claude Desktop reads the same `mcpServers` shape from `claude_desktop_config.json` (Settings, Developer, Edit Config). It is a GUI and inherits no shell PATH, so name `node` by its absolute path. The native host needs no F# runtime; `dotnet` is needed only for the C# compiler/backend or an explicit `.dll` override. The server launches outside any project, so pass `workspace` on `nyrwvy_open` or fix it with `--workspace`:
 
 ```json
 {
@@ -101,7 +101,7 @@ Claude Desktop reads the same `mcpServers` shape from `claude_desktop_config.jso
 }
 ```
 
-Replace the `PATH` value with the directories that hold `dotnet` and `node` on your machine (`dirname "$(command -v dotnet)"`). Claude Desktop use is configuration guidance, not a live compatibility claim.
+Replace the `PATH` value with the directories that hold `node`, `dotnet`, and `zig`. If Zig is not on that path, set `NYRWVY_ZIG` to its absolute executable path in the client environment instead. `dotnet` is needed for C# backend execution or a `.dll` override, not native host startup. Claude Desktop use is configuration guidance, not a live compatibility claim.
 
 ### Zed
 

@@ -315,3 +315,19 @@ With dependencies (1c), the row "start, Zig host" times the Zig host on the reso
 
 The resolved workspace is the faster of the two for Zig: its local part is small, and the dependency (49 KiB) is read, validated and fingerprinted on its own.
 
+## Step 8 candidate host benchmark (2026-10-31)
+
+The three `ZigSpeed` facts passed in 1.6774 min. These are single-run observations on one machine under uncontrolled background load; first-request timings include unnormalized compiler/helper build and cache work. Do not compare these values with Step 7 as a regression or speedup. The Zig host also queries compiler identity on each request, a known repeated-call cost. The broader Step 8 validation and architecture blocker are recorded in [zig-session-host.md](../../docs/decisions/zig-session-host.md).
+
+| Case | F# host (ms) | Native host (ms) |
+|---|---:|---:|
+| Rhifill resolved workspace: startup | 862.5 | 104.5 |
+| Rhifill resolved workspace: startup, F# warm-up off | 878.8 | — |
+| Rhifill merged model: startup | 738.6 | 106.5 |
+| Tiny generated echo, Zig backend: first | 22,827.5 | 22,202.2 |
+| Tiny generated echo, Zig backend: repeated | 1.3 | 45.9 |
+| Tiny generated echo, C# backend: first | 2,056.0 | 7,405.5 |
+| Tiny generated echo, C# backend: repeated | 3.1 | 3.7 |
+
+Repeated native Zig time includes the compiler-identity query; first-request backend timings include compiler/helper cache setup. The copied Rhifill C# default-adapter smoke is separate from these benchmark rows.
+

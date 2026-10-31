@@ -312,7 +312,7 @@ module ZigHostParityTests =
                     // result-type check); one from a sibling F# reached later still counts as a mismatch.
                     fsharp = zig
                     || (unportedKindReply zig && hasUnportedKind request && (located |> Option.forall (fun path -> atOrBelow (unportedKindPath zig) path || atOrBelow path (unportedKindPath zig))))
-                else fsharp = zig || (code = "InvalidProposedSnapshot" && zig.Contains "The Zig host does not word proposed-snapshot validation failures yet.")
+                else fsharp = zig
             | _ -> fsharp = zig
         | _ -> fsharp = zig
 

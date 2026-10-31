@@ -81,18 +81,18 @@ test("suite wrappers forward dotnet arguments once and propagate either stage's 
   const calls = join(fixture, "calls")
   mkdirSync(commands)
   mkdirSync(join(repo, "scripts"), { recursive: true })
-  for (const command of ["dotnet", "node"]) {
+  for (const command of ["dotnet", "node", "npm"]) {
     writeFileSync(join(commands, command), `#!/bin/sh\nprintf '%s\\n' '${command}' "$PWD" "$@" >> "$SUITE_CALLS"\nexit "$SUITE_${command.toUpperCase()}_STATUS"\n`, { mode: 0o755 })
   }
   try {
     for (const [name, suite] of [["fast", "fast-contracts"], ["extended", "extended"]]) {
       const wrapper = `test-${name}.fish`
       copyFileSync(join(repositoryRoot, "scripts", wrapper), join(repo, "scripts", wrapper))
-      const run = (dotnetStatus, nodeStatus) => {
+      const run = (dotnetStatus, nodeStatus, args = ["--no-build", "--filter", "Category=fixture with spaces"], host = undefined, npmStatus = 0) => {
         writeFileSync(calls, "")
-        const result = spawnSync("fish", ["--no-config", join(repo, "scripts", wrapper), "--no-build", "--filter", "Category=fixture with spaces"], {
+        const result = spawnSync("fish", ["--no-config", join(repo, "scripts", wrapper), ...args], {
           cwd: fixture, encoding: "utf8",
-          env: { ...process.env, PATH: `${commands}:${process.env.PATH}`, SUITE_CALLS: calls, SUITE_DOTNET_STATUS: String(dotnetStatus), SUITE_NODE_STATUS: String(nodeStatus) },
+          env: { ...process.env, PATH: `${commands}:${process.env.PATH}`, SUITE_CALLS: calls, SUITE_DOTNET_STATUS: String(dotnetStatus), SUITE_NODE_STATUS: String(nodeStatus), SUITE_NPM_STATUS: String(npmStatus), NYRWVY_HOST_EXECUTABLE: host },
         })
         if (result.error) throw result.error
         return { status: result.status, calls: readFileSync(calls, "utf8").trim().split("\n"), stderr: result.stderr }
@@ -109,6 +109,17 @@ test("suite wrappers forward dotnet arguments once and propagate either stage's 
       assert.equal(failedDotnet.status, 23)
       assert.ok(!failedDotnet.calls.includes("node"))
       assert.equal(run(0, 17).status, 17)
+      const builds = run(0, 0, [])
+      assert.equal(builds.status, 0)
+      assert.ok(builds.calls.includes("npm"))
+      assert.ok(builds.calls.includes("build:host"))
+      const emptyHost = run(0, 0, [], "")
+      assert.equal(emptyHost.status, 0)
+      assert.ok(emptyHost.calls.includes("build:host"))
+      assert.ok(!run(0, 0, [], "/explicit/host").calls.includes("npm"))
+      const failedBuild = run(0, 0, [], undefined, 19)
+      assert.equal(failedBuild.status, 19)
+      assert.ok(!failedBuild.calls.includes("node"))
     }
   } finally { rmSync(fixture, { recursive: true, force: true }) }
 })

@@ -1,6 +1,7 @@
 //! The Zig compiler and isolated runner children. No child or request allocation survives a run.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const lifetime = @import("process_lifetime.zig");
 pub const Diagnostic = struct { code: []const u8, message: []const u8 };
 
 var compiler: []const u8 = "zig";
@@ -14,18 +15,9 @@ pub fn init(a: Allocator, io: std.Io, env: *const std.process.Environ.Map) !void
     compiler = env.get("NYRWVY_ZIG") orelse "zig";
     executable_search = env.get("PATH") orelse "/usr/bin:/bin";
     if (compiler.len == 0) compiler = "zig";
-    // The host is installed under the repository's mise.toml. A workspace can be elsewhere.
-    var executable_path: []const u8 = @src().file;
-    if (!std.fs.path.isAbsolute(executable_path)) executable_path = try std.fs.path.resolveAlloc(a, &.{ try std.process.currentPathAlloc(io, a), executable_path });
-    while (std.fs.path.dirname(executable_path)) |parent| {
-        const pin = try std.fs.path.join(a, &.{ parent, "mise.toml" });
-        if (std.Io.Dir.cwd().access(io, pin, .{})) |_| {
-            directory = parent;
-            break;
-        } else |_| {}
-        executable_path = parent;
-    }
-    if (std.mem.eql(u8, directory, ".")) directory = try std.process.currentPathAlloc(io, a);
+    const build_info = @import("build_info");
+    const repository_root: ?[]const u8 = if (@hasDecl(build_info, "repository_root")) build_info.repository_root else null;
+    directory = repository_root orelse try std.process.currentPathAlloc(io, a);
     const root = if (env.get("XDG_CACHE_HOME")) |path| (if (path.len > 0) path else null) else null;
     cache = try std.fs.path.join(a, &.{ root orelse try std.fs.path.join(a, &.{ env.get("HOME") orelse ".", ".cache" }), "nyrwvy", "zig-runners" });
 }
@@ -36,6 +28,7 @@ fn collected(a: Allocator, io: std.Io, spawned: std.process.Child, done: *std.Io
     defer done.set(io);
     var child = spawned;
     defer {
+        lifetime.unregister(io, .foreground);
         // std.Child.kill sends SIGTERM, which arbitrary compiler wrappers can ignore.
         if (child.id) |pid| _ = std.os.linux.kill(-pid, .KILL);
         child.kill(io);
@@ -53,6 +46,14 @@ fn collected(a: Allocator, io: std.Io, spawned: std.process.Child, done: *std.Io
         error.ConcurrencyUnavailable => return error.ConcurrencyUnavailable,
     }
     try streams.checkAnyError();
+    // Keep the leader unreaped until the monitor can no longer signal its group ID.
+    var info: std.os.linux.siginfo_t = undefined;
+    while (true) switch (std.os.linux.errno(std.os.linux.waitid(.PID, child.id.?, &info, std.os.linux.W.EXITED | std.os.linux.W.NOWAIT, null))) {
+        .SUCCESS => break,
+        .INTR => try io.checkCancel(),
+        else => return error.Unexpected,
+    };
+    lifetime.unregister(io, .foreground);
     const term = try child.wait(io);
     return .{ .term = term, .stdout = try streams.toOwnedSlice(0), .stderr = try streams.toOwnedSlice(1) };
 }
@@ -69,8 +70,10 @@ pub fn launchBounded(a: Allocator, io: std.Io, argv: []const []const u8, cwd: []
     var child = std.process.spawn(io, .{ .argv = argv, .cwd = .{ .path = cwd }, .stdin = .ignore, .stdout = .pipe, .stderr = .pipe, .pgid = 0 }) catch |e|
         return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };
     const pid = child.id.?;
+    lifetime.register(io, .foreground, pid);
     var done: std.Io.Event = .unset;
     var running = io.concurrent(collected, .{ a, io, child, &done, max_bytes }) catch |e| {
+        lifetime.unregister(io, .foreground);
         _ = std.os.linux.kill(-pid, .KILL);
         child.kill(io);
         return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };

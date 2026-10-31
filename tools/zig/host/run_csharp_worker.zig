@@ -1,6 +1,7 @@
 //! One managed worker per native session. Every owner is reaped before its arena is freed.
 const std = @import("std");
 const p = @import("run_process.zig");
+const lifetime = @import("process_lifetime.zig");
 const Diagnostic = p.Diagnostic;
 const A = std.mem.Allocator;
 const Fail = anyerror;
@@ -34,6 +35,7 @@ fn stderrRead(w: *Worker, io: std.Io) Fail![]const u8 {
 fn retire(io: std.Io) void {
     const w = current orelse return;
     current = null;
+    lifetime.unregister(io, .worker);
     if (w.child.id) |pid| _ = std.os.linux.kill(-pid, .KILL);
     w.child.kill(io);
     if (w.errors) |*task| _ = task.cancel(io) catch {};
@@ -101,6 +103,7 @@ pub fn run(a: A, io: std.Io, worker_assembly: []const u8, assembly: []const u8, 
             return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };
         }, .last = .now(io, .awake) };
         current = w;
+        lifetime.register(io, .worker, w.child.id.?);
         w.errors_file = w.child.stderr.?;
         w.child.stderr = null;
         w.errors = io.concurrent(stderrRead, .{ w, io }) catch |e| {
@@ -134,6 +137,7 @@ pub fn run(a: A, io: std.Io, worker_assembly: []const u8, assembly: []const u8, 
     if (reply == .failed) {
         const failure = reply.failed;
         if (std.mem.eql(u8, failure.code, "RunInvalidResult")) {
+            lifetime.unregister(io, .worker);
             if (w.child.id) |pid| _ = std.os.linux.kill(-pid, .KILL);
             w.child.kill(io);
             const errors = if (w.errors) |*task| try a.dupe(u8, task.await(io) catch |e| @errorName(e)) else "";
