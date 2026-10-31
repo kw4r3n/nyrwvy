@@ -1472,7 +1472,7 @@ pub fn readResolvedDocument(allocator: std.mem.Allocator, dependency: []const u8
     const id = text(decodeString(str(parsed_root, "snapshotId")) catch unreachable);
     validate(merged);
     printIssues(&out.writer) catch oom();
-    if (issues.items.len > 0) return .{ .lines = out.written() };
+    if (issues.items.len > 0) return .{ .lines = out.written(), .validation_issues = issues.items };
     return .{ .lines = out.written(), .fingerprints = fingerprintsOf(merged) catch null, .id = id, .root = merged };
 }
 
@@ -1845,6 +1845,14 @@ pub fn bodyNodes(allocator: std.mem.Allocator, function: Value) []const Value {
     var nodes: List(Value) = .empty;
     collectNodes(get(function, "body"), &nodes);
     return nodes.items;
+}
+
+/// `SemanticFacts.collectPatternBindings`, in lexical scope traversal order.
+pub fn patternBindings(allocator: std.mem.Allocator, graph: Value) []const Value {
+    a = allocator;
+    var bindings: List(Value) = .empty;
+    collectBindings(graph, &bindings);
+    return bindings.items;
 }
 
 /// The facts `SemanticQuery.focusFunction` derives for one function; IDs decoded.
