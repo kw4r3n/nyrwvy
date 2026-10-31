@@ -15,6 +15,30 @@ module TransactionTests =
         | Ok actual -> failwithf "Expected readiness %A, got %A" expected actual
 
     [<Fact>]
+    let ``rename and parameter creation reject lone surrogate display names`` () =
+        let fixture = TestGraph.create ()
+        let name = "T" + string (char 0xd800)
+        let operations =
+            [ RenameDisplayName(RenameTarget.FunctionTarget fixture.ValidateFunctionId, name)
+              AddFunctionParameter
+                  { TargetFunctionId = fixture.ValidateFunctionId
+                    NewParameterId = StableId.createForTesting<ParameterTag> "parameter-surrogate"
+                    NewParameterDisplayName = name
+                    NewParameterType = TypeRef.Named(fixture.PolicyTypeId, [])
+                    CallSitePlans = [ LeaveMissing(fixture.RunCallNodeId, StableId.createForTesting<ObligationTag> "obligation-surrogate") ] } ]
+        for operation in operations do
+            let request: TransactionRequest =
+                { Id = StableId.createForTesting<TransactionTag> "transaction-surrogate"
+                  BaseSnapshotId = fixture.Snapshot.Id
+                  ProposedSnapshotId = StableId.createForTesting<SnapshotTag> "snapshot-surrogate"
+                  Operations = [ operation ] }
+            match Transaction.simulate fixture.Snapshot request with
+            | Rejected diagnostics ->
+                Assert.Contains(diagnostics, fun diagnostic ->
+                    diagnostic.Code = "InvalidDisplayName" || diagnostic.Message.Contains "InvalidDisplayName")
+            | Proposed _ -> failwith "Accepted a display name with a lone surrogate."
+
+    [<Fact>]
     let ``rename preserves the complete graph except display metadata`` () =
         let fixture = TestGraph.create ()
         let proposedId = StableId.createForTesting<SnapshotTag> "snapshot-renamed"

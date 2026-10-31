@@ -2220,11 +2220,34 @@ module AuthoringProtocol =
                     [ "code", box "InternalError"
                       "message", box internalErrorMessage ])
 
+    /// Reads at most 16 MiB of characters, draining an oversized line before answering it.
+    let private readLine (input: IO.TextReader) (skipLineFeed: bool ref) =
+        let limit = 16 * 1024 * 1024
+        let line = Text.StringBuilder()
+        let mutable oversized = false
+        let mutable next = input.Read()
+        if skipLineFeed.Value && next = int '\n' then next <- input.Read()
+        let hasLine = next <> -1
+        while next <> -1 && next <> int '\n' && next <> int '\r' do
+            if line.Length < limit then line.Append(char next) |> ignore
+            else oversized <- true
+            next <- input.Read()
+        skipLineFeed.Value <- (next = int '\r')
+        if not hasLine then None
+        elif oversized then Some(Error())
+        else Some(Ok(line.ToString()))
+
     /// Answers each input line with exactly one response line until the input ends.
     let serve (session: AuthoringSession) (input: IO.TextReader) (output: IO.TextWriter) =
-        let mutable line = input.ReadLine()
-        while not (isNull line) do
-            output.WriteLine(executeLine session line)
+        let skipLineFeed = ref false
+        let mutable line = readLine input skipLineFeed
+        while line.IsSome do
+            let response =
+                match line.Value with
+                | Ok text -> executeLine session text
+                | Error () ->
+                    failure null (objectValue [ "code", box "ProtocolError"; "message", box "Request line exceeds 16 MiB." ])
+            output.WriteLine(response)
             output.Flush()
-            line <- input.ReadLine()
+            line <- readLine input skipLineFeed
 

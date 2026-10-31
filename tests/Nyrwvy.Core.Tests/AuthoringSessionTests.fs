@@ -517,6 +517,68 @@ module AuthoringSessionTests =
         finally
             if Directory.Exists root then Directory.Delete(root, true)
 
+    [<Theory>]
+    [<InlineData("\n")>]
+    [<InlineData("\r\n")>]
+    [<InlineData("\r")>]
+    let ``JSONL oversized lines report a protocol error and preserve the next request`` newline =
+        let root = tempDirectory ()
+        try
+            use session = createSession (Path.Combine(root, "workspace.json"))
+            let before = status session
+            let oversized = String('x', 16 * 1024 * 1024 + 1)
+            // A redirected stream can return -1 from Peek between the CR and LF.
+            use input =
+                { new StringReader(oversized + newline + """{"id":"next","op":"status"}""" + newline) with
+                    override _.Peek() = -1 }
+            use output = new StringWriter()
+            AuthoringProtocol.serve session input output
+            use replies = new StringReader(output.ToString())
+            use rejected = JsonDocument.Parse(replies.ReadLine())
+            Assert.False(rejected.RootElement.GetProperty("ok").GetBoolean())
+            Assert.Equal(JsonValueKind.Null, rejected.RootElement.GetProperty("id").ValueKind)
+            Assert.Equal("ProtocolError", rejected.RootElement.GetProperty("error").GetProperty("code").GetString())
+            use next = JsonDocument.Parse(replies.ReadLine())
+            Assert.True(next.RootElement.GetProperty("ok").GetBoolean())
+            Assert.Equal("next", next.RootElement.GetProperty("id").GetString())
+            Assert.Null(replies.ReadLine())
+            Assert.Equal(before, status session)
+        finally
+            if Directory.Exists root then Directory.Delete(root, true)
+
+    [<Fact>]
+    let ``Zig runner failed builds clean partial files before a retry`` () =
+        if not (OperatingSystem.IsWindows()) then
+            let root = tempDirectory ()
+            try
+                let compiler = Path.Combine(root, "fake-zig")
+                let directory = Path.Combine(root, "runner-cache")
+                let failed = Path.Combine(root, "fail")
+                // Consume stdin first: build children must see EOF, not the session's requests.
+                File.WriteAllLines(compiler,
+                    [ "#!/bin/sh"
+                      "if read -r line; then exit 2; fi"
+                      "for arg in \"$@\"; do"
+                      "  case \"$arg\" in -femit-bin=*) output=${arg#-femit-bin=} ;; esac"
+                      "done"
+                      "printf complete > \"$output\""
+                      "test ! -f \"$PWD/fail\"" ])
+                File.SetUnixFileMode(compiler, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute)
+                File.WriteAllText(failed, "")
+                let build () = PureRun.buildZigRunner compiler root root directory "// runner"
+                match build () with
+                | Error _ -> ()
+                | Ok () -> failwith "The fake compiler should fail."
+                Assert.Empty(Directory.GetFiles directory)
+                File.Delete failed
+                match build () with
+                | Ok () -> ()
+                | Error error -> failwithf "Retry failed: %A" error
+                Assert.Equal<string array>([| Path.Combine(directory, "runner") |], Directory.GetFiles directory)
+                Assert.Equal("complete", File.ReadAllText(Path.Combine(directory, "runner")))
+            finally
+                if Directory.Exists root then Directory.Delete(root, true)
+
     [<Fact>]
     let ``JSONL rejects duplicate properties without publishing or consuming the reviewed proposal`` () =
         let root = tempDirectory ()

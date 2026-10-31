@@ -472,7 +472,7 @@ fn readLiteralString(name: []const u8, element: Value) Failure!Str {
 }
 
 /// `Char.IsWhiteSpace`.
-fn isWhiteSpace(unit: u16) bool {
+pub fn isWhiteSpace(unit: u16) bool {
     return switch (unit) {
         0x09...0x0D, 0x20, 0x85, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 => true,
         else => false,
@@ -531,6 +531,13 @@ fn readFloat64Bits(name: []const u8, element: Value) Failure![]const u8 {
         if (digit == 16) return invalidShape(fmt("Property '{s}' is not canonical binary64 bits: Float64 bits contain invalid hexadecimal digits.", .{name}));
         bits = bits * 16 + digit;
     }
+    const canonical = fmt("{x:0>16}", .{bits});
+    const is_nan = bits & 0x7ff0000000000000 == 0x7ff0000000000000 and bits & 0x000fffffffffffff != 0;
+    var matches = true;
+    for (units, canonical) |unit, character| {
+        if (unit != character) matches = false;
+    }
+    if (!matches or (is_nan and bits != 0x7ff8000000000000)) return invalidShape(fmt("Property '{s}' is not canonical binary64 bits: Float64 bits must use canonical lowercase hexadecimal text and NaN bits.", .{name}));
     return fmt("\"{x:0>16}\"", .{bits});
 }
 

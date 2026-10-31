@@ -293,7 +293,7 @@ fn nyEncode(out: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
     const T = @TypeOf(value);
     switch (@typeInfo(T)) {
         .int => try out.print("{d}", .{value}),
-        .float => try out.print("\"{x:0>16}\"", .{@as(u64, @bitCast(value))}),
+        .float => try out.print("\"{x:0>16}\"", .{if (std.math.isNan(value)) @as(u64, 0x7ff8000000000000) else @as(u64, @bitCast(value))}),
         .bool => try out.writeAll(if (value) "true" else "false"),
         .optional => {
             if (value) |item| {

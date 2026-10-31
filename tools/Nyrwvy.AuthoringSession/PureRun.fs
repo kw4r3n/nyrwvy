@@ -1177,6 +1177,34 @@ module PureRun =
     let private zigCache = ZigTools.cache
     let private createPrivateDirectory = ZigTools.createPrivateDirectory
 
+    /// Publish only a completed runner; concurrent sessions own separate build inputs and outputs.
+    let internal buildZigRunner compiler workingDirectory cache directory (runner: string) =
+        let executable = Path.Combine(directory, "runner")
+        if File.Exists executable then Ok()
+        else
+            createPrivateDirectory cache
+            createPrivateDirectory directory
+            let token = Guid.NewGuid().ToString("N")
+            // The source keeps the name runner.zig so both hosts pass the compiler the same file name.
+            let sourceDirectory = Path.Combine(directory, token)
+            let source = Path.Combine(sourceDirectory, "runner.zig")
+            let partial = executable + "." + token
+            try
+                createPrivateDirectory sourceDirectory
+                File.WriteAllText(source, runner)
+                // Every path is absolute, so the start directory only picks the pinned Zig.
+                launchProcess compiler "Zig build" workingDirectory
+                    [ "build-exe"; source; "-O"; "ReleaseSafe"
+                      "--cache-dir"; Path.Combine(cache, "cache"); "-femit-bin=" + partial ] 300000
+                |> Result.bind (fun (code, output, errors) ->
+                    if code = 0 && File.Exists partial then
+                        File.Move(partial, executable, true)
+                        Ok()
+                    else Error(processFailure output errors))
+            finally
+                if Directory.Exists sourceDirectory then Directory.Delete(sourceDirectory, true)
+                File.Delete partial
+
     /// A Zig tool (`tools/zig/<name>`), built once per process (see `ZigTools.tool`).
     let zigTool (name: string) = ZigTools.tool name |> Result.mapError (fun (code, message) -> diagnostic code message)
 
@@ -1402,18 +1430,7 @@ module PureRun =
                             { ParameterId = parameter.Id; Operation = lowered })
                     | _ -> [])
             try
-                let built =
-                    if File.Exists executable then Ok()
-                    else
-                        createPrivateDirectory zigCache
-                        createPrivateDirectory directory
-                        File.WriteAllText(Path.Combine(directory, "runner.zig"), runner)
-                        // Every path is absolute, so the start directory only picks the pinned Zig.
-                        launchProcess (zigExecutable ()) "Zig build" zigDirectory.Value
-                            [ "build-exe"; Path.Combine(directory, "runner.zig"); "-O"; "ReleaseSafe"
-                              "--cache-dir"; Path.Combine(zigCache, "cache"); "-femit-bin=" + executable ] 300000
-                        |> Result.bind (fun (code, output, errors) ->
-                            if code = 0 && File.Exists executable then Ok() else Error(processFailure output errors))
+                let built = buildZigRunner (zigExecutable ()) zigDirectory.Value zigCache directory runner
                 built
                 |> Result.bind (fun () -> launchProcess executable "pure function" directory (ZigBackend.functionName fn.Id :: List.ofSeq tokens) 5000)
                 |> Result.bind (fun (code, output, errors) ->
@@ -1588,7 +1605,7 @@ module PureRun =
                                 | TypeRef.Primitive PrimitiveType.String -> "CheckedString(" + access + ")"
                                 | TypeRef.Primitive PrimitiveType.Bytes -> "CheckedString(" + access + ".ToLatin1())"
                                 | TypeRef.Primitive PrimitiveType.Float64 ->
-                                    "BitConverter.DoubleToUInt64Bits(" + access + ").ToString(\"x16\", CultureInfo.InvariantCulture)"
+                                    "(double.IsNaN(" + access + ") ? 0x7ff8000000000000UL : BitConverter.DoubleToUInt64Bits(" + access + ")).ToString(\"x16\", CultureInfo.InvariantCulture)"
                                 | TypeRef.Primitive _ -> "(object)" + access
                                 | TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ]) ->
                                     let name, accumulator = fresh (), fresh ()

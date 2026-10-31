@@ -232,16 +232,8 @@ fn lowered(a: Allocator, units: []const u16) ![]const u16 {
     return out.items;
 }
 
-/// `Char.IsWhiteSpace`.
-fn isWhiteSpace(unit: u16) bool {
-    return switch (unit) {
-        0x09...0x0D, 0x20, 0x85, 0xA0, 0x1680, 0x2000...0x200A, 0x2028, 0x2029, 0x202F, 0x205F, 0x3000 => true,
-        else => false,
-    };
-}
-
 pub fn isBlank(units: []const u16) bool {
-    for (units) |unit| if (!isWhiteSpace(unit)) return false;
+    for (units) |unit| if (!model.isWhiteSpace(unit)) return false;
     return true;
 }
 

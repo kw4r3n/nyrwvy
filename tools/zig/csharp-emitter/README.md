@@ -27,7 +27,6 @@ optional `failure`. Native value/argument cases are objects with a lower-camel
 `worker_source` exposes the same worker source embedded by the managed session.
 All runtime blocks in `runtime/` are shared resources. `Core.cs` ends before List
 and Bytes; `Task.cs` follows OneShot. Preserve their LF and trailing empty lines.
-`runtime/original-sha256.json` records the bytes extracted from the F# oracle.
 
 ## Focused checks
 
