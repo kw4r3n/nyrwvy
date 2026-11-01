@@ -4,12 +4,20 @@ import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { runInNewContext } from "node:vm"
 import { Client } from "@modelcontextprotocol/client"
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio"
 
 const serverPath = fileURLToPath(new URL("./server.mjs", import.meta.url))
 const bool = value => ({ kind: "boolLiteral", value })
 const names = ["open", "inspect", "view", "recipe_reference", "create_type", "create_function", "create_functions", "batch", "replace", "upgrade_dependencies", "commit", "reject", "request", "close"]
+
+async function renderedPage(path) {
+  const page = await readFile(path, "utf8")
+  const data = JSON.parse(page.match(/id="nyrwvy-data">([\s\S]*?)<\/script>/)[1])
+  const script = page.match(/<script>\n([\s\S]*?)<\/script>/)[1]
+  return runInNewContext(`${script}\nNyrwvyViewer.render(data).body`, { data }, { timeout: 1000 })
+}
 
 async function connect(cwd, workspace, options, extraArgs = []) {
   const client = new Client({ name: "nyrwvy-contract", version: "1.0.0" }, options)
@@ -111,13 +119,13 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     assert.equal(verified.evidence.cases[0].status, "intended-change-tested")
     assert.equal(verified.evidence.cases[0].candidate.matches, true)
     assert.deepEqual(await readFile(opened.snapshot), snapshotBytes)
-    assert.match(await readFile(verified.reviewPath, "utf8"), /not dynamic coverage/)
+    assert.match(await renderedPage(verified.reviewPath), /not dynamic coverage/)
     await call(first, "commit", { proposalId: replacement.proposalId })
     // A human-readable page of the committed function, written relative to the project.
     const page = (await call(first, "view", { function: "value", output: "views/value.html" })).result
     assert.equal(page.path, join(workspace, "views", "value.html"))
     assert.equal(page.functionId, functionId)
-    assert.match(await readFile(page.path, "utf8"), /Function Focus/)
+    assert.match(await renderedPage(page.path), /Function Focus/)
     // Output is confined to the snapshot's directory, so an auto-approved model cannot overwrite other files.
     for (const output of ["../escaped.html", join(root, "escaped.html")]) {
       const refused = await failed(first, "view", { function: "value", output })
@@ -128,7 +136,7 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     // A person reviews the pending proposal before it is rejected.
     const review = (await call(first, "view", { proposalId: discard.proposalId })).result
     assert.equal(review.kind, "changeReview")
-    assert.match(await readFile(review.path, "utf8"), /Change Review — replaceBody/)
+    assert.match(await renderedPage(review.path), /Change Review — replaceBody/)
     await failed(first, "view", { proposalId: discard.proposalId, function: "value" })
     await call(first, "reject", { proposalId: discard.proposalId })
     await failed(first, "view", { proposalId: discard.proposalId })

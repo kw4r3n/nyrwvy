@@ -72,6 +72,25 @@ function arm(graph, variantId) {
 }
 function resultNode(graph) { return graph.nodes.find(node => node.id === graph.resultNodeId) }
 
+test("a reviewed selection can add a first dependency through the shared adapter", { timeout: 15000 }, async () => {
+  await workspace(async (context, snapshot) => {
+    await publish(context, { op: "simulateCreateFunctionByName", displayName: "truth", exported: true,
+      parameters: [], resultType: primitive("bool"), requiredEffects: [], body: bool(true) })
+    await closeAuthoring(context)
+    const target = snapshot + ".local.json"
+    await openAuthoring("create", target, context)
+    const selection = { sources: [snapshot], replaces: [] }
+    const preview = await request(context, { op: "previewDependencyUpgrades", selection })
+    assert.equal(preview.compatible, true)
+    await closeAuthoring(context)
+    await openAuthoring("upgrade", target, context, undefined, undefined, undefined,
+      { selection, reviewFingerprint: preview.reviewFingerprint })
+    const declarations = await request(context, { op: "declarations" })
+    assert.deepEqual(declarations.functions.map(fn => fn.displayName), ["truth"])
+    assert.ok((await stat(target + ".dependency.json")).isFile())
+  })
+})
+
 test("a cancelled open does not create a snapshot or reserve a session", { timeout: 10000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "nyrwvy-cancelled-open-"))
   const snapshot = join(directory, "workspace.json")

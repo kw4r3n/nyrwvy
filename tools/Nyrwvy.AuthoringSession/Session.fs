@@ -420,6 +420,7 @@ module private ProposalSummary =
 module internal SessionStorageFaults =
     /// When it returns true for a full path, the next replacement of that path fails.
     let mutable failReplacement: string -> bool = fun _ -> false
+    let mutable failTemporaryWrite: string -> bool = fun _ -> false
 
 /// The session's Zig snapshot reader (docs/decisions/zig-tools.md, "The read path in Zig"):
 /// `snapshot-reader` for record text, then `model-reader --validate`, whose verdict replaces the
@@ -781,27 +782,32 @@ module internal SessionStorage =
         readText path |> Result.bind (fun source ->
             requireSidecarForResolvedSource path source |> Result.bind (fun () -> decodeCompleteDependency (isRecordPath path) source))
 
-    let private writeTemporary (path: string) (content: string): Result<string, AuthoringSessionError> =
-        let directory = Path.GetDirectoryName(path)
-        let tempPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp")
-        try
-            // Flushed to disk before the rename so a crash cannot leave the final name on empty content.
-            use stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write)
-            let bytes = UTF8Encoding(false).GetBytes content
-            stream.Write(bytes, 0, bytes.Length)
-            stream.Flush true
-            Ok tempPath
-        with
-        | :? IOException as error -> Error(AuthoringSessionError.IoFailure error.Message)
-        | :? UnauthorizedAccessException as error -> Error(AuthoringSessionError.IoFailure error.Message)
-
-    // Also used for a manifest whose associated snapshot could not be created.
     // Cleanup must not mask the original failure or prevent lock disposal.
     let cleanupTemporary (tempPath: string) =
         try if File.Exists tempPath then File.Delete tempPath
         with
         | :? IOException
         | :? UnauthorizedAccessException -> ()
+
+    let private writeTemporary (path: string) (content: string): Result<string, AuthoringSessionError> =
+        let directory = Path.GetDirectoryName(path)
+        let tempPath = Path.Combine(directory, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp")
+        let mutable created = false
+        try
+            // Flushed to disk before the rename so a crash cannot leave the final name on empty content.
+            use stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write)
+            created <- true
+            let bytes = UTF8Encoding(false).GetBytes content
+            stream.Write(bytes, 0, bytes.Length)
+            if SessionStorageFaults.failTemporaryWrite path then raise (IOException "Injected temporary write failure.")
+            stream.Flush true
+            Ok tempPath
+        with error ->
+            if created then cleanupTemporary tempPath
+            match error with
+            | :? IOException -> Error(AuthoringSessionError.IoFailure error.Message)
+            | :? UnauthorizedAccessException -> Error(AuthoringSessionError.IoFailure error.Message)
+            | _ -> reraise ()
 
     /// Removes temporary files an interrupted write of this snapshot or its sidecars left behind. Called
     /// under the snapshot's lock, so no live writer of this snapshot owns them; the exact-name pattern
