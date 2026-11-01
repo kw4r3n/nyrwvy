@@ -38,7 +38,7 @@ fn profile(a: std.mem.Allocator, ir: std.json.Value, input: *v.Input) !std.json.
 }
 fn ensureWorker(r: *q.Request, input: *v.Input) ![]const u8 {
     if (worker_assembly) |path| return path;
-    const directory = try build.temporary(lifetime, root.host_io, "nyrwvy-csharp-worker");
+    const directory = try build.temporary(r.a, root.host_io, "nyrwvy-csharp-worker");
     errdefer std.Io.Dir.cwd().deleteTree(root.host_io, directory) catch {};
     const built = try build.uncached(r.a, root.host_io, directory, &.{.{ .name = "Worker.cs", .text = emitter.worker_source }});
     switch (built) {

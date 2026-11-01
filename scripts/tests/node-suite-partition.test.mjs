@@ -151,7 +151,7 @@ test("typed host gate selects both Zig suites and stops after a failure", () => 
     assert.deepEqual(success.calls[0].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/model-reader/main.zig"])
     const args = success.calls[1].args
     assert.deepEqual(args.slice(0, 5 + linkerArgs.length), ["test", ...linkerArgs, "-O", "ReleaseSafe", "--test-filter", "C# runner keeps recursive codecs finite and argument values out of source"])
-    assert.ok(args.includes("--test-runner") && args.includes("tools/zig/host/test_runner.zig") && !args.includes("runner dispatch name preserves arbitrary UTF-8 stable IDs"))
+    assert.ok(args.includes("--test-runner") && args.includes("tools/zig/host/test_runner.zig") && args.includes("runner dispatch name preserves arbitrary UTF-8 stable IDs"))
     for (const arg of ["host=root", "-Mroot=tools/zig/host/main.zig", "-Mbuild_info=tools/zig/host/build_info.zig"]) assert.ok(args.includes(arg))
     const failure = run(1)
     assert.equal(failure.status, 23)

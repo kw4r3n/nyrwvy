@@ -135,7 +135,19 @@ pub fn build(a: Allocator, io: std.Io, source: []const u8) !Built {
         var stamp: [32]u8 = undefined;
         std.crypto.hash.sha2.Sha256.hash(try std.fmt.allocPrint(a, "{s}:{d}:{d}", .{ path, stat.size, stat.mtime.nanoseconds }), &stamp, .{});
         if (compiler_stamp == null or !std.mem.eql(u8, &compiler_stamp.?, &stamp)) {
-            std.crypto.hash.sha2.Sha256.hash(try std.Io.Dir.cwd().readFileAlloc(io, path, a, .unlimited), &compiler_digest, .{});
+            // Streamed: the compiler binary is far too large to hold in the request arena.
+            const file = try std.Io.Dir.cwd().openFile(io, path, .{});
+            defer file.close(io);
+            var reader_buffer: [4096]u8 = undefined;
+            var reader = file.reader(io, &reader_buffer);
+            var chunk: [65536]u8 = undefined;
+            var file_hash = std.crypto.hash.sha2.Sha256.init(.{});
+            while (true) {
+                const size = try reader.interface.readSliceShort(&chunk);
+                file_hash.update(chunk[0..size]);
+                if (size < chunk.len) break;
+            }
+            file_hash.final(&compiler_digest);
             compiler_stamp = stamp;
         }
         hash.update(&compiler_digest);

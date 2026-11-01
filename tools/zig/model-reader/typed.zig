@@ -29,6 +29,8 @@ const Utf16Context = struct {
 const Table = struct {
     map: std.HashMapUnmanaged(Str, u32, Utf16Context, 80) = .empty,
     texts: std.ArrayList(Str) = .empty,
+    /// Removals since the last rehash; std leaves each as a tombstone (`size + available` stays fixed).
+    tombstones: usize = 0,
 
     fn intern(self: *Table, gpa: Allocator, text: Str) !u32 {
         if (self.map.get(text)) |existing| return existing;
@@ -63,6 +65,12 @@ pub const Interner = struct {
             const removed = table.map.remove(text);
             std.debug.assert(removed);
             self.gpa.free(text);
+            table.tombstones += 1;
+        }
+        // Misses probe past tombstones (only inserts reuse them), so lookups slow as they pile up; clear them past a quarter (an upper count).
+        if (table.tombstones > table.map.capacity() / 4) {
+            table.map.rehash(Utf16Context{});
+            table.tombstones = 0;
         }
     }
 
@@ -1218,6 +1226,24 @@ test "interner checkpoint releases failed proposal entries and retains prior han
         try std.testing.expectEqual(@as(usize, 0), interner.strings.texts.items.len);
         try std.testing.expectEqualSlices(u16, &.{'f'}, interner.idText(.function, kept));
     }
+}
+
+test "interner restore cycles keep lookups correct and the map bounded" {
+    var interner: Interner = .{ .gpa = std.testing.allocator };
+    defer interner.deinit();
+    const kept = try interner.id(.function, &.{'f'});
+    const checkpoint = interner.checkpoint();
+    var capacity: u32 = 0;
+    for (0..2000) |round| {
+        for (0..8) |i| _ = try interner.id(.node, &.{ @intCast(round % 60000), @intCast(i) });
+        interner.restore(checkpoint);
+        try std.testing.expectEqual(kept, interner.findId(.function, &.{'f'}).?);
+        try std.testing.expect(interner.findId(.node, &.{ 0, 0 }) == null);
+        const table = &interner.ids[@backingInt(Domain.node)];
+        capacity = @max(capacity, table.map.capacity());
+        try std.testing.expect(table.tombstones <= table.map.capacity() / 4);
+    }
+    try std.testing.expect(capacity <= 64);
 }
 
 test "failed live-set preparation leaves the old generation usable" {

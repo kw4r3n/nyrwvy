@@ -1034,8 +1034,9 @@ fn serve(io: std.Io) !void {
         var request_id: ?[]const u8 = null;
         const previous_proposals = proposals.count();
         // Console.In decodes ill-formed UTF-8 as U+FFFD before Protocol counts the line's UTF-16 units.
-        const text = if (std.unicode.utf8ValidateSlice(line.items)) line.items else try std.fmt.allocPrint(arena.allocator(), "{f}", .{std.unicode.fmtUtf8(line.items)});
-        if (line.items.len > 3 * request_line_units or @import("managed_text.zig").units(text) > request_line_units) {
+        const oversized = line.items.len > 3 * request_line_units;
+        const text = if (oversized or std.unicode.utf8ValidateSlice(line.items)) line.items else try std.fmt.allocPrint(arena.allocator(), "{f}", .{std.unicode.fmtUtf8(line.items)});
+        if (oversized or @import("managed_text.zig").units(text) > request_line_units) {
             try failure(&response.writer, null, "ProtocolError", "Request line exceeds 16 MiB.");
         } else execute(arena.allocator(), &response.writer, text, &request_id) catch {
             proposals.discardAfter(previous_proposals);
