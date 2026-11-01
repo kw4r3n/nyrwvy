@@ -23,7 +23,8 @@ module ZigHostDependencyUpgradeParityTests =
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Dependency previews plan exact sources and selections without changing disk proposals or allocator state`` () =
-        withDirectory (fun dir ->
+        // Review fingerprints bind the absolute workspace path, which differs per run; live F# only.
+        if hostReference = "live" then withDirectory (fun dir ->
             for record in [ false; true ] do
                 let ext = if record then ".nyrec" else ".json"
                 let localPath = Path.Combine(dir, "local" + ext)
@@ -155,7 +156,8 @@ module ZigHostDependencyUpgradeParityTests =
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Dependency selection previews support a first dependency retained pins and selection guards`` () =
-        withDirectory (fun dir ->
+        // Review fingerprints bind the absolute workspace path, which differs per run; live F# only.
+        if hostReference = "live" then withDirectory (fun dir ->
             let old, updated = library "old", library "updated"
             let other = Snapshot.empty (sid<SnapshotTag> "retained")
             let source = Path.Combine(dir, "updated.json")

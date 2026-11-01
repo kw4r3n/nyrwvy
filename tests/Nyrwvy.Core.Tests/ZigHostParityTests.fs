@@ -29,9 +29,44 @@ module ZigHostParityTests =
     let internal zigHost () = ZigTools.tool "host" |> Result.mapError (fun (code, message) -> $"{code}: {message}") |> unwrap
     let internal fsharpHost = Path.Combine(AppContext.BaseDirectory, "Nyrwvy.AuthoringSession.dll")
 
+    /// Where the F# host's answers come from: `live` runs the F# host, `record` runs it and writes its
+    /// runs to tests/goldens/zig-host, `golden` replays those runs (scripts/host-golden.mjs). Without
+    /// NYRWVY_HOST_REFERENCE, live while the F# host is built, golden once it is gone (step 5).
+    let internal hostReference =
+        match Environment.GetEnvironmentVariable "NYRWVY_HOST_REFERENCE" with
+        | null | "" -> if File.Exists fsharpHost then "live" else "golden"
+        | ("live" | "record" | "golden") as mode -> mode
+        | other -> failwithf "NYRWVY_HOST_REFERENCE must be live, record or golden, not %s" other
+
+    let private goldenRuns = Collections.Concurrent.ConcurrentDictionary<string, int ref>()
+
+    /// The calling test method, found on the stack (so only on the test's own thread).
+    let internal testName () =
+        Diagnostics.StackTrace().GetFrames()
+        |> Array.tryPick (fun frame ->
+            match frame.GetMethod() with
+            | null -> None
+            | m when m.IsDefined(typeof<FactAttribute>, true) -> Some(Regex.Replace($"{m.DeclaringType.Name}.{m.Name}", "[^A-Za-z0-9.]+", "-").Trim('-'))
+            | _ -> None)
+
+    /// The run file of the next F# host start in the calling test: the test method and its count
+    /// of F# starts so far.
+    let internal goldenRun () =
+        let name = testName () |> Option.defaultWith (fun () -> failwith "An F# host reference started outside a test method's thread.")
+        let count = goldenRuns.GetOrAdd(name, fun _ -> ref 0)
+        let n = lock count (fun () -> count.Value <- count.Value + 1; count.Value)
+        Path.Combine(ZigModelReaderSupport.root (), "tests", "goldens", "zig-host", name, $"{n}.jsonl.br")
+
     /// Starts a redirected host on `arguments`, with optional per-process environment overrides.
     let internal startWithEnvironment (environment: (string * string) list) (zig: bool) (arguments: string list) =
-        let info = if zig then ProcessStartInfo(zigHost (), arguments) else ProcessStartInfo("dotnet", fsharpHost :: arguments)
+        let info =
+            if zig then ProcessStartInfo(zigHost (), arguments)
+            elif hostReference = "live" then ProcessStartInfo("dotnet", fsharpHost :: arguments)
+            else
+                let overrides = JsonSerializer.Serialize(dict environment)
+                let script = Path.Combine(ZigModelReaderSupport.root (), "scripts", "host-golden.mjs")
+                ProcessStartInfo("node", [ script; (if hostReference = "record" then "record" else "replay"); goldenRun (); overrides; "--" ] @ arguments)
+        info.Environment["NYRWVY_FSHARP_HOST_DLL"] <- fsharpHost
         info.RedirectStandardInput <- true
         info.RedirectStandardOutput <- true
         info.RedirectStandardError <- true
@@ -46,7 +81,7 @@ module ZigHostParityTests =
             match info.Environment.TryGetValue "NYRWVY_SNAPSHOT_READER" with
             | true, "fsharp" -> false
             | _ -> true
-        if not zig then
+        if not zig && hostReference <> "golden" then
             // Warm enabled check tools before the F# child’s first-response timer; it still owns build failures.
             if checkMode then
                 ZigTools.tool "model-reader" |> ignore
@@ -96,6 +131,12 @@ module ZigHostParityTests =
 
     let internal run zig arguments requests = runWithEnvironment [] zig arguments requests
 
+    /// The F# host's read-only replies to `requests` on `snapshot`, through `run`, so the goldens hold them.
+    let internal fsharpReplies snapshot requests =
+        let code, errors, replies = run false [ "open"; "--snapshot"; snapshot; "--read-only" ] requests
+        Assert.True((code = 0), errors)
+        replies
+
     /// Record IDs must be UUIDs in every domain, unlike JSON's permissive test IDs. Keep the
     /// graph and its names/literals intact, using a seed distinct from any host transcript seed.
     let internal recordFixture name (snapshot: Snapshot) =
@@ -137,10 +178,13 @@ module ZigHostParityTests =
         File.WriteAllText(json, File.ReadAllText records.Head |> RecordCodec.deserialize |> unwrap |> SnapshotCodec.serialize |> unwrap)
         records @ [ json ]
 
+    /// A fresh directory for `f`. In-process fixtures built inside get IDs seeded by the test's name,
+    /// so the requests made from them match the recorded F# runs.
     let internal withDirectory f =
         let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-host-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory dir |> ignore
-        try f dir finally Directory.Delete(dir, true)
+        let seeded = match testName () with Some name -> StableIdAllocator.withTestSeed ("fixture:" + name) | None -> fun run -> run ()
+        try seeded (fun () -> f dir) finally Directory.Delete(dir, true)
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig host answers every transcript as the F# host does`` () =
@@ -148,10 +192,9 @@ module ZigHostParityTests =
             let transcripts = Directory.GetFiles(Path.Combine(ZigModelReaderSupport.root (), "tests", "host-parity"), "*.jsonl")
             Assert.NotEmpty transcripts
             for snapshot in snapshots dir do
-                use session = AuthoringSession.openReadOnly snapshot |> unwrap
                 for transcript in transcripts do
                     let requests = File.ReadAllText(transcript).Split('\n') |> Array.toList |> fun lines -> List.take (lines.Length - 1) lines
-                    let fsharp = requests |> List.map (AuthoringProtocol.executeLine session)
+                    let fsharp = fsharpReplies snapshot requests
                     let code, errors, answers = run true [ "open"; "--snapshot"; snapshot; "--read-only" ] requests
                     Assert.True((code = 0), errors)
                     Assert.Equal(requests.Length, answers.Length)
@@ -652,7 +695,7 @@ module ZigHostQueryParityTests =
                 let requests = queries session
                 let code, errors, answers = run true [ "open"; "--snapshot"; snapshot; "--read-only" ] requests
                 Assert.True((code = 0), errors)
-                let fsharp = requests |> List.map (AuthoringProtocol.executeLine session)
+                let fsharp = fsharpReplies snapshot requests
                 fsharp |> List.iter (answered.Append >> ignore)
                 sameAnswers (Path.GetFileName snapshot) fsharp answers requests
             for shown in [ "\"aborts\":[{"; "\"mayWait\":true"; "\"openObligations\":[{"; "\"frames\":[{"; "\"variants\":["; "\"slot\":\"field\""; "\"evidence\":[{"; "\"references\":[{"; "\"role\":\"patternBinding\""; "\"truncated\":true"; "\"outlineTruncated\":true"; "scopeDepth=1"; "\\\\uD83D\\\\u2026"; "ref "; "\"nodeTypes\":[{"; "\"copiedUpdates\":[{"; "\"kind\":\"ready\""; "\"code\":\"SemanticProjectionFailure\",\"message\":\"IncompleteSnapshot\"" ] do
@@ -688,7 +731,7 @@ module ZigHostQueryParityTests =
                 File.WriteAllText(path, doc.ToJsonString(), Text.UTF8Encoding false)
                 use session = AuthoringSession.openReadOnly path |> unwrap
                 let requests = queries session
-                let expected = requests |> List.map (AuthoringProtocol.executeLine session)
+                let expected = fsharpReplies path requests
                 let code, errors, actual = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
                 Assert.True((code = 0), errors)
                 sameAnswers (Path.GetFileName path) expected actual requests
@@ -701,7 +744,8 @@ module ZigHostSeedTests =
     /// With the seed, two runs of the F# host on the same requests answer the same, new IDs included.
     [<Fact; Trait("Suite", "Extended")>]
     let ``The F# host allocates the same IDs for the same seed`` () =
-        withDirectory (fun dir ->
+        // Checks the F# host itself (random snapshot names); nothing to check once it is replayed.
+        if hostReference = "live" then withDirectory (fun dir ->
             let request =
                 """{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}"""
             let session (seed: string) (text: string) =
@@ -770,7 +814,7 @@ module ZigHostViewParityTests =
                       yield """{"id":"v","op":"viewFunction","functionId":"missing","extra":1}""" ]
                 let code, errors, answers = run true [ "open"; "--snapshot"; zigSnapshot; "--read-only" ] requests
                 Assert.True((code = 0), errors)
-                let fsharp = requests |> List.map (AuthoringProtocol.executeLine session >> fun reply -> reply.Replace(fsharpDir, "<dir>"))
+                let fsharp = fsharpReplies fsharpSnapshot requests |> List.map (fun reply -> reply.Replace(fsharpDir, "<dir>"))
                 fsharp |> List.iter (replies.Append >> ignore)
                 sameAnswers (Path.GetFileName source) fsharp (answers |> List.map (fun reply -> reply.Replace(zigDir, "<dir>"))) requests
                 let written (root: string) =
@@ -840,7 +884,8 @@ module ZigHostLockParityTests =
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``The Zig and F# hosts lock each other out and sweep temporaries`` () =
-        withDirectory (fun dir ->
+        // Needs two live hosts at once; a replayed F# run holds no lock. Step 5 deletes this test.
+        if hostReference = "live" then withDirectory (fun dir ->
             let snapshot = Path.Combine(dir, "locked.json")
             File.Copy(Path.Combine(dir, (snapshots dir |> List.last)), snapshot)
             let stray = Path.Combine(dir, ".locked.json.0123456789abcdef0123456789abcdef.tmp")
@@ -1293,7 +1338,7 @@ module ZigHostLoneSurrogateTests =
             let requests = spoiled (queries session)
             let code, errors, answers = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
             Assert.True((code = 0), errors)
-            let fsharp = requests |> List.map (AuthoringProtocol.executeLine session >> sessionErrorCode)
+            let fsharp = fsharpReplies path requests |> List.map sessionErrorCode
             sameAnswers "lone surrogates" fsharp (answers |> List.map sessionErrorCode) requests
             Assert.Contains(fsharp, fun reply -> reply.Contains "\"code\":\"SessionError\""))
 

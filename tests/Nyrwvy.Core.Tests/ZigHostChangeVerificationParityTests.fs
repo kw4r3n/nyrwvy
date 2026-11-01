@@ -280,7 +280,8 @@ module ZigHostChangeVerificationParityTests =
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``verification detects a source edit after execution starts and preserves the external bytes`` () =
-        if OperatingSystem.IsLinux() then
+        // Edits the source while the F# host is still running; a replayed run has already answered.
+        if OperatingSystem.IsLinux() && hostReference = "live" then
             withDirectory (fun directory ->
                 let source, _ = fixture (Path.Combine(directory, "input")) false
                 pair "verification-external-edit" source [] (fun path send during ->
