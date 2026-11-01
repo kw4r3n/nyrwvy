@@ -11,7 +11,7 @@ const Value = model.Value;
 const Json = std.json.Value;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
-const Pinned = struct { dependency: host.Dependency, manifest: Value, source: []const u8 };
+pub const Pinned = struct { dependency: host.Dependency, manifest: Value, source: []const u8 };
 pub const Plan = struct { dependency: host.Dependency, manifest: []const u8, local: Value, candidate: Value, preview: Value, fingerprint: []const u8 };
 const Replacement = struct { before: Pinned, after: Pinned };
 
@@ -38,9 +38,9 @@ pub fn checkPersisted(r: *query.Request) !void {
         return error.Rejected;
     }
 }
-fn pin(r: *query.Request, source: []const u8) !Pinned {
+pub fn pin(r: *query.Request, source: []const u8) !Pinned {
     if (source.len == 0 or std.mem.indexOfScalar(u8, source, 0) != null) return failure(r, "Invalid dependency path.");
-    const path = try std.fs.path.resolve(r.a, &.{source});
+    const path = try std.fs.path.resolveAlloc(r.a, &.{ try std.process.currentPathAlloc(host.host_io, r.a), source });
     const stat = std.Io.Dir.cwd().statFile(host.host_io, path, .{}) catch null;
     if (m.same(path, r.snapshot_path) or stat == null or stat.?.kind != .file) return failure(r, "The selected dependency is unavailable.");
     const sidecar = try std.mem.concat(r.a, u8, &.{ path, ".dependency.json" });
@@ -81,7 +81,7 @@ fn members(r: *query.Request) ![]const Pinned {
     }
     return result;
 }
-fn combine(r: *query.Request, items: []const Pinned) !struct { host.Dependency, []const u8 } {
+pub fn combine(r: *query.Request, items: []const Pinned) !struct { host.Dependency, []const u8 } {
     if (items.len == 1) return .{ items[0].dependency, try write(r.a, items[0].manifest) };
     const dependencies = try r.a.alloc(host.Dependency, items.len);
     const manifests = try r.a.alloc(Value, items.len);

@@ -6,6 +6,30 @@ open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 module ZigToolSourceHashTests =
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``host status identifies the commit used for its build`` () =
+        let root = ZigModelReaderSupport.root ()
+        let commit =
+            ZigTools.launch "git" "test build identity" root [ "rev-parse"; "--verify"; "HEAD" ] 2000
+            |> Result.map (fun (_, output, _) -> output.Trim())
+            |> ZigHostParityTests.unwrap
+        let snapshot = Path.Combine(root, "examples", "task-cancellation-outcome", "fixtures", "task-outcomes.nyrec")
+        let code, errors, lines = ZigHostParityTests.run true [ "open"; "--snapshot"; snapshot; "--read-only" ] [ "{\"id\":\"1\",\"op\":\"status\"}" ]
+        Assert.Equal(0, code)
+        Assert.Equal("", errors)
+        use reply = ZigHostParityTests.parseDocument (List.exactlyOne lines)
+        Assert.Equal("nyrwvy-zig-host+" + commit, reply.RootElement.GetProperty("result").GetProperty("build").GetString())
+        ZigHostParityTests.withDirectory (fun directory ->
+            let git = Path.Combine(directory, "git")
+            File.WriteAllText(git, "#!/bin/sh\nprintf '%s\\n' 0000000000000000000000000000000000000000\n")
+            File.SetUnixFileMode(git, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute)
+            let environment = [ "PATH", directory + string Path.PathSeparator + Environment.GetEnvironmentVariable "PATH" ]
+            let code, errors, lines = ZigHostParityTests.runWithEnvironment environment true [ "open"; "--snapshot"; snapshot; "--read-only" ] [ "{\"id\":\"1\",\"op\":\"status\"}" ]
+            Assert.Equal(0, code)
+            Assert.Equal("", errors)
+            use reply = ZigHostParityTests.parseDocument (List.exactlyOne lines)
+            Assert.Equal("nyrwvy-zig-host+" + commit, reply.RootElement.GetProperty("result").GetProperty("build").GetString()))
+
     [<Fact>]
     let ``nested runtime resources invalidate tool keys but build outputs do not`` () =
         ZigHostParityTests.withDirectory (fun directory ->

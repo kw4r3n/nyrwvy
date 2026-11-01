@@ -6649,8 +6649,11 @@ pub fn writtenText(allocator: std.mem.Allocator, source: []const u8) Failure!Wri
 }
 
 pub fn currentVersion() i32 {
-    if (current == 0) loadTables();
-    return current;
+    var header = std.mem.tokenizeAny(u8, minimums_text, " \n");
+    _ = header.next();
+    _ = header.next();
+    _ = header.next();
+    return std.fmt.parseInt(i32, header.next().?, 10) catch unreachable;
 }
 
 /// `--typed-roundtrip <in.json> <out.json>`: the document read into the typed model and written

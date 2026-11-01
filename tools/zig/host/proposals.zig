@@ -13,11 +13,13 @@ const Value = model.Value;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 
-/// The base arena owns the session interner and committed records. Each proposal owns only its
-/// added record/body and pointer table. Committed arenas retain shared ancestors until close.
+/// Typed records live separately from owned proposal projections/reviews. A prepared live-set
+/// rebuild drops historical records and dead interned texts on each commit/rejection.
 /// Never retain a request-arena pointer here.
 pub const Pending = struct {
     arena: *std.heap.ArenaAllocator,
+    generation_arena: ?*std.heap.ArenaAllocator = null,
+    interner_checkpoint: ?typed.Interner.Checkpoint = null,
     id: []const u8,
     base_id: []const u8,
     generation: typed.Generation,
@@ -40,10 +42,33 @@ pub const Pending = struct {
     target_node: ?[]const u8 = null,
 };
 var storage: ?*std.heap.ArenaAllocator = null;
+const InternerHeap = std.heap.DebugAllocator(.{ .safety = false, .thread_safe = false, .enable_memory_limit = @import("builtin").is_test });
+var interner_heap: *InternerHeap = undefined;
 var interner: typed.Interner = undefined;
 var base: typed.Generation = undefined;
 var pending: std.ArrayList(Pending) = .empty;
-var committed: std.ArrayList(*std.heap.ArenaAllocator) = .empty;
+var base_model: Value = .json_null;
+var current_payload: ?*std.heap.ArenaAllocator = null;
+// Main keeps the selected dependency/manifest across ordinary commits.
+var dependency_payload: ?*std.heap.ArenaAllocator = null;
+const Prepared = struct {
+    interner_heap: *InternerHeap,
+    arena: *std.heap.ArenaAllocator,
+    interner: typed.Interner,
+    base: typed.Generation,
+    generations: []typed.Generation,
+};
+var prepared: ?Prepared = null;
+
+fn newInternerHeap() !*InternerHeap {
+    const heap = try std.heap.page_allocator.create(InternerHeap);
+    heap.* = .init;
+    return heap;
+}
+fn freeInternerHeap(heap: *InternerHeap) void {
+    _ = heap.deinit();
+    std.heap.page_allocator.destroy(heap);
+}
 
 fn newArena() !*std.heap.ArenaAllocator {
     const arena = try std.heap.page_allocator.create(std.heap.ArenaAllocator);
@@ -54,15 +79,35 @@ fn freeArena(arena: *std.heap.ArenaAllocator) void {
     arena.deinit();
     std.heap.page_allocator.destroy(arena);
 }
+fn freePending(p: Pending) void {
+    if (p.generation_arena) |arena| freeArena(arena);
+    freeArena(p.arena);
+}
+pub fn cancelInstall() void {
+    if (prepared) |value| {
+        var next_interner = value.interner;
+        next_interner.deinit();
+        freeInternerHeap(value.interner_heap);
+        freeArena(value.arena);
+    }
+    prepared = null;
+}
 pub fn deinit() void {
-    for (pending.items) |p| freeArena(p.arena);
-    for (committed.items) |arena| freeArena(arena);
-    committed.deinit(std.heap.page_allocator);
-    committed = .empty;
+    cancelInstall();
+    for (pending.items) |p| freePending(p);
     pending.deinit(std.heap.page_allocator);
     pending = .empty;
-    if (storage) |arena| freeArena(arena);
+    if (current_payload) |arena| if (dependency_payload != arena) freeArena(arena);
+    if (dependency_payload) |arena| freeArena(arena);
+    current_payload = null;
+    dependency_payload = null;
+    if (storage) |arena| {
+        interner.deinit();
+        freeInternerHeap(interner_heap);
+        freeArena(arena);
+    }
     storage = null;
+    base_model = .json_null;
 }
 pub fn count() usize {
     return pending.items.len;
@@ -71,7 +116,8 @@ pub fn count() usize {
 pub fn discardAfter(previous_count: usize) void {
     while (pending.items.len > previous_count) {
         const p = pending.pop().?;
-        freeArena(p.arena);
+        if (p.interner_checkpoint) |checkpoint| interner.restore(checkpoint);
+        freePending(p);
     }
 }
 pub fn find(wanted: []const u8) ?*const Pending {
@@ -79,23 +125,76 @@ pub fn find(wanted: []const u8) ?*const Pending {
     return null;
 }
 
-/// Reserve before the disk write: installing a successfully persisted generation cannot fail.
-pub fn prepareInstall() !void {
-    try committed.ensureUnusedCapacity(std.heap.page_allocator, 1);
+fn prepare(wanted: []const u8, commit: bool) !void {
+    cancelInstall();
+    const selected = find(wanted) orelse unreachable;
+    const arena = try newArena();
+    errdefer freeArena(arena);
+    const a = arena.allocator();
+    const next_heap = try newInternerHeap();
+    errdefer freeInternerHeap(next_heap);
+    var next_interner: typed.Interner = .{ .gpa = next_heap.allocator() };
+    errdefer next_interner.deinit();
+    var scratch = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer scratch.deinit();
+    var compactor: typed.Compactor = .{ .arena = a, .scratch = scratch.allocator(), .old_interner = &interner, .interner = &next_interner };
+    const next_base = try compactor.generation(if (commit) &selected.generation else &base, if (commit) selected.session_model else base_model);
+    const generations = try a.alloc(typed.Generation, pending.items.len - 1);
+    var index: usize = 0;
+    for (pending.items) |p| {
+        if (m.same(p.id, wanted)) continue;
+        generations[index] = try compactor.generation(&p.generation, p.session_model);
+        index += 1;
+    }
+    prepared = .{ .interner_heap = next_heap, .arena = arena, .interner = next_interner, .base = next_base, .generations = generations };
+}
+/// Build all retained typed state before persistence; installation after rename cannot fail.
+pub fn prepareInstall(wanted: []const u8) !void {
+    try prepare(wanted, true);
+}
+pub fn prepareReject(wanted: []const u8) !void {
+    try prepare(wanted, false);
+}
+fn installPrepared() void {
+    const next = prepared orelse unreachable;
+    if (storage) |arena| {
+        interner.deinit();
+        freeInternerHeap(interner_heap);
+        freeArena(arena);
+    }
+    for (pending.items, next.generations) |*p, generation| {
+        if (p.generation_arena) |arena| freeArena(arena);
+        p.generation_arena = null;
+        p.interner_checkpoint = null;
+        p.generation = generation;
+    }
+    storage = next.arena;
+    interner_heap = next.interner_heap;
+    interner = next.interner;
+    base = next.base;
+    prepared = null;
 }
 pub fn install(wanted: []const u8) void {
     for (pending.items, 0..) |p, i| if (m.same(p.id, wanted)) {
-        base = p.generation;
-        committed.appendAssumeCapacity(p.arena);
+        const previous = current_payload;
+        const previous_dependency = dependency_payload;
+        if (p.dependency != null) dependency_payload = p.arena;
+        current_payload = p.arena;
+        base_model = p.session_model;
         _ = pending.orderedRemove(i);
+        if (p.generation_arena) |arena| freeArena(arena);
+        installPrepared();
+        if (previous) |arena| if (dependency_payload != arena) freeArena(arena);
+        if (previous_dependency) |arena| if (dependency_payload != arena and previous != arena) freeArena(arena);
         return;
     };
     unreachable;
 }
 pub fn reject(wanted: []const u8) void {
     for (pending.items, 0..) |p, i| if (m.same(p.id, wanted)) {
-        freeArena(p.arena);
         _ = pending.orderedRemove(i);
+        installPrepared();
+        freePending(p);
         return;
     };
     unreachable;
@@ -113,9 +212,13 @@ fn initialize(r: *query.Request) !void {
     if (storage != null) return;
     const arena = try newArena();
     errdefer freeArena(arena);
-    interner = .{ .gpa = arena.allocator() };
+    interner_heap = try newInternerHeap();
+    errdefer freeInternerHeap(interner_heap);
+    interner = .{ .gpa = interner_heap.allocator() };
+    errdefer interner.deinit();
     base = try typed.load(arena.allocator(), &interner, r.model, null);
     storage = arena;
+    base_model = r.model;
 }
 
 const validation_bail = "The Zig host does not word proposed-snapshot validation failures yet.";
@@ -266,7 +369,11 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
     var registered = false;
     defer if (!registered) freeArena(arena);
     const a = arena.allocator();
-    const generation = if (declaration) |d| try typed.withDeclarations(a, &interner, &base, model.decoded(snapshot), d.group, d.items) else try typed.withFunction(a, &interner, &base, model.decoded(snapshot), created);
+    const generation_arena = try newArena();
+    defer if (!registered) freeArena(generation_arena);
+    const checkpoint = interner.checkpoint();
+    defer if (!registered) interner.restore(checkpoint);
+    const generation = if (declaration) |d| try typed.withDeclarations(generation_arena.allocator(), &interner, &base, model.decoded(snapshot), d.group, d.items) else try typed.withFunction(generation_arena.allocator(), &interner, &base, model.decoded(snapshot), created);
     var source: Writer.Allocating = .init(r.a);
     try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
     // Project the owned typed generation for step-2 queries. SnapshotReadiness is validation
@@ -295,6 +402,8 @@ fn publishChange(r: *query.Request, out: *Writer, created: Value, previous: ?Val
     try encodeChangeReview(owned_declaration, r, &structured_out.writer, created, previous, change, transaction, snapshot, root, proposed, proof, true, true);
     try pending.append(std.heap.page_allocator, .{
         .arena = arena,
+        .generation_arena = generation_arena,
+        .interner_checkpoint = checkpoint,
         .declaration = owned_declaration,
         .id = proposal_id,
         .base_id = try a.dupe(u8, r.snapshot_id),
@@ -725,7 +834,11 @@ pub fn publishOperations(r: *query.Request, out: *Writer, result: @import("opera
     var registered = false;
     defer if (!registered) freeArena(arena);
     const a = arena.allocator();
-    const generation = try typed.withChanges(a, &interner, &base, r.model, result.candidate);
+    const generation_arena = try newArena();
+    defer if (!registered) freeArena(generation_arena);
+    const checkpoint = interner.checkpoint();
+    defer if (!registered) interner.restore(checkpoint);
+    const generation = try typed.withChanges(generation_arena.allocator(), &interner, &base, r.model, result.candidate);
     var source: Writer.Allocating = .init(r.a);
     try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
     const owned_model = try orderedProjection(a, try model.parseValue(a, try a.dupe(u8, source.written())), result.candidate);
@@ -740,6 +853,8 @@ pub fn publishOperations(r: *query.Request, out: *Writer, result: @import("opera
     try encodeOperations(r, &structured.writer, result, root, proof, true, true);
     try pending.append(std.heap.page_allocator, .{
         .arena = arena,
+        .generation_arena = generation_arena,
+        .interner_checkpoint = checkpoint,
         .id = try a.dupe(u8, model.utf8(model.decoded(result.transaction))),
         .base_id = try a.dupe(u8, r.snapshot_id),
         .generation = generation,
@@ -904,7 +1019,11 @@ pub fn publishBatch(r: *query.Request, out: *Writer, captures: []const query.Cap
     var registered = false;
     defer if (!registered) freeArena(arena);
     const a = arena.allocator();
-    const generation = try typed.withChanges(a, &interner, &base, r.model, candidate);
+    const generation_arena = try newArena();
+    defer if (!registered) freeArena(generation_arena);
+    const checkpoint = interner.checkpoint();
+    defer if (!registered) interner.restore(checkpoint);
+    const generation = try typed.withChanges(generation_arena.allocator(), &interner, &base, r.model, candidate);
     var source: Writer.Allocating = .init(r.a);
     try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
     const owned_model = try orderedProjection(a, try model.parseValue(a, try a.dupe(u8, source.written())), candidate);
@@ -914,6 +1033,8 @@ pub fn publishBatch(r: *query.Request, out: *Writer, captures: []const query.Cap
     for (captures, owned_captures) |capture, *owned| owned.* = .{ .full_review = try a.dupe(u8, capture.full_review), .summary_operations = try copyValue(a, capture.summary_operations) };
     try pending.append(std.heap.page_allocator, .{
         .arena = arena,
+        .generation_arena = generation_arena,
+        .interner_checkpoint = checkpoint,
         .id = try a.dupe(u8, model.utf8(model.decoded(transaction))),
         .base_id = try a.dupe(u8, r.snapshot_id),
         .generation = generation,
@@ -1051,7 +1172,11 @@ pub fn publishMigration(r: *query.Request, out: *Writer, result: @import("migrat
     var registered = false;
     defer if (!registered) freeArena(arena);
     const a = arena.allocator();
-    const generation = try typed.withChanges(a, &interner, &base, r.model, result.candidate);
+    const generation_arena = try newArena();
+    defer if (!registered) freeArena(generation_arena);
+    const checkpoint = interner.checkpoint();
+    defer if (!registered) interner.restore(checkpoint);
+    const generation = try typed.withChanges(generation_arena.allocator(), &interner, &base, r.model, result.candidate);
     var source: Writer.Allocating = .init(r.a);
     try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
     const owned = try orderedProjection(a, try model.parseValue(a, try a.dupe(u8, source.written())), result.candidate);
@@ -1066,7 +1191,7 @@ pub fn publishMigration(r: *query.Request, out: *Writer, result: @import("migrat
     for (result.rewritten, functions) |f, *item| item.* = @import("operation_model.zig").find(owned, "functions", query.idOf(f)).?;
     const changed_types = try a.alloc(Value, result.touched_types.len);
     for (result.touched_types, changed_types) |tid, *item| item.* = @import("operation_model.zig").find(root, "types", tid).?;
-    try pending.append(std.heap.page_allocator, .{ .arena = arena, .id = try a.dupe(u8, model.utf8(model.decoded(result.transaction))), .base_id = try a.dupe(u8, r.snapshot_id), .generation = generation, .model = root, .session_model = owned, .created_function = .json_null, .receipt = proof, .full_review = try a.dupe(u8, plain.written()), .structured_review = try a.dupe(u8, structured.written()), .name = "", .migration = .{ .kind = result.kind, .summary = try a.dupe(u8, result.summary), .functions = functions, .types = changed_types } });
+    try pending.append(std.heap.page_allocator, .{ .arena = arena, .generation_arena = generation_arena, .interner_checkpoint = checkpoint, .id = try a.dupe(u8, model.utf8(model.decoded(result.transaction))), .base_id = try a.dupe(u8, r.snapshot_id), .generation = generation, .model = root, .session_model = owned, .created_function = .json_null, .receipt = proof, .full_review = try a.dupe(u8, plain.written()), .structured_review = try a.dupe(u8, structured.written()), .name = "", .migration = .{ .kind = result.kind, .summary = try a.dupe(u8, result.summary), .functions = functions, .types = changed_types } });
     registered = true;
     const full = if (r.root.get("detail")) |value| m.same(value.string, "full") else false;
     const structured_review = if (r.root.get("structuredReview")) |value| value == .bool and value.bool else false;
@@ -1179,7 +1304,11 @@ pub fn publishDependency(r: *query.Request, out: *Writer, result: @import("depen
     var registered = false;
     defer if (!registered) freeArena(arena);
     const a = arena.allocator();
-    const generation = try typed.withChanges(a, &interner, &base, r.model, result.candidate);
+    const generation_arena = try newArena();
+    defer if (!registered) freeArena(generation_arena);
+    const checkpoint = interner.checkpoint();
+    defer if (!registered) interner.restore(checkpoint);
+    const generation = try typed.withChanges(generation_arena.allocator(), &interner, &base, r.model, result.candidate);
     var source: Writer.Allocating = .init(a);
     try typed.writeDocument(&source.writer, &interner, &generation, model.currentVersion());
     const owned = try orderedProjection(a, try model.parseValue(a, source.written()), result.candidate);
@@ -1198,6 +1327,8 @@ pub fn publishDependency(r: *query.Request, out: *Writer, result: @import("depen
     const summary = try std.fmt.allocPrint(a, "dependencyUpgrade: {d} selected, {d} functions and {d} types repaired", .{ model.arrayItems(result.plan.preview, "selected").len, functions.len, types.len });
     try pending.append(std.heap.page_allocator, .{
         .arena = arena,
+        .generation_arena = generation_arena,
+        .interner_checkpoint = checkpoint,
         .id = try a.dupe(u8, model.utf8(model.decoded(result.transaction))),
         .base_id = try a.dupe(u8, r.snapshot_id),
         .generation = generation,
@@ -1264,4 +1395,113 @@ fn encodeDependency(r: *query.Request, out: *Writer, result: @import("dependency
     }
     try w.writeAll("}}");
     try out.writeAll(if (full) raw.written() else try projection.compact(r.a, raw.written()));
+}
+
+const LifecycleTest = struct {
+    const fixture =
+        \\{"snapshotId":"base","types":[],"effects":[],"capabilities":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}}],"obligations":[]}
+    ;
+
+    fn add(index: usize) ![]const u8 {
+        const arena = try newArena();
+        errdefer freeArena(arena);
+        const a = arena.allocator();
+        model.useAllocator(a);
+        const generation_arena = try newArena();
+        errdefer freeArena(generation_arena);
+        const checkpoint = interner.checkpoint();
+        errdefer interner.restore(checkpoint);
+        const edit = @import("operation_model.zig");
+        const name = try std.fmt.allocPrint(a, "Version-{d}", .{index});
+        const id = try std.fmt.allocPrint(a, "snapshot-{d}", .{index});
+        const function = try edit.set(a, model.arrayItems(base_model, "functions")[0], "displayName", try m.string(a, name));
+        const candidate = try copyValue(a, try edit.set(a, try edit.set(a, try edit.set(a, base_model, "functions", .{ .array = try a.dupe(Value, &.{function}) }), "snapshotId", try m.string(a, id)), "parentSnapshotId", model.property(base_model, "snapshotId").?));
+        const generation = try typed.withChanges(generation_arena.allocator(), &interner, &base, base_model, candidate);
+        try pending.append(std.heap.page_allocator, .{
+            .arena = arena,
+            .generation_arena = generation_arena,
+            .interner_checkpoint = checkpoint,
+            .id = id,
+            .base_id = try a.dupe(u8, model.utf8(model.decoded(model.property(base_model, "snapshotId").?))),
+            .generation = generation,
+            .model = candidate,
+            .session_model = candidate,
+            .created_function = .json_null,
+            .receipt = "receipt",
+            .full_review = try a.dupe(u8, name),
+            .structured_review = "review",
+            .name = name,
+        });
+        return id;
+    }
+
+    fn capacity() usize {
+        var bytes: usize = (if (storage) |arena| arena.queryCapacity() else 0) + interner_heap.total_requested_bytes;
+        if (current_payload) |arena| bytes += arena.queryCapacity();
+        if (dependency_payload) |arena| if (current_payload != arena) {
+            bytes += arena.queryCapacity();
+        };
+        for (pending.items) |p| {
+            bytes += p.arena.queryCapacity();
+            if (p.generation_arena) |arena| bytes += arena.queryCapacity();
+        }
+        return bytes;
+    }
+};
+
+test "live-set replacement commits and rejection stay bounded and retain stale proposals" {
+    var scratch = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer scratch.deinit();
+    const a = scratch.allocator();
+    var request: query.Request = .{ .a = a, .line = "", .root = .empty, .model = try model.parseValue(a, LifecycleTest.fixture), .provenance = null };
+    try initialize(&request);
+    defer deinit();
+    const stale = try LifecycleTest.add(0);
+    const stale_document = try document(a, find(stale).?);
+    var max_capacity: usize = 0;
+    var baseline_capacity: usize = 0;
+    var selected_manifest: []const u8 = "";
+    for (1..201) |index| {
+        const id = try LifecycleTest.add(index);
+        if (index == 1 or index == 101) {
+            const p = &pending.items[pending.items.len - 1];
+            selected_manifest = try p.arena.allocator().dupe(u8, p.name);
+            p.dependency = .{ .selected = .{ .root = p.model, .canonical = p.name, .id = p.id, .digest = p.name, .fingerprint = p.name, .subjects = &.{}, .provenance = .{ .members = &.{}, .hidden = &.{} } }, .manifest = selected_manifest, .request = "", .review_fingerprint = "" };
+        }
+        // Cancelled preparation models a persistence failure: no live pointer changes.
+        try prepareInstall(id);
+        const previous_snapshot = base.snapshot;
+        cancelInstall();
+        try std.testing.expectEqual(previous_snapshot, base.snapshot);
+        try std.testing.expect(find(id) != null);
+        try prepareInstall(id);
+        install(id);
+        try std.testing.expectEqual(@as(usize, 1), count());
+        try std.testing.expectEqualStrings(if (index < 101) "Version-1" else "Version-101", selected_manifest);
+        try std.testing.expectEqualStrings("Version-0", find(stale).?.full_review);
+        try std.testing.expectEqualStrings(stale_document, try document(a, find(stale).?));
+        try std.testing.expect(interner.ids[@intFromEnum(typed.Domain.snapshot)].texts.items.len <= 4);
+        try std.testing.expect(interner.strings.texts.items.len <= 4);
+        const retained_capacity = LifecycleTest.capacity();
+        if (index == 10) baseline_capacity = retained_capacity;
+        if (index > 10) try std.testing.expect(retained_capacity <= baseline_capacity * 2);
+        max_capacity = @max(max_capacity, retained_capacity);
+        const rejected = try LifecycleTest.add(1000 + index);
+        try prepareReject(rejected);
+        reject(rejected);
+        try std.testing.expectEqual(@as(usize, 1), count());
+        // Encoder rollback also releases its newly interned strings.
+        _ = try LifecycleTest.add(2000 + index);
+        discardAfter(1);
+        model.useAllocator(a);
+        try std.testing.expectEqual(@as(usize, 1), count());
+        try std.testing.expect(interner.strings.texts.items.len <= 4);
+    }
+    std.debug.print("live-set retained bytes (arenas + interner requests): baseline={d}, max={d}\n", .{ baseline_capacity, max_capacity });
+    try std.testing.expect(max_capacity < 1024 * 1024);
+    try prepareReject(stale);
+    reject(stale);
+    try std.testing.expectEqual(@as(usize, 0), count());
+    try std.testing.expectEqualStrings("Version-200", query.nameOf(model.arrayItems(base_model, "functions")[0]));
+    try std.testing.expectEqual(@as(usize, 2), interner.ids[@intFromEnum(typed.Domain.snapshot)].texts.items.len);
 }

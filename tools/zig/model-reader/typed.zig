@@ -28,23 +28,56 @@ const Table = struct {
     texts: std.ArrayList(Str) = .empty,
 
     fn intern(self: *Table, gpa: Allocator, text: Str) !u32 {
-        const entry = try self.map.getOrPut(gpa, text);
-        if (!entry.found_existing) {
-            const owned = try gpa.dupe(u16, text);
-            entry.key_ptr.* = owned;
-            entry.value_ptr.* = @intCast(self.texts.items.len);
-            try self.texts.append(gpa, owned);
-        }
-        return entry.value_ptr.*;
+        if (self.map.get(text)) |existing| return existing;
+        try self.map.ensureUnusedCapacity(gpa, 1);
+        try self.texts.ensureUnusedCapacity(gpa, 1);
+        const owned = try gpa.dupe(u16, text);
+        const handle: u32 = @intCast(self.texts.items.len);
+        self.map.putAssumeCapacity(owned, handle);
+        self.texts.appendAssumeCapacity(owned);
+        return handle;
     }
 };
 
 /// The interned texts of one session.
-// All entries belong to live generations until session close. Commit/reject (3e) must compact dead entries.
+// The host rebuilds this table from the live generations before commit/reject.
 pub const Interner = struct {
     gpa: Allocator,
     ids: [std.enums.values(Domain).len]Table = @splat(.{}),
     strings: Table = .{},
+
+    pub const Checkpoint = struct { ids: [std.enums.values(Domain).len]usize, strings: usize };
+
+    pub fn checkpoint(self: *const Interner) Checkpoint {
+        var result: Checkpoint = .{ .ids = undefined, .strings = self.strings.texts.items.len };
+        for (self.ids, &result.ids) |table, *count| count.* = table.texts.items.len;
+        return result;
+    }
+
+    fn truncate(self: *Interner, table: *Table, count: usize) void {
+        while (table.texts.items.len > count) {
+            const text = table.texts.pop().?;
+            const removed = table.map.remove(text);
+            std.debug.assert(removed);
+            self.gpa.free(text);
+        }
+    }
+
+    pub fn restore(self: *Interner, previous: Checkpoint) void {
+        for (&self.ids, previous.ids) |*table, count| self.truncate(table, count);
+        self.truncate(&self.strings, previous.strings);
+    }
+
+    pub fn deinit(self: *Interner) void {
+        for (&self.ids) |*table| {
+            self.truncate(table, 0);
+            table.texts.deinit(self.gpa);
+            table.map.deinit(self.gpa);
+        }
+        self.truncate(&self.strings, 0);
+        self.strings.texts.deinit(self.gpa);
+        self.strings.map.deinit(self.gpa);
+    }
 
     pub fn id(self: *Interner, domain: Domain, text: Str) !Id {
         return self.ids[@intFromEnum(domain)].intern(self.gpa, text);
@@ -294,11 +327,18 @@ const Loader = struct {
     }
 
     fn loadFunction(self: *Loader, item: Value) !Function {
+        return self.loadFunctionWithBody(item, null);
+    }
+
+    fn loadFunctionWithBody(self: *Loader, item: Value, shared_body: ?Body) !Function {
         const effects_values = reader.arrayItems(item, "requiredEffects");
         const effects = try self.arena.alloc(Id, effects_values.len);
         for (effects_values, effects) |effect, *e| e.* = try self.interner.id(.effect, reader.decoded(effect));
-        var body: BodyBuilder = .{ .loader = self };
-        _ = try body.graph(get(item, "body"));
+        const body = shared_body orelse blk: {
+            var builder: BodyBuilder = .{ .loader = self };
+            _ = try builder.graph(get(item, "body"));
+            break :blk builder.done();
+        };
         return .{
             .id = try self.id(.function, item, "id"),
             .name = try self.displayName(item),
@@ -308,7 +348,7 @@ const Loader = struct {
             .parameters = try self.typed(.parameter, reader.arrayItems(item, "parameters")),
             .result = try self.typeRef(get(item, "resultType")),
             .effects = effects,
-            .body = body.done(),
+            .body = body,
         };
     }
 };
@@ -465,6 +505,49 @@ pub fn load(arena: Allocator, interner: *Interner, root: Value, marker: ?Marker)
         .obligations = try l.records(Obligation, reader.arrayItems(root, "obligations"), Loader.loadObligation),
     };
 }
+
+/// Rebuild live generations into a fresh arena/interner, preserving shared declarations/bodies.
+/// The old generations remain untouched until the caller installs the completed live set.
+pub const Compactor = struct {
+    arena: Allocator,
+    scratch: Allocator,
+    old_interner: *const Interner,
+    interner: *Interner,
+    records: std.AutoHashMapUnmanaged(usize, usize) = .empty,
+    bodies: std.AutoHashMapUnmanaged(usize, Body) = .empty,
+
+    pub fn generation(self: *Compactor, old: *const Generation, root: Value) !Generation {
+        var result: Generation = undefined;
+        result.snapshot = try self.interner.id(.snapshot, self.old_interner.idText(.snapshot, old.snapshot));
+        result.parent = if (old.parent == none) none else try self.interner.id(.snapshot, self.old_interner.idText(.snapshot, old.parent));
+        result.marker = if (old.marker) |marker| .{ .snapshot = try self.arena.dupe(u16, marker.snapshot), .digest = try self.arena.dupe(u16, marker.digest) } else null;
+        var loader: Loader = .{ .arena = self.arena, .interner = self.interner };
+        inline for (.{ .{ "functions", Function, Loader.loadFunction, Domain.function }, .{ "types", Type, Loader.loadType, Domain.type }, .{ "effects", Effect, Loader.loadEffect, Domain.effect }, .{ "capabilities", Capability, Loader.loadCapability, Domain.capability }, .{ "obligations", Obligation, Loader.loadObligation, Domain.obligation } }) |entry| {
+            const old_records = @field(old, entry[0]);
+            const records = try self.arena.alloc(*const entry[1], old_records.len);
+            var items: std.HashMapUnmanaged(Str, Value, Utf16Context, 80) = .empty;
+            for (reader.arrayItems(root, entry[0])) |value| try items.put(self.scratch, reader.decoded(reader.property(value, "id").?), value);
+            for (old_records, records) |original, *slot| {
+                if (self.records.get(@intFromPtr(original))) |existing| {
+                    slot.* = @ptrFromInt(existing);
+                    continue;
+                }
+                const id = self.old_interner.idText(entry[3], original.id);
+                const item = items.get(id) orelse unreachable;
+                const record = try self.arena.create(entry[1]);
+                if (entry[1] == Function) {
+                    const body_key = @intFromPtr(original.body.graphs.ptr);
+                    record.* = try loader.loadFunctionWithBody(item, self.bodies.get(body_key));
+                    try self.bodies.put(self.scratch, body_key, record.body);
+                } else record.* = try entry[2](&loader, item);
+                try self.records.put(self.scratch, @intFromPtr(original), @intFromPtr(record));
+                slot.* = record;
+            }
+            @field(result, entry[0]) = records;
+        }
+        return result;
+    }
+};
 
 /// Path-copy the function table; all unchanged declarations and bodies remain immutable/shared.
 /// The caller keeps the base generation's arena alive for this generation's lifetime.
@@ -1057,4 +1140,88 @@ test "operation generations path-copy changed tables and share unchanged functio
     try std.testing.expectEqual(@as(usize, 1), replacement.functions.len);
     try std.testing.expect(replacement.functions[0].body.ids.ptr != original.functions[0].body.ids.ptr);
     try std.testing.expect(std.mem.eql(u16, interner.idText(.node, original.functions[0].body.ids[0]), &.{'n'}));
+}
+
+test "live-set compaction remaps handles and preserves shared declarations and bodies" {
+    var original_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer original_arena.deinit();
+    const a = original_arena.allocator();
+    const root = try reader.parseValue(a,
+        \\{"snapshotId":"base","types":[],"effects":[],"capabilities":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}},{"id":"g","displayName":"G","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"m","kind":"unitLiteral"}],"resultNodeId":"m"}}],"obligations":[]}
+    );
+    var old: Interner = .{ .gpa = a };
+    _ = try old.string(&.{ 'd', 'e', 'a', 'd' });
+    const before = try load(a, &old, root, null);
+    const functions = reader.arrayItems(root, "functions");
+    const renamed = try a.dupe(reader.Member, functions[0].object);
+    for (renamed) |*field| if (std.mem.eql(u8, reader.utf8(field.name), "displayName")) {
+        field.value = .{ .string = &.{ 'N', 'e', 'w' } };
+    };
+    const fields = try a.dupe(reader.Member, root.object);
+    for (fields) |*field| if (std.mem.eql(u8, reader.utf8(field.name), "functions")) {
+        field.value = .{ .array = try a.dupe(Value, &.{ .{ .object = renamed }, functions[1] }) };
+    };
+    const candidate: Value = .{ .object = fields };
+    const changed = try withChanges(a, &old, &before, root, candidate);
+    var compact_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer compact_arena.deinit();
+    const compact = compact_arena.allocator();
+    var fresh: Interner = .{ .gpa = std.testing.allocator };
+    defer fresh.deinit();
+    var compactor: Compactor = .{ .arena = compact, .scratch = compact, .old_interner = &old, .interner = &fresh };
+    const live_before = try compactor.generation(&before, root);
+    const live_changed = try compactor.generation(&changed, candidate);
+    try std.testing.expect(live_before.functions[1] == live_changed.functions[1]);
+    try std.testing.expect(live_before.functions[0] != live_changed.functions[0]);
+    try std.testing.expect(live_before.functions[0].body.ids.ptr == live_changed.functions[0].body.ids.ptr);
+    try std.testing.expectEqual(@as(?u32, null), fresh.strings.map.get(&.{ 'd', 'e', 'a', 'd' }));
+    for ([_]Generation{ before, changed }, [_]Generation{ live_before, live_changed }) |old_generation, new_generation| {
+        var expected: Writer.Allocating = .init(a);
+        var actual: Writer.Allocating = .init(a);
+        try writeDocument(&expected.writer, &old, &old_generation, reader.currentVersion());
+        try writeDocument(&actual.writer, &fresh, &new_generation, reader.currentVersion());
+        try std.testing.expectEqualStrings(expected.written(), actual.written());
+    }
+}
+
+test "interner checkpoint releases failed proposal entries and retains prior handles" {
+    var interner: Interner = .{ .gpa = std.testing.allocator };
+    defer interner.deinit();
+    const kept = try interner.id(.function, &.{'f'});
+    const checkpoint = interner.checkpoint();
+    for (0..100) |_| {
+        _ = try interner.id(.node, &.{'n'});
+        _ = try interner.string(&.{'s'});
+        interner.restore(checkpoint);
+        try std.testing.expectEqual(@as(usize, 0), interner.ids[@intFromEnum(Domain.node)].texts.items.len);
+        try std.testing.expectEqual(@as(usize, 0), interner.strings.texts.items.len);
+        try std.testing.expectEqualSlices(u16, &.{'f'}, interner.idText(.function, kept));
+    }
+}
+
+test "failed live-set preparation leaves the old generation usable" {
+    var fixture_arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer fixture_arena.deinit();
+    const a = fixture_arena.allocator();
+    const root = try reader.parseValue(a,
+        \\{"snapshotId":"base","types":[],"effects":[],"capabilities":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}}],"obligations":[]}
+    );
+    var old: Interner = .{ .gpa = a };
+    const original = try load(a, &old, root, null);
+    const Check = struct {
+        fn prepare(gpa: Allocator, previous_interner: *const Interner, previous: *const Generation, previous_root: Value) !void {
+            var arena = std.heap.ArenaAllocator.init(gpa);
+            defer arena.deinit();
+            var next: Interner = .{ .gpa = gpa };
+            defer next.deinit();
+            var compactor: Compactor = .{ .arena = arena.allocator(), .scratch = arena.allocator(), .old_interner = previous_interner, .interner = &next };
+            const rebuilt = try compactor.generation(previous, previous_root);
+            try std.testing.expectEqualSlices(u16, &.{'F'}, next.stringText(rebuilt.functions[0].name));
+        }
+    };
+    try std.testing.checkAllAllocationFailures(std.testing.allocator, Check.prepare, .{ &old, &original, root });
+    var source: Writer.Allocating = .init(a);
+    try writeDocument(&source.writer, &old, &original, reader.currentVersion());
+    try std.testing.expect(std.mem.indexOf(u8, source.written(), "\"snapshotId\":\"base\"") != null);
+    try std.testing.expectEqualSlices(u16, &.{'F'}, old.stringText(original.functions[0].name));
 }

@@ -200,7 +200,18 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
    - **Shared resources.** Existing F# defaults and reference behavior remain unchanged; shared resources were byte-hash compared with the baseline.
 8. **Switch and removal** (below).
 
-**Adapter executable selection remains a Step 8 prerequisite.** `tools/nyrwvy-agent/authoring.ts` currently launches the F# `Nyrwvy.AuthoringSession.dll` through `dotnet`; MCP delegates to that agent authoring client. The adapters do not yet select the Zig host, and their Node suites have not yet been run against it. Keep this explicit rather than treating the earlier one-setting plan as implemented. Step 8 must add executable selection and pass the Node adapter suites against the Zig host before switching the default.
+## Pre-switch hardening (2026-11-01)
+
+The owner chose to complete startup CLI parity, bounded session memory, and build identity first, and to move all reads to the typed model in a separate stage. The F# host remains the default. Passing this hardening stage does not authorize the default switch or removal of F#.
+
+- **Startup CLI:** cover the F# `create`, `pin`, and all three `upgrade` forms, including persisted snapshot/sidecar bytes and failure paths. Keep the exact accepted argument forms: F# does not accept `open --dependency`. Legacy `migrate` remains outside the native host as already decided.
+- **Session memory:** replace history-long arena retention with a live-set rebuild. Prepare the current and pending typed generations before publication, preserving shared declarations/bodies, then install them without allocation after the disk write. Rejection also prepares the remaining live set before dropping its proposal. This replaces the original reference-counting and half-dead interner compaction design: it copies live typed state on commit/rejection but releases obsolete history and dead interned strings. The startup baseline remains allocated until exit. Besides it, retain current/pending projections and the latest dependency payload needed by the host's selection/manifest pointers; an ordinary commit must not free those dependency pointers. Full removal of read projections belongs to the typed-read stage.
+- **Build identity:** embed the checkout commit when compiling the host and include it in the build-cache identity. Runtime checkout changes must not relabel an already-built executable. A checkout without Git metadata reports no commit rather than inventing one.
+- **Adapter selection:** provide an explicit native executable override for verification while keeping the F# default. Both OpenCode and MCP use the shared authoring client. Run their Node contracts through the native executable, including create/pin/upgrade, before treating adapter parity as verified.
+
+The original typed-read switch condition below remains in force. This stage does not replace it with JSON projections or weaken it to transcript parity alone.
+
+Implemented and verified: [pre-switch verification record](../verification/zig-host-pre-switch-20261101.md). The shared adapter accepts `NYRWVY_AUTHORING_EXECUTABLE` for opt-in native runs; its default remains F#. Native startup, lifecycle, adapter, and maintained suites passed. This completes the three hardening items above, not the full switch criteria.
 
 ## How parity with F# is checked
 
@@ -238,4 +249,4 @@ These differences between the hosts are accepted. The parity tests do not cover 
 
 ## Open decisions
 
-- No Step 7 design decision remains open. Step 8 still requires adapter executable selection and Node adapter tests against the Zig host before switching the default.
+- No Step 7 design decision remains open. The opt-in executable selection and Node adapter verification are complete. Full typed-model reads remain a separate prerequisite before switching the default; the F# deprecation, frozen tag/golden corpus, and removal sequence still follows the switch plan above.

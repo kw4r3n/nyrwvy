@@ -89,7 +89,9 @@ export class AuthoringClient {
   get startupFailure(): string | undefined {
     if (!this.reaped || this.replies > 0) return undefined
     if (this.spawnError?.code === "ENOENT") {
-      return `dotnet was not found on the PATH of this process (${this.spawnError.message}). Install the .NET 10 SDK or make dotnet available to the host that launches the server.`
+      return !this.executableOverride
+        ? `dotnet was not found on the PATH of this process (${this.spawnError.message}). Install the .NET 10 SDK or make dotnet available to the host that launches the server.`
+        : `Authoring executable could not be found (${this.spawnError.message}). Check NYRWVY_AUTHORING_EXECUTABLE.`
     }
     // A child killed by this client (a signal, not an exit code) hung rather than failed to start.
     if (typeof this.exitCode !== "number") return undefined
@@ -98,9 +100,11 @@ export class AuthoringClient {
   }
 
   private child: ChildProcessWithoutNullStreams
+  private executableOverride: boolean
 
-  constructor(child: ChildProcessWithoutNullStreams) {
+  constructor(child: ChildProcessWithoutNullStreams, executableOverride = false) {
     this.child = child
+    this.executableOverride = executableOverride
     // Registered before readline, so an oversized reply fails before it is parsed.
     let lineLength = 0
     child.stdout.on("data", (chunk: Buffer) => {
@@ -310,7 +314,9 @@ async function launchAuthoring(
   const workspace = resolve(worktree, snapshot)
   const assembly = resolve(context.repositoryRoot ?? context.worktree, "tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll")
   // Mode read is open without the workspace lock; the session cannot commit.
-  const args = mode === "read" ? [assembly, "open", "--snapshot", workspace, "--read-only"] : [assembly, mode, "--snapshot", workspace]
+  const override = process.env.NYRWVY_AUTHORING_EXECUTABLE
+  const executable = override || "dotnet"
+  const args = [...(override ? [] : [assembly]), ...(mode === "read" ? ["open", "--snapshot", workspace, "--read-only"] : [mode, "--snapshot", workspace])]
   for (const source of [...(dependency === undefined ? [] : [dependency]), ...(dependencies ?? [])]) {
     args.push("--dependency", resolve(worktree, source))
   }
@@ -335,9 +341,9 @@ async function launchAuthoring(
   }
   const allowHostSources = hostSourcesAllowed(context)
   if (allowHostSources) args.push("--allow-host-sources")
-  const client = new AuthoringClient(spawn("dotnet", args, {
+  const client = new AuthoringClient(spawn(executable, args, {
     cwd: worktree, detached: true, stdio: ["pipe", "pipe", "pipe"],
-  }))
+  }), Boolean(override))
   sessions.set(sessionKey, client)
   markStarted()
   try {

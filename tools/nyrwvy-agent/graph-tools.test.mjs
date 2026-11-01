@@ -1,5 +1,8 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import { mkdtemp, writeFile, chmod, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { tool } from "@opencode-ai/plugin"
 import * as z from "zod/v4"
 import { createGraphTools } from "./graph-tools.mjs"
@@ -115,4 +118,41 @@ test("open warns only when the session build names another commit than the loade
   assert.equal(staleToolWarning(undefined, `1.0.0+${b}`), undefined)
   assert.equal(staleToolWarning(a, "1.0.0"), undefined)
   assert.equal(staleToolWarning(a, undefined), undefined)
+})
+
+test("an explicitly selected host receives session arguments and its build drives the warning", { timeout: 10_000 }, async () => {
+  const { openAuthoring, closeAuthoring } = await import("./authoring.ts")
+  const dir = await mkdtemp(join(tmpdir(), "nyrwvy-host-select-"))
+  const executable = join(dir, "host")
+  const previous = process.env.NYRWVY_AUTHORING_EXECUTABLE
+  const context = { sessionID: "selected-host", worktree: dir }
+  try {
+    await writeFile(executable, `#!${process.execPath}
+const args = process.argv.slice(2)
+const input = require("node:readline").createInterface({ input: process.stdin })
+const alive = setInterval(() => {}, 1_000)
+input.on("line", line => {
+  const request = JSON.parse(line)
+  console.log(JSON.stringify({ id: request.id, ok: true, result: {
+    build: "nyrwvy-zig-host+${"0".repeat(40)}", args,
+  } }))
+}).on("close", () => clearInterval(alive))
+`)
+    await chmod(executable, 0o700)
+    process.env.NYRWVY_AUTHORING_EXECUTABLE = executable
+    const opened = JSON.parse(await openAuthoring("read", "snapshot.nyrec", context))
+    assert.deepEqual(opened.status.result.args, ["open", "--snapshot", join(dir, "snapshot.nyrec"), "--read-only"])
+    assert.match(opened.warning, /runs build 000000000000/)
+    await closeAuthoring(context)
+    process.env.NYRWVY_AUTHORING_EXECUTABLE = join(dir, "missing")
+    await assert.rejects(openAuthoring("read", "snapshot.nyrec", context), /Check NYRWVY_AUTHORING_EXECUTABLE/)
+  } finally {
+    try {
+      await closeAuthoring(context)
+    } finally {
+      if (previous === undefined) delete process.env.NYRWVY_AUTHORING_EXECUTABLE
+      else process.env.NYRWVY_AUTHORING_EXECUTABLE = previous
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
 })
