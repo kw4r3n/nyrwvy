@@ -6,7 +6,6 @@ open System.IO
 open System.Text.Json.Nodes
 open System.Text.RegularExpressions
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 open Xunit.Abstractions
 

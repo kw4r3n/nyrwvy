@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Text.Json
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// Positive assertions accompany byte comparison: an unsupported reply can never pass as execution.
@@ -35,11 +34,8 @@ module ZigHostRunPureParityTests =
 
     let private fixture directory =
         let path = Path.Combine(directory, "workspace.json")
-        use session = AuthoringSession.createNew path |> unwrap
-        let publish line =
-            let result = AuthoringProtocol.executeLine session line |> success
-            let id = result.GetProperty("proposalId").GetString()
-            AuthoringProtocol.executeLine session $"""{{"id":"commit","op":"commit","proposalId":"{id}"}}""" |> success |> ignore
+        let requests = ResizeArray<string>()
+        let publish (line: string) = requests.Add line
         let create name parameters result effects body =
             let parameters = parameters |> List.map (fun (name, kind) -> $"""{{"displayName":"{name}","type":{kind}}}""") |> String.concat ","
             publish $"""{{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{parameters}],"resultType":{result},"requiredEffects":[{String.concat "," (effects |> List.map stringValue)}],"body":{body}}}"""
@@ -64,8 +60,9 @@ module ZigHostRunPureParityTests =
         create "query" [ "key", text; "provider", """{"kind":"capability","name":"Provider"}""" ] (named "Answer") [ "io" ]
             $"""{{"kind":"capabilityInvoke","capabilityValue":{parameter "provider"},"capability":"Provider","operation":"lookup","arguments":[{{"parameter":"key","value":{parameter "key"}}}]}}"""
         publish $"""{{"id":"recursive","op":"simulateCreateFunctionsByName","functions":[{{"displayName":"spin","exported":true,"parameters":[],"resultType":{integer},"requiredEffects":[],"body":{{"kind":"directCall","function":"spin","arguments":[]}}}}]}}"""
+        publishWithZigHost "create" path (List.ofSeq requests)
         File.WriteAllText(path + ".backends.json", """{"targets":["zig"]}""")
-        path, session.Declarations()
+        path, fst (declarationsOf path)
 
     let private pair textValue count = $"""{{"kind":"product","type":"Pair","fields":[{{"field":"text","value":{{"kind":"string","value":{stringValue textValue}}}}},{{"field":"count","value":{{"kind":"int64","value":"{count}"}}}}]}}"""
     let private found value = $"""{{"kind":"union","type":"Answer","variant":"Found","fields":[{{"field":"text","value":{{"kind":"string","value":{stringValue value}}}}}]}}"""
@@ -340,10 +337,7 @@ module ZigHostRunPureParityTests =
     let ``native Zig host preserves emitter limits and reachable fallback includes fake signature types`` () =
         withDirectory (fun directory ->
             let path, _ = fixture directory
-            do
-                use session = AuthoringSession.openExisting path |> unwrap
-                let proposal = AuthoringProtocol.executeLine session """{"id":"bits","op":"simulateCreateFunctionByName","exported":true,"displayName":"bits","parameters":[{"displayName":"value","type":{"kind":"primitive","primitive":"bits32"}}],"resultType":{"kind":"primitive","primitive":"bits32"},"requiredEffects":[],"body":{"kind":"parameter","name":"value"}}""" |> success
-                AuthoringProtocol.executeLine session $"""{{"id":"commit","op":"commit","proposalId":"{proposal.GetProperty("proposalId").GetString()}"}}""" |> success |> ignore
+            publishWithZigHost "open" path [ """{"id":"bits","op":"simulateCreateFunctionByName","exported":true,"displayName":"bits","parameters":[{"displayName":"value","type":{"kind":"primitive","primitive":"bits32"}}],"resultType":{"kind":"primitive","primitive":"bits32"},"requiredEffects":[],"body":{"kind":"parameter","name":"value"}}""" ]
             let requests = [ runName "bits" [ "4294967295" ] None; runName "constant" [] (Some "7"); runName "query" [ "\"a\""; responses [ returns (found "ok") ] ] (Some(found "ok")) ]
             let replies = strictPair path requests
             Assert.Equal("RunBackendUnsupported", code replies[0])
@@ -370,16 +364,15 @@ module ZigHostRunPureParityTests =
         withDirectory (fun directory ->
             let path, _ = fixture directory
             do
-                use session = AuthoringSession.openExisting path |> unwrap
-                let publish request =
-                    let proposal = AuthoringProtocol.executeLine session request |> success |> fun item -> item.GetProperty("proposalId").GetString()
-                    AuthoringProtocol.executeLine session $"""{{"id":"commit","op":"commit","proposalId":"{proposal}"}}""" |> success |> ignore
+                let requests = ResizeArray<string>()
+                let publish (request: string) = requests.Add request
                 let parameters = [ 0 .. 16 ] |> List.map (fun index -> $"""{{"displayName":"provider{index}","type":{{"kind":"capability","name":"Provider"}}}}""") |> String.concat ","
                 publish $"""{{"id":"many","op":"simulateCreateFunctionByName","exported":true,"displayName":"many","parameters":[{parameters}],"resultType":{named "Answer"},"requiredEffects":["io"],"body":{{"kind":"capabilityInvoke","capabilityValue":{parameter "provider16"},"capability":"Provider","operation":"lookup","arguments":[{{"parameter":"key","value":{{"kind":"stringLiteral","value":"a"}}}}]}}}}"""
                 publish $"""{{"id":"walker","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Walker","operations":[{{"displayName":"walk","parameters":[{{"displayName":"chain","type":{named "Chain"}}}],"resultType":{named "Answer"},"effect":"io"}}]}}"""
                 publish $"""{{"id":"walk","op":"simulateCreateFunctionByName","exported":true,"displayName":"walk","parameters":[{{"displayName":"chain","type":{named "Chain"}}},{{"displayName":"walker","type":{{"kind":"capability","name":"Walker"}}}}],"resultType":{named "Answer"},"requiredEffects":["io"],"body":{{"kind":"capabilityInvoke","capabilityValue":{parameter "walker"},"capability":"Walker","operation":"walk","arguments":[{{"parameter":"chain","value":{parameter "chain"}}}]}}}}"""
                 publish $"""{{"id":"reader","op":"simulateCreateCapabilityByName","exported":true,"displayName":"FloatReader","operations":[{{"displayName":"read","parameters":[{{"displayName":"number","type":{scalar "float64"}}}],"resultType":{text},"effect":"io"}}]}}"""
                 publish $"""{{"id":"nan","op":"simulateCreateFunctionByName","exported":true,"displayName":"negatedNaN","parameters":[{{"displayName":"reader","type":{{"kind":"capability","name":"FloatReader"}}}},{{"displayName":"number","type":{scalar "float64"}}}],"resultType":{text},"requiredEffects":["io"],"body":{{"kind":"capabilityInvoke","capabilityValue":{parameter "reader"},"capability":"FloatReader","operation":"read","arguments":[{{"parameter":"number","value":{{"kind":"float64Negate","value":{parameter "number"}}}}}]}}}}"""
+                publishWithZigHost "open" path (List.ofSeq requests)
             let snapshot = File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap
             let rewrittenTypes =
                 snapshot.Types |> List.map (fun item ->

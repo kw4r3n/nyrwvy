@@ -2,7 +2,7 @@
 
 Two request tasks wait independently while a third task receives responses and routes them by request ID. The graph owns dispatch, first completion, timeout handling and shutdown. Transport fixtures supply I/O only. The program uses three [scoped one-shot operations](../../docs/specs/scoped-one-shot.md) and the existing TaskScope; it adds no channel or scheduler.
 
-Run from the repository root after `npm ci` and a Release build of `tools/Nyrwvy.AuthoringSession` with .NET 10:
+Run from the repository root after `npm ci` and `npm run build:host` (the Zig session host), with .NET 10 for the C# runs:
 
 ```sh
 node examples/scoped-result-handoff/run.mjs /path/to/empty-output

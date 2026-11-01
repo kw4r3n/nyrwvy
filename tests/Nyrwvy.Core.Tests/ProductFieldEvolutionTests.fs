@@ -5,7 +5,6 @@ open System.Diagnostics
 open System.IO
 open System.Text.Json
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 module ProductFieldEvolutionTests =
@@ -382,80 +381,6 @@ Console.WriteLine(NyFunctions.{nested}("second").{field});
         | other -> failwithf "Referenced function deletion was accepted: %A" other
         Assert.Equal(referenced.Id, AgentWorkspace.currentSnapshotId ws)
 
-    [<Fact>]
-    let ``authoring JSONL reviews and commits Product repair plans using stable IDs`` () =
-        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-product-field-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(root) |> ignore
-        let path = Path.Combine(root, "workspace.json")
-        try
-            let initial = fixture ()
-            let source = SnapshotCodec.serialize initial |> function
-                | Ok text -> text
-                | Error error -> failwithf "Fixture serialization failed: %A" error
-            File.WriteAllText(path, source)
-            use session = AuthoringSession.openExisting path |> function
-                | Ok opened -> opened
-                | Error error -> failwithf "Open failed: %A" error
-            let repairs =
-                plans
-                |> List.map (fun plan ->
-                    $"""{{"constructNodeId":"{StableId.value plan.ConstructNodeId}","valueNodeId":"{StableId.value plan.ValueNodeId}"}}""")
-                |> String.concat ","
-            let command =
-                $"""{{"id":"repair","op":"simulateOperations","operations":[{{"kind":"addProductField","typeId":"{StableId.value productId}","displayName":"added","type":{{"kind":"primitive","primitive":"string"}},"constructions":[{repairs}]}}]}}"""
-            use response = AuthoringProtocol.executeLine session command |> JsonDocument.Parse
-            Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
-            let result = response.RootElement.GetProperty("result")
-            let proposalId = result.GetProperty("proposalId").GetString()
-            let diff = result.GetProperty("review").GetProperty("diff")
-            Assert.Equal(3, diff.GetProperty("productFieldsBound").GetArrayLength())
-            Assert.Equal(1, diff.GetProperty("productFieldsAdded").GetArrayLength())
-            use committed =
-                AuthoringProtocol.executeLine session ($"""{{"id":"commit","op":"commit","proposalId":"{proposalId}"}}""")
-                |> JsonDocument.Parse
-            Assert.True(committed.RootElement.GetProperty("ok").GetBoolean(), committed.RootElement.ToString())
-            session.Close()
-            use reopened = AuthoringSession.openExisting path |> function
-                | Ok opened -> opened
-                | Error error -> failwithf "Reopen failed: %A" error
-            let stored =
-                match SnapshotCodec.deserialize (File.ReadAllText path) with
-                | Ok value -> value
-                | Error error -> failwithf "Stored graph invalid: %A" error
-            Assert.Equal("added", (newField stored).DisplayName)
-            let deleteRequest =
-                $"""{{"id":"delete","op":"simulateOperations","operations":[{{"kind":"deleteFunction","functionId":"{StableId.value directId}"}}]}}"""
-            use deletedReview = AuthoringProtocol.executeLine reopened deleteRequest |> JsonDocument.Parse
-            Assert.True(deletedReview.RootElement.GetProperty("ok").GetBoolean(), deletedReview.RootElement.ToString())
-            let deletionResult = deletedReview.RootElement.GetProperty("result")
-            Assert.Equal(1, deletionResult.GetProperty("review").GetProperty("diff").GetProperty("functionsRemoved").GetArrayLength())
-            let deletionProposalId = deletionResult.GetProperty("proposalId").GetString()
-            use deletedCommit =
-                AuthoringProtocol.executeLine reopened ($"""{{"id":"commit","op":"commit","proposalId":"{deletionProposalId}"}}""")
-                |> JsonDocument.Parse
-            Assert.True(deletedCommit.RootElement.GetProperty("ok").GetBoolean(), deletedCommit.RootElement.ToString())
-            let fieldId = (newField stored).Id
-            let removeRequest =
-                $"""{{"id":"remove","op":"simulateOperations","operations":[{{"kind":"removeProductField","fieldId":"{StableId.value fieldId}"}}]}}"""
-            use removalReview = AuthoringProtocol.executeLine reopened removeRequest |> JsonDocument.Parse
-            Assert.True(removalReview.RootElement.GetProperty("ok").GetBoolean(), removalReview.RootElement.ToString())
-            let removalResult = removalReview.RootElement.GetProperty("result")
-            Assert.Equal(1, removalResult.GetProperty("review").GetProperty("diff").GetProperty("productFieldsRemoved").GetArrayLength())
-            let removalProposalId = removalResult.GetProperty("proposalId").GetString()
-            use removalCommit =
-                AuthoringProtocol.executeLine reopened ($"""{{"id":"commit","op":"commit","proposalId":"{removalProposalId}"}}""")
-                |> JsonDocument.Parse
-            Assert.True(removalCommit.RootElement.GetProperty("ok").GetBoolean(), removalCommit.RootElement.ToString())
-            reopened.Close()
-            let afterDelete =
-                match SnapshotCodec.deserialize (File.ReadAllText path) with
-                | Ok value -> value
-                | Error error -> failwithf "Deleted graph invalid: %A" error
-            Assert.Equal<FunctionId list>([ nestedId ], afterDelete.Functions |> List.map (fun fn -> fn.Id))
-            Assert.Equal<SemanticType list>(initial.Types, afterDelete.Types)
-        finally
-            if Directory.Exists root then Directory.Delete(root, true)
-
     let private recipePlans: AgentProductFieldValuePlan list =
         [ { ConstructNodeId = directProductId
             Value =
@@ -504,44 +429,3 @@ Console.WriteLine(NyFunctions.{nested}("second").{field});
             | Ok other -> failwithf "Expected %s, got %A" expected other
         reject "ProductFieldValueTypeMismatch" [ { ConstructNodeId = directProductId; Value = AgentProductFieldValue.Recipe(ExpressionRecipe.Int64Literal 1L) } ]
         reject "ProductFieldPlanTargetNotFound" [ { ConstructNodeId = stable<GraphNodeTag> "missing"; Value = AgentProductFieldValue.Recipe(ExpressionRecipe.StringLiteral "x") } ]
-
-    [<Fact>]
-    let ``authoring JSONL accepts value recipes in exact and named addProductField plans`` () =
-        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-product-field-value-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(root) |> ignore
-        let path = Path.Combine(root, "workspace.json")
-        try
-            let source = SnapshotCodec.serialize (fixture ()) |> function
-                | Ok text -> text
-                | Error error -> failwithf "Fixture serialization failed: %A" error
-            File.WriteAllText(path, source)
-            use session = AuthoringSession.openExisting path |> function
-                | Ok opened -> opened
-                | Error error -> failwithf "Open failed: %A" error
-            let node = StableId.value
-            let exact =
-                $"""{{"id":"exact","op":"simulateOperations","operations":[{{"kind":"addProductField","typeId":"{StableId.value productId}","displayName":"added","type":{{"kind":"primitive","primitive":"string"}},"constructions":[{{"constructNodeId":"{node directProductId}","value":{{"kind":"stringLiteral","value":"d"}}}},{{"constructNodeId":"{node trueProductId}","valueNodeId":"{node trueValueId}"}},{{"constructNodeId":"{node falseProductId}","value":{{"kind":"stringLiteral","value":"f"}}}}]}}]}}"""
-            use exactResponse = AuthoringProtocol.executeLine session exact |> JsonDocument.Parse
-            Assert.True(exactResponse.RootElement.GetProperty("ok").GetBoolean(), exactResponse.RootElement.ToString())
-            let both =
-                $"""{{"id":"both","op":"simulateOperations","operations":[{{"kind":"addProductField","typeId":"{StableId.value productId}","displayName":"added","type":{{"kind":"primitive","primitive":"string"}},"constructions":[{{"constructNodeId":"{node directProductId}","valueNodeId":"{node directValueId}","value":{{"kind":"stringLiteral","value":"d"}}}}]}}]}}"""
-            use bothResponse = AuthoringProtocol.executeLine session both |> JsonDocument.Parse
-            Assert.False(bothResponse.RootElement.GetProperty("ok").GetBoolean(), bothResponse.RootElement.ToString())
-            let named =
-                $"""{{"id":"named","op":"simulateOperationsByName","operations":[{{"kind":"addProductField","type":"Record","displayName":"added","fieldType":{{"kind":"primitive","primitive":"string"}},"constructions":[{{"constructNodeId":"{node directProductId}","value":{{"kind":"parameter","name":"input"}}}},{{"constructNodeId":"{node trueProductId}","value":{{"kind":"parameter","name":"input"}}}},{{"constructNodeId":"{node falseProductId}","valueNodeId":"{node falseValueId}"}}]}}]}}"""
-            use namedResponse = AuthoringProtocol.executeLine session named |> JsonDocument.Parse
-            Assert.True(namedResponse.RootElement.GetProperty("ok").GetBoolean(), namedResponse.RootElement.ToString())
-            let proposalId = namedResponse.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
-            use committed =
-                AuthoringProtocol.executeLine session ($"""{{"id":"commit","op":"commit","proposalId":"{proposalId}"}}""")
-                |> JsonDocument.Parse
-            Assert.True(committed.RootElement.GetProperty("ok").GetBoolean(), committed.RootElement.ToString())
-            session.Close()
-            let stored =
-                match SnapshotCodec.deserialize (File.ReadAllText path) with
-                | Ok value -> value
-                | Error error -> failwithf "Stored graph invalid: %A" error
-            Assert.Empty(SnapshotValidator.validate stored)
-            Assert.Equal(SemanticNodeKind.ParameterReference(stable<ParameterTag> "direct-parameter"), addedValue stored (newField stored).Id directProductId)
-        finally
-            if Directory.Exists root then Directory.Delete(root, true)

@@ -31,7 +31,7 @@ type SnapshotMigrationOutcome =
       FunctionTypeParameterListsDeclared: int }
 
 /// The migration of a decoded snapshot to the current schema: the rewrite step of
-/// `Nyrwvy.AuthoringSession migrate` ([legacy cutover](docs/plans/post-m2-roadmap.md)). It is a
+/// the F# host's `migrate`, kept at tag fsharp-host-final ([legacy cutover](docs/plans/post-m2-roadmap.md)). It is a
 /// privileged infrastructure boundary under docs/specs/schema-evolution-policy.md: it preserves
 /// every existing stable ID, invents no semantic decision, and leaves validation and fingerprint
 /// evidence to its caller, which also owns the dependency sidecar and the file replacement.

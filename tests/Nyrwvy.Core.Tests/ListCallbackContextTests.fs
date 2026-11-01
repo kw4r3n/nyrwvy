@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Text.Json
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// G2: List callbacks that receive explicit context arguments besides the iteration values.
@@ -132,31 +131,3 @@ module ListCallbackContextTests =
                                             { node with Kind = SemanticNodeKind.BoolLiteral true }
                                         | _ -> node) } }) }
         Assert.Contains(SnapshotValidator.validate broken, fun issue -> issue.Code = "CallbackContextTypeMismatch")
-
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``context callbacks run with runtime values and are authored over the wire`` () =
-        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-callback-context-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(root) |> ignore
-        let path = Path.Combine(root, "workspace.json")
-        try
-            File.WriteAllText(path, AgentWorkspace.serializeCurrentSnapshot (fixture ()) |> unwrap "serialize")
-            use session = AuthoringSession.openExisting path |> unwrap "open"
-            let functionId name = (session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)).Id
-            let run name threshold = (PureRun.run session (functionId name) [ PureRunValue.Int64List [ 1L; 5L; 10L ]; PureRunValue.Int64 threshold ] None |> unwrap name).Actual
-            Assert.Equal(PureRunValue.Int64List [ 5L; 10L ], run "filterAbove" 4L)
-            Assert.Equal(PureRunValue.Int64List [ 10L ], run "filterAbove" 5L)
-            Assert.Equal(PureRunValue.Int64List [ 3L; 15L; 30L ], run "scaleAll" 3L)
-            Assert.Equal(PureRunValue.Int64 15L, run "totalAbove" 1L)
-            Assert.Equal(PureRunValue.Bool true, run "anyAbove" 9L)
-            Assert.Equal(PureRunValue.Bool false, run "allAbove" 1L)
-            Assert.Equal(PureRunValue.Bool true, run "allAbove" 0L)
-            let line =
-                """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"countAbove","parameters":[{"displayName":"items","type":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"primitive","primitive":"int64"}]}},{"displayName":"limit","type":{"kind":"primitive","primitive":"int64"}}],"resultType":{"kind":"primitive","primitive":"int64"},"requiredEffects":[],"body":{"kind":"listLength","value":{"kind":"listFilter","source":{"kind":"parameter","name":"items"},"function":"above","context":[{"parameter":"threshold","value":{"kind":"parameter","name":"limit"}}]}}}"""
-            use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
-            Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
-            let proposalId = proposed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
-            use committed = AuthoringProtocol.executeLine session (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId) |> JsonDocument.Parse
-            Assert.True(committed.RootElement.GetProperty("ok").GetBoolean(), committed.RootElement.ToString())
-            Assert.Equal(PureRunValue.Int64 2L, run "countAbove" 2L)
-        finally
-            if Directory.Exists root then Directory.Delete(root, true)

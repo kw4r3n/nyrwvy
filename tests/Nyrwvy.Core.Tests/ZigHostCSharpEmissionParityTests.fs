@@ -6,7 +6,6 @@ open System.Text
 open System.Text.Json
 open System.Text.Json.Nodes
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// Public emission and bind-c retain the F# workflow, including generated-file refusal and publication order.

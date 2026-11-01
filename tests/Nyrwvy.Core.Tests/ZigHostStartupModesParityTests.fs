@@ -131,37 +131,3 @@ module ZigHostStartupModesParityTests =
                 File.WriteAllText(Path.Combine(dir, "app.json.dependency.json"), manifest.ToJsonString())
             succeeds (compare dir set (pin None))
             fails "DependencyFailure: Pin with a source applies only to a single legacy dependency." (compare dir set (pin (Some "old.json"))))
-
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``Upgrade forms replace the reviewed selection or refuse it on both hosts`` () =
-        // Review fingerprints bind the absolute workspace path, which differs per run; live F# only.
-        if hostReference = "live" then withDirectory (fun dir ->
-            let app dir = Path.Combine(dir, "app.json")
-            let single source expect = fun dir -> [ "upgrade"; "--snapshot"; app dir; "--dependency"; Path.Combine(dir, source); "--expect"; expect ]
-            succeeds (compare dir embedded (single "new.json" (fingerprint updated)))
-            succeeds (compare dir embedded (fun dir -> single "new.json" (fingerprint updated) dir @ [ "--replaces"; StableId.value old.Id ]))
-            fails "DependencyFailure: The source differs from the reviewed upgrade version." (compare dir embedded (single "new.json" "sha256:reviewed"))
-            fails "DependencyFailure: No selected dependency has SnapshotId 'missing'." (compare dir embedded (fun dir -> single "new.json" (fingerprint updated) dir @ [ "--replaces"; "missing" ]))
-            fails "DependencyFailure: The selected dependency is unavailable." (compare dir embedded (single "missing.json" (fingerprint updated)))
-            fails "DependencyFailure: The source is the version already selected" (compare dir embedded (single "old.json" (fingerprint old)))
-            fails "DependencyFailure: This workspace has no dependency to upgrade; add one" (compare dir standalone (single "new.json" (fingerprint updated)))
-            fails "WorkspaceValidationFailure: The workspace graph is invalid: " (compare dir embedded (single "hidden.json" (fingerprint hidden)))
-            let replacements dir = $"""[{{"source":{quoted (Path.Combine(dir, "new.json"))},"replaces":"{StableId.value old.Id}"}}]"""
-            let batch dir = review dir embedded $"""{{"id":"p","op":"previewDependencyUpgrades","upgrades":{replacements dir}}}"""
-            let upgrades fingerprint = fun dir -> [ "upgrade"; "--snapshot"; app dir; "--upgrades"; replacements dir; "--review"; fingerprint ]
-            succeeds (compare dir embedded (fun dir -> upgrades (batch dir) dir))
-            fails "DependencyFailure: The workspace, current pins, targets or new selected content differ from the reviewed batch." (compare dir embedded (upgrades "reviewed"))
-            fails "DependencyFailure: This workspace has no dependency to upgrade; add one" (compare dir standalone (upgrades "reviewed"))
-            let selected (replaces: string list) dir = $"""{{"sources":[{quoted (Path.Combine(dir, "new.json"))}],"replaces":{JsonSerializer.Serialize replaces}}}"""
-            let selection replaces setup fingerprint = fun dir ->
-                let reviewed = fingerprint |> Option.defaultWith (fun () -> review dir setup $"""{{"id":"p","op":"previewDependencyUpgrades","selection":{selected replaces dir}}}""")
-                [ "upgrade"; "--snapshot"; app dir; "--selection"; selected replaces dir; "--review"; reviewed ]
-            succeeds (compare dir standalone (selection [] standalone None))
-            succeeds (compare dir embedded (selection [ StableId.value old.Id ] embedded None))
-            fails "DependencyFailure: The workspace, current pins, targets or new selected content differ from the reviewed selection." (compare dir standalone (selection [] standalone (Some "reviewed")))
-            fails "DependencyFailure: Every replacement target must be a currently selected dependency SnapshotId." (compare dir embedded (selection [ "missing" ] embedded (Some "reviewed")))
-            fails "DependencyFailure: Selection upgrade sources and targets must be non-blank." (compare dir embedded (fun dir -> [ "upgrade"; "--snapshot"; app dir; "--selection"; """{"sources":[null],"replaces":[]}"""; "--review"; "reviewed" ]))
-            for payload in [ "not json"; "[]"; """{"sources":[1],"replaces":[]}"""; """{"sources":[],"sources":[],"replaces":[]}""" ] do
-                fails "Usage: " (compare dir embedded (fun dir -> [ "upgrade"; "--snapshot"; app dir; "--selection"; payload; "--review"; "reviewed" ]))
-            for payload in [ "[]"; """[{"source":"x"}]"""; """[{"source":" ","replaces":"x"}]""" ] do
-                fails "Usage: " (compare dir embedded (fun dir -> [ "upgrade"; "--snapshot"; app dir; "--upgrades"; payload; "--review"; "reviewed" ])))

@@ -10,7 +10,7 @@ From the repository root:
 
 ```sh
 npm ci
-dotnet build tools/Nyrwvy.AuthoringSession --configuration Release
+npm run build:host
 node --experimental-strip-types examples/function-abort/run.mjs
 ```
 

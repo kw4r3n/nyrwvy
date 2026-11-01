@@ -16,8 +16,8 @@ and `await_cleanup` at `4bab9e030744a0887c1ee13bdd8fc8db3b98334f`, replacing onl
 effects. Save is synchronous in Python: its stub requests cancellation before
 return/throw; no asynchronous interruption of disk save is claimed.
 
-Use Node 22.6+ and the repository's installed .NET SDK, with AuthoringSession
-built. The runtime helper compiles unedited emitted C# against installed .NET
+Use Node 22.6+ and the repository's installed .NET SDK, with the Zig session host
+built (`npm run build:host`). The runtime helper compiles unedited emitted C# against installed .NET
 assemblies without restore or downloads. From the repository root in Nushell:
 
 ```nu

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import pathlib
 import subprocess
 import sys
@@ -12,7 +13,7 @@ ROOT = pathlib.Path(__file__).resolve().parent
 REPO = ROOT.parent.parent
 SNAPSHOT = ROOT / "planner.snapshot.nyrec"
 RUNNER = ROOT / "runner"
-PROJECT = REPO / "tools" / "Nyrwvy.AuthoringSession" / "Nyrwvy.AuthoringSession.fsproj"
+HOST = REPO / "tools" / "zig" / "host" / "bin" / "nyrwvy-host"
 
 
 def exchange(proc: subprocess.Popen[str], payload: dict) -> dict:
@@ -45,31 +46,17 @@ def main() -> int:
     if not source_snapshot.is_file():
         raise SystemExit(f"workspace not found: {source_snapshot}")
 
-    subprocess.run(
-        ["dotnet", "build", str(PROJECT), "--configuration", "Release"],
-        cwd=REPO,
-        check=True,
-    )
+    # The Zig host has no `migrate`; a JSON or legacy snapshot is converted with the F# host at tag fsharp-host-final.
+    if source_snapshot.suffix != ".nyrec":
+        raise SystemExit("pass a current record-form snapshot (.nyrec); convert others with `migrate --to` from tag fsharp-host-final")
+    subprocess.run(["npm", "run", "build:host"], cwd=REPO, check=True)
 
     SNAPSHOT.unlink(missing_ok=True)
-    subprocess.run(
-        ["dotnet", "run", "--project", str(PROJECT), "--configuration", "Release", "--no-build", "--",
-         "migrate", "--snapshot", str(source_snapshot), "--to", str(SNAPSHOT)],
-        cwd=REPO,
-        check=True,
-        stdout=subprocess.DEVNULL,
-    )
+    shutil.copyfile(source_snapshot, SNAPSHOT)
 
     proc = subprocess.Popen(
         [
-            "dotnet",
-            "run",
-            "--project",
-            str(PROJECT),
-            "--configuration",
-            "Release",
-            "--no-build",
-            "--",
+            str(HOST),
             "open",
             "--snapshot",
             str(SNAPSHOT),

@@ -333,43 +333,6 @@ module ListHigherOrderTests =
         |> fun functionEntity -> functionEntity.Body.Nodes |> List.find (fun node -> node.Id = nodeIdToFind)
 
     [<Fact>]
-    let ``higher-order List nodes expose types callback callees and viewer relations`` () =
-        let fixture = createFixture ()
-        Assert.Empty(SnapshotValidator.validate fixture.Snapshot)
-
-        let focus = SemanticQuery.focusFunction fixture.Snapshot fixture.ShowcaseFunctionId |> unwrap "showcase focus"
-        let types = focus.NodeTypes |> List.map (fun item -> item.NodeId, item.Type) |> Map.ofList
-        Assert.Equal(Some boolListType, Map.find fixture.MapNodeId types)
-        Assert.Equal(Some int64ListType, Map.find fixture.FilterNodeId types)
-        Assert.Equal(Some boolType, Map.find fixture.AnyNodeId types)
-        Assert.Equal(Some boolType, Map.find fixture.AllNodeId types)
-
-        let callees = focus.Callees |> List.map (fun site -> site.CalleeFunctionId) |> Set.ofList
-        Assert.Contains(fixture.PositiveFunctionId, callees)
-        Assert.Contains(fixture.BoolIdentityFunctionId, callees)
-        let related = focus.RelatedFunctionSignatures |> List.map (fun signature -> signature.FunctionId) |> Set.ofList
-        Assert.Contains(fixture.PositiveFunctionId, related)
-        Assert.Contains(fixture.BoolIdentityFunctionId, related)
-
-        let viewer = ViewerProjection.focus focus
-        let roles = viewer.Graph.Nodes |> List.map (fun node -> node.Role)
-        for role in [ ViewerNodeRole.Operation "ListMap"; ViewerNodeRole.Operation "ListFilter"; ViewerNodeRole.Operation "ListAny"; ViewerNodeRole.Operation "ListAll" ] do
-            Assert.Contains(role, roles)
-
-        let mapViewer = viewer.Graph.Nodes |> List.find (fun node -> node.Id = fixture.MapNodeId)
-        Assert.Contains(
-            mapViewer.Relations,
-            fun relation ->
-                relation.Kind = ViewerRelationKind.CallsFunction
-                && relation.Target = ViewerTarget.Function fixture.PositiveFunctionId
-        )
-        let html = ViewerRendering.focus viewer
-        Assert.Contains("List map", html)
-        Assert.Contains("List filter", html)
-        Assert.Contains("List any", html)
-        Assert.Contains("List all", html)
-
-    [<Fact>]
     let ``higher-order List validation rejects invalid source and callback contracts`` () =
         let fixture = createFixture ()
 

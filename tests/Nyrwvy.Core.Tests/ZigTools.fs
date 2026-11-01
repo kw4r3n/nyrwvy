@@ -1,12 +1,27 @@
-namespace Nyrwvy.Tools.AuthoringSession
+namespace Nyrwvy.Core.Tests
 
 open System
 open System.Diagnostics
 open System.IO
 
-/// The Zig tools under `tools/zig/<tool>` (docs/decisions/zig-tools.md), shared by runPure's Zig
-/// route and the session's snapshot read path: one build cache and one per-process table. Failures
-/// are a code and a plain-text message; each caller maps them to its own diagnostics.
+/// Reads a child's stream to its end but keeps at most `limit` characters, so a flood of output
+/// neither grows memory nor blocks the child on a full pipe.
+module internal BoundedOutput =
+    let read (reader: StreamReader) (limit: int) =
+        task {
+            let text = Text.StringBuilder()
+            let buffer = Array.zeroCreate<char> 8192
+            let mutable reading = true
+            while reading do
+                let! count = reader.ReadAsync(buffer, 0, buffer.Length)
+                if count = 0 then reading <- false
+                elif text.Length < limit then text.Append(buffer, 0, min count (limit - text.Length)) |> ignore
+            return text.ToString()
+        }
+
+/// The Zig tools under `tools/zig/<tool>` (docs/decisions/zig-tools.md), the Zig host among them, as
+/// the tests build them: one build cache and one per-process table. Failures are a code and a
+/// plain-text message.
 module internal ZigTools =
     /// Runs a process and returns its exit code with bounded output; timeouts and I/O failures are
     /// errors. `phase` names the timed step in the timeout diagnostic.
@@ -88,11 +103,6 @@ module internal ZigTools =
     let private sha256Hex (text: string) = Convert.ToHexString(Security.Cryptography.SHA256.HashData(Text.Encoding.UTF8.GetBytes text))
 
     let private tools = Collections.Generic.Dictionary<string, string>()
-
-    /// Whether the session's paths use the Zig tools (reader, validator, lowering, emitter): only when
-    /// `NYRWVY_ZIG_TOOLS=1` is set. By default they are F# (docs/decisions/zig-tools.md); runPure's
-    /// Zig backend always lowers and emits with the Zig tools.
-    let enabled () = Environment.GetEnvironmentVariable "NYRWVY_ZIG_TOOLS" = "1"
 
     // The modules a tool imports (`@import("model_reader")` for `tools/zig/model-reader`), each a
     // directory below the repository with a `main.zig` or, for the viewer page, `asset.zig`.

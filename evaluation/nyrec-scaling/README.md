@@ -1,6 +1,8 @@
 # Large `.nyrec` allocation and real-commit probe
 
 Investigation only. No production source is edited and no dependency is added.
+The probe measured the F# session host; `profile.py` and `profile.fsx` were removed with it and
+remain at tag `fsharp-host-final`, where the commands below still run.
 `profile.py` builds the current Release projects into a temporary directory.
 With `--instrument`, it copies sources and existing NuGet assets first, then adds
 phase counters to that temporary copy. Each replacement requires exactly one

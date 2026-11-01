@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Text.Json
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// Scope diagnostics name the referenced slot and parameter by display name and list the visible
@@ -213,32 +212,3 @@ module ScopeDepthDiagnosticsTests =
                 diagnostic.Message
             )
         | other -> failwithf "Expected one rejection, got %A" other
-
-    [<Fact>]
-    let ``name-resolved recipes get the same frame description`` () =
-        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-scope-diag-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(root) |> ignore
-        let path = Path.Combine(root, "workspace.json")
-        try
-            File.WriteAllText(path, SnapshotCodec.serialize snapshot |> function Ok json -> json | Error error -> failwithf "%A" error)
-            use session = AuthoringSession.openExisting path |> function Ok value -> value | Error error -> failwithf "%A" error
-            let request depth =
-                let reference =
-                    sprintf """{"kind":"patternReference","scopeDepth":%d,"slot":"field","type":"Action","variant":"Stop","field":"member"}""" depth
-                sprintf
-                    """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"describe","parameters":[{"displayName":"action","type":{"kind":"named","name":"Action"}},{"displayName":"maybe","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]}}],"resultType":{"kind":"primitive","primitive":"string"},"requiredEffects":[],"body":{"kind":"matchUnion","type":"Action","input":{"kind":"parameter","name":"action"},"arms":[{"variant":"Stop","body":{"kind":"matchOption","input":{"kind":"parameter","name":"maybe"},"someBody":{"kind":"stringLiteral","value":"some"},"noneBody":%s}},{"variant":"Go","body":{"kind":"stringLiteral","value":"go"}}]}}"""
-                    reference
-            use rejected = AuthoringProtocol.executeLine session (request 0) |> JsonDocument.Parse
-            let text = rejected.RootElement.ToString()
-            Assert.False(rejected.RootElement.GetProperty("ok").GetBoolean(), text)
-            let error = rejected.RootElement.GetProperty("error").GetProperty("details").GetProperty("diagnostics").[0]
-            Assert.Equal("PureExpressionPatternSlotNotFound", error.GetProperty("code").GetString())
-            let text = error.GetProperty("message").GetString()
-            Assert.Contains("field 'member' (", text)
-            Assert.Contains("of variant 'Stop' of 'Action' does not exist in scope depth 0. The slot is found at depth 1.", text)
-            Assert.Contains("depth 0 = None arm of MatchOption (no bindings); depth 1 = arm 'Stop' of MatchUnion on 'Action' (binds 'member')", text)
-            Assert.EndsWith("At body.arms[0].body.noneBody (patternReference).", text)
-            use accepted = AuthoringProtocol.executeLine session (request 1) |> JsonDocument.Parse
-            Assert.True(accepted.RootElement.GetProperty("ok").GetBoolean(), accepted.RootElement.ToString())
-        finally
-            Directory.Delete(root, true)

@@ -6,7 +6,7 @@ From the repository root:
 
 ```sh
 npm ci
-dotnet build tools/Nyrwvy.AuthoringSession --configuration Release
+npm run build:host
 node examples/config-request-batch/run.mjs
 ```
 

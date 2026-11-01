@@ -1,5 +1,5 @@
 # The structured graph encoding of WireGraph.kind: snapshot kind|wire kind|wire field:snapshot field:shape ...
-# Follows tools/Nyrwvy.AuthoringSession/WireGraph.fs, reading the properties model_kinds.txt names; ZigHostParityTests compares every kind.
+# Followed the F# host's WireGraph.fs (tag fsharp-host-final), reading the properties model_kinds.txt names; ZigHostParityTests compares every kind.
 matchResult|matchResult|inputNodeId:inputNodeId:id okArm:okArm:varm errArm:errArm:errarm
 matchOption|matchOption|inputNodeId:inputNodeId:id someArm:someArm:varm noneBody:noneBody:graph
 bind|bind|inputNodeId:inputNodeId:id body:boundBody:varm

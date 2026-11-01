@@ -4,7 +4,6 @@ open System
 open System.Diagnostics
 open System.IO
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// `model-reader --fingerprints` (the Zig session host's status, docs/decisions/zig-session-host.md)

@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Text.Json
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// Declared function type parameters (snapshot schema 21): a function lists its type parameters in
@@ -113,74 +112,9 @@ module DeclaredFunctionTypeParametersTests =
         Assert.Contains(name + "<" + tName + ", " + uName + ">", emit (second [ tId, "T"; uId, "U" ]))
         Assert.Contains(name + "<" + uName + ", " + tName + ">", emit (second [ uId, "U"; tId, "T" ]))
 
-    let private withWireSession test =
-        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-declared-type-parameters-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(root) |> ignore
-        let path = Path.Combine(root, "workspace.json")
-        try
-            use session = AuthoringSession.createNew path |> unwrap "create session"
-            test session path
-        finally
-            if Directory.Exists root then Directory.Delete(root, true)
-
-    let private execute (session: AuthoringSession) (line: string) =
-        use document = JsonDocument.Parse(AuthoringProtocol.executeLine session line)
-        document.RootElement.Clone()
-
-    let private publish session line =
-        let proposed = execute session line
-        Assert.True(proposed.GetProperty("ok").GetBoolean(), proposed.ToString())
-        session.Commit(proposed.GetProperty("result").GetProperty("proposalId").GetString(), CommitPolicy.RejectBlockingObligations) |> unwrap "commit" |> ignore
-
     let private creation (typeParameters: string) =
         let declared = if typeParameters = "" then "" else $"\"typeParameters\":{typeParameters},"
         $"""{{"id":"create","op":"simulateCreateFunctionByName","displayName":"second",{declared}"parameters":[{{"displayName":"first","type":{{"kind":"builtinGeneric","generic":"list","arguments":[{{"kind":"typeParameter","name":"T"}}]}}}},{{"displayName":"second","type":{{"kind":"typeParameter","name":"U"}}}}],"resultType":{{"kind":"typeParameter","name":"U"}},"requiredEffects":[],"body":{{"kind":"parameter","name":"second"}}}}"""
-
-    let private declaredNames (session: AuthoringSession) =
-        let declarations = execute session """{"id":"declarations","op":"declarations"}"""
-        let fn = declarations.GetProperty("result").GetProperty("functions").EnumerateArray() |> Seq.find (fun item -> item.GetProperty("displayName").GetString() = "second")
-        fn.GetProperty("typeParameters").EnumerateArray() |> Seq.map (fun item -> item.GetProperty("displayName").GetString()) |> List.ofSeq
-
-    [<Fact>]
-    let ``wire creation declares the listed type parameters in order, or derives them from the parameter types`` () =
-        withWireSession (fun session _ ->
-            publish session (creation "")
-            Assert.Equal<string list>([ "T"; "U" ], declaredNames session)
-            let fn = session.Declarations().Functions |> List.exactlyOne
-            Assert.True(TypeParameters.isDerived fn)
-            // Wire output names each occurrence from the owner's list and shows the list on readFunction.
-            let read = execute session """{"id":"read","op":"readFunction","function":"second"}"""
-            let shown = read.GetProperty("result").GetProperty("function")
-            Assert.Equal<string list>([ "T"; "U" ], shown.GetProperty("typeParameters").EnumerateArray() |> Seq.map (fun item -> item.GetProperty("displayName").GetString()) |> List.ofSeq)
-            Assert.Equal("U", shown.GetProperty("resultType").GetProperty("displayName").GetString())
-            Assert.Equal(StableId.value (fst fn.TypeParameters.[1]), shown.GetProperty("resultType").GetProperty("typeParameterId").GetString()))
-        withWireSession (fun session path ->
-            publish session (creation """["U","T"]""")
-            Assert.Equal<string list>([ "U"; "T" ], declaredNames session)
-            let fn = session.Declarations().Functions |> List.exactlyOne
-            Assert.False(TypeParameters.isDerived fn)
-            session.Close()
-            let stored = SnapshotCodec.deserialize (File.ReadAllText path) |> unwrap "stored"
-            Assert.Equal(SnapshotSchema.declaredFunctionTypeParameters, SnapshotSchema.required stored)
-            Assert.Equal<(TypeParameterId * string) list>(fn.TypeParameters, stored.Functions.Head.TypeParameters)
-            // Fresh system-owned identities, not the request-local names.
-            Assert.All(fn.TypeParameters, fun (id, name) -> Assert.NotEqual<string>(name, StableId.value id)))
-
-    [<Fact>]
-    let ``wire creation rejects a list that misses a mentioned type parameter or lists an uninferable one`` () =
-        withWireSession (fun session _ ->
-            let reject typeParameters =
-                let response = execute session (creation typeParameters)
-                Assert.False(response.GetProperty("ok").GetBoolean(), response.ToString())
-                response.GetProperty("error").GetProperty("details").GetProperty("diagnostics").EnumerateArray()
-                |> Seq.map (fun item -> item.GetProperty("code").GetString() + ": " + item.GetProperty("message").GetString())
-                |> String.concat "\n"
-            Assert.Contains("FunctionCreationTypeParameterNotDeclared", reject """["T"]""")
-            Assert.Contains("'U'", reject """["T"]""")
-            Assert.Contains("FunctionCreationTypeParameterNotInferable", reject """["T","U","V"]""")
-            Assert.Contains("'V'", reject """["T","U","V"]""")
-            Assert.Contains("FunctionCreationDuplicateTypeParameter", reject """["T","U","T"]""")
-            Assert.Empty(session.Declarations().Functions))
 
     [<Fact>]
     let ``a snapshot using both schema-21 constructs round-trips in both codecs and legacy fingerprints stay unchanged`` () =

@@ -2,7 +2,6 @@ namespace Nyrwvy.Core.Tests
 
 open System
 open System.IO
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 module ZigToolSourceHashTests =

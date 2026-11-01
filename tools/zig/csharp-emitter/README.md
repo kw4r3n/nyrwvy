@@ -59,11 +59,5 @@ Direct IR probes check emission contracts; execution is covered by host tests.
 The oracle takes canonical collection order: serialization normalizes jump,
 context, declaration and named-argument ordering before the Zig emitter sees it.
 
-For exact shared-resource extraction proof, compare the original backend/session
-DLLs and the rebuilt backend, optionally also the rebuilt session:
-
-```sh
-dotnet fsi tools/zig/csharp-emitter/resource-parity.fsx \
-  /original/Nyrwvy.Backend.CSharp.dll /original/Nyrwvy.AuthoringSession.dll \
-  /rebuilt/Nyrwvy.Backend.CSharp.dll /rebuilt/Nyrwvy.AuthoringSession.dll
-```
+The shared-resource extraction proof (`resource-parity.fsx`, which compared the backend and F# host
+DLLs) is at tag `fsharp-host-final`; the F# host was removed.

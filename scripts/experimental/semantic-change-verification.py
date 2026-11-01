@@ -1,4 +1,4 @@
-"""Executable JSONL acceptance examples; build AuthoringSession first. No extra packages."""
+"""Executable JSONL acceptance examples; build the Zig session host first (`npm run build:host`). No extra packages."""
 import atexit
 import contextlib
 import sys
@@ -9,11 +9,11 @@ import subprocess
 import tempfile
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
-DLL = REPO / 'tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll'
+HOST = REPO / 'tools/zig/host/bin/nyrwvy-host'
 
 class Session:
     def __init__(self, path, mode='create'):
-        self.process = subprocess.Popen(['dotnet', str(DLL), mode, '--snapshot', str(path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.process = subprocess.Popen([str(HOST), mode, '--snapshot', str(path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
         atexit.register(self.cleanup)
         self.serial = 0
     def request(self, op, ok=True, **fields):

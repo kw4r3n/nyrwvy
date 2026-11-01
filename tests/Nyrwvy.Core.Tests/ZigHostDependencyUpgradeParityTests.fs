@@ -22,67 +22,6 @@ module ZigHostDependencyUpgradeParityTests =
         doc.RootElement.GetProperty("result").Clone()
 
     [<Fact; Trait("Suite", "Extended")>]
-    let ``Dependency previews plan exact sources and selections without changing disk proposals or allocator state`` () =
-        // Review fingerprints bind the absolute workspace path, which differs per run; live F# only.
-        if hostReference = "live" then withDirectory (fun dir ->
-            for record in [ false; true ] do
-                let ext = if record then ".nyrec" else ".json"
-                let localPath = Path.Combine(dir, "local" + ext)
-                let source = Path.Combine(dir, "new" + ext)
-                let old = library "old"
-                let updated = library "new"
-                let other = Snapshot.empty (sid<SnapshotTag> "other")
-                let otherPath = Path.Combine(dir, "other" + ext)
-                let encode snapshot =
-                    let json = SnapshotCodec.serialize snapshot |> unwrap
-                    if record then RecordCodec.ofJson json else json
-                File.WriteAllText(source, encode updated)
-                File.WriteAllText(otherPath, encode other)
-                let local = Snapshot.empty (sid<SnapshotTag> "local")
-                let json = SnapshotCodec.serializeResolved old local |> unwrap
-                File.WriteAllText(localPath, if record then RecordCodec.ofJson json else json)
-                let manifest = memberOf old (Some("snapshotJson", SnapshotCodec.serialize old |> unwrap)) (Path.Combine(dir, "old.json"))
-                File.WriteAllText(localPath + ".dependency.json", manifest.ToJsonString())
-                let oldId = StableId.value old.Id
-                let one = $"""{{"id":"single","op":"previewDependencyUpgrade","source":{quoted source}}}"""
-                let batch = $"""{{"id":"batch","op":"previewDependencyUpgrades","upgrades":[{{"source":{quoted source},"replaces":"{oldId}"}}]}}"""
-                let selected = $"""{{"id":"selection","op":"previewDependencyUpgrades","selection":{{"sources":[{quoted source},{quoted otherPath}],"replaces":["{oldId}"]}}}}"""
-                let badSidecar = Path.Combine(dir, "bad-sidecar.json")
-                let highId = StableIdAllocator.seededPayload "dependency-previews" 900L
-                File.WriteAllText(badSidecar, $"""{{"snapshotId":"{highId}"}}""")
-                File.WriteAllText(badSidecar + ".dependency.json", "{not-json")
-                let failures =
-                    [ one.Replace(quoted source, quoted (Path.Combine(dir, "missing.json")))
-                      one.Replace("\"source\":", "\"replaces\":\"missing\",\"source\":")
-                      """{"id":"empty","op":"previewDependencyUpgrades","upgrades":[]}"""
-                      """{"id":"empty","op":"previewDependencyUpgrades","selection":{"sources":[],"replaces":[]}}"""
-                      batch.Replace("\"upgrades\":", "\"selection\":{},\"upgrades\":")
-                      batch.Replace("\"source\":", "\"extra\":1,\"source\":")
-                      selected.Replace("\"sources\":[", "\"sources\":[false,")
-                      one.Replace(quoted source, quoted badSidecar) ]
-                let declarations = """{"id":"declarations","op":"declarations"}"""
-                let previews = [ declarations; one; declarations; batch; declarations; selected; declarations ] @ (failures |> List.collect (fun request -> [ request; declarations ])) @ [ one; declarations; """{"id":"status","op":"status"}"""; """{"id":"proposals","op":"proposals"}""" ]
-                let allocate = """{"id":"allocate","op":"simulateCreateType","displayName":"AfterPreviews","typeKind":{"kind":"product","fields":[]}}"""
-                let requests = previews @ [ allocate ]
-                let saved = File.ReadAllBytes localPath, File.ReadAllBytes(localPath + ".dependency.json")
-                let runHost zig =
-                    let code, errors, answers = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", "dependency-previews" ] zig [ "open"; "--snapshot"; localPath; "--read-only" ] requests
-                    Assert.True((code = 0), $"host zig={zig}, exit={code}, stderr={errors}")
-                    Assert.Equal(seedWarning, errors)
-                    Assert.Equal(requests.Length, answers.Length)
-                    answers
-                let expected, actual = runHost false, runHost true
-                for request, (left, right) in List.zip requests (List.zip expected actual) do Assert.True((comparable left = comparable right), $"{request}\nF#: {left}\nZig: {right}")
-                for index in [ 0; 1; 2; 3; 4; 5; 6; previews.Length - 4; previews.Length - 3; previews.Length - 2; previews.Length - 1; previews.Length ] do success expected[index] |> ignore
-                for index in 0 .. failures.Length - 1 do
-                    let reply = expected[7 + index * 2]
-                    use doc = parseDocument reply
-                    Assert.False(doc.RootElement.GetProperty("ok").GetBoolean(), reply)
-                Assert.Equal(0, (success expected[previews.Length - 2]).GetProperty("pendingProposalCount").GetInt32())
-                Assert.InRange(StableIdAllocator.seededCount "dependency-previews" expected[previews.Length], 1L, 899L)
-                Assert.Equal(saved, (File.ReadAllBytes localPath, File.ReadAllBytes(localPath + ".dependency.json"))))
-
-    [<Fact; Trait("Suite", "Extended")>]
     let ``Dependency previews preserve incompatible visibility generic signatures nested imports and source diagnostics`` () =
         withDirectory (fun dir ->
             let old =
@@ -153,67 +92,6 @@ module ZigHostDependencyUpgradeParityTests =
             for index in [ 7; 9; 11; 13; 19; 21; 23 ] do
                 use doc = parseDocument expected[index]
                 Assert.False(doc.RootElement.GetProperty("ok").GetBoolean(), expected[index]))
-
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``Dependency selection previews support a first dependency retained pins and selection guards`` () =
-        // Review fingerprints bind the absolute workspace path, which differs per run; live F# only.
-        if hostReference = "live" then withDirectory (fun dir ->
-            let old, updated = library "old", library "updated"
-            let other = Snapshot.empty (sid<SnapshotTag> "retained")
-            let source = Path.Combine(dir, "updated.json")
-            let otherSource = Path.Combine(dir, "other.json")
-            File.WriteAllText(source, SnapshotCodec.serialize updated |> unwrap)
-            File.WriteAllText(otherSource, SnapshotCodec.serialize other |> unwrap)
-            let path = Path.Combine(dir, "app.json")
-            let app = Snapshot.empty (sid<SnapshotTag> "app")
-            let replacements = $"""[{{"source":{quoted source},"replaces":"{StableId.value old.Id}"}}]"""
-            let one = $"""{{"id":"single","op":"previewDependencyUpgrade","source":{quoted source}}}"""
-            let batch = $"""{{"id":"batch","op":"previewDependencyUpgrades","upgrades":{replacements}}}"""
-            let selection sources replaces = $"""{{"id":"select","op":"previewDependencyUpgrades","selection":{{"sources":{sources},"replaces":{replaces}}}}}"""
-            let runPair requests =
-                let runHost zig =
-                    let code, errors, answers = run zig [ "open"; "--snapshot"; path; "--read-only" ] requests
-                    Assert.True((code = 0), errors)
-                    Assert.Equal("", errors)
-                    Assert.Equal(requests.Length, answers.Length)
-                    answers
-                let expected, actual = runHost false, runHost true
-                for request, (left, right) in List.zip requests (List.zip expected actual) do Assert.True((comparable left = comparable right), $"{request}\nF#: {left}\nZig: {right}")
-                expected
-            File.WriteAllText(path, SnapshotCodec.serialize app |> unwrap)
-            let first = selection ("[" + quoted source + "]") "[]"
-            let replies = runPair [ one; batch; first; """{"id":"d","op":"declarations"}""" ]
-            success replies[2] |> ignore
-            let bytesSource = Path.Combine(dir, "bytes.json")
-            let bytesFields: SemanticField list =
-                [ { Id = sid<FieldTag> "bytes"; DisplayName = "data"; Type = TypeRef.Primitive PrimitiveType.Bytes } ]
-            let bytesType = { old.Types.Head with Kind = SemanticTypeKind.Product bytesFields }
-            let bytesLibrary = { old with Id = sid<SnapshotTag> "bytes"; Types = [ bytesType ] }
-            File.WriteAllText(bytesSource, (SnapshotCodec.serialize bytesLibrary |> unwrap).Replace("\"schemaVersion\":24", "\"schemaVersion\":23"))
-            File.WriteAllText(path, (SnapshotCodec.serialize app |> unwrap).Replace("\"schemaVersion\":24", "\"schemaVersion\":21"))
-            success (runPair [ selection ("[" + quoted bytesSource + "]") "[]" ]).Head |> ignore
-            let selected = DependencyGraph.combine [ old; other ] |> unwrap
-            File.WriteAllText(path, SnapshotCodec.serializeResolved selected app |> unwrap)
-            let manifest = System.Text.Json.Nodes.JsonObject()
-            let members = System.Text.Json.Nodes.JsonArray()
-            members.Add(memberOf old (Some("snapshotJson", SnapshotCodec.serialize old |> unwrap)) "old.json")
-            members.Add(memberOf other (Some("snapshotJson", SnapshotCodec.serialize other |> unwrap)) otherSource)
-            manifest["dependencies"] <- members
-            File.WriteAllText(path + ".dependency.json", manifest.ToJsonString())
-            let goodSelection = selection ("[" + quoted source + "]") ("[" + quoted (StableId.value old.Id) + "]")
-            let duplicateTargets = batch.Replace(replacements, replacements.TrimEnd(']') + "," + replacements.TrimStart('['))
-            let failures =
-                [ one; duplicateTargets
-                  goodSelection.Replace(quoted (StableId.value old.Id), "\"missing\"")
-                  selection ("[" + quoted otherSource + "]") "[]"
-                  selection "[\" \u3000\"]" "[]"
-                  batch.Replace(quoted source, "\"\"") ]
-            let replies = runPair ([ batch; goodSelection ] @ failures @ [ """{"id":"d","op":"declarations"}""" ])
-            success replies[0] |> ignore
-            success replies[1] |> ignore
-            for reply in replies |> List.skip 2 |> List.take failures.Length do
-                use doc = parseDocument reply
-                Assert.False(doc.RootElement.GetProperty("ok").GetBoolean(), reply))
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Dependency previews invalidate externally changed snapshots and pins before loading new sources`` () =

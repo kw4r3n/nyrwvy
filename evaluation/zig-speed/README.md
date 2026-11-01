@@ -1,5 +1,7 @@
 # Zig path speed
 
+The `ZigSpeed` benchmarks compared the Zig path with the F# host, so they were removed with it (switch step 5, 2026-11-02); they and `tests/benchmark.runsettings` remain at tag `fsharp-host-final`, where the command below still runs. The results here are a record.
+
 Wall time of the Zig tools against the F# path, warm, as the median of 9 runs after one warm-up, in ms. Runs are local and Release, on one machine, so only the ratios within a run are meaningful. The tests are `ZigSpeed` in `tests/Nyrwvy.Core.Tests/ZigSpeedTests.fs` (`Suite=Benchmark`, which neither fast nor extended suite runs):
 
 ```bash
