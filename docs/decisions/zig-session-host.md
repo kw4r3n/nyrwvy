@@ -201,11 +201,60 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
 8. **Switch and removal** (below).
    - **8a. Runtime differences fixed before the switch.** Request lines follow `Protocol.readLine`: `\n`, `\r` or `\r\n` ends a line (a `\r` line is answered before its `\n` is read), a line over 16 Mi UTF-16 units is drained and answered `ProtocolError` `Request line exceeds 16 MiB.`, and ill-formed UTF-8 becomes U+FFFD as Console.In decodes it (extended parity test with raw bytes). Children still lead their own process groups so a deadline kills a whole tree; the host records live group IDs and, on SIGTERM, SIGINT or SIGHUP, kills every group before it dies (`run_process.spawn`/`kill`). A host SIGKILLed without a prior stop signal still orphans its children; the adapter sends SIGTERM first. Startup init failures answer `IoFailure: <error>` with exit 2. The C# compiler driver is built once per user into `$XDG_CACHE_HOME/nyrwvy/csharp-driver/<sha256 of dotnet path, csproj and source>` (built under a fresh name, then renamed; first build limit 300 s). Session directories live under `$TMPDIR` as `nyrwvy-csharp-session-<pid>-<random>` and hold the worker and per-run directories; startup deletes those whose pid no longer runs. `NYRWVY_REPOSITORY_ROOT`, when set, names the checkout whose `mise.toml` pins Zig.
 
-**Startup modes (implemented).** The Zig host accepts every startup form of `CommandLine.parse` except `migrate`, so the adapter can launch either host with the same argv: `create --snapshot P [--dependency D ...]`, `open` (also `--read-only`), `pin --snapshot P [--dependency D]`, and `upgrade` with `--dependency D --expect F [--replaces ID]`, `--upgrades JSON --review F` or `--selection JSON --review F`. `tools/zig/host/startup_modes.zig` parses them (bad JSON payloads print the F# usage, which the host now prints verbatim) and ports `createNewWithDependencies`, `pinExistingDependency` and `upgradeUsing`. The upgrade forms reuse the preview planner (`dependency_upgrade.zig`), so plans, review fingerprints and refusals are the previews'; the files are written with the commit path's `replaceDependencyPair` or, for a first dependency, an `addDependencyPair` port. Each mode ends by loading the written files as `open` does. `ZigHostStartupModesParityTests` runs every form on both hosts from the same files, with successes and the main refusals (an existing snapshot, a missing or duplicate dependency, a changed or missing pin source, a wrong `--expect` or `--review`, an incompatible upgrade, bad JSON), and compares exit code, stderr, the `status`/`declarations` replies and every file left behind byte for byte. One shortcut: the single `--dependency --expect` form is planned as a one-item batch, which refuses a duplicate final SnapshotId before combining, where F# reports the combination's failure.
+## Startup modes and adapter selection (origin/main, merged 2026-11-01)
 
-**Adapter executable selection is done (Step 8).** `tools/nyrwvy-agent/authoring.ts`, which MCP and OpenCode share, launches the F# `Nyrwvy.AuthoringSession.dll` through `dotnet` by default and the Zig host when `NYRWVY_HOST=zig`, with the same argv, `NYRWVY_REPOSITORY_ROOT` set to the repository root, and the same process-group kill and stderr `<code>: <message>` contract. `scripts/build-zig-host.mjs` builds the host with the module flags of `ZigTools.fs` (`tool "host"`) into `$XDG_CACHE_HOME/nyrwvy/zig-host/<hash>/host`, keyed by every imported source file, the build options and `zig version`; the adapter builds on first use, outside the per-request timeout and with its own 10-minute limit. Because the path follows the sources, a stale host cannot be launched, so the F# `staleToolWarning` has no Zig counterpart (the Zig host's `build` is `nyrwvy-zig-host`, which it ignores). `NYRWVY_HOST_EXECUTABLE` replaces the executable for transport tests only. On demand, CI builds the host and runs the adapter and MCP suites with `NYRWVY_HOST=zig`.
+**Startup modes (implemented).** The Zig host accepts every startup form of `CommandLine.parse` except `migrate`, so the adapter can launch either host with the same argv: `create --snapshot P [--dependency D ...]`, `open` (also `--read-only`), `pin --snapshot P [--dependency D]`, and `upgrade` with `--dependency D --expect F [--replaces ID]`, `--upgrades JSON --review F` or `--selection JSON --review F`. `tools/zig/host/startup_modes.zig` parses them (bad JSON payloads print the F# usage, which the host now prints verbatim) and ports `createNewWithDependencies`, `pinExistingDependency` and `upgradeUsing`, writing snapshots from the typed generation (merged onto the typed-model branch; it replaced that branch's own `startup_cli.zig`). The upgrade forms reuse the preview planner (`dependency_upgrade.zig`), so plans, review fingerprints and refusals are the previews'; the files are written with the commit path's `replaceDependencyPair` or, for a first dependency, an `addDependencyPair` port. Each mode ends by loading the written files as `open` does. `ZigHostStartupModesParityTests` runs every form on both hosts from the same files, with successes and the main refusals (an existing snapshot, a missing or duplicate dependency, a changed or missing pin source, a wrong `--expect` or `--review`, an incompatible upgrade, bad JSON), and compares exit code, stderr, the `status`/`declarations` replies and every file left behind byte for byte. One shortcut: the single `--dependency --expect` form is planned as a one-item batch, which refuses a duplicate final SnapshotId before combining, where F# reports the combination's failure.
+
+**Adapter executable selection is done (Step 8).** `tools/nyrwvy-agent/authoring.ts`, which MCP and OpenCode share, launches the F# `Nyrwvy.AuthoringSession.dll` through `dotnet` by default and the Zig host when `NYRWVY_HOST=zig`, with the same argv, `NYRWVY_REPOSITORY_ROOT` set to the repository root, and the same process-group kill and stderr `<code>: <message>` contract. `scripts/build-zig-host.mjs` builds the host with the module flags of `ZigTools.fs` (`tool "host"`) into `$XDG_CACHE_HOME/nyrwvy/zig-host/<hash>/host`, keyed by every imported source file, the build options and `zig version`; the adapter builds on first use, outside the per-request timeout and with its own 10-minute limit. Because the path follows the sources, a stale host cannot be launched. The build script also embeds the checkout commit as `build_info` (as `ZigTools.fs` does) and keys the path by it, so the host's `build` is `nyrwvy-zig-host+<commit>` and `staleToolWarning` compares it like the F# build; without Git metadata it is `nyrwvy-zig-host`, which it ignores. `NYRWVY_HOST_EXECUTABLE` replaces the executable for transport tests only. On demand, CI builds the host and runs the adapter and MCP suites with `NYRWVY_HOST=zig`.
 
 **The Zig host is Linux only** (decided 2026-11-01). Its child handling uses Linux process groups and syscalls, and only Linux is built and tested; macOS and Windows keep the F# host until someone needs them there.
+
+## Pre-switch hardening (2026-11-01)
+
+The owner chose to complete startup CLI parity, bounded session memory, and build identity first, and to move all reads to the typed model in a separate stage. The F# host remains the default. Passing this hardening stage does not authorize the default switch or removal of F#.
+
+- **Startup CLI:** cover the F# `create`, `pin`, and all three `upgrade` forms, including persisted snapshot/sidecar bytes and failure paths. Keep the exact accepted argument forms: F# does not accept `open --dependency`. Legacy `migrate` remains outside the native host as already decided.
+- **Session memory:** replace history-long arena retention with a live-set rebuild. Prepare the current and pending typed generations before publication, preserving shared declarations/bodies, then install them without allocation after the disk write. Rejection also prepares the remaining live set before dropping its proposal. This replaces the original reference-counting and half-dead interner compaction design: it copies live typed state on commit/rejection but releases obsolete history and dead interned strings. The startup baseline remains allocated until exit. Besides it, retain current/pending projections and the latest dependency payload needed by the host's selection/manifest pointers; an ordinary commit must not free those dependency pointers. Full removal of read projections belongs to the typed-read stage.
+- **Build identity:** embed the checkout commit when compiling the host and include it in the build-cache identity. Runtime checkout changes must not relabel an already-built executable. A checkout without Git metadata reports no commit rather than inventing one.
+- **Adapter selection:** provide an explicit native executable override for verification while keeping the F# default. Both OpenCode and MCP use the shared authoring client. Run their Node contracts through the native executable, including create/pin/upgrade, before treating adapter parity as verified.
+
+The original typed-read switch condition below remains in force. This stage does not replace it with JSON projections or weaken it to transcript parity alone.
+
+Implemented and verified: [pre-switch verification record](../verification/zig-host-pre-switch-20261101.md). The shared adapter then accepted `NYRWVY_AUTHORING_EXECUTABLE` for opt-in native runs; merging origin/main replaced it with main's `NYRWVY_HOST=zig` and `NYRWVY_HOST_EXECUTABLE` (below), and the default remains F#. Native startup, lifecycle, adapter, and maintained suites passed. This completes the three hardening items above, not the full switch criteria.
+
+## Typed-model migration (2026-11-01, implemented and verified)
+
+The next stage replaces snapshot-tree access throughout the host, including semantic analysis,
+proposal edits, dependency planning, and persistence. Moving only query encoders is not completion.
+The F# host remains the default throughout this stage.
+
+- The runtime snapshot is a `Generation` plus its session `Interner`. Declaration records and
+  borrowed node/graph views expose domain data directly. A generic object/property facade over
+  typed storage, or serializing and reparsing a generation for semantic access, does not meet this
+  decision.
+- One shared decoder owns the packed body payload layout. Consumers use its typed payload views;
+  they do not independently calculate offsets. Traversal preserves node-then-nested-scope order,
+  rather than assuming that flat body storage has the same order.
+- Live-set rebuilding copies and remaps typed records directly, preserving shared records and
+  bodies. It must not need the old snapshot projection to reconstruct them.
+- Query, validation, inference, lowering, and editing migrate onto these shared domain APIs.
+  Source order and canonical order remain distinct wherever response/error ordering requires it.
+- Writers produce current-schema, minimum-schema, and semantic-normalized bytes directly from
+  typed records. Fingerprints retain the existing domains, ordering, and normalization rules.
+- JSON remains an external format for decoding snapshots, recipes, manifests, protocol replies,
+  immutable reviews, viewer data, and Execution IR. Snapshot syntax decoding may use a transient
+  tree, but runtime semantic validation and proposal construction must use typed records.
+
+Implementation proceeds through the shared kernel and typed live-set rebuild, simple reads,
+semantic analysis and remaining reads, typed edits/dependencies, and direct writers/lifecycle
+integration. Temporary bridges during implementation are not a relaxation of the final gate.
+Completion requires removal of retained snapshot projections and host snapshot `Value` access,
+all-kind payload/remapping tests, byte parity for replies and persisted files, lifecycle/failure
+coverage, native adapter and Rhifill checks, maintained suites, and recorded `ZigSpeed` results.
+
+These gates passed on the typed implementation: [verification record](../verification/zig-host-typed-model-20261101.md).
+The F# host remains the default; changing the default and the subsequent deprecation/removal
+steps below are separate work.
 
 ## How parity with F# is checked
 
@@ -244,4 +293,4 @@ These differences between the hosts are accepted. The parity tests do not cover 
 
 ## Open decisions
 
-- No Step 7 design decision remains open. Step 8 has executable selection; before switching the default the Zig host must start `create`, `pin` and `upgrade` (the adapter and MCP Node suites fail on those now), and then pass the Node adapter suites (`NYRWVY_HOST=zig`: fast-mcp, `test:adapters`, `.opencode/tests`) without the CI `continue-on-error`.
+- No Step 7 design decision remains open. The opt-in executable selection, Node adapter verification and full typed-model migration are complete. The default switch, F# deprecation, frozen tag/golden corpus, and removal sequence still follow the switch plan above. Before switching the default, the Node adapter suites (`NYRWVY_HOST=zig`: fast-mcp, `test:adapters`, `.opencode/tests`) must also pass without the CI `continue-on-error`.

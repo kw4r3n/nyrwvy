@@ -7,11 +7,10 @@ const records = @import("snapshot_reader");
 const host = @import("main.zig");
 const query = @import("query.zig");
 const planning = @import("dependency_upgrade.zig");
-const edit = @import("operation_model.zig");
-const m = @import("materialize.zig");
 const recipe = @import("recipe.zig");
 const Allocator = std.mem.Allocator;
 const Json = std.json.Value;
+const tm = model.session_model;
 
 pub const Replacement = struct { source: []const u8, replaces: []const u8 };
 pub const Mode = union(enum) {
@@ -148,7 +147,7 @@ fn create(io: std.Io, a: Allocator, given: []const u8, sources: []const []const 
     if (host.exists(io, path) or host.exists(io, sidecar)) host.startupFailure(taken, .{path});
     try host.lock(io, a, path, false);
     if (host.exists(io, path) or host.exists(io, sidecar)) host.startupFailure(taken, .{path});
-    var r: query.Request = .{ .a = a, .line = "", .root = try emptyObject(a), .model = .json_null, .provenance = null, .snapshot_path = path };
+    var r: query.Request = .{ .a = a, .line = "", .root = try emptyObject(a), .provenance = null, .snapshot_path = path };
     var pinned: std.ArrayList(planning.Pinned) = .empty;
     for (sources) |source| try pinned.append(a, planning.pin(&r, try sourcePath(io, a, source)) catch |e| switch (e) {
         error.Rejected => rejected(&r),
@@ -162,20 +161,11 @@ fn create(io: std.Io, a: Allocator, given: []const u8, sources: []const []const 
     };
     // After the pins: their IDs raise the seeded allocator's high-water mark.
     const id = try @import("ids.zig").next();
-    // `currentVersion` loads its tables with the allocator the last reader call set.
-    _ = try model.parseValue(a, "{}");
-    var json: std.Io.Writer.Allocating = .init(a);
-    try json.writer.print("{{\"schemaVersion\":{d},\"snapshotId\":\"{s}\"", .{ model.currentVersion(), id });
-    if (selected) |s| {
-        try json.writer.writeAll(",\"dependency\":{\"snapshotId\":");
-        try host.writeString(&json.writer, s[0].id);
-        try json.writer.writeAll(",\"digest\":");
-        try host.writeString(&json.writer, s[0].digest);
-        try json.writer.writeByte('}');
-    }
-    try json.writer.writeAll(",\"types\":[],\"effects\":[],\"capabilities\":[],\"functions\":[],\"obligations\":[]}");
-    const written = (try model.writtenText(a, json.written())).text;
-    const encoded = if (std.mem.endsWith(u8, path, ".nyrec")) try records.recordsOf(a, written) else written;
+    // An empty typed generation with the new ID, marked with the combined selection.
+    var interner: tm.Interner = .{ .gpa = a };
+    var generation: tm.Generation = .{ .snapshot = tm.none, .parent = tm.none, .marker = null, .types = &.{}, .effects = &.{}, .capabilities = &.{}, .functions = &.{}, .obligations = &.{} };
+    generation.snapshot = try interner.id(.snapshot, try std.unicode.utf8ToUtf16LeAlloc(a, &id));
+    const encoded = try publish(a, path, model.typedRoot(a, &interner, &generation), if (selected) |s| s[0] else null);
     if (selected) |s| refused(try createAtomically(a, sidecar, s[1]));
     if (try createAtomically(a, path, encoded)) |problem| {
         // Only while no snapshot owns it: a racing writer's snapshot keeps its sidecar.
@@ -205,7 +195,11 @@ fn pin(io: std.Io, a: Allocator, given: []const u8, source: ?[]const u8) !void {
     const saved = host.readText(a, sidecar) catch |e| host.startupFailure("IoFailure: {s}", .{@errorName(e)});
     if (!eql(current, host.persisted_source) or !eql(saved, host.dependency_manifest.?)) host.startupFailure("ExternalModification: The snapshot file changed outside this session.", .{});
     refused(try host.replaceAtomically(a, sidecar, manifest));
-    try host.load(io, a, path, false);
+    // Not reloaded: F# keeps the opened state, and rereading would observe IDs in the new sidecar's path.
+    const members = try a.dupe(@TypeOf(member), selected.provenance.members);
+    members[0].embedded = true;
+    host.selection.?.provenance.members = members;
+    host.dependency_manifest = manifest;
 }
 
 fn writeReplacement(w: *std.Io.Writer, source: []const u8, replaces: []const u8) !void {
@@ -229,7 +223,7 @@ fn upgrade(io: std.Io, a: Allocator, given: []const u8, mode: Mode) !void {
     switch (mode) {
         .upgrade => |single| {
             if (host.selection == null) host.startupFailure(no_dependency, .{});
-            var r = host.startupRequest(a, "{}", try emptyObject(a));
+            var r = try host.startupRequest(a, "{}", try emptyObject(a));
             const current = planning.members(&r) catch |e| switch (e) {
                 error.Rejected => rejected(&r),
                 else => return e,
@@ -271,7 +265,7 @@ fn upgrade(io: std.Io, a: Allocator, given: []const u8, mode: Mode) !void {
     }
     try w.writeByte('}');
     const root = try std.json.parseFromSliceLeaky(Json, a, line.written(), .{});
-    var r = host.startupRequest(a, line.written(), root.object);
+    var r = try host.startupRequest(a, line.written(), root.object);
     const plan = planning.planChange(&r) catch |e| switch (e) {
         error.Rejected => rejected(&r),
         else => return e,
@@ -295,15 +289,18 @@ fn upgrade(io: std.Io, a: Allocator, given: []const u8, mode: Mode) !void {
         host.startupFailure("WorkspaceValidationFailure: The workspace graph is invalid: {s}: {s} ({d} issues; see details)", .{ code, message, issues.len });
     }
     // `SnapshotCodec.serializeResolved`: the local declarations at the current schema, marked with the new selection.
-    var local = try edit.set(a, plan.local, "schemaVersion", try m.number(a, model.currentVersion()));
-    local = try edit.set(a, local, "dependency", try m.object(a, &.{
-        try m.member(a, "snapshotId", try m.string(a, plan.dependency.id)),
-        try m.member(a, "digest", try m.string(a, plan.dependency.digest)),
-    }));
-    const written = (try model.writtenText(a, try planning.write(a, local))).text;
-    const encoded = if (std.mem.endsWith(u8, path, ".nyrec")) try records.recordsOf(a, written) else written;
+    const encoded = try publish(a, path, plan.local, plan.dependency);
     refused(if (host.selection != null) try host.replaceDependencyPair(a, encoded, plan.manifest) else try addDependencyPair(io, a, path, encoded, plan.manifest));
     try host.load(io, a, path, false);
+}
+
+/// `root` written at the current schema, marked with `selected`, in the form `path`'s extension selects.
+fn publish(a: Allocator, path: []const u8, root: model.Model, selected: ?host.Dependency) ![]const u8 {
+    var generation = root.data.snapshot.*;
+    generation.marker = if (selected) |dep| .{ .snapshot = try std.unicode.utf8ToUtf16LeAlloc(a, dep.id), .digest = try std.unicode.utf8ToUtf16LeAlloc(a, dep.digest) } else null;
+    var out: std.Io.Writer.Allocating = .init(a);
+    try model.session_writer.writeDocument(&out.writer, root.context.interner, &generation, model.currentVersion());
+    return if (std.mem.endsWith(u8, path, ".nyrec")) try records.recordsOf(a, out.written()) else out.written();
 }
 
 /// `SessionStorage.addDependencyPair`: a first dependency's sidecar is created, then the snapshot
@@ -328,6 +325,7 @@ test "startup arguments follow CommandLine.parse" {
     try std.testing.expect(parse(a, &.{ "create", "--snapshot", "x", "--dependency" }) == null);
     try std.testing.expect(parse(a, &.{ "pin", "--snapshot", "x", "--dependency", "a", "--dependency", "b" }) == null);
     try std.testing.expect(parse(a, &.{ "migrate", "--snapshot", "x" }) == null);
+    try std.testing.expect(parse(a, &.{ "open", "--snapshot", "x", "--dependency", "d" }) == null);
     try std.testing.expectEqualStrings("r", parse(a, &.{ "upgrade", "--snapshot", "x", "--dependency", "d", "--expect", "f", "--replaces", "r" }).?.upgrade.replaces.?);
     try std.testing.expect(parse(a, &.{ "upgrade", "--snapshot", "x", "--upgrades", "[{\"source\":\"s\",\"replaces\":\"r\"}]", "--review", "f" }) != null);
     for ([_][]const u8{ "[]", "{}", "[{\"source\":\"s\"}]", "[{\"source\":\"s\",\"replaces\":\" \"}]", "[{\"source\":\"s\",\"source\":\"s\",\"replaces\":\"r\"}]", "[{\"source\":null,\"replaces\":\"r\"}]" }) |payload|

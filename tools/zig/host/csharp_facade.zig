@@ -6,7 +6,7 @@ const q = @import("query.zig");
 const infer = @import("infer.zig");
 const Type = @import("recipe.zig").TypeRef;
 const A = std.mem.Allocator;
-const V = model.Value;
+const V = model.Model;
 const chars = @embedFile("csharp_facade_chars.bin");
 
 pub const Declaration = struct { kind: []const u8, id: []const u8 };
@@ -16,12 +16,6 @@ const Entry = struct { name: []const u8, declaration: Declaration };
 const Aliases = std.StringHashMapUnmanaged([]const u8);
 fn eq(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
-}
-fn text(v: V, key: []const u8) []const u8 {
-    return model.utf8(model.decoded(model.property(v, key).?));
-}
-fn items(v: V, key: []const u8) []const V {
-    return model.arrayItems(v, key);
 }
 fn id(v: V) []const u8 {
     return q.idOf(v);
@@ -110,17 +104,17 @@ const Reach = struct {
         const t = find(self.all_types, id_) orelse return;
         if (self.types.contains(id_)) return;
         try self.types.put(self.a, id_, {});
-        if (model.property(t, "fields") != null) {
-            for (items(t, "fields")) |f| try self.from(model.property(f, "type").?);
-        } else for (items(t, "variants")) |v| for (items(v, "fields")) |f| try self.from(model.property(f, "type").?);
+        if (t.data.type_declaration.product) {
+            for (t.fields()) |f| try self.from(f.declaredType());
+        } else for (t.variants()) |v| for (v.fields()) |f| try self.from(f.declaredType());
     }
     fn capId(self: *Reach, id_: []const u8) anyerror!void {
         const c = find(self.all_caps, id_) orelse return;
         if (self.caps.contains(id_)) return;
         try self.caps.put(self.a, id_, {});
-        for (items(c, "operations")) |op| {
-            try self.from(model.property(op, "resultType").?);
-            for (items(op, "parameters")) |p| try self.from(model.property(p, "type").?);
+        for (c.operations()) |op| {
+            try self.from(op.resultType());
+            for (op.parameters()) |p| try self.from(p.declaredType());
         }
     }
 };
@@ -157,16 +151,16 @@ fn typeArgs(a: A, ts: []const Type, aliases: *const Aliases) anyerror![]const u8
 }
 fn generic(a: A, v: V) ![]const u8 {
     var names: std.ArrayList([]const u8) = .empty;
-    for (items(v, "typeParameters")) |p| try names.append(a, try generated(a, "T_", text(p, "typeParameterId")));
+    for (v.typeParameters()) |p| try names.append(a, try generated(a, "T_", id(p)));
     return if (names.items.len == 0) "" else std.fmt.allocPrint(a, "<{s}>", .{try std.mem.join(a, ", ", names.items)});
 }
 fn parameters(a: A, xs: []const V, aliases: *const Aliases, generated_prefix: ?[]const u8) ![]const u8 {
     var names: std.ArrayList([]const u8) = .empty;
-    for (xs) |p| try names.append(a, try std.fmt.allocPrint(a, "{s} {s}", .{ try typeName(a, try infer.typeOf(a, model.property(p, "type").?), aliases), if (generated_prefix) |prefix| try generated(a, prefix, id(p)) else try ident(a, display(p)) }));
+    for (xs) |p| try names.append(a, try std.fmt.allocPrint(a, "{s} {s}", .{ try typeName(a, try infer.typeOf(a, p.declaredType()), aliases), if (generated_prefix) |prefix| try generated(a, prefix, id(p)) else try ident(a, display(p)) }));
     return std.mem.join(a, ", ", names.items);
 }
 fn fields(v: V) []const V {
-    return items(v, "fields");
+    return v.fields();
 }
 fn memberEntries(a: A, out: *std.ArrayList(Entry), xs: []const V, kind: []const u8) !void {
     for (xs) |x| try addEntry(a, out, display(x), kind, id(x));
@@ -220,7 +214,7 @@ fn block(a: A, out: *std.ArrayList(u8), receiver: []const u8, generics: []const 
     if (fs.len == 0) return;
     try line(a, out, try std.fmt.allocPrint(a, "    extension{s}({s} __value)", .{ generics, receiver }));
     try line(a, out, "    {");
-    for (fs) |f| try line(a, out, try std.fmt.allocPrint(a, "        public {s} {s} => __value.{s};", .{ try typeName(a, try infer.typeOf(a, model.property(f, "type").?), aliases), try ident(a, display(f)), try generated(a, "f_", id(f)) }));
+    for (fs) |f| try line(a, out, try std.fmt.allocPrint(a, "        public {s} {s} => __value.{s};", .{ try typeName(a, try infer.typeOf(a, f.declaredType()), aliases), try ident(a, display(f)), try generated(a, "f_", id(f)) }));
     try line(a, out, "    }");
 }
 fn constructor(a: A, out: *std.ArrayList(u8), shown: []const u8, name: []const u8, generics: []const u8, receiver: []const u8, fs: []const V, aliases: *const Aliases) !void {
@@ -231,20 +225,20 @@ fn constructor(a: A, out: *std.ArrayList(u8), shown: []const u8, name: []const u
 }
 pub fn generate(r: *const q.Request, host_operation_ids: []const []const u8, table_capability_ids: []const []const u8) !Result {
     const a = r.a;
-    const all_types = try q.visible(r, "type");
-    const all_caps = try q.visible(r, "capability");
-    const all_functions = try q.visible(r, "function");
+    const all_types = try q.typedVisible(r, "type");
+    const all_caps = try q.typedVisible(r, "capability");
+    const all_functions = try q.typedVisible(r, "function");
     var functions: std.ArrayList(V) = .empty;
     var reach: Reach = .{ .a = a, .all_types = all_types, .all_caps = all_caps };
-    for (all_functions) |f| if (model.property(f, "exported") != null and try local(r, "function", id(f))) {
+    for (all_functions) |f| if (f.exported() and try local(r, "function", id(f))) {
         try functions.append(a, f);
-        try reach.from(model.property(f, "resultType").?);
-        for (items(f, "parameters")) |p| try reach.from(model.property(p, "type").?);
+        try reach.from(f.resultType());
+        for (f.parameters()) |p| try reach.from(p.declaredType());
     };
-    for (all_types) |t| if (model.property(t, "exported") != null and try local(r, "type", id(t))) try reach.typeId(id(t));
+    for (all_types) |t| if (t.exported() and try local(r, "type", id(t))) try reach.typeId(id(t));
     for (all_caps) |c| {
-        var include = model.property(c, "exported") != null and try local(r, "capability", id(c));
-        for (items(c, "operations")) |op| if (contains(host_operation_ids, id(op))) {
+        var include = c.exported() and try local(r, "capability", id(c));
+        for (c.operations()) |op| if (contains(host_operation_ids, id(op))) {
             include = true;
             break;
         };
@@ -261,37 +255,37 @@ pub fn generate(r: *const q.Request, host_operation_ids: []const []const u8, tab
     var members: std.ArrayList(Entry) = .empty;
     for (types) |t| {
         const n = display(t);
-        const is_generic = items(t, "typeParameters").len != 0;
+        const is_generic = t.typeParameters().len != 0;
         if (!is_generic) try addEntry(a, &scoped, n, "type", id(t));
-        if (model.property(t, "fields") != null) {
+        if (t.data.type_declaration.product) {
             try addEntry(a, &scoped, try std.fmt.allocPrint(a, "New{s}", .{n}), "type", id(t));
             try memberEntries(a, &members, fields(t), "field");
         } else {
-            for (try sorted(a, items(t, "variants"))) |v| {
+            for (try sorted(a, t.variants())) |v| {
                 const vn = try std.mem.concat(a, u8, &.{ n, display(v) });
                 if (!is_generic) try addEntry(a, &scoped, vn, "variant", id(v));
                 try addEntry(a, &scoped, try std.fmt.allocPrint(a, "New{s}", .{vn}), "variant", id(v));
             }
-            for (items(t, "variants")) |v| try memberEntries(a, &members, fields(v), "field");
+            for (t.variants()) |v| try memberEntries(a, &members, fields(v), "field");
         }
     }
     for (caps) |c| {
         try addEntry(a, &scoped, display(c), "capability", id(c));
         try addEntry(a, &scoped, try std.fmt.allocPrint(a, "{s}Base", .{display(c)}), "capability", id(c));
         if (contains(table_capability_ids, id(c))) try addEntry(a, &scoped, try std.fmt.allocPrint(a, "New{s}", .{display(c)}), "capability", id(c));
-        for (items(c, "operations")) |op| {
+        for (c.operations()) |op| {
             try addEntry(a, &members, display(op), "capabilityOperation", id(op));
-            try memberEntries(a, &members, items(op, "parameters"), "capabilityParameter");
+            try memberEntries(a, &members, op.parameters(), "capabilityParameter");
         }
     }
     for (fns) |f| {
         try addEntry(a, &scoped, display(f), "function", id(f));
-        try memberEntries(a, &members, items(f, "parameters"), "parameter");
+        try memberEntries(a, &members, f.parameters(), "parameter");
     }
     const failures = try problems(a, scoped.items, members.items);
     if (failures.len != 0) return .{ .problems = failures };
     var aliases: Aliases = .empty;
-    for (types) |t| if (items(t, "typeParameters").len == 0) try aliases.put(a, try std.fmt.allocPrint(a, "type:{s}", .{id(t)}), try ident(a, display(t)));
+    for (types) |t| if (t.typeParameters().len == 0) try aliases.put(a, try std.fmt.allocPrint(a, "type:{s}", .{id(t)}), try ident(a, display(t)));
     for (caps) |c| try aliases.put(a, try std.fmt.allocPrint(a, "capability:{s}", .{id(c)}), try ident(a, display(c)));
     const none: Aliases = .empty;
     var out: std.ArrayList(u8) = .empty;
@@ -299,9 +293,9 @@ pub fn generate(r: *const q.Request, host_operation_ids: []const []const u8, tab
     try line(a, &out, "// Readable names for the exported declarations of one snapshot; regenerate it with the program.");
     try line(a, &out, "// A renamed declaration renames its facade name, so a host that uses the old name stops compiling.");
     try line(a, &out, "// Requires C# 14 (extension members). Hosts import it with: using static Nyrwvy.Generated.NyFacade;");
-    for (types) |t| if (items(t, "typeParameters").len == 0) {
+    for (types) |t| if (t.typeParameters().len == 0) {
         try line(a, &out, try std.fmt.allocPrint(a, "global using {s} = Nyrwvy.Generated.{s};", .{ try ident(a, display(t)), try generated(a, "NyT_", id(t)) }));
-        for (try sorted(a, items(t, "variants"))) |v| try line(a, &out, try std.fmt.allocPrint(a, "global using {s}{s} = Nyrwvy.Generated.{s};", .{ display(t), display(v), try generated(a, "NyV_", id(v)) }));
+        for (try sorted(a, t.variants())) |v| try line(a, &out, try std.fmt.allocPrint(a, "global using {s}{s} = Nyrwvy.Generated.{s};", .{ display(t), display(v), try generated(a, "NyV_", id(v)) }));
     };
     for (caps) |c| try line(a, &out, try std.fmt.allocPrint(a, "global using {s} = Nyrwvy.Generated.{s};", .{ try ident(a, display(c)), try generated(a, "NyC_", id(c)) }));
     try line(a, &out, "");
@@ -313,14 +307,14 @@ pub fn generate(r: *const q.Request, host_operation_ids: []const []const u8, tab
         const gs = try generic(a, t);
         const tn = try std.mem.concat(a, u8, &.{ try generated(a, "NyT_", id(t)), gs });
         const shown = if (gs.len == 0) try ident(a, display(t)) else tn;
-        if (model.property(t, "fields") != null) try constructor(a, &out, shown, display(t), gs, tn, fields(t), &aliases) else for (try sorted(a, items(t, "variants"))) |v| try constructor(a, &out, shown, try std.mem.concat(a, u8, &.{ display(t), display(v) }), gs, try std.mem.concat(a, u8, &.{ try generated(a, "NyV_", id(v)), gs }), fields(v), &aliases);
+        if (t.data.type_declaration.product) try constructor(a, &out, shown, display(t), gs, tn, fields(t), &aliases) else for (try sorted(a, t.variants())) |v| try constructor(a, &out, shown, try std.mem.concat(a, u8, &.{ display(t), display(v) }), gs, try std.mem.concat(a, u8, &.{ try generated(a, "NyV_", id(v)), gs }), fields(v), &aliases);
     }
     for (caps) |c| if (contains(table_capability_ids, id(c))) try line(a, &out, try std.fmt.allocPrint(a, "    public static {s} New{s}() => new {s}();", .{ try ident(a, display(c)), display(c), try generated(a, "NyA_", id(c)) }));
     for (fns) |f| {
         const gs = try generic(a, f);
         var args: std.ArrayList([]const u8) = .empty;
-        for (items(f, "parameters")) |p| try args.append(a, try std.fmt.allocPrint(a, "{s}: {s}", .{ try generated(a, "p_", id(p)), try ident(a, display(p)) }));
-        try line(a, &out, try std.fmt.allocPrint(a, "    public static {s} {s}{s}({s}) => NyFunctions.{s}{s}({s});", .{ try typeName(a, try infer.typeOf(a, model.property(f, "resultType").?), &aliases), try ident(a, display(f)), gs, try parameters(a, items(f, "parameters"), &aliases, null), try generated(a, "NyF_", id(f)), gs, try std.mem.join(a, ", ", args.items) }));
+        for (f.parameters()) |p| try args.append(a, try std.fmt.allocPrint(a, "{s}: {s}", .{ try generated(a, "p_", id(p)), try ident(a, display(p)) }));
+        try line(a, &out, try std.fmt.allocPrint(a, "    public static {s} {s}{s}({s}) => NyFunctions.{s}{s}({s});", .{ try typeName(a, try infer.typeOf(a, f.resultType()), &aliases), try ident(a, display(f)), gs, try parameters(a, f.parameters(), &aliases, null), try generated(a, "NyF_", id(f)), gs, try std.mem.join(a, ", ", args.items) }));
     }
     try line(a, &out, "}");
     for (caps) |c| {
@@ -328,12 +322,12 @@ pub fn generate(r: *const q.Request, host_operation_ids: []const []const u8, tab
         try line(a, &out, "");
         try line(a, &out, try std.fmt.allocPrint(a, "public abstract class {s}Base : {s}", .{ display(c), interface }));
         try line(a, &out, "{");
-        for (try sorted(a, items(c, "operations"))) |op| {
-            const result = try infer.typeOf(a, model.property(op, "resultType").?);
-            try line(a, &out, try std.fmt.allocPrint(a, "    public abstract {s} {s}({s});", .{ try typeName(a, result, &aliases), try ident(a, display(op)), try parameters(a, items(op, "parameters"), &aliases, null) }));
+        for (try sorted(a, c.operations())) |op| {
+            const result = try infer.typeOf(a, op.resultType());
+            try line(a, &out, try std.fmt.allocPrint(a, "    public abstract {s} {s}({s});", .{ try typeName(a, result, &aliases), try ident(a, display(op)), try parameters(a, op.parameters(), &aliases, null) }));
             var args: std.ArrayList([]const u8) = .empty;
-            for (items(op, "parameters")) |p| try args.append(a, try generated(a, "cp_", id(p)));
-            try line(a, &out, try std.fmt.allocPrint(a, "    {s} {s}.{s}({s}) => {s}({s});", .{ try typeName(a, result, &none), interface, try generated(a, "Op_", id(op)), try parameters(a, items(op, "parameters"), &none, "cp_"), try ident(a, display(op)), try std.mem.join(a, ", ", args.items) }));
+            for (op.parameters()) |p| try args.append(a, try generated(a, "cp_", id(p)));
+            try line(a, &out, try std.fmt.allocPrint(a, "    {s} {s}.{s}({s}) => {s}({s});", .{ try typeName(a, result, &none), interface, try generated(a, "Op_", id(op)), try parameters(a, op.parameters(), &none, "cp_"), try ident(a, display(op)), try std.mem.join(a, ", ", args.items) }));
         }
         try line(a, &out, "}");
     }
@@ -345,7 +339,11 @@ test "empty facade and Unicode name checks" {
     var arena = std.heap.ArenaAllocator.init(a);
     defer arena.deinit();
     const alloc = arena.allocator();
-    const r: q.Request = .{ .a = alloc, .line = "", .root = .empty, .model = .{ .object = &.{} }, .provenance = null };
+    const empty = try model.parseValue(alloc, "{\"snapshotId\":\"s\"}");
+    var interner: model.session_model.Interner = .{ .gpa = alloc };
+    defer interner.deinit();
+    const generation = try model.session_model.load(alloc, &interner, empty, null);
+    const r: q.Request = .{ .a = alloc, .line = "", .root = .empty, .generation = &generation, .interner = &interner, .provenance = null };
     const result = try generate(&r, &.{}, &.{});
     try std.testing.expect(result == .source);
     try std.testing.expect(std.mem.endsWith(u8, result.source, "public static class NyFacade\n{\n}\n"));
@@ -360,11 +358,14 @@ test "import visibility and external capability roots" {
     defer arena.deinit();
     const a = arena.allocator();
     const root = try model.parseValue(a,
-        \\{"types":[{"id":"t","displayName":"Payload","fields":[]}],
-        \\ "capabilities":[{"id":"c","displayName":"Host","operations":[{"id":"op","displayName":"send","parameters":[{"id":"p","displayName":"value","type":{"kind":"named","typeId":"t","arguments":[]}}],"resultType":{"kind":"primitive","primitive":"unit"}}]},{"id":"hidden","displayName":"Hidden","exported":true,"operations":[]}],
-        \\ "functions":[{"id":"foreign","displayName":"Foreign","exported":true,"parameters":[],"resultType":{"kind":"primitive","primitive":"unit"}}]}
+        \\{"snapshotId":"s","types":[{"id":"t","displayName":"Payload","kind":"product","fields":[]}],
+        \\ "capabilities":[{"id":"c","displayName":"Host","operations":[{"id":"op","displayName":"send","parameters":[{"id":"p","displayName":"value","type":{"kind":"named","typeId":"t","arguments":[]}}],"resultType":{"kind":"primitive","primitive":"unit"},"effectId":"e"}]},{"id":"hidden","displayName":"Hidden","exported":true,"operations":[]}],
+        \\ "functions":[{"id":"foreign","displayName":"Foreign","exported":true,"parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}}]}
     );
-    const r: q.Request = .{ .a = a, .line = "", .root = .empty, .model = root, .provenance = .{ .hidden = &.{"capability:hidden"}, .members = &.{.{ .id = "", .fingerprint = "", .keys = &.{ "function:foreign", "capability:c", "type:t" }, .path = "", .embedded = false }} } };
+    var interner: model.session_model.Interner = .{ .gpa = a };
+    defer interner.deinit();
+    const generation = try model.session_model.load(a, &interner, root, null);
+    const r: q.Request = .{ .a = a, .line = "", .root = .empty, .generation = &generation, .interner = &interner, .provenance = .{ .hidden = &.{"capability:hidden"}, .members = &.{.{ .id = "", .fingerprint = "", .keys = &.{ "function:foreign", "capability:c", "type:t" }, .path = "", .embedded = false }} } };
     const result = try generate(&r, &.{"op"}, &.{"c"});
     try std.testing.expect(result == .source);
     try std.testing.expect(std.mem.indexOf(u8, result.source, "global using Payload = ") != null);
@@ -379,9 +380,12 @@ test "facade name collisions and reserved fields" {
     defer arena.deinit();
     const a = arena.allocator();
     const root = try model.parseValue(a,
-        \\{"types":[{"id":"a","displayName":"Same","exported":true,"fields":[{"id":"x","displayName":"Equals","type":{"kind":"primitive","primitive":"int64"}}]},{"id":"b","displayName":"Same","exported":true,"fields":[]}],"capabilities":[],"functions":[]}
+        \\{"snapshotId":"s","types":[{"id":"a","displayName":"Same","exported":true,"kind":"product","fields":[{"id":"x","displayName":"Equals","type":{"kind":"primitive","primitive":"int64"}}]},{"id":"b","displayName":"Same","exported":true,"kind":"product","fields":[]}],"capabilities":[],"functions":[]}
     );
-    const r: q.Request = .{ .a = a, .line = "", .root = .empty, .model = root, .provenance = null };
+    var interner: model.session_model.Interner = .{ .gpa = a };
+    defer interner.deinit();
+    const generation = try model.session_model.load(a, &interner, root, null);
+    const r: q.Request = .{ .a = a, .line = "", .root = .empty, .generation = &generation, .interner = &interner, .provenance = null };
     const result = try generate(&r, &.{}, &.{});
     try std.testing.expect(result == .problems);
     try std.testing.expectEqual(@as(usize, 3), result.problems.len);

@@ -123,6 +123,25 @@ module RecordPersistenceTests =
             (AuthoringSession.openExisting mixed |> unwrap "reopen mixed").Close())
 
     [<Fact>]
+    let ``failed temporary writes leave no partial files and can be retried`` () =
+        withDirectory (fun root ->
+            let path = Path.Combine(root, "workspace.json")
+            File.WriteAllText(path, "original")
+            let content = String('x', 4096)
+            try
+                SessionStorageFaults.failTemporaryWrite <- (=) path
+                for _ in 1 .. 2 do
+                    match SessionStorage.replaceAtomically path content with
+                    | Error(AuthoringSessionError.IoFailure _) -> ()
+                    | other -> failwithf "Write failure not reported: %A" other
+                    Assert.Equal("original", File.ReadAllText path)
+                    Assert.Empty(Directory.GetFiles(root, ".*.tmp"))
+            finally SessionStorageFaults.failTemporaryWrite <- fun _ -> false
+            SessionStorage.replaceAtomically path content |> unwrap "retry"
+            Assert.Equal(content, File.ReadAllText path)
+            Assert.Empty(Directory.GetFiles(root, ".*.tmp")))
+
+    [<Fact>]
     let ``a failed migrate --to sidecar creation leaves no target snapshot behind`` () =
         withDirectory (fun root ->
             let libraryPath = Path.Combine(root, "library.json")
@@ -136,9 +155,31 @@ module RecordPersistenceTests =
             | Error(AuthoringSessionError.IoFailure _) -> ()
             | other -> failwithf "Sidecar creation failure not reported: %A" other
             Assert.False(File.Exists target, "An orphan target snapshot was left behind.")
+            Assert.False(File.Exists(target + ".backends.json"))
             assertLockReleased source
             assertLockReleased target
             Directory.Delete(target + ".dependency.json")
+            AuthoringSessionMigration.migrateTo source None target |> unwrap "retry" |> ignore
+            (AuthoringSession.openExisting target |> unwrap "open target").Close())
+
+    [<Fact>]
+    let ``a failed migrate --to snapshot write removes newly created companion files`` () =
+        withDirectory (fun root ->
+            let libraryPath = Path.Combine(root, "library.json")
+            File.WriteAllText(libraryPath, SnapshotCodec.serialize (library "lib") |> unwrap "serialize library")
+            let source = Path.Combine(root, "source.json")
+            (AuthoringSession.createNewWithDependencies source [ libraryPath ] |> unwrap "create").Close()
+            let target = Path.Combine(root, "target.nyrec")
+            Directory.CreateDirectory target |> ignore
+            match AuthoringSessionMigration.migrateTo source None target with
+            | Error(AuthoringSessionError.IoFailure _) -> ()
+            | other -> failwithf "Snapshot creation failure not reported: %A" other
+            Assert.False(File.Exists(target + ".dependency.json"))
+            Assert.False(File.Exists(target + ".backends.json"))
+            Assert.Empty(Directory.GetFiles(root, ".*.tmp"))
+            assertLockReleased source
+            assertLockReleased target
+            Directory.Delete target
             AuthoringSessionMigration.migrateTo source None target |> unwrap "retry" |> ignore
             (AuthoringSession.openExisting target |> unwrap "open target").Close())
 
@@ -155,6 +196,8 @@ module RecordPersistenceTests =
                 status.SnapshotFingerprint, status.SemanticFingerprint
             let sourceBytes = File.ReadAllBytes source
             let sidecarBytes = File.ReadAllBytes(source + ".dependency.json")
+            let backendSettings = "{\"targets\":[\"zig\",\"csharp\"]}\n"
+            File.WriteAllText(source + ".backends.json", backendSettings)
             let target = Path.Combine(root, "converted", "target.nyrec")
             let report = AuthoringSessionMigration.migrateTo source None target |> unwrap "migrate --to"
             Assert.Equal(Some target, report.Target)
@@ -165,6 +208,9 @@ module RecordPersistenceTests =
             Assert.Contains("\"target\":", AuthoringSessionMigration.reportJson report)
             Assert.Equal<byte[]>(sourceBytes, File.ReadAllBytes source)
             Assert.Equal<byte[]>(sidecarBytes, File.ReadAllBytes(source + ".dependency.json"))
+            Assert.Equal(backendSettings, File.ReadAllText(source + ".backends.json"))
+            Assert.Equal(backendSettings, File.ReadAllText(target + ".backends.json"))
+            Assert.Equal<PureRunBackend list>([ PureRunBackend.Zig; PureRunBackend.CSharp ], PureRunBackends.declared target |> unwrap "converted backends")
             Assert.True(isRecordText (File.ReadAllText target))
             Assert.Equal<string list>([ "fingerprint"; "path"; "snapshotId"; "snapshotJson" ], sidecarKeys target)
             assertLockReleased source
@@ -181,6 +227,38 @@ module RecordPersistenceTests =
             // In place, a record workspace is already in the current form.
             let inPlace = AuthoringSessionMigration.migrate target None |> unwrap "migrate in place"
             Assert.False inPlace.Changed)
+
+    [<Theory>]
+    [<InlineData(false)>]
+    [<InlineData(true)>]
+    let ``migrate --to preserves preset target backends and permits a source without settings`` preset =
+        withDirectory (fun root ->
+            let source = Path.Combine(root, "source.json")
+            (AuthoringSession.createNew source |> unwrap "create").Close()
+            if not preset then File.Delete(source + ".backends.json")
+            let target = Path.Combine(root, "target.nyrec")
+            let settings = "{\"targets\":[\"zig\"]}\n"
+            if preset then File.WriteAllText(target + ".backends.json", settings)
+            AuthoringSessionMigration.migrateTo source None target |> unwrap "convert" |> ignore
+            if preset then Assert.Equal(settings, File.ReadAllText(target + ".backends.json"))
+            else Assert.False(File.Exists(target + ".backends.json")))
+
+    [<Fact>]
+    let ``migrate --to reports backend copy failures without publishing a target`` () =
+        withDirectory (fun root ->
+            let source = Path.Combine(root, "source.json")
+            (AuthoringSession.createNew source |> unwrap "create").Close()
+            let target = Path.Combine(root, "target.nyrec")
+            Directory.CreateDirectory(target + ".backends.json") |> ignore
+            match AuthoringSessionMigration.migrateTo source None target with
+            | Error(AuthoringSessionError.IoFailure _) -> ()
+            | other -> failwithf "Backend copy failure not reported: %A" other
+            Assert.False(File.Exists target)
+            assertLockReleased source
+            assertLockReleased target
+            Directory.Delete(target + ".backends.json")
+            AuthoringSessionMigration.migrateTo source None target |> unwrap "retry" |> ignore
+            Assert.Equal(File.ReadAllText(source + ".backends.json"), File.ReadAllText(target + ".backends.json")))
 
     [<Fact>]
     let ``the viewer exports the same focus from record and JSON text`` () =

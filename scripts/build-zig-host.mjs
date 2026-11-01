@@ -4,7 +4,7 @@
 // `--optional` exits 0 without building when no zig runs (setup on machines without Zig).
 import { createHash, randomUUID } from "node:crypto"
 import { execFile } from "node:child_process"
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -66,12 +66,15 @@ async function buildZigHost(root, signal) {
   }
   const host = join(root, "tools/zig/host")
   // `-O` is a per-module option: it applies to the module defined after it.
-  const roots = ["-O", "ReleaseSafe", ...imports.flatMap(([name]) => ["--dep", name]), `-Mroot=${join(host, "main.zig")}`,
+  const roots = ["-O", "ReleaseSafe", ...imports.flatMap(([name]) => ["--dep", name]), "--dep", "build_info", `-Mroot=${join(host, "main.zig")}`,
     ...imports.flatMap(([name, folder, file]) => ["-O", "ReleaseSafe", `-M${name}=${join(root, folder, file)}`])]
   const hash = createHash("sha256")
   for (const folder of [host, ...imports.map(([, folder]) => join(root, folder))]) hashFolder(folder, hash)
   // The options and compiler are part of the key, so a build made otherwise is not reused.
-  hash.update(`\0${version}\0${roots.join(" ").replaceAll(join(root, "/"), "")}`)
+  // ZigTools.fs records the checkout at compile time as `build_info.value`, which `status` reports.
+  const commit = await run("git", ["rev-parse", "--verify", "HEAD"], root, signal).then(out => out.trim(), () => "")
+  const build = /^[0-9a-f]{40}$/.test(commit) ? `nyrwvy-zig-host+${commit}` : "nyrwvy-zig-host"
+  hash.update(`\0${version}\0${roots.join(" ").replaceAll(join(root, "/"), "")}\0${build}`)
   // The key is predictable, so the cache is per user and owner-only: another user must not plant a host.
   const cache = join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "nyrwvy", "zig-host")
   const target = join(cache, hash.digest("hex").slice(0, 32))
@@ -80,8 +83,12 @@ async function buildZigHost(root, signal) {
   mkdirSync(target, { recursive: true, mode: 0o700 })
   // Built under a fresh name and moved, so another process never runs a partial file.
   const partial = `${binary}.${randomUUID()}`
+  const buildModule = join(target, "build_info.zig")
+  const partialModule = `${buildModule}.${randomUUID()}`
+  writeFileSync(partialModule, `pub const value = "${build}";\n`, { flag: "wx" })
+  renameSync(partialModule, buildModule)
   try {
-    await run(zig, ["build-exe", ...roots, "--cache-dir", join(cache, "cache"), `-femit-bin=${partial}`], root, signal)
+    await run(zig, ["build-exe", ...roots, `-Mbuild_info=${buildModule}`, "--cache-dir", join(cache, "cache"), `-femit-bin=${partial}`], root, signal)
   } catch (error) {
     const detail = /** @type {{ stderr?: string, message: string }} */ (error)
     throw new Error(`Zig host build failed: ${(detail.stderr?.trim() || detail.message).slice(-4096)}`)

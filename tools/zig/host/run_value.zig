@@ -8,6 +8,8 @@ const mat = @import("materialize.zig");
 const preflight = @import("preflight.zig");
 const Json = std.json.Value;
 const Type = recipe.TypeRef;
+const Model = model.Model;
+const tm = model.session_model;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
 const Fail = anyerror;
@@ -37,8 +39,8 @@ pub const CapturedCall = struct { parameter_id: []const u8, operation_id: []cons
 pub const Capture = struct { actual: ?RunValue = null, calls: []const CapturedCall = &.{} };
 pub const Input = struct {
     function_id: []const u8,
-    declarations: model.Value,
-    fn_value: model.Value = .json_null,
+    declarations: Model,
+    fn_value: ?Model = null,
     arguments: []RunValue,
     expected: ?RunValue,
     host_sources: []const []const u8,
@@ -54,17 +56,17 @@ fn primitive(name: []const u8) Type {
 fn generic(a: Allocator, name: []const u8, arguments: []const Type) !Type {
     return .{ .builtin = .{ .generic = name, .arguments = try a.dupe(Type, arguments) } };
 }
-fn prop(v: model.Value, name: []const u8) []const u8 {
-    return model.utf8(model.decoded(model.property(v, name).?));
+fn product(v: Model) bool {
+    return v.data.type_declaration.product;
 }
-pub fn find(items: []const model.Value, id: []const u8) ?model.Value {
+pub fn find(items: []const Model, id: []const u8) ?Model {
     for (items) |item| if (same(q.idOf(item), id)) return item;
     return null;
 }
-pub fn sorted(a: Allocator, items: []const model.Value) ![]model.Value {
-    const out = try a.dupe(model.Value, items);
-    std.mem.sort(model.Value, out, {}, struct {
-        fn less(_: void, x: model.Value, y: model.Value) bool {
+pub fn sorted(a: Allocator, items: []const Model) ![]Model {
+    const out = try a.dupe(Model, items);
+    std.mem.sort(Model, out, {}, struct {
+        fn less(_: void, x: Model, y: Model) bool {
             return q.ordinal({}, q.idOf(x), q.idOf(y));
         }
     }.less);
@@ -86,14 +88,16 @@ const dummy_node: recipe.Node = .{ .case = "", .slots = &.{} };
 fn inference(r: *q.Request) infer.Infer {
     return .{ .r = r, .a = r.a, .local = &.{}, .fresh = &.{}, .c = .{ .expected_snapshot_id = "", .display_name = "", .type_parameters = null, .parameters = &.{}, .result_type = primitive("unit"), .required_effects = &.{}, .body = &dummy_node } };
 }
-pub fn instantiated(r: *q.Request, owner: model.Value, args: []const Type, field: model.Value) !Type {
+pub fn instantiated(r: *q.Request, owner: Model, args: []const Type, field: Model) !Type {
     var context = inference(r);
-    return context.instantiate(owner, args, try infer.typeOf(r.a, model.property(field, "type").?));
+    return context.instantiate(owner, args, try infer.typeOf(r.a, field.declaredType()));
 }
 fn typeValue(r: *q.Request, t: Type) !model.Value {
     var context = inference(r);
-    var m: mat.Materializer = .{ .a = r.a, .r = r, .types = &context, .fresh = &.{}, .function_id = .json_null, .parameters = &.{} };
-    return m.typeRef(t);
+    var m: mat.Materializer = .{ .a = r.a, .r = r, .types = &context, .fresh = &.{}, .function_id = tm.none, .parameters = &.{} };
+    var wire_out: Writer.Allocating = .init(r.a);
+    try @import("wire.zig").typedTypeRef(&wire_out.writer, r.interner.?, try m.typeRef(t), &.{});
+    return model.parseValue(r.a, wire_out.written());
 }
 fn boolJson(v: bool) model.Value {
     return if (v) .json_true else .json_false;
@@ -104,43 +108,70 @@ fn object(r: *q.Request, pairs: anytype) !model.Value {
     return .{ .object = out.items };
 }
 fn named(r: *q.Request, out: *std.ArrayList(model.Member), key: []const u8, id: []const u8) !void {
-    const groups = [_][]const u8{ "types", "functions", "capabilities" };
-    for (groups) |group| for (model.arrayItems(r.model, group)) |owner| {
+    const root = r.typedModel();
+    for (root.types()) |owner| {
         if (same(q.idOf(owner), id)) {
             try out.append(r.a, try mat.member(r.a, key, try mat.string(r.a, q.nameOf(owner))));
             return;
         }
-        const members = [_][]const u8{ "parameters", "fields", "variants", "operations" };
-        for (members) |member_group| for (model.arrayItems(owner, member_group)) |member| {
-            if (same(q.idOf(member), id)) {
-                try out.append(r.a, try mat.member(r.a, key, try mat.string(r.a, q.nameOf(member))));
+        for (owner.fields()) |field| if (same(q.idOf(field), id)) {
+            try out.append(r.a, try mat.member(r.a, key, try mat.string(r.a, q.nameOf(field))));
+            return;
+        };
+        for (owner.variants()) |variant| {
+            if (same(q.idOf(variant), id)) {
+                try out.append(r.a, try mat.member(r.a, key, try mat.string(r.a, q.nameOf(variant))));
                 return;
             }
-            for ([_][]const u8{ "parameters", "fields" }) |subgroup| for (model.arrayItems(member, subgroup)) |child| if (same(q.idOf(child), id)) {
-                try out.append(r.a, try mat.member(r.a, key, try mat.string(r.a, q.nameOf(child))));
+            for (variant.fields()) |field| if (same(q.idOf(field), id)) {
+                try out.append(r.a, try mat.member(r.a, key, try mat.string(r.a, q.nameOf(field))));
                 return;
             };
-        };
-    };
-}
-
-pub fn declarationView(r: *q.Request) !model.Value {
-    const provenance = r.provenance orelse return r.model;
-    if (provenance.hidden.len == 0) return r.model;
-    const fields = try r.a.dupe(model.Member, r.model.object);
-    inline for (.{ .{ "functions", "function" }, .{ "types", "type" }, .{ "effects", "effect" }, .{ "capabilities", "capability" } }) |group| {
-        const items = try q.visible(r, group[1]);
-        for (fields) |*field| {
-            if (same(model.utf8(model.decoded(.{ .string = field.name })), group[0])) field.value = .{ .array = items };
         }
     }
-    return .{ .object = fields };
+    for (root.functions()) |owner| {
+        if (same(q.idOf(owner), id)) {
+            try out.append(r.a, try mat.member(r.a, key, try mat.string(r.a, q.nameOf(owner))));
+            return;
+        }
+        for (owner.parameters()) |p| if (same(q.idOf(p), id)) {
+            try out.append(r.a, try mat.member(r.a, key, try mat.string(r.a, q.nameOf(p))));
+            return;
+        };
+    }
+    for (root.capabilities()) |owner| {
+        if (same(q.idOf(owner), id)) {
+            try out.append(r.a, try mat.member(r.a, key, try mat.string(r.a, q.nameOf(owner))));
+            return;
+        }
+        for (owner.operations()) |op| {
+            if (same(q.idOf(op), id)) {
+                try out.append(r.a, try mat.member(r.a, key, try mat.string(r.a, q.nameOf(op))));
+                return;
+            }
+            for (op.parameters()) |p| if (same(q.idOf(p), id)) {
+                try out.append(r.a, try mat.member(r.a, key, try mat.string(r.a, q.nameOf(p))));
+                return;
+            };
+        }
+    }
+}
+pub fn declarationView(r: *q.Request) !Model {
+    const g = try r.a.create(tm.Generation);
+    g.* = r.generation.?.*;
+    inline for (.{ .{ "function", "functions", tm.Function }, .{ "type", "types", tm.Type }, .{ "effect", "effects", tm.Effect }, .{ "capability", "capabilities", tm.Capability } }) |entry| {
+        const visible = try q.typedVisible(r, entry[0]);
+        const records = try r.a.alloc(*const entry[2], visible.len);
+        for (visible, records) |item, *record| record.* = @field(item.data, if (entry[2] == tm.Type) "type_declaration" else entry[0]);
+        @field(g, entry[1]) = records;
+    }
+    return model.typedRoot(r.a, r.interner.?, g);
 }
 
 pub fn diagnostic(r: *q.Request, input: *const Input, code: []const u8, message: []const u8) Fail!void {
-    const original_model = r.model;
-    r.model = input.declarations;
-    defer r.model = original_model;
+    const original_model = r.generation;
+    r.generation = input.declarations.data.snapshot;
+    defer r.generation = original_model;
     var fields: std.ArrayList(model.Member) = .empty;
     try fields.append(r.a, try mat.member(r.a, "functionId", try mat.string(r.a, input.function_id)));
     try named(r, &fields, "function", input.function_id);
@@ -208,13 +239,13 @@ const Decoder = struct {
     fn stableId(self: *Decoder, item: Json, key: []const u8) ![]const u8 {
         return self.d.stableId(key, try self.d.requiredString(item, key));
     }
-    fn selector(self: *Decoder, path: []const u8, value: Json, kind: []const u8) !model.Value {
+    fn selector(self: *Decoder, path: []const u8, value: Json, kind: []const u8) !Model {
         return self.d.selector(path, value, kind);
     }
-    fn member(self: *Decoder, comptime label: []const u8, args: anytype, parent: model.Value, group: []const u8, name: []const u8) !model.Value {
+    fn member(self: *Decoder, comptime label: []const u8, args: anytype, parent: Model, group: []const u8, name: []const u8) !Model {
         return self.d.member(label, args, parent, group, name);
     }
-    fn protectedMember(self: *Decoder, comptime label: []const u8, args: anytype, parent: model.Value, group: []const u8, name: []const u8) !model.Value {
+    fn protectedMember(self: *Decoder, comptime label: []const u8, args: anytype, parent: Model, group: []const u8, name: []const u8) !Model {
         return self.member(label, args, parent, group, name) catch |e| {
             self.selector_failure = true;
             return e;
@@ -421,11 +452,11 @@ const Decoder = struct {
         const args = try self.types(path, item, "typeArguments");
         const values = try self.d.array(item, "fields");
         if (values.len > 256) return self.fail("Named run values may contain at most 256 fields.", .{});
-        var owner: model.Value = .json_null;
-        var variant: model.Value = .json_null;
+        var owner: Model = undefined;
+        var variant: Model = undefined;
         const tid = if (self.names) blk: {
             owner = try self.selector(try self.at(path, tk), try self.d.property(item, tk), "type");
-            if (is_union and !same(prop(owner, "kind"), "union")) return self.fail("Type '{s}' is not a union type.", .{q.nameOf(owner)});
+            if (is_union and !!product(owner)) return self.fail("Type '{s}' is not a union type.", .{q.nameOf(owner)});
             break :blk q.idOf(owner);
         } else try self.stableId(item, tk);
         const vid = if (is_union) (if (self.names) blk: {
@@ -436,13 +467,13 @@ const Decoder = struct {
         for (values, fields, 0..) |value, *slot, i| slot.* = try self.namedField(try self.at(try self.at(path, "fields"), i), try self.fmt("{s}.fields[{d}]", .{ loc, i }), value, depth, if (is_union) variant else owner, is_union);
         return .{ .kind = if (is_union) .union_value else .product, .type = .{ .named = .{ .id = tid, .arguments = args } }, .variant = vid, .fields = fields };
     }
-    fn namedField(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, owner: model.Value, is_union: bool) !Field {
+    fn namedField(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, owner: Model, is_union: bool) !Field {
         return self.namedFieldBody(path, loc, item, depth, owner, is_union) catch |e| return self.wrap(loc, "a declared field with a typed value", e);
     }
-    fn namedFieldBody(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, owner: model.Value, is_union: bool) !Field {
+    fn namedFieldBody(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, owner: Model, is_union: bool) !Field {
         const key: []const u8 = if (self.names) "field" else "fieldId";
         try self.d.ensureFields(path, item, "Named run field", if (self.names) &.{ key, "value" } else &.{ key, "value", "field" }, &.{ key, "value" });
-        if (self.names and !is_union and !same(prop(owner, "kind"), "product")) return self.fail("Type '{s}' is not a product type.", .{q.nameOf(owner)});
+        if (self.names and !is_union and !product(owner)) return self.fail("Type '{s}' is not a product type.", .{q.nameOf(owner)});
         const id = if (self.names) q.idOf(if (is_union) try self.member("field on variant {s}", .{q.nameOf(owner)}, owner, "fields", try self.d.requiredString(item, key)) else try self.member("field on {s}", .{q.nameOf(owner)}, owner, "fields", try self.d.requiredString(item, key))) else try self.stableId(item, key);
         return .{ .id = id, .value = try self.tagged(try self.at(path, "value"), try self.fmt("{s}.value", .{loc}), try self.d.property(item, "value"), depth + 1) };
     }
@@ -457,7 +488,7 @@ const Decoder = struct {
         }
         const values = try self.d.array(item, "operations");
         if (values.len > 256) return self.fail("A fake capability may script at most 256 operations.", .{});
-        var owner: model.Value = .json_null;
+        var owner: Model = undefined;
         const id = if (self.names) blk: {
             owner = try self.selector(try self.at(path, key), try self.d.property(item, key), "capability");
             break :blk q.idOf(owner);
@@ -466,13 +497,13 @@ const Decoder = struct {
         for (values, operations, 0..) |value, *slot, i| slot.* = try self.operation(try self.at(try self.at(path, "operations"), i), try self.fmt("{s}.operations[{d}]", .{ loc, i }), value, depth, owner);
         return .{ .kind = .fake, .type = .{ .capability = id }, .operations = operations };
     }
-    fn operation(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, owner: model.Value) !Operation {
+    fn operation(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, owner: Model) !Operation {
         return self.operationBody(path, loc, item, depth, owner) catch |e| return self.wrap(loc, "a fake operation with exactly one of responses or cases", e);
     }
-    fn operationBody(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, owner: model.Value) !Operation {
+    fn operationBody(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, owner: Model) !Operation {
         const key: []const u8 = if (self.names) "operation" else "operationId";
         try self.d.ensureFields(path, item, "Fake operation", &.{ key, "responses", "cases" }, &.{key});
-        var declaration: model.Value = .json_null;
+        var declaration: Model = undefined;
         const id = if (self.names) blk: {
             declaration = try self.protectedMember("operation on {s}", .{q.nameOf(owner)}, owner, "operations", try self.d.requiredString(item, key));
             break :blk q.idOf(declaration);
@@ -521,10 +552,10 @@ const Decoder = struct {
         }
         return out;
     }
-    fn fakeCase(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, operation_decl: model.Value) !Case {
+    fn fakeCase(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, operation_decl: Model) !Case {
         return self.fakeCaseBody(path, loc, item, depth, operation_decl) catch |e| return self.wrap(loc, "a fake case with arguments and responses arrays", e);
     }
-    fn fakeCaseBody(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, operation_decl: model.Value) !Case {
+    fn fakeCaseBody(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, operation_decl: Model) !Case {
         try self.d.ensureFields(path, item, "Fake case", &.{ "arguments", "responses" }, &.{ "arguments", "responses" });
         const values = try self.d.array(item, "arguments");
         if (values.len > 256) return self.fail("A fake case may contain at most 256 arguments.", .{});
@@ -532,10 +563,10 @@ const Decoder = struct {
         for (values, args, 0..) |value, *slot, i| slot.* = try self.fakeArgument(try self.at(try self.at(path, "arguments"), i), try self.fmt("{s}.arguments[{d}]", .{ loc, i }), value, depth, operation_decl);
         return .{ .arguments = args, .responses = try self.parseResponses(path, loc, item, depth) };
     }
-    fn fakeArgument(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, operation_decl: model.Value) !Field {
+    fn fakeArgument(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, operation_decl: Model) !Field {
         return self.fakeArgumentBody(path, loc, item, depth, operation_decl) catch |e| return self.wrap(loc, "a fake argument with a declared parameter and typed value", e);
     }
-    fn fakeArgumentBody(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, operation_decl: model.Value) !Field {
+    fn fakeArgumentBody(self: *Decoder, path: []const u8, loc: []const u8, item: Json, depth: usize, operation_decl: Model) !Field {
         const key: []const u8 = if (self.names) "parameter" else "capabilityParameterId";
         try self.d.ensureFields(path, item, "Fake case argument", &.{ key, "value" }, &.{ key, "value" });
         const id = if (self.names) q.idOf(try self.protectedMember("parameter on operation {s}", .{q.nameOf(operation_decl)}, operation_decl, "parameters", try self.d.requiredString(item, key))) else try self.stableId(item, key);
@@ -546,8 +577,8 @@ const Decoder = struct {
         if (item == .object) {
             if (item.object.get("kind")) |kind| {
                 is_tagged = kind == .string;
-                if (is_tagged and t == .named) if (find(model.arrayItems(self.r().model, "types"), t.named.id)) |owner| {
-                    if (same(prop(owner, "kind"), "product")) for (model.arrayItems(owner, "fields")) |field| {
+                if (is_tagged and t == .named) if (find(self.r().typedModel().types(), t.named.id)) |owner| {
+                    if (product(owner)) for (owner.fields()) |field| {
                         if (same(q.nameOf(field), "kind")) {
                             is_tagged = false;
                             break;
@@ -595,9 +626,9 @@ const Decoder = struct {
             }
         }
         if (t == .named) {
-            const owner = find(model.arrayItems(self.r().model, "types"), t.named.id) orelse return self.fail("Unknown type at {s}; write it as a tagged run value.", .{loc});
+            const owner = find(self.r().typedModel().types(), t.named.id) orelse return self.fail("Unknown type at {s}; write it as a tagged run value.", .{loc});
             if (item != .object) return self.fail("Expected a JSON object for the {s} at {s}.", .{ q.nameOf(owner), loc });
-            if (same(prop(owner, "kind"), "product")) return .{ .kind = .product, .type = t, .fields = try self.plainFields(path, loc, owner, owner, t.named.arguments, item, depth) };
+            if (product(owner)) return .{ .kind = .product, .type = t, .fields = try self.plainFields(path, loc, owner, owner, t.named.arguments, item, depth) };
             if (item.object.count() != 1 or self.d.duplicates.contains(path)) return self.fail("Expected {{\"Variant\": {{fields}}}} for the {s} Union at {s}.", .{ q.nameOf(owner), loc });
             const variant_name = item.object.keys()[0];
             const variant = try self.member("variant on {s}", .{q.nameOf(owner)}, owner, "variants", variant_name);
@@ -607,8 +638,8 @@ const Decoder = struct {
         }
         return self.fail("This parameter type has no plain JSON form at {s}; write it as a tagged run value.", .{loc});
     }
-    fn plainFields(self: *Decoder, path: []const u8, loc: []const u8, owner: model.Value, constructor: model.Value, args: []const Type, item: Json, depth: usize) ![]Field {
-        const fields = model.arrayItems(constructor, "fields");
+    fn plainFields(self: *Decoder, path: []const u8, loc: []const u8, owner: Model, constructor: Model, args: []const Type, item: Json, depth: usize) ![]Field {
+        const fields = constructor.fields();
         if (self.d.duplicates.contains(path)) return self.fail("{s} names a field more than once at {s}.", .{ q.nameOf(constructor), loc });
         for (item.object.keys()) |key| {
             for (fields) |field| {
@@ -626,9 +657,10 @@ const Decoder = struct {
 };
 
 pub fn decode(r: *q.Request) Fail!Input {
-    const original_model = r.model;
-    r.model = try declarationView(r);
-    defer r.model = original_model;
+    const original_model = r.generation;
+    const declarations = try declarationView(r);
+    r.generation = declarations.data.snapshot;
+    defer r.generation = original_model;
     const op = r.root.get("op").?.string;
     const names = same(op, "runPureByName");
     const key: []const u8 = if (names) "function" else "functionId";
@@ -636,20 +668,20 @@ pub fn decode(r: *q.Request) Fail!Input {
     const root = try std.json.parseFromSliceLeaky(Json, r.a, r.line, .{ .duplicate_field_behavior = .use_last, .parse_numbers = false });
     try d.d.ensureFields("", root, try d.fmt("{s} request", .{op}), &.{ "id", "op", key, "arguments", "expected", "hostSources", "backend" }, &.{ "id", "op", key, "arguments" });
     const id = if (names) q.idOf(try d.selector(try d.at("", key), try d.d.property(root, key), "function")) else try d.stableId(root, key);
-    const fn_value = find(try q.visible(r, "function"), id) orelse .json_null;
-    const params = model.arrayItems(fn_value, "parameters");
+    const fn_value = find(try q.typedVisible(r, "function"), id);
+    const params = if (fn_value) |f| f.parameters() else &.{};
     const args_json = try d.d.array(root, "arguments");
     const args = try r.a.alloc(RunValue, args_json.len);
     for (args_json, args, 0..) |value, *slot, i| {
         d.remaining = 8192;
         d.top = try d.fmt("arguments[{d}]", .{i});
-        slot.* = if (i < params.len) try d.plain(try d.at("/arguments", i), d.top, try infer.typeOf(r.a, model.property(params[i], "type").?), value, 0) else try d.tagged(try d.at("/arguments", i), d.top, value, 0);
+        slot.* = if (i < params.len) try d.plain(try d.at("/arguments", i), d.top, try infer.typeOf(r.a, params[i].declaredType()), value, 0) else try d.tagged(try d.at("/arguments", i), d.top, value, 0);
     }
     var expected: ?RunValue = null;
     if (root.object.get("expected")) |value| {
         d.remaining = 8192;
         d.top = "expected";
-        expected = if (fn_value != .json_null) try d.plain("/expected", "expected", try infer.typeOf(r.a, model.property(fn_value, "resultType").?), value, 0) else try d.tagged("/expected", "expected", value, 0);
+        expected = if (fn_value) |f| try d.plain("/expected", "expected", try infer.typeOf(r.a, f.resultType()), value, 0) else try d.tagged("/expected", "expected", value, 0);
     }
     var sources: []const []const u8 = &.{};
     if (root.object.get("hostSources") != null) {
@@ -661,7 +693,7 @@ pub fn decode(r: *q.Request) Fail!Input {
         }
         sources = out;
     }
-    var input: Input = .{ .function_id = id, .declarations = r.model, .fn_value = fn_value, .arguments = args, .expected = expected, .host_sources = sources };
+    var input: Input = .{ .function_id = id, .declarations = r.typedModel(), .fn_value = fn_value, .arguments = args, .expected = expected, .host_sources = sources };
     for (args) |arg| {
         if (arg.kind == .host) input.has_host_binding = true;
         if (arg.kind == .fake) {
@@ -685,12 +717,12 @@ pub fn decode(r: *q.Request) Fail!Input {
 /// Verification grammar is tagged-only; its names belong to two immutable declaration views.
 pub const VerificationCase = struct { label: []const u8, function_id: []const u8, arguments: []RunValue, expected: ?RunValue };
 pub fn verificationCases(r: *q.Request, candidate: *q.Request, names: bool) Fail![]VerificationCase {
-    const original = r.model;
-    r.model = try declarationView(r);
-    defer r.model = original;
-    const candidate_original = candidate.model;
-    candidate.model = try declarationView(candidate);
-    defer candidate.model = candidate_original;
+    const original = r.generation;
+    r.generation = (try declarationView(r)).data.snapshot;
+    defer r.generation = original;
+    const candidate_original = candidate.generation;
+    candidate.generation = (try declarationView(candidate)).data.snapshot;
+    defer candidate.generation = candidate_original;
     const duplicates = try recipe.duplicatePaths(r.a, r.line);
     var d: Decoder = .{ .names = names, .d = .{ .r = r, .duplicates = duplicates, .owner = if (names) .{ .name = "" } else null } };
     var cd: Decoder = .{ .names = names, .d = .{ .r = candidate, .duplicates = duplicates, .owner = if (names) .{ .name = "" } else null } };
@@ -725,7 +757,7 @@ pub fn verificationCases(r: *q.Request, candidate: *q.Request, names: bool) Fail
 }
 pub fn inputForCase(r: *q.Request, case: VerificationCase, expected: ?RunValue) Fail!Input {
     const declarations = try declarationView(r);
-    var input: Input = .{ .function_id = case.function_id, .declarations = declarations, .fn_value = find(model.arrayItems(declarations, "functions"), case.function_id) orelse .json_null, .arguments = case.arguments, .expected = expected, .host_sources = &.{} };
+    var input: Input = .{ .function_id = case.function_id, .declarations = declarations, .fn_value = find(declarations.functions(), case.function_id), .arguments = case.arguments, .expected = expected, .host_sources = &.{} };
     for (input.arguments) |arg| {
         if (arg.kind == .host) input.has_host_binding = true;
         for (arg.operations) |op| {
@@ -840,11 +872,11 @@ pub fn bounded(r: *q.Request, input: *Input) Fail!void {
         if (!try countValue(r.a, v, 0, &remaining)) return diagnostic(r, input, "RunArgumentTooLarge", "Each argument or expected value is limited to 32 nested composite layers and 8192 value nodes. Split the input into smaller batches or return an aggregate.");
     }
 }
-fn fieldsOf(r: *q.Request, v: RunValue) !?[]const model.Value {
+fn fieldsOf(r: *q.Request, v: RunValue) !?[]const Model {
     if (v.type != .named) return null;
-    const owner = find(model.arrayItems(r.model, "types"), v.type.named.id) orelse return null;
-    if (v.kind == .product and same(prop(owner, "kind"), "product")) return try sorted(r.a, model.arrayItems(owner, "fields"));
-    if (v.kind == .union_value and same(prop(owner, "kind"), "union")) if (find(model.arrayItems(owner, "variants"), v.variant)) |variant| return try sorted(r.a, model.arrayItems(variant, "fields"));
+    const owner = find(r.typedModel().types(), v.type.named.id) orelse return null;
+    if (v.kind == .product and product(owner)) return try sorted(r.a, owner.fields());
+    if (v.kind == .union_value and !product(owner)) if (find(owner.variants(), v.variant)) |variant| return try sorted(r.a, variant.fields());
     return null;
 }
 fn supportedCost(r: *q.Request, t: Type, depth: usize, path: []const Type, budget: *usize) Fail!bool {
@@ -861,20 +893,20 @@ fn supportedCost(r: *q.Request, t: Type, depth: usize, path: []const Type, budge
         return true;
     }
     if (t == .named) {
-        const owner = find(model.arrayItems(r.model, "types"), t.named.id) orelse return false;
+        const owner = find(r.typedModel().types(), t.named.id) orelse return false;
         const next = try r.a.alloc(Type, path.len + 1);
         @memcpy(next[0..path.len], path);
         next[path.len] = t;
-        if (same(prop(owner, "kind"), "product")) {
-            const fields = model.arrayItems(owner, "fields");
+        if (product(owner)) {
+            const fields = owner.fields();
             if (fields.len > 256) return false;
             for (fields) |field| if (!try supportedCost(r, try instantiated(r, owner, t.named.arguments, field), depth + 1, next, budget)) return false;
             return true;
         }
-        const variants = model.arrayItems(owner, "variants");
+        const variants = owner.variants();
         if (variants.len == 0 or variants.len > 256) return false;
         for (variants) |variant| {
-            const fields = model.arrayItems(variant, "fields");
+            const fields = variant.fields();
             if (fields.len > 256) return false;
             for (fields) |field| if (!try supportedCost(r, try instantiated(r, owner, t.named.arguments, field), depth + 1, next, budget)) return false;
         }
@@ -907,13 +939,13 @@ fn taskBearing(r: *q.Request, t: Type, path: []const []const u8) Fail!bool {
     if (t == .named) {
         for (t.named.arguments) |arg| if (try taskBearing(r, arg, path)) return true;
         for (path) |id| if (same(id, t.named.id)) return false;
-        const owner = find(model.arrayItems(r.model, "types"), t.named.id) orelse return false;
+        const owner = find(r.typedModel().types(), t.named.id) orelse return false;
         const next = try r.a.alloc([]const u8, path.len + 1);
         @memcpy(next[0..path.len], path);
         next[path.len] = t.named.id;
-        if (same(prop(owner, "kind"), "product")) {
-            for (model.arrayItems(owner, "fields")) |field| if (try taskBearing(r, try instantiated(r, owner, t.named.arguments, field), next)) return true;
-        } else for (model.arrayItems(owner, "variants")) |variant| for (model.arrayItems(variant, "fields")) |field| {
+        if (product(owner)) {
+            for (owner.fields()) |field| if (try taskBearing(r, try instantiated(r, owner, t.named.arguments, field), next)) return true;
+        } else for (owner.variants()) |variant| for (variant.fields()) |field| {
             if (try taskBearing(r, try instantiated(r, owner, t.named.arguments, field), next)) return true;
         };
     }
@@ -929,7 +961,7 @@ fn validNamed(r: *q.Request, v: RunValue, kind: Kind) Fail!bool {
     if (v.kind == kind) {
         const fields = (try fieldsOf(r, v)) orelse return false;
         if (fields.len != v.fields.len) return false;
-        const owner = find(model.arrayItems(r.model, "types"), v.type.named.id).?;
+        const owner = find(r.typedModel().types(), v.type.named.id).?;
         for (fields, v.fields) |field, actual| if (!same(q.idOf(field), actual.id) or !infer.eqlType(try instantiated(r, owner, v.type.named.arguments, field), actual.value.type)) return false;
     }
     for (try children(r.a, v)) |child| if (!try validNamed(r, child, kind)) return false;
@@ -969,13 +1001,13 @@ fn validContainers(r: *q.Request, v: RunValue) Fail!bool {
 const Problem = struct { code: []const u8, message: []const u8 };
 fn fakeProblem(r: *q.Request, v: RunValue) !?Problem {
     if (v.kind != .fake and v.kind != .host) return null;
-    const capability = find(model.arrayItems(r.model, "capabilities"), v.type.capability) orelse return .{ .code = "RunBindingShapeMismatch", .message = "The binding names an unknown capability." };
-    const declarations = model.arrayItems(capability, "operations");
+    const capability = find(r.typedModel().capabilities(), v.type.capability) orelse return .{ .code = "RunBindingShapeMismatch", .message = "The binding names an unknown capability." };
+    const declarations = capability.operations();
     for (declarations) |op| {
-        const rt = try infer.typeOf(r.a, model.property(op, "resultType").?);
+        const rt = try infer.typeOf(r.a, op.resultType());
         if (!try supported(r, rt, 0) and !bearsCapability(rt)) return .{ .code = "RunBindingTypeUnsupported", .message = "Every operation of a bound capability needs parameter and result types that runPure values support, or that mention a capability." };
-        for (model.arrayItems(op, "parameters")) |parameter| {
-            const t = try infer.typeOf(r.a, model.property(parameter, "type").?);
+        for (op.parameters()) |parameter| {
+            const t = try infer.typeOf(r.a, parameter.declaredType());
             if (!try supported(r, t, 0) and !bearsCapability(t)) return .{ .code = "RunBindingTypeUnsupported", .message = "Every operation of a bound capability needs parameter and result types that runPure values support, or that mention a capability." };
         }
     }
@@ -1000,11 +1032,11 @@ fn fakeProblem(r: *q.Request, v: RunValue) !?Problem {
     }
     for (v.operations) |op| if (op.cases) |cases| {
         const declaration = find(declarations, op.id).?;
-        const parameters = try sorted(r.a, model.arrayItems(declaration, "parameters"));
+        const parameters = try sorted(r.a, declaration.parameters());
         for (cases, 0..) |case, i| {
             var valid = case.arguments.len == parameters.len;
             if (valid) for (case.arguments, parameters) |arg, p| {
-                if (!same(arg.id, q.idOf(p)) or !infer.eqlType(arg.value.type, try infer.typeOf(r.a, model.property(p, "type").?))) {
+                if (!same(arg.id, q.idOf(p)) or !infer.eqlType(arg.value.type, try infer.typeOf(r.a, p.declaredType()))) {
                     valid = false;
                     break;
                 }
@@ -1027,7 +1059,7 @@ fn fakeProblem(r: *q.Request, v: RunValue) !?Problem {
         }
     };
     for (v.operations) |op| {
-        const rt = try infer.typeOf(r.a, model.property(find(declarations, op.id).?, "resultType").?);
+        const rt = try infer.typeOf(r.a, find(declarations, op.id).?.resultType());
         if (op.cases) |cases| {
             for (cases) |case| {
                 for (case.responses) |response| {
@@ -1105,17 +1137,17 @@ fn issueFor(category: []const u8, code: []const u8, path: []const []const u8, ex
 fn inputIssue(r: *q.Request, category: []const u8, code: []const u8, path: []const []const u8, declared: Type, v: RunValue) Fail!?Issue {
     if (!infer.eqlType(declared, v.type)) if (issueFor(category, code, path, declared, v.type, "The value type differs from the declared type.")) |found| return found;
     if (v.kind == .fake) {
-        if (find(model.arrayItems(r.model, "capabilities"), v.type.capability)) |capability| {
+        if (find(r.typedModel().capabilities(), v.type.capability)) |capability| {
             for (v.operations, 0..) |operation, i| {
-                const declaration = find(model.arrayItems(capability, "operations"), operation.id) orelse continue;
+                const declaration = find(capability.operations(), operation.id) orelse continue;
                 const op_path = try pathAdd(r.a, path, try std.fmt.allocPrint(r.a, "operations[{d}]", .{i}));
                 if (operation.cases) |cases| {
                     for (cases, 0..) |case, j| {
                         const case_path = try pathAdd(r.a, op_path, try std.fmt.allocPrint(r.a, "cases[{d}]", .{j}));
                         for (case.arguments, 0..) |argument, k| {
-                            const parameter = find(model.arrayItems(declaration, "parameters"), argument.id) orelse continue;
+                            const parameter = find(declaration.parameters(), argument.id) orelse continue;
                             const arg_path = try pathAdd(r.a, try pathAdd(r.a, case_path, try std.fmt.allocPrint(r.a, "arguments[{d}]", .{k})), "value");
-                            if (try inputIssue(r, category, "RunBindingShapeMismatch", arg_path, try infer.typeOf(r.a, model.property(parameter, "type").?), argument.value)) |found| return found;
+                            if (try inputIssue(r, category, "RunBindingShapeMismatch", arg_path, try infer.typeOf(r.a, parameter.declaredType()), argument.value)) |found| return found;
                         }
                         if (try responseIssue(r, category, case_path, declaration, case.responses)) |found| return found;
                     }
@@ -1125,10 +1157,10 @@ fn inputIssue(r: *q.Request, category: []const u8, code: []const u8, path: []con
     }
     if (v.kind == .product or v.kind == .union_value) {
         const shape_code: []const u8 = if (v.kind == .product) "RunProductShapeMismatch" else "RunUnionShapeMismatch";
-        const owner = find(model.arrayItems(r.model, "types"), v.type.named.id);
+        const owner = find(r.typedModel().types(), v.type.named.id);
         var p = try pathAdd(r.a, path, if (owner) |o| q.nameOf(o) else v.type.named.id);
         if (v.kind == .union_value) {
-            const variant = if (owner) |o| find(model.arrayItems(o, "variants"), v.variant) else null;
+            const variant = if (owner) |o| find(o.variants(), v.variant) else null;
             p = try pathAdd(r.a, p, if (variant) |x| q.nameOf(x) else try std.fmt.allocPrint(r.a, "variant:{s}", .{v.variant}));
         }
         const fields = (try fieldsOf(r, v)) orelse return issueFor(category, shape_code, p, v.type, v.type, "The Product type or Union variant is not declared.");
@@ -1169,8 +1201,8 @@ fn inputIssue(r: *q.Request, category: []const u8, code: []const u8, path: []con
     if (v.kind == .result) return inputIssue(r, category, "RunContainerTypeMismatch", try pathAdd(r.a, path, if (v.boolean) "ok" else "err"), v.type.builtin.arguments[if (v.boolean) @as(usize, 0) else 1], v.payload.?.*);
     return null;
 }
-fn responseIssue(r: *q.Request, category: []const u8, path: []const []const u8, declaration: model.Value, responses: []const Response) Fail!?Issue {
-    const rt = try infer.typeOf(r.a, model.property(declaration, "resultType").?);
+fn responseIssue(r: *q.Request, category: []const u8, path: []const []const u8, declaration: Model, responses: []const Response) Fail!?Issue {
+    const rt = try infer.typeOf(r.a, declaration.resultType());
     for (responses, 0..) |response, i| {
         if (response.value) |value| {
             const value_path = try pathAdd(r.a, try pathAdd(r.a, path, try std.fmt.allocPrint(r.a, "responses[{d}]", .{i})), "value");
@@ -1182,14 +1214,14 @@ fn responseIssue(r: *q.Request, category: []const u8, path: []const []const u8, 
 fn validationError(r: *q.Request, input: *Input, code: []const u8, message: []const u8) Fail!void {
     var found: ?Issue = null;
     if (same(code, "RunArgumentTypeMismatch") or same(code, "RunProductShapeMismatch") or same(code, "RunUnionShapeMismatch") or same(code, "RunContainerTypeMismatch") or same(code, "RunExpectedTypeMismatch")) {
-        const parameters = model.arrayItems(input.fn_value, "parameters");
+        const parameters = input.fn_value.?.parameters();
         if (parameters.len == input.arguments.len) {
             for (parameters, input.arguments) |parameter, value| {
-                found = try inputIssue(r, code, "RunArgumentTypeMismatch", &.{ "arguments", q.nameOf(parameter) }, try infer.typeOf(r.a, model.property(parameter, "type").?), value);
+                found = try inputIssue(r, code, "RunArgumentTypeMismatch", &.{ "arguments", q.nameOf(parameter) }, try infer.typeOf(r.a, parameter.declaredType()), value);
                 if (found != null) break;
             }
             if (found == null) if (input.expected) |value| {
-                found = try inputIssue(r, code, "RunExpectedTypeMismatch", &.{"expected"}, try infer.typeOf(r.a, model.property(input.fn_value, "resultType").?), value);
+                found = try inputIssue(r, code, "RunExpectedTypeMismatch", &.{"expected"}, try infer.typeOf(r.a, input.fn_value.?.resultType()), value);
             };
         }
     }
@@ -1208,23 +1240,23 @@ fn validationError(r: *q.Request, input: *Input, code: []const u8, message: []co
     };
 }
 pub fn validate(r: *q.Request, input: *Input) Fail!void {
-    const original_model = r.model;
-    r.model = input.declarations;
-    defer r.model = original_model;
+    const original_model = r.generation;
+    r.generation = input.declarations.data.snapshot;
+    defer r.generation = original_model;
     for (input.arguments) |*value| canonicalize(value);
     if (input.expected) |*value| canonicalize(value);
-    if (input.fn_value == .json_null) return diagnostic(r, input, "RunFunctionNotFound", "The entry function does not exist.");
-    const fn_value = input.fn_value;
-    const parameters = model.arrayItems(fn_value, "parameters");
-    const rt = try infer.typeOf(r.a, model.property(fn_value, "resultType").?);
+    if (input.fn_value == null) return diagnostic(r, input, "RunFunctionNotFound", "The entry function does not exist.");
+    const fn_value = input.fn_value.?;
+    const parameters = fn_value.parameters();
+    const rt = try infer.typeOf(r.a, fn_value.resultType());
     var occurring: std.ArrayList([]const u8) = .empty;
-    for (parameters) |parameter| try preflight.occurring(r.a, try infer.typeOf(r.a, model.property(parameter, "type").?), &occurring);
+    for (parameters) |parameter| try preflight.occurring(r.a, try infer.typeOf(r.a, parameter.declaredType()), &occurring);
     try preflight.occurring(r.a, rt, &occurring);
-    if (model.arrayItems(fn_value, "typeParameters").len > 0 or occurring.items.len > 0) return diagnostic(r, input, "RunGenericEntryUnsupported", "A generic function cannot be an entry point; run a concrete function that calls it.");
+    if (fn_value.typeParameters().len > 0 or occurring.items.len > 0) return diagnostic(r, input, "RunGenericEntryUnsupported", "A generic function cannot be an entry point; run a concrete function that calls it.");
     if (try taskBearing(r, rt, &.{})) return diagnostic(r, input, "RunTaskTypeUnsupported", "Task, OneShot and TaskScope values, directly or inside a declared type, are not runPure values; run a function that waits for its tasks and returns their results.");
-    for (parameters) |parameter| if (try taskBearing(r, try infer.typeOf(r.a, model.property(parameter, "type").?), &.{})) return diagnostic(r, input, "RunTaskTypeUnsupported", "Task, OneShot and TaskScope values, directly or inside a declared type, are not runPure values; run a function that waits for its tasks and returns their results.");
+    for (parameters) |parameter| if (try taskBearing(r, try infer.typeOf(r.a, parameter.declaredType()), &.{})) return diagnostic(r, input, "RunTaskTypeUnsupported", "Task, OneShot and TaskScope values, directly or inside a declared type, are not runPure values; run a function that waits for its tasks and returns their results.");
     if (parameters.len != input.arguments.len) return diagnostic(r, input, "RunArgumentCountMismatch", "The number of arguments differs from the function signature.");
-    for (parameters, input.arguments) |parameter, value| if (!infer.eqlType(try infer.typeOf(r.a, model.property(parameter, "type").?), value.type)) return validationError(r, input, "RunArgumentTypeMismatch", "An argument has the wrong type; capability parameters take a fakeCapability binding.");
+    for (parameters, input.arguments) |parameter, value| if (!infer.eqlType(try infer.typeOf(r.a, parameter.declaredType()), value.type)) return validationError(r, input, "RunArgumentTypeMismatch", "An argument has the wrong type; capability parameters take a fakeCapability binding.");
     if (input.has_host_binding != (input.host_sources.len > 0)) return diagnostic(r, input, "RunHostSourceInvalid", "hostSources are required exactly when an argument is a hostCapability binding.");
     for (input.arguments) |value| if (try containsBinding(r, value)) return diagnostic(r, input, "RunBindingPlacement", "Fake capabilities are accepted only as top-level arguments for capability parameters.");
     if (input.expected) |value| if (try containsBinding(r, value)) return diagnostic(r, input, "RunBindingPlacement", "Fake capabilities are accepted only as top-level arguments for capability parameters.");
@@ -1299,8 +1331,8 @@ fn valueTokens(r: *q.Request, v: RunValue, out: *std.ArrayList([]const u8)) Fail
         },
         .product, .union_value => {
             if (v.kind == .union_value) {
-                const owner = find(model.arrayItems(r.model, "types"), v.type.named.id).?;
-                for (try sorted(r.a, model.arrayItems(owner, "variants")), 0..) |variant, i| if (same(q.idOf(variant), v.variant)) {
+                const owner = find(r.typedModel().types(), v.type.named.id).?;
+                for (try sorted(r.a, owner.variants()), 0..) |variant, i| if (same(q.idOf(variant), v.variant)) {
                     try tokenAdd(r, out, i);
                     break;
                 };
@@ -1326,9 +1358,9 @@ fn responseTokens(r: *q.Request, responses: []const Response, out: *std.ArrayLis
     }
 }
 pub fn tokens(r: *q.Request, input: *Input) Fail![]const []const u8 {
-    const original_model = r.model;
-    r.model = input.declarations;
-    defer r.model = original_model;
+    const original_model = r.generation;
+    r.generation = input.declarations.data.snapshot;
+    defer r.generation = original_model;
     var out: std.ArrayList([]const u8) = .empty;
     for (input.arguments) |value| {
         if (value.kind == .host) continue;
@@ -1336,8 +1368,8 @@ pub fn tokens(r: *q.Request, input: *Input) Fail![]const []const u8 {
             try valueTokens(r, value, &out);
             continue;
         }
-        const owner = find(model.arrayItems(r.model, "capabilities"), value.type.capability).?;
-        for (try sorted(r.a, model.arrayItems(owner, "operations"))) |op| {
+        const owner = find(r.typedModel().capabilities(), value.type.capability).?;
+        for (try sorted(r.a, owner.operations())) |op| {
             var script: ?Operation = null;
             for (value.operations) |candidate| if (same(candidate.id, q.idOf(op))) {
                 script = candidate;
@@ -1432,22 +1464,22 @@ fn resultValue(r: *q.Request, input: *Input, t: Type, item: Json) Fail!RunValue 
         }
     }
     if (t == .named and item == .array) {
-        const owner = find(model.arrayItems(r.model, "types"), t.named.id) orelse return invalid(r, input, "The result does not have the declared type.");
-        const product = same(prop(owner, "kind"), "product");
+        const owner = find(r.typedModel().types(), t.named.id) orelse return invalid(r, input, "The result does not have the declared type.");
+        const is_product = product(owner);
         var constructor = owner;
         var items = item;
         var variant: []const u8 = "";
-        if (!product) {
+        if (!is_product) {
             if (item.array.items.len != 2 or item.array.items[0] != .string) return invalid(r, input, "The Union result does not match its declaration.");
             variant = item.array.items[0].string;
-            constructor = find(model.arrayItems(owner, "variants"), variant) orelse return invalid(r, input, "The Union result does not match its declaration.");
+            constructor = find(owner.variants(), variant) orelse return invalid(r, input, "The Union result does not match its declaration.");
             items = item.array.items[1];
         }
-        const fields = try sorted(r.a, model.arrayItems(constructor, "fields"));
+        const fields = try sorted(r.a, constructor.fields());
         if (items != .array or items.array.items.len != fields.len) return invalid(r, input, "The Product result fields do not match their declaration.");
         const out = try r.a.alloc(Field, fields.len);
         for (fields, items.array.items, out) |field, value, *slot| slot.* = .{ .id = q.idOf(field), .value = try resultValue(r, input, try instantiated(r, owner, t.named.arguments, field), value) };
-        return .{ .kind = if (product) .product else .union_value, .type = t, .variant = variant, .fields = out };
+        return .{ .kind = if (is_product) .product else .union_value, .type = t, .variant = variant, .fields = out };
     }
     return invalid(r, input, "The result does not have the declared type.");
 }
@@ -1647,12 +1679,12 @@ fn valuePath(a: Allocator, path: []const model.Value, step: model.Value) ![]cons
     out[path.len] = step;
     return out;
 }
-const Site = struct { parameter: model.Value, operation: model.Value };
+const Site = struct { parameter: Model, operation: Model };
 fn sites(r: *q.Request, input: *Input) ![]const Site {
     var out: std.ArrayList(Site) = .empty;
-    for (model.arrayItems(input.fn_value, "parameters"), input.arguments) |parameter, arg| if (arg.kind == .fake or arg.kind == .host) {
-        const capability = find(model.arrayItems(r.model, "capabilities"), arg.type.capability).?;
-        for (try sorted(r.a, model.arrayItems(capability, "operations"))) |operation| try out.append(r.a, .{ .parameter = parameter, .operation = operation });
+    for (input.fn_value.?.parameters(), input.arguments) |parameter, arg| if (arg.kind == .fake or arg.kind == .host) {
+        const capability = find(r.typedModel().capabilities(), arg.type.capability).?;
+        for (try sorted(r.a, capability.operations())) |operation| try out.append(r.a, .{ .parameter = parameter, .operation = operation });
     };
     return out.items;
 }
@@ -1667,11 +1699,11 @@ fn calls(r: *q.Request, input: *Input, json: Json) Fail!model.Value {
         const n = integer(data[0]) orelse return invalid(r, input, "The process did not return one JSON result.");
         if (n < 0 or n >= all_sites.len or data[1] != .array) return invalid(r, input, "The process did not return one JSON result.");
         const site = all_sites[@intCast(n)];
-        var ps: std.ArrayList(model.Value) = .empty;
-        for (model.arrayItems(site.operation, "parameters")) |parameter| if (try supported(r, try infer.typeOf(r.a, model.property(parameter, "type").?), 0)) try ps.append(r.a, parameter);
+        var ps: std.ArrayList(Model) = .empty;
+        for (site.operation.parameters()) |parameter| if (try supported(r, try infer.typeOf(r.a, parameter.declaredType()), 0)) try ps.append(r.a, parameter);
         if (data[1].array.items.len != ps.items.len) return invalid(r, input, "The process did not return one JSON result.");
         const args = try r.a.alloc(Field, ps.items.len);
-        for (ps.items, data[1].array.items, args) |parameter, value, *arg| arg.* = .{ .id = q.idOf(parameter), .value = try resultValue(r, input, try infer.typeOf(r.a, model.property(parameter, "type").?), value) };
+        for (ps.items, data[1].array.items, args) |parameter, value, *arg| arg.* = .{ .id = q.idOf(parameter), .value = try resultValue(r, input, try infer.typeOf(r.a, parameter.declaredType()), value) };
         sortFields(args);
         if (input.capture != null) try captured.append(r.a, .{ .parameter_id = q.idOf(site.parameter), .operation_id = q.idOf(site.operation), .arguments = args });
         const arguments = try r.a.alloc(model.Value, args.len);
@@ -1694,8 +1726,8 @@ fn calls(r: *q.Request, input: *Input, json: Json) Fail!model.Value {
     return .{ .array = out };
 }
 fn operationNames(r: *q.Request, out: *std.ArrayList(model.Member), id: []const u8) !void {
-    for (model.arrayItems(r.model, "capabilities")) |cap| {
-        if (find(model.arrayItems(cap, "operations"), id) != null) {
+    for (r.typedModel().capabilities()) |cap| {
+        if (find(cap.operations(), id) != null) {
             try out.append(r.a, try mat.member(r.a, "capability", try mat.string(r.a, q.nameOf(cap))));
             break;
         }
@@ -1767,9 +1799,9 @@ pub fn csharpCrash(r: *q.Request, input: *Input, stdout: []const u8, stderr: []c
             while (i < stderr.len and (std.ascii.isDigit(stderr[i]) or (stderr[i] >= 'A' and stderr[i] <= 'F'))) : (i += 1) {}
             try frames.append(.{ .string = stderr[start..i] });
         }
-        const original = r.model;
-        r.model = input.declarations;
-        defer r.model = original;
+        const original = r.generation;
+        r.generation = input.declarations.data.snapshot;
+        defer r.generation = original;
         return runtimeFailureFrames(r, input, "fatal", "System.StackOverflowException", "Stack overflow: recursion was too deep. A self DirectCall in tail position runs as a loop (the body's result, a Bind body, a Conditional branch, a match arm or otherwise, or the right operand of BoolAnd/BoolOr); any other self or mutual DirectCall recursion runs on the runner's thread stack, which holds only several thousand frames of a typical function. Make the self call the last step of each continuing branch, or iterate a List with ListFold (for text, over StringCodePoints).", .{ .array = &.{} }, false, .{ .array = frames });
     }
     const details = try std.mem.concat(r.a, u8, &.{ stdout, "\n", stderr });
@@ -1786,9 +1818,9 @@ fn envelopeWithinDepth(a: Allocator, text: []const u8) bool {
 }
 
 pub fn envelope(r: *q.Request, input: *Input, stdout: []const u8, out: *Writer) Fail!void {
-    const original_model = r.model;
-    r.model = input.declarations;
-    defer r.model = original_model;
+    const original_model = r.generation;
+    r.generation = input.declarations.data.snapshot;
+    defer r.generation = original_model;
     if (!envelopeWithinDepth(r.a, stdout)) return invalid(r, input, "The process did not return one JSON result.");
     const parsed = std.json.parseFromSlice(Json, r.a, stdout, .{ .allocate = .alloc_always, .parse_numbers = false }) catch return invalid(r, input, "The process did not return one JSON result.");
     const root = parsed.value;
@@ -1801,7 +1833,7 @@ pub fn envelope(r: *q.Request, input: *Input, stdout: []const u8, out: *Writer) 
         return runtimeFailureFrames(r, input, values[6].string, values[1].string, text, try calls(r, input, values[4]), values[5].bool, values[3]);
     }
     if (!same(tag, "value") or values.len != 3) return invalid(r, input, "The process did not return one JSON result.");
-    const actual = try resultValue(r, input, try infer.typeOf(r.a, model.property(input.fn_value, "resultType").?), values[1]);
+    const actual = try resultValue(r, input, try infer.typeOf(r.a, input.fn_value.?.resultType()), values[1]);
     const recorded = try calls(r, input, values[2]);
     if (input.capture) |capture| capture.actual = actual;
     var fields: std.ArrayList(model.Member) = .empty;
@@ -1861,7 +1893,7 @@ test "run values keep exact integers, binary64 signs, and text tokens" {
 test "scalar decoding preserves negative zero and rejects unsigned negative zero" {
     var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
     defer arena.deinit();
-    var request: q.Request = .{ .a = arena.allocator(), .line = "", .root = .empty, .model = .json_null, .provenance = null };
+    var request: q.Request = .{ .a = arena.allocator(), .line = "", .root = .empty, .provenance = null };
     var d: Decoder = .{ .names = false, .d = .{ .r = &request, .duplicates = .empty } };
     try std.testing.expectEqual(@as(u64, 0x8000000000000000), (try d.leaf("float64", .{ .number_string = "-0" }, "arguments[0]", true)).bits);
     try std.testing.expectError(error.Rejected, d.leaf("bits32", .{ .number_string = "-0" }, "arguments[0]", true));
@@ -1873,14 +1905,17 @@ test "run declarations hide imported private members without changing the model"
     defer arena.deinit();
     const a = arena.allocator();
     const root = try model.parseValue(a,
-        \\{"snapshotId":"snapshot","functions":[],"effects":[],"capabilities":[],"types":[{"id":"hidden","displayName":"Hidden"},{"id":"visible","displayName":"Visible"}]}
+        \\{"snapshotId":"snapshot","functions":[],"effects":[],"capabilities":[],"types":[{"id":"hidden","displayName":"Hidden","kind":"product","fields":[]},{"id":"visible","displayName":"Visible","kind":"product","fields":[]}]}
     );
-    var request: q.Request = .{ .a = a, .line = "", .root = .empty, .model = root, .provenance = .{ .members = &.{}, .hidden = &.{"type:hidden"} } };
+    var interner: tm.Interner = .{ .gpa = a };
+    defer interner.deinit();
+    const generation = try tm.load(a, &interner, root, null);
+    var request: q.Request = .{ .a = a, .line = "", .root = .empty, .generation = &generation, .interner = &interner, .provenance = .{ .members = &.{}, .hidden = &.{"type:hidden"} } };
     const view = try declarationView(&request);
-    try std.testing.expectEqual(@as(usize, 1), model.arrayItems(view, "types").len);
-    try std.testing.expectEqualStrings("visible", q.idOf(model.arrayItems(view, "types")[0]));
-    try std.testing.expectEqual(@as(usize, 2), model.arrayItems(request.model, "types").len);
-    try std.testing.expectEqualStrings("snapshot", prop(view, "snapshotId"));
+    try std.testing.expectEqual(@as(usize, 1), view.types().len);
+    try std.testing.expectEqualStrings("visible", q.idOf(view.types()[0]));
+    try std.testing.expectEqual(@as(usize, 2), request.typedModel().types().len);
+    try std.testing.expectEqualStrings("snapshot", q.idOf(view));
 }
 
 test "nested fake response diagnostics include the operation response and field path" {
@@ -1888,9 +1923,12 @@ test "nested fake response diagnostics include the operation response and field 
     defer arena.deinit();
     const a = arena.allocator();
     const root = try model.parseValue(a,
-        \\{"types":[{"id":"Answer","displayName":"Answer","kind":"union","variants":[{"id":"Found","displayName":"Found","fields":[{"id":"text","displayName":"text","type":{"kind":"primitive","primitive":"string"}}]}]}],"capabilities":[{"id":"Provider","displayName":"Provider","operations":[{"id":"lookup","displayName":"lookup","parameters":[],"resultType":{"kind":"named","typeId":"Answer"}}]}]}
+        \\{"snapshotId":"snapshot","types":[{"id":"Answer","displayName":"Answer","kind":"union","variants":[{"id":"Found","displayName":"Found","fields":[{"id":"text","displayName":"text","type":{"kind":"primitive","primitive":"string"}}]}]}],"capabilities":[{"id":"Provider","displayName":"Provider","operations":[{"id":"lookup","displayName":"lookup","parameters":[],"resultType":{"kind":"named","typeId":"Answer"},"effectId":"effect"}]}]}
     );
-    var request: q.Request = .{ .a = a, .line = "", .root = .empty, .model = root, .provenance = null };
+    var interner: tm.Interner = .{ .gpa = a };
+    defer interner.deinit();
+    const generation = try tm.load(a, &interner, root, null);
+    var request: q.Request = .{ .a = a, .line = "", .root = .empty, .generation = &generation, .interner = &interner, .provenance = null };
     var fields = [_]Field{.{ .id = "text", .value = .{ .kind = .int64, .type = primitive("int64"), .integer = 1 } }};
     var payload: RunValue = .{ .kind = .union_value, .type = .{ .named = .{ .id = "Answer", .arguments = &.{} } }, .variant = "Found", .fields = &fields };
     var responses = [_]Response{.{ .kind = .ret, .value = &payload }};
@@ -1921,7 +1959,7 @@ test "produced recursive values follow the whole envelope JSON depth limit" {
     defer arena.deinit();
     const a = arena.allocator();
     const root = try model.parseValue(a,
-        \\{"types":[{"id":"Node","displayName":"Node","kind":"product","fields":[{"id":"next","displayName":"next","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"named","typeId":"Node"}]}}]}],"functions":[{"id":"node","displayName":"node","parameters":[],"resultType":{"kind":"named","typeId":"Node"}},{"id":"option","displayName":"option","parameters":[],"resultType":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"named","typeId":"Node"}]}}]}
+        \\{"snapshotId":"snapshot","types":[{"id":"Node","displayName":"Node","kind":"product","fields":[{"id":"next","displayName":"next","type":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"named","typeId":"Node"}]},"requiredEffects":[],"body":{"nodes":[{"id":"m","kind":"unitLiteral"}],"resultNodeId":"m"}}]}],"functions":[{"id":"node","displayName":"node","parameters":[],"resultType":{"kind":"named","typeId":"Node"},"requiredEffects":[],"body":{"nodes":[{"id":"n","kind":"unitLiteral"}],"resultNodeId":"n"}},{"id":"option","displayName":"option","parameters":[],"resultType":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"named","typeId":"Node"}]},"requiredEffects":[],"body":{"nodes":[{"id":"m","kind":"unitLiteral"}],"resultNodeId":"m"}}]}
     );
     const nested = struct {
         fn json(allocator: Allocator, prefix: []const u8, layers: usize, suffix: []const u8) ![]const u8 {
@@ -1932,11 +1970,15 @@ test "produced recursive values follow the whole envelope JSON depth limit" {
             return std.mem.concat(allocator, u8, &.{ prefix, open, close, suffix });
         }
     }.json;
-    var request: q.Request = .{ .a = a, .line = "", .root = .empty, .model = root, .provenance = null };
+    var interner: tm.Interner = .{ .gpa = a };
+    defer interner.deinit();
+    const generation = try tm.load(a, &interner, root, null);
+    const declarations = model.typedRoot(a, &interner, &generation);
+    var request: q.Request = .{ .a = a, .line = "", .root = .empty, .generation = &generation, .interner = &interner, .provenance = null };
     for ([_]usize{ 66, 127, 128 }) |count| {
         const option = count != 66;
-        const fn_value = model.arrayItems(root, "functions")[@intFromBool(option)];
-        var input: Input = .{ .function_id = q.idOf(fn_value), .declarations = root, .fn_value = fn_value, .arguments = &.{}, .expected = null, .host_sources = &.{} };
+        const fn_value = declarations.functions()[@intFromBool(option)];
+        var input: Input = .{ .function_id = q.idOf(fn_value), .declarations = declarations, .fn_value = fn_value, .arguments = &.{}, .expected = null, .host_sources = &.{} };
         const text = try nested(a, "[\"value\",", 2 * count + @intFromBool(option), ",[]]");
         var output: Writer.Allocating = .init(a);
         if (count < 128) {

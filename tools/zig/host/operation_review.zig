@@ -6,19 +6,21 @@ const m = @import("materialize.zig");
 const edit = @import("operation_model.zig");
 const engine = @import("operation_engine.zig");
 const Value = model.Value;
-const Entry = struct { kind: []const u8, item: Value, owner: ?Value = null, variant: ?Value = null, operation: ?Value = null, siblings: []const Value };
-fn entries(a: std.mem.Allocator, root: Value) ![]Entry {
+const Model = model.Model;
+const typed_edit = @import("typed_edit.zig");
+const Entry = struct { kind: []const u8, item: Model, owner: ?Model = null, variant: ?Model = null, operation: ?Model = null, siblings: []const Model };
+fn entries(a: std.mem.Allocator, root: Model) ![]Entry {
     var list: std.ArrayList(Entry) = .empty;
     for ([_][2][]const u8{ .{ "types", "type" }, .{ "functions", "function" }, .{ "effects", "effect" }, .{ "capabilities", "capability" } }) |category| {
-        const items = model.arrayItems(root, category[0]);
+        const items = root.declarations(category[0]);
         for (items) |owner| {
             try list.append(a, .{ .kind = category[1], .item = owner, .siblings = items });
             for ([_][2][]const u8{ .{ "fields", "field" }, .{ "variants", "variant" }, .{ "parameters", "parameter" }, .{ "operations", "capabilityOperation" } }) |member| {
-                const children = model.arrayItems(owner, member[0]);
+                const children = if (m.same(member[0], "fields")) (if (owner.data == .type_declaration) owner.fields() else &.{}) else if (m.same(member[0], "variants")) (if (owner.data == .type_declaration) owner.variants() else &.{}) else if (m.same(member[0], "parameters")) (if (owner.data == .function) owner.parameters() else &.{}) else (if (owner.data == .capability) owner.operations() else &.{});
                 for (children) |item| {
                     try list.append(a, .{ .kind = member[1], .item = item, .owner = owner, .siblings = children });
                     const nested_key: []const u8 = if (m.same(member[0], "variants")) "fields" else if (m.same(member[0], "operations")) "parameters" else continue;
-                    const nested = model.arrayItems(item, nested_key);
+                    const nested = if (m.same(nested_key, "fields")) item.fields() else item.parameters();
                     for (nested) |child| try list.append(a, .{ .kind = if (m.same(nested_key, "fields")) "field" else "capabilityParameter", .item = child, .owner = owner, .variant = if (m.same(nested_key, "fields")) item else null, .operation = if (m.same(nested_key, "parameters")) item else null, .siblings = nested });
                 }
             }
@@ -44,7 +46,7 @@ fn renameLess(_: void, x: Value, y: Value) bool {
 }
 fn duplicate(r: *query.Request, entry: Entry) !void {
     for (entry.siblings) |sibling| {
-        if (m.same(query.idOf(sibling), query.idOf(entry.item)) or !std.mem.eql(u16, model.decoded(model.property(sibling, "displayName").?), model.decoded(model.property(entry.item, "displayName").?))) continue;
+        if (m.same(query.idOf(sibling), query.idOf(entry.item)) or !std.mem.eql(u16, sibling.displayName(), entry.item.displayName())) continue;
         const kind: []const u8 = if (m.same(entry.kind, "capabilityOperation")) "operation" else if (m.same(entry.kind, "capabilityParameter")) "parameter" else entry.kind;
         var scope: []const u8 = "";
         var rule: []const u8 = "";
@@ -69,27 +71,27 @@ fn duplicate(r: *query.Request, entry: Entry) !void {
         return engine.rejected(r, "DuplicateDisplayName", try std.fmt.allocPrint(r.a, "Another {s} {s}is already named '{s}'; {s} display names must be unique{s}.", .{ kind, scope, query.nameOf(entry.item), kind, rule }));
     }
 }
-pub fn finalizeDiff(r: *query.Request, candidate: Value, accumulated: Value) anyerror!Value {
+pub fn finalizeDiff(r: *query.Request, candidate: Model, accumulated: Value) anyerror!Value {
     const a = r.a;
-    const before = try entries(a, r.model);
+    const before = try entries(a, r.typedModel());
     const after = try entries(a, candidate);
     var renames: std.ArrayList(Value) = .empty;
     var visibility: std.ArrayList(Value) = .empty;
     var attributes: std.ArrayList(Value) = .empty;
     for (after) |entry| {
         const old = oldEntry(before, entry) orelse continue;
-        if (!std.mem.eql(u16, model.decoded(model.property(old.item, "displayName").?), model.decoded(model.property(entry.item, "displayName").?))) {
+        if (!std.mem.eql(u16, old.item.displayName(), entry.item.displayName())) {
             var fields: std.ArrayList(model.Member) = .empty;
-            try fields.appendSlice(a, &.{ try stringField(a, "kind", entry.kind), try m.member(a, "id", model.property(entry.item, "id").?) });
-            if (entry.owner) |owner| try fields.append(a, try m.member(a, if (m.same(entry.kind, "field") or m.same(entry.kind, "variant")) "ownerTypeId" else if (m.same(entry.kind, "parameter")) "ownerFunctionId" else "ownerCapabilityId", model.property(owner, "id").?));
-            if (entry.variant) |variant| try fields.append(a, try m.member(a, "ownerVariantId", model.property(variant, "id").?));
-            if (entry.operation) |operation| try fields.append(a, try m.member(a, "ownerOperationId", model.property(operation, "id").?));
-            try fields.appendSlice(a, &.{ try m.member(a, "oldDisplayName", model.property(old.item, "displayName").?), try m.member(a, "newDisplayName", model.property(entry.item, "displayName").?) });
+            try fields.appendSlice(a, &.{ try stringField(a, "kind", entry.kind), try m.member(a, "id", .{ .string = entry.item.id() }) });
+            if (entry.owner) |owner| try fields.append(a, try m.member(a, if (m.same(entry.kind, "field") or m.same(entry.kind, "variant")) "ownerTypeId" else if (m.same(entry.kind, "parameter")) "ownerFunctionId" else "ownerCapabilityId", .{ .string = owner.id() }));
+            if (entry.variant) |variant| try fields.append(a, try m.member(a, "ownerVariantId", .{ .string = variant.id() }));
+            if (entry.operation) |operation| try fields.append(a, try m.member(a, "ownerOperationId", .{ .string = operation.id() }));
+            try fields.appendSlice(a, &.{ try m.member(a, "oldDisplayName", .{ .string = old.item.displayName() }), try m.member(a, "newDisplayName", .{ .string = entry.item.displayName() }) });
             try renames.append(a, .{ .object = fields.items });
         }
-        if (entry.owner == null and (model.property(old.item, "exported") != null) != (model.property(entry.item, "exported") != null)) try visibility.append(a, try m.object(a, &.{ try stringField(a, "kind", entry.kind), try m.member(a, "id", model.property(entry.item, "id").?), try m.member(a, "displayName", model.property(entry.item, "displayName").?), try m.member(a, "exported", if (model.property(entry.item, "exported") != null) .json_true else .json_false) }));
+        if (entry.owner == null and old.item.exported() != entry.item.exported()) try visibility.append(a, try m.object(a, &.{ try stringField(a, "kind", entry.kind), try m.member(a, "id", .{ .string = entry.item.id() }), try m.member(a, "displayName", .{ .string = entry.item.displayName() }), try m.member(a, "exported", if (entry.item.exported()) .json_true else .json_false) }));
         const attribute: []const u8 = if (m.same(entry.kind, "function")) "mustNotWait" else if (m.same(entry.kind, "capability")) "taskBound" else if (m.same(entry.kind, "capabilityOperation")) "mayWait" else continue;
-        if ((model.property(old.item, attribute) != null) != (model.property(entry.item, attribute) != null)) try attributes.append(a, try m.object(a, &.{ try stringField(a, "attribute", attribute), try m.member(a, "id", model.property(entry.item, "id").?), try stringField(a, "displayName", if (entry.owner) |owner| try std.fmt.allocPrint(a, "{s}.{s}", .{ query.nameOf(owner), query.nameOf(entry.item) }) else query.nameOf(entry.item)), try m.member(a, "value", if (model.property(entry.item, attribute) != null) .json_true else .json_false) }));
+        if (attributeValue(old.item, attribute) != attributeValue(entry.item, attribute)) try attributes.append(a, try m.object(a, &.{ try stringField(a, "attribute", attribute), try m.member(a, "id", .{ .string = entry.item.id() }), try stringField(a, "displayName", if (entry.owner) |owner| try std.fmt.allocPrint(a, "{s}.{s}", .{ query.nameOf(owner), query.nameOf(entry.item) }) else query.nameOf(entry.item)), try m.member(a, "value", if (attributeValue(entry.item, attribute)) .json_true else .json_false) }));
     }
     std.mem.sort(Value, renames.items, {}, renameLess);
     for (renames.items) |rename| for (after) |entry| {
@@ -103,9 +105,9 @@ pub fn finalizeDiff(r: *query.Request, candidate: Value, accumulated: Value) any
         var kept: std.ArrayList(Value) = .empty;
         for (values) |value| {
             const owner_key: ?[]const u8 = if (m.same(key, "parametersAdded") or m.same(key, "productFieldsBound") or m.same(key, "capabilityImplementationsBound") or m.same(key, "unionMatchArmsAdded")) "ownerFunctionId" else if (m.same(key, "capabilityOperationsAdded")) "ownerCapabilityId" else if (m.same(key, "unionVariantsAdded")) "ownerTypeId" else null;
-            if (owner_key) |owner| if (edit.find(candidate, if (m.same(owner, "ownerFunctionId")) "functions" else if (m.same(owner, "ownerTypeId")) "types" else "capabilities", edit.text(value, owner)) == null) continue;
+            if (owner_key) |owner| if (typed_edit.find(candidate, if (m.same(owner, "ownerFunctionId")) .functions else if (m.same(owner, "ownerTypeId")) .types else .capabilities, edit.text(value, owner)) == null) continue;
             if (m.same(key, "requiredEffectsChanged")) {
-                const was = hasEffect(r.model, edit.text(value, "functionId"), edit.text(value, "effectId"));
+                const was = hasEffect(r.typedModel(), edit.text(value, "functionId"), edit.text(value, "effectId"));
                 const now = hasEffect(candidate, edit.text(value, "functionId"), edit.text(value, "effectId"));
                 if (if (m.same(edit.text(value, "kind"), "added")) was or !now else !was or now) continue;
                 var seen = false;
@@ -146,10 +148,15 @@ pub fn finalizeDiff(r: *query.Request, candidate: Value, accumulated: Value) any
     if (!has_changes) return engine.rejected(r, "NoChange", "The transaction has no net semantic change.");
     return .{ .object = fields.items };
 }
-fn hasEffect(root: Value, function: []const u8, effect: []const u8) bool {
-    const item = edit.find(root, "functions", function) orelse return false;
-    for (model.arrayItems(item, "requiredEffects")) |id| if (m.same(model.utf8(model.decoded(id)), effect)) return true;
+fn hasEffect(root: Model, function: []const u8, effect: []const u8) bool {
+    const item = typed_edit.find(root, .functions, function) orelse return false;
+    for (item.requiredEffects()) |id| if (m.same(model.utf8(id.literal()), effect)) return true;
     return false;
+}
+fn attributeValue(record: Model, attribute: []const u8) bool {
+    if (m.same(attribute, "mustNotWait")) return record.mustNotWait();
+    if (m.same(attribute, "taskBound")) return record.taskBound();
+    return record.mayWait();
 }
 fn changeLess(key: []const u8, x: Value, y: Value) bool {
     if (m.same(key, "renames") or m.same(key, "visibilityChanges")) return renameLess({}, x, y);

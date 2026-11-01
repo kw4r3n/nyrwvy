@@ -5,10 +5,11 @@ const model = @import("model_reader");
 const query = @import("query.zig");
 const recipe = @import("recipe.zig");
 const types = @import("operation_types.zig");
-const edit = @import("operation_model.zig");
+const edit = @import("typed_edit.zig");
 const m = @import("materialize.zig");
 const Json = std.json.Value;
-const Value = model.Value;
+const Value = model.Model;
+const tm = model.session_model;
 
 fn at(d: *recipe.Decoder, path: []const u8, key: []const u8) ![]const u8 {
     return std.fmt.allocPrint(d.r.a, "{s}/{s}", .{ path, key });
@@ -35,20 +36,13 @@ fn rawAt(d: *recipe.Decoder, path: []const u8) ![]const u8 {
 }
 
 fn owningFunction(d: *recipe.Decoder, node_id: []const u8) !Value {
-    for (try query.visible(d.r, "function")) |function| {
-        if (containsNode(model.property(function, "body").?, node_id)) return function;
+    for (try query.typedVisible(d.r, "function")) |function| {
+        if (containsNode(function, node_id)) return function;
     }
     return d.r.fail("Unknown node '{s}'; plans name an existing node by its exact ID.", .{node_id});
 }
-fn containsNode(value: Value, node_id: []const u8) bool {
-    switch (value) {
-        .object => |fields| {
-            if (model.property(value, "id") != null and model.property(value, "kind") != null and edit.hasId(value, node_id)) return true;
-            for (fields) |field| if (containsNode(field.value, node_id)) return true;
-        },
-        .array => |items| for (items) |item| if (containsNode(item, node_id)) return true,
-        else => {},
-    }
+fn containsNode(function: Value, node_id: []const u8) bool {
+    for (model.typedBodyNodes(function.context.allocator, function)) |node| if (edit.hasId(node, node_id)) return true;
     return false;
 }
 fn planRecipe(d: *recipe.Decoder, path: []const u8, input: Json, node_id: []const u8, by_name: bool, fields: ?[]const Value) !*const recipe.Node {
@@ -57,7 +51,7 @@ fn planRecipe(d: *recipe.Decoder, path: []const u8, input: Json, node_id: []cons
     local.new_fields = fields;
     if (by_name) {
         const owner = try owningFunction(&local, node_id);
-        const parameters = model.arrayItems(owner, "parameters");
+        const parameters = owner.parameters();
         const names = try d.r.a.alloc([]const u8, parameters.len);
         for (parameters, names) |parameter, *name| name.* = query.nameOf(parameter);
         local.owner = .{ .name = query.nameOf(owner), .parameters = names, .existing = owner };
@@ -70,8 +64,8 @@ fn planRecipe(d: *recipe.Decoder, path: []const u8, input: Json, node_id: []cons
 fn bindUnionType(d: *recipe.Decoder, owner: Value, t: recipe.TypeRef) anyerror!recipe.TypeRef {
     return switch (t) {
         .type_parameter => |name| blk: {
-            for (model.arrayItems(owner, "typeParameters")) |parameter| {
-                if (m.same(query.nameOf(parameter), name)) break :blk .{ .type_parameter = edit.text(parameter, "typeParameterId") };
+            for (owner.typeParameters()) |parameter| {
+                if (m.same(query.nameOf(parameter), name)) break :blk .{ .type_parameter = model.utf8(parameter.id()) };
             }
             return d.r.fail("Union '{s}' declares no type parameter named '{s}'; a new variant's field types may use only the Union's own type parameters.", .{ query.nameOf(owner), name });
         },
@@ -101,7 +95,7 @@ pub fn decode(d: *recipe.Decoder, item: Json, path: []const u8, by_name: bool) a
 fn productField(d: *recipe.Decoder, item: Json, path: []const u8, by_name: bool) !types.Intent {
     const keys: []const []const u8 = if (by_name) &.{ "kind", "type", "displayName", "fieldType", "constructions" } else &.{ "kind", "typeId", "displayName", "type", "constructions" };
     try d.ensureFields(path, item, "add-product-field operation", keys, keys);
-    const owner = if (by_name) query.idOf(try query.exactOne(d.r, "type", try d.requiredString(item, "type"), try query.visible(d.r, "type"))) else try id(d, item, "typeId");
+    const owner = if (by_name) query.idOf(try query.typedExactOne(d.r, "type", try d.requiredString(item, "type"), try query.typedVisible(d.r, "type"))) else try id(d, item, "typeId");
     const name = try d.requiredString(item, "displayName");
     var local = d.*;
     local.owner = if (by_name) .{ .name = "" } else null;
@@ -125,10 +119,10 @@ fn unionVariant(d: *recipe.Decoder, item: Json, path: []const u8, by_name: bool)
     try d.ensureFields(path, item, "add-union-variant operation", keys, keys);
     const owner = if (by_name) try d.selector(try at(d, path, "type"), try d.property(item, "type"), "type") else blk: {
         const type_id = try id(d, item, "typeId");
-        for (try query.visible(d.r, "type")) |declared| if (edit.hasId(declared, type_id)) break :blk declared;
+        for (try query.typedVisible(d.r, "type")) |declared| if (edit.hasId(declared, type_id)) break :blk declared;
         return d.r.fail("Unknown type '{s}'.", .{type_id});
     };
-    if (model.property(owner, "variants") == null) return d.r.fail("Type '{s}' is a Product; addUnionVariant targets a Union.", .{query.nameOf(owner)});
+    if (owner.data.type_declaration.product) return d.r.fail("Type '{s}' is a Product; addUnionVariant targets a Union.", .{query.nameOf(owner)});
     var local = d.*;
     local.owner = if (by_name) .{ .name = "" } else null;
     var fields: std.ArrayList(types.Field) = .empty;
@@ -140,22 +134,28 @@ fn unionVariant(d: *recipe.Decoder, item: Json, path: []const u8, by_name: bool)
         try fields.append(d.r.a, .{ .name = name, .type = try bindUnionType(d, owner, field_type) });
     }
     const name = try d.requiredString(item, "displayName");
-    const variant_id = try m.id(d.r.a);
-    const allocated_fields = try d.r.a.alloc(Value, fields.items.len);
-    var materializer: m.Materializer = .{ .a = d.r.a, .r = d.r, .types = undefined, .fresh = &.{}, .function_id = .json_null, .parameters = &.{} };
+    var materializer: m.Materializer = .{ .a = d.r.a, .r = d.r, .types = undefined, .fresh = &.{}, .function_id = tm.none, .parameters = &.{} };
+    const variant_id = try materializer.freshId(.variant);
+    const allocated_fields = try d.r.a.alloc(tm.Typed, fields.items.len);
     for (fields.items, allocated_fields) |field, *allocated| {
-        allocated.* = try m.object(d.r.a, &.{ try m.member(d.r.a, "id", try m.id(d.r.a)), try m.member(d.r.a, "displayName", try m.string(d.r.a, field.name)), try m.member(d.r.a, "type", try materializer.typeRef(field.type)) });
+        const field_id = try materializer.freshId(.field);
+        allocated.* = .{ .id = field_id, .name = try materializer.internString(field.name), .type = try materializer.typeRef(field.type) };
     }
-    const variant = try m.object(d.r.a, &.{ try m.member(d.r.a, "id", variant_id), try m.member(d.r.a, "displayName", try m.string(d.r.a, name)), try m.member(d.r.a, "fields", .{ .array = allocated_fields }) });
+    const variant_record = try d.r.a.create(tm.Variant);
+    variant_record.* = .{ .id = variant_id, .name = try materializer.internString(name), .fields = allocated_fields };
+    const variant = edit.borrow(owner, .{ .variant = variant_record });
     var request = d.r.*;
-    if (by_name) request.model = try edit.replace(d.r.a, request.model, "types", try edit.append(d.r.a, owner, "variants", variant));
+    if (by_name) {
+        const extended = try edit.replace(d.r.a, request.typedModel(), .types, try edit.append(d.r.a, owner, .variants, variant));
+        request.generation = extended.data.snapshot;
+    }
     local.r = &request;
     var arms: std.ArrayList(types.ArmRecipe) = .empty;
     for (try d.array(item, "arms"), 0..) |arm, i| {
         const p = try index(d, try at(d, path, "arms"), i);
         try d.ensureFields(p, arm, "union match arm plan", &.{ "matchNodeId", "body" }, &.{ "matchNodeId", "body" });
         const match_id = try id(d, arm, "matchNodeId");
-        const body = planRecipe(&local, try at(d, p, "body"), try d.property(arm, "body"), match_id, by_name, if (by_name) null else allocated_fields) catch |err| {
+        const body = planRecipe(&local, try at(d, p, "body"), try d.property(arm, "body"), match_id, by_name, if (by_name) null else variant.fields()) catch |err| {
             d.r.rejection = request.rejection;
             return err;
         };

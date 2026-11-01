@@ -22,7 +22,7 @@ pub const Intent = union(enum) {
     add_product_field: struct { type: []const u8, field: Field, constructions: []const ValuePlan },
     add_capability_operation: struct { capability: []const u8, name: []const u8, parameters: []const Field, result: recipe.TypeRef, effect: []const u8, may_wait: bool, implementations: []const Implementation },
     // Variant and field IDs are already allocated during wire decoding.
-    add_union_variant: struct { type: []const u8, variant: model.Value, arms: []const ArmRecipe },
+    add_union_variant: struct { type: []const u8, variant: model.Model, arms: []const ArmRecipe },
     remove_product_field: []const u8,
     remove_function_parameter: []const u8,
     remove_union_variant: []const u8,

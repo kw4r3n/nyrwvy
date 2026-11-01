@@ -271,7 +271,7 @@ export async function openAuthoring(
       }
     } else if ("selection" in upgrade) {
       const { sources, replaces } = upgrade.selection
-      if (dependency !== undefined || sources.length === 0 || replaces.length === 0 || upgrade.reviewFingerprint.trim() === "" ||
+      if (dependency !== undefined || sources.length === 0 || upgrade.reviewFingerprint.trim() === "" ||
           [...sources, ...replaces].some(item => item.trim() === "") || new Set(replaces).size !== replaces.length) {
         throw new Error("Selection upgrade requires non-blank sources, distinct current replaces IDs and reviewFingerprint; dependency cannot be combined with selection.")
       }

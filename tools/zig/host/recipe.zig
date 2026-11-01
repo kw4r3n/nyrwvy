@@ -166,7 +166,7 @@ pub fn duplicatePaths(a: Allocator, line: []const u8) !std.StringHashMapUnmanage
 }
 
 /// The function a by-name recipe is written for (`WireSymbolic.ParameterContext.NewFunction`).
-pub const Owner = struct { name: []const u8, parameters: []const []const u8 = &.{}, existing: ?query.Value = null };
+pub const Owner = struct { name: []const u8, parameters: []const []const u8 = &.{}, existing: ?model.Model = null };
 
 pub const GroupType = struct { name: []const u8, id: []const u8 };
 
@@ -177,7 +177,7 @@ pub const Decoder = struct {
     owner: ?Owner = null,
     type_group: []const GroupType = &.{},
     /// Exact-ID addUnionVariant recipes can name these newly allocated fields.
-    new_fields: ?[]const model.Value = null,
+    new_fields: ?[]const model.Model = null,
 
     fn fail(self: *Decoder, comptime format: []const u8, args: anytype) Fail {
         return self.r.fail(format, args);
@@ -374,16 +374,16 @@ pub const Decoder = struct {
     }
 
     /// `WireSymbolic.resolveSelector` of `selector` (at `path`) among the visible `kind` declarations.
-    pub fn selector(self: *Decoder, path: []const u8, selector_value: Json, kind: []const u8) Fail!query.Value {
-        const items = try query.visible(self.r, kind);
-        if (selector_value == .string) return query.exactOne(self.r, kind, try query.readable(self.r, selector_value.string), items);
+    pub fn selector(self: *Decoder, path: []const u8, selector_value: Json, kind: []const u8) Fail!model.Model {
+        const items = try query.typedVisible(self.r, kind);
+        if (selector_value == .string) return query.typedExactOne(self.r, kind, try query.readable(self.r, selector_value.string), items);
         try self.ensureFields(path, selector_value, try std.fmt.allocPrint(self.r.a, "{s} selector", .{kind}), &.{ "id", "name", "dependencySnapshotId", "ownership" }, &.{});
-        return query.guarded(self.r, kind, items, selector_value.object);
+        return query.typedGuarded(self.r, kind, items, selector_value.object);
     }
 
     /// `exactOne` among the `group` members of a declaration, labelled `label` (with `args`).
-    pub fn member(self: *Decoder, comptime label: []const u8, args: anytype, parent: query.Value, group: []const u8, wanted: []const u8) Fail!query.Value {
-        return query.exactOne(self.r, try std.fmt.allocPrint(self.r.a, label, args), wanted, model.arrayItems(parent, group));
+    pub fn member(self: *Decoder, comptime label: []const u8, args: anytype, parent: model.Model, group: []const u8, wanted: []const u8) Fail!model.Model {
+        return query.typedExactOne(self.r, try std.fmt.allocPrint(self.r.a, label, args), wanted, (if (std.mem.eql(u8, group, "fields")) parent.fields() else if (std.mem.eql(u8, group, "variants")) parent.variants() else if (std.mem.eql(u8, group, "parameters")) parent.parameters() else if (std.mem.eql(u8, group, "operations")) parent.operations() else parent.typeParameters()));
     }
 
     /// `exactOne` among names, as an index.
@@ -399,27 +399,27 @@ pub const Decoder = struct {
         return self.fail("Ambiguous {s} '{s}'.", .{ label, wanted });
     }
 
-    fn productField(self: *Decoder, owner: query.Value, name: []const u8) Fail!query.Value {
-        if (model.property(owner, "fields") == null) return self.fail("Type '{s}' is not a product type.", .{query.nameOf(owner)});
+    fn productField(self: *Decoder, owner: model.Model, name: []const u8) Fail!model.Model {
+        if (!(owner).data.type_declaration.product) return self.fail("Type '{s}' is not a product type.", .{query.nameOf(owner)});
         return self.member("field on {s}", .{query.nameOf(owner)}, owner, "fields", name);
     }
 
-    fn unionVariant(self: *Decoder, owner: query.Value, name: []const u8) Fail!query.Value {
-        if (model.property(owner, "variants") == null) return self.fail("Type '{s}' is not a union type.", .{query.nameOf(owner)});
+    fn unionVariant(self: *Decoder, owner: model.Model, name: []const u8) Fail!model.Model {
+        if (!(!(owner).data.type_declaration.product)) return self.fail("Type '{s}' is not a union type.", .{query.nameOf(owner)});
         return self.member("variant on {s}", .{query.nameOf(owner)}, owner, "variants", name);
     }
 
-    fn variantField(self: *Decoder, variant: query.Value, name: []const u8) Fail!query.Value {
+    fn variantField(self: *Decoder, variant: model.Model, name: []const u8) Fail!model.Model {
         return self.member("field on variant {s}", .{query.nameOf(variant)}, variant, "fields", name);
     }
 
     fn functionNamed(self: *Decoder, name: []const u8) Fail!bool {
-        for (try query.visible(self.r, "function")) |item| if (std.mem.eql(u8, query.nameOf(item), name)) return true;
+        for (try query.typedVisible(self.r, "function")) |item| if (std.mem.eql(u8, query.nameOf(item), name)) return true;
         return false;
     }
 
     /// `resolveReferencedFunction`: a callback, worker or function value.
-    fn referencedFunction(self: *Decoder, path: []const u8, value: Json, key: []const u8) Fail!query.Value {
+    fn referencedFunction(self: *Decoder, path: []const u8, value: Json, key: []const u8) Fail!model.Model {
         const selector_value = try self.property(value, key);
         if (selector_value == .string) {
             const name = try query.readable(self.r, selector_value.string);
@@ -430,7 +430,7 @@ pub const Decoder = struct {
     }
 
     /// `namedCallbackContext`: `[{ parameter, value }]` naming the callback's parameters.
-    fn callbackContext(self: *Decoder, path: []const u8, value: Json, name: []const u8, callback: query.Value) Fail![]const Pair {
+    fn callbackContext(self: *Decoder, path: []const u8, value: Json, name: []const u8, callback: model.Model) Fail![]const Pair {
         if ((try self.tryProperty(value, name)) == null) return &.{};
         var out: std.ArrayList(Pair) = .empty;
         for (try self.array(value, name), 0..) |item, i| {
@@ -444,7 +444,7 @@ pub const Decoder = struct {
 
     /// `WireInput.unionArms`; `owner` resolves variant names (by name), or they are exact IDs. The
     /// `otherwise` arm comes last, naming no variant.
-    fn arms(self: *Decoder, path: []const u8, value: Json, single: []const u8, plural: []const u8, owner: ?query.Value) Fail![]const Arm {
+    fn arms(self: *Decoder, path: []const u8, value: Json, single: []const u8, plural: []const u8, owner: ?model.Model) Fail![]const Arm {
         const a = self.r.a;
         var out: std.ArrayList(Arm) = .empty;
         for (try self.array(value, "arms"), 0..) |arm, i| {
@@ -468,7 +468,7 @@ pub const Decoder = struct {
         return out.items;
     }
 
-    fn variantOf(self: *Decoder, owner: ?query.Value, name: []const u8) Fail![]const u8 {
+    fn variantOf(self: *Decoder, owner: ?model.Model, name: []const u8) Fail![]const u8 {
         return if (owner) |type_| query.idOf(try self.unionVariant(type_, name)) else self.stableId("variantId", name);
     }
 
@@ -516,7 +516,7 @@ pub const Decoder = struct {
         const callee_selector = try self.property(value, "function");
         const callee_name: ?[]const u8 = if (callee_selector == .string) try query.readable(self.r, callee_selector.string) else null;
         // Object guards resolve before recursion is classified.
-        const selected: ?query.Value = if (callee_selector == .string) null else try self.selector(try self.at(path, "function"), callee_selector, "function");
+        const selected: ?model.Model = if (callee_selector == .string) null else try self.selector(try self.at(path, "function"), callee_selector, "function");
         const keep = try self.flag(value, "keepUnlisted");
         const owner = self.owner.?;
         const a = self.r.a;
@@ -609,12 +609,12 @@ pub const Decoder = struct {
         try self.ensureFields(path, value, kind.context, kind.allowed, kind.required);
         const a = self.r.a;
         // What earlier reads of this recipe resolved, for the later ones.
-        var callbacks: [2]struct { name: []const u8, function: query.Value } = undefined;
+        var callbacks: [2]struct { name: []const u8, function: model.Model } = undefined;
         var callback_count: usize = 0;
-        var capability: ?query.Value = null;
-        var operation: ?query.Value = null;
-        var owner: ?query.Value = null;
-        var variant: ?query.Value = null;
+        var capability: ?model.Model = null;
+        var operation: ?model.Model = null;
+        var owner: ?model.Model = null;
+        var variant: ?model.Model = null;
         var slots: std.ArrayList(Slot) = .empty;
         for (kind.reads) |read| {
             const name = read.name;
@@ -995,7 +995,7 @@ pub fn bindType(d: *Decoder, t: TypeRef) Fail!TypeRef {
         .type_parameter => |name| blk: {
             const f = d.owner.?.existing.?;
             const p = try d.member("type parameter on {s}", .{query.nameOf(f)}, f, "typeParameters", name);
-            break :blk .{ .type_parameter = model.utf8(model.decoded(model.property(p, "typeParameterId").?)) };
+            break :blk .{ .type_parameter = model.utf8((p).reference("typeParameterId")) };
         },
         .named => |n| .{ .named = .{ .id = n.id, .arguments = try bindTypes(d, n.arguments) } },
         .builtin => |b| .{ .builtin = .{ .generic = b.generic, .arguments = try bindTypes(d, b.arguments) } },

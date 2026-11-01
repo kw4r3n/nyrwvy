@@ -80,7 +80,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
 `, { mode: 0o700 })
   const cli = fileURLToPath(new URL("../../examples/run-fixtures/client.mjs", import.meta.url))
   const { stdout } = await promisify(execFile)(process.execPath, [cli, snapshot, fixture], {
-    cwd: root, env: { ...process.env, PATH: `${root}:${process.env.PATH}`, NYRWVY_ALLOW_HOST_SOURCES: "1" }, timeout: 15000,
+    cwd: root, env: { ...process.env, PATH: `${root}:${process.env.PATH}`, NYRWVY_HOST: "", NYRWVY_HOST_EXECUTABLE: "", NYRWVY_ALLOW_HOST_SOURCES: "1" }, timeout: 15000,
   })
   assert.match(stdout, /unicode.json: PASSED/)
   assert.match(stdout, /1 passed, 0 failed, 0 unknown/)

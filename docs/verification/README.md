@@ -4,6 +4,10 @@
 
 This area holds evidence from completed implementation and evaluation work. A record states what was observed at a recorded revision; it does not by itself define current behavior. For current contracts, use [`../specs/`](../specs/) and [`../reference/`](../reference/).
 
+## Zig host
+
+- [Pre-switch hardening: startup CLI, session memory, and build identity](zig-host-pre-switch-20261101.md)
+
 ## Milestone 1
 
 - [Float64 implementation contract](../../docs-archive/2026-08-pre-reorg/m1-float64-implementation-notes-20260828.md) (archived)

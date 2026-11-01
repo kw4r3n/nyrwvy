@@ -755,7 +755,7 @@ const Kind = struct {
     required: []const []const u8,
     allowed: []const []const u8,
     row: ?usize = null,
-    /// The properties `directValueReferences` reads, in operand order (node_references.txt).
+    /// The properties `directValueReferences` reads, in operand order node_references.txt.
     references: []const []const u8 = &.{},
 };
 var kinds: std.StringHashMapUnmanaged(Kind) = .empty;
@@ -777,10 +777,10 @@ fn loadTables() void {
         if (std.mem.eql(u8, feature, "WaitAttributes")) wait_row = rows.items.len - 1;
         if (std.mem.eql(u8, feature, "Bytes")) bytes_row = rows.items.len - 1;
         const special = [_]struct { []const u8, *?usize }{
-            .{ "GenericTypes", &generic_row },                .{ "DeclarationVisibility", &visibility_row },
+            .{ "GenericTypes", &generic_row },                                    .{ "DeclarationVisibility", &visibility_row },
             .{ "DeclaredFunctionTypeParameters", &declared_type_parameters_row }, .{ "TimedTaskWait", &timed_wait_row },
-            .{ "SharedUnionMatchArm", &shared_arm_row },      .{ "ExceptionBoundary", &exception_row },
-            .{ "OneShot", &one_shot_row },                    .{ "Map", &map_row },
+            .{ "SharedUnionMatchArm", &shared_arm_row },                          .{ "ExceptionBoundary", &exception_row },
+            .{ "OneShot", &one_shot_row },                                        .{ "Map", &map_row },
             .{ "Set", &set_row },
         };
         for (special) |entry| if (std.mem.eql(u8, feature, entry[0])) {
@@ -1307,6 +1307,8 @@ pub const DocumentRead = struct {
     fingerprints: ?Fingerprints = null,
     /// The model read (for a resolved document, the merged one), in document order.
     root: Value = .json_null,
+    generation: ?*const session_model.Generation = null,
+    interner: ?*const session_model.Interner = null,
     /// The current-version canonical text and `SnapshotCodec.dependencyDigest`, for a document
     /// accepted as a dependency.
     canonical: []const u8 = "",
@@ -1367,7 +1369,7 @@ pub fn combine(allocator: std.mem.Allocator, members: []const []const u8, combin
     var out: List(u8) = .empty;
     out.print(a, "{{\"schemaVersion\":{d},\"snapshotId\":{s}", .{ current, quotedAscii(combined_id) }) catch oom();
     const groups = [_]struct { []const u8, []const u8, *const fn (Value) Failure!Keyed }{
-        .{ "types", "type", readType },             .{ "effects", "effect", readEffect },
+        .{ "types", "type", readType },                    .{ "effects", "effect", readEffect },
         .{ "capabilities", "capability", readCapability }, .{ "functions", "function", readFunction },
         .{ "obligations", "obligation", readObligation },
     };
@@ -1408,24 +1410,52 @@ pub fn readDocument(allocator: std.mem.Allocator, source: []const u8) DocumentRe
     emit_text = true;
     if (read) |_| {
         const root = parsed_root;
-        validate(root);
+        const loaded = modelFromValue(root);
+        validate(loaded);
         printIssues(&out.writer) catch oom();
         if (issues.items.len > 0) return .{ .lines = out.written(), .validation_issues = issues.items };
-        const found = fingerprintsOf(root) catch return .{ .lines = out.written() };
-        var open = false;
-        for (arrayOf(root, "obligations")) |obligation| open = open or isName(str(obligation, "status"), "open");
-        return .{
-            .lines = out.written(),
-            .fingerprints = found,
-            .root = root,
-            .canonical = canonicalOf(root) catch "",
-            .digest = fmt("{s}", .{std.fmt.bytesToHex(sha256(found.canonical), .lower)}),
-            .id = text(decodeString(str(root, "snapshotId")) catch unreachable),
-            .open_obligations = open,
-            .subjects = subjectsOf(root),
-        };
+        var result = typedDocumentResult(out.written(), loaded.data.snapshot, loaded.context.interner);
+        result.root = root;
+        return result;
     } else |e| printFailure(&out.writer, e);
     return .{ .lines = out.written() };
+}
+
+/// Native callers retain typed records and result text, never the decoder's syntax arena.
+pub fn readTypedDocument(allocator: std.mem.Allocator, source: []const u8) DocumentRead {
+    var scratch = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer scratch.deinit();
+    return ownDocument(allocator, scratch.allocator(), readDocument(scratch.allocator(), source));
+}
+
+fn ownDocument(allocator: std.mem.Allocator, scratch: std.mem.Allocator, read: DocumentRead) DocumentRead {
+    var result = read;
+    result.root = .json_null;
+    inline for (.{ "lines", "canonical", "digest", "id" }) |field| @field(result, field) = allocator.dupe(u8, @field(read, field)) catch oom();
+    const diagnostics = allocator.alloc(Issue, read.validation_issues.len) catch oom();
+    for (read.validation_issues, diagnostics) |issue, *copy| copy.* = .{ .code = allocator.dupe(u8, issue.code) catch oom(), .message = allocator.dupe(u16, issue.message) catch oom() };
+    result.validation_issues = diagnostics;
+    const subjects = allocator.alloc([]const u8, read.subjects.len) catch oom();
+    for (read.subjects, subjects) |subject, *copy| copy.* = allocator.dupe(u8, subject) catch oom();
+    result.subjects = subjects;
+    if (read.fingerprints) |found| {
+        var owned = found;
+        inline for (.{ "snapshot", "semantic", "canonical", "normalized" }) |field| @field(owned, field) = allocator.dupe(u8, @field(found, field)) catch oom();
+        result.fingerprints = owned;
+    }
+    if (read.generation) |generation| {
+        const strings = allocator.create(session_model.Interner) catch oom();
+        strings.* = .{ .gpa = allocator };
+        var compactor: session_model.Compactor = .{ .arena = allocator, .scratch = scratch, .old_interner = read.interner.?, .interner = strings };
+        const owned = allocator.create(session_model.Generation) catch oom();
+        owned.* = compactor.generation(generation) catch oom();
+        result.generation = owned;
+        result.interner = strings;
+    }
+    beginRequest(allocator);
+    semantic_model.clear();
+    if (result.generation) |generation| _ = typedRoot(allocator, result.interner.?, generation);
+    return result;
 }
 
 fn sha256(bytes: []const u8) [32]u8 {
@@ -1450,8 +1480,24 @@ fn printFailure(out: *std.Io.Writer, e: Failure) void {
 pub fn readResolvedDocument(allocator: std.mem.Allocator, dependency: []const u8, dependency_id: []const u8, dependency_digest: []const u8, source: []const u8) DocumentRead {
     a = allocator;
     resetState();
-    var out: std.Io.Writer.Allocating = .init(a);
     const dependency_root = parseDocument(dependency) catch unreachable;
+    const strings = a.create(session_model.Interner) catch oom();
+    strings.* = .{ .gpa = a };
+    const generation = session_model.load(a, strings, dependency_root, null) catch oom();
+    return readResolvedTypedDocument(allocator, &generation, strings, dependency_id, dependency_digest, source);
+}
+
+/// The dependency is already decoded; only the new local source crosses the JSON boundary.
+pub fn readResolvedTypedDocument(allocator: std.mem.Allocator, dependency: *const session_model.Generation, dependency_interner: *const session_model.Interner, dependency_id: []const u8, dependency_digest: []const u8, source: []const u8) DocumentRead {
+    var scratch = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer scratch.deinit();
+    return ownDocument(allocator, scratch.allocator(), readResolvedBorrowed(scratch.allocator(), dependency, dependency_interner, dependency_id, dependency_digest, source));
+}
+
+fn readResolvedBorrowed(allocator: std.mem.Allocator, dependency: *const session_model.Generation, dependency_interner: *const session_model.Interner, dependency_id: []const u8, dependency_digest: []const u8, source: []const u8) DocumentRead {
+    a = allocator;
+    resetState();
+    var out: std.Io.Writer.Allocating = .init(a);
     resolved_input = true;
     expected_marker = .{ .id = utf16Of(dependency_id), .digest = utf16Of(dependency_digest) };
     emit_text = false;
@@ -1463,24 +1509,41 @@ pub fn readResolvedDocument(allocator: std.mem.Allocator, dependency: []const u8
         printFailure(&out.writer, e);
         return .{ .lines = out.written() };
     };
-    var members: List(Member) = .empty;
-    for (parsed_root.object) |member| {
-        if (isName(member.name, "dependency")) continue;
-        var value = member.value;
-        inline for (.{ "types", "effects", "capabilities", "functions", "obligations" }) |name| {
-            if (isName(member.name, name)) value = .{ .array = std.mem.concat(a, Value, &.{ arrayOf(dependency_root, name), member.value.array }) catch oom() };
-        }
-        // The merged model is not a document: only the local one's version bounds its constructs,
-        // and the dependency's text is at the current version.
-        if (isName(member.name, "schemaVersion")) value = .{ .number = fmt("{d}", .{current}) };
-        members.append(a, .{ .name = member.name, .value = value }) catch oom();
+    const strings = a.create(session_model.Interner) catch oom();
+    strings.* = .{ .gpa = a };
+    const local = session_model.load(a, strings, parsed_root, null) catch oom();
+    var compactor: session_model.Compactor = .{ .arena = a, .scratch = a, .old_interner = dependency_interner, .interner = strings };
+    const imported = compactor.generation(dependency) catch oom();
+    const merged = a.create(session_model.Generation) catch oom();
+    merged.* = local;
+    inline for (.{ "types", "effects", "capabilities", "functions", "obligations" }) |name| {
+        const Item = @typeInfo(@TypeOf(@field(local, name))).pointer.child;
+        @field(merged, name) = std.mem.concat(a, Item, &.{ @field(imported, name), @field(local, name) }) catch oom();
     }
-    const merged: Value = .{ .object = members.items };
-    const id = text(decodeString(str(parsed_root, "snapshotId")) catch unreachable);
-    validate(merged);
+    const root = typedRoot(a, strings, merged);
+    validate(root);
     printIssues(&out.writer) catch oom();
     if (issues.items.len > 0) return .{ .lines = out.written(), .validation_issues = issues.items };
-    return .{ .lines = out.written(), .fingerprints = fingerprintsOf(merged) catch null, .id = id, .root = merged };
+    return typedDocumentResult(out.written(), merged, strings);
+}
+
+fn typedDocumentResult(lines: []const u8, generation: *const session_model.Generation, strings: *const session_model.Interner) DocumentRead {
+    const found = session_writer.fingerprints(a, strings, generation) catch oom();
+    var canonical: std.Io.Writer.Allocating = .init(a);
+    session_writer.writeDocument(&canonical.writer, strings, generation, currentVersion()) catch oom();
+    var open = false;
+    for (generation.obligations) |obligation| open = open or obligation.resolution == null;
+    return .{
+        .lines = lines,
+        .generation = generation,
+        .interner = strings,
+        .fingerprints = found,
+        .canonical = canonical.written(),
+        .digest = fmt("{s}", .{std.fmt.bytesToHex(sha256(found.canonical), .lower)}),
+        .id = text(strings.idText(.snapshot, generation.snapshot)),
+        .open_obligations = open,
+        .subjects = session_model.dependencies.subjectsOf(a, generation, strings) catch oom(),
+    };
 }
 
 /// ASCII or UTF-8 text as UTF-16 units.
@@ -1492,6 +1555,21 @@ fn utf16Of(bytes: []const u8) Str {
 
 /// The typed session generation and its writer.
 pub const session_model = @import("typed.zig");
+pub const session_writer = @import("typed_writer.zig");
+const semantic_model = @import("semantic_model.zig");
+pub const Model = semantic_model.Record;
+pub fn typedRoot(allocator: std.mem.Allocator, interner: *const session_model.Interner, generation: *const session_model.Generation) Model {
+    a = allocator;
+    semantic_model.begin(allocator, interner);
+    return semantic_model.borrow(.{ .snapshot = generation });
+}
+pub fn modelFromValue(root: Value) Model {
+    const interner = a.create(session_model.Interner) catch oom();
+    interner.* = .{ .gpa = a };
+    const generation = a.create(session_model.Generation) catch oom();
+    generation.* = session_model.load(a, interner, root, null) catch oom();
+    return typedRoot(a, interner, generation);
+}
 
 /// Parse a wire/model value without resetting the snapshot reader's tables.
 pub fn parseValue(allocator: std.mem.Allocator, source: []const u8) Failure!Value {
@@ -1538,7 +1616,7 @@ pub fn utf8(units: Str) []const u8 {
 
 /// `ExecutionIr.lower` of a model already validated (the open model), as the serializer's JSON;
 /// null when it does not lower (`ProjectExecution` fails).
-pub fn executionIrOf(allocator: std.mem.Allocator, root: Value) ?[]const u8 {
+pub fn typedExecutionIrOf(allocator: std.mem.Allocator, root: Model) ?[]const u8 {
     a = allocator;
     const was = validated_input;
     validated_input = true;
@@ -1548,7 +1626,7 @@ pub fn executionIrOf(allocator: std.mem.Allocator, root: Value) ?[]const u8 {
 
 /// Entry projection and lowering for runPure, using the command-line lowering's selection.
 pub const ExecutionResult = union(enum) { ir: []const u8, projection: []const u8, lowering: []const u8 };
-pub fn executionForEntry(allocator: std.mem.Allocator, root: Value, entry: ?[]const u8) ExecutionResult {
+pub fn typedExecutionForEntry(allocator: std.mem.Allocator, root: Model, entry: ?[]const u8) ExecutionResult {
     a = allocator;
     const was = validated_input;
     validated_input = true;
@@ -1564,17 +1642,24 @@ pub fn executionForEntry(allocator: std.mem.Allocator, root: Value, entry: ?[]co
 /// The functions a node names (`SemanticNodeShape.functionReferences`), decoded, in payload order,
 /// each with whether it is invoked (`FunctionReferenceRole.isInvoked`).
 pub const FunctionRelation = struct { id: Str, invoked: bool, non_call_label: ?[]const u8 };
-pub fn functionRelationsOf(node: Value) []const FunctionRelation {
+pub fn typedFunctionRelationsOf(node: Model) []const FunctionRelation {
     const references = functionReferences(node);
     const out = a.alloc(FunctionRelation, references.len) catch oom();
-    for (references, out) |reference, *relation| relation.* = .{ .id = dec(reference.function_id), .invoked = isInvoked(reference.role), .non_call_label = switch (reference.role) { .direct_call => null, .pure_callback, .effect_callback => "callback", .worker => "worker", .body => "scoped body", .function_value => "function value", .implementation => "capability implementation" } };
+    for (references, out) |reference, *relation| relation.* = .{ .id = dec(reference.function_id), .invoked = isInvoked(reference.role), .non_call_label = switch (reference.role) {
+        .direct_call => null,
+        .pure_callback, .effect_callback => "callback",
+        .worker => "worker",
+        .body => "scoped body",
+        .function_value => "function value",
+        .implementation => "capability implementation",
+    } };
     return out;
 }
 
 /// `ProjectExecution` of a model already validated (the open model): the number of functions it
 /// lowers, or the case name of the projection's or the lowering's error.
 pub const Readiness = union(enum) { ready: usize, projection: []const u8, lowering: []const u8 };
-pub fn executionReadinessOf(allocator: std.mem.Allocator, root: Value) Readiness {
+pub fn typedExecutionReadinessOf(allocator: std.mem.Allocator, root: Model) Readiness {
     a = allocator;
     const was = validated_input;
     validated_input = true;
@@ -1588,16 +1673,16 @@ pub fn executionReadinessOf(allocator: std.mem.Allocator, root: Value) Readiness
         error.Lowering => .{ .lowering = case(lowering_failure) },
         else => .{ .projection = case(lowering_failure) },
     };
-    return .{ .ready = arrayOf(root, "functions").len };
+    return .{ .ready = root.functions().len };
 }
 
 /// `SemanticNodeShape.nestedScopes` of a node.
-pub fn scopesOf(node: Value) []const Scope {
+pub fn typedScopesOf(node: Model) []const TypedScope {
     return nestedScopes(node);
 }
 
 /// `SemanticNodeShape.directValueReferences` of a node, decoded, in operand order (`operandsOf` keeps them raw).
-pub fn operandIdsOf(node: Value) []const Str {
+pub fn typedOperandIdsOf(node: Model) []const Str {
     var raw: List(Str) = .empty;
     directValueReferences(node, &raw);
     for (raw.items) |*id| id.* = dec(id.*);
@@ -1605,7 +1690,7 @@ pub fn operandIdsOf(node: Value) []const Str {
 }
 
 /// The IDs `SemanticNodeShape.functionReferences` names, decoded, in payload order.
-pub fn functionIdsOf(node: Value) []const Str {
+pub fn typedFunctionIdsOf(node: Model) []const Str {
     const references = functionReferences(node);
     const ids = a.alloc(Str, references.len) catch oom();
     for (references, ids) |reference, *id| id.* = dec(reference.function_id);
@@ -1630,15 +1715,16 @@ pub fn writeString(out: *std.Io.Writer, units: Str) !void {
 
 /// The `kind:id` keys of a model's functions, types, effects and capabilities, and those of the
 /// ones it does not export (`PinnedDependency.visible`).
-pub fn declarationKeys(allocator: std.mem.Allocator, root: Value) struct { all: []const []const u8, hidden: []const []const u8 } {
+pub const DeclarationKeys = struct { all: []const []const u8, hidden: []const []const u8 };
+pub fn typedDeclarationKeys(allocator: std.mem.Allocator, root: Model) DeclarationKeys {
     a = allocator;
     var all: List([]const u8) = .empty;
     var hidden: List([]const u8) = .empty;
     for ([_][2][]const u8{ .{ "functions", "function" }, .{ "types", "type" }, .{ "effects", "effect" }, .{ "capabilities", "capability" } }) |group| {
-        for (arrayOf(root, group[0])) |item| {
-            const key = fmt("{s}:{s}", .{ group[1], text(decoded(get(item, "id"))) });
+        for (root.declarations(group[0])) |item| {
+            const key = fmt("{s}:{s}", .{ group[1], text(semanticDecoded(item.id())) });
             all.append(a, key) catch oom();
-            if (tryProperty("exported", item) == null) hidden.append(a, key) catch oom();
+            if (!item.exported()) hidden.append(a, key) catch oom();
         }
     }
     return .{ .all = all.items, .hidden = hidden.items };
@@ -1653,12 +1739,15 @@ pub const OwnerKind = enum(u8) { function, type, capability };
 pub const Reference = struct { owner: OwnerKind, owner_id: Str, site: Site };
 
 fn sameId(raw: Str, id: Str) bool {
-    return std.mem.eql(u16, decodeString(raw) catch unreachable, id);
+    return std.mem.eql(u16, raw, id);
 }
 
-fn memberIds(items: []const Value, comptime name: []const u8) []const Str {
+fn memberIds(items: []const Model, comptime name: []const u8) []const Str {
     var out: List(Str) = .empty;
-    for (items) |item| for (arrayOf(item, name)) |member| out.append(a, decoded(get(member, "id"))) catch oom();
+    for (items) |item| {
+        const members = if (comptime std.mem.eql(u8, name, "variants")) item.variants() else if (comptime std.mem.eql(u8, name, "fields")) item.fields() else if (comptime std.mem.eql(u8, name, "parameters")) item.parameters() else if (comptime std.mem.eql(u8, name, "operations")) item.operations() else @compileError("unsupported semantic declaration member group");
+        for (members) |member| out.append(a, member.id()) catch oom();
+    }
     return out.items;
 }
 
@@ -1681,9 +1770,9 @@ fn orderOptional(x: ?Str, y: ?Str) std.math.Order {
 }
 
 fn referenceLess(_: void, x: Reference, y: Reference) bool {
-    if (x.owner != y.owner) return @intFromEnum(x.owner) < @intFromEnum(y.owner);
+    if (x.owner != y.owner) return @backingInt(x.owner) < @backingInt(y.owner);
     var o = std.mem.order(u16, x.owner_id, y.owner_id);
-    if (o == .eq) o = std.math.order(@intFromEnum(x.site.tag), @intFromEnum(y.site.tag));
+    if (o == .eq) o = std.math.order(@backingInt(x.site.tag), @backingInt(y.site.tag));
     if (o == .eq) o = orderOptional(x.site.a, y.site.a);
     if (o == .eq) o = std.mem.order(u16, x.site.b, y.site.b);
     if (o == .eq) o = std.mem.order(u8, x.site.role, y.site.role);
@@ -1692,10 +1781,10 @@ fn referenceLess(_: void, x: Reference, y: Reference) bool {
 
 /// `SemanticQuery.references` over the model's tree: every site referring to the `kind` subject
 /// with ID `id`, or null when no such subject is declared (`SubjectNotFound`).
-pub fn referencesTo(allocator: std.mem.Allocator, root: Value, kind: []const u8, id: Str) ?[]const Reference {
+pub fn typedReferencesTo(allocator: std.mem.Allocator, root: Model, kind: []const u8, id: Str) ?[]const Reference {
     a = allocator;
-    const types = arrayOf(root, "types");
-    const capabilities = arrayOf(root, "capabilities");
+    const types = root.types();
+    const capabilities = root.capabilities();
     const is = struct {
         fn f(k: []const u8, comptime name: []const u8) bool {
             return std.mem.eql(u8, k, name);
@@ -1708,33 +1797,33 @@ pub fn referencesTo(allocator: std.mem.Allocator, root: Value, kind: []const u8,
     var declared = false;
     if (is(kind, "function") or is(kind, "type") or is(kind, "effect") or is(kind, "capability")) {
         const group = if (is(kind, "function")) "functions" else if (is(kind, "type")) "types" else if (is(kind, "effect")) "effects" else "capabilities";
-        for (arrayOf(root, group)) |item| if (sameId(str(item, "id"), id)) {
+        for (root.declarations(group)) |item| if (sameId(item.id(), id)) {
             declared = true;
             if (is(kind, "type")) {
                 variants = memberIds(&.{item}, "variants");
                 var all: List(Str) = .empty;
-                for (arrayOf(item, "fields")) |field| all.append(a, decoded(get(field, "id"))) catch oom();
-                all.appendSlice(a, memberIds(arrayOf(item, "variants"), "fields")) catch oom();
+                for (item.fields()) |field| all.append(a, semanticDecoded(field.id())) catch oom();
+                all.appendSlice(a, memberIds(item.variants(), "fields")) catch oom();
                 fields = all.items;
             } else if (is(kind, "capability")) operations = memberIds(&.{item}, "operations");
         };
     } else if (is(kind, "variant")) {
-        for (types) |item| for (arrayOf(item, "variants")) |variant| if (sameId(str(variant, "id"), id)) {
+        for (types) |item| for (item.variants()) |variant| if (sameId(variant.id(), id)) {
             declared = true;
         };
         variants = a.dupe(Str, &.{id}) catch oom();
     } else if (is(kind, "field")) {
         for (types) |item| {
-            for (arrayOf(item, "fields")) |field| if (sameId(str(field, "id"), id)) {
+            for (item.fields()) |field| if (sameId(field.id(), id)) {
                 declared = true;
             };
-            for (arrayOf(item, "variants")) |variant| for (arrayOf(variant, "fields")) |field| if (sameId(str(field, "id"), id)) {
+            for (item.variants()) |variant| for (variant.fields()) |field| if (sameId(field.id(), id)) {
                 declared = true;
             };
         }
         fields = a.dupe(Str, &.{id}) catch oom();
     } else if (is(kind, "capabilityOperation")) {
-        for (capabilities) |item| for (arrayOf(item, "operations")) |operation| if (sameId(str(operation, "id"), id)) {
+        for (capabilities) |item| for (item.operations()) |operation| if (sameId(operation.id(), id)) {
             declared = true;
         };
         operations = a.dupe(Str, &.{id}) catch oom();
@@ -1742,28 +1831,28 @@ pub fn referencesTo(allocator: std.mem.Allocator, root: Value, kind: []const u8,
     if (!declared) return null;
     const mention_kind: ?TypeKind = if (is(kind, "type")) .named else if (is(kind, "capability")) .capability else null;
     const mentions = struct {
-        fn f(mk: ?TypeKind, subject: Str, t: Value) bool {
+        fn f(mk: ?TypeKind, subject: Str, t: Model) bool {
             return if (mk) |k| typeMentions(typeRefOf(t), k, subject) else false;
         }
     }.f;
     const effect = is(kind, "effect");
     var out: List(Reference) = .empty;
-    for (arrayOf(root, "functions")) |function| {
-        const owner = decoded(get(function, "id"));
+    for (root.functions()) |function| {
+        const owner = semanticDecoded(function.id());
         const addSite = struct {
             fn f(list: *List(Reference), o: Str, site: Site) void {
                 list.append(a, .{ .owner = .function, .owner_id = o, .site = site }) catch oom();
             }
         }.f;
-        for (arrayOf(function, "parameters")) |parameter|
-            if (mentions(mention_kind, id, get(parameter, "type"))) addSite(&out, owner, .{ .tag = .parameter_type, .a = decoded(get(parameter, "id")) });
-        if (mentions(mention_kind, id, get(function, "resultType"))) addSite(&out, owner, .{ .tag = .result_type });
-        if (effect) for (arrayOf(function, "requiredEffects")) |required| if (sameId(required.string, id)) {
+        for (function.parameters()) |parameter|
+            if (mentions(mention_kind, id, parameter.declaredType())) addSite(&out, owner, .{ .tag = .parameter_type, .a = semanticDecoded(parameter.id()) });
+        if (mentions(mention_kind, id, function.resultType())) addSite(&out, owner, .{ .tag = .result_type });
+        if (effect) for (function.requiredEffects()) |required| if (sameId(required.literal(), id)) {
             addSite(&out, owner, .{ .tag = .required_effect });
             break;
         };
-        var nodes: List(Value) = .empty;
-        collectNodes(get(function, "body"), &nodes);
+        var nodes: List(Model) = .empty;
+        collectNodes(function.body(), &nodes);
         for (nodes.items) |node| {
             var roles: List([]const u8) = .empty;
             if (is(kind, "function")) for (functionReferences(node)) |reference| if (sameId(reference.function_id, id)) roles.append(a, switch (reference.role) {
@@ -1780,51 +1869,51 @@ pub fn referencesTo(allocator: std.mem.Allocator, root: Value, kind: []const u8,
                 roles.append(a, "typeArgument") catch oom();
                 break;
             };
-            const node_kind = str(node, "kind");
+            const node_kind = node.kind();
             const binds = struct {
-                fn f(n: Value, ids: []const Str) bool {
-                    for (arrayOf(n, "fields")) |binding| if (containsId(ids, str(binding, "targetFieldId"))) return true;
+                fn f(n: Model, ids: []const Str) bool {
+                    for (n.fields()) |binding| if (containsId(ids, binding.reference("targetFieldId"))) return true;
                     return false;
                 }
             }.f;
-            const constructs = is(kind, "type") and tryProperty("typeId", node) != null and sameId(str(node, "typeId"), id);
+            const constructs = is(kind, "type") and node.optionalReference("typeId") != null and sameId(node.reference("typeId"), id);
             if (isName(node_kind, "productConstruct")) {
                 if (constructs or binds(node, fields)) roles.append(a, "construct") catch oom();
             } else if (isName(node_kind, "unionConstruct")) {
-                if (containsId(variants, str(node, "variantId")) or binds(node, fields)) roles.append(a, "construct") catch oom();
+                if (containsId(variants, node.reference("variantId")) or binds(node, fields)) roles.append(a, "construct") catch oom();
             } else if (isName(node_kind, "productUpdate")) {
                 if (constructs or binds(node, fields)) roles.append(a, "productUpdate") catch oom();
             } else if (isName(node_kind, "fieldAccess")) {
-                if (containsId(fields, str(node, "fieldId"))) roles.append(a, "fieldAccess") catch oom();
+                if (containsId(fields, node.reference("fieldId"))) roles.append(a, "fieldAccess") catch oom();
             } else if (isName(node_kind, "matchUnion")) {
                 var matched = false;
                 var bound = false;
-                for (arrayOf(node, "arms")) |arm| {
-                    if (tryProperty("variantId", arm)) |single| matched = matched or containsId(variants, single.string);
-                    for (arrayOf(arm, "variantIds")) |variant| matched = matched or containsId(variants, variant.string);
-                    for (arrayOf(arm, "fieldBindings")) |binding| bound = bound or containsId(fields, str(binding, "sourceFieldId"));
+                for (node.arms()) |arm| {
+                    if (arm.optionalReference("variantId")) |single| matched = matched or containsId(variants, single);
+                    for (arm.variantIds()) |variant| matched = matched or containsId(variants, variant.literal());
+                    for (arm.fieldBindings()) |binding| bound = bound or containsId(fields, binding.reference("sourceFieldId"));
                 }
                 if (matched) roles.append(a, "match") catch oom();
                 if (bound) roles.append(a, "patternBinding") catch oom();
             } else if (isName(node_kind, "capabilityConstruct")) {
-                if (is(kind, "capability") and sameId(str(node, "capabilityId"), id)) roles.append(a, "capabilityConstruct") catch oom();
-                for (arrayOf(node, "implementations")) |implementation| if (containsId(operations, str(implementation, "operationId"))) {
+                if (is(kind, "capability") and sameId(node.reference("capabilityId"), id)) roles.append(a, "capabilityConstruct") catch oom();
+                for (node.implementations()) |implementation| if (containsId(operations, implementation.reference("operationId"))) {
                     roles.append(a, "implementation") catch oom();
                     break;
                 };
             } else if (isName(node_kind, "capabilityInvoke")) {
-                if (containsId(operations, str(node, "operationId"))) roles.append(a, "invoke") catch oom();
+                if (containsId(operations, node.reference("operationId"))) roles.append(a, "invoke") catch oom();
             } else if (isName(node_kind, "useResource")) {
-                if (containsId(operations, str(node, "releaseOperationId"))) roles.append(a, "release") catch oom();
+                if (containsId(operations, node.reference("releaseOperationId"))) roles.append(a, "release") catch oom();
             }
             if (mention_kind != null) {
                 var bound = false;
                 for (nestedScopes(node)) |scope| for (scope.bindings) |binding| {
-                    bound = bound or mentions(mention_kind, id, get(binding, "type"));
+                    bound = bound or mentions(mention_kind, id, binding.declaredType());
                 };
                 if (bound) roles.append(a, "patternBinding") catch oom();
             }
-            const node_id = decoded(get(node, "id"));
+            const node_id = semanticDecoded(node.id());
             for (roles.items, 0..) |role, index| {
                 const seen = for (roles.items[0..index]) |earlier| {
                     if (std.mem.eql(u8, earlier, role)) break true;
@@ -1834,27 +1923,27 @@ pub fn referencesTo(allocator: std.mem.Allocator, root: Value, kind: []const u8,
         }
     }
     for (types) |item| {
-        const owner = decoded(get(item, "id"));
-        for (arrayOf(item, "fields")) |field| if (mentions(mention_kind, id, get(field, "type")))
-            out.append(a, .{ .owner = .type, .owner_id = owner, .site = .{ .tag = .field_type, .b = decoded(get(field, "id")) } }) catch oom();
-        for (arrayOf(item, "variants")) |variant| for (arrayOf(variant, "fields")) |field| if (mentions(mention_kind, id, get(field, "type")))
-            out.append(a, .{ .owner = .type, .owner_id = owner, .site = .{ .tag = .field_type, .a = decoded(get(variant, "id")), .b = decoded(get(field, "id")) } }) catch oom();
+        const owner = semanticDecoded(item.id());
+        for (item.fields()) |field| if (mentions(mention_kind, id, field.declaredType()))
+            out.append(a, .{ .owner = .type, .owner_id = owner, .site = .{ .tag = .field_type, .b = semanticDecoded(field.id()) } }) catch oom();
+        for (item.variants()) |variant| for (variant.fields()) |field| if (mentions(mention_kind, id, field.declaredType()))
+            out.append(a, .{ .owner = .type, .owner_id = owner, .site = .{ .tag = .field_type, .a = semanticDecoded(variant.id()), .b = semanticDecoded(field.id()) } }) catch oom();
     }
     for (capabilities) |item| {
-        const owner = decoded(get(item, "id"));
-        for (arrayOf(item, "operations")) |operation| {
-            const op = decoded(get(operation, "id"));
+        const owner = semanticDecoded(item.id());
+        for (item.operations()) |operation| {
+            const op = semanticDecoded(operation.id());
             const at = struct {
                 fn f(list: *List(Reference), o: Str, site: Site) void {
                     list.append(a, .{ .owner = .capability, .owner_id = o, .site = site }) catch oom();
                 }
             }.f;
-            for (arrayOf(operation, "parameters")) |parameter| if (mentions(mention_kind, id, get(parameter, "type")))
-                at(&out, owner, .{ .tag = .operation_parameter_type, .a = op, .b = decoded(get(parameter, "id")) });
-            if (mentions(mention_kind, id, get(operation, "resultType"))) at(&out, owner, .{ .tag = .operation_result_type, .a = op });
-            if (tryProperty("failureType", operation)) |failure| if (failure != .json_null and mentions(mention_kind, id, failure))
+            for (operation.parameters()) |parameter| if (mentions(mention_kind, id, parameter.declaredType()))
+                at(&out, owner, .{ .tag = .operation_parameter_type, .a = op, .b = semanticDecoded(parameter.id()) });
+            if (mentions(mention_kind, id, operation.resultType())) at(&out, owner, .{ .tag = .operation_result_type, .a = op });
+            if (operation.failureType()) |failure| if (mentions(mention_kind, id, failure))
                 at(&out, owner, .{ .tag = .operation_failure_type, .a = op });
-            if (effect and sameId(str(operation, "effectId"), id)) at(&out, owner, .{ .tag = .operation_effect, .a = op });
+            if (effect and sameId(operation.reference("effectId"), id)) at(&out, owner, .{ .tag = .operation_effect, .a = op });
         }
     }
     std.mem.sort(Reference, out.items, {}, referenceLess);
@@ -1862,17 +1951,17 @@ pub fn referencesTo(allocator: std.mem.Allocator, root: Value, kind: []const u8,
 }
 
 /// `ValueGraph.collectNodes` of a function body.
-pub fn bodyNodes(allocator: std.mem.Allocator, function: Value) []const Value {
+pub fn typedBodyNodes(allocator: std.mem.Allocator, function: Model) []const Model {
     a = allocator;
-    var nodes: List(Value) = .empty;
-    collectNodes(get(function, "body"), &nodes);
+    var nodes: List(Model) = .empty;
+    collectNodes(function.body(), &nodes);
     return nodes.items;
 }
 
 /// `SemanticFacts.collectPatternBindings`, in lexical scope traversal order.
-pub fn patternBindings(allocator: std.mem.Allocator, graph: Value) []const Value {
+pub fn typedPatternBindings(allocator: std.mem.Allocator, graph: Model) []const Model {
     a = allocator;
-    var bindings: List(Value) = .empty;
+    var bindings: List(Model) = .empty;
     collectBindings(graph, &bindings);
     return bindings.items;
 }
@@ -1885,8 +1974,20 @@ pub const CallSite = struct { caller: Str, node: Str, callee: Str };
 pub const Abort = struct { node: Str, error_node: Str, error_type: ?Value, enclosing: []const Str, dependents: []const Str };
 pub const Focus = struct { node_types: []const NodeTypeOf, requirements: BodyRequirements, wait_path: ?Str, aborts: []const Abort, callers: []const CallSite, callees: []const CallSite };
 
+pub const TypedNodeTypeOf = struct { id: Str, type: ?SemanticType };
+pub const TypedAbort = struct { node: Str, error_node: Str, error_type: ?SemanticType, enclosing: []const Str, dependents: []const Str };
+pub const TypedFocus = struct { node_types: []const TypedNodeTypeOf, requirements: BodyRequirements, wait_path: ?Str, aborts: []const TypedAbort, callers: []const CallSite, callees: []const CallSite };
+pub const TypedNodeCompletion = union(enum) { normal: SemanticType, aborts };
+pub const SemanticType = TypeRef;
+pub fn semanticTypeValue(t: SemanticType) Value {
+    return typeValue(t);
+}
+
+fn semanticDecoded(raw: Str) Str {
+    return raw;
+}
 fn dec(raw: Str) Str {
-    return decodeString(raw) catch unreachable;
+    return raw;
 }
 
 fn orderStr(x: Str, y: Str) std.math.Order {
@@ -1954,10 +2055,10 @@ pub fn typeValue(t: TypeRef) Value {
 
 /// `OneShotPayloadRequirements.derive`, for recipe inference; all IDs are decoded UTF-8.
 pub const OneShotRequirement = struct { function: []const u8, parameters: []const []const u8 };
-pub fn oneShotPayloadRequirementsOf(allocator: std.mem.Allocator, root: Value) []const OneShotRequirement {
+pub fn typedOneShotPayloadRequirementsOf(allocator: std.mem.Allocator, root: Model) []const OneShotRequirement {
     a = allocator;
     prepareContext(root);
-    const functions = arrayOf(root, "functions");
+    const functions = root.functions();
     const resolvers = a.alloc(Resolver, functions.len) catch oom();
     for (functions, resolvers) |function, *r| r.* = Resolver.init(function);
     const derived = deriveOneShotRequirements(functions, instantiations(functions, resolvers));
@@ -1973,25 +2074,28 @@ pub fn oneShotPayloadRequirementsOf(allocator: std.mem.Allocator, root: Value) [
 /// Targeted replacement needs to distinguish an abrupt node from an unavailable completion.
 /// Like Resolver/byId, id is the model's raw string (not decoded UTF-16).
 pub const NodeCompletion = union(enum) { normal: Value, aborts };
-pub fn completionOf(allocator: std.mem.Allocator, root: Value, function: Value, id: Str) ?NodeCompletion {
+pub fn typedCompletionOf(allocator: std.mem.Allocator, root: Model, function: Model, id: Str) ?TypedNodeCompletion {
     a = allocator;
     prepareContext(root);
     var resolver = Resolver.init(function);
     const completion = resolver.completion(id) orelse return null;
-    return switch (completion) { .normal => |t| .{ .normal = typeValue(t) }, .aborts => .aborts };
+    return switch (completion) {
+        .normal => |t| .{ .normal = t },
+        .aborts => .aborts,
+    };
 }
 
 /// `SemanticQuery.focusFunction`'s derived facts for `function` of `root` (the session's model).
-pub fn focusOf(allocator: std.mem.Allocator, root: Value, function: Value) Focus {
+pub fn typedFocusOf(allocator: std.mem.Allocator, root: Model, function: Model) TypedFocus {
     a = allocator;
     prepareContext(root);
     var resolver = Resolver.init(function);
-    var nodes: List(Value) = .empty;
-    collectNodes(get(function, "body"), &nodes);
-    var node_types: List(NodeTypeOf) = .empty;
-    for (nodes.items) |node| node_types.append(a, .{ .id = dec(str(node, "id")), .type = if (resolver.nodeType(str(node, "id"))) |t| typeValue(t) else null }) catch oom();
-    std.mem.sort(NodeTypeOf, node_types.items, {}, struct {
-        fn less(_: void, x: NodeTypeOf, y: NodeTypeOf) bool {
+    var nodes: List(Model) = .empty;
+    collectNodes(function.body(), &nodes);
+    var node_types: List(TypedNodeTypeOf) = .empty;
+    for (nodes.items) |node| node_types.append(a, .{ .id = dec(node.id()), .type = resolver.nodeType(node.id()) }) catch oom();
+    std.mem.sort(TypedNodeTypeOf, node_types.items, {}, struct {
+        fn less(_: void, x: TypedNodeTypeOf, y: TypedNodeTypeOf) bool {
             return orderStr(x.id, y.id) == .lt;
         }
     }.less);
@@ -2000,15 +2104,15 @@ pub fn focusOf(allocator: std.mem.Allocator, root: Value, function: Value) Focus
     var unresolved_functions: List(Str) = .empty;
     var unresolved_operations: List(Str) = .empty;
     for (nodes.items) |node| {
-        const node_id = dec(str(node, "id"));
+        const node_id = dec(node.id());
         for (functionReferences(node)) |reference| if (isInvoked(reference.role)) {
             if (functions_by_id.get(idKey(reference.function_id))) |target| {
-                for (arrayOf(target, "requiredEffects")) |effect| evidence.append(a, .{ .effect = dec(effect.string), .node = node_id, .operation = false, .source = dec(reference.function_id) }) catch oom();
+                for (target.requiredEffects()) |effect| evidence.append(a, .{ .effect = dec(effect.literal()), .node = node_id, .operation = false, .source = dec(reference.function_id) }) catch oom();
             } else unresolved_functions.append(a, dec(reference.function_id)) catch oom();
         };
         if (invokedOperation(node)) |operation_id| {
             if (operations_by_id.get(idKey(operation_id))) |operation| {
-                evidence.append(a, .{ .effect = dec(str(operation, "effectId")), .node = node_id, .operation = true, .source = dec(operation_id) }) catch oom();
+                evidence.append(a, .{ .effect = dec(operation.reference("effectId")), .node = node_id, .operation = true, .source = dec(operation_id) }) catch oom();
             } else unresolved_operations.append(a, dec(operation_id)) catch oom();
         }
     }
@@ -2032,10 +2136,10 @@ pub fn focusOf(allocator: std.mem.Allocator, root: Value, function: Value) Focus
         effects.append(a, item.effect) catch oom();
     }
     // `Waiting.derive` and `Waiting.describe`.
-    const capabilities = arrayOf(root, "capabilities");
-    const functions = arrayOf(root, "functions");
+    const capabilities = root.capabilities();
+    const functions = root.functions();
     const waits = deriveWaiting(capabilities, functions);
-    const wait_path: ?Str = if (waits.get(idKey(str(function, "id")))) |path| dec(describeWait(capabilities, functions, path)) else null;
+    const wait_path: ?Str = if (waits.get(idKey(function.id()))) |path| dec(describeWait(capabilities, functions, path)) else null;
     // `abortBoundaries`.
     var dependents: std.StringArrayHashMapUnmanaged(List(Str)) = .empty;
     for (nodes.items) |node| {
@@ -2044,18 +2148,18 @@ pub fn focusOf(allocator: std.mem.Allocator, root: Value, function: Value) Focus
         for (reads.items) |read| {
             const entry = dependents.getOrPut(a, idKey(read)) catch oom();
             if (!entry.found_existing) entry.value_ptr.* = .empty;
-            entry.value_ptr.append(a, str(node, "id")) catch oom();
+            entry.value_ptr.append(a, node.id()) catch oom();
         }
     }
-    var aborts: List(Abort) = .empty;
+    var aborts: List(TypedAbort) = .empty;
     const Walk = struct {
-        fn visit(graph: Value, parents: []const Str, deps: *const std.StringArrayHashMapUnmanaged(List(Str)), types: []const NodeTypeOf, out: *List(Abort)) void {
-            for (arrayOf(graph, "nodes")) |node| {
-                if (isName(str(node, "kind"), "abort")) {
+        fn visit(graph: Model, parents: []const Str, deps: *const std.StringArrayHashMapUnmanaged(List(Str)), types: []const TypedNodeTypeOf, out: *List(TypedAbort)) void {
+            for (graph.nodes()) |node| {
+                if (isName(node.kind(), "abort")) {
                     var found: Set = .empty;
                     var pending: List(Str) = .empty;
-                    found.put(a, idKey(str(node, "id")), {}) catch oom();
-                    pending.append(a, str(node, "id")) catch oom();
+                    found.put(a, idKey(node.id()), {}) catch oom();
+                    pending.append(a, node.id()) catch oom();
                     for (parents) |parent| {
                         found.put(a, idKey(parent), {}) catch oom();
                         pending.append(a, parent) catch oom();
@@ -2068,39 +2172,39 @@ pub fn focusOf(allocator: std.mem.Allocator, root: Value, function: Value) Focus
                         pending.append(a, dependent) catch oom();
                     };
                     _ = seeds;
-                    const error_node = dec(str(node, "errorNodeId"));
+                    const error_node = dec(node.reference("errorNodeId"));
                     const error_type = for (types) |item| {
                         if (std.mem.eql(u16, item.id, error_node)) break item.type;
                     } else null;
                     var enclosing: List(Str) = .empty;
                     for (parents) |parent| enclosing.append(a, dec(parent)) catch oom();
-                    out.append(a, .{ .node = dec(str(node, "id")), .error_node = error_node, .error_type = error_type, .enclosing = enclosing.items, .dependents = sortedSet(continuation.items) }) catch oom();
+                    out.append(a, .{ .node = dec(node.id()), .error_node = error_node, .error_type = error_type, .enclosing = enclosing.items, .dependents = sortedSet(continuation.items) }) catch oom();
                 } else {
-                    const inner = std.mem.concat(a, Str, &.{ &.{str(node, "id")}, parents }) catch oom();
+                    const inner = std.mem.concat(a, Str, &.{ &.{node.id()}, parents }) catch oom();
                     for (nestedScopes(node)) |scope| visit(scope.graph, inner, deps, types, out);
                 }
             }
         }
     };
-    Walk.visit(get(function, "body"), &.{}, &dependents, node_types.items, &aborts);
-    std.mem.sort(Abort, aborts.items, {}, struct {
-        fn less(_: void, x: Abort, y: Abort) bool {
+    Walk.visit(function.body(), &.{}, &dependents, node_types.items, &aborts);
+    std.mem.sort(TypedAbort, aborts.items, {}, struct {
+        fn less(_: void, x: TypedAbort, y: TypedAbort) bool {
             return orderStr(x.node, y.node) == .lt;
         }
     }.less);
     // `callSites`, then the ones into and out of this function.
-    const self_id = dec(str(function, "id"));
+    const self_id = dec(function.id());
     var callers: List(CallSite) = .empty;
     var callees: List(CallSite) = .empty;
     for (functions) |owner| {
-        var owned: List(Value) = .empty;
-        collectNodes(get(owner, "body"), &owned);
-        const owner_id = dec(str(owner, "id"));
+        var owned: List(Model) = .empty;
+        collectNodes(owner.body(), &owned);
+        const owner_id = dec(owner.id());
         for (owned.items) |node| {
             var targets: List(Str) = .empty;
             for (functionReferences(node)) |reference| targets.append(a, dec(reference.function_id)) catch oom();
             for (sortedSet(targets.items)) |callee| {
-                const site: CallSite = .{ .caller = owner_id, .node = dec(str(node, "id")), .callee = callee };
+                const site: CallSite = .{ .caller = owner_id, .node = dec(node.id()), .callee = callee };
                 if (std.mem.eql(u16, callee, self_id)) callers.append(a, site) catch oom();
                 if (std.mem.eql(u16, owner_id, self_id)) callees.append(a, site) catch oom();
             }
@@ -2291,69 +2395,69 @@ fn countBy(ids: []const Str) Counts {
 }
 
 /// `duplicateBy`: once per ID that occurs more than once.
-fn duplicates(code: []const u8, comptime what: []const u8, values: []const Value) void {
+fn duplicates(code: []const u8, comptime what: []const u8, values: []const Model) void {
     const ids = a.alloc(Str, values.len) catch oom();
-    for (values, ids) |value, *id| id.* = str(value, "id");
+    for (values, ids) |value, *id| id.* = value.id();
     for (countBy(ids).values()) |entry| {
         if (entry.count > 1) add(code, cat(&.{ L(what ++ " '"), entry.id, L("' occurs more than once.") }));
     }
 }
 
-fn blankNames(code: []const u8, comptime what: []const u8, values: []const Value) void {
+fn blankNames(code: []const u8, comptime what: []const u8, values: []const Model) void {
     for (values) |value| {
-        if (isBlank(str(value, "displayName"))) add(code, cat(&.{ L(what ++ " '"), str(value, "id"), L("' has a blank display name.") }));
+        if (isBlank(value.displayName())) add(code, cat(&.{ L(what ++ " '"), value.id(), L("' has a blank display name.") }));
     }
 }
 
 /// `SemanticNodeShape.nestedScopes`: the pattern bindings and graph of each nested scope.
-pub const Scope = struct { bindings: []const Value, graph: Value };
+pub const TypedScope = struct { bindings: []const Model, graph: Model };
 
-fn one(value: Value) []const Value {
-    return a.dupe(Value, &.{value}) catch oom();
+fn one(value: Model) []const Model {
+    return a.dupe(Model, &.{value}) catch oom();
 }
 
-fn nestedScopes(node: Value) []const Scope {
-    var out: List(Scope) = .empty;
-    const kind = str(node, "kind");
+fn nestedScopes(node: Model) []const TypedScope {
+    var out: List(TypedScope) = .empty;
+    const kind = node.kind();
     if (isName(kind, "conditional")) {
-        out.append(a, .{ .bindings = &.{}, .graph = get(node, "whenTrue") }) catch oom();
-        out.append(a, .{ .bindings = &.{}, .graph = get(node, "whenFalse") }) catch oom();
+        out.append(a, .{ .bindings = &.{}, .graph = node.graphPayload("whenTrue") }) catch oom();
+        out.append(a, .{ .bindings = &.{}, .graph = node.graphPayload("whenFalse") }) catch oom();
     } else if (isName(kind, "boolAnd") or isName(kind, "boolOr")) {
-        out.append(a, .{ .bindings = &.{}, .graph = get(node, "right") }) catch oom();
+        out.append(a, .{ .bindings = &.{}, .graph = node.graphPayload("right") }) catch oom();
     } else if (isName(kind, "matchUnion")) {
-        for (arrayOf(node, "arms")) |arm| {
-            const fields = arrayOf(arm, "fieldBindings");
-            const bindings = a.alloc(Value, fields.len) catch oom();
-            for (fields, bindings) |field, *binding| binding.* = get(field, "binding");
-            out.append(a, .{ .bindings = bindings, .graph = get(arm, "body") }) catch oom();
+        for (node.arms()) |arm| {
+            const fields = arm.fieldBindings();
+            const bindings = a.alloc(Model, fields.len) catch oom();
+            for (fields, bindings) |field, *binding| binding.* = field.boundBinding();
+            out.append(a, .{ .bindings = bindings, .graph = arm.body() }) catch oom();
         }
     } else if (isName(kind, "bind")) {
-        const body = get(node, "boundBody");
-        out.append(a, .{ .bindings = one(get(body, "valueBinding")), .graph = get(body, "body") }) catch oom();
+        const body = node.arm("boundBody");
+        out.append(a, .{ .bindings = one(body.armBinding()), .graph = body.body() }) catch oom();
     } else if (isName(kind, "matchOption")) {
-        const some = get(node, "someArm");
-        out.append(a, .{ .bindings = one(get(some, "valueBinding")), .graph = get(some, "body") }) catch oom();
-        out.append(a, .{ .bindings = &.{}, .graph = get(node, "noneBody") }) catch oom();
+        const some = node.arm("someArm");
+        out.append(a, .{ .bindings = one(some.armBinding()), .graph = some.body() }) catch oom();
+        out.append(a, .{ .bindings = &.{}, .graph = node.graphPayload("noneBody") }) catch oom();
     } else if (isName(kind, "matchResult")) {
-        const ok_arm = get(node, "okArm");
-        const err_arm = get(node, "errArm");
-        out.append(a, .{ .bindings = one(get(ok_arm, "valueBinding")), .graph = get(ok_arm, "body") }) catch oom();
-        out.append(a, .{ .bindings = one(get(err_arm, "errorBinding")), .graph = get(err_arm, "body") }) catch oom();
+        const ok_arm = node.arm("okArm");
+        const err_arm = node.arm("errArm");
+        out.append(a, .{ .bindings = one(ok_arm.armBinding()), .graph = ok_arm.body() }) catch oom();
+        out.append(a, .{ .bindings = one(err_arm.armBinding()), .graph = err_arm.body() }) catch oom();
     }
     return out.items;
 }
 
 /// `ValueGraph.collectNodes`: each node, then the nodes of its nested graphs.
-fn collectNodes(graph: Value, out: *List(Value)) void {
-    for (arrayOf(graph, "nodes")) |node| {
+fn collectNodes(graph: Model, out: *List(Model)) void {
+    for (graph.nodes()) |node| {
         out.append(a, node) catch oom();
         for (nestedScopes(node)) |scope| collectNodes(scope.graph, out);
     }
 }
 
 /// `SemanticFacts.collectPatternBindings`.
-fn collectBindings(graph: Value, out: *List(Value)) void {
-    for (arrayOf(graph, "nodes")) |node| {
+fn collectBindings(graph: Model, out: *List(Model)) void {
+    for (graph.nodes()) |node| {
         for (nestedScopes(node)) |scope| {
             out.appendSlice(a, scope.bindings) catch oom();
             collectBindings(scope.graph, out);
@@ -2362,47 +2466,47 @@ fn collectBindings(graph: Value, out: *List(Value)) void {
 }
 
 /// The type references directly below a type reference.
-fn typeChildren(type_ref: Value) []const Value {
-    const kind = str(type_ref, "kind");
+fn typeChildren(type_ref: Model) []const Model {
+    const kind = type_ref.kind();
     if (isName(kind, "function")) {
-        var out: List(Value) = .empty;
-        out.appendSlice(a, arrayOf(type_ref, "parameters")) catch oom();
-        out.append(a, get(type_ref, "resultType")) catch oom();
+        var out: List(Model) = .empty;
+        out.appendSlice(a, type_ref.parameters()) catch oom();
+        out.append(a, type_ref.resultType()) catch oom();
         return out.items;
     }
-    if (isName(kind, "named") or isName(kind, "builtinGeneric")) return arrayOf(type_ref, "arguments");
+    if (isName(kind, "named") or isName(kind, "builtinGeneric")) return type_ref.arguments();
     return &.{};
 }
 
 /// `TypeParameters.occurring`, as a set.
-fn occurring(type_ref: Value, out: *Set) void {
-    if (isName(str(type_ref, "kind"), "typeParameter")) out.put(a, idKey(str(type_ref, "typeParameterId")), {}) catch oom();
+fn occurring(type_ref: Model, out: *Set) void {
+    if (isName(type_ref.kind(), "typeParameter")) out.put(a, idKey(type_ref.reference("typeParameterId")), {}) catch oom();
     for (typeChildren(type_ref)) |child| occurring(child, out);
 }
 
 /// The declared types a type reference names (`directlyReferenced`).
-fn named(type_ref: Value, out: *Set) void {
-    if (isName(str(type_ref, "kind"), "named")) out.put(a, idKey(str(type_ref, "typeId")), {}) catch oom();
+fn named(type_ref: Model, out: *Set) void {
+    if (isName(type_ref.kind(), "named")) out.put(a, idKey(type_ref.reference("typeId")), {}) catch oom();
     for (typeChildren(type_ref)) |child| named(child, out);
 }
 
-fn idSet(values: []const Value) Set {
+fn idSet(values: []const Model) Set {
     var set: Set = .empty;
-    for (values) |value| set.put(a, idKey(str(value, "id")), {}) catch oom();
+    for (values) |value| set.put(a, idKey(value.id()), {}) catch oom();
     return set;
 }
 
 /// `Map.ofList` by ID: the last declaration of an ID wins.
-fn byId(values: []const Value) std.StringArrayHashMapUnmanaged(Value) {
-    var map: std.StringArrayHashMapUnmanaged(Value) = .empty;
-    for (values) |value| map.put(a, idKey(str(value, "id")), value) catch oom();
+fn byId(values: []const Model) std.StringArrayHashMapUnmanaged(Model) {
+    var map: std.StringArrayHashMapUnmanaged(Model) = .empty;
+    for (values) |value| map.put(a, idKey(value.id()), value) catch oom();
     return map;
 }
 
-var effect_names: std.StringArrayHashMapUnmanaged(Value) = .empty;
+var effect_names: std.StringArrayHashMapUnmanaged(Model) = .empty;
 
 fn effectLabel(effect_id: Str) Str {
-    return if (effect_names.get(idKey(effect_id))) |effect| describe(str(effect, "displayName"), effect_id) else quote(effect_id);
+    return if (effect_names.get(idKey(effect_id))) |effect| describe(effect.displayName(), effect_id) else quote(effect_id);
 }
 
 const Direct = std.StringArrayHashMapUnmanaged(Set);
@@ -2424,34 +2528,34 @@ fn reaches(direct: *const Direct, start: Str, goal: Str) bool {
     return false;
 }
 
-fn checkRecursion(direct: *const Direct, owner: Str, field: Value, type_ref: Value) void {
-    if (isName(str(type_ref, "kind"), "named")) {
-        const arguments = arrayOf(type_ref, "arguments");
+fn checkRecursion(direct: *const Direct, owner: Str, field: Model, type_ref: Model) void {
+    if (isName(type_ref.kind(), "named")) {
+        const arguments = type_ref.arguments();
         var plain = true;
-        for (arguments) |argument| plain = plain and isName(str(argument, "kind"), "typeParameter");
-        if (arguments.len > 0 and !plain and reaches(direct, str(type_ref, "typeId"), owner))
-            add("IrregularRecursiveType", cat(&.{ L("Field "), describe(str(field, "displayName"), str(field, "id")), L(" refers back to its recursive type group with type arguments other than plain type parameters.") }));
+        for (arguments) |argument| plain = plain and isName(argument.kind(), "typeParameter");
+        if (arguments.len > 0 and !plain and reaches(direct, type_ref.reference("typeId"), owner))
+            add("IrregularRecursiveType", cat(&.{ L("Field "), describe(field.displayName(), field.id()), L(" refers back to its recursive type group with type arguments other than plain type parameters.") }));
     }
     for (typeChildren(type_ref)) |child| checkRecursion(direct, owner, field, child);
 }
 
-fn fieldsOf(type_entity: Value) []const Value {
-    if (isName(str(type_entity, "kind"), "product")) return arrayOf(type_entity, "fields");
-    var out: List(Value) = .empty;
-    for (arrayOf(type_entity, "variants")) |variant| out.appendSlice(a, arrayOf(variant, "fields")) catch oom();
+fn fieldsOf(type_entity: Model) []const Model {
+    if (isName(type_entity.kind(), "product")) return type_entity.fields();
+    var out: List(Model) = .empty;
+    for (type_entity.variants()) |variant| out.appendSlice(a, variant.fields()) catch oom();
     return out.items;
 }
 
 /// The type parameters a type or function declares: blank names, duplicate names and IDs.
-fn typeParameterDeclarations(comptime what: []const u8, label: Str, declarations: []const Value) void {
+fn typeParameterDeclarations(comptime what: []const u8, label: Str, declarations: []const Model) void {
     for (declarations) |declaration| {
-        if (isBlank(str(declaration, "displayName"))) add("TypeParameterDisplayNameBlank", cat(&.{ L(what ++ " "), label, L(" declares a type parameter with a blank display name.") }));
+        if (isBlank(declaration.displayName())) add("TypeParameterDisplayNameBlank", cat(&.{ L(what ++ " "), label, L(" declares a type parameter with a blank display name.") }));
     }
     const names = a.alloc(Str, declarations.len) catch oom();
     const ids = a.alloc(Str, declarations.len) catch oom();
     for (declarations, names, ids) |declaration, *name, *id| {
-        name.* = str(declaration, "displayName");
-        id.* = str(declaration, "typeParameterId");
+        name.* = declaration.displayName();
+        id.* = declaration.reference("typeParameterId");
     }
     for (countBy(names).values()) |entry| {
         if (entry.count > 1) add("DuplicateTypeParameterName", cat(&.{ L(what ++ " "), label, L(" declares type parameter '"), entry.id, L("' more than once.") }));
@@ -2478,17 +2582,26 @@ const TypeRef = struct {
     }
 };
 
-fn typeRefOf(element: Value) TypeRef {
-    const kind = str(element, "kind");
-    if (isName(kind, "primitive")) return .{ .kind = .primitive, .name = str(element, "primitive") };
-    if (isName(kind, "named")) return .{ .kind = .named, .name = str(element, "typeId"), .args = typeRefsOf(arrayOf(element, "arguments")) };
-    if (isName(kind, "typeParameter")) return .{ .kind = .type_parameter, .name = str(element, "typeParameterId") };
-    if (isName(kind, "capability")) return .{ .kind = .capability, .name = str(element, "capabilityId") };
-    if (isName(kind, "builtinGeneric")) return .{ .kind = .generic, .name = str(element, "generic"), .args = typeRefsOf(arrayOf(element, "arguments")) };
-    return .{ .kind = .function, .args = typeRefsOf(arrayOf(element, "parameters")), .result = boxed(typeRefOf(get(element, "resultType"))) };
+fn typeRefOf(element: Model) TypeRef {
+    return semanticType(element.data.type_ref);
+}
+fn semanticType(t: session_model.TypeRef) TypeRef {
+    return switch (t) {
+        .primitive => |name| .{ .kind = .primitive, .name = semantic_model.stringText(name) },
+        .named => |named_type| .{ .kind = .named, .name = semantic_model.idTextOf(.type, named_type.id), .args = semanticTypes(named_type.arguments orelse &.{}) },
+        .type_parameter => |id| .{ .kind = .type_parameter, .name = semantic_model.idTextOf(.type_parameter, id) },
+        .capability => |id| .{ .kind = .capability, .name = semantic_model.idTextOf(.capability, id) },
+        .generic => |generic_type| .{ .kind = .generic, .name = semantic_model.stringText(generic_type.name), .args = semanticTypes(generic_type.arguments) },
+        .function => |function_type| .{ .kind = .function, .args = semanticTypes(function_type.parameters), .result = boxed(semanticType(function_type.result.*)) },
+    };
+}
+fn semanticTypes(items: []const session_model.TypeRef) []const TypeRef {
+    const out = a.alloc(TypeRef, items.len) catch oom();
+    for (items, out) |item, *slot| slot.* = semanticType(item);
+    return out;
 }
 
-fn typeRefsOf(elements: []const Value) []const TypeRef {
+fn typeRefsOf(elements: []const Model) []const TypeRef {
     const out = a.alloc(TypeRef, elements.len) catch oom();
     for (elements, out) |element, *t| t.* = typeRefOf(element);
     return out;
@@ -2514,7 +2627,7 @@ fn typeEql(left: TypeRef, right: TypeRef) bool {
 
 /// A text that identifies a type reference structurally, for sets keyed by types.
 fn typeKey(t: TypeRef, out: *List(u8)) void {
-    out.append(a, "pnftcg"[@intFromEnum(t.kind)]) catch oom();
+    out.append(a, "pnftcg"[@backingInt(t.kind)]) catch oom();
     out.appendSlice(a, idKey(t.name)) catch oom();
     out.append(a, '(') catch oom();
     for (t.args) |arg| typeKey(arg, out);
@@ -2553,17 +2666,17 @@ fn substitute(substitution: *const Substitution, t: TypeRef) TypeRef {
 }
 
 /// `TypeParameters.ofArguments`: the declared parameters zipped with the arguments; the last of a duplicated ID wins.
-fn ofArguments(type_entity: Value, arguments: []const TypeRef) Substitution {
-    const declared = arrayOf(type_entity, "typeParameters");
+fn ofArguments(type_entity: Model, arguments: []const TypeRef) Substitution {
+    const declared = type_entity.typeParameters();
     var substitution: Substitution = .empty;
     const n = @min(declared.len, arguments.len);
-    for (declared[0..n], arguments[0..n]) |declaration, argument| substitution.put(a, idKey(str(declaration, "typeParameterId")), argument) catch oom();
+    for (declared[0..n], arguments[0..n]) |declaration, argument| substitution.put(a, idKey(declaration.reference("typeParameterId")), argument) catch oom();
     return substitution;
 }
 
 /// `TypeParameters.instantiate`: a field type seen through a reference with these arguments.
-fn instantiate(type_entity: Value, arguments: []const TypeRef, field_type: TypeRef) TypeRef {
-    if (arrayOf(type_entity, "typeParameters").len == 0) return field_type;
+fn instantiate(type_entity: Model, arguments: []const TypeRef, field_type: TypeRef) TypeRef {
+    if (type_entity.typeParameters().len == 0) return field_type;
     const substitution = ofArguments(type_entity, arguments);
     return substitute(&substitution, field_type);
 }
@@ -2591,8 +2704,8 @@ fn namedIn(t: TypeRef, out: *List(TypeRef)) void {
     for (t.args) |arg| namedIn(arg, out);
 }
 
-var types_by_id: std.StringArrayHashMapUnmanaged(Value) = .empty;
-var all_types: []const Value = &.{};
+var types_by_id: std.StringArrayHashMapUnmanaged(Model) = .empty;
+var all_types: []const Model = &.{};
 var capability_ids: Set = .empty;
 /// `TypeParameters.names`: types before functions, the last declaration of an ID wins.
 var type_parameter_names: std.StringArrayHashMapUnmanaged(Str) = .empty;
@@ -2609,7 +2722,7 @@ fn bearingWith(mentions: *const fn (TypeRef) bool, t: TypeRef, visited: *Set) bo
         if ((visited.getOrPut(a, key.items) catch oom()).found_existing) continue;
         const type_entity = types_by_id.get(idKey(n.name)) orelse continue;
         for (fieldsOf(type_entity)) |field| {
-            if (bearingWith(mentions, instantiate(type_entity, n.args, typeRefOf(get(field, "type"))), visited)) return true;
+            if (bearingWith(mentions, instantiate(type_entity, n.args, typeRefOf(field.declaredType())), visited)) return true;
         }
     }
     return false;
@@ -2641,8 +2754,8 @@ fn joinTypes(types: []const TypeRef, render: *const fn (TypeRef) Str) Str {
 }
 
 /// The first declared type with this ID (`List.tryFind`).
-fn firstType(type_id: Str) ?Value {
-    for (all_types) |type_entity| if (same(str(type_entity, "id"), type_id)) return type_entity;
+fn firstType(type_id: Str) ?Model {
+    for (all_types) |type_entity| if (same(type_entity.id(), type_id)) return type_entity;
     return null;
 }
 
@@ -2664,7 +2777,7 @@ fn describeType(t: TypeRef) Str {
     return switch (t.kind) {
         .primitive => caseName(t),
         .named => blk: {
-            const name = if (firstType(t.name)) |type_entity| str(type_entity, "displayName") else t.name;
+            const name = if (firstType(t.name)) |type_entity| type_entity.displayName() else t.name;
             break :blk if (t.args.len == 0) name else cat(&.{ name, L("<"), joinTypes(t.args, &describeType), L(">") });
         },
         .capability => cat(&.{ L("capability '"), t.name, L("'") }),
@@ -2701,14 +2814,14 @@ fn firstNotEquatableAt(path: *List(Str), t: TypeRef, visited: *Set) ?NotEquatabl
             typeKey(t, &key);
             if ((visited.getOrPut(a, key.items) catch oom()).found_existing) return null;
             const type_entity = types_by_id.get(idKey(t.name)) orelse return null;
-            const type_name = str(type_entity, "displayName");
-            if (isName(str(type_entity, "kind"), "product")) {
-                for (arrayOf(type_entity, "fields")) |field| {
-                    if (notEquatableAt(path, cat(&.{ type_name, L("."), str(field, "displayName") }), instantiate(type_entity, t.args, typeRefOf(get(field, "type"))), visited)) |found| return found;
+            const type_name = type_entity.displayName();
+            if (isName(type_entity.kind(), "product")) {
+                for (type_entity.fields()) |field| {
+                    if (notEquatableAt(path, cat(&.{ type_name, L("."), field.displayName() }), instantiate(type_entity, t.args, typeRefOf(field.declaredType())), visited)) |found| return found;
                 }
-            } else for (arrayOf(type_entity, "variants")) |variant| {
-                for (arrayOf(variant, "fields")) |field| {
-                    if (notEquatableAt(path, cat(&.{ type_name, L("."), str(variant, "displayName"), L("."), str(field, "displayName") }), instantiate(type_entity, t.args, typeRefOf(get(field, "type"))), visited)) |found| return found;
+            } else for (type_entity.variants()) |variant| {
+                for (variant.fields()) |field| {
+                    if (notEquatableAt(path, cat(&.{ type_name, L("."), variant.displayName(), L("."), field.displayName() }), instantiate(type_entity, t.args, typeRefOf(field.declaredType())), visited)) |found| return found;
                 }
             }
             return null;
@@ -2753,9 +2866,9 @@ fn validateTypeRef(context: Str, t: TypeRef) void {
         .function => for (typeArgs(t)) |arg| validateTypeRef(context, arg),
         .named => {
             if (types_by_id.get(idKey(t.name))) |type_entity| {
-                const declared = arrayOf(type_entity, "typeParameters").len;
+                const declared = type_entity.typeParameters().len;
                 if (declared != t.args.len)
-                    add("NamedTypeArityMismatch", cat(&.{ context, L(" uses "), str(type_entity, "displayName"), L(" with "), number(t.args.len), L(" type arguments; exactly "), number(declared), L(" are required.") }));
+                    add("NamedTypeArityMismatch", cat(&.{ context, L(" uses "), type_entity.displayName(), L(" with "), number(t.args.len), L(" type arguments; exactly "), number(declared), L(" are required.") }));
             } else add("UnknownNamedType", cat(&.{ context, L(" references unknown type '"), t.name, L("'.") }));
             for (t.args) |arg| if (mentionsScope(arg)) {
                 add("TaskTypeInDeclaredType", cat(&.{ context, L(" passes TaskScope as a type argument; a task scope cannot be stored in a declared type.") }));
@@ -2797,78 +2910,84 @@ fn validateTypeRef(context: Str, t: TypeRef) void {
     }
 }
 
-fn validateTypeOf(context: Str, element: Value) void {
+fn validateTypeOf(context: Str, element: Model) void {
     validateTypeRef(context, typeRefOf(element));
 }
 
 /// A node's own type arguments; none when omitted.
-fn typeArgumentsOf(node: Value) []const TypeRef {
-    return typeRefsOf(arrayOf(node, "typeArguments"));
+fn typeArgumentsOf(node: Model) []const TypeRef {
+    return typeRefsOf(node.typeArguments());
 }
 
 /// `variantsById` (the last of a duplicated ID wins): the owning type of each variant.
 var variant_owners: std.StringArrayHashMapUnmanaged(Str) = .empty;
 
 /// The 11 `validateTypeRef` sites of `validateGraph`, each on its node alone.
-fn validateNodeTypeRefs(node: Value) void {
-    const kind = str(node, "kind");
-    const id = str(node, "id");
+fn validateNodeTypeRefs(node: Model) void {
+    const kind = node.kind();
+    const id = node.id();
     if (isName(kind, "listEmpty")) {
-        validateTypeOf(cat(&.{ L("ListEmpty node '"), id, L("' item type") }), get(node, "itemType"));
+        validateTypeOf(cat(&.{ L("ListEmpty node '"), id, L("' item type") }), node.payloadType("itemType"));
     } else if (isName(kind, "setEmpty")) {
-        validateTypeRef(cat(&.{ L("SetEmpty node '"), id, L("' type") }), builtin("set", &.{typeRefOf(get(node, "itemType"))}));
+        validateTypeRef(cat(&.{ L("SetEmpty node '"), id, L("' type") }), builtin("set", &.{typeRefOf(node.payloadType("itemType"))}));
     } else if (isName(kind, "mapEmpty")) {
-        validateTypeRef(cat(&.{ L("MapEmpty node '"), id, L("' type") }), builtin("map", &.{ typeRefOf(get(node, "keyType")), typeRefOf(get(node, "valueType")) }));
+        validateTypeRef(cat(&.{ L("MapEmpty node '"), id, L("' type") }), builtin("map", &.{ typeRefOf(node.payloadType("keyType")), typeRefOf(node.payloadType("valueType")) }));
     } else if (isName(kind, "listConstruct")) {
-        validateTypeOf(cat(&.{ L("ListConstruct node '"), id, L("' item type") }), get(node, "itemType"));
+        validateTypeOf(cat(&.{ L("ListConstruct node '"), id, L("' item type") }), node.payloadType("itemType"));
     } else if (isName(kind, "exceptionRethrow")) {
-        validateTypeOf(L("ExceptionRethrow result"), get(node, "resultType"));
+        validateTypeOf(L("ExceptionRethrow result"), node.resultType());
     } else if (isName(kind, "oneShotCreate")) {
-        validateTypeRef(L("OneShotCreate payload"), builtin("oneShot", &.{typeRefOf(get(node, "valueType"))}));
+        validateTypeRef(L("OneShotCreate payload"), builtin("oneShot", &.{typeRefOf(node.payloadType("valueType"))}));
     } else if (isName(kind, "productConstruct")) {
         // Only for a declared Product (`Some({ Kind = Product _ })`).
-        const type_id = str(node, "typeId");
+        const type_id = node.reference("typeId");
         const type_entity = types_by_id.get(idKey(type_id)) orelse return;
-        if (isName(str(type_entity, "kind"), "product"))
+        if (isName(type_entity.kind(), "product"))
             validateTypeRef(cat(&.{ L("Product node '"), id, L("'") }), .{ .kind = .named, .name = type_id, .args = typeArgumentsOf(node) });
     } else if (isName(kind, "unionConstruct")) {
-        const owner = variant_owners.get(idKey(str(node, "variantId"))) orelse return;
+        const owner = variant_owners.get(idKey(node.reference("variantId"))) orelse return;
         validateTypeRef(cat(&.{ L("Union node '"), id, L("'") }), .{ .kind = .named, .name = owner, .args = typeArgumentsOf(node) });
     } else if (isName(kind, "optionNone")) {
-        validateTypeOf(cat(&.{ L("Option.None node '"), id, L("'") }), get(node, "itemType"));
+        validateTypeOf(cat(&.{ L("Option.None node '"), id, L("'") }), node.payloadType("itemType"));
     } else if (isName(kind, "resultOk")) {
-        validateTypeOf(cat(&.{ L("Result.Ok node '"), id, L("' error type") }), get(node, "errorType"));
+        validateTypeOf(cat(&.{ L("Result.Ok node '"), id, L("' error type") }), node.payloadType("errorType"));
     } else if (isName(kind, "resultErr")) {
-        validateTypeOf(cat(&.{ L("Result.Err node '"), id, L("' ok type") }), get(node, "okType"));
+        validateTypeOf(cat(&.{ L("Result.Err node '"), id, L("' ok type") }), node.payloadType("okType"));
     }
 }
 
 /// `SemanticNodeShape.payloadTypeRefs`: the types a node states in its own payload (the `type`
 /// and `targs` properties of model_kinds.txt).
-fn payloadTypeRefs(node: Value, out: *List(TypeRef)) void {
-    for (node.object) |member| {
-        if (isName(member.name, "typeArguments")) {
-            out.appendSlice(a, typeRefsOf(member.value.array)) catch oom();
-        } else if (inNames(member.name, &.{ "itemType", "keyType", "valueType", "resultType", "okType", "errorType" })) {
-            out.append(a, typeRefOf(member.value)) catch oom();
-        }
-    }
+fn payloadTypeRefs(node: Model, out: *List(TypeRef)) void {
+    var payload = node.data.node.payload();
+    while (payload.next()) |field| switch (field.value) {
+        .type => |t| out.append(a, semanticType(t)) catch oom(),
+        .targs => |args| {
+            for (0..args.len()) |index| out.append(a, semanticType(args.at(index))) catch oom();
+        },
+        else => {},
+    };
 }
 
-fn kindOf(node: Value) *const Kind {
-    return kinds.getPtr(text(str(node, "kind"))).?;
+fn kindOf(node: Model) *const Kind {
+    return kinds.getPtr(text(node.kind())).?;
 }
 
 /// `SemanticNodeShape.directValueReferences`, in operand order: the properties node_references.txt
 /// lists for the kind; a node list stands for its items, a binding list for their values.
-fn directValueReferences(node: Value, out: *List(Str)) void {
+fn directValueReferences(node: Model, out: *List(Str)) void {
     for (kindOf(node).references) |name| {
-        const value = tryProperty(name, node) orelse continue;
-        switch (value) {
-            .string => |s| out.append(a, s) catch oom(),
-            .array => |items| for (items) |item| switch (item) {
-                .string => |s| out.append(a, s) catch oom(),
-                else => out.append(a, str(item, "valueNodeId")) catch oom(),
+        const payload = node.payload(name) orelse continue;
+        switch (payload) {
+            .id => |id| out.append(a, semantic_model.idTextOf(.node, id)) catch oom(),
+            .optid => |id| if (id) |present| {
+                out.append(a, semantic_model.idTextOf(.node, present)) catch oom();
+            },
+            .ids => |ids| for (ids) |id| {
+                out.append(a, semantic_model.idTextOf(.node, id)) catch oom();
+            },
+            .ctx, .args, .capargs, .fields => for (node.targets(name)) |binding| {
+                out.append(a, binding.reference("valueNodeId")) catch oom();
             },
             else => unreachable,
         }
@@ -2876,10 +2995,10 @@ fn directValueReferences(node: Value, out: *List(Str)) void {
 }
 
 /// `SemanticNodeShape.dependencies`: direct references and what nested graphs reference from outside themselves.
-fn dependencies(node: Value, out: *List(Str)) void {
+fn dependencies(node: Model, out: *List(Str)) void {
     directValueReferences(node, out);
     for (nestedScopes(node)) |scope| {
-        const nodes = arrayOf(scope.graph, "nodes");
+        const nodes = scope.graph.nodes();
         const local = idSet(nodes);
         for (nodes) |inner| {
             var deps: List(Str) = .empty;
@@ -2891,7 +3010,7 @@ fn dependencies(node: Value, out: *List(Str)) void {
 
 /// `hasDependencyCycle` over `nodesById` (the last node of a duplicated ID wins); a reference to
 /// an unknown node is no edge.
-fn hasDependencyCycle(nodes: []const Value) bool {
+fn hasDependencyCycle(nodes: []const Model) bool {
     const nodes_by_id = byId(nodes);
     // 0 unvisited, 1 on the path, 2 finished.
     const state = a.alloc(u8, nodes_by_id.count()) catch oom();
@@ -2926,54 +3045,54 @@ fn hasDependencyCycle(nodes: []const Value) bool {
 }
 
 /// The prefix the per-function loop's `add` gives a message.
-fn inFunction(function: Value) Str {
-    return cat(&.{ L("In function "), describe(str(function, "displayName"), str(function, "id")), L(": ") });
+fn inFunction(function: Model) Str {
+    return cat(&.{ L("In function "), describe(function.displayName(), function.id()), L(": ") });
 }
 
 /// The rules of slice 3b: type references of declarations and nodes, undeclared type parameters,
 /// task types in declared types and at capability boundaries, and graph dependency cycles.
-fn validateTypeReferences(types: []const Value, operations: []const Value, functions: []const Value) void {
+fn validateTypeReferences(types: []const Model, operations: []const Model, functions: []const Model) void {
     for (types) |type_entity| {
-        for (fieldsOf(type_entity)) |field| validateTypeOf(cat(&.{ L("Field "), describe(str(field, "displayName"), str(field, "id")) }), get(field, "type"));
+        for (fieldsOf(type_entity)) |field| validateTypeOf(cat(&.{ L("Field "), describe(field.displayName(), field.id()) }), field.declaredType());
     }
     for (operations) |operation| {
-        const label = describe(str(operation, "displayName"), str(operation, "id"));
-        for (arrayOf(operation, "parameters")) |parameter| validateTypeOf(cat(&.{ L("Capability parameter "), describe(str(parameter, "displayName"), str(parameter, "id")) }), get(parameter, "type"));
-        validateTypeOf(cat(&.{ L("Capability operation "), label, L(" result") }), get(operation, "resultType"));
-        if (tryProperty("failureType", operation)) |failure| validateTypeOf(cat(&.{ L("Capability operation "), label, L(" failure") }), failure);
+        const label = describe(operation.displayName(), operation.id());
+        for (operation.parameters()) |parameter| validateTypeOf(cat(&.{ L("Capability parameter "), describe(parameter.displayName(), parameter.id()) }), parameter.declaredType());
+        validateTypeOf(cat(&.{ L("Capability operation "), label, L(" result") }), operation.resultType());
+        if (operation.failureType()) |failure| validateTypeOf(cat(&.{ L("Capability operation "), label, L(" failure") }), failure);
     }
     for (types) |type_entity| {
-        const declared = idSetOf(arrayOf(type_entity, "typeParameters"));
+        const declared = idSetOf(type_entity.typeParameters());
         for (fieldsOf(type_entity)) |field| {
-            const field_label = describe(str(field, "displayName"), str(field, "id"));
-            const field_type = typeRefOf(get(field, "type"));
+            const field_label = describe(field.displayName(), field.id());
+            const field_type = typeRefOf(field.declaredType());
             var ids: Set = .empty;
             occurringIds(field_type, &ids);
             for (ids.keys()) |key| if (!declared.contains(key))
-                add("TypeParameterNotDeclared", cat(&.{ L("Field "), field_label, L(" uses type parameter '"), typeParameterName(keyId(key)), L("', which its type "), describe(str(type_entity, "displayName"), str(type_entity, "id")), L(" does not declare.") }));
+                add("TypeParameterNotDeclared", cat(&.{ L("Field "), field_label, L(" uses type parameter '"), typeParameterName(keyId(key)), L("', which its type "), describe(type_entity.displayName(), type_entity.id()), L(" does not declare.") }));
             if (mentionsScope(field_type))
                 add("TaskTypeInDeclaredType", cat(&.{ L("Field "), field_label, L(" uses TaskScope; a task scope cannot be stored in a declared type.") }));
         }
     }
     for (operations) |operation| {
-        var bears = bearing(typeRefOf(get(operation, "resultType")));
-        for (arrayOf(operation, "parameters")) |parameter| bears = bears or bearing(typeRefOf(get(parameter, "type")));
-        if (tryProperty("failureType", operation)) |failure| bears = bears or bearing(typeRefOf(failure));
-        if (bears) add("TaskTypeAtCapabilityBoundary", cat(&.{ L("Capability operation "), describe(str(operation, "displayName"), str(operation, "id")), L(" uses Task, OneShot or TaskScope, directly or through a declared type, which cannot cross a capability boundary.") }));
+        var bears = bearing(typeRefOf(operation.resultType()));
+        for (operation.parameters()) |parameter| bears = bears or bearing(typeRefOf(parameter.declaredType()));
+        if (operation.failureType()) |failure| bears = bears or bearing(typeRefOf(failure));
+        if (bears) add("TaskTypeAtCapabilityBoundary", cat(&.{ L("Capability operation "), describe(operation.displayName(), operation.id()), L(" uses Task, OneShot or TaskScope, directly or through a declared type, which cannot cross a capability boundary.") }));
     }
 
     for (functions) |function| {
-        const label = describe(str(function, "displayName"), str(function, "id"));
-        var nodes: List(Value) = .empty;
-        collectNodes(get(function, "body"), &nodes);
-        var bindings: List(Value) = .empty;
-        collectBindings(get(function, "body"), &bindings);
+        const label = describe(function.displayName(), function.id());
+        var nodes: List(Model) = .empty;
+        collectNodes(function.body(), &nodes);
+        var bindings: List(Model) = .empty;
+        collectBindings(function.body(), &bindings);
 
-        const declared = idSetOf(arrayOf(function, "typeParameters"));
+        const declared = idSetOf(function.typeParameters());
         var mentioned: List(TypeRef) = .empty;
-        mentioned.append(a, typeRefOf(get(function, "resultType"))) catch oom();
-        for (arrayOf(function, "parameters")) |parameter| mentioned.append(a, typeRefOf(get(parameter, "type"))) catch oom();
-        for (bindings.items) |binding| mentioned.append(a, typeRefOf(get(binding, "type"))) catch oom();
+        mentioned.append(a, typeRefOf(function.resultType())) catch oom();
+        for (function.parameters()) |parameter| mentioned.append(a, typeRefOf(parameter.declaredType())) catch oom();
+        for (bindings.items) |binding| mentioned.append(a, typeRefOf(binding.declaredType())) catch oom();
         for (nodes.items) |node| payloadTypeRefs(node, &mentioned);
         for (mentioned.items) |t| {
             var ids: Set = .empty;
@@ -2982,9 +3101,9 @@ fn validateTypeReferences(types: []const Value, operations: []const Value, funct
                 add("TypeParameterNotDeclared", cat(&.{ L("Function "), label, L(" uses type parameter '"), typeParameterName(keyId(key)), L("' that it does not declare.") }));
         }
 
-        validateTypeOf(cat(&.{ L("Function "), label, L(" result") }), get(function, "resultType"));
-        for (arrayOf(function, "parameters")) |parameter| validateTypeOf(cat(&.{ L("Parameter "), describe(str(parameter, "displayName"), str(parameter, "id")) }), get(parameter, "type"));
-        for (bindings.items) |binding| validateTypeOf(cat(&.{ L("Pattern binding '"), str(binding, "id"), L("'") }), get(binding, "type"));
+        validateTypeOf(cat(&.{ L("Function "), label, L(" result") }), function.resultType());
+        for (function.parameters()) |parameter| validateTypeOf(cat(&.{ L("Parameter "), describe(parameter.displayName(), parameter.id()) }), parameter.declaredType());
+        for (bindings.items) |binding| validateTypeOf(cat(&.{ L("Pattern binding '"), binding.id(), L("'") }), binding.declaredType());
 
         // `validateGraph` visits each node of each nested graph once, as `collectNodes` does.
         for (nodes.items) |node| validateNodeTypeRefs(node);
@@ -2994,9 +3113,9 @@ fn validateTypeReferences(types: []const Value, operations: []const Value, funct
 }
 
 /// The declared type parameter IDs.
-fn idSetOf(declarations: []const Value) Set {
+fn idSetOf(declarations: []const Model) Set {
     var set: Set = .empty;
-    for (declarations) |declaration| set.put(a, idKey(str(declaration, "typeParameterId")), {}) catch oom();
+    for (declarations) |declaration| set.put(a, idKey(declaration.reference("typeParameterId")), {}) catch oom();
     return set;
 }
 
@@ -3034,7 +3153,7 @@ fn mergeCompletions(arms: []const ?Completion) ?Completion {
     return if (first) |f| .{ .normal = f } else .aborts;
 }
 
-const ValueMap = std.StringArrayHashMapUnmanaged(Value);
+const ValueMap = std.StringArrayHashMapUnmanaged(Model);
 var functions_by_id: ValueMap = .empty;
 var operations_by_id: ValueMap = .empty;
 var product_fields_by_id: ValueMap = .empty;
@@ -3076,21 +3195,21 @@ fn matchAll(pairs: []const Pair) ?Substitution {
 }
 
 /// The first parameter of a function with this ID (`List.tryFind`).
-fn parameterOf(function: Value, parameter_id: Str) ?Value {
-    for (arrayOf(function, "parameters")) |parameter| if (same(str(parameter, "id"), parameter_id)) return parameter;
+fn parameterOf(function: Model, parameter_id: Str) ?Model {
+    for (function.parameters()) |parameter| if (same(parameter.id(), parameter_id)) return parameter;
     return null;
 }
 
-fn bindsParameter(context: []const Value, parameter_id: Str) bool {
-    for (context) |binding| if (same(str(binding, "targetParameterId"), parameter_id)) return true;
+fn bindsParameter(context: []const Model, parameter_id: Str) bool {
+    for (context) |binding| if (same(binding.reference("targetParameterId"), parameter_id)) return true;
     return false;
 }
 
 /// The parameter types a callback's context leaves unbound, in order.
-fn unboundTypes(callback: Value, context: []const Value) []const TypeRef {
+fn unboundTypes(callback: Model, context: []const Model) []const TypeRef {
     var out: List(TypeRef) = .empty;
-    for (arrayOf(callback, "parameters")) |parameter| {
-        if (!bindsParameter(context, str(parameter, "id"))) out.append(a, typeRefOf(get(parameter, "type"))) catch oom();
+    for (callback.parameters()) |parameter| {
+        if (!bindsParameter(context, parameter.id())) out.append(a, typeRefOf(parameter.declaredType())) catch oom();
     }
     return out.items;
 }
@@ -3103,14 +3222,14 @@ const Resolver = struct {
     /// The F# `visiting` set: the nodes on the current resolution path.
     visiting: Set = .empty,
 
-    fn init(function: Value) Resolver {
+    fn init(function: Model) Resolver {
         var self: Resolver = .{};
-        var nodes: List(Value) = .empty;
-        collectNodes(get(function, "body"), &nodes);
+        var nodes: List(Model) = .empty;
+        collectNodes(function.body(), &nodes);
         self.nodes_by_id = byId(nodes.items);
-        self.parameters_by_id = byId(arrayOf(function, "parameters"));
-        var bindings: List(Value) = .empty;
-        collectBindings(get(function, "body"), &bindings);
+        self.parameters_by_id = byId(function.parameters());
+        var bindings: List(Model) = .empty;
+        collectBindings(function.body(), &bindings);
         self.bindings_by_id = byId(bindings.items);
         self.resolveAll();
         return self;
@@ -3151,7 +3270,7 @@ const Resolver = struct {
         on_path.put(a, id, {}) catch oom();
         var reads: List(Str) = .empty;
         directValueReferences(node, &reads);
-        for (nestedScopes(node)) |scope| for (arrayOf(scope.graph, "nodes")) |nested| reads.append(a, str(nested, "id")) catch oom();
+        for (nestedScopes(node)) |scope| for (scope.graph.nodes()) |nested| reads.append(a, nested.id()) catch oom();
         frames.append(a, .{ .id = id, .reads = reads.items }) catch oom();
     }
 
@@ -3160,11 +3279,11 @@ const Resolver = struct {
     }
 
     /// `SemanticFacts.graphCompletion`: abrupt when any stored node is, else the result node's.
-    fn graph(self: *Resolver, graph_value: Value) ?Completion {
-        for (arrayOf(graph_value, "nodes")) |node| {
-            if (self.completion(str(node, "id"))) |c| if (c == .aborts) return .aborts;
+    fn graph(self: *Resolver, graph_value: Model) ?Completion {
+        for (graph_value.nodes()) |node| {
+            if (self.completion(node.id())) |c| if (c == .aborts) return .aborts;
         }
-        return self.completion(str(graph_value, "resultNodeId"));
+        return self.completion(graph_value.resultNodeId());
     }
 
     /// `tryCompletion`.
@@ -3181,64 +3300,64 @@ const Resolver = struct {
 
     fn structured(self: *Resolver, id: Str) ?Completion {
         const node = self.nodes_by_id.get(idKey(id)) orelse return null;
-        const kind = str(node, "kind");
+        const kind = node.kind();
         if (isName(kind, "abort")) return .aborts;
         if (isName(kind, "conditional")) {
-            const when_true = self.graph(get(node, "whenTrue"));
-            return mergeCompletions(&.{ when_true, self.graph(get(node, "whenFalse")) });
+            const when_true = self.graph(node.graphPayload("whenTrue"));
+            return mergeCompletions(&.{ when_true, self.graph(node.graphPayload("whenFalse")) });
         }
         if (isName(kind, "matchUnion")) {
             var arms: List(?Completion) = .empty;
-            for (arrayOf(node, "arms")) |arm| arms.append(a, self.graph(get(arm, "body"))) catch oom();
+            for (node.arms()) |arm| arms.append(a, self.graph(arm.body())) catch oom();
             return mergeCompletions(arms.items);
         }
-        if (isName(kind, "bind")) return self.graph(get(get(node, "boundBody"), "body"));
+        if (isName(kind, "bind")) return self.graph((node.arm("boundBody")).body());
         if (isName(kind, "matchOption")) {
-            const some = self.graph(get(get(node, "someArm"), "body"));
-            return mergeCompletions(&.{ some, self.graph(get(node, "noneBody")) });
+            const some = self.graph((node.arm("someArm")).body());
+            return mergeCompletions(&.{ some, self.graph(node.graphPayload("noneBody")) });
         }
         if (isName(kind, "matchResult")) {
-            const ok = self.graph(get(get(node, "okArm"), "body"));
-            return mergeCompletions(&.{ ok, self.graph(get(get(node, "errArm"), "body")) });
+            const ok = self.graph((node.arm("okArm")).body());
+            return mergeCompletions(&.{ ok, self.graph((node.arm("errArm")).body()) });
         }
         return if (self.infer(node)) |t| .{ .normal = t } else null;
     }
 
     /// `callbackResult`: the callback's result type at the type arguments its context and
     /// iteration values determine.
-    fn callbackResult(self: *Resolver, function: Value, context: []const Value, iteration: []const TypeRef) TypeRef {
+    fn callbackResult(self: *Resolver, function: Model, context: []const Model, iteration: []const TypeRef) TypeRef {
         var pairs: List(Pair) = .empty;
         for (context) |binding| {
-            const parameter = parameterOf(function, str(binding, "targetParameterId"));
-            const actual = self.nodeType(str(binding, "valueNodeId"));
-            if (parameter != null and actual != null) pairs.append(a, .{ .declared = typeRefOf(get(parameter.?, "type")), .actual = actual.? }) catch oom();
+            const parameter = parameterOf(function, binding.reference("targetParameterId"));
+            const actual = self.nodeType(binding.reference("valueNodeId"));
+            if (parameter != null and actual != null) pairs.append(a, .{ .declared = typeRefOf((parameter.?).declaredType()), .actual = actual.? }) catch oom();
         }
         const unbound = unboundTypes(function, context);
         const n = @min(unbound.len, iteration.len);
         for (unbound[0..n], iteration[0..n]) |declared, actual| pairs.append(a, .{ .declared = declared, .actual = actual }) catch oom();
-        const result_type = typeRefOf(get(function, "resultType"));
+        const result_type = typeRefOf(function.resultType());
         const substitution = matchAll(pairs.items) orelse return result_type;
         return substitute(&substitution, result_type);
     }
 
-    fn operand(self: *Resolver, node: Value, name: []const u8) ?TypeRef {
-        return self.nodeType(str(node, name));
+    fn operand(self: *Resolver, node: Model, name: []const u8) ?TypeRef {
+        return self.nodeType(node.reference(name));
     }
 
-    fn functionAt(node: Value, name: []const u8) ?Value {
-        return functions_by_id.get(idKey(str(node, name)));
+    fn functionAt(node: Model, name: []const u8) ?Model {
+        return functions_by_id.get(idKey(node.reference(name)));
     }
 
     /// `inferNodeType` for a node of the function (not a structured one).
-    fn infer(self: *Resolver, node: Value) ?TypeRef {
-        const kind = text(str(node, "kind"));
+    fn infer(self: *Resolver, node: Model) ?TypeRef {
+        const kind = text(node.kind());
         if (constantType(kind)) |t| return t;
         const k = std.meta.stringToEnum(Typed, kind) orelse return null;
-        const context = arrayOf(node, "context");
+        const context = node.targets("context");
         switch (k) {
-            .parameterReference => return if (self.parameters_by_id.get(idKey(str(node, "parameterId")))) |p| typeRefOf(get(p, "type")) else null,
-            .patternReference => return if (self.bindings_by_id.get(idKey(str(node, "patternBindingId")))) |b| typeRefOf(get(b, "type")) else null,
-            .mapEmpty => return builtin("map", &.{ typeRefOf(get(node, "keyType")), typeRefOf(get(node, "valueType")) }),
+            .parameterReference => return if (self.parameters_by_id.get(idKey(node.reference("parameterId")))) |p| typeRefOf(p.declaredType()) else null,
+            .patternReference => return if (self.bindings_by_id.get(idKey(node.reference("patternBindingId")))) |b| typeRefOf(b.declaredType()) else null,
+            .mapEmpty => return builtin("map", &.{ typeRefOf(node.payloadType("keyType")), typeRefOf(node.payloadType("valueType")) }),
             .mapInsert, .mapRemove, .mapGetOrDefault, .mapGet, .mapKeys, .mapValues => {
                 const t = self.operand(node, "mapNodeId") orelse return null;
                 if (!t.isGeneric("map") or t.args.len != 2) return null;
@@ -3307,7 +3426,7 @@ const Resolver = struct {
                 return if (t.isGeneric("list") and t.args.len == 1) builtin("option", t.args) else null;
             },
             .setFilter, .setMap, .setToList, .setInsert, .setRemove, .setUnion, .setIntersection, .setDifference => {
-                const t = self.nodeType(str(node, switch (k) {
+                const t = self.nodeType(node.reference(switch (k) {
                     .setFilter, .setMap => "sourceSetNodeId",
                     .setInsert, .setRemove, .setToList => "setNodeId",
                     else => "leftSetNodeId",
@@ -3320,18 +3439,18 @@ const Resolver = struct {
                 if (!t.isGeneric("set") or t.args.len != 1) return null;
                 return if (k == .setToList) builtin("list", t.args) else t;
             },
-            .setEmpty => return builtin("set", &.{typeRefOf(get(node, "itemType"))}),
+            .setEmpty => return builtin("set", &.{typeRefOf(node.payloadType("itemType"))}),
             .setFromList => {
                 const t = self.operand(node, "listNodeId") orelse return null;
                 return if (t.isGeneric("list") and t.args.len == 1) builtin("set", t.args) else null;
             },
-            .listEmpty, .listConstruct => return builtin("list", &.{typeRefOf(get(node, "itemType"))}),
+            .listEmpty, .listConstruct => return builtin("list", &.{typeRefOf(node.payloadType("itemType"))}),
             .listItemAt, .listLast => {
                 const t = self.operand(node, "listNodeId") orelse return null;
                 return if (t.isGeneric("list") and t.args.len == 1) builtin("option", t.args) else null;
             },
             .listAppendItem, .listSlice, .listSetAt, .listInsertAt, .listRemoveAt, .listReverse, .listDropLast, .listFilter, .listSortBy => {
-                const t = self.nodeType(str(node, if (k == .listFilter or k == .listSortBy) "sourceListNodeId" else "listNodeId")) orelse return null;
+                const t = self.nodeType(node.reference(if (k == .listFilter or k == .listSortBy) "sourceListNodeId" else "listNodeId")) orelse return null;
                 return if (t.isGeneric("list") and t.args.len == 1) builtin("list", t.args) else null;
             },
             .listConcat => {
@@ -3364,7 +3483,7 @@ const Resolver = struct {
             },
             .exceptionCatch => {
                 const body = functionAt(node, "bodyFunctionId") orelse return null;
-                return self.callbackResult(body, arrayOf(node, "bodyContext"), &.{.{ .kind = .primitive, .name = L("unit") }});
+                return self.callbackResult(body, node.targets("bodyContext"), &.{.{ .kind = .primitive, .name = L("unit") }});
             },
             .cancellationShield => {
                 const body = functionAt(node, "bodyFunctionId") orelse return null;
@@ -3374,7 +3493,7 @@ const Resolver = struct {
                 const body = functionAt(node, "bodyFunctionId") orelse return null;
                 return self.callbackResult(body, context, &.{builtin("taskScope", &.{})});
             },
-            .exceptionRethrow => return typeRefOf(get(node, "resultType")),
+            .exceptionRethrow => return typeRefOf(node.resultType()),
             .taskStart => {
                 const item = self.operand(node, "itemNodeId");
                 const worker = functionAt(node, "workerFunctionId");
@@ -3386,7 +3505,7 @@ const Resolver = struct {
                 if (!t.isGeneric("list") or t.args.len != 1 or !t.args[0].isGeneric("task") or t.args[0].args.len != 1) return null;
                 return builtin("list", &.{builtin("option", t.args[0].args)});
             },
-            .oneShotCreate => return builtin("oneShot", &.{typeRefOf(get(node, "valueType"))}),
+            .oneShotCreate => return builtin("oneShot", &.{typeRefOf(node.payloadType("valueType"))}),
             .oneShotWait => {
                 const t = self.operand(node, "cellNodeId") orelse return null;
                 return if (t.isGeneric("oneShot") and t.args.len == 1) builtin("option", t.args) else null;
@@ -3417,7 +3536,7 @@ const Resolver = struct {
                 if (left == null or right == null or combiner == null or !left.?.isGeneric("list") or left.?.args.len != 1 or !right.?.isGeneric("list") or right.?.args.len != 1) return null;
                 return builtin("list", &.{self.callbackResult(combiner.?, context, &.{ left.?.args[0], right.?.args[0] })});
             },
-            .capabilityConstruct => return .{ .kind = .capability, .name = str(node, "capabilityId") },
+            .capabilityConstruct => return .{ .kind = .capability, .name = node.reference("capabilityId") },
             .functionReference => {
                 const target = functionAt(node, "targetFunctionId") orelse return null;
                 return functionType(target);
@@ -3428,39 +3547,39 @@ const Resolver = struct {
             },
             .directCall => {
                 const target = functionAt(node, "targetFunctionId") orelse return null;
-                return self.callbackResult(target, arrayOf(node, "arguments"), &.{});
+                return self.callbackResult(target, node.arguments(), &.{});
             },
-            .capabilityInvoke => return if (operations_by_id.get(idKey(str(node, "operationId")))) |operation| typeRefOf(get(operation, "resultType")) else null,
-            .productConstruct => return .{ .kind = .named, .name = str(node, "typeId"), .args = typeArgumentsOf(node) },
+            .capabilityInvoke => return if (operations_by_id.get(idKey(node.reference("operationId")))) |operation| typeRefOf(operation.resultType()) else null,
+            .productConstruct => return .{ .kind = .named, .name = node.reference("typeId"), .args = typeArgumentsOf(node) },
             .productUpdate => {
-                const type_id = str(node, "typeId");
+                const type_id = node.reference("typeId");
                 if (self.operand(node, "sourceNodeId")) |source| if (source.kind == .named and same(source.name, type_id)) return source;
                 return .{ .kind = .named, .name = type_id };
             },
             .fieldAccess => {
-                const field_id = idKey(str(node, "fieldId"));
+                const field_id = idKey(node.reference("fieldId"));
                 const field = product_fields_by_id.get(field_id) orelse return null;
                 const owner = product_field_owners.get(field_id) orelse return null;
-                const field_type = typeRefOf(get(field, "type"));
-                if (arrayOf(owner, "typeParameters").len == 0) return field_type;
+                const field_type = typeRefOf(field.declaredType());
+                if (owner.typeParameters().len == 0) return field_type;
                 const source = self.operand(node, "sourceNodeId") orelse return null;
-                if (source.kind != .named or !same(source.name, str(owner, "id"))) return null;
+                if (source.kind != .named or !same(source.name, owner.id())) return null;
                 return instantiate(owner, source.args, field_type);
             },
-            .unionConstruct => return if (variant_owners.get(idKey(str(node, "variantId")))) |owner| .{ .kind = .named, .name = owner, .args = typeArgumentsOf(node) } else null,
-            .optionNone => return builtin("option", &.{typeRefOf(get(node, "itemType"))}),
+            .unionConstruct => return if (variant_owners.get(idKey(node.reference("variantId")))) |owner| .{ .kind = .named, .name = owner, .args = typeArgumentsOf(node) } else null,
+            .optionNone => return builtin("option", &.{typeRefOf(node.payloadType("itemType"))}),
             .optionSome => return if (self.operand(node, "valueNodeId")) |t| builtin("option", &.{t}) else null,
-            .resultOk => return if (self.operand(node, "valueNodeId")) |t| builtin("result", &.{ t, typeRefOf(get(node, "errorType")) }) else null,
-            .resultErr => return if (self.operand(node, "errorNodeId")) |t| builtin("result", &.{ typeRefOf(get(node, "okType")), t }) else null,
+            .resultOk => return if (self.operand(node, "valueNodeId")) |t| builtin("result", &.{ t, typeRefOf(node.payloadType("errorType")) }) else null,
+            .resultErr => return if (self.operand(node, "errorNodeId")) |t| builtin("result", &.{ typeRefOf(node.payloadType("okType")), t }) else null,
         }
     }
 };
 
 /// `TypeRef.Function` of a function's declared signature.
-fn functionType(function: Value) TypeRef {
+fn functionType(function: Model) TypeRef {
     var parameters: List(TypeRef) = .empty;
-    for (arrayOf(function, "parameters")) |parameter| parameters.append(a, typeRefOf(get(parameter, "type"))) catch oom();
-    return .{ .kind = .function, .args = parameters.items, .result = boxed(typeRefOf(get(function, "resultType"))) };
+    for (function.parameters()) |parameter| parameters.append(a, typeRefOf(parameter.declaredType())) catch oom();
+    return .{ .kind = .function, .args = parameters.items, .result = boxed(typeRefOf(function.resultType())) };
 }
 
 fn lessKey(_: void, left: []const u8, right: []const u8) bool {
@@ -3470,16 +3589,86 @@ fn lessKey(_: void, left: []const u8, right: []const u8) bool {
 /// The kinds `inferNodeType` types from operands or payload. Every other kind is constant, or
 /// has no type of its own (`abort` and the structured kinds, which `tryCompletion` handles).
 const Typed = enum {
-    parameterReference, patternReference, mapEmpty, mapInsert, mapRemove, mapUnion, mapGetOrDefault, mapMapValues,
-    optionGetOrDefault, resultGetOrDefault, optionOkOr, resultOkValue, resultErrValue, optionMap, optionAndThen,
-    resultMap, resultMapErr, resultAndThen, listMinBy, listMaxBy, mapGet, mapFilter, setFilter, setMap, mapKeys,
-    mapValues, setEmpty, setInsert, setRemove, setUnion, setIntersection, setDifference, setToList, setFromList,
-    listEmpty, listConstruct, listItemAt, listLast, listAppendItem, listSlice, listSetAt, listInsertAt, listRemoveAt,
-    listReverse, listDropLast, listFilter, listSortBy, listConcat, listFold, listScan, mapFold, setFold,
-    listEffectFold, useResource, exceptionCatch, exceptionRethrow, cancellationShield, taskScope, taskStart,
-    taskWait, oneShotCreate, oneShotWait, parallelAll, listMap, listZipWith, listFlatMap, mapFromList,
-    capabilityConstruct, functionReference, functionInvoke, directCall, capabilityInvoke, productConstruct,
-    productUpdate, fieldAccess, unionConstruct, optionNone, optionSome, resultOk, resultErr,
+    parameterReference,
+    patternReference,
+    mapEmpty,
+    mapInsert,
+    mapRemove,
+    mapUnion,
+    mapGetOrDefault,
+    mapMapValues,
+    optionGetOrDefault,
+    resultGetOrDefault,
+    optionOkOr,
+    resultOkValue,
+    resultErrValue,
+    optionMap,
+    optionAndThen,
+    resultMap,
+    resultMapErr,
+    resultAndThen,
+    listMinBy,
+    listMaxBy,
+    mapGet,
+    mapFilter,
+    setFilter,
+    setMap,
+    mapKeys,
+    mapValues,
+    setEmpty,
+    setInsert,
+    setRemove,
+    setUnion,
+    setIntersection,
+    setDifference,
+    setToList,
+    setFromList,
+    listEmpty,
+    listConstruct,
+    listItemAt,
+    listLast,
+    listAppendItem,
+    listSlice,
+    listSetAt,
+    listInsertAt,
+    listRemoveAt,
+    listReverse,
+    listDropLast,
+    listFilter,
+    listSortBy,
+    listConcat,
+    listFold,
+    listScan,
+    mapFold,
+    setFold,
+    listEffectFold,
+    useResource,
+    exceptionCatch,
+    exceptionRethrow,
+    cancellationShield,
+    taskScope,
+    taskStart,
+    taskWait,
+    oneShotCreate,
+    oneShotWait,
+    parallelAll,
+    listMap,
+    listZipWith,
+    listFlatMap,
+    mapFromList,
+    capabilityConstruct,
+    functionReference,
+    functionInvoke,
+    directCall,
+    capabilityInvoke,
+    productConstruct,
+    productUpdate,
+    fieldAccess,
+    unionConstruct,
+    optionNone,
+    optionSome,
+    resultOk,
+    resultErr,
 };
 const untyped_kinds = [_][]const u8{ "abort", "conditional", "matchUnion", "bind", "matchOption", "matchResult" };
 
@@ -3541,11 +3730,11 @@ fn typeText(t: TypeRef) Str {
     return switch (t.kind) {
         .primitive => caseName(t),
         .named => blk: {
-            const name = if (firstType(t.name)) |type_entity| str(type_entity, "displayName") else cat(&.{ L("type '"), t.name, L("'") });
+            const name = if (firstType(t.name)) |type_entity| type_entity.displayName() else cat(&.{ L("type '"), t.name, L("'") });
             break :blk if (t.args.len == 0) name else cat(&.{ name, L("<"), joinTypes(t.args, &typeText), L(">") });
         },
         .capability => blk: {
-            for (all_capabilities) |capability| if (same(str(capability, "id"), t.name)) break :blk str(capability, "displayName");
+            for (all_capabilities) |capability| if (same(capability.id(), t.name)) break :blk capability.displayName();
             break :blk cat(&.{ L("capability '"), t.name, L("'") });
         },
         .function => cat(&.{ L("("), joinTypes(t.args, &typeText), L(") -> "), typeText(t.result.?.*) }),
@@ -3554,15 +3743,15 @@ fn typeText(t: TypeRef) Str {
     };
 }
 
-var all_capabilities: []const Value = &.{};
+var all_capabilities: []const Model = &.{};
 
 /// The function the per-function loop is in, its resolver and its parameters.
 const Scope3c = struct {
-    function: Value,
+    function: Model,
     prefix: Str,
     resolver: *Resolver,
     parameters_by_id: ValueMap,
-    all_nodes: []const Value,
+    all_nodes: []const Model,
     required_effects: Set,
 };
 var in_function: Scope3c = undefined;
@@ -3576,8 +3765,8 @@ fn nodeType(id: Str) ?TypeRef {
     return in_function.resolver.nodeType(id);
 }
 
-fn nodeTypeAt(node: Value, name: []const u8) ?TypeRef {
-    return nodeType(str(node, name));
+fn nodeTypeAt(node: Model, name: []const u8) ?TypeRef {
+    return nodeType(node.reference(name));
 }
 
 /// `requireNodeType`: reports when the node has a known type other than `expected`.
@@ -3586,14 +3775,14 @@ fn requireNodeType(code: []const u8, message_units: Str, expected: TypeRef, id: 
 }
 
 /// `compatibleArms`: the merged completion of these graphs is known.
-fn compatibleArms(graphs: []const Value) bool {
+fn compatibleArms(graphs: []const Model) bool {
     var arms: List(?Completion) = .empty;
     for (graphs) |g| arms.append(a, in_function.resolver.graph(g)) catch oom();
     return mergeCompletions(arms.items) != null;
 }
 
-fn nodeLabel(comptime what: []const u8, node: Value, comptime rest: []const u8) Str {
-    return cat(&.{ L(what ++ " node '"), str(node, "id"), L("' " ++ rest) });
+fn nodeLabel(comptime what: []const u8, node: Model, comptime rest: []const u8) Str {
+    return cat(&.{ L(what ++ " node '"), node.id(), L("' " ++ rest) });
 }
 
 /// One `requireNodeType` of `validateGraph` on a fixed operand: the kinds (space-separated), the
@@ -3698,8 +3887,8 @@ fn requirementsOf(kind: []const u8) []const usize {
 }
 
 /// The table's requirements on one node, then `ValueEqual`.
-fn scalarRules(node: Value) void {
-    const kind = text(str(node, "kind"));
+fn scalarRules(node: Model) void {
+    const kind = text(node.kind());
     var references: List(Str) = .empty;
     directValueReferences(node, &references);
     for (requirementsOf(kind)) |index| {
@@ -3707,13 +3896,13 @@ fn scalarRules(node: Value) void {
         // The message is built only for a mismatch: most nodes have none.
         const actual = nodeType(references.items[r.operand]) orelse continue;
         if (typeEql(actual, requiredType(r.type))) continue;
-        const name = if (r.name.len == 0) caseNameOf(str(node, "kind")) else asciiUnits(r.name);
-        addIn(r.code, cat(&.{ name, L(" node '"), str(node, "id"), L("' "), asciiUnits(r.tail) }));
+        const name = if (r.name.len == 0) caseNameOf(node.kind()) else asciiUnits(r.name);
+        addIn(r.code, cat(&.{ name, L(" node '"), node.id(), L("' "), asciiUnits(r.tail) }));
     }
     if (std.mem.eql(u8, kind, "valueEqual")) {
         const left = nodeType(references.items[0]);
         const right = nodeType(references.items[1]);
-        const id = str(node, "id");
+        const id = node.id();
         if (left != null and right != null and !typeEql(left.?, right.?)) {
             addIn("ValueEqualOperandTypeMismatch", cat(&.{ L("ValueEqual node '"), id, L("' requires operands of one type, but its left operand is "), describeType(left.?), L(" and its right operand is "), describeType(right.?), L(".") }));
         } else if (left orelse right) |operand_type| {
@@ -3731,22 +3920,22 @@ fn shapeOf(id: Str, comptime name: []const u8, arity: usize) TypeShape {
     return if (t.isGeneric(name) and t.args.len == arity) .{ .args = t.args } else .other;
 }
 
-fn operandsOf(node: Value) []const Str {
+fn operandsOf(node: Model) []const Str {
     var references: List(Str) = .empty;
     directValueReferences(node, &references);
     return references.items;
 }
 
-fn nodeMessage(name: Str, node: Value, comptime tail: []const u8) Str {
-    return cat(&.{ name, L(" node '"), str(node, "id"), L("' " ++ tail) });
+fn nodeMessage(name: Str, node: Model, comptime tail: []const u8) Str {
+    return cat(&.{ name, L(" node '"), node.id(), L("' " ++ tail) });
 }
 
 /// `requireMapInput`: the key and value types of a Map input.
-fn requireMapInput(node: Value, id: Str) ?[]const TypeRef {
+fn requireMapInput(node: Model, id: Str) ?[]const TypeRef {
     return switch (shapeOf(id, "map", 2)) {
         .args => |args| args,
         .other => blk: {
-            addIn("MapInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires a Map<K, V> input.") }));
+            addIn("MapInputTypeMismatch", cat(&.{ L("Node '"), node.id(), L("' requires a Map<K, V> input.") }));
             break :blk null;
         },
         .unknown => null,
@@ -3754,19 +3943,19 @@ fn requireMapInput(node: Value, id: Str) ?[]const TypeRef {
 }
 
 /// `requireSetInput`: the item type of a Set input.
-fn requireSetInput(node: Value, id: Str) ?TypeRef {
+fn requireSetInput(node: Model, id: Str) ?TypeRef {
     return switch (shapeOf(id, "set", 1)) {
         .args => |args| args[0],
         .other => blk: {
-            addIn("SetInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires a Set<T> input.") }));
+            addIn("SetInputTypeMismatch", cat(&.{ L("Node '"), node.id(), L("' requires a Set<T> input.") }));
             break :blk null;
         },
         .unknown => null,
     };
 }
 
-fn requireMapKey(node: Value, key_type: TypeRef, id: Str) void {
-    requireNodeType("MapKeyTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires a key of the map's key type.") }), key_type, id);
+fn requireMapKey(node: Model, key_type: TypeRef, id: Str) void {
+    requireNodeType("MapKeyTypeMismatch", cat(&.{ L("Node '"), node.id(), L("' requires a key of the map's key type.") }), key_type, id);
 }
 
 fn kindIs(kind: []const u8, comptime names: []const u8) bool {
@@ -3782,13 +3971,13 @@ fn kindIs(kind: []const u8, comptime names: []const u8) bool {
 }
 
 /// Lists, Sets, Maps, Option and Result without callbacks (Validation.fs `ListConstruct` … `ListConcat`).
-fn collectionRules(node: Value) void {
-    const kind = text(str(node, "kind"));
-    const name = caseNameOf(str(node, "kind"));
+fn collectionRules(node: Model) void {
+    const kind = text(node.kind());
+    const name = caseNameOf(node.kind());
     const ops = operandsOf(node);
     const int64 = primitiveType("int64");
     if (std.mem.eql(u8, kind, "listConstruct")) {
-        const item_type = typeRefOf(get(node, "itemType"));
+        const item_type = typeRefOf(node.payloadType("itemType"));
         for (ops) |item| requireNodeType("ListConstructItemTypeMismatch", nodeMessage(name, node, "contains an item whose type does not match its declared item type."), item_type, item);
     } else if (kindIs(kind, "listLength listReverse listLast listDropLast")) {
         if (shapeOf(ops[0], "list", 1) == .other) addIn(fmt("{s}InputTypeMismatch", .{text(name)}), nodeMessage(name, node, "requires List<T> input."));
@@ -3809,9 +3998,9 @@ fn collectionRules(node: Value) void {
             .unknown => {},
         }
     } else if (kindIs(kind, "setContains setInsert setRemove")) {
-        if (requireSetInput(node, ops[0])) |item| requireNodeType("SetItemTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires an item of the set's item type.") }), item, ops[1]);
+        if (requireSetInput(node, ops[0])) |item| requireNodeType("SetItemTypeMismatch", cat(&.{ L("Node '"), node.id(), L("' requires an item of the set's item type.") }), item, ops[1]);
     } else if (kindIs(kind, "setUnion setIntersection setDifference setIsSubset")) {
-        if (requireSetInput(node, ops[0])) |item| requireNodeType("SetInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires two sets of the same item type.") }), builtin("set", &.{item}), ops[1]);
+        if (requireSetInput(node, ops[0])) |item| requireNodeType("SetInputTypeMismatch", cat(&.{ L("Node '"), node.id(), L("' requires two sets of the same item type.") }), builtin("set", &.{item}), ops[1]);
     } else if (std.mem.eql(u8, kind, "setFromList")) {
         switch (shapeOf(ops[0], "list", 1)) {
             .args => |args| if (!isEquatable(args[0]))
@@ -3839,9 +4028,9 @@ fn collectionRules(node: Value) void {
             .unknown => {},
         }
     } else if (kindIs(kind, "optionOkOr optionIsSome")) {
-        if (shapeOf(ops[0], "option", 1) == .other) addIn("OptionInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires an Option<T> input.") }));
+        if (shapeOf(ops[0], "option", 1) == .other) addIn("OptionInputTypeMismatch", cat(&.{ L("Node '"), node.id(), L("' requires an Option<T> input.") }));
     } else if (kindIs(kind, "resultOkValue resultErrValue resultIsOk")) {
-        if (shapeOf(ops[0], "result", 2) == .other) addIn("ResultInputTypeMismatch", cat(&.{ L("Node '"), str(node, "id"), L("' requires a Result<T, E> input.") }));
+        if (shapeOf(ops[0], "result", 2) == .other) addIn("ResultInputTypeMismatch", cat(&.{ L("Node '"), node.id(), L("' requires a Result<T, E> input.") }));
     } else if (std.mem.eql(u8, kind, "listItemAt")) {
         if (shapeOf(ops[0], "list", 1) == .other) addIn("ListItemAtListTypeMismatch", nodeMessage(name, node, "requires List<T> as its list input."));
         requireNodeType("ListItemAtIndexTypeMismatch", nodeMessage(name, node, "requires an Int64 index."), int64, ops[1]);
@@ -3880,11 +4069,11 @@ fn collectionRules(node: Value) void {
 }
 
 /// A union match arm's variant IDs: `variantId` alone, or `variantIds`.
-fn armVariantIds(arm: Value) []const Str {
-    if (tryProperty("variantId", arm)) |single| return a.dupe(Str, &.{single.string}) catch oom();
-    const items = arrayOf(arm, "variantIds");
+fn armVariantIds(arm: Model) []const Str {
+    if (arm.optionalReference("variantId")) |single| return a.dupe(Str, &.{single}) catch oom();
+    const items = arm.variantIds();
     const ids = a.alloc(Str, items.len) catch oom();
-    for (items, ids) |item, *id| id.* = item.string;
+    for (items, ids) |item, *id| id.* = item.literal();
     return ids;
 }
 
@@ -3893,11 +4082,11 @@ var variants_by_id: ValueMap = .empty;
 /// A declared field with its type seen through the owner's type arguments (`instantiateFields`).
 const Field = struct { id: Str, display: Str, type: TypeRef };
 
-fn instantiateFields(owner: ?Value, arguments: []const TypeRef, fields: []const Value) []const Field {
+fn instantiateFields(owner: ?Model, arguments: []const TypeRef, fields: []const Model) []const Field {
     const out = a.alloc(Field, fields.len) catch oom();
     for (fields, out) |field, *f| {
-        const declared = typeRefOf(get(field, "type"));
-        f.* = .{ .id = str(field, "id"), .display = str(field, "displayName"), .type = if (owner) |o| instantiate(o, arguments, declared) else declared };
+        const declared = typeRefOf(field.declaredType());
+        f.* = .{ .id = field.id(), .display = field.displayName(), .type = if (owner) |o| instantiate(o, arguments, declared) else declared };
     }
     return out;
 }
@@ -3907,29 +4096,29 @@ fn findField(fields: []const Field, id: Str) ?Field {
     return null;
 }
 
-fn duplicateTargets(context: Str, bindings: []const Value, comptime target: []const u8) void {
+fn duplicateTargets(context: Str, bindings: []const Model, comptime target: []const u8) void {
     const ids = a.alloc(Str, bindings.len) catch oom();
-    for (bindings, ids) |binding, *id| id.* = str(binding, target);
+    for (bindings, ids) |binding, *id| id.* = binding.reference(target);
     for (countBy(ids).values()) |entry| {
         if (entry.count > 1) addIn("DuplicateFieldBinding", cat(&.{ context, L(" binds field '"), entry.id, L("' more than once.") }));
     }
 }
 
-fn fieldValueType(context: Str, field: Field, binding: Value) void {
-    if (nodeType(str(binding, "valueNodeId"))) |value_type| if (!typeEql(field.type, value_type))
+fn fieldValueType(context: Str, field: Field, binding: Model) void {
+    if (nodeType(binding.reference("valueNodeId"))) |value_type| if (!typeEql(field.type, value_type))
         addIn("FieldValueTypeMismatch", cat(&.{ context, L(" binds a value with the wrong type to field "), describe(field.display, field.id), L(".") }));
 }
 
 /// `validateFieldBindings`.
-fn validateFieldBindings(context: Str, expected: []const Field, bindings: []const Value) void {
+fn validateFieldBindings(context: Str, expected: []const Field, bindings: []const Model) void {
     duplicateTargets(context, bindings, "targetFieldId");
     var expected_ids: Set = .empty;
     for (expected) |f| expected_ids.put(a, idKey(f.id), {}) catch oom();
     var actual_ids: Set = .empty;
-    for (bindings) |binding| actual_ids.put(a, idKey(str(binding, "targetFieldId")), {}) catch oom();
+    for (bindings) |binding| actual_ids.put(a, idKey(binding.reference("targetFieldId")), {}) catch oom();
     if (!sameSet(&expected_ids, &actual_ids)) addIn("FieldBindingMismatch", cat(&.{ context, L(" must bind exactly the fields declared by its target.") }));
     for (bindings) |binding| {
-        if (findField(expected, str(binding, "targetFieldId"))) |field| fieldValueType(context, field, binding);
+        if (findField(expected, binding.reference("targetFieldId"))) |field| fieldValueType(context, field, binding);
     }
 }
 
@@ -3939,108 +4128,108 @@ fn sameSet(left: *const Set, right: *const Set) bool {
     return true;
 }
 
-fn bindingType(binding: Value) TypeRef {
-    return typeRefOf(get(binding, "type"));
+fn bindingType(binding: Model) TypeRef {
+    return typeRefOf(binding.declaredType());
 }
 
 /// Products, unions, abort and the match nodes (Validation.fs `ProductConstruct` … `MatchResult`).
-fn structureRules(node: Value, graph_result: Str) void {
-    const kind = text(str(node, "kind"));
-    const id = str(node, "id");
+fn structureRules(node: Model, graph_result: Str) void {
+    const kind = text(node.kind());
+    const id = node.id();
     const ops = operandsOf(node);
     const function = in_function.function;
-    const function_label = describe(str(function, "displayName"), str(function, "id"));
+    const function_label = describe(function.displayName(), function.id());
     if (std.mem.eql(u8, kind, "productConstruct")) {
-        const type_id = str(node, "typeId");
+        const type_id = node.reference("typeId");
         const context = cat(&.{ L("Product node '"), id, L("'") });
         if (types_by_id.get(idKey(type_id))) |type_entity| {
-            if (isName(str(type_entity, "kind"), "product"))
-                validateFieldBindings(context, instantiateFields(type_entity, typeArgumentsOf(node), arrayOf(type_entity, "fields")), arrayOf(node, "fields"))
+            if (isName(type_entity.kind(), "product"))
+                validateFieldBindings(context, instantiateFields(type_entity, typeArgumentsOf(node), type_entity.fields()), node.fields())
             else
                 addIn("InvalidProductConstructTarget", cat(&.{ context, L(" targets a non-product type.") }));
         } else addIn("UnknownProductConstructType", cat(&.{ context, L(" targets unknown type '"), type_id, L("'.") }));
     } else if (std.mem.eql(u8, kind, "fieldAccess")) {
-        const owner = product_field_owners.get(idKey(str(node, "fieldId"))) orelse
+        const owner = product_field_owners.get(idKey(node.reference("fieldId"))) orelse
             return addIn("UnknownProductField", cat(&.{ L("Field-access node '"), id, L("' references a field that is not owned by a product type.") }));
-        if (nodeType(ops[0])) |source| if (source.kind != .named or !same(source.name, str(owner, "id")))
+        if (nodeType(ops[0])) |source| if (source.kind != .named or !same(source.name, owner.id()))
             addIn("FieldAccessTypeMismatch", cat(&.{ L("Field-access node '"), id, L("' reads a field from the wrong source type.") }));
     } else if (std.mem.eql(u8, kind, "productUpdate")) {
-        const type_id = str(node, "typeId");
+        const type_id = node.reference("typeId");
         const context = cat(&.{ L("Product-update node '"), id, L("'") });
         const type_entity = types_by_id.get(idKey(type_id)) orelse
             return addIn("UnknownProductUpdateType", cat(&.{ context, L(" targets unknown type '"), type_id, L("'.") }));
-        if (!isName(str(type_entity, "kind"), "product")) return addIn("InvalidProductUpdateTarget", cat(&.{ context, L(" targets a non-product type.") }));
-        const declared = arrayOf(type_entity, "fields");
+        if (!isName(type_entity.kind(), "product")) return addIn("InvalidProductUpdateTarget", cat(&.{ context, L(" targets a non-product type.") }));
+        const declared = type_entity.fields();
         // The bound values must match the fields at the source's type arguments.
         const expected = if (nodeType(ops[0])) |source| blk: {
             if (source.kind == .named and same(source.name, type_id)) break :blk instantiateFields(type_entity, source.args, declared);
             addIn("ProductUpdateSourceTypeMismatch", cat(&.{ context, L(" updates a source that is not of its product type.") }));
             break :blk instantiateFields(null, &.{}, declared);
         } else instantiateFields(null, &.{}, declared);
-        const fields = arrayOf(node, "fields");
+        const fields = node.fields();
         if (fields.len == 0) addIn("EmptyProductUpdate", cat(&.{ context, L(" must replace at least one field.") }));
         duplicateTargets(context, fields, "targetFieldId");
         for (fields) |binding| {
-            const field = findField(expected, str(binding, "targetFieldId")) orelse {
-                addIn("FieldBindingMismatch", cat(&.{ context, L(" binds field '"), str(binding, "targetFieldId"), L("', which its product type does not declare.") }));
+            const field = findField(expected, binding.reference("targetFieldId")) orelse {
+                addIn("FieldBindingMismatch", cat(&.{ context, L(" binds field '"), binding.reference("targetFieldId"), L("', which its product type does not declare.") }));
                 continue;
             };
             fieldValueType(context, field, binding);
         }
     } else if (std.mem.eql(u8, kind, "unionConstruct")) {
-        const variant_id = str(node, "variantId");
+        const variant_id = node.reference("variantId");
         const context = cat(&.{ L("Union node '"), id, L("'") });
         const variant = variants_by_id.get(idKey(variant_id)) orelse
             return addIn("UnknownUnionVariant", cat(&.{ context, L(" references unknown variant '"), variant_id, L("'.") }));
         const owner = types_by_id.get(idKey(variant_owners.get(idKey(variant_id)).?));
-        validateFieldBindings(context, instantiateFields(owner, typeArgumentsOf(node), arrayOf(variant, "fields")), arrayOf(node, "fields"));
+        validateFieldBindings(context, instantiateFields(owner, typeArgumentsOf(node), variant.fields()), node.fields());
     } else if (std.mem.eql(u8, kind, "abort")) {
         if (!same(id, graph_result))
             addIn("AbortNotGraphResult", cat(&.{ L("Abort node '"), id, L("' in function "), function_label, L(" must be its graph result.") }));
-        const result_type = typeRefOf(get(function, "resultType"));
+        const result_type = typeRefOf(function.resultType());
         if (result_type.isGeneric("result") and result_type.args.len == 2) {
             requireNodeType("AbortPayloadTypeMismatch", cat(&.{ L("Abort node '"), id, L("' payload '"), ops[0], L("' must match error type "), typeText(result_type.args[1]), L(" of function "), function_label, L(".") }), result_type.args[1], ops[0]);
         } else addIn("AbortOwnerResultTypeMismatch", cat(&.{ L("Abort node '"), id, L("' requires function "), function_label, L(" to return Result<T, E>.") }));
     } else if (std.mem.eql(u8, kind, "matchUnion")) {
         matchUnionRules(node, ops[0]);
     } else if (std.mem.eql(u8, kind, "bind")) {
-        const binding = get(get(node, "boundBody"), "valueBinding");
-        requireNodeType("PatternBindingTypeMismatch", cat(&.{ L("Bind binding '"), str(binding, "id"), L("' does not match its input type.") }), bindingType(binding), ops[0]);
+        const binding = (node.arm("boundBody")).armBinding();
+        requireNodeType("PatternBindingTypeMismatch", cat(&.{ L("Bind binding '"), binding.id(), L("' does not match its input type.") }), bindingType(binding), ops[0]);
     } else if (std.mem.eql(u8, kind, "matchOption")) {
-        const some = get(node, "someArm");
+        const some = node.arm("someArm");
         switch (shapeOf(ops[0], "option", 1)) {
-            .args => |args| if (!typeEql(bindingType(get(some, "valueBinding")), args[0]))
-                addIn("PatternBindingTypeMismatch", cat(&.{ L("Option match binding '"), str(get(some, "valueBinding"), "id"), L("' does not match the Option item type.") })),
+            .args => |args| if (!typeEql(bindingType(some.armBinding()), args[0]))
+                addIn("PatternBindingTypeMismatch", cat(&.{ L("Option match binding '"), (some.armBinding()).id(), L("' does not match the Option item type.") })),
             .other => addIn("MatchOptionInputTypeMismatch", cat(&.{ L("Option match node '"), id, L("' requires Option<T> input.") })),
             .unknown => {},
         }
-        if (!compatibleArms(&.{ get(some, "body"), get(node, "noneBody") }))
+        if (!compatibleArms(&.{ some.body(), node.graphPayload("noneBody") }))
             addIn("MatchArmTypeMismatch", cat(&.{ L("Option match node '"), id, L("' arms do not produce one common type.") }));
     } else if (std.mem.eql(u8, kind, "matchResult")) {
-        const ok_arm = get(node, "okArm");
-        const err_arm = get(node, "errArm");
+        const ok_arm = node.arm("okArm");
+        const err_arm = node.arm("errArm");
         switch (shapeOf(ops[0], "result", 2)) {
             .args => |args| {
-                if (!typeEql(bindingType(get(ok_arm, "valueBinding")), args[0]))
-                    addIn("PatternBindingTypeMismatch", cat(&.{ L("Result.Ok binding '"), str(get(ok_arm, "valueBinding"), "id"), L("' does not match the Result ok type.") }));
-                if (!typeEql(bindingType(get(err_arm, "errorBinding")), args[1]))
-                    addIn("PatternBindingTypeMismatch", cat(&.{ L("Result.Err binding '"), str(get(err_arm, "errorBinding"), "id"), L("' does not match the Result error type.") }));
+                if (!typeEql(bindingType(ok_arm.armBinding()), args[0]))
+                    addIn("PatternBindingTypeMismatch", cat(&.{ L("Result.Ok binding '"), (ok_arm.armBinding()).id(), L("' does not match the Result ok type.") }));
+                if (!typeEql(bindingType(err_arm.armBinding()), args[1]))
+                    addIn("PatternBindingTypeMismatch", cat(&.{ L("Result.Err binding '"), (err_arm.armBinding()).id(), L("' does not match the Result error type.") }));
             },
             .other => addIn("MatchResultInputTypeMismatch", cat(&.{ L("Result match node '"), id, L("' requires Result<T,E> input.") })),
             .unknown => {},
         }
-        if (!compatibleArms(&.{ get(ok_arm, "body"), get(err_arm, "body") }))
+        if (!compatibleArms(&.{ ok_arm.body(), err_arm.body() }))
             addIn("MatchArmTypeMismatch", cat(&.{ L("Result match node '"), id, L("' arms do not produce one common type.") }));
     }
 }
 
-fn matchUnionRules(node: Value, input: Str) void {
-    const id = str(node, "id");
-    const arms = arrayOf(node, "arms");
+fn matchUnionRules(node: Model, input: Str) void {
+    const id = node.id();
+    const arms = node.arms();
     if (nodeType(input)) |input_type| {
         const input_entity = if (input_type.kind == .named) types_by_id.get(idKey(input_type.name)) else null;
-        if (input_entity != null and isName(str(input_entity.?, "kind"), "union")) {
-            const declared = arrayOf(input_entity.?, "variants");
+        if (input_entity != null and isName((input_entity.?).kind(), "union")) {
+            const declared = (input_entity.?).variants();
             // `EmptyUnionMatchArm` cannot occur: the reader requires a variant per arm.
             var all_ids: List(Str) = .empty;
             for (arms) |arm| all_ids.appendSlice(a, armVariantIds(arm)) catch oom();
@@ -4053,30 +4242,30 @@ fn matchUnionRules(node: Value, input: Str) void {
             if (!sameSet(&expected, &actual)) addIn("NonExhaustiveUnionMatch", cat(&.{ L("Union match node '"), id, L("' must contain exactly one arm for every variant.") }));
             for (arms) |arm| {
                 const ids = armVariantIds(arm);
-                const bindings = arrayOf(arm, "fieldBindings");
+                const bindings = arm.fieldBindings();
                 if (ids.len >= 2 and bindings.len > 0)
                     addIn("PatternFieldBindingMismatch", cat(&.{ L("Union match arm '"), describeArm(arm), L("' names several variants and must bind no fields.") }));
                 if (ids.len != 1) continue;
                 const variant = for (declared) |v| {
-                    if (same(str(v, "id"), ids[0])) break v;
+                    if (same(v.id(), ids[0])) break v;
                 } else continue;
-                const fields = instantiateFields(input_entity.?, input_type.args, arrayOf(variant, "fields"));
+                const fields = instantiateFields(input_entity.?, input_type.args, variant.fields());
                 var expected_fields: Set = .empty;
                 for (fields) |f| expected_fields.put(a, idKey(f.id), {}) catch oom();
                 var actual_fields: Set = .empty;
-                for (bindings) |b| actual_fields.put(a, idKey(str(b, "sourceFieldId")), {}) catch oom();
+                for (bindings) |b| actual_fields.put(a, idKey(b.reference("sourceFieldId")), {}) catch oom();
                 if (!sameSet(&expected_fields, &actual_fields) or bindings.len != actual_fields.count())
                     addIn("PatternFieldBindingMismatch", cat(&.{ L("Union match arm '"), describeArm(arm), L("' must bind each variant field exactly once.") }));
                 for (bindings) |b| {
-                    const field = findField(fields, str(b, "sourceFieldId")) orelse continue;
-                    if (!typeEql(field.type, bindingType(get(b, "binding"))))
-                        addIn("PatternBindingTypeMismatch", cat(&.{ L("Pattern binding '"), str(get(b, "binding"), "id"), L("' does not match its variant field type.") }));
+                    const field = findField(fields, b.reference("sourceFieldId")) orelse continue;
+                    if (!typeEql(field.type, bindingType(b.boundBinding())))
+                        addIn("PatternBindingTypeMismatch", cat(&.{ L("Pattern binding '"), (b.boundBinding()).id(), L("' does not match its variant field type.") }));
                 }
             }
         } else addIn("MatchUnionInputTypeMismatch", cat(&.{ L("Union match node '"), id, L("' requires a declared union input.") }));
     }
-    var bodies: List(Value) = .empty;
-    for (arms) |arm| bodies.append(a, get(arm, "body")) catch oom();
+    var bodies: List(Model) = .empty;
+    for (arms) |arm| bodies.append(a, arm.body()) catch oom();
     if (!compatibleArms(bodies.items)) addIn("MatchArmTypeMismatch", cat(&.{ L("Union match node '"), id, L("' arms do not produce one common type.") }));
 }
 
@@ -4085,44 +4274,44 @@ fn matchOne(substitution: *const Substitution, declared: TypeRef, actual: TypeRe
     return matchFrom(substitution, &.{.{ .declared = declared, .actual = actual }});
 }
 
-fn resultOf(callback: Value, substitution: *const Substitution) TypeRef {
-    return substitute(substitution, typeRefOf(get(callback, "resultType")));
+fn resultOf(callback: Model, substitution: *const Substitution) TypeRef {
+    return substitute(substitution, typeRefOf(callback.resultType()));
 }
 
-const CallbackContext = struct { unbound: []const Value, substitution: Substitution };
+const CallbackContext = struct { unbound: []const Model, substitution: Substitution };
 
 /// `validateCallbackContext`: the context's own rules; the parameters it leaves unbound and the
 /// substitution its values determine (empty when they conflict).
-fn validateCallbackContext(node: Value, callback: Value, context: []const Value) CallbackContext {
-    const id = str(node, "id");
+fn validateCallbackContext(node: Model, callback: Model, context: []const Model) CallbackContext {
+    const id = node.id();
     const targets = a.alloc(Str, context.len) catch oom();
-    for (context, targets) |binding, *t| t.* = str(binding, "targetParameterId");
+    for (context, targets) |binding, *t| t.* = binding.reference("targetParameterId");
     for (countBy(targets).values()) |entry| {
         if (entry.count > 1) addIn("DuplicateArgumentTarget", cat(&.{ L("Higher-order node '"), id, L("' binds callback parameter '"), entry.id, L("' more than once.") }));
     }
     for (targets) |target| {
         if (parameterOf(callback, target) == null)
-            addIn("UnknownCallbackContextParameter", cat(&.{ L("Higher-order node '"), id, L("' binds '"), target, L("', which is not a parameter of callback '"), str(callback, "id"), L("'.") }));
+            addIn("UnknownCallbackContextParameter", cat(&.{ L("Higher-order node '"), id, L("' binds '"), target, L("', which is not a parameter of callback '"), callback.id(), L("'.") }));
     }
     var pairs: List(Pair) = .empty;
     for (context) |binding| {
-        const parameter = parameterOf(callback, str(binding, "targetParameterId"));
-        const actual = nodeType(str(binding, "valueNodeId"));
-        if (parameter != null and actual != null) pairs.append(a, .{ .declared = typeRefOf(get(parameter.?, "type")), .actual = actual.? }) catch oom();
+        const parameter = parameterOf(callback, binding.reference("targetParameterId"));
+        const actual = nodeType(binding.reference("valueNodeId"));
+        if (parameter != null and actual != null) pairs.append(a, .{ .declared = typeRefOf((parameter.?).declaredType()), .actual = actual.? }) catch oom();
     }
     const substitution = matchAll(pairs.items) orelse blk: {
         addIn("CallbackContextTypeMismatch", cat(&.{ L("Higher-order node '"), id, L("' binds a callback parameter to a value of another type.") }));
         break :blk Substitution.empty;
     };
-    var unbound: List(Value) = .empty;
-    for (arrayOf(callback, "parameters")) |parameter| {
-        if (!bindsParameter(context, str(parameter, "id"))) unbound.append(a, parameter) catch oom();
+    var unbound: List(Model) = .empty;
+    for (callback.parameters()) |parameter| {
+        if (!bindsParameter(context, parameter.id())) unbound.append(a, parameter) catch oom();
     }
     return .{ .unbound = unbound.items, .substitution = substitution };
 }
 
-fn parameterType(parameter: Value) TypeRef {
-    return typeRefOf(get(parameter, "type"));
+fn parameterType(parameter: Model) TypeRef {
+    return typeRefOf(parameter.declaredType());
 }
 
 /// The kinds `SemanticNodeShape.isIntrinsicallyEffectful` names.
@@ -4137,30 +4326,30 @@ fn isPure(function_id: Str) bool {
     while (pending.pop()) |id| {
         if ((seen.getOrPut(a, idKey(id)) catch oom()).found_existing) continue;
         const function = functions_by_id.get(idKey(id)) orelse return false;
-        if (arrayOf(function, "requiredEffects").len > 0) return false;
-        var nodes: List(Value) = .empty;
-        collectNodes(get(function, "body"), &nodes);
+        if (function.requiredEffects().len > 0) return false;
+        var nodes: List(Model) = .empty;
+        collectNodes(function.body(), &nodes);
         for (nodes.items) |node| {
-            if (kindIs(text(str(node, "kind")), effectful_kinds)) return false;
-            for (node.object) |member| {
-                const name = member.name;
-                if (name.len > 10 and isName(name[name.len - 10 ..], "FunctionId")) pending.append(a, member.value.string) catch oom();
-            }
-            for (arrayOf(node, "implementations")) |implementation| pending.append(a, str(implementation, "functionId")) catch oom();
+            if (kindIs(text(node.kind()), effectful_kinds)) return false;
+            var payload = node.data.node.payload();
+            while (payload.next()) |field| if (field.read.domain == .function) {
+                pending.append(a, node.reference(field.read.name)) catch oom();
+            };
+            for (node.implementations()) |implementation| pending.append(a, implementation.reference("functionId")) catch oom();
         }
     }
     return true;
 }
 
 /// `callbackEffectsHint`.
-fn effectsHint(comptime collection: []const u8, callback: Value) Str {
+fn effectsHint(comptime collection: []const u8, callback: Model) Str {
     var out: List(u16) = .empty;
-    const effects = arrayOf(callback, "requiredEffects");
+    const effects = callback.requiredEffects();
     if (effects.len > 0) {
         out.appendSlice(a, L(" The callback requires effect ")) catch oom();
         for (effects, 0..) |effect, i| {
             if (i > 0) out.appendSlice(a, L(", ")) catch oom();
-            out.appendSlice(a, effectLabel(effect.string)) catch oom();
+            out.appendSlice(a, effectLabel(effect.literal())) catch oom();
         }
         out.appendSlice(a, L(".")) catch oom();
     }
@@ -4172,20 +4361,20 @@ fn effectsHint(comptime collection: []const u8, callback: Value) Str {
 }
 
 /// `MissingEffectRequirement` for each effect the callback requires and the function does not declare.
-fn missingEffects(callback: Value, before: Str, after: Str) void {
-    for (arrayOf(callback, "requiredEffects")) |effect| {
-        if (!in_function.required_effects.contains(idKey(effect.string)))
-            addIn("MissingEffectRequirement", cat(&.{ before, effectLabel(effect.string), after }));
+fn missingEffects(callback: Model, before: Str, after: Str) void {
+    for (callback.requiredEffects()) |effect| {
+        if (!in_function.required_effects.contains(idKey(effect.literal())))
+            addIn("MissingEffectRequirement", cat(&.{ before, effectLabel(effect.literal()), after }));
     }
 }
 
-fn functionLabel(function: Value) Str {
-    return describe(str(function, "displayName"), str(function, "id"));
+fn functionLabel(function: Model) Str {
+    return describe(function.displayName(), function.id());
 }
 
 /// `validateCallbackOver`: a pure callback taking each List or Set item.
-fn validateCallbackOver(comptime collection: []const u8, node: Value, source: Str, callback_id: Str, context: []const Value, predicate: bool) void {
-    const id = str(node, "id");
+fn validateCallbackOver(comptime collection: []const u8, node: Model, source: Str, callback_id: Str, context: []const Model, predicate: bool) void {
+    const id = node.id();
     const head = cat(&.{ L("Higher-order " ++ collection ++ " node '"), id, L("'") });
     const item: ?TypeRef = if (nodeType(source)) |t| blk: {
         if (t.kind == .generic and t.args.len == 1 and isName(t.name, if (comptime std.mem.eql(u8, collection, "List")) "list" else "set")) break :blk t.args[0];
@@ -4196,13 +4385,13 @@ fn validateCallbackOver(comptime collection: []const u8, node: Value, source: St
         return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references unknown callback function '"), callback_id, L("'.") }));
     var checked = validateCallbackContext(node, callback, context);
     if (checked.unbound.len != 1) {
-        addIn("CallbackArityMismatch", cat(&.{ head, L(" requires callback '"), str(callback, "id"), L("' to have exactly one parameter not bound by context.") }));
+        addIn("CallbackArityMismatch", cat(&.{ head, L(" requires callback '"), callback.id(), L("' to have exactly one parameter not bound by context.") }));
     } else if (item) |item_type| {
         if (matchOne(&checked.substitution, parameterType(checked.unbound[0]), item_type)) |extended| {
             checked.substitution = extended;
         } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, L(" callback parameter type does not match the source "), asciiUnits(comptime lowerAscii(collection)), L(" item type.") }));
     }
-    if (!isPure(str(callback, "id")))
+    if (!isPure(callback.id()))
         addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls."), effectsHint(collection, callback) }));
     if (predicate and !resultOf(callback, &checked.substitution).isPrimitive("bool"))
         addIn("PredicateResultTypeMismatch", cat(&.{ head, L(" predicate callback must return Bool.") }));
@@ -4216,8 +4405,8 @@ fn lowerAscii(comptime s: []const u8) []const u8 {
 }
 
 /// `validateLessThanCallback`.
-fn validateLessThanCallback(name: Str, node: Value, source: Str, callback_id: Str, context: []const Value) void {
-    const head = cat(&.{ name, L(" node '"), str(node, "id"), L("'") });
+fn validateLessThanCallback(name: Str, node: Model, source: Str, callback_id: Str, context: []const Model) void {
+    const head = cat(&.{ name, L(" node '"), node.id(), L("'") });
     const item: ?TypeRef = switch (shapeOf(source, "list", 1)) {
         .args => |args| args[0],
         .other => blk: {
@@ -4230,21 +4419,21 @@ fn validateLessThanCallback(name: Str, node: Value, source: Str, callback_id: St
         return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references unknown callback function '"), callback_id, L("'.") }));
     var checked = validateCallbackContext(node, callback, context);
     if (checked.unbound.len != 2) {
-        addIn("CallbackArityMismatch", cat(&.{ head, L(" requires callback '"), str(callback, "id"), L("' to have exactly two parameters not bound by context (left, right).") }));
+        addIn("CallbackArityMismatch", cat(&.{ head, L(" requires callback '"), callback.id(), L("' to have exactly two parameters not bound by context (left, right).") }));
     } else if (item) |item_type| {
         if (matchFrom(&checked.substitution, &.{ .{ .declared = parameterType(checked.unbound[0]), .actual = item_type }, .{ .declared = parameterType(checked.unbound[1]), .actual = item_type } })) |extended| {
             checked.substitution = extended;
         } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, L(" callback parameter types must both match the source list item type.") }));
     }
-    if (!isPure(str(callback, "id")))
+    if (!isPure(callback.id()))
         addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls.") }));
     if (!resultOf(callback, &checked.substitution).isPrimitive("bool"))
         addIn("PredicateResultTypeMismatch", cat(&.{ head, L(" less-than callback must return Bool.") }));
 }
 
 /// `validateMapEntryCallback`: MapFilter and MapMapValues.
-fn validateMapEntryCallback(name: Str, require_bool: bool, node: Value, source: Str, callback_id: Str, context: []const Value) void {
-    const head = cat(&.{ name, L(" node '"), str(node, "id"), L("'") });
+fn validateMapEntryCallback(name: Str, require_bool: bool, node: Model, source: Str, callback_id: Str, context: []const Model) void {
+    const head = cat(&.{ name, L(" node '"), node.id(), L("'") });
     switch (shapeOf(source, "map", 2)) {
         .args => |args| {
             const keep = functions_by_id.get(idKey(callback_id)) orelse return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references an unknown callback.") }));
@@ -4256,7 +4445,7 @@ fn validateMapEntryCallback(name: Str, require_bool: bool, node: Value, source: 
             } else addIn("CallbackArityMismatch", cat(&.{ head, L(" callback must have exactly two parameters not bound by context (key, value).") }));
             if (require_bool and !resultOf(keep, &checked.substitution).isPrimitive("bool"))
                 addIn("PredicateResultTypeMismatch", cat(&.{ head, L(" callback must return Bool.") }));
-            if (!isPure(str(keep, "id")))
+            if (!isPure(keep.id()))
                 addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" callback must be pure, including its transitive calls and ambient task or cancellation behavior.") }));
         },
         .other => addIn("MapInputTypeMismatch", cat(&.{ head, L(" requires a Map<K, V> input.") })),
@@ -4276,8 +4465,8 @@ fn casePayload(t: TypeRef, payload: CasePayload) ?TypeRef {
 }
 
 /// `validateCaseCallback`: OptionMap, OptionAndThen, ResultMap, ResultMapErr and ResultAndThen.
-fn validateCaseCallback(name: Str, comptime source_shape: []const u8, node: Value, source: Str, callback_id: Str, context: []const Value, payload: CasePayload, binder: BinderResult) void {
-    const head = cat(&.{ name, L(" node '"), str(node, "id"), L("'") });
+fn validateCaseCallback(name: Str, comptime source_shape: []const u8, node: Model, source: Str, callback_id: Str, context: []const Model, payload: CasePayload, binder: BinderResult) void {
+    const head = cat(&.{ name, L(" node '"), node.id(), L("'") });
     const source_type = nodeType(source) orelse return;
     const payload_type = casePayload(source_type, payload) orelse return addIn("HigherOrderSourceTypeMismatch", cat(&.{ head, L(" requires " ++ source_shape ++ " input.") }));
     const callback = functions_by_id.get(idKey(callback_id)) orelse
@@ -4287,7 +4476,7 @@ fn validateCaseCallback(name: Str, comptime source_shape: []const u8, node: Valu
         if (matchOne(&checked.substitution, parameterType(checked.unbound[0]), payload_type)) |extended| {
             checked.substitution = extended;
         } else addIn("CallbackParameterTypeMismatch", cat(&.{ head, L(" callback parameter type does not match the " ++ source_shape ++ " payload type.") }));
-    } else addIn("CallbackArityMismatch", cat(&.{ head, L(" requires callback '"), str(callback, "id"), L("' to have exactly one parameter not bound by context.") }));
+    } else addIn("CallbackArityMismatch", cat(&.{ head, L(" requires callback '"), callback.id(), L("' to have exactly one parameter not bound by context.") }));
     const result = resultOf(callback, &checked.substitution);
     switch (binder) {
         .none => {},
@@ -4299,13 +4488,13 @@ fn validateCaseCallback(name: Str, comptime source_shape: []const u8, node: Valu
                 addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" callback must return Result<R, E> with the source's error type E.") }));
         },
     }
-    if (!isPure(str(callback, "id")))
+    if (!isPure(callback.id()))
         addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" requires a pure callback: no required effects, capability invocations, resources, tasks or cancellation checks, including transitive calls.") }));
 }
 
 /// ListFold, ListScan, SetFold, MapFold and ListEffectFold.
-fn validateFold(name: Str, kind: []const u8, node: Value, ops: []const Str, context: []const Value) void {
-    const head = cat(&.{ name, L(" node '"), str(node, "id"), L("'") });
+fn validateFold(name: Str, kind: []const u8, node: Model, ops: []const Str, context: []const Model) void {
+    const head = cat(&.{ name, L(" node '"), node.id(), L("'") });
     const is_map = std.mem.eql(u8, kind, "mapFold");
     const is_set = std.mem.eql(u8, kind, "setFold");
     const effect = std.mem.eql(u8, kind, "listEffectFold");
@@ -4322,7 +4511,7 @@ fn validateFold(name: Str, kind: []const u8, node: Value, ops: []const Str, cont
             addIn("HigherOrderSourceTypeMismatch", cat(&.{ head, L(" requires List<T> input.") })),
     };
     const seed = seed_type.?;
-    const folder = functions_by_id.get(idKey(str(node, "folderFunctionId"))) orelse
+    const folder = functions_by_id.get(idKey(node.reference("folderFunctionId"))) orelse
         return addIn("UnknownCallbackFunction", cat(&.{ head, L(" references an unknown folder.") }));
     var checked = validateCallbackContext(node, folder, context);
     const arity: usize = if (is_map) 3 else 2;
@@ -4347,7 +4536,7 @@ fn validateFold(name: Str, kind: []const u8, node: Value, ops: []const Str, cont
         return;
     }
     if (!typeEql(result, seed)) addIn("CallbackResultTypeMismatch", cat(&.{ head, L(" folder must return the seed type.") }));
-    if (!isPure(str(folder, "id")))
+    if (!isPure(folder.id()))
         addIn("CallbackEffectsNotAllowed", cat(&.{ head, L(" folder must be pure, including its transitive calls and ambient task or cancellation behavior.") }));
 }
 
@@ -4359,48 +4548,48 @@ fn bodySubstitution(checked: *const CallbackContext, input: TypeRef) ?Substituti
 }
 
 /// The higher-order, effect and task nodes (Validation.fs `ListFold` … `ListAll`).
-fn callbackRules(node: Value, local: *const Set) void {
-    const kind = text(str(node, "kind"));
-    const name = caseNameOf(str(node, "kind"));
-    const id = str(node, "id");
+fn callbackRules(node: Model, local: *const Set) void {
+    const kind = text(node.kind());
+    const name = caseNameOf(node.kind());
+    const id = node.id();
     const ops = operandsOf(node);
-    const context = arrayOf(node, "context");
+    const context = node.targets("context");
     const function_label = functionLabel(in_function.function);
     if (kindIs(kind, "listFold listScan mapFold setFold listEffectFold")) {
         validateFold(name, kind, node, ops, context);
     } else if (kindIs(kind, "mapFilter mapMapValues")) {
-        validateMapEntryCallback(name, std.mem.eql(u8, kind, "mapFilter"), node, ops[0], str(node, if (std.mem.eql(u8, kind, "mapFilter")) "keepFunctionId" else "mapperFunctionId"), context);
+        validateMapEntryCallback(name, std.mem.eql(u8, kind, "mapFilter"), node, ops[0], node.reference(if (std.mem.eql(u8, kind, "mapFilter")) "keepFunctionId" else "mapperFunctionId"), context);
     } else if (kindIs(kind, "setFilter setMap")) {
         const filter = std.mem.eql(u8, kind, "setFilter");
-        validateCallbackOver("Set", node, ops[0], str(node, if (filter) "predicateFunctionId" else "mapperFunctionId"), context, filter);
+        validateCallbackOver("Set", node, ops[0], node.reference(if (filter) "predicateFunctionId" else "mapperFunctionId"), context, filter);
         if (!filter) if (nodeType(id)) |t| if (t.isGeneric("set") and t.args.len == 1 and !isEquatable(t.args[0]))
             addIn("SetItemTypeNotEquatable", cat(&.{ L("SetMap node '"), id, L("' makes a Set of a type that is not equatable: "), explainEquatable(t.args[0]) }));
     } else if (std.mem.eql(u8, kind, "optionMap")) {
-        validateCaseCallback(name, "Option<T>", node, ops[0], str(node, "mapperFunctionId"), context, .option_item, .none);
+        validateCaseCallback(name, "Option<T>", node, ops[0], node.reference("mapperFunctionId"), context, .option_item, .none);
     } else if (std.mem.eql(u8, kind, "optionAndThen")) {
-        validateCaseCallback(name, "Option<T>", node, ops[0], str(node, "binderFunctionId"), context, .option_item, .option);
+        validateCaseCallback(name, "Option<T>", node, ops[0], node.reference("binderFunctionId"), context, .option_item, .option);
     } else if (std.mem.eql(u8, kind, "resultMap")) {
-        validateCaseCallback(name, "Result<T, E>", node, ops[0], str(node, "mapperFunctionId"), context, .result_ok, .none);
+        validateCaseCallback(name, "Result<T, E>", node, ops[0], node.reference("mapperFunctionId"), context, .result_ok, .none);
     } else if (std.mem.eql(u8, kind, "resultMapErr")) {
-        validateCaseCallback(name, "Result<T, E>", node, ops[0], str(node, "mapperFunctionId"), context, .result_error, .none);
+        validateCaseCallback(name, "Result<T, E>", node, ops[0], node.reference("mapperFunctionId"), context, .result_error, .none);
     } else if (std.mem.eql(u8, kind, "resultAndThen")) {
-        validateCaseCallback(name, "Result<T, E>", node, ops[0], str(node, "binderFunctionId"), context, .result_ok, .result_with_source_error);
+        validateCaseCallback(name, "Result<T, E>", node, ops[0], node.reference("binderFunctionId"), context, .result_ok, .result_with_source_error);
     } else if (std.mem.eql(u8, kind, "listZipWith")) {
         const left = shapeOf(ops[0], "list", 1);
         const right = shapeOf(ops[1], "list", 1);
         if (left == .unknown or right == .unknown) return;
         if (left == .other or right == .other) return addIn("HigherOrderSourceTypeMismatch", nodeMessage(name, node, "requires List<T> inputs."));
-        const combiner = functions_by_id.get(idKey(str(node, "combinerFunctionId"))) orelse
+        const combiner = functions_by_id.get(idKey(node.reference("combinerFunctionId"))) orelse
             return addIn("UnknownCallbackFunction", nodeMessage(name, node, "references an unknown combiner."));
         const checked = validateCallbackContext(node, combiner, context);
         if (checked.unbound.len != 2) {
             addIn("CallbackArityMismatch", nodeMessage(name, node, "combiner must have exactly two parameters not bound by context (left item, right item)."));
         } else if (matchFrom(&checked.substitution, &.{ .{ .declared = parameterType(checked.unbound[0]), .actual = left.args[0] }, .{ .declared = parameterType(checked.unbound[1]), .actual = right.args[0] } }) == null)
             addIn("CallbackParameterTypeMismatch", nodeMessage(name, node, "combiner input types must match the left and right list item types."));
-        if (!isPure(str(combiner, "id")))
+        if (!isPure(combiner.id()))
             addIn("CallbackEffectsNotAllowed", nodeMessage(name, node, "combiner must be pure, including its transitive calls and ambient task or cancellation behavior."));
     } else if (kindIs(kind, "listMap listFlatMap mapFromList listFilter listAny listFindIndex listAll")) {
-        const callback_id = str(node, if (std.mem.eql(u8, kind, "mapFromList")) "keyOfFunctionId" else if (kindIs(kind, "listMap listFlatMap")) "mapperFunctionId" else "predicateFunctionId");
+        const callback_id = node.reference(if (std.mem.eql(u8, kind, "mapFromList")) "keyOfFunctionId" else if (kindIs(kind, "listMap listFlatMap")) "mapperFunctionId" else "predicateFunctionId");
         validateCallbackOver("List", node, ops[0], callback_id, context, kindIs(kind, "listFilter listAny listFindIndex listAll"));
         if (std.mem.eql(u8, kind, "listFlatMap")) {
             if (shapeOf(ops[0], "list", 1) == .args and functions_by_id.contains(idKey(callback_id)) and nodeType(id) == null)
@@ -4410,12 +4599,12 @@ fn callbackRules(node: Value, local: *const Set) void {
                 addIn("MapKeyTypeNotEquatable", cat(&.{ L("MapFromList node '"), id, L("' makes keys of a type that is not equatable: "), explainEquatable(t.args[0]) }));
         }
     } else if (kindIs(kind, "listSortBy listMinBy listMaxBy")) {
-        validateLessThanCallback(name, node, ops[0], str(node, "lessThanFunctionId"), context);
+        validateLessThanCallback(name, node, ops[0], node.reference("lessThanFunctionId"), context);
     } else if (std.mem.eql(u8, kind, "useResource")) {
         useResourceRules(node, local);
     } else if (std.mem.eql(u8, kind, "exceptionCatch")) {
-        const body = catchCallback(node, "body", str(node, "bodyFunctionId"), arrayOf(node, "bodyContext"), primitiveType("unit"), L("Primitive Unit"));
-        const handler = catchCallback(node, "handler", str(node, "handlerFunctionId"), arrayOf(node, "handlerContext"), builtin("exception", &.{}), L("BuiltinGeneric (Exception, [])"));
+        const body = catchCallback(node, "body", node.reference("bodyFunctionId"), node.targets("bodyContext"), primitiveType("unit"), L("Primitive Unit"));
+        const handler = catchCallback(node, "handler", node.reference("handlerFunctionId"), node.targets("handlerContext"), builtin("exception", &.{}), L("BuiltinGeneric (Exception, [])"));
         if (body != null and handler != null) {
             const same_result = body.?.isGeneric("result") and body.?.args.len == 2 and typeEql(body.?, handler.?);
             if (!same_result) addIn("ExceptionCatchResultMismatch", L("ExceptionCatch callbacks must return the same Result<T, E>."));
@@ -4426,7 +4615,7 @@ fn callbackRules(node: Value, local: *const Set) void {
             addIn("ExceptionValueTypeMismatch", cat(&.{ name, L(" requires an Exception value.") }));
     } else if (kindIs(kind, "cancellationShield taskScope")) {
         const shield = std.mem.eql(u8, kind, "cancellationShield");
-        const body = functions_by_id.get(idKey(str(node, "bodyFunctionId"))) orelse
+        const body = functions_by_id.get(idKey(node.reference("bodyFunctionId"))) orelse
             return addIn("UnknownCallTarget", nodeMessage(name, node, "references an unknown body function."));
         const checked = validateCallbackContext(node, body, context);
         const fitted = bodySubstitution(&checked, if (shield) primitiveType("unit") else builtin("taskScope", &.{}));
@@ -4440,21 +4629,21 @@ fn callbackRules(node: Value, local: *const Set) void {
         if (nodeType(ops[0])) |scope| if (!typeEql(scope, builtin("taskScope", &.{})))
             addIn("TaskStartScopeTypeMismatch", nodeMessage(name, node, "requires a TaskScope value as its scope."));
         const item = nodeType(ops[1]);
-        const worker = functions_by_id.get(idKey(str(node, "workerFunctionId"))) orelse
+        const worker = functions_by_id.get(idKey(node.reference("workerFunctionId"))) orelse
             return addIn("UnknownCallbackFunction", nodeMessage(name, node, "references an unknown worker."));
         const item_type = item orelse return;
         workerRules(name, node, worker, context, item_type, " starts ", " as a task but does not declare required effect ");
     } else if (std.mem.eql(u8, kind, "parallelAll")) {
         rejectTaskBoundInputs(name, node, ops[0], "source");
         const source = shapeOf(ops[0], "list", 1);
-        const worker = functions_by_id.get(idKey(str(node, "workerFunctionId")));
+        const worker = functions_by_id.get(idKey(node.reference("workerFunctionId")));
         if (source == .args and worker != null) {
             workerRules(name, node, worker.?, context, source.args[0], " runs ", " in parallel but does not declare required effect ");
         } else if (source == .other and worker != null) {
             addIn("HigherOrderSourceTypeMismatch", nodeMessage(name, node, "requires List<T> input."));
         } else if (worker == null) addIn("UnknownCallbackFunction", nodeMessage(name, node, "references an unknown worker."));
     } else if (std.mem.eql(u8, kind, "taskWait")) {
-        if (nodeType(str(node, "tasksNodeId"))) |t| if (!(t.isGeneric("list") and t.args.len == 1 and t.args[0].isGeneric("task") and t.args[0].args.len == 1))
+        if (nodeType(node.reference("tasksNodeId"))) |t| if (!(t.isGeneric("list") and t.args.len == 1 and t.args[0].isGeneric("task") and t.args[0].args.len == 1))
             addIn("TaskWaitInputTypeMismatch", nodeMessage(name, node, "requires List<Task<T>> input."));
         if (limitType(node)) |t| if (!isOptionInt64(t)) addIn("TaskWaitLimitTypeMismatch", nodeMessage(name, node, "requires an Option<Int64> limit."));
     } else if (std.mem.eql(u8, kind, "oneShotCreate")) {
@@ -4471,9 +4660,9 @@ fn callbackRules(node: Value, local: *const Set) void {
     }
 }
 
-fn limitType(node: Value) ?TypeRef {
-    const limit = tryProperty("limitNodeId", node) orelse return null;
-    return nodeType(limit.string);
+fn limitType(node: Model) ?TypeRef {
+    const limit = node.optionalReference("limitNodeId") orelse return null;
+    return nodeType(limit);
 }
 
 fn isOptionInt64(t: TypeRef) bool {
@@ -4481,7 +4670,7 @@ fn isOptionInt64(t: TypeRef) bool {
 }
 
 /// The worker of TaskStart and ParallelAll, given the item it receives.
-fn workerRules(name: Str, node: Value, worker: Value, context: []const Value, item_type: TypeRef, comptime runs: []const u8, comptime missing: []const u8) void {
+fn workerRules(name: Str, node: Model, worker: Model, context: []const Model, item_type: TypeRef, comptime runs: []const u8, comptime missing: []const u8) void {
     const checked = validateCallbackContext(node, worker, context);
     if (bodySubstitution(&checked, item_type)) |fitted| {
         const result = resultOf(worker, &fitted);
@@ -4492,7 +4681,7 @@ fn workerRules(name: Str, node: Value, worker: Value, context: []const Value, it
 }
 
 /// One callback of ExceptionCatch: its result type, or none when the function is unknown.
-fn catchCallback(node: Value, comptime role: []const u8, function_id: Str, context: []const Value, input: TypeRef, input_text: Str) ?TypeRef {
+fn catchCallback(node: Model, comptime role: []const u8, function_id: Str, context: []const Model, input: TypeRef, input_text: Str) ?TypeRef {
     const callback = functions_by_id.get(idKey(function_id)) orelse {
         addIn("UnknownCallTarget", L("ExceptionCatch " ++ role ++ " references an unknown function."));
         return null;
@@ -4507,45 +4696,45 @@ fn catchCallback(node: Value, comptime role: []const u8, function_id: Str, conte
 /// `capabilityOperationsById`: each operation with its capability (the last of a duplicated ID wins).
 var operation_owners: std.StringArrayHashMapUnmanaged(Str) = .empty;
 
-fn useResourceRules(node: Value, local: *const Set) void {
-    const id = str(node, "id");
-    const acquire = str(node, "acquireNodeId");
+fn useResourceRules(node: Model, local: *const Set) void {
+    const id = node.id();
+    const acquire = node.reference("acquireNodeId");
     const head = cat(&.{ L("UseResource node '"), id, L("'") });
     if (in_function.resolver.nodes_by_id.contains(idKey(acquire))) {
         if (!local.contains(idKey(acquire)))
             addIn("UseResourceAcquireOutOfGraph", cat(&.{ head, L(" acquires resource node '"), acquire, L("' from an enclosing graph; the acquisition must be owned by the same graph as the node that releases it.") }));
         for (in_function.all_nodes) |other| {
-            if (same(str(other, "id"), id)) continue;
+            if (same(other.id(), id)) continue;
             for (operandsOf(other)) |reference| if (same(reference, acquire)) {
-                addIn("UseResourceAcquireShared", cat(&.{ head, L(" must be the only consumer of resource node '"), acquire, L("', which node '"), str(other, "id"), L("' also uses.") }));
+                addIn("UseResourceAcquireShared", cat(&.{ head, L(" must be the only consumer of resource node '"), acquire, L("', which node '"), other.id(), L("' also uses.") }));
                 break;
             };
         }
     }
     const acquired = nodeType(acquire) orelse return;
     if (!(acquired.isGeneric("result") and acquired.args.len == 2)) return addIn("UseResourceAcquireTypeMismatch", cat(&.{ head, L(" acquisition must produce Result<R, E>.") }));
-    const body = functions_by_id.get(idKey(str(node, "bodyFunctionId"))) orelse return addIn("UnknownCallTarget", cat(&.{ head, L(" references an unknown body function.") }));
-    const release_id = idKey(str(node, "releaseOperationId"));
+    const body = functions_by_id.get(idKey(node.reference("bodyFunctionId"))) orelse return addIn("UnknownCallTarget", cat(&.{ head, L(" references an unknown body function.") }));
+    const release_id = idKey(node.reference("releaseOperationId"));
     const operation = operations_by_id.get(release_id) orelse return addIn("UnknownCapabilityOperation", cat(&.{ head, L(" references an unknown release operation.") }));
     const resource_type = acquired.args[0];
     const error_type = acquired.args[1];
-    const checked = validateCallbackContext(node, body, arrayOf(node, "context"));
+    const checked = validateCallbackContext(node, body, node.targets("context"));
     const fitted = bodySubstitution(&checked, resource_type);
     if (fitted == null) addIn("UseResourceBodyMismatch", cat(&.{ head, L(" body must have exactly one unbound parameter of the resource type.") }));
     const result = resultOf(body, if (fitted) |*f| f else &checked.substitution);
     if (!(result.isGeneric("result") and result.args.len == 2 and typeEql(result.args[1], error_type)))
         addIn("UseResourceResultMismatch", cat(&.{ head, L(" body must return Result<T, E> with the acquisition error type.") }));
-    const receiver = nodeType(str(node, "releaseCapabilityNodeId"));
+    const receiver = nodeType(node.reference("releaseCapabilityNodeId"));
     if (receiver == null or receiver.?.kind != .capability or !same(receiver.?.name, operation_owners.get(release_id).?))
         addIn("UseResourceReleaseReceiverMismatch", cat(&.{ head, L(" release capability does not own the release operation.") }));
-    const parameters = arrayOf(operation, "parameters");
-    const release_result = typeRefOf(get(operation, "resultType"));
+    const parameters = operation.parameters();
+    const release_result = typeRefOf(operation.resultType());
     const signature = parameters.len == 1 and typeEql(parameterType(parameters[0]), resource_type) and
         (release_result.isPrimitive("unit") or typeEql(release_result, builtin("result", &.{ primitiveType("unit"), error_type })));
     if (!signature) addIn("UseResourceReleaseSignatureMismatch", cat(&.{ head, L(" release must take the resource and return Unit or Result<Unit, E>.") }));
     const before = cat(&.{ L("Function "), functionLabel(in_function.function), L(" uses a resource requiring effect ") });
     missingEffects(body, before, L(" that it does not declare."));
-    const effect_id = str(operation, "effectId");
+    const effect_id = operation.reference("effectId");
     if (!in_function.required_effects.contains(idKey(effect_id))) addIn("MissingEffectRequirement", cat(&.{ before, effectLabel(effect_id), L(" that it does not declare.") }));
 }
 
@@ -4553,16 +4742,16 @@ fn useResourceRules(node: Value, local: *const Set) void {
 var open_obligation_pairs: Set = .empty;
 
 /// `CapabilityImplementations.validate`, prefixed "Capability construction '<id>': ".
-fn capabilityImplementationRules(node: Value) void {
-    const head = cat(&.{ L("Capability construction '"), str(node, "id"), L("': ") });
-    const capability_id = str(node, "capabilityId");
+fn capabilityImplementationRules(node: Model) void {
+    const head = cat(&.{ L("Capability construction '"), node.id(), L("': ") });
+    const capability_id = node.reference("capabilityId");
     const capability = for (all_capabilities) |c| {
-        if (same(str(c, "id"), capability_id)) break c;
+        if (same(c.id(), capability_id)) break c;
     } else return addIn("UnknownCapabilityConstructTarget", cat(&.{ head, L("A capability construction must name an existing capability.") }));
-    const operations = byId(arrayOf(capability, "operations"));
-    const implementations = arrayOf(node, "implementations");
+    const operations = byId(capability.operations());
+    const implementations = node.implementations();
     const operation_ids = a.alloc(Str, implementations.len) catch oom();
-    for (implementations, operation_ids) |implementation, *id| id.* = str(implementation, "operationId");
+    for (implementations, operation_ids) |implementation, *id| id.* = implementation.reference("operationId");
     var duplicated = false;
     for (countBy(operation_ids).values()) |entry| duplicated = duplicated or entry.count > 1;
     if (duplicated) addIn("DuplicateCapabilityImplementation", cat(&.{ head, L("Each capability operation must have exactly one implementation.") }));
@@ -4572,18 +4761,18 @@ fn capabilityImplementationRules(node: Value) void {
     for (operations.keys()) |key| declared.put(a, key, {}) catch oom();
     if (!sameSet(&implemented, &declared)) addIn("CapabilityImplementationSetMismatch", cat(&.{ head, L("Implementations must cover exactly the operations of the constructed capability.") }));
     for (implementations) |implementation| {
-        const operation_id = str(implementation, "operationId");
-        const function_id = str(implementation, "functionId");
+        const operation_id = implementation.reference("operationId");
+        const function_id = implementation.reference("functionId");
         const function = functions_by_id.get(idKey(function_id)) orelse {
             addIn("UnknownCapabilityImplementationFunction", cat(&.{ head, L("Implementation function '"), function_id, L("' does not exist.") }));
             continue;
         };
         const operation = operations.get(idKey(operation_id)) orelse continue;
-        if (arrayOf(function, "typeParameters").len > 0) addIn("GenericCapabilityImplementationUnsupported", cat(&.{ head, L("Use a monomorphic wrapper for a generic implementation function.") }));
+        if (function.typeParameters().len > 0) addIn("GenericCapabilityImplementationUnsupported", cat(&.{ head, L("Use a monomorphic wrapper for a generic implementation function.") }));
         if (!isPure(function_id)) addIn("ImpureCapabilityImplementation", cat(&.{ head, L("Implementation '"), function_id, L("' must be transitively pure, including ambient cancellation behavior.") }));
-        const function_parameters = arrayOf(function, "parameters");
-        const operation_parameters = arrayOf(operation, "parameters");
-        var signature = function_parameters.len == operation_parameters.len and typeEql(typeRefOf(get(function, "resultType")), typeRefOf(get(operation, "resultType")));
+        const function_parameters = function.parameters();
+        const operation_parameters = operation.parameters();
+        var signature = function_parameters.len == operation_parameters.len and typeEql(typeRefOf(function.resultType()), typeRefOf(operation.resultType()));
         if (signature) for (function_parameters, operation_parameters) |f, o| {
             signature = signature and typeEql(parameterType(f), parameterType(o));
         };
@@ -4593,70 +4782,70 @@ fn capabilityImplementationRules(node: Value) void {
 
 /// Function references and invocations, direct calls and capabilities (Validation.fs
 /// `CapabilityConstruct` … `CapabilityInvoke`).
-fn callRules(node: Value) void {
-    const kind = text(str(node, "kind"));
-    const id = str(node, "id");
+fn callRules(node: Model) void {
+    const kind = text(node.kind());
+    const id = node.id();
     const function_label = functionLabel(in_function.function);
     if (std.mem.eql(u8, kind, "capabilityConstruct")) {
         capabilityImplementationRules(node);
     } else if (std.mem.eql(u8, kind, "functionReference")) {
-        const target_id = str(node, "targetFunctionId");
+        const target_id = node.reference("targetFunctionId");
         const head = cat(&.{ L("Function reference '"), id, L("'") });
         const target = functions_by_id.get(idKey(target_id)) orelse return addIn("UnknownFunctionReference", cat(&.{ head, L(" names unknown function '"), target_id, L("'.") }));
-        if (arrayOf(target, "typeParameters").len > 0) {
+        if (target.typeParameters().len > 0) {
             addIn("GenericFunctionReferenceUnsupported", cat(&.{ head, L(" must reference a monomorphic function; use a concrete wrapper.") }));
         } else if (!isPure(target_id)) addIn("ImpureFunctionReference", cat(&.{ head, L(" must reference a pure function, including its transitive calls and ambient cancellation behavior.") }));
     } else if (std.mem.eql(u8, kind, "functionInvoke")) {
         const head = cat(&.{ L("Function invocation '"), id, L("'") });
-        const value_type = nodeType(str(node, "functionValueNodeId")) orelse return;
+        const value_type = nodeType(node.reference("functionValueNodeId")) orelse return;
         if (value_type.kind != .function) return addIn("FunctionInvokeTargetTypeMismatch", cat(&.{ head, L(" requires a function value.") }));
-        const arguments = arrayOf(node, "arguments");
+        const arguments = node.arguments();
         if (value_type.args.len != arguments.len) return addIn("FunctionInvokeArityMismatch", cat(&.{ head, L(" must supply exactly one value for each positional parameter.") }));
         for (value_type.args, arguments) |expected, argument| {
-            if (nodeType(argument.string)) |actual| if (!typeEql(actual, expected))
+            if (nodeType(argument.literal())) |actual| if (!typeEql(actual, expected))
                 addIn("FunctionInvokeArgumentTypeMismatch", cat(&.{ head, L(" argument has the wrong type.") }));
         }
     } else if (std.mem.eql(u8, kind, "directCall")) {
         directCallRules(node);
     } else if (std.mem.eql(u8, kind, "capabilityInvoke")) {
-        const operation_id = str(node, "operationId");
+        const operation_id = node.reference("operationId");
         const head = cat(&.{ L("Capability-invoke node '"), id, L("'") });
         const operation = operations_by_id.get(idKey(operation_id)) orelse return addIn("UnknownCapabilityOperation", cat(&.{ head, L(" references unknown operation '"), operation_id, L("'.") }));
-        if (nodeType(str(node, "capabilityValueNodeId"))) |t| if (t.kind != .capability or !same(t.name, operation_owners.get(idKey(operation_id)).?))
+        if (nodeType(node.reference("capabilityValueNodeId"))) |t| if (t.kind != .capability or !same(t.name, operation_owners.get(idKey(operation_id)).?))
             addIn("CapabilityValueTypeMismatch", cat(&.{ head, L(" does not receive the capability that owns operation '"), operation_id, L("'.") }));
-        const arguments = arrayOf(node, "arguments");
+        const arguments = node.arguments();
         const targets = a.alloc(Str, arguments.len) catch oom();
-        for (arguments, targets) |argument, *t| t.* = str(argument, "targetCapabilityParameterId");
+        for (arguments, targets) |argument, *t| t.* = argument.reference("targetCapabilityParameterId");
         for (countBy(targets).values()) |entry| {
             if (entry.count > 1) addIn("DuplicateCapabilityArgumentTarget", cat(&.{ head, L(" binds capability parameter '"), entry.id, L("' more than once.") }));
         }
-        const parameters = arrayOf(operation, "parameters");
+        const parameters = operation.parameters();
         var actual: Set = .empty;
         for (targets) |t| actual.put(a, idKey(t), {}) catch oom();
         if (!sameSet(&idSet(parameters), &actual))
             addIn("CapabilityArgumentSetMismatch", cat(&.{ head, L(" must bind exactly the parameters declared by operation '"), operation_id, L("'.") }));
         for (arguments, targets) |argument, target| {
             const parameter = for (parameters) |p| {
-                if (same(str(p, "id"), target)) break p;
+                if (same(p.id(), target)) break p;
             } else continue;
-            if (nodeType(str(argument, "valueNodeId"))) |value_type| if (!typeEql(parameterType(parameter), value_type))
-                addIn("CapabilityArgumentTypeMismatch", cat(&.{ head, L(" binds a value with the wrong type to capability parameter "), describe(str(parameter, "displayName"), str(parameter, "id")), L(".") }));
+            if (nodeType(argument.reference("valueNodeId"))) |value_type| if (!typeEql(parameterType(parameter), value_type))
+                addIn("CapabilityArgumentTypeMismatch", cat(&.{ head, L(" binds a value with the wrong type to capability parameter "), describe(parameter.displayName(), parameter.id()), L(".") }));
         }
-        const effect_id = str(operation, "effectId");
+        const effect_id = operation.reference("effectId");
         if (!in_function.required_effects.contains(idKey(effect_id)))
-            addIn("MissingEffectRequirement", cat(&.{ L("Function "), function_label, L(" invokes capability operation "), describe(str(operation, "displayName"), operation_id), L(" but does not declare required effect "), effectLabel(effect_id), L(".") }));
+            addIn("MissingEffectRequirement", cat(&.{ L("Function "), function_label, L(" invokes capability operation "), describe(operation.displayName(), operation_id), L(" but does not declare required effect "), effectLabel(effect_id), L(".") }));
     }
 }
 
-fn directCallRules(node: Value) void {
-    const id = str(node, "id");
-    const target_id = str(node, "targetFunctionId");
+fn directCallRules(node: Model) void {
+    const id = node.id();
+    const target_id = node.reference("targetFunctionId");
     const head = cat(&.{ L("Call node '"), id, L("'") });
     const function = in_function.function;
     const target = functions_by_id.get(idKey(target_id)) orelse return addIn("UnknownCallTarget", cat(&.{ head, L(" references unknown function '"), target_id, L("'.") }));
-    const arguments = arrayOf(node, "arguments");
+    const arguments = node.arguments();
     const targets = a.alloc(Str, arguments.len) catch oom();
-    for (arguments, targets) |argument, *t| t.* = str(argument, "targetParameterId");
+    for (arguments, targets) |argument, *t| t.* = argument.reference("targetParameterId");
     for (countBy(targets).values()) |entry| {
         if (entry.count > 1) addIn("DuplicateArgumentTarget", cat(&.{ head, L(" binds parameter '"), entry.id, L("' more than once.") }));
     }
@@ -4664,19 +4853,19 @@ fn directCallRules(node: Value) void {
         if (parameterOf(target, t) == null) addIn("UnknownArgumentTargetParameter", cat(&.{ head, L(" targets parameter '"), t, L("' not owned by its callee.") }));
     }
     // A generic callee's type arguments follow from matching every bound argument.
-    const Bound = struct { parameter: Value, value_type: TypeRef };
+    const Bound = struct { parameter: Model, value_type: TypeRef };
     var pairs: List(Bound) = .empty;
     for (arguments, targets) |argument, t| {
         const parameter = parameterOf(target, t);
-        const value_type = nodeType(str(argument, "valueNodeId"));
+        const value_type = nodeType(argument.reference("valueNodeId"));
         if (parameter != null and value_type != null) pairs.append(a, .{ .parameter = parameter.?, .value_type = value_type.? }) catch oom();
     }
-    if (same(target_id, str(function, "id"))) {
+    if (same(target_id, function.id())) {
         // A self call takes the function's exact parameter types.
         for (pairs.items) |pair| {
             const declared = parameterType(pair.parameter);
             if (!typeEql(pair.value_type, declared))
-                addIn("PolymorphicSelfCallUnsupported", cat(&.{ head, L(" calls its own function "), functionLabel(function), L(" with a value of type "), describeType(pair.value_type), L(" for parameter "), describe(str(pair.parameter, "displayName"), str(pair.parameter, "id")), L(" of type "), describeType(declared), L("; a function calls itself at its own parameter types.") }));
+                addIn("PolymorphicSelfCallUnsupported", cat(&.{ head, L(" calls its own function "), functionLabel(function), L(" with a value of type "), describeType(pair.value_type), L(" for parameter "), describe(pair.parameter.displayName(), pair.parameter.id()), L(" of type "), describeType(declared), L("; a function calls itself at its own parameter types.") }));
         }
     } else {
         var matched: List(Pair) = .empty;
@@ -4686,31 +4875,31 @@ fn directCallRules(node: Value) void {
                 addIn("OneShotScopePayloadUnsupported", cat(&.{ head, L(" instantiates a OneShot payload with a type containing TaskScope, directly or through another generic call.") }));
         } else addIn("ArgumentTypeMismatch", cat(&.{ head, L(" binds a value whose type does not match its callee parameter.") }));
     }
-    for (arrayOf(target, "parameters")) |parameter| {
-        const parameter_id = str(parameter, "id");
+    for (target.parameters()) |parameter| {
+        const parameter_id = parameter.id();
         const bound = bindsParameter(arguments, parameter_id);
         const open = open_obligation_pairs.contains(idKey(cat(&.{ id, L("\n"), parameter_id })));
-        if (!bound and !open) addIn("MissingArgument", cat(&.{ head, L(" has no binding or open obligation for parameter "), describe(str(parameter, "displayName"), parameter_id), L(".") }));
+        if (!bound and !open) addIn("MissingArgument", cat(&.{ head, L(" has no binding or open obligation for parameter "), describe(parameter.displayName(), parameter_id), L(".") }));
     }
-    for (arrayOf(target, "requiredEffects")) |effect| {
-        if (!in_function.required_effects.contains(idKey(effect.string)))
-            addIn("MissingEffectRequirement", cat(&.{ L("Function "), functionLabel(function), L(" calls "), functionLabel(target), L(" but does not declare required effect "), effectLabel(effect.string), L(".") }));
+    for (target.requiredEffects()) |effect| {
+        if (!in_function.required_effects.contains(idKey(effect.literal())))
+            addIn("MissingEffectRequirement", cat(&.{ L("Function "), functionLabel(function), L(" calls "), functionLabel(target), L(" but does not declare required effect "), effectLabel(effect.literal()), L(".") }));
     }
 }
 
 /// `validateGraph`: the graph's own rules, each node's rules, then its nested graphs.
-fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, context: Str, graph: Value) void {
-    const nodes = arrayOf(graph, "nodes");
+fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, context: Str, graph: Model) void {
+    const nodes = graph.nodes();
     const local = idSet(nodes);
     var visible = outer_visible.clone(a) catch oom();
     for (local.keys()) |key| visible.put(a, key, {}) catch oom();
 
-    const result_id = str(graph, "resultNodeId");
+    const result_id = graph.resultNodeId();
     if (!local.contains(idKey(result_id)))
         addIn("UnknownGraphResultNode", cat(&.{ context, L(" result node '"), result_id, L("' is not owned directly by that graph.") }));
 
     for (nodes) |node| {
-        const id = str(node, "id");
+        const id = node.id();
         var references: List(Str) = .empty;
         directValueReferences(node, &references);
         for (references.items) |reference| {
@@ -4722,25 +4911,25 @@ fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, contex
         structureRules(node, result_id);
         callbackRules(node, &local);
         callRules(node);
-        const kind = str(node, "kind");
+        const kind = node.kind();
         if (isName(kind, "parameterReference")) {
-            const parameter_id = str(node, "parameterId");
+            const parameter_id = node.reference("parameterId");
             if (!in_function.parameters_by_id.contains(idKey(parameter_id)))
                 addIn("UnknownParameterReference", cat(&.{ L("Graph node '"), id, L("' references parameter '"), parameter_id, L("' outside its owning function.") }));
         } else if (isName(kind, "patternReference")) {
-            const binding_id = str(node, "patternBindingId");
+            const binding_id = node.reference("patternBindingId");
             if (!visible_patterns.contains(idKey(binding_id)))
                 addIn("UnknownPatternReference", cat(&.{ L("Graph node '"), id, L("' references pattern binding '"), binding_id, L("' outside its lexical binding scope.") }));
         } else if (isName(kind, "stringLiteral")) {
             // `NullStringLiteral` cannot occur: the reader requires a string.
-            if (hasLoneSurrogate(str(node, "value")))
+            if (hasLoneSurrogate(semantic_model.stringText(node.payload("value").?.lit)))
                 addIn("StringLiteralUnpairedSurrogate", nodeLabel("String literal", node, "contains an unpaired surrogate; a String is a sequence of Unicode scalar values."));
         } else if (isName(kind, "boolNot")) {
-            requireNodeType("BoolOperandTypeMismatch", nodeLabel("BoolNot", node, "requires a Bool operand."), primitiveType("bool"), str(node, "operandNodeId"));
+            requireNodeType("BoolOperandTypeMismatch", nodeLabel("BoolNot", node, "requires a Bool operand."), primitiveType("bool"), node.reference("operandNodeId"));
         } else if (isName(kind, "boolAnd") or isName(kind, "boolOr")) {
             const role: Str = if (isName(kind, "boolAnd")) L("BoolAnd") else L("BoolOr");
-            requireNodeType("BoolOperandTypeMismatch", cat(&.{ role, L(" node '"), id, L("' requires a Bool left operand.") }), primitiveType("bool"), str(node, "leftNodeId"));
-            const right = get(node, "right");
+            requireNodeType("BoolOperandTypeMismatch", cat(&.{ role, L(" node '"), id, L("' requires a Bool left operand.") }), primitiveType("bool"), node.reference("leftNodeId"));
+            const right = node.graphPayload("right");
             // The right graph is a Conditional branch in all but name: abrupt is allowed, normal must be Bool.
             if (normalType(in_function.resolver.graph(right))) |t| if (!t.isPrimitive("bool"))
                 addIn("BoolOperandTypeMismatch", cat(&.{ role, L(" node '"), id, L("' requires a Bool right operand.") }));
@@ -4748,42 +4937,42 @@ fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, contex
         } else if (isName(kind, "conditional")) {
             if (nodeTypeAt(node, "conditionNodeId")) |t| if (!t.isPrimitive("bool"))
                 addIn("ConditionalConditionTypeMismatch", nodeLabel("Conditional", node, "requires a Bool condition."));
-            const when_true = get(node, "whenTrue");
-            const when_false = get(node, "whenFalse");
+            const when_true = node.graphPayload("whenTrue");
+            const when_false = node.graphPayload("whenFalse");
             if (!compatibleArms(&.{ when_true, when_false }))
                 addIn("ConditionalBranchTypeMismatch", nodeLabel("Conditional", node, "branches do not produce one common type."));
             validateGraph(&visible, visible_patterns, cat(&.{ L("Conditional true branch of '"), id, L("'") }), when_true);
             validateGraph(&visible, visible_patterns, cat(&.{ L("Conditional false branch of '"), id, L("'") }), when_false);
         } else if (isName(kind, "matchUnion")) {
-            for (arrayOf(node, "arms")) |arm| {
+            for (node.arms()) |arm| {
                 var patterns = visible_patterns.clone(a) catch oom();
-                for (arrayOf(arm, "fieldBindings")) |field| patterns.put(a, idKey(str(get(field, "binding"), "id")), {}) catch oom();
-                validateGraph(&visible, &patterns, cat(&.{ L("Union match arm '"), describeArm(arm), L("'") }), get(arm, "body"));
+                for (arm.fieldBindings()) |field| patterns.put(a, idKey((field.boundBinding()).id()), {}) catch oom();
+                validateGraph(&visible, &patterns, cat(&.{ L("Union match arm '"), describeArm(arm), L("'") }), arm.body());
             }
         } else if (isName(kind, "bind")) {
-            const body = get(node, "boundBody");
-            validateGraph(&visible, &withPattern(visible_patterns, get(body, "valueBinding")), cat(&.{ L("Bind body of '"), id, L("'") }), get(body, "body"));
+            const body = node.arm("boundBody");
+            validateGraph(&visible, &withPattern(visible_patterns, body.armBinding()), cat(&.{ L("Bind body of '"), id, L("'") }), body.body());
         } else if (isName(kind, "matchOption")) {
-            const some = get(node, "someArm");
-            validateGraph(&visible, &withPattern(visible_patterns, get(some, "valueBinding")), cat(&.{ L("Option.Some arm of '"), id, L("'") }), get(some, "body"));
-            validateGraph(&visible, visible_patterns, cat(&.{ L("Option.None arm of '"), id, L("'") }), get(node, "noneBody"));
+            const some = node.arm("someArm");
+            validateGraph(&visible, &withPattern(visible_patterns, some.armBinding()), cat(&.{ L("Option.Some arm of '"), id, L("'") }), some.body());
+            validateGraph(&visible, visible_patterns, cat(&.{ L("Option.None arm of '"), id, L("'") }), node.graphPayload("noneBody"));
         } else if (isName(kind, "matchResult")) {
-            const ok_arm = get(node, "okArm");
-            const err_arm = get(node, "errArm");
-            validateGraph(&visible, &withPattern(visible_patterns, get(ok_arm, "valueBinding")), cat(&.{ L("Result.Ok arm of '"), id, L("'") }), get(ok_arm, "body"));
-            validateGraph(&visible, &withPattern(visible_patterns, get(err_arm, "errorBinding")), cat(&.{ L("Result.Err arm of '"), id, L("'") }), get(err_arm, "body"));
+            const ok_arm = node.arm("okArm");
+            const err_arm = node.arm("errArm");
+            validateGraph(&visible, &withPattern(visible_patterns, ok_arm.armBinding()), cat(&.{ L("Result.Ok arm of '"), id, L("'") }), ok_arm.body());
+            validateGraph(&visible, &withPattern(visible_patterns, err_arm.armBinding()), cat(&.{ L("Result.Err arm of '"), id, L("'") }), err_arm.body());
         }
     }
 }
 
-fn withPattern(patterns: *const Set, binding: Value) Set {
+fn withPattern(patterns: *const Set, binding: Model) Set {
     var out = patterns.clone(a) catch oom();
-    out.put(a, idKey(str(binding, "id")), {}) catch oom();
+    out.put(a, idKey(binding.id()), {}) catch oom();
     return out;
 }
 
 /// `UnionMatchArm.canonicalVariantIds` joined with `|`: the arm's variant IDs, sorted ordinally.
-fn describeArm(arm: Value) Str {
+fn describeArm(arm: Model) Str {
     const ids = a.dupe(Str, armVariantIds(arm)) catch oom();
     std.mem.sort(Str, ids, {}, lessStr);
     var out: List(u16) = .empty;
@@ -4798,32 +4987,32 @@ fn describeArm(arm: Value) Str {
 // Slice 3d: effect order, waiting, OneShot payloads and task crossing.
 
 const Role = enum { direct_call, pure_callback, effect_callback, worker, body, function_value, implementation };
-const FunctionRef = struct { function_id: Str, role: Role, arguments: []const Value };
+const FunctionRef = struct { function_id: Str, role: Role, arguments: []const Model };
 
 /// `SemanticNodeShape.functionReferences`, in payload order.
-fn functionReferences(node: Value) []const FunctionRef {
+fn functionReferences(node: Model) []const FunctionRef {
     var out: List(FunctionRef) = .empty;
-    const kind = text(str(node, "kind"));
-    const context = arrayOf(node, "context");
+    const kind = text(node.kind());
+    const context = node.targets("context");
     if (std.mem.eql(u8, kind, "directCall")) {
-        out.append(a, .{ .function_id = str(node, "targetFunctionId"), .role = .direct_call, .arguments = arrayOf(node, "arguments") }) catch oom();
+        out.append(a, .{ .function_id = node.reference("targetFunctionId"), .role = .direct_call, .arguments = node.arguments() }) catch oom();
     } else if (std.mem.eql(u8, kind, "functionReference")) {
-        out.append(a, .{ .function_id = str(node, "targetFunctionId"), .role = .function_value, .arguments = &.{} }) catch oom();
+        out.append(a, .{ .function_id = node.reference("targetFunctionId"), .role = .function_value, .arguments = &.{} }) catch oom();
     } else if (std.mem.eql(u8, kind, "capabilityConstruct")) {
-        for (arrayOf(node, "implementations")) |implementation|
-            out.append(a, .{ .function_id = str(implementation, "functionId"), .role = .implementation, .arguments = &.{} }) catch oom();
+        for (node.implementations()) |implementation|
+            out.append(a, .{ .function_id = implementation.reference("functionId"), .role = .implementation, .arguments = &.{} }) catch oom();
     } else if (std.mem.eql(u8, kind, "exceptionCatch")) {
-        out.append(a, .{ .function_id = str(node, "bodyFunctionId"), .role = .body, .arguments = arrayOf(node, "bodyContext") }) catch oom();
-        out.append(a, .{ .function_id = str(node, "handlerFunctionId"), .role = .body, .arguments = arrayOf(node, "handlerContext") }) catch oom();
+        out.append(a, .{ .function_id = node.reference("bodyFunctionId"), .role = .body, .arguments = node.targets("bodyContext") }) catch oom();
+        out.append(a, .{ .function_id = node.reference("handlerFunctionId"), .role = .body, .arguments = node.targets("handlerContext") }) catch oom();
     } else if (kindIs(kind, "cancellationShield taskScope useResource")) {
-        out.append(a, .{ .function_id = str(node, "bodyFunctionId"), .role = .body, .arguments = context }) catch oom();
+        out.append(a, .{ .function_id = node.reference("bodyFunctionId"), .role = .body, .arguments = context }) catch oom();
     } else if (kindIs(kind, "parallelAll taskStart")) {
-        out.append(a, .{ .function_id = str(node, "workerFunctionId"), .role = .worker, .arguments = context }) catch oom();
-    } else for (node.object) |member| {
-        // The pure callbacks: the one `…FunctionId` property of a higher-order node.
-        const name = member.name;
-        if (name.len > 10 and isName(name[name.len - 10 ..], "FunctionId"))
-            out.append(a, .{ .function_id = member.value.string, .role = if (std.mem.eql(u8, kind, "listEffectFold")) .effect_callback else .pure_callback, .arguments = context }) catch oom();
+        out.append(a, .{ .function_id = node.reference("workerFunctionId"), .role = .worker, .arguments = context }) catch oom();
+    } else {
+        var payload = node.data.node.payload();
+        while (payload.next()) |field| if (field.read.domain == .function) {
+            out.append(a, .{ .function_id = node.reference(field.read.name), .role = if (std.mem.eql(u8, kind, "listEffectFold")) .effect_callback else .pure_callback, .arguments = context }) catch oom();
+        };
     }
     return out.items;
 }
@@ -4834,10 +5023,10 @@ fn isInvoked(role: Role) bool {
 }
 
 /// `SemanticNodeShape.invokedOperations`: CapabilityInvoke's operation and UseResource's release.
-fn invokedOperation(node: Value) ?Str {
-    const kind = str(node, "kind");
-    if (isName(kind, "capabilityInvoke")) return str(node, "operationId");
-    if (isName(kind, "useResource")) return str(node, "releaseOperationId");
+fn invokedOperation(node: Model) ?Str {
+    const kind = node.kind();
+    if (isName(kind, "capabilityInvoke")) return node.reference("operationId");
+    if (isName(kind, "useResource")) return node.reference("releaseOperationId");
     return null;
 }
 
@@ -4862,16 +5051,16 @@ var order_depth: usize = 0;
 var dependencies_memo: std.AutoHashMapUnmanaged(usize, []const Str) = .empty;
 var observable_memo: std.AutoHashMapUnmanaged(usize, bool) = .empty;
 
-fn nodeKey(node: Value) usize {
-    return @intFromPtr(node.object.ptr);
+fn nodeKey(node: Model) usize {
+    return @intFromPtr(&node.data.node.body.ids[node.data.node.index]);
 }
 
-fn memoDependencies(node: Value) []const Str {
+fn memoDependencies(node: Model) []const Str {
     if (dependencies_memo.get(nodeKey(node))) |deps| return deps;
     var deps: List(Str) = .empty;
     directValueReferences(node, &deps);
     for (nestedScopes(node)) |scope| {
-        const inner_nodes = arrayOf(scope.graph, "nodes");
+        const inner_nodes = scope.graph.nodes();
         const local = idSet(inner_nodes);
         for (inner_nodes) |inner| for (memoDependencies(inner)) |dep| if (!local.contains(idKey(dep))) deps.append(a, dep) catch oom();
     }
@@ -4882,9 +5071,9 @@ fn memoDependencies(node: Value) []const Str {
 /// `GraphOrder.nodeObservable` with `semanticView`: Abort and the intrinsically effectful kinds
 /// except ParallelAll, a call, effect callback, worker or body of an observable function, or an
 /// observable node in a nested graph.
-fn nodeObservable(node: Value, observable: *const Set) bool {
+fn nodeObservable(node: Model, observable: *const Set) bool {
     if (observable_memo.get(nodeKey(node))) |known| return known;
-    const kind = text(str(node, "kind"));
+    const kind = text(node.kind());
     const result = blk: {
         if (std.mem.eql(u8, kind, "abort")) break :blk true;
         if (!std.mem.eql(u8, kind, "parallelAll") and kindIs(kind, effectful_kinds)) break :blk true;
@@ -4892,7 +5081,7 @@ fn nodeObservable(node: Value, observable: *const Set) bool {
             .direct_call, .effect_callback, .worker, .body => if (observable.contains(idKey(reference.function_id))) break :blk true,
             else => {},
         };
-        for (nestedScopes(node)) |scope| for (arrayOf(scope.graph, "nodes")) |inner| if (nodeObservable(inner, observable)) break :blk true;
+        for (nestedScopes(node)) |scope| for (scope.graph.nodes()) |inner| if (nodeObservable(inner, observable)) break :blk true;
         break :blk false;
     };
     observable_memo.put(a, nodeKey(node), result) catch oom();
@@ -4901,7 +5090,7 @@ fn nodeObservable(node: Value, observable: *const Set) bool {
 
 /// `GraphOrder.tryUnorderedEffects`: the first unordered observable pair of the graph's own nodes,
 /// else of its nested graphs in order.
-fn unorderedEffects(nodes: []const Value, observable: *const Set, by_id: bool) ?[2]Str {
+fn unorderedEffects(nodes: []const Model, observable: *const Set, by_id: bool) ?[2]Str {
     if (order_depth == 0) {
         dependencies_memo.clearRetainingCapacity();
         observable_memo.clearRetainingCapacity();
@@ -4911,8 +5100,8 @@ fn unorderedEffects(nodes: []const Value, observable: *const Set, by_id: bool) ?
     var edges: Edges = .empty;
     var effectful: List(Str) = .empty;
     for (nodes) |node| {
-        edges.put(a, idKey(str(node, "id")), memoDependencies(node)) catch oom();
-        if (nodeObservable(node, observable)) effectful.append(a, str(node, "id")) catch oom();
+        edges.put(a, idKey(node.id()), memoDependencies(node)) catch oom();
+        if (nodeObservable(node, observable)) effectful.append(a, node.id()) catch oom();
     }
     // `tryUnorderedPair` without its fast path (a topological walk), which only skips this search
     // when every pair is ordered and so cannot change the pair it names.
@@ -4925,15 +5114,15 @@ fn unorderedEffects(nodes: []const Value, observable: *const Set, by_id: bool) ?
     // The typed view lists a graph's nodes by ID and union arms by their first variant, the semantic
     // one both in document order.
     const ordered = if (by_id) blk: {
-        const sorted = a.dupe(Value, nodes) catch oom();
-        std.mem.sort(Value, sorted, {}, lessById);
+        const sorted = a.dupe(Model, nodes) catch oom();
+        std.mem.sort(Model, sorted, {}, lessById);
         break :blk sorted;
     } else nodes;
     for (ordered) |node| {
-        const scopes = a.dupe(Scope, nestedScopes(node)) catch oom();
-        if (by_id and isName(str(node, "kind"), "matchUnion")) {
-            const Keyed2 = struct { key: Str, scope: Scope };
-            const arms = arrayOf(node, "arms");
+        const scopes = a.dupe(TypedScope, nestedScopes(node)) catch oom();
+        if (by_id and isName(node.kind(), "matchUnion")) {
+            const Keyed2 = struct { key: Str, scope: TypedScope };
+            const arms = node.arms();
             const keyed = a.alloc(Keyed2, arms.len) catch oom();
             for (arms, scopes, keyed) |arm, scope, *k| {
                 var first: Str = &.{};
@@ -4949,7 +5138,7 @@ fn unorderedEffects(nodes: []const Value, observable: *const Set, by_id: bool) ?
             }.less);
             for (keyed, scopes) |k, *scope| scope.* = k.scope;
         }
-        for (scopes) |scope| if (unorderedEffects(arrayOf(scope.graph, "nodes"), observable, by_id)) |pair| return pair;
+        for (scopes) |scope| if (unorderedEffects(scope.graph.nodes(), observable, by_id)) |pair| return pair;
     }
     return null;
 }
@@ -4960,19 +5149,19 @@ var observable_functions: Set = .empty;
 /// `GraphOrder.tryEffectOrderConflict` with the semantic view, in every function, and its message.
 fn effectOrderRules() void {
     const function = in_function.function;
-    const pair = unorderedEffects(arrayOf(get(function, "body"), "nodes"), &observable_functions, false) orelse return;
+    const pair = unorderedEffects((function.body()).nodes(), &observable_functions, false) orelse return;
     const nodes_by_id = byId(in_function.all_nodes);
     var operation_names: std.StringHashMapUnmanaged(Str) = .empty;
-    for (all_capabilities) |capability| for (arrayOf(capability, "operations")) |operation|
-        operation_names.put(a, idKey(str(operation, "id")), cat(&.{ str(capability, "displayName"), L("."), str(operation, "displayName") })) catch oom();
+    for (all_capabilities) |capability| for (capability.operations()) |operation|
+        operation_names.put(a, idKey(operation.id()), cat(&.{ capability.displayName(), L("."), operation.displayName() })) catch oom();
     var described: [2]Str = undefined;
     for (pair, &described) |id, *d| {
         const node = nodes_by_id.get(idKey(id)).?;
-        const kind = str(node, "kind");
+        const kind = node.kind();
         const subject: ?Str = if (isName(kind, "directCall"))
-            (if (functions_by_id.get(idKey(str(node, "targetFunctionId")))) |f| cat(&.{ L("DirectCall to '"), str(f, "displayName"), L("'") }) else null)
+            (if (functions_by_id.get(idKey(node.reference("targetFunctionId")))) |f| cat(&.{ L("DirectCall to '"), f.displayName(), L("'") }) else null)
         else if (isName(kind, "capabilityInvoke"))
-            (if (operation_names.get(idKey(str(node, "operationId")))) |name| cat(&.{ L("CapabilityInvoke "), name }) else null)
+            (if (operation_names.get(idKey(node.reference("operationId")))) |name| cat(&.{ L("CapabilityInvoke "), name }) else null)
         else
             null;
         d.* = cat(&.{ quote(id), L(" ("), subject orelse caseNameOf(kind), L(")") });
@@ -4984,30 +5173,30 @@ fn effectOrderRules() void {
 const WaitPath = struct { via: []const [2]Str, node_id: Str, builtin: ?Str, operation: Str = &.{} };
 
 /// `Waiting.derive`: one path per function that may wait.
-fn deriveWaiting(capabilities: []const Value, functions: []const Value) std.StringArrayHashMapUnmanaged(WaitPath) {
+fn deriveWaiting(capabilities: []const Model, functions: []const Model) std.StringArrayHashMapUnmanaged(WaitPath) {
     var waiting_operations: Set = .empty;
-    for (capabilities) |capability| for (arrayOf(capability, "operations")) |operation| {
-        if (tryProperty("mayWait", operation) != null) waiting_operations.put(a, idKey(str(operation, "id")), {}) catch oom();
+    for (capabilities) |capability| for (capability.operations()) |operation| {
+        if (operation.mayWait()) waiting_operations.put(a, idKey(operation.id()), {}) catch oom();
     };
     var found: std.StringArrayHashMapUnmanaged(WaitPath) = .empty;
     const Call = struct { node_id: Str, callee: Str };
     const invoked = a.alloc([]const Call, functions.len) catch oom();
     for (functions, invoked) |function, *calls| {
-        var nodes: List(Value) = .empty;
-        collectNodes(get(function, "body"), &nodes);
+        var nodes: List(Model) = .empty;
+        collectNodes(function.body(), &nodes);
         for (nodes.items) |node| {
-            const kind = str(node, "kind");
+            const kind = node.kind();
             const builtin_wait = isName(kind, "taskWait") or isName(kind, "oneShotWait") or isName(kind, "parallelAll") or isName(kind, "taskScope");
             const operation = invokedOperation(node);
             if (builtin_wait or (operation != null and waiting_operations.contains(idKey(operation.?)))) {
-                const path: WaitPath = if (builtin_wait) .{ .via = &.{}, .node_id = str(node, "id"), .builtin = caseNameOf(kind) } else .{ .via = &.{}, .node_id = str(node, "id"), .builtin = null, .operation = operation.? };
-                found.put(a, idKey(str(function, "id")), path) catch oom();
+                const path: WaitPath = if (builtin_wait) .{ .via = &.{}, .node_id = node.id(), .builtin = caseNameOf(kind) } else .{ .via = &.{}, .node_id = node.id(), .builtin = null, .operation = operation.? };
+                found.put(a, idKey(function.id()), path) catch oom();
                 break;
             }
         }
         var list: List(Call) = .empty;
         for (nodes.items) |node| for (functionReferences(node)) |reference| {
-            if (isInvoked(reference.role)) list.append(a, .{ .node_id = str(node, "id"), .callee = reference.function_id }) catch oom();
+            if (isInvoked(reference.role)) list.append(a, .{ .node_id = node.id(), .callee = reference.function_id }) catch oom();
         };
         calls.* = list.items;
     }
@@ -5016,7 +5205,7 @@ fn deriveWaiting(capabilities: []const Value, functions: []const Value) std.Stri
     while (changed) {
         changed = false;
         for (functions, invoked) |function, calls| {
-            const id = idKey(str(function, "id"));
+            const id = idKey(function.id());
             if (found.contains(id)) continue;
             for (calls) |call| {
                 const inner = found.get(idKey(call.callee)) orelse continue;
@@ -5032,33 +5221,33 @@ fn deriveWaiting(capabilities: []const Value, functions: []const Value) std.Stri
 }
 
 /// `Waiting.describe`: `helper (node 'n1') -> TaskWait (node 'n2')`, names by first match.
-fn describeWait(capabilities: []const Value, functions: []const Value, path: WaitPath) Str {
+fn describeWait(capabilities: []const Model, functions: []const Model, path: WaitPath) Str {
     var out: List(u16) = .empty;
     for (path.via) |step| {
         const name = for (functions) |f| {
-            if (same(str(f, "id"), step[1])) break str(f, "displayName");
+            if (same(f.id(), step[1])) break f.displayName();
         } else quote(step[1]);
         out.appendSlice(a, cat(&.{ name, L(" (node '"), step[0], L("') -> ") })) catch oom();
     }
     const source = path.builtin orelse for (capabilities) |capability| {
-        const operation = for (arrayOf(capability, "operations")) |o| {
-            if (same(str(o, "id"), path.operation)) break o;
+        const operation = for (capability.operations()) |o| {
+            if (same(o.id(), path.operation)) break o;
         } else continue;
-        break cat(&.{ L("waiting operation "), str(capability, "displayName"), L("."), str(operation, "displayName") });
+        break cat(&.{ L("waiting operation "), capability.displayName(), L("."), operation.displayName() });
     } else cat(&.{ L("waiting operation "), quote(path.operation) });
     out.appendSlice(a, cat(&.{ source, L(" (node '"), path.node_id, L("')") })) catch oom();
     return out.items;
 }
 
 /// The `MustNotWaitFunctionWaits` loop after the per-function one.
-fn waitingRules(capabilities: []const Value, functions: []const Value) void {
+fn waitingRules(capabilities: []const Model, functions: []const Model) void {
     for (functions) |function| {
-        if (tryProperty("mustNotWait", function) != null) break;
+        if (function.mustNotWait()) break;
     } else return;
     const waiting = deriveWaiting(capabilities, functions);
     for (functions) |function| {
-        if (tryProperty("mustNotWait", function) == null) continue;
-        const path = waiting.get(idKey(str(function, "id"))) orelse continue;
+        if (!function.mustNotWait()) continue;
+        const path = waiting.get(idKey(function.id())) orelse continue;
         add("MustNotWaitFunctionWaits", cat(&.{ L("Function "), functionLabel(function), L(" must not wait but reaches "), describeWait(capabilities, functions, path), L(".") }));
     }
 }
@@ -5068,26 +5257,26 @@ fn waitingRules(capabilities: []const Value, functions: []const Value) void {
 const Instantiation = struct { owner: Str, node_id: Str, reference: FunctionRef, substitution: Substitution };
 
 /// The arguments of a node's operand of this builtin generic and arity, else none.
-fn genericArgs(r: *Resolver, node: Value, name: []const u8, comptime generic: []const u8, arity: usize) []const TypeRef {
-    const t = r.nodeType(str(node, name)) orelse return &.{};
+fn genericArgs(r: *Resolver, node: Model, name: []const u8, comptime generic: []const u8, arity: usize) []const TypeRef {
+    const t = r.nodeType(node.reference(name)) orelse return &.{};
     return if (t.isGeneric(generic) and t.args.len == arity) t.args else &.{};
 }
 
 /// The values a node passes its callee besides the context, by kind (the `iteration` of `instantiations`).
-fn iterationTypes(r: *Resolver, node: Value) []const TypeRef {
-    const kind = text(str(node, "kind"));
+fn iterationTypes(r: *Resolver, node: Model) []const TypeRef {
+    const kind = text(node.kind());
     var out: List(TypeRef) = .empty;
     if (std.mem.eql(u8, kind, "cancellationShield")) {
         out.append(a, primitiveType("unit")) catch oom();
     } else if (std.mem.eql(u8, kind, "taskScope")) {
         out.append(a, builtin("taskScope", &.{})) catch oom();
     } else if (std.mem.eql(u8, kind, "taskStart")) {
-        if (r.nodeType(str(node, "itemNodeId"))) |t| out.append(a, t) catch oom();
+        if (r.nodeType(node.reference("itemNodeId"))) |t| out.append(a, t) catch oom();
     } else if (std.mem.eql(u8, kind, "useResource")) {
         const args = genericArgs(r, node, "acquireNodeId", "result", 2);
         if (args.len == 2) out.append(a, args[0]) catch oom();
     } else if (kindIs(kind, "listFold listScan listEffectFold mapFold setFold")) {
-        if (r.nodeType(str(node, "seedNodeId"))) |t| out.append(a, t) catch oom();
+        if (r.nodeType(node.reference("seedNodeId"))) |t| out.append(a, t) catch oom();
         out.appendSlice(a, if (std.mem.eql(u8, kind, "mapFold")) genericArgs(r, node, "sourceMapNodeId", "map", 2) else if (std.mem.eql(u8, kind, "setFold")) genericArgs(r, node, "sourceSetNodeId", "set", 1) else genericArgs(r, node, "sourceListNodeId", "list", 1)) catch oom();
     } else if (kindIs(kind, "setFilter setMap")) {
         out.appendSlice(a, genericArgs(r, node, "sourceSetNodeId", "set", 1)) catch oom();
@@ -5109,26 +5298,26 @@ fn iterationTypes(r: *Resolver, node: Value) []const TypeRef {
     return out.items;
 }
 
-fn instantiations(functions: []const Value, resolvers: []Resolver) []const Instantiation {
+fn instantiations(functions: []const Model, resolvers: []Resolver) []const Instantiation {
     var out: List(Instantiation) = .empty;
     for (functions, resolvers) |function, *r| {
-        var nodes: List(Value) = .empty;
-        collectNodes(get(function, "body"), &nodes);
+        var nodes: List(Model) = .empty;
+        collectNodes(function.body(), &nodes);
         for (nodes.items) |node| {
             const iteration = iterationTypes(r, node);
             for (functionReferences(node)) |reference| {
                 const callee = functions_by_id.get(idKey(reference.function_id)) orelse continue;
                 var pairs: List(Pair) = .empty;
                 for (reference.arguments) |argument| {
-                    const parameter = parameterOf(callee, str(argument, "targetParameterId"));
-                    const actual = r.nodeType(str(argument, "valueNodeId"));
+                    const parameter = parameterOf(callee, argument.reference("targetParameterId"));
+                    const actual = r.nodeType(argument.reference("valueNodeId"));
                     if (parameter != null and actual != null) pairs.append(a, .{ .declared = parameterType(parameter.?), .actual = actual.? }) catch oom();
                 }
                 const unbound = unboundTypes(callee, reference.arguments);
                 const n = @min(unbound.len, iteration.len);
                 for (unbound[0..n], iteration[0..n]) |declared, actual| pairs.append(a, .{ .declared = declared, .actual = actual }) catch oom();
                 const substitution = matchAll(pairs.items) orelse continue;
-                out.append(a, .{ .owner = str(function, "id"), .node_id = str(node, "id"), .reference = reference, .substitution = substitution }) catch oom();
+                out.append(a, .{ .owner = function.id(), .node_id = node.id(), .reference = reference, .substitution = substitution }) catch oom();
             }
         }
     }
@@ -5169,24 +5358,24 @@ fn oneShotParameters(t: TypeRef, out: *Set) void {
 }
 
 /// Initial payload requirements, closed over transitive and recursive generic instantiations.
-fn deriveOneShotRequirements(functions: []const Value, calls: []const Instantiation) Requirements {
+fn deriveOneShotRequirements(functions: []const Model, calls: []const Instantiation) Requirements {
     var derived: Requirements = .empty;
     for (functions) |function| {
         var payload: Set = .empty;
-        oneShotParameters(typeRefOf(get(function, "resultType")), &payload);
-        for (arrayOf(function, "parameters")) |parameter| oneShotParameters(parameterType(parameter), &payload);
-        var nodes: List(Value) = .empty;
-        collectNodes(get(function, "body"), &nodes);
+        oneShotParameters(typeRefOf(function.resultType()), &payload);
+        for (function.parameters()) |parameter| oneShotParameters(parameterType(parameter), &payload);
+        var nodes: List(Model) = .empty;
+        collectNodes(function.body(), &nodes);
         for (nodes.items) |node| {
-            if (isName(str(node, "kind"), "oneShotCreate")) {
-                oneShotParameters(builtin("oneShot", &.{typeRefOf(get(node, "valueType"))}), &payload);
+            if (isName(node.kind(), "oneShotCreate")) {
+                oneShotParameters(builtin("oneShot", &.{typeRefOf(node.payloadType("valueType"))}), &payload);
             } else {
                 var types: List(TypeRef) = .empty;
                 payloadTypeRefs(node, &types);
                 for (types.items) |t| oneShotParameters(t, &payload);
             }
         }
-        derived.put(a, idKey(str(function, "id")), payload) catch oom();
+        derived.put(a, idKey(function.id()), payload) catch oom();
     }
     propagate(&derived, calls);
     return derived;
@@ -5224,35 +5413,35 @@ fn rejectTaskBound(what: Str, t: ?TypeRef) void {
 }
 
 /// `rejectTaskBound` on the item or source and each context binding of TaskStart and ParallelAll.
-fn rejectTaskBoundInputs(name: Str, node: Value, input: Str, comptime input_label: []const u8) void {
+fn rejectTaskBoundInputs(name: Str, node: Model, input: Str, comptime input_label: []const u8) void {
     rejectTaskBound(nodeMessage(name, node, input_label), nodeType(input));
-    for (arrayOf(node, "context")) |binding|
-        rejectTaskBound(cat(&.{ nodeMessage(name, node, "context binding '"), str(binding, "targetParameterId"), L("'") }), nodeType(str(binding, "valueNodeId")));
+    for (node.targets("context")) |binding|
+        rejectTaskBound(cat(&.{ nodeMessage(name, node, "context binding '"), binding.reference("targetParameterId"), L("'") }), nodeType(binding.reference("valueNodeId")));
 }
 
 /// The analyses `validate` runs before its per-function loop: task-crossing instantiations
 /// (`TaskCrossingRequirements.invalidInstantiations`) and OneShot payloads in callbacks
 /// (`OneShotPayloadRequirements.invalidCallbackUses`); they also set `one_shot_requirements`.
-fn instantiationRules(functions: []const Value, resolvers: []Resolver) void {
+fn instantiationRules(functions: []const Model, resolvers: []Resolver) void {
     const calls = instantiations(functions, resolvers);
     one_shot_requirements = deriveOneShotRequirements(functions, calls);
     var crossing: Requirements = .empty;
     for (functions, resolvers) |function, *r| {
-        var nodes: List(Value) = .empty;
-        collectNodes(get(function, "body"), &nodes);
+        var nodes: List(Model) = .empty;
+        collectNodes(function.body(), &nodes);
         var crosses: Set = .empty;
         for (nodes.items) |node| {
-            const kind = str(node, "kind");
+            const kind = node.kind();
             // The node's own type carries the worker result.
             if (isName(kind, "taskStart") or isName(kind, "parallelAll")) {
                 var ids: List(Str) = .empty;
-                ids.append(a, str(node, "id")) catch oom();
-                ids.append(a, str(node, if (isName(kind, "taskStart")) "itemNodeId" else "sourceListNodeId")) catch oom();
-                for (arrayOf(node, "context")) |binding| ids.append(a, str(binding, "valueNodeId")) catch oom();
+                ids.append(a, node.id()) catch oom();
+                ids.append(a, node.reference(if (isName(kind, "taskStart")) "itemNodeId" else "sourceListNodeId")) catch oom();
+                for (node.targets("context")) |binding| ids.append(a, binding.reference("valueNodeId")) catch oom();
                 for (ids.items) |id| if (r.nodeType(id)) |t| occurringIds(t, &crosses);
             }
         }
-        crossing.put(a, idKey(str(function, "id")), crosses) catch oom();
+        crossing.put(a, idKey(function.id()), crosses) catch oom();
     }
     propagate(&crossing, calls);
 
@@ -5271,121 +5460,121 @@ fn instantiationRules(functions: []const Value, resolvers: []Resolver) void {
     }
 }
 
-fn validateFunctionGraphs(functions: []const Value) void {
+fn validateFunctionGraphs(functions: []const Model) void {
     const resolvers = a.alloc(Resolver, functions.len) catch oom();
     for (functions, resolvers) |function, *r| r.* = Resolver.init(function);
     instantiationRules(functions, resolvers);
     observable_functions = observableFunctions(functions);
     for (functions, resolvers) |function, *resolver| {
-        const label = describe(str(function, "displayName"), str(function, "id"));
-        const body = get(function, "body");
-        var nodes: List(Value) = .empty;
+        const label = describe(function.displayName(), function.id());
+        const body = function.body();
+        var nodes: List(Model) = .empty;
         collectNodes(body, &nodes);
         var required_effects: Set = .empty;
-        for (arrayOf(function, "requiredEffects")) |effect| required_effects.put(a, idKey(effect.string), {}) catch oom();
-        in_function = .{ .function = function, .prefix = inFunction(function), .resolver = resolver, .parameters_by_id = byId(arrayOf(function, "parameters")), .all_nodes = nodes.items, .required_effects = required_effects };
+        for (function.requiredEffects()) |effect| required_effects.put(a, idKey(effect.literal()), {}) catch oom();
+        in_function = .{ .function = function, .prefix = inFunction(function), .resolver = resolver, .parameters_by_id = byId(function.parameters()), .all_nodes = nodes.items, .required_effects = required_effects };
         for (nodes.items) |node| {
             var references: List(Str) = .empty;
             directValueReferences(node, &references);
             for (references.items) |reference| {
                 if (resolver.completion(reference)) |c| if (c == .aborts)
-                    addIn("AbortValueUse", cat(&.{ L("Node '"), str(node, "id"), L("' uses abrupt node '"), reference, L("' as a value in function "), label, L(".") }));
+                    addIn("AbortValueUse", cat(&.{ L("Node '"), node.id(), L("' uses abrupt node '"), reference, L("' as a value in function "), label, L(".") }));
             }
         }
         validateGraph(&.empty, &.empty, cat(&.{ L("Function "), label, L(" body") }), body);
         effectOrderRules();
-        if (resolver.nodeType(str(body, "resultNodeId"))) |t| if (!typeEql(t, typeRefOf(get(function, "resultType"))))
+        if (resolver.nodeType(body.resultNodeId())) |t| if (!typeEql(t, typeRefOf(function.resultType())))
             addIn("FunctionResultTypeMismatch", cat(&.{ L("Function "), label, L(" result node type does not match its declared result type.") }));
     }
 }
 
-const NodeOwner = struct { owner: Str, node: Value };
+const NodeOwner = struct { owner: Str, node: Model };
 const TypeParameterOwners = struct { id: Str, first: Str, shared: bool };
 
 /// The declaration tables and owners the rules and the node type resolver read, set from the
 /// parsed document (last-wins where the F# validator's `Map.ofList` is). `validate` sets them first;
 /// `--validated` sets only them.
-fn prepareContext(root: Value) void {
-    const types = arrayOf(root, "types");
-    const capabilities = arrayOf(root, "capabilities");
-    const functions = arrayOf(root, "functions");
-    var operations: List(Value) = .empty;
-    for (capabilities) |capability| operations.appendSlice(a, arrayOf(capability, "operations")) catch oom();
-    effect_names = byId(arrayOf(root, "effects"));
+fn prepareContext(root: Model) void {
+    const types = root.types();
+    const capabilities = root.capabilities();
+    const functions = root.functions();
+    var operations: List(Model) = .empty;
+    for (capabilities) |capability| operations.appendSlice(a, capability.operations()) catch oom();
+    effect_names = byId(root.effects());
     functions_by_id = byId(functions);
     types_by_id = byId(types);
     all_types = types;
     capability_ids = idSet(capabilities);
     type_parameter_names = .empty;
-    for ([_][]const Value{ types, functions }) |declared| for (declared) |owner| for (arrayOf(owner, "typeParameters")) |declaration|
-        type_parameter_names.put(a, idKey(str(declaration, "typeParameterId")), str(declaration, "displayName")) catch oom();
+    for ([_][]const Model{ types, functions }) |declared| for (declared) |owner| for (owner.typeParameters()) |declaration|
+        type_parameter_names.put(a, idKey(declaration.reference("typeParameterId")), declaration.displayName()) catch oom();
     variant_owners = .empty;
     variants_by_id = .empty;
-    for (types) |type_entity| for (arrayOf(type_entity, "variants")) |variant| {
-        variant_owners.put(a, idKey(str(variant, "id")), str(type_entity, "id")) catch oom();
-        variants_by_id.put(a, idKey(str(variant, "id")), variant) catch oom();
+    for (types) |type_entity| for (type_entity.variants()) |variant| {
+        variant_owners.put(a, idKey(variant.id()), type_entity.id()) catch oom();
+        variants_by_id.put(a, idKey(variant.id()), variant) catch oom();
     };
     all_capabilities = capabilities;
     operations_by_id = byId(operations.items);
     operation_owners = .empty;
-    for (capabilities) |capability| for (arrayOf(capability, "operations")) |operation|
-        operation_owners.put(a, idKey(str(operation, "id")), str(capability, "id")) catch oom();
-    var product_fields: List(Value) = .empty;
+    for (capabilities) |capability| for (capability.operations()) |operation|
+        operation_owners.put(a, idKey(operation.id()), capability.id()) catch oom();
+    var product_fields: List(Model) = .empty;
     product_field_owners = .empty;
-    for (types) |type_entity| if (isName(str(type_entity, "kind"), "product")) for (arrayOf(type_entity, "fields")) |field| {
+    for (types) |type_entity| if (isName(type_entity.kind(), "product")) for (type_entity.fields()) |field| {
         product_fields.append(a, field) catch oom();
-        product_field_owners.put(a, idKey(str(field, "id")), type_entity) catch oom();
+        product_field_owners.put(a, idKey(field.id()), type_entity) catch oom();
     };
     product_fields_by_id = byId(product_fields.items);
     open_obligation_pairs = .empty;
-    for (arrayOf(root, "obligations")) |obligation| {
-        if (isName(str(obligation, "status"), "open"))
-            open_obligation_pairs.put(a, idKey(cat(&.{ str(obligation, "callNodeId"), L("\n"), str(obligation, "parameterId") })), {}) catch oom();
+    for (root.obligations()) |obligation| {
+        if (isName(obligation.status(), "open"))
+            open_obligation_pairs.put(a, idKey(cat(&.{ obligation.reference("callNodeId"), L("\n"), obligation.reference("parameterId") })), {}) catch oom();
     }
     task_bound_capabilities = .empty;
     for (capabilities) |capability| {
-        if (tryProperty("taskBound", capability) != null) task_bound_capabilities.put(a, idKey(str(capability, "id")), {}) catch oom();
+        if (capability.taskBound()) task_bound_capabilities.put(a, idKey(capability.id()), {}) catch oom();
     }
 }
 
-fn validate(root: Value) void {
+fn validate(root: Model) void {
     issues.clearRetainingCapacity();
     prepareContext(root);
-    const types = arrayOf(root, "types");
-    const effects = arrayOf(root, "effects");
-    const capabilities = arrayOf(root, "capabilities");
-    const functions = arrayOf(root, "functions");
-    const obligations = arrayOf(root, "obligations");
+    const types = root.types();
+    const effects = root.effects();
+    const capabilities = root.capabilities();
+    const functions = root.functions();
+    const obligations = root.obligations();
 
-    if (tryProperty("parentSnapshotId", root)) |parent| {
-        if (same(parent.string, str(root, "snapshotId"))) add("SnapshotParentSelfReference", L("A snapshot cannot name itself as its parent."));
+    if (root.parentSnapshotId()) |parent| {
+        if (same(parent, root.id())) add("SnapshotParentSelfReference", L("A snapshot cannot name itself as its parent."));
     }
 
-    var fields: List(Value) = .empty;
-    var variants: List(Value) = .empty;
+    var fields: List(Model) = .empty;
+    var variants: List(Model) = .empty;
     for (types) |type_entity| {
-        if (isName(str(type_entity, "kind"), "product")) {
-            fields.appendSlice(a, arrayOf(type_entity, "fields")) catch oom();
-        } else for (arrayOf(type_entity, "variants")) |variant| {
+        if (isName(type_entity.kind(), "product")) {
+            fields.appendSlice(a, type_entity.fields()) catch oom();
+        } else for (type_entity.variants()) |variant| {
             variants.append(a, variant) catch oom();
-            fields.appendSlice(a, arrayOf(variant, "fields")) catch oom();
+            fields.appendSlice(a, variant.fields()) catch oom();
         }
     }
-    var operations: List(Value) = .empty;
-    for (capabilities) |capability| operations.appendSlice(a, arrayOf(capability, "operations")) catch oom();
-    var capability_parameters: List(Value) = .empty;
-    for (operations.items) |operation| capability_parameters.appendSlice(a, arrayOf(operation, "parameters")) catch oom();
-    var parameters: List(Value) = .empty;
-    var nodes: List(Value) = .empty;
+    var operations: List(Model) = .empty;
+    for (capabilities) |capability| operations.appendSlice(a, capability.operations()) catch oom();
+    var capability_parameters: List(Model) = .empty;
+    for (operations.items) |operation| capability_parameters.appendSlice(a, operation.parameters()) catch oom();
+    var parameters: List(Model) = .empty;
+    var nodes: List(Model) = .empty;
     var node_owners: std.StringArrayHashMapUnmanaged(NodeOwner) = .empty;
-    var bindings: List(Value) = .empty;
+    var bindings: List(Model) = .empty;
     for (functions) |function| {
-        parameters.appendSlice(a, arrayOf(function, "parameters")) catch oom();
+        parameters.appendSlice(a, function.parameters()) catch oom();
         const first = nodes.items.len;
-        collectNodes(get(function, "body"), &nodes);
+        collectNodes(function.body(), &nodes);
         // `nodeOwners`: the last owner of a duplicated node ID wins.
-        for (nodes.items[first..]) |node| node_owners.put(a, idKey(str(node, "id")), .{ .owner = str(function, "id"), .node = node }) catch oom();
-        collectBindings(get(function, "body"), &bindings);
+        for (nodes.items[first..]) |node| node_owners.put(a, idKey(node.id()), .{ .owner = function.id(), .node = node }) catch oom();
+        collectBindings(function.body(), &bindings);
     }
 
     duplicates("DuplicateTypeId", "Type ID", types);
@@ -5404,11 +5593,11 @@ fn validate(root: Value) void {
     var open_pairs: List(Str) = .empty;
     var open_calls: std.StringArrayHashMapUnmanaged([2]Str) = .empty;
     for (obligations) |obligation| {
-        if (!isName(str(obligation, "status"), "open")) continue;
+        if (!isName(obligation.status(), "open")) continue;
         // A stable ID holds no line break, so one separates the pair.
-        const pair = cat(&.{ str(obligation, "callNodeId"), L("\n"), str(obligation, "parameterId") });
+        const pair = cat(&.{ obligation.reference("callNodeId"), L("\n"), obligation.reference("parameterId") });
         open_pairs.append(a, pair) catch oom();
-        open_calls.put(a, idKey(pair), .{ str(obligation, "callNodeId"), str(obligation, "parameterId") }) catch oom();
+        open_calls.put(a, idKey(pair), .{ obligation.reference("callNodeId"), obligation.reference("parameterId") }) catch oom();
     }
     for (countBy(open_pairs.items).values()) |entry| {
         if (entry.count > 1) {
@@ -5427,42 +5616,42 @@ fn validate(root: Value) void {
     blankNames("BlankFunctionDisplayName", "Function", functions);
     blankNames("BlankParameterDisplayName", "Parameter", parameters.items);
     for (bindings.items) |binding| {
-        const display = tryProperty("displayName", binding) orelse continue;
-        if (isBlank(display.string)) add("BlankPatternBindingDisplayName", cat(&.{ L("Pattern binding '"), str(binding, "id"), L("' has a blank display name.") }));
+        const display = binding.optionalDisplayName() orelse continue;
+        if (isBlank(display)) add("BlankPatternBindingDisplayName", cat(&.{ L("Pattern binding '"), binding.id(), L("' has a blank display name.") }));
     }
 
     const effect_ids = idSet(effects);
 
     for (operations.items) |operation| {
-        const effect_id = str(operation, "effectId");
+        const effect_id = operation.reference("effectId");
         if (!effect_ids.contains(idKey(effect_id)))
-            add("UnknownCapabilityEffect", cat(&.{ L("Capability operation "), describe(str(operation, "displayName"), str(operation, "id")), L(" references unknown effect "), effectLabel(effect_id), L(".") }));
+            add("UnknownCapabilityEffect", cat(&.{ L("Capability operation "), describe(operation.displayName(), operation.id()), L(" references unknown effect "), effectLabel(effect_id), L(".") }));
     }
 
     var direct: Direct = .empty;
     for (types) |type_entity| {
         var set: Set = .empty;
-        for (fieldsOf(type_entity)) |field| named(get(field, "type"), &set);
-        direct.put(a, idKey(str(type_entity, "id")), set) catch oom();
+        for (fieldsOf(type_entity)) |field| named(field.declaredType(), &set);
+        direct.put(a, idKey(type_entity.id()), set) catch oom();
     }
     for (types) |type_entity| {
-        typeParameterDeclarations("Type", describe(str(type_entity, "displayName"), str(type_entity, "id")), arrayOf(type_entity, "typeParameters"));
-        for (fieldsOf(type_entity)) |field| checkRecursion(&direct, str(type_entity, "id"), field, get(field, "type"));
+        typeParameterDeclarations("Type", describe(type_entity.displayName(), type_entity.id()), type_entity.typeParameters());
+        for (fieldsOf(type_entity)) |field| checkRecursion(&direct, type_entity.id(), field, field.declaredType());
     }
     for (operations.items) |operation| {
         var set: Set = .empty;
-        occurring(get(operation, "resultType"), &set);
-        for (arrayOf(operation, "parameters")) |parameter| occurring(get(parameter, "type"), &set);
-        if (tryProperty("failureType", operation)) |failure| occurring(failure, &set);
-        if (set.count() > 0) add("TypeParameterOutsideFunction", cat(&.{ L("Capability operation "), describe(str(operation, "displayName"), str(operation, "id")), L(" uses a function type parameter.") }));
+        occurring(operation.resultType(), &set);
+        for (operation.parameters()) |parameter| occurring(parameter.declaredType(), &set);
+        if (operation.failureType()) |failure| occurring(failure, &set);
+        if (set.count() > 0) add("TypeParameterOutsideFunction", cat(&.{ L("Capability operation "), describe(operation.displayName(), operation.id()), L(" uses a function type parameter.") }));
     }
 
     var owners: std.StringArrayHashMapUnmanaged(TypeParameterOwners) = .empty;
-    for ([_][]const Value{ functions, types }, [_]Str{ L("function:"), L("type:") }) |declared, prefix| {
+    for ([_][]const Model{ functions, types }, [_]Str{ L("function:"), L("type:") }) |declared, prefix| {
         for (declared) |declaration_owner| {
-            const owner = cat(&.{ prefix, str(declaration_owner, "id") });
-            for (arrayOf(declaration_owner, "typeParameters")) |declaration| {
-                const id = str(declaration, "typeParameterId");
+            const owner = cat(&.{ prefix, declaration_owner.id() });
+            for (declaration_owner.typeParameters()) |declaration| {
+                const id = declaration.reference("typeParameterId");
                 const entry = owners.getOrPut(a, idKey(id)) catch oom();
                 if (!entry.found_existing) entry.value_ptr.* = .{ .id = id, .first = owner, .shared = false };
                 if (!same(entry.value_ptr.first, owner)) entry.value_ptr.shared = true;
@@ -5474,22 +5663,22 @@ fn validate(root: Value) void {
     }
 
     for (functions) |function| {
-        const label = describe(str(function, "displayName"), str(function, "id"));
-        const declarations = arrayOf(function, "typeParameters");
+        const label = describe(function.displayName(), function.id());
+        const declarations = function.typeParameters();
         typeParameterDeclarations("Function", label, declarations);
         var introduced: Set = .empty;
-        for (arrayOf(function, "parameters")) |parameter| occurring(get(parameter, "type"), &introduced);
+        for (function.parameters()) |parameter| occurring(parameter.declaredType(), &introduced);
         for (declarations) |declaration| {
-            if (!introduced.contains(idKey(str(declaration, "typeParameterId"))))
-                add("TypeParameterNotInferable", cat(&.{ L("Function "), label, L(" declares type parameter '"), str(declaration, "displayName"), L("' that none of its parameter types mentions, so a call could not determine it.") }));
+            if (!introduced.contains(idKey(declaration.reference("typeParameterId"))))
+                add("TypeParameterNotInferable", cat(&.{ L("Function "), label, L(" declares type parameter '"), declaration.displayName(), L("' that none of its parameter types mentions, so a call could not determine it.") }));
         }
     }
 
     for (functions) |function| {
-        const label = describe(str(function, "displayName"), str(function, "id"));
-        const required = arrayOf(function, "requiredEffects");
+        const label = describe(function.displayName(), function.id());
+        const required = function.requiredEffects();
         const ids = a.alloc(Str, required.len) catch oom();
-        for (required, ids) |effect, *id| id.* = effect.string;
+        for (required, ids) |effect, *id| id.* = effect.literal();
         for (countBy(ids).values()) |entry| {
             if (entry.count > 1) add("DuplicateFunctionEffectRequirement", cat(&.{ L("Function "), label, L(" lists effect "), effectLabel(entry.id), L(" more than once.") }));
         }
@@ -5499,32 +5688,32 @@ fn validate(root: Value) void {
     }
 
     for (obligations) |obligation| {
-        const id = str(obligation, "id");
-        const call_id = str(obligation, "callNodeId");
-        const parameter_id = str(obligation, "parameterId");
+        const id = obligation.id();
+        const call_id = obligation.reference("callNodeId");
+        const parameter_id = obligation.reference("parameterId");
         const call = node_owners.get(idKey(call_id)) orelse {
             add("InvalidObligationTarget", cat(&.{ L("Obligation '"), id, L("' targets unknown graph node '"), call_id, L("'.") }));
             continue;
         };
-        if (!isName(str(call.node, "kind"), "directCall")) {
+        if (!isName(call.node.kind(), "directCall")) {
             add("InvalidObligationTarget", cat(&.{ L("Obligation '"), id, L("' does not target a direct-call node.") }));
             continue;
         }
         var owned = false;
-        if (functions_by_id.get(idKey(str(call.node, "targetFunctionId")))) |target| {
-            for (arrayOf(target, "parameters")) |parameter| owned = owned or same(str(parameter, "id"), parameter_id);
+        if (functions_by_id.get(idKey(call.node.reference("targetFunctionId")))) |target| {
+            for (target.parameters()) |parameter| owned = owned or same(parameter.id(), parameter_id);
         }
         if (!owned) add("InvalidObligationParameter", cat(&.{ L("Obligation '"), id, L("' targets a parameter not owned by the call's callee.") }));
-        var matching: List(Value) = .empty;
-        for (arrayOf(call.node, "arguments")) |argument| {
-            if (same(str(argument, "targetParameterId"), parameter_id)) matching.append(a, argument) catch oom();
+        var matching: List(Model) = .empty;
+        for (call.node.arguments()) |argument| {
+            if (same(argument.reference("targetParameterId"), parameter_id)) matching.append(a, argument) catch oom();
         }
-        if (isName(str(obligation, "status"), "open")) {
+        if (isName(obligation.status(), "open")) {
             if (matching.items.len > 0) add("SatisfiedOpenObligation", cat(&.{ L("Open obligation '"), id, L("' already has a matching argument binding.") }));
         } else {
-            const value_id = str(obligation, "resolutionValueNodeId");
+            const value_id = obligation.reference("resolutionValueNodeId");
             var exact = false;
-            for (matching.items) |argument| exact = exact or same(str(argument, "valueNodeId"), value_id);
+            for (matching.items) |argument| exact = exact or same(argument.reference("valueNodeId"), value_id);
             if (!exact) add("InvalidObligationResolution", cat(&.{ L("Resolved obligation '"), id, L("' does not match the call's argument binding.") }));
             const value_owner = node_owners.get(idKey(value_id));
             if (value_owner == null or !same(value_owner.?.owner, call.owner))
@@ -5588,45 +5777,45 @@ fn typedTypes(types: []const TypeRef) []const u8 {
     return array(texts);
 }
 
-fn typedTypeOf(element: Value) []const u8 {
+fn typedTypeOf(element: Model) []const u8 {
     return typedType(typeRefOf(element));
 }
 
 /// `{ id, type }`, the shape of fields, parameters and pattern bindings.
-fn typedSlot(element: Value) Keyed {
+fn typedSlot(element: Model) Keyed {
     var o: Obj = .{};
-    o.put("id", quoted(str(element, "id")));
-    o.put("type", typedTypeOf(get(element, "type")));
-    return .{ .key = str(element, "id"), .text = o.done() };
+    o.put("id", quoted(element.id()));
+    o.put("type", typedTypeOf(element.declaredType()));
+    return .{ .key = element.id(), .text = o.done() };
 }
 
-fn typedSlots(elements: []const Value, sorted: bool) []const u8 {
+fn typedSlots(elements: []const Model, sorted: bool) []const u8 {
     const out = a.alloc(Keyed, elements.len) catch oom();
     for (elements, out) |element, *o| o.* = typedSlot(element);
     return if (sorted) sortedArray(out) else plainArray(out);
 }
 
-fn typedTypeParameters(o: *Obj, element: Value) void {
-    const parameters = arrayOf(element, "typeParameters");
+fn typedTypeParameters(o: *Obj, element: Model) void {
+    const parameters = element.typeParameters();
     if (parameters.len == 0) return;
     const texts = a.alloc([]const u8, parameters.len) catch oom();
     for (parameters, texts) |parameter, *t| {
         var p: Obj = .{};
-        p.put("typeParameterId", quoted(str(parameter, "typeParameterId")));
-        p.put("displayName", quoted(str(parameter, "displayName")));
+        p.put("typeParameterId", quoted(parameter.reference("typeParameterId")));
+        p.put("displayName", quoted(parameter.displayName()));
         t.* = p.done();
     }
     o.put("typeParameters", array(texts));
 }
 
 /// Arguments, capability arguments and field values, sorted by target.
-fn typedTargets(elements: []const Value, target: []const u8) []const u8 {
+fn typedTargets(elements: []const Model, target: []const u8) []const u8 {
     const out = a.alloc(Keyed, elements.len) catch oom();
     for (elements, out) |element, *o| {
         var obj: Obj = .{};
-        obj.put(target, quoted(str(element, target)));
-        obj.put("valueNodeId", quoted(str(element, "valueNodeId")));
-        o.* = .{ .key = str(element, target), .text = obj.done() };
+        obj.put(target, quoted(element.reference(target)));
+        obj.put("valueNodeId", quoted(element.reference("valueNodeId")));
+        o.* = .{ .key = element.reference(target), .text = obj.done() };
     }
     return sortedArray(out);
 }
@@ -5641,46 +5830,52 @@ fn typedName(kind: []const u8, read: Read) ?[]const u8 {
     return read.name;
 }
 
-fn typedArm(resolver: *Resolver, arm: Value, binding: []const u8) []const u8 {
+fn typedArm(resolver: *Resolver, arm: Model, _: []const u8) []const u8 {
     var o: Obj = .{};
-    o.put("binding", typedSlot(get(arm, binding)).text);
-    o.put("body", typedGraph(resolver, get(arm, "body")));
+    o.put("binding", typedSlot(arm.armBinding()).text);
+    o.put("body", typedGraph(resolver, arm.body()));
     return o.done();
 }
 
-fn typedShape(resolver: *Resolver, read: Read, node: Value) ?[]const u8 {
-    const value = tryProperty(read.name, node) orelse return null;
+fn typedShape(resolver: *Resolver, read: Read, node: Model) ?[]const u8 {
+    const value = node.payload(read.name) orelse return null;
+    if (value == .optid and value.optid == null) return null;
+    if (value == .ctx and value.ctx.len() == 0) return null;
     return switch (read.shape) {
-        .id, .optid, .lit, .mode => quoted(value.string),
+        .id, .optid => quoted(node.reference(read.name)),
+        .lit => quoted(semantic_model.stringText(value.lit)),
+        .mode => quotedAscii(@tagName(value.mode)),
         .ids => blk: {
-            const texts = a.alloc([]const u8, value.array.len) catch oom();
-            for (value.array, texts) |item, *t| t.* = quoted(item.string);
+            const texts = a.alloc([]const u8, value.ids.len) catch oom();
+            for (value.ids, texts) |id, *t| t.* = quoted(semantic_model.idTextOf(.node, id));
             break :blk array(texts);
         },
-        .type => typedTypeOf(value),
+        .type => typedType(semanticType(value.type)),
         .targs => unreachable,
-        .graph => typedGraph(resolver, value),
-        .varm => typedArm(resolver, value, "valueBinding"),
-        .errarm => typedArm(resolver, value, "errorBinding"),
-        .ctx, .args => typedTargets(value.array, "targetParameterId"),
-        .capargs => typedTargets(value.array, "targetCapabilityParameterId"),
-        .fields => typedTargets(value.array, "targetFieldId"),
-        .bool => if (value == .json_true) "true" else "false",
-        .int => fmt("{d}", .{readInt64(read.name, node) catch unreachable}),
-        .bits => readFloat64Bits(read.name, node) catch unreachable,
+        .graph => typedGraph(resolver, semantic_model.borrow(.{ .graph = value.graph })),
+        .varm => typedArm(resolver, semantic_model.borrow(.{ .binding_arm = value.varm }), "valueBinding"),
+        .errarm => typedArm(resolver, semantic_model.borrow(.{ .binding_arm = value.errarm }), "errorBinding"),
+        .ctx, .args => typedTargets(node.targets(read.name), "targetParameterId"),
+        .capargs => typedTargets(node.targets(read.name), "targetCapabilityParameterId"),
+        .fields => typedTargets(node.targets(read.name), "targetFieldId"),
+        .bool => if (value.bool) "true" else "false",
+        .int => fmt("{d}", .{value.int}),
+        .bits => fmt("\"{x:0>16}\"", .{value.bits}),
         .impls => blk: {
-            const out = a.alloc(Keyed, value.array.len) catch oom();
-            for (value.array, out) |item, *o| {
+            const items = node.implementations();
+            const out = a.alloc(Keyed, items.len) catch oom();
+            for (items, out) |item, *o| {
                 var obj: Obj = .{};
-                obj.put("operationId", quoted(str(item, "operationId")));
-                obj.put("functionId", quoted(str(item, "functionId")));
-                o.* = .{ .key = str(item, "operationId"), .text = obj.done() };
+                obj.put("operationId", quoted(item.reference("operationId")));
+                obj.put("functionId", quoted(item.reference("functionId")));
+                o.* = .{ .key = item.reference("operationId"), .text = obj.done() };
             }
             break :blk sortedArray(out);
         },
         .arms => blk: {
-            const out = a.alloc(Keyed, value.array.len) catch oom();
-            for (value.array, out) |arm, *o| {
+            const arms = node.arms();
+            const out = a.alloc(Keyed, arms.len) catch oom();
+            for (arms, out) |arm, *o| {
                 const variants = a.dupe(Str, armVariantIds(arm)) catch oom();
                 std.mem.sort(Str, variants, {}, lessStr);
                 var obj: Obj = .{};
@@ -5689,16 +5884,16 @@ fn typedShape(resolver: *Resolver, read: Read, node: Value) ?[]const u8 {
                     for (variants, texts) |variant, *t| t.* = quoted(variant);
                     obj.put("variantIds", array(texts));
                 }
-                const fields = arrayOf(arm, "fieldBindings");
+                const fields = arm.fieldBindings();
                 const bindings = a.alloc(Keyed, fields.len) catch oom();
                 for (fields, bindings) |field, *b| {
                     var f: Obj = .{};
-                    f.put("sourceFieldId", quoted(str(field, "sourceFieldId")));
-                    f.put("binding", typedSlot(get(field, "binding")).text);
-                    b.* = .{ .key = str(field, "sourceFieldId"), .text = f.done() };
+                    f.put("sourceFieldId", quoted(field.reference("sourceFieldId")));
+                    f.put("binding", typedSlot(field.boundBinding()).text);
+                    b.* = .{ .key = field.reference("sourceFieldId"), .text = f.done() };
                 }
                 obj.put("fieldBindings", sortedArray(bindings));
-                obj.put("body", typedGraph(resolver, get(arm, "body")));
+                obj.put("body", typedGraph(resolver, arm.body()));
                 o.* = .{ .key = if (variants.len > 0) variants[0] else &.{}, .text = obj.done() };
             }
             break :blk sortedArray(out);
@@ -5706,16 +5901,16 @@ fn typedShape(resolver: *Resolver, read: Read, node: Value) ?[]const u8 {
     };
 }
 
-fn typedNode(resolver: *Resolver, node: Value) []const u8 {
-    const kind_name = text(str(node, "kind"));
+fn typedNode(resolver: *Resolver, node: Model) []const u8 {
+    const kind_name = text(node.kind());
     const kind = kinds.get(kind_name).?;
     var o: Obj = .{};
-    o.put("originNodeId", quoted(str(node, "id")));
-    switch (resolver.completion(str(node, "id")).?) {
+    o.put("originNodeId", quoted(node.id()));
+    switch (resolver.completion(node.id()).?) {
         .normal => |t| o.put("type", typedType(t)),
         .aborts => o.put("completion", "\"abort\""),
     }
-    o.put("kind", quoted(str(node, "kind")));
+    o.put("kind", quoted(node.kind()));
     for (kind.writes) |index| {
         const read = kind.reads[index];
         if (typedName(kind_name, read)) |name| o.putOptional(name, typedShape(resolver, read, node));
@@ -5723,22 +5918,22 @@ fn typedNode(resolver: *Resolver, node: Value) []const u8 {
     return o.done();
 }
 
-fn typedGraph(resolver: *Resolver, graph: Value) []const u8 {
-    const nodes = arrayOf(graph, "nodes");
+fn typedGraph(resolver: *Resolver, graph: Model) []const u8 {
+    const nodes = graph.nodes();
     const out = a.alloc(Keyed, nodes.len) catch oom();
-    for (nodes, out) |node, *o| o.* = .{ .key = str(node, "id"), .text = typedNode(resolver, node) };
+    for (nodes, out) |node, *o| o.* = .{ .key = node.id(), .text = typedNode(resolver, node) };
     var obj: Obj = .{};
     obj.put("nodes", sortedArray(out));
-    obj.put("resultNodeId", quoted(str(graph, "resultNodeId")));
+    obj.put("resultNodeId", quoted(graph.resultNodeId()));
     return obj.done();
 }
 
 /// The first node without a completion, in `projectGraph`'s order (by ID, each node before its nested graphs).
-fn missingNodeType(resolver: *Resolver, graph: Value) ?Str {
-    const nodes = a.dupe(Value, arrayOf(graph, "nodes")) catch oom();
-    std.mem.sort(Value, nodes, {}, lessById);
+fn missingNodeType(resolver: *Resolver, graph: Model) ?Str {
+    const nodes = a.dupe(Model, graph.nodes()) catch oom();
+    std.mem.sort(Model, nodes, {}, lessById);
     for (nodes) |node| {
-        if (resolver.completion(str(node, "id")) == null) return str(node, "id");
+        if (resolver.completion(node.id()) == null) return node.id();
         for (nestedScopes(node)) |scope| if (missingNodeType(resolver, scope.graph)) |id| return id;
     }
     return null;
@@ -5746,8 +5941,8 @@ fn missingNodeType(resolver: *Resolver, graph: Value) ?Str {
 
 /// `ExecutionCallGraph.forSnapshotEntry`: the functions the entry reaches through any function
 /// reference (nested graphs included) and the obligations on their call nodes, in document order.
-fn selectEntry(root: Value, entry: Str) Value {
-    const functions = arrayOf(root, "functions");
+fn selectEntry(root: Model, entry: Str) Model {
+    const functions = root.functions();
     const by_id = byId(functions);
     var seen: Set = .empty;
     var pending: List(Str) = .empty;
@@ -5756,33 +5951,36 @@ fn selectEntry(root: Value, entry: Str) Value {
         if (seen.contains(idKey(id))) continue;
         seen.put(a, idKey(id), {}) catch oom();
         const function = by_id.get(idKey(id)) orelse continue;
-        var nodes: List(Value) = .empty;
-        collectNodes(get(function, "body"), &nodes);
+        var nodes: List(Model) = .empty;
+        collectNodes(function.body(), &nodes);
         for (nodes.items) |node| for (functionReferences(node)) |reference| pending.append(a, reference.function_id) catch oom();
     }
-    var selected: List(Value) = .empty;
+    var selected: List(Model) = .empty;
     var node_ids: Set = .empty;
-    for (functions) |function| if (seen.contains(idKey(str(function, "id")))) {
+    for (functions) |function| if (seen.contains(idKey(function.id()))) {
         selected.append(a, function) catch oom();
-        var nodes: List(Value) = .empty;
-        collectNodes(get(function, "body"), &nodes);
-        for (nodes.items) |node| node_ids.put(a, idKey(str(node, "id")), {}) catch oom();
+        var nodes: List(Model) = .empty;
+        collectNodes(function.body(), &nodes);
+        for (nodes.items) |node| node_ids.put(a, idKey(node.id()), {}) catch oom();
     };
-    var obligations: List(Value) = .empty;
-    for (arrayOf(root, "obligations")) |obligation| if (node_ids.contains(idKey(str(obligation, "callNodeId")))) obligations.append(a, obligation) catch oom();
-    const members = a.dupe(Member, root.object) catch oom();
-    for (members) |*member| {
-        if (isName(member.name, "functions")) member.value = .{ .array = selected.items };
-        if (isName(member.name, "obligations")) member.value = .{ .array = obligations.items };
-    }
-    return .{ .object = members };
+    var obligations: List(Model) = .empty;
+    for (root.obligations()) |obligation| if (node_ids.contains(idKey(obligation.reference("callNodeId")))) obligations.append(a, obligation) catch oom();
+    const generation = a.create(session_model.Generation) catch oom();
+    generation.* = root.data.snapshot.*;
+    const selected_functions = a.alloc(*const session_model.Function, selected.items.len) catch oom();
+    for (selected.items, selected_functions) |item, *slot| slot.* = item.data.function;
+    const selected_obligations = a.alloc(*const session_model.Obligation, obligations.items.len) catch oom();
+    for (obligations.items, selected_obligations) |item, *slot| slot.* = item.data.obligation;
+    generation.functions = selected_functions;
+    generation.obligations = selected_obligations;
+    return semantic_model.borrow(.{ .snapshot = generation });
 }
 
-const Ready = struct { function: Value, resolver: *Resolver };
+const Ready = struct { function: Model, resolver: *Resolver };
 
 /// `SnapshotReadiness.evaluate`, then each function (by ID) with its resolver; `MissingNodeType`
 /// for the first function with a node the resolver cannot type.
-fn readyFunctions(root: Value) LoweringFailure![]Ready {
+fn readyFunctions(root: Model) LoweringFailure![]Ready {
     // `--validated`: the bytes passed the validator before, so only its context is prepared.
     if (validated_input) {
         issues.clearRetainingCapacity();
@@ -5793,7 +5991,7 @@ fn readyFunctions(root: Value) LoweringFailure![]Ready {
         return error.Invalid;
     }
     var open: List(Str) = .empty;
-    for (arrayOf(root, "obligations")) |obligation| if (isName(str(obligation, "status"), "open")) open.append(a, str(obligation, "id")) catch oom();
+    for (root.obligations()) |obligation| if (isName(obligation.status(), "open")) open.append(a, obligation.id()) catch oom();
     if (open.items.len > 0) {
         std.mem.sort(Str, open.items, {}, lessStr);
         var names: List(u8) = .empty;
@@ -5801,14 +5999,14 @@ fn readyFunctions(root: Value) LoweringFailure![]Ready {
         lowering_failure = fmt("IncompleteSnapshot: {s}", .{names.items});
         return error.Incomplete;
     }
-    const functions = a.dupe(Value, arrayOf(root, "functions")) catch oom();
-    std.mem.sort(Value, functions, {}, lessById);
+    const functions = a.dupe(Model, root.functions()) catch oom();
+    std.mem.sort(Model, functions, {}, lessById);
     const out = a.alloc(Ready, functions.len) catch oom();
     for (functions, out) |function, *ready| {
         const resolver = a.create(Resolver) catch oom();
         resolver.* = Resolver.init(function);
-        if (missingNodeType(resolver, get(function, "body"))) |node_id| {
-            lowering_failure = fmt("MissingNodeType: {s} {s}", .{ text(str(function, "id")), text(node_id) });
+        if (missingNodeType(resolver, function.body())) |node_id| {
+            lowering_failure = fmt("MissingNodeType: {s} {s}", .{ text(function.id()), text(node_id) });
             return error.MissingNodeType;
         }
         ready.* = .{ .function = function, .resolver = resolver };
@@ -5817,101 +6015,104 @@ fn readyFunctions(root: Value) LoweringFailure![]Ready {
 }
 
 /// `TypedSemanticIr.project` (readiness first) on the selection, as the serializer's JSON.
-fn typedIr(root: Value) LoweringFailure![]const u8 {
+fn typedIr(root: Model) LoweringFailure![]const u8 {
     const functions = try readyFunctions(root);
     const texts = a.alloc([]const u8, functions.len) catch oom();
     for (functions, texts) |ready, *t| {
         const function = ready.function;
         var o: Obj = .{};
-        o.put("id", quoted(str(function, "id")));
+        o.put("id", quoted(function.id()));
         typedTypeParameters(&o, function);
-        o.put("parameters", typedSlots(arrayOf(function, "parameters"), false));
-        o.put("resultType", typedTypeOf(get(function, "resultType")));
-        o.put("requiredEffects", sortedIds(arrayOf(function, "requiredEffects")));
-        o.put("body", typedGraph(ready.resolver, get(function, "body")));
+        o.put("parameters", typedSlots(function.parameters(), false));
+        o.put("resultType", typedTypeOf(function.resultType()));
+        o.put("requiredEffects", sortedIds(function.requiredEffects()));
+        o.put("body", typedGraph(ready.resolver, function.body()));
         t.* = o.done();
     }
-    return program(root, sortedDeclarations(arrayOf(root, "types"), typedDeclaredType), texts);
+    return program(root, sortedDeclarations(root.types(), typedDeclaredType), texts);
 }
 
 /// `ExecutionIr.lower` of the projection, as the serializer's JSON.
-fn executionIr(root: Value) (LoweringFailure || LowerFailure)![]const u8 {
+fn executionIr(root: Model) (LoweringFailure || LowerFailure)![]const u8 {
     const functions = try readyFunctions(root);
     const texts = a.alloc([]const u8, functions.len) catch oom();
-    const plain = a.alloc(Value, functions.len) catch oom();
+    const plain = a.alloc(Model, functions.len) catch oom();
     for (functions, plain) |ready, *function| function.* = ready.function;
     const observable = observableFunctions(plain);
     for (functions, texts) |ready, *t| t.* = try executionFunction(ready.function, ready.resolver, &observable);
-    return program(root, sortedDeclarations(arrayOf(root, "types"), executionDeclaredType), texts);
+    return program(root, sortedDeclarations(root.types(), executionDeclaredType), texts);
 }
 
-fn program(root: Value, types: []const u8, functions: []const []const u8) []const u8 {
+fn program(root: Model, types: []const u8, functions: []const []const u8) []const u8 {
     var o: Obj = .{};
     o.put("schemaVersion", "14");
-    o.put("sourceSnapshotId", quoted(str(root, "snapshotId")));
+    o.put("sourceSnapshotId", quoted(root.id()));
     o.put("types", types);
-    o.put("effects", sortedIds(arrayOf(root, "effects")));
-    o.put("capabilities", sortedDeclarations(arrayOf(root, "capabilities"), typedCapability));
+    o.put("effects", sortedIds(root.effects()));
+    o.put("capabilities", sortedDeclarations(root.capabilities(), typedCapability));
     o.put("functions", array(functions));
     return o.done();
 }
 
-fn lessById(_: void, left: Value, right: Value) bool {
-    return lessUnits(str(left, "id"), str(right, "id"));
+fn lessById(_: void, left: Model, right: Model) bool {
+    return lessUnits(left.id(), right.id());
 }
 
 /// IDs (strings, or declarations by their `id`), sorted.
-fn sortedIds(values: []const Value) []const u8 {
+fn sortedIds(values: []const Model) []const u8 {
     const out = a.alloc(Keyed, values.len) catch oom();
     for (values, out) |value, *o| {
-        const id = if (value == .string) value.string else str(value, "id");
+        const id = switch (value.data) {
+            .effect_reference, .variant_reference => value.literal(),
+            else => value.id(),
+        };
         o.* = .{ .key = id, .text = quoted(id) };
     }
     return sortedArray(out);
 }
 
-fn sortedDeclarations(values: []const Value, comptime writer: fn (Value) []const u8) []const u8 {
+fn sortedDeclarations(values: []const Model, comptime writer: fn (Model) []const u8) []const u8 {
     const out = a.alloc(Keyed, values.len) catch oom();
-    for (values, out) |value, *o| o.* = .{ .key = str(value, "id"), .text = writer(value) };
+    for (values, out) |value, *o| o.* = .{ .key = value.id(), .text = writer(value) };
     return sortedArray(out);
 }
 
-fn typedDeclaredType(declaration: Value) []const u8 {
+fn typedDeclaredType(declaration: Model) []const u8 {
     var o: Obj = .{};
-    o.put("id", quoted(str(declaration, "id")));
+    o.put("id", quoted(declaration.id()));
     typedTypeParameters(&o, declaration);
-    if (isName(str(declaration, "kind"), "product")) {
+    if (isName(declaration.kind(), "product")) {
         o.put("kind", "\"product\"");
-        o.put("fields", typedSlots(arrayOf(declaration, "fields"), true));
+        o.put("fields", typedSlots(declaration.fields(), true));
     } else {
         o.put("kind", "\"union\"");
-        const variants = arrayOf(declaration, "variants");
+        const variants = declaration.variants();
         const out = a.alloc(Keyed, variants.len) catch oom();
         for (variants, out) |variant, *v| {
             var obj: Obj = .{};
-            obj.put("id", quoted(str(variant, "id")));
-            obj.put("fields", typedSlots(arrayOf(variant, "fields"), true));
-            v.* = .{ .key = str(variant, "id"), .text = obj.done() };
+            obj.put("id", quoted(variant.id()));
+            obj.put("fields", typedSlots(variant.fields(), true));
+            v.* = .{ .key = variant.id(), .text = obj.done() };
         }
         o.put("variants", sortedArray(out));
     }
     return o.done();
 }
 
-fn typedCapability(capability: Value) []const u8 {
+fn typedCapability(capability: Model) []const u8 {
     var o: Obj = .{};
-    o.put("id", quoted(str(capability, "id")));
-    o.put("operations", sortedDeclarations(arrayOf(capability, "operations"), typedOperation));
+    o.put("id", quoted(capability.id()));
+    o.put("operations", sortedDeclarations(capability.operations(), typedOperation));
     return o.done();
 }
 
-fn typedOperation(operation: Value) []const u8 {
+fn typedOperation(operation: Model) []const u8 {
     var o: Obj = .{};
-    o.put("id", quoted(str(operation, "id")));
-    o.put("parameters", typedSlots(arrayOf(operation, "parameters"), false));
-    o.put("resultType", typedTypeOf(get(operation, "resultType")));
-    if (tryProperty("failureType", operation)) |failure| o.put("failureType", typedTypeOf(failure));
-    o.put("effectId", quoted(str(operation, "effectId")));
+    o.put("id", quoted(operation.id()));
+    o.put("parameters", typedSlots(operation.parameters(), false));
+    o.put("resultType", typedTypeOf(operation.resultType()));
+    if (operation.failureType()) |failure| o.put("failureType", typedTypeOf(failure));
+    o.put("effectId", quoted(operation.reference("effectId")));
     return o.done();
 }
 
@@ -5926,19 +6127,19 @@ fn typedOperation(operation: Value) []const u8 {
 /// `GraphOrder.observableFunctions` over the program's functions: a function is observable when it
 /// declares effects or holds an intrinsically observable node other than Abort, at any depth, or
 /// when it calls, folds with, starts or runs as a body an observable function.
-fn observableFunctions(functions: []const Value) Set {
+fn observableFunctions(functions: []const Model) Set {
     // `Map.ofSeq`: the last function of an ID gives its descriptor.
     const last = byId(functions);
     var observable: Set = .empty;
     var callers: std.StringHashMapUnmanaged(List(Str)) = .empty;
     var pending: List(Str) = .empty;
     for (last.values()) |function| {
-        const id = str(function, "id");
-        var seed = arrayOf(function, "requiredEffects").len > 0;
-        var nodes: List(Value) = .empty;
-        collectNodes(get(function, "body"), &nodes);
+        const id = function.id();
+        var seed = function.requiredEffects().len > 0;
+        var nodes: List(Model) = .empty;
+        collectNodes(function.body(), &nodes);
         for (nodes.items) |node| {
-            const kind = text(str(node, "kind"));
+            const kind = text(node.kind());
             if (!std.mem.eql(u8, kind, "parallelAll") and kindIs(kind, effectful_kinds)) seed = true;
             for (functionReferences(node)) |reference| switch (reference.role) {
                 .direct_call, .effect_callback, .worker, .body => {
@@ -6016,13 +6217,13 @@ const Merge = struct { value: []const u8, value_id: []const u8, block: *Block };
 const LowerFailure = error{Lowering};
 
 const Lowering = struct {
-    function: Value,
+    function: Model,
     resolver: *Resolver,
     parameters_by_id: ValueMap,
     blocks: std.StringArrayHashMapUnmanaged(*Block) = .empty,
 
     fn fail(self: *Lowering, case: []const u8, detail: []const u8) LowerFailure {
-        lowering_failure = fmt("{s}: {s} {s}", .{ case, text(str(self.function, "id")), detail });
+        lowering_failure = fmt("{s}: {s} {s}", .{ case, text(self.function.id()), detail });
         return error.Lowering;
     }
 
@@ -6033,25 +6234,25 @@ const Lowering = struct {
         return block;
     }
 
-    fn nodeType(self: *Lowering, node: Value) []const u8 {
-        return typedType(normalType(self.resolver.completion(str(node, "id"))).?);
+    fn nodeType(self: *Lowering, node: Model) []const u8 {
+        return typedType(normalType(self.resolver.completion(node.id())).?);
     }
 
-    fn nodeValueId(node: Value) []const u8 {
-        return executionId("node", str(node, "id"));
+    fn nodeValueId(node: Model) []const u8 {
+        return executionId("node", node.id());
     }
 
-    fn makeNodeValue(self: *Lowering, node: Value) []const u8 {
+    fn makeNodeValue(self: *Lowering, node: Model) []const u8 {
         var origin: Obj = .{};
         origin.put("kind", "\"semanticNode\"");
-        origin.put("nodeId", quoted(str(node, "id")));
+        origin.put("nodeId", quoted(node.id()));
         return executionValue(nodeValueId(node), self.nodeType(node), origin.done());
     }
 
-    fn addInstruction(self: *Lowering, block: *Block, node: Value, kind: []const u8, properties: []const u8) []const u8 {
+    fn addInstruction(self: *Lowering, block: *Block, node: Model, kind: []const u8, properties: []const u8) []const u8 {
         var o: Obj = .{};
         o.put("result", self.makeNodeValue(node));
-        o.put("originNodeId", quoted(str(node, "id")));
+        o.put("originNodeId", quoted(node.id()));
         o.put("kind", quotedAscii(kind));
         if (properties.len > 2) {
             o.buf.append(a, ',') catch oom();
@@ -6061,16 +6262,16 @@ const Lowering = struct {
         return nodeValueId(node);
     }
 
-    fn addPatternExtraction(self: *Lowering, block: *Block, match_node: Value, binding: Value, kind: []const u8, properties: []const u8) []const u8 {
+    fn addPatternExtraction(self: *Lowering, block: *Block, match_node: Model, binding: Model, kind: []const u8, properties: []const u8) []const u8 {
         _ = self;
         var origin: Obj = .{};
         origin.put("kind", "\"patternBinding\"");
-        origin.put("matchNodeId", quoted(str(match_node, "id")));
-        origin.put("bindingId", quoted(str(binding, "id")));
-        const id = executionId("pattern", str(binding, "id"));
+        origin.put("matchNodeId", quoted(match_node.id()));
+        origin.put("bindingId", quoted(binding.id()));
+        const id = executionId("pattern", binding.id());
         var o: Obj = .{};
-        o.put("result", executionValue(id, typedTypeOf(get(binding, "type")), origin.done()));
-        o.put("originNodeId", quoted(str(match_node, "id")));
+        o.put("result", executionValue(id, typedTypeOf(binding.declaredType()), origin.done()));
+        o.put("originNodeId", quoted(match_node.id()));
         o.put("kind", quotedAscii(kind));
         o.buf.append(a, ',') catch oom();
         o.buf.appendSlice(a, properties[1 .. properties.len - 1]) catch oom();
@@ -6083,19 +6284,19 @@ const Lowering = struct {
     }
 
     /// Arguments, capability arguments and field values with their values, sorted by target.
-    fn targets(self: *Lowering, env: *const Env, elements: []const Value, target: []const u8) LowerFailure![]const u8 {
+    fn targets(self: *Lowering, env: *const Env, elements: []const Model, target: []const u8) LowerFailure![]const u8 {
         const out = a.alloc(Keyed, elements.len) catch oom();
         for (elements, out) |element, *o| {
             var obj: Obj = .{};
-            obj.put(target, quoted(str(element, target)));
-            obj.put("valueId", quotedAscii(try self.requireNode(env, str(element, "valueNodeId"))));
-            o.* = .{ .key = str(element, target), .text = obj.done() };
+            obj.put(target, quoted(element.reference(target)));
+            obj.put("valueId", quotedAscii(try self.requireNode(env, element.reference("valueNodeId"))));
+            o.* = .{ .key = element.reference(target), .text = obj.done() };
         }
         return sortedArray(out);
     }
 
     /// A simple node's instruction properties (`{...}`), from its typed properties.
-    fn simpleProperties(self: *Lowering, env: *const Env, node: Value, kind_name: []const u8) LowerFailure![]const u8 {
+    fn simpleProperties(self: *Lowering, env: *const Env, node: Model, kind_name: []const u8) LowerFailure![]const u8 {
         const kind = kinds.get(kind_name).?;
         const names = instruction_names.get(kind_name).?;
         var o: Obj = .{};
@@ -6105,18 +6306,20 @@ const Lowering = struct {
             if (typedName(kind_name, read) == null) continue;
             const name = names[position];
             position += 1;
-            const value = tryProperty(read.name, node) orelse continue;
+            const value = node.payload(read.name) orelse continue;
+            if (value == .optid and value.optid == null) continue;
+            if (value == .ctx and value.ctx.len() == 0) continue;
             const reference = inNames(asciiUnits(read.name), kind.references);
             o.put(name, switch (read.shape) {
-                .id, .optid => if (reference) quotedAscii(try self.requireNode(env, value.string)) else quoted(value.string),
+                .id, .optid => if (reference) quotedAscii(try self.requireNode(env, node.reference(read.name))) else quoted(node.reference(read.name)),
                 .ids => blk: {
-                    const texts = a.alloc([]const u8, value.array.len) catch oom();
-                    for (value.array, texts) |item, *t| t.* = quotedAscii(try self.requireNode(env, item.string));
+                    const texts = a.alloc([]const u8, value.ids.len) catch oom();
+                    for (value.ids, texts) |id, *t| t.* = quotedAscii(try self.requireNode(env, semantic_model.idTextOf(.node, id)));
                     break :blk array(texts);
                 },
-                .ctx, .args => try self.targets(env, value.array, "targetParameterId"),
-                .capargs => try self.targets(env, value.array, "targetCapabilityParameterId"),
-                .fields => try self.targets(env, value.array, "targetFieldId"),
+                .ctx, .args => try self.targets(env, node.targets(read.name), "targetParameterId"),
+                .capargs => try self.targets(env, node.targets(read.name), "targetCapabilityParameterId"),
+                .fields => try self.targets(env, node.targets(read.name), "targetFieldId"),
                 else => typedShape(self.resolver, read, node).?,
             });
         }
@@ -6124,26 +6327,26 @@ const Lowering = struct {
         return o.done();
     }
 
-    fn lowerSimple(self: *Lowering, env: *Env, block: *Block, node: Value) LowerFailure!void {
-        const kind_name = text(str(node, "kind"));
+    fn lowerSimple(self: *Lowering, env: *Env, block: *Block, node: Model) LowerFailure!void {
+        const kind_name = text(node.kind());
         const value_id = if (std.mem.eql(u8, kind_name, "parameterReference")) blk: {
-            const parameter = str(node, "parameterId");
+            const parameter = node.reference("parameterId");
             if (self.parameters_by_id.get(idKey(parameter)) == null) return self.fail("MissingFunctionParameter", text(parameter));
             var o: Obj = .{};
             o.put("sourceValueId", quotedAscii(executionId("parameter", parameter)));
             break :blk self.addInstruction(block, node, "readParameter", o.done());
         } else if (std.mem.eql(u8, kind_name, "patternReference")) blk: {
-            const binding = str(node, "patternBindingId");
+            const binding = node.reference("patternBindingId");
             const source = env.patterns.get(idKey(binding)) orelse return self.fail("MissingPatternValue", text(binding));
             var o: Obj = .{};
             o.put("sourceValueId", quotedAscii(source));
             break :blk self.addInstruction(block, node, "readPatternBinding", o.done());
         } else self.addInstruction(block, node, kind_name, try self.simpleProperties(env, node, kind_name));
-        env.nodes.put(a, idKey(str(node, "id")), value_id) catch oom();
+        env.nodes.put(a, idKey(node.id()), value_id) catch oom();
     }
 
     /// `ExecutionIrAnalysis.dependencies`: direct references and nested free references, distinct and sorted.
-    fn dependenciesOf(node: Value) []const Str {
+    fn dependenciesOf(node: Model) []const Str {
         // The effect-order check of this function, which runs first, filled the memo.
         const all = memoDependencies(node);
         var seen: Set = .empty;
@@ -6157,34 +6360,34 @@ const Lowering = struct {
     }
 
     /// `isExactSelfCall`: a self call whose arguments have the parameters' exact types.
-    fn isExactSelfCall(self: *Lowering, node: Value) bool {
-        if (!same(str(node, "targetFunctionId"), str(self.function, "id"))) return false;
-        for (arrayOf(node, "arguments")) |argument| {
-            const parameter = self.parameters_by_id.get(idKey(str(argument, "targetParameterId"))) orelse return false;
-            const actual = normalType(self.resolver.completion(str(argument, "valueNodeId"))) orelse return false;
-            if (!typeEql(actual, typeRefOf(get(parameter, "type")))) return false;
+    fn isExactSelfCall(self: *Lowering, node: Model) bool {
+        if (!same(node.reference("targetFunctionId"), self.function.id())) return false;
+        for (node.arguments()) |argument| {
+            const parameter = self.parameters_by_id.get(idKey(argument.reference("targetParameterId"))) orelse return false;
+            const actual = normalType(self.resolver.completion(argument.reference("valueNodeId"))) orelse return false;
+            if (!typeEql(actual, typeRefOf(parameter.declaredType()))) return false;
         }
         return true;
     }
 
     /// `tailSelfCallNode`: the graph's result node, when it leads to a self call in tail position and
     /// no other node of the graph uses it.
-    fn tailSelfCallNode(self: *Lowering, graph: Value) ?Value {
-        const result_id = str(graph, "resultNodeId");
-        const nodes = arrayOf(graph, "nodes");
+    fn tailSelfCallNode(self: *Lowering, graph: Model) ?Model {
+        const result_id = graph.resultNodeId();
+        const nodes = graph.nodes();
         const result = for (nodes) |node| {
-            if (same(str(node, "id"), result_id)) break node;
+            if (same(node.id(), result_id)) break node;
         } else return null;
         if (!self.leadsToTailSelfCall(result)) return null;
         for (nodes) |other| {
-            if (same(str(other, "id"), result_id)) continue;
+            if (same(other.id(), result_id)) continue;
             for (dependenciesOf(other)) |dependency| if (same(dependency, result_id)) return null;
         }
         return result;
     }
 
-    fn leadsToTailSelfCall(self: *Lowering, node: Value) bool {
-        const kind = text(str(node, "kind"));
+    fn leadsToTailSelfCall(self: *Lowering, node: Model) bool {
+        const kind = text(node.kind());
         if (std.mem.eql(u8, kind, "directCall")) return self.isExactSelfCall(node);
         if (!kindIs(kind, "bind conditional boolAnd boolOr matchUnion matchOption matchResult")) return false;
         for (nestedScopes(node)) |scope| if (self.tailSelfCallNode(scope.graph) != null) return true;
@@ -6202,16 +6405,16 @@ const Lowering = struct {
         block.terminator = o.done();
     }
 
-    fn mergeFor(self: *Lowering, node: Value) ?Merge {
-        if (self.resolver.completion(str(node, "id")).? == .aborts) return null;
+    fn mergeFor(self: *Lowering, node: Model) ?Merge {
+        if (self.resolver.completion(node.id()).? == .aborts) return null;
         const value = self.makeNodeValue(node);
-        const block = self.addBlock(fmt("{s}/merge", .{executionId("node", str(node, "id"))}), a.dupe([]const u8, &.{value}) catch oom());
+        const block = self.addBlock(fmt("{s}/merge", .{executionId("node", node.id())}), a.dupe([]const u8, &.{value}) catch oom());
         return .{ .value = value, .value_id = nodeValueId(node), .block = block };
     }
 
     /// `finishArms`: the arm endpoints jump to the merge, and the graph continues there; with no
     /// endpoint the merge block is dropped and the graph stops. Returns the block to continue in.
-    fn finishArms(self: *Lowering, env: *Env, node: Value, merge: ?Merge, endpoints: []const ?Endpoint) ?*Block {
+    fn finishArms(self: *Lowering, env: *Env, node: Model, merge: ?Merge, endpoints: []const ?Endpoint) ?*Block {
         const reached = for (endpoints) |endpoint| {
             if (endpoint != null) break true;
         } else false;
@@ -6221,7 +6424,7 @@ const Lowering = struct {
         };
         for (endpoints) |endpoint| if (endpoint) |e| jump(e.block, merge.?.block, merge.?.value_id, e.value);
         const m = merge orelse return null;
-        env.nodes.put(a, idKey(str(node, "id")), m.value_id) catch oom();
+        env.nodes.put(a, idKey(node.id()), m.value_id) catch oom();
         return m.block;
     }
 
@@ -6234,59 +6437,59 @@ const Lowering = struct {
         block.terminator = o.done();
     }
 
-    fn roleBlock(self: *Lowering, node: Value, role: []const u8) *Block {
-        return self.addBlock(fmt("{s}/{s}", .{ executionId("node", str(node, "id")), role }), &.{});
+    fn roleBlock(self: *Lowering, node: Model, role: []const u8) *Block {
+        return self.addBlock(fmt("{s}/{s}", .{ executionId("node", node.id()), role }), &.{});
     }
 
-    fn withBinding(env: *const Env, binding: Value, value_id: []const u8) Env {
+    fn withBinding(env: *const Env, binding: Model, value_id: []const u8) Env {
         var out = env.clone();
-        out.patterns.put(a, idKey(str(binding, "id")), value_id) catch oom();
+        out.patterns.put(a, idKey(binding.id()), value_id) catch oom();
         return out;
     }
 
     /// Lowers one structured node; returns the block to continue in, or null when the graph stops.
-    fn lowerStructured(self: *Lowering, env: *Env, block: *Block, node: Value, is_tail: bool) LowerFailure!?*Block {
-        const kind = text(str(node, "kind"));
+    fn lowerStructured(self: *Lowering, env: *Env, block: *Block, node: Model, is_tail: bool) LowerFailure!?*Block {
+        const kind = text(node.kind());
         if (std.mem.eql(u8, kind, "bind")) {
-            const input = try self.requireNode(env, str(node, "inputNodeId"));
-            const arm = get(node, "boundBody");
-            const binding = get(arm, "valueBinding");
+            const input = try self.requireNode(env, node.reference("inputNodeId"));
+            const arm = node.arm("boundBody");
+            const binding = arm.armBinding();
             var origin: Obj = .{};
             origin.put("kind", "\"patternBinding\"");
-            origin.put("matchNodeId", quoted(str(node, "id")));
-            origin.put("bindingId", quoted(str(binding, "id")));
-            const bound_id = executionId("pattern", str(binding, "id"));
-            const bound = executionValue(bound_id, typedTypeOf(get(binding, "type")), origin.done());
-            const body = self.addBlock(fmt("{s}/body", .{executionId("node", str(node, "id"))}), a.dupe([]const u8, &.{bound}) catch oom());
+            origin.put("matchNodeId", quoted(node.id()));
+            origin.put("bindingId", quoted(binding.id()));
+            const bound_id = executionId("pattern", binding.id());
+            const bound = executionValue(bound_id, typedTypeOf(binding.declaredType()), origin.done());
+            const body = self.addBlock(fmt("{s}/body", .{executionId("node", node.id())}), a.dupe([]const u8, &.{bound}) catch oom());
             jump(block, body, bound_id, input);
-            const end = try self.lowerGraph(body, withBinding(env, binding, bound_id), is_tail, get(arm, "body"));
+            const end = try self.lowerGraph(body, withBinding(env, binding, bound_id), is_tail, arm.body());
             return self.finishArms(env, node, self.mergeFor(node), &.{end});
         }
         if (std.mem.eql(u8, kind, "conditional")) {
-            const condition = try self.requireNode(env, str(node, "conditionNodeId"));
+            const condition = try self.requireNode(env, node.reference("conditionNodeId"));
             const true_block = self.roleBlock(node, "when-true");
             const false_block = self.roleBlock(node, "when-false");
             const merge = self.mergeFor(node);
             branch(block, "branch", "conditionValueId", condition, .{ "whenTrue", "whenFalse" }, .{ true_block, false_block });
-            const true_end = try self.lowerGraph(true_block, env.clone(), is_tail, get(node, "whenTrue"));
-            const false_end = try self.lowerGraph(false_block, env.clone(), is_tail, get(node, "whenFalse"));
+            const true_end = try self.lowerGraph(true_block, env.clone(), is_tail, node.graphPayload("whenTrue"));
+            const false_end = try self.lowerGraph(false_block, env.clone(), is_tail, node.graphPayload("whenFalse"));
             return self.finishArms(env, node, merge, &.{ true_end, false_end });
         }
         if (std.mem.eql(u8, kind, "boolAnd") or std.mem.eql(u8, kind, "boolOr")) {
-            const left = try self.requireNode(env, str(node, "leftNodeId"));
+            const left = try self.requireNode(env, node.reference("leftNodeId"));
             const right_block = self.roleBlock(node, "right");
             const decided_block = self.roleBlock(node, "decided");
             const merge = self.mergeFor(node);
             const blocks: [2]*Block = if (std.mem.eql(u8, kind, "boolAnd")) .{ right_block, decided_block } else .{ decided_block, right_block };
             branch(block, "branch", "conditionValueId", left, .{ "whenTrue", "whenFalse" }, blocks);
-            const right_end = try self.lowerGraph(right_block, env.clone(), is_tail, get(node, "right"));
+            const right_end = try self.lowerGraph(right_block, env.clone(), is_tail, node.graphPayload("right"));
             return self.finishArms(env, node, merge, &.{ right_end, Endpoint{ .block = decided_block, .value = left } });
         }
         if (std.mem.eql(u8, kind, "matchUnion")) {
-            const input = try self.requireNode(env, str(node, "inputNodeId"));
+            const input = try self.requireNode(env, node.reference("inputNodeId"));
             const merge = self.mergeFor(node);
-            const Arm = struct { arm: Value, variants: []Str, block: *Block = undefined };
-            const items = arrayOf(node, "arms");
+            const Arm = struct { arm: Model, variants: []Str, block: *Block = undefined };
+            const items = node.arms();
             const arms = a.alloc(Arm, items.len) catch oom();
             for (items, arms) |item, *arm| {
                 arm.* = .{ .arm = item, .variants = a.dupe(Str, armVariantIds(item)) catch oom() };
@@ -6323,10 +6526,10 @@ const Lowering = struct {
             const endpoints = a.alloc(?Endpoint, arms.len) catch oom();
             for (arms, endpoints) |arm, *endpoint| {
                 var arm_env = env.clone();
-                const fields = a.dupe(Value, arrayOf(arm.arm, "fieldBindings")) catch oom();
-                std.mem.sort(Value, fields, {}, struct {
-                    fn less(_: void, left: Value, right: Value) bool {
-                        return lessUnits(str(left, "sourceFieldId"), str(right, "sourceFieldId"));
+                const fields = a.dupe(Model, arm.arm.fieldBindings()) catch oom();
+                std.mem.sort(Model, fields, {}, struct {
+                    fn less(_: void, left: Model, right: Model) bool {
+                        return lessUnits(left.reference("sourceFieldId"), right.reference("sourceFieldId"));
                     }
                 }.less);
                 for (fields) |field| {
@@ -6334,42 +6537,42 @@ const Lowering = struct {
                     var p: Obj = .{};
                     p.put("inputValueId", quotedAscii(input));
                     p.put("variantId", quoted(arm.variants[0]));
-                    p.put("fieldId", quoted(str(field, "sourceFieldId")));
-                    const binding = get(field, "binding");
+                    p.put("fieldId", quoted(field.reference("sourceFieldId")));
+                    const binding = field.boundBinding();
                     const extracted = self.addPatternExtraction(arm.block, node, binding, "extractUnionField", p.done());
-                    arm_env.patterns.put(a, idKey(str(binding, "id")), extracted) catch oom();
+                    arm_env.patterns.put(a, idKey(binding.id()), extracted) catch oom();
                 }
-                endpoint.* = try self.lowerGraph(arm.block, arm_env, is_tail, get(arm.arm, "body"));
+                endpoint.* = try self.lowerGraph(arm.block, arm_env, is_tail, arm.arm.body());
             }
             return self.finishArms(env, node, merge, endpoints);
         }
         if (std.mem.eql(u8, kind, "matchOption")) {
-            const input = try self.requireNode(env, str(node, "inputNodeId"));
+            const input = try self.requireNode(env, node.reference("inputNodeId"));
             const some_block = self.roleBlock(node, "some");
             const none_block = self.roleBlock(node, "none");
             const merge = self.mergeFor(node);
             branch(block, "matchOption", "inputValueId", input, .{ "someBlock", "noneBlock" }, .{ some_block, none_block });
-            const some = get(node, "someArm");
-            const binding = get(some, "valueBinding");
+            const some = node.arm("someArm");
+            const binding = some.armBinding();
             const extracted = self.addPatternExtraction(some_block, node, binding, "extractOptionSome", inputProperty(input));
-            const some_end = try self.lowerGraph(some_block, withBinding(env, binding, extracted), is_tail, get(some, "body"));
-            const none_end = try self.lowerGraph(none_block, env.clone(), is_tail, get(node, "noneBody"));
+            const some_end = try self.lowerGraph(some_block, withBinding(env, binding, extracted), is_tail, some.body());
+            const none_end = try self.lowerGraph(none_block, env.clone(), is_tail, node.graphPayload("noneBody"));
             return self.finishArms(env, node, merge, &.{ some_end, none_end });
         }
         std.debug.assert(std.mem.eql(u8, kind, "matchResult"));
-        const input = try self.requireNode(env, str(node, "inputNodeId"));
+        const input = try self.requireNode(env, node.reference("inputNodeId"));
         const ok_block = self.roleBlock(node, "ok");
         const err_block = self.roleBlock(node, "err");
         const merge = self.mergeFor(node);
         branch(block, "matchResult", "inputValueId", input, .{ "okBlock", "errBlock" }, .{ ok_block, err_block });
-        const ok_arm = get(node, "okArm");
-        const err_arm = get(node, "errArm");
-        const ok_binding = get(ok_arm, "valueBinding");
-        const err_binding = get(err_arm, "errorBinding");
+        const ok_arm = node.arm("okArm");
+        const err_arm = node.arm("errArm");
+        const ok_binding = ok_arm.armBinding();
+        const err_binding = err_arm.armBinding();
         const ok_value = self.addPatternExtraction(ok_block, node, ok_binding, "extractResultOk", inputProperty(input));
         const err_value = self.addPatternExtraction(err_block, node, err_binding, "extractResultErr", inputProperty(input));
-        const ok_end = try self.lowerGraph(ok_block, withBinding(env, ok_binding, ok_value), is_tail, get(ok_arm, "body"));
-        const err_end = try self.lowerGraph(err_block, withBinding(env, err_binding, err_value), is_tail, get(err_arm, "body"));
+        const ok_end = try self.lowerGraph(ok_block, withBinding(env, ok_binding, ok_value), is_tail, ok_arm.body());
+        const err_end = try self.lowerGraph(err_block, withBinding(env, err_binding, err_value), is_tail, err_arm.body());
         return self.finishArms(env, node, merge, &.{ ok_end, err_end });
     }
 
@@ -6381,12 +6584,12 @@ const Lowering = struct {
 
     /// `lowerGraph`: Kahn's algorithm over the graph's nodes; among ready nodes the lowest ID goes
     /// first, a Bytes update after every ready non-update, and the tail node last.
-    fn lowerGraph(self: *Lowering, start: *Block, initial: Env, is_tail: bool, graph: Value) LowerFailure!?Endpoint {
+    fn lowerGraph(self: *Lowering, start: *Block, initial: Env, is_tail: bool, graph: Model) LowerFailure!?Endpoint {
         var env = initial.clone();
         var block = start;
-        const nodes = arrayOf(graph, "nodes");
+        const nodes = graph.nodes();
         var pending = byId(nodes);
-        const tail_id: ?Str = if (is_tail) if (self.tailSelfCallNode(graph)) |n| str(n, "id") else null else null;
+        const tail_id: ?Str = if (is_tail) if (self.tailSelfCallNode(graph)) |n| n.id() else null else null;
         var waiting: std.StringHashMapUnmanaged(usize) = .empty;
         var dependents: std.StringHashMapUnmanaged(List(Str)) = .empty;
         const Candidate = struct { update: bool, id: Str };
@@ -6399,11 +6602,11 @@ const Lowering = struct {
                 if (pending.contains(idKey(dependency))) {
                     const entry = dependents.getOrPut(a, idKey(dependency)) catch oom();
                     if (!entry.found_existing) entry.value_ptr.* = .empty;
-                    entry.value_ptr.append(a, str(node, "id")) catch oom();
+                    entry.value_ptr.append(a, node.id()) catch oom();
                 }
             }
-            waiting.put(a, idKey(str(node, "id")), unresolved) catch oom();
-            if (unresolved == 0) ready.append(a, .{ .update = isBytesUpdate(node), .id = str(node, "id") }) catch oom();
+            waiting.put(a, idKey(node.id()), unresolved) catch oom();
+            if (unresolved == 0) ready.append(a, .{ .update = isBytesUpdate(node), .id = node.id() }) catch oom();
         }
         var last_taken: ?Str = null;
         while (pending.count() > 0) {
@@ -6431,10 +6634,10 @@ const Lowering = struct {
             last_taken = id;
             const node = pending.get(idKey(id)).?;
             _ = pending.swapRemove(idKey(id));
-            const kind = text(str(node, "kind"));
+            const kind = text(node.kind());
             const node_tail = tail_id != null and same(id, tail_id.?);
             if (std.mem.eql(u8, kind, "abort")) {
-                const error_value = try self.requireNode(&env, str(node, "errorNodeId"));
+                const error_value = try self.requireNode(&env, node.reference("errorNodeId"));
                 var o: Obj = .{};
                 o.put("kind", "\"abort\"");
                 o.put("originNodeId", quoted(id));
@@ -6447,12 +6650,12 @@ const Lowering = struct {
                 var o: Obj = .{};
                 o.put("kind", "\"tailCall\"");
                 o.put("originNodeId", quoted(id));
-                o.put("arguments", try self.targets(&env, arrayOf(node, "arguments"), "targetParameterId"));
+                o.put("arguments", try self.targets(&env, node.arguments(), "targetParameterId"));
                 block.terminator = o.done();
                 return null;
             } else try self.lowerSimple(&env, block, node);
         }
-        return .{ .block = block, .value = try self.requireNode(&env, str(graph, "resultNodeId")) };
+        return .{ .block = block, .value = try self.requireNode(&env, graph.resultNodeId()) };
     }
 
     fn readyLess(left: anytype, right: anytype) bool {
@@ -6461,15 +6664,15 @@ const Lowering = struct {
     }
 };
 
-fn isBytesUpdate(node: Value) bool {
-    return kindIs(text(str(node, "kind")), "bytesSet bytesAppend");
+fn isBytesUpdate(node: Model) bool {
+    return kindIs(text(node.kind()), "bytesSet bytesAppend");
 }
 
-fn executionFunction(function: Value, resolver: *Resolver, observable: *const Set) LowerFailure![]const u8 {
-    var lowering: Lowering = .{ .function = function, .resolver = resolver, .parameters_by_id = byId(arrayOf(function, "parameters")) };
-    if (unorderedEffects(arrayOf(get(function, "body"), "nodes"), observable, true)) |pair| return lowering.fail("AmbiguousEffectOrder", fmt("{s} {s}", .{ text(pair[0]), text(pair[1]) }));
-    const entry = lowering.addBlock(fmt("{s}/entry", .{executionId("function", str(function, "id"))}), &.{});
-    if (try lowering.lowerGraph(entry, .{}, true, get(function, "body"))) |end| {
+fn executionFunction(function: Model, resolver: *Resolver, observable: *const Set) LowerFailure![]const u8 {
+    var lowering: Lowering = .{ .function = function, .resolver = resolver, .parameters_by_id = byId(function.parameters()) };
+    if (unorderedEffects((function.body()).nodes(), observable, true)) |pair| return lowering.fail("AmbiguousEffectOrder", fmt("{s} {s}", .{ text(pair[0]), text(pair[1]) }));
+    const entry = lowering.addBlock(fmt("{s}/entry", .{executionId("function", function.id())}), &.{});
+    if (try lowering.lowerGraph(entry, .{}, true, function.body())) |end| {
         var o: Obj = .{};
         o.put("kind", "\"return\"");
         o.put("valueId", quotedAscii(end.value));
@@ -6487,44 +6690,44 @@ fn executionFunction(function: Value, resolver: *Resolver, observable: *const Se
         o.put("terminator", block.terminator orelse return lowering.fail("UnterminatedBlock", block.id));
         out.* = o.done();
     }
-    const parameters = arrayOf(function, "parameters");
+    const parameters = function.parameters();
     const parameter_texts = a.alloc([]const u8, parameters.len) catch oom();
     for (parameters, parameter_texts) |parameter, *out| {
         var origin: Obj = .{};
         origin.put("kind", "\"functionParameter\"");
-        origin.put("parameterId", quoted(str(parameter, "id")));
+        origin.put("parameterId", quoted(parameter.id()));
         var o: Obj = .{};
-        o.put("semanticParameterId", quoted(str(parameter, "id")));
-        o.put("value", executionValue(executionId("parameter", str(parameter, "id")), typedTypeOf(get(parameter, "type")), origin.done()));
+        o.put("semanticParameterId", quoted(parameter.id()));
+        o.put("value", executionValue(executionId("parameter", parameter.id()), typedTypeOf(parameter.declaredType()), origin.done()));
         out.* = o.done();
     }
     var o: Obj = .{};
-    o.put("semanticFunctionId", quoted(str(function, "id")));
+    o.put("semanticFunctionId", quoted(function.id()));
     typedTypeParameters(&o, function);
     o.put("parameters", array(parameter_texts));
-    o.put("resultType", typedTypeOf(get(function, "resultType")));
-    o.put("requiredEffects", sortedIds(arrayOf(function, "requiredEffects")));
+    o.put("resultType", typedTypeOf(function.resultType()));
+    o.put("requiredEffects", sortedIds(function.requiredEffects()));
     o.put("entryBlockId", quotedAscii(entry.id));
     o.put("blocks", array(blocks));
     return o.done();
 }
 
 /// `ExecutionIrDeclarations.projectType` as written: the type parameters after the members.
-fn executionDeclaredType(declaration: Value) []const u8 {
+fn executionDeclaredType(declaration: Model) []const u8 {
     var o: Obj = .{};
-    o.put("id", quoted(str(declaration, "id")));
-    if (isName(str(declaration, "kind"), "product")) {
+    o.put("id", quoted(declaration.id()));
+    if (isName(declaration.kind(), "product")) {
         o.put("kind", "\"product\"");
-        o.put("fields", typedSlots(arrayOf(declaration, "fields"), true));
+        o.put("fields", typedSlots(declaration.fields(), true));
     } else {
         o.put("kind", "\"union\"");
-        const variants = arrayOf(declaration, "variants");
+        const variants = declaration.variants();
         const out = a.alloc(Keyed, variants.len) catch oom();
         for (variants, out) |variant, *v| {
             var obj: Obj = .{};
-            obj.put("id", quoted(str(variant, "id")));
-            obj.put("fields", typedSlots(arrayOf(variant, "fields"), true));
-            v.* = .{ .key = str(variant, "id"), .text = obj.done() };
+            obj.put("id", quoted(variant.id()));
+            obj.put("fields", typedSlots(variant.fields(), true));
+            v.* = .{ .key = variant.id(), .text = obj.done() };
         }
         o.put("variants", sortedArray(out));
     }
@@ -6563,7 +6766,7 @@ fn validateResolved(io: std.Io, out: *std.Io.Writer, dependency_path: []const u8
         }
         members.append(a, .{ .name = member.name, .value = value }) catch oom();
     }
-    validate(.{ .object = members.items });
+    validate(modelFromValue(.{ .object = members.items }));
     try printIssues(out);
 }
 
@@ -6649,13 +6852,16 @@ pub fn writtenText(allocator: std.mem.Allocator, source: []const u8) Failure!Wri
 }
 
 pub fn currentVersion() i32 {
-    if (current == 0) loadTables();
-    return current;
+    var header = std.mem.tokenizeAny(u8, minimums_text, " \n");
+    _ = header.next();
+    _ = header.next();
+    _ = header.next();
+    return std.fmt.parseInt(i32, header.next().?, 10) catch unreachable;
 }
 
 /// `--typed-roundtrip <in.json> <out.json>`: the document read into the typed model and written
 /// back (`writtenText` of `typed.writeDocument`), then `snapshot`/`semantic` lines for a plain one.
-fn typedRoundTrip(io: std.Io, out: *std.Io.Writer, in_path: []const u8, out_path: []const u8) !void {
+fn typedRoundTrip(io: std.Io, out: *std.Io.Writer, in_path: []const u8, out_path: []const u8, direct: bool) !void {
     const typed = @import("typed.zig");
     const input = try std.Io.Dir.cwd().readFileAlloc(io, in_path, a, .unlimited);
     resetState();
@@ -6666,8 +6872,16 @@ fn typedRoundTrip(io: std.Io, out: *std.Io.Writer, in_path: []const u8, out_path
     const marker: ?typed.Marker = if (resolved_input) .{ .snapshot = decodeString(str(get(root, "dependency"), "snapshotId")) catch unreachable, .digest = decodeString(str(get(root, "dependency"), "digest")) catch unreachable } else null;
     const tree = parseDocument(canonical) catch unreachable;
     var interner: typed.Interner = .{ .gpa = a };
-    const generation = try typed.load(a, &interner, tree, marker);
+    const generation = try typed.load(a, &interner, if (direct) root else tree, marker);
     var document: std.Io.Writer.Allocating = .init(a);
+    if (direct) {
+        const direct_writer = @import("typed_writer.zig");
+        try direct_writer.writeDocument(&document.writer, &interner, &generation, currentVersion());
+        try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = document.written() });
+        if (marker != null) return out.writeAll("resolved\n");
+        const found = try direct_writer.fingerprints(a, &interner, &generation);
+        return out.print("snapshot {s}\nsemantic {s}\n", .{ found.snapshot, found.semantic });
+    }
     try typed.writeDocument(&document.writer, &interner, &generation, currentVersion());
     const written = writtenText(a, document.written()) catch |e| return printFailure(out, e);
     try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = out_path, .data = written.text });
@@ -6693,9 +6907,9 @@ fn bench(io: std.Io, runs: usize, lowering: bool, path: []const u8) !void {
         emit_text = true;
         if (read) |_| {
             if (lowering) {
-                try out.writer.writeAll(executionIr(parsed_root) catch lowering_failure);
+                try out.writer.writeAll(executionIr(modelFromValue(parsed_root)) catch lowering_failure);
             } else {
-                validate(parsed_root);
+                validate(modelFromValue(parsed_root));
                 try printIssues(&out.writer);
             }
         } else |_| try out.writer.writeAll(message);
@@ -6726,9 +6940,10 @@ pub fn main(init: std.process.Init) !void {
         args = rest;
     }
     const typing = lowering or args.len >= 2 and std.mem.eql(u8, args[1], "--typed-ir");
-    const round_trip = args.len == 4 and std.mem.eql(u8, args[1], "--typed-roundtrip");
+    const direct_round_trip = args.len == 4 and std.mem.eql(u8, args[1], "--typed-direct-roundtrip");
+    const round_trip = direct_round_trip or args.len == 4 and std.mem.eql(u8, args[1], "--typed-roundtrip");
     if (!round_trip and if (validating) args.len < 3 else if (typing) args.len < 5 or (args.len - 2) % 3 != 0 else args.len < 3 or args.len % 2 == 0) {
-        std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...] | model-reader --validate <in.json> [<in.json> ...] | model-reader --typed-ir|--execution-ir <in.json> <out.json> <entry|-> [...] | model-reader --fingerprints <in.json> [<canonical.json> <normalized.json>] | model-reader --typed-roundtrip <in.json> <out.json>\n", .{});
+        std.debug.print("usage: model-reader <in.json> <out.json> [<in> <out> ...] | model-reader --validate <in.json> [<in.json> ...] | model-reader --typed-ir|--execution-ir <in.json> <out.json> <entry|-> [...] | model-reader --fingerprints <in.json> [<canonical.json> <normalized.json>] | model-reader --typed-roundtrip|--typed-direct-roundtrip <in.json> <out.json>\n", .{});
         std.process.exit(64);
     }
     loadTables();
@@ -6752,7 +6967,7 @@ pub fn main(init: std.process.Init) !void {
         return out.flush();
     }
     if (round_trip) {
-        try typedRoundTrip(init.io, out, args[2], args[3]);
+        try typedRoundTrip(init.io, out, args[2], args[3], direct_round_trip);
         return out.flush();
     }
     if (validating and args.len == 5 and std.mem.eql(u8, args[2], "--dependency")) {
@@ -6768,13 +6983,14 @@ pub fn main(init: std.process.Init) !void {
         if (read) |json| {
             if (typing) {
                 const entry = args[index + 2];
-                const root = if (std.mem.eql(u8, entry, "-")) parsed_root else selectEntry(parsed_root, try std.unicode.utf8ToUtf16LeAlloc(a, entry));
+                const loaded = modelFromValue(parsed_root);
+                const root = if (std.mem.eql(u8, entry, "-")) loaded else selectEntry(loaded, try std.unicode.utf8ToUtf16LeAlloc(a, entry));
                 if (if (lowering) executionIr(root) else typedIr(root)) |typed| {
                     try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[index + 1], .data = typed });
                     try out.print("ok\n", .{});
                 } else |_| try out.print("error {s}\n", .{lowering_failure});
             } else if (validating) {
-                validate(parsed_root);
+                validate(modelFromValue(parsed_root));
                 try printIssues(out);
             } else {
                 try std.Io.Dir.cwd().writeFile(init.io, .{ .sub_path = args[index + 1], .data = json });
@@ -6788,4 +7004,242 @@ pub fn main(init: std.process.Init) !void {
         }
     }
     try out.flush();
+}
+
+// Transitional input adapters for callers moving to typed records. Semantic work is always typed.
+fn semanticRootWithFunctions(functions: []const Value) Value {
+    return .{ .object = a.dupe(Member, &.{
+        .{ .name = L("snapshotId"), .value = .{ .string = L("semantic-context") } },
+        .{ .name = L("functions"), .value = .{ .array = functions } },
+    }) catch oom() };
+}
+fn modelFromFunction(function: Value) Model {
+    return modelFromValue(semanticRootWithFunctions(&.{function})).functions()[0];
+}
+fn modelFromGraph(graph: Value) Model {
+    const function: Value = .{ .object = a.dupe(Member, &.{
+        .{ .name = L("id"), .value = .{ .string = L("semantic-function") } },
+        .{ .name = L("displayName"), .value = .{ .string = L("semantic function") } },
+        .{ .name = L("resultType"), .value = .{ .object = a.dupe(Member, &.{
+            .{ .name = L("kind"), .value = .{ .string = L("primitive") } },
+            .{ .name = L("primitive"), .value = .{ .string = L("unit") } },
+        }) catch oom() } },
+        .{ .name = L("body"), .value = graph },
+    }) catch oom() };
+    return modelFromFunction(function).body();
+}
+fn modelFromNode(node: Value) Model {
+    const graph: Value = .{ .object = a.dupe(Member, &.{
+        .{ .name = L("nodes"), .value = .{ .array = a.dupe(Value, &.{node}) catch oom() } },
+        .{ .name = L("resultNodeId"), .value = get(node, "id") },
+    }) catch oom() };
+    return modelFromGraph(graph).nodes()[0];
+}
+fn typedFunctionIn(root: Model, function: Value) Model {
+    const id = decoded(get(function, "id"));
+    var found: ?Model = null;
+    for (root.functions()) |item| if (same(item.id(), id)) {
+        found = item;
+    };
+    return found orelse unreachable;
+}
+pub fn executionIrOf(allocator: std.mem.Allocator, root: Value) ?[]const u8 {
+    a = allocator;
+    return typedExecutionIrOf(allocator, modelFromValue(root));
+}
+pub fn executionForEntry(allocator: std.mem.Allocator, root: Value, entry: ?[]const u8) ExecutionResult {
+    a = allocator;
+    return typedExecutionForEntry(allocator, modelFromValue(root), entry);
+}
+pub fn executionReadinessOf(allocator: std.mem.Allocator, root: Value) Readiness {
+    a = allocator;
+    return typedExecutionReadinessOf(allocator, modelFromValue(root));
+}
+pub fn declarationKeys(allocator: std.mem.Allocator, root: Value) DeclarationKeys {
+    a = allocator;
+    return typedDeclarationKeys(allocator, modelFromValue(root));
+}
+pub fn referencesTo(allocator: std.mem.Allocator, root: Value, kind: []const u8, id: Str) ?[]const Reference {
+    a = allocator;
+    return typedReferencesTo(allocator, modelFromValue(root), kind, id);
+}
+pub fn oneShotPayloadRequirementsOf(allocator: std.mem.Allocator, root: Value) []const OneShotRequirement {
+    a = allocator;
+    return typedOneShotPayloadRequirementsOf(allocator, modelFromValue(root));
+}
+pub fn completionOf(allocator: std.mem.Allocator, root: Value, function: Value, id: Str) ?NodeCompletion {
+    a = allocator;
+    const loaded = modelFromValue(root);
+    const completion = typedCompletionOf(allocator, loaded, typedFunctionIn(loaded, function), decoded(.{ .string = id })) orelse return null;
+    return switch (completion) {
+        .normal => |t| .{ .normal = typeValue(t) },
+        .aborts => .aborts,
+    };
+}
+pub fn focusOf(allocator: std.mem.Allocator, root: Value, function: Value) Focus {
+    a = allocator;
+    const loaded = modelFromValue(root);
+    const focus = typedFocusOf(allocator, loaded, typedFunctionIn(loaded, function));
+    const node_types = a.alloc(NodeTypeOf, focus.node_types.len) catch oom();
+    for (focus.node_types, node_types) |node, *slot| slot.* = .{ .id = node.id, .type = if (node.type) |t| typeValue(t) else null };
+    const aborts = a.alloc(Abort, focus.aborts.len) catch oom();
+    for (focus.aborts, aborts) |node, *slot| slot.* = .{ .node = node.node, .error_node = node.error_node, .error_type = if (node.error_type) |t| typeValue(t) else null, .enclosing = node.enclosing, .dependents = node.dependents };
+    return .{ .node_types = node_types, .requirements = focus.requirements, .wait_path = focus.wait_path, .aborts = aborts, .callers = focus.callers, .callees = focus.callees };
+}
+pub fn functionRelationsOf(node: Value) []const FunctionRelation {
+    return typedFunctionRelationsOf(modelFromNode(node));
+}
+pub fn operandIdsOf(node: Value) []const Str {
+    return typedOperandIdsOf(modelFromNode(node));
+}
+pub fn functionIdsOf(node: Value) []const Str {
+    return typedFunctionIdsOf(modelFromNode(node));
+}
+
+pub const TypedValidation = struct { lines: []const u8, validation_issues: []const Issue, valid: bool };
+pub fn validateTyped(allocator: std.mem.Allocator, interner: *const session_model.Interner, generation: *const session_model.Generation) TypedValidation {
+    a = allocator;
+    const root = typedRoot(allocator, interner, generation);
+    validate(root);
+    var out: std.Io.Writer.Allocating = .init(a);
+    printIssues(&out.writer) catch oom();
+    return .{ .lines = out.written(), .validation_issues = issues.items, .valid = issues.items.len == 0 };
+}
+
+pub const Scope = struct { bindings: []const Value, graph: Value };
+
+fn legacyOne(value: Value) []const Value {
+    return a.dupe(Value, &.{value}) catch oom();
+}
+
+pub fn scopesOf(node: Value) []const Scope {
+    var out: List(Scope) = .empty;
+    const kind = str(node, "kind");
+    if (isName(kind, "conditional")) {
+        out.append(a, .{ .bindings = &.{}, .graph = get(node, "whenTrue") }) catch oom();
+        out.append(a, .{ .bindings = &.{}, .graph = get(node, "whenFalse") }) catch oom();
+    } else if (isName(kind, "boolAnd") or isName(kind, "boolOr")) {
+        out.append(a, .{ .bindings = &.{}, .graph = get(node, "right") }) catch oom();
+    } else if (isName(kind, "matchUnion")) {
+        for (arrayOf(node, "arms")) |arm| {
+            const fields = arrayOf(arm, "fieldBindings");
+            const bindings = a.alloc(Value, fields.len) catch oom();
+            for (fields, bindings) |field, *binding| binding.* = get(field, "binding");
+            out.append(a, .{ .bindings = bindings, .graph = get(arm, "body") }) catch oom();
+        }
+    } else if (isName(kind, "bind")) {
+        const body = get(node, "boundBody");
+        out.append(a, .{ .bindings = legacyOne(get(body, "valueBinding")), .graph = get(body, "body") }) catch oom();
+    } else if (isName(kind, "matchOption")) {
+        const some = get(node, "someArm");
+        out.append(a, .{ .bindings = legacyOne(get(some, "valueBinding")), .graph = get(some, "body") }) catch oom();
+        out.append(a, .{ .bindings = &.{}, .graph = get(node, "noneBody") }) catch oom();
+    } else if (isName(kind, "matchResult")) {
+        const ok_arm = get(node, "okArm");
+        const err_arm = get(node, "errArm");
+        out.append(a, .{ .bindings = legacyOne(get(ok_arm, "valueBinding")), .graph = get(ok_arm, "body") }) catch oom();
+        out.append(a, .{ .bindings = legacyOne(get(err_arm, "errorBinding")), .graph = get(err_arm, "body") }) catch oom();
+    }
+    return out.items;
+}
+
+/// `ValueGraph.collectNodes`: each node, then the nodes of its nested graphs.
+fn legacyCollectNodes(graph: Value, out: *List(Value)) void {
+    for (arrayOf(graph, "nodes")) |node| {
+        out.append(a, node) catch oom();
+        for (scopesOf(node)) |scope| legacyCollectNodes(scope.graph, out);
+    }
+}
+
+/// `SemanticFacts.collectPatternBindings`.
+fn legacyCollectBindings(graph: Value, out: *List(Value)) void {
+    for (arrayOf(graph, "nodes")) |node| {
+        for (scopesOf(node)) |scope| {
+            out.appendSlice(a, scope.bindings) catch oom();
+            legacyCollectBindings(scope.graph, out);
+        }
+    }
+}
+
+pub fn bodyNodes(allocator: std.mem.Allocator, function: Value) []const Value {
+    a = allocator;
+    var nodes: List(Value) = .empty;
+    legacyCollectNodes(get(function, "body"), &nodes);
+    return nodes.items;
+}
+
+/// `SemanticFacts.collectPatternBindings`, in lexical scope traversal order.
+pub fn patternBindings(allocator: std.mem.Allocator, graph: Value) []const Value {
+    a = allocator;
+    var bindings: List(Value) = .empty;
+    legacyCollectBindings(graph, &bindings);
+    return bindings.items;
+}
+
+fn resolvedNativeFixture(snapshot: []const u8, dependency_id: []const u8, digest: []const u8, function_id: []const u8) []const u8 {
+    var result_type: Obj = .{};
+    result_type.put("kind", "\"named\"");
+    result_type.put("typeId", "\"T\"");
+    var node: Obj = .{};
+    node.put("id", quotedAscii(function_id));
+    node.put("kind", "\"productConstruct\"");
+    node.put("typeId", "\"T\"");
+    node.put("fields", "[]");
+    var graph: Obj = .{};
+    graph.put("nodes", array(&.{node.done()}));
+    graph.put("resultNodeId", quotedAscii(function_id));
+    var function: Obj = .{};
+    function.put("id", quotedAscii(function_id));
+    function.put("displayName", quotedAscii(function_id));
+    function.put("parameters", "[]");
+    function.put("resultType", result_type.done());
+    function.put("requiredEffects", "[]");
+    function.put("body", graph.done());
+    var marker: Obj = .{};
+    marker.put("snapshotId", quotedAscii(dependency_id));
+    marker.put("digest", quotedAscii(digest));
+    var root: Obj = .{};
+    root.put("schemaVersion", fmt("{d}", .{currentVersion()}));
+    root.put("snapshotId", quotedAscii(snapshot));
+    root.put("dependency", marker.done());
+    root.put("types", "[]");
+    root.put("effects", "[]");
+    root.put("capabilities", "[]");
+    root.put("functions", array(&.{function.done()}));
+    root.put("obligations", "[]");
+    return root.done();
+}
+
+test "resolved native documents reuse decoded dependencies and return complete nested metadata" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    const dependency = readTypedDocument(allocator,
+        \\{"schemaVersion":24,"snapshotId":"dependency","types":[{"id":"T","displayName":"T","kind":"product","fields":[]}],"effects":[],"capabilities":[],"functions":[],"obligations":[]}
+    );
+    try std.testing.expect(dependency.generation != null);
+    try std.testing.expect(dependency.root == .json_null and parsed_root == .json_null);
+    const first_source = resolvedNativeFixture("local", dependency.id, dependency.digest, "local-function");
+    const first = readResolvedTypedDocument(allocator, dependency.generation.?, dependency.interner.?, dependency.id, dependency.digest, first_source);
+    try std.testing.expectEqualStrings("end\n", first.lines);
+    try std.testing.expectEqualStrings("local", first.id);
+    try std.testing.expectEqual(@as(usize, 1), first.generation.?.types.len);
+    try std.testing.expectEqual(@as(usize, 1), first.generation.?.functions.len);
+    try std.testing.expect(!first.open_obligations);
+    const plain = readDocument(allocator, first.canonical);
+    try std.testing.expectEqualStrings(first.canonical, plain.canonical);
+    try std.testing.expectEqualStrings(first.digest, plain.digest);
+    try std.testing.expectEqualStrings(first.fingerprints.?.snapshot, plain.fingerprints.?.snapshot);
+    try std.testing.expectEqualStrings(first.fingerprints.?.semantic, plain.fingerprints.?.semantic);
+    const second_source = resolvedNativeFixture("nested", first.id, first.digest, "nested-function");
+    const second = readResolvedTypedDocument(allocator, first.generation.?, first.interner.?, first.id, first.digest, second_source);
+    try std.testing.expectEqualStrings("end\n", second.lines);
+    try std.testing.expectEqualStrings("nested", second.id);
+    try std.testing.expectEqual(@as(usize, 1), second.generation.?.types.len);
+    try std.testing.expectEqual(@as(usize, 2), second.generation.?.functions.len);
+    try std.testing.expectEqual(@as(usize, 3), second.subjects.len);
+    try std.testing.expect(second.canonical.len > 0 and second.digest.len == 64);
+    const rejected = readResolvedTypedDocument(allocator, dependency.generation.?, dependency.interner.?, dependency.id, "wrong", first_source);
+    try std.testing.expect(rejected.generation == null);
+    try std.testing.expect(std.mem.startsWith(u8, rejected.lines, "error InvalidShape:"));
 }

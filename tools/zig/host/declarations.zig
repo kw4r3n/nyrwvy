@@ -8,7 +8,8 @@ const m = @import("materialize.zig");
 const ids = @import("ids.zig");
 const proposals = @import("proposals.zig");
 const Json = std.json.Value;
-const Value = model.Value;
+const tm = model.session_model;
+const Value = model.Model;
 const Writer = std.Io.Writer;
 const TypeRef = recipe.TypeRef;
 const Field = preflight.Parameter;
@@ -18,10 +19,10 @@ const Intent = struct { name: []const u8, exported: bool, parameters: []const []
 const Operation = struct { name: []const u8, parameters: []const Field, result: TypeRef, effect: []const u8, may_wait: bool };
 
 fn at(r: *query.Request, path: []const u8, key: anytype) ![]const u8 {
-    return std.fmt.allocPrint(r.a, "{s}/{s}", .{path, key});
+    return std.fmt.allocPrint(r.a, "{s}/{s}", .{ path, key });
 }
 fn index(r: *query.Request, path: []const u8, i: usize) ![]const u8 {
-    return std.fmt.allocPrint(r.a, "{s}/{d}", .{path, i});
+    return std.fmt.allocPrint(r.a, "{s}/{d}", .{ path, i });
 }
 fn boolean(d: *recipe.Decoder, root: Json, name: []const u8) !bool {
     try d.optionalBool(root, name);
@@ -82,16 +83,16 @@ fn reject(r: *query.Request, subject: []const u8, code: []const u8, message: []c
     return error.Rejected;
 }
 fn checkBase(r: *query.Request, subject: []const u8, prefix: []const u8, wanted: []const u8) !void {
-    if (!m.same(wanted, r.snapshot_id)) return reject(r, subject, try std.mem.concat(r.a, u8, &.{prefix, "ExpectedBaseMismatch"}), try std.fmt.allocPrint(r.a, "The {s}-declaration request targets a different base snapshot.", .{subject}));
+    if (!m.same(wanted, r.snapshot_id)) return reject(r, subject, try std.mem.concat(r.a, u8, &.{ prefix, "ExpectedBaseMismatch" }), try std.fmt.allocPrint(r.a, "The {s}-declaration request targets a different base snapshot.", .{subject}));
 }
 fn checkName(r: *query.Request, subject: []const u8, prefix: []const u8, group: []const u8, name: []const u8) !void {
     if (try recipe.isBlank(r.a, name)) {
         const capital = try r.a.dupe(u8, subject);
         capital[0] = std.ascii.toUpper(capital[0]);
-        return reject(r, subject, try std.mem.concat(r.a, u8, &.{prefix, "DisplayNameBlank"}), try std.fmt.allocPrint(r.a, "{s} display name must not be blank.", .{capital}));
+        return reject(r, subject, try std.mem.concat(r.a, u8, &.{ prefix, "DisplayNameBlank" }), try std.fmt.allocPrint(r.a, "{s} display name must not be blank.", .{capital}));
     }
-    for (model.arrayItems(r.model, group)) |item| if (m.same(query.nameOf(item), name))
-        return reject(r, subject, try std.mem.concat(r.a, u8, &.{prefix, "DuplicateDisplayName"}), try std.fmt.allocPrint(r.a, "{s} {s} named '{s}' already exists; {s} display names must be unique.", .{ if (m.same(subject, "effect")) @as([]const u8, "An") else "A", subject, name, subject }));
+    for (model.typedRoot(r.a, r.interner.?, r.generation.?).declarations(group)) |item| if (m.same(model.utf8(item.displayName()), name))
+        return reject(r, subject, try std.mem.concat(r.a, u8, &.{ prefix, "DuplicateDisplayName" }), try std.fmt.allocPrint(r.a, "{s} {s} named '{s}' already exists; {s} display names must be unique.", .{ if (m.same(subject, "effect")) @as([]const u8, "An") else "A", subject, name, subject }));
 }
 
 pub const Validation = struct {
@@ -105,20 +106,23 @@ pub const Validation = struct {
 
     fn fail(v: Validation, suffix: []const u8, message: []const u8) anyerror {
         if (v.structural) return preflight.rejected(v.r, try std.mem.concat(v.r.a, u8, &.{ v.prefix, suffix }), message);
-        return reject(v.r, v.subject, try std.mem.concat(v.r.a, u8, &.{v.prefix, suffix}), if (v.member) |name| try std.fmt.allocPrint(v.r.a, "Type '{s}': {s}", .{name, message}) else message);
+        return reject(v.r, v.subject, try std.mem.concat(v.r.a, u8, &.{ v.prefix, suffix }), if (v.member) |name| try std.fmt.allocPrint(v.r.a, "Type '{s}': {s}", .{ name, message }) else message);
     }
     pub fn typeRef(v: Validation, context: []const u8, t: TypeRef) anyerror!void {
         const a = v.r.a;
         switch (t) {
             .primitive => {},
-            .type_parameter => |id| if (!preflight.contains(v.parameters, id)) return v.fail("TypeParameterNotAllowed", try std.fmt.allocPrint(a, "{s} cannot use type parameter '{s}'; only the declaring type's own type parameters may occur.", .{context, id})),
+            .type_parameter => |id| if (!preflight.contains(v.parameters, id)) return v.fail("TypeParameterNotAllowed", try std.fmt.allocPrint(a, "{s} cannot use type parameter '{s}'; only the declaring type's own type parameters may occur.", .{ context, id })),
             .named => |n| {
-                var known = preflight.declaration(v.r, "types", n.id) != null;
-                for (v.group) |g| if (m.same(g.id, n.id)) { known = true; break; };
-                if (!known) return v.fail("UnknownNamedType", try std.fmt.allocPrint(a, "{s} references unknown type '{s}'.", .{context, n.id}));
+                var known = preflight.typedDeclaration(v.r, "types", n.id) != null;
+                for (v.group) |g| if (m.same(g.id, n.id)) {
+                    known = true;
+                    break;
+                };
+                if (!known) return v.fail("UnknownNamedType", try std.fmt.allocPrint(a, "{s} references unknown type '{s}'.", .{ context, n.id }));
                 for (n.arguments) |arg| try v.typeRef(context, arg);
             },
-            .capability => |id| if (preflight.declaration(v.r, "capabilities", id) == null) return v.fail("UnknownCapabilityType", try std.fmt.allocPrint(a, "{s} references unknown capability '{s}'.", .{context, id})),
+            .capability => |id| if (preflight.typedDeclaration(v.r, "capabilities", id) == null) return v.fail("UnknownCapabilityType", try std.fmt.allocPrint(a, "{s} references unknown capability '{s}'.", .{ context, id })),
             .function => |f| {
                 for (f.parameters) |arg| try v.typeRef(context, arg);
                 try v.typeRef(context, f.result.*);
@@ -128,7 +132,7 @@ pub const Validation = struct {
                 if (b.arguments.len != arity) {
                     const case = try a.dupe(u8, b.generic);
                     case[0] = std.ascii.toUpper(case[0]);
-                    return v.fail("BuiltinGenericArityMismatch", try std.fmt.allocPrint(a, "{s} uses {s} with {d} type arguments; exactly {d} required.", .{context, case, b.arguments.len, arity}));
+                    return v.fail("BuiltinGenericArityMismatch", try std.fmt.allocPrint(a, "{s} uses {s} with {d} type arguments; exactly {d} required.", .{ context, case, b.arguments.len, arity }));
                 }
                 for (b.arguments) |arg| try v.typeRef(context, arg);
             },
@@ -138,8 +142,8 @@ pub const Validation = struct {
         const names = try v.r.a.alloc([]const u8, fs.len);
         for (fs, names, 0..) |field, *name, i| {
             name.* = field.name;
-            if (try recipe.isBlank(v.r.a, field.name)) return v.fail("FieldDisplayNameBlank", try std.fmt.allocPrint(v.r.a, "{s} field at index {d} must have a nonblank display name.", .{context, i}));
-            try v.typeRef(try std.fmt.allocPrint(v.r.a, "{s} field at index {d}", .{context, i}), field.type);
+            if (try recipe.isBlank(v.r.a, field.name)) return v.fail("FieldDisplayNameBlank", try std.fmt.allocPrint(v.r.a, "{s} field at index {d} must have a nonblank display name.", .{ context, i }));
+            try v.typeRef(try std.fmt.allocPrint(v.r.a, "{s} field at index {d}", .{ context, i }), field.type);
         }
         if (preflight.repeated(names) != null) return v.fail("DuplicateFieldDisplayName", try std.fmt.allocPrint(v.r.a, "{s} field display names must be distinct.", .{context}));
     }
@@ -162,24 +166,41 @@ pub const Validation = struct {
 
 fn mentions(t: TypeRef, id: []const u8) bool {
     switch (t) {
-        .named => |n| { if (m.same(n.id, id)) return true; for (n.arguments) |arg| if (mentions(arg, id)) return true; },
-        .builtin => |b| for (b.arguments) |arg| { if (mentions(arg, id)) return true; },
-        .function => |f| { for (f.parameters) |arg| if (mentions(arg, id)) return true; return mentions(f.result.*, id); },
+        .named => |n| {
+            if (m.same(n.id, id)) return true;
+            for (n.arguments) |arg| if (mentions(arg, id)) return true;
+        },
+        .builtin => |b| for (b.arguments) |arg| {
+            if (mentions(arg, id)) return true;
+        },
+        .function => |f| {
+            for (f.parameters) |arg| if (mentions(arg, id)) return true;
+            return mentions(f.result.*, id);
+        },
         else => {},
     }
     return false;
 }
 fn kindMentions(k: Kind, id: []const u8) bool {
     switch (k) {
-        .product => |fs| for (fs) |f| { if (mentions(f.type, id)) return true; },
-        .union_ => |vs| for (vs) |v| { for (v.fields) |f| if (mentions(f.type, id)) return true; },
+        .product => |fs| for (fs) |f| {
+            if (mentions(f.type, id)) return true;
+        },
+        .union_ => |vs| for (vs) |v| {
+            for (v.fields) |f| if (mentions(f.type, id)) return true;
+        },
     }
     return false;
 }
 fn inhabited(t: TypeRef, intents: []const Intent, known: []const bool) bool {
     switch (t) {
-        .named => |n| { for (intents, 0..) |item, i| if (m.same(item.reference, n.id)) return known[i]; },
-        .builtin => |b| if (m.same(b.generic, "result")) { for (b.arguments) |arg| if (inhabited(arg, intents, known)) return true; return false; },
+        .named => |n| {
+            for (intents, 0..) |item, i| if (m.same(item.reference, n.id)) return known[i];
+        },
+        .builtin => |b| if (m.same(b.generic, "result")) {
+            for (b.arguments) |arg| if (inhabited(arg, intents, known)) return true;
+            return false;
+        },
         else => {},
     }
     return true;
@@ -191,7 +212,10 @@ fn fieldsInhabited(fs: []const Field, intents: []const Intent, known: []const bo
 fn kindInhabited(k: Kind, intents: []const Intent, known: []const bool) bool {
     switch (k) {
         .product => |fs| return fieldsInhabited(fs, intents, known),
-        .union_ => |vs| { for (vs) |v| if (fieldsInhabited(v.fields, intents, known)) return true; return false; },
+        .union_ => |vs| {
+            for (vs) |v| if (fieldsInhabited(v.fields, intents, known)) return true;
+            return false;
+        },
     }
 }
 fn checkInhabited(r: *query.Request, intents: []const Intent) !void {
@@ -199,7 +223,10 @@ fn checkInhabited(r: *query.Request, intents: []const Intent) !void {
     @memset(known, false);
     while (true) {
         var changed = false;
-        for (intents, 0..) |item, i| if (!known[i] and kindInhabited(item.kind, intents, known)) { known[i] = true; changed = true; };
+        for (intents, 0..) |item, i| if (!known[i] and kindInhabited(item.kind, intents, known)) {
+            known[i] = true;
+            changed = true;
+        };
         if (!changed) break;
     }
     var names: std.ArrayList([]const u8) = .empty;
@@ -211,7 +238,10 @@ fn rewrite(r: *query.Request, t: TypeRef, intents: []const Intent) anyerror!Type
     switch (t) {
         .named => |n| {
             var id = n.id;
-            for (intents) |item| if (m.same(item.reference, id)) { id = item.actual; break; };
+            for (intents) |item| if (m.same(item.reference, id)) {
+                id = item.actual;
+                break;
+            };
             return .{ .named = .{ .id = id, .arguments = try rewriteAll(r, n.arguments, intents) } };
         },
         .builtin => |b| return .{ .builtin = .{ .generic = b.generic, .arguments = try rewriteAll(r, b.arguments, intents) } },
@@ -228,41 +258,39 @@ fn rewriteAll(r: *query.Request, ts: []const TypeRef, intents: []const Intent) !
     for (ts, result) |t, *out| out.* = try rewrite(r, t, intents);
     return result;
 }
-fn materializeFields(materializer: *m.Materializer, fs: []const Field, intents: []const Intent) !Value {
-    const a = materializer.a;
-    const result = try a.alloc(Value, fs.len);
-    for (fs, result) |f, *out| out.* = try m.object(a, &.{
-        try m.member(a, "id", try m.id(a)), try m.member(a, "displayName", try m.string(a, f.name)),
-        try m.member(a, "type", try materializer.typeRef(try rewrite(materializer.r, f.type, intents))),
-    });
-    return .{ .array = result };
+fn typedRecord(r: *query.Request, data: @TypeOf(@as(model.Model, undefined).data)) Value {
+    return .{ .context = model.typedRoot(r.a, r.interner.?, r.generation.?).context, .data = data };
+}
+fn materializeFields(materializer: *m.Materializer, fs: []const Field, intents: []const Intent) ![]const tm.Typed {
+    const result = try materializer.a.alloc(tm.Typed, fs.len);
+    for (fs, result) |field, *out| {
+        const field_id = try materializer.freshId(.field);
+        out.* = .{ .id = field_id, .name = try materializer.internString(field.name), .type = try materializer.typeRef(try rewrite(materializer.r, field.type, intents)) };
+    }
+    return result;
 }
 fn materializeType(r: *query.Request, item: Intent, intents: []const Intent, group: bool) !Value {
     const a = r.a;
     const fresh_parameters = try a.alloc(preflight.TypeParameter, item.parameters.len);
-    const names = try a.alloc(Value, item.parameters.len);
-    for (item.parameters, fresh_parameters, names) |name, *p, *value| {
-        p.* = .{ .name = name, .id = try fresh(r) };
-        value.* = try m.object(a, &.{ try m.member(a, "typeParameterId", try m.string(a, p.id)), try m.member(a, "displayName", try m.string(a, name)) });
-    }
-    var result: std.ArrayList(model.Member) = .empty;
-    try result.appendSlice(a, &.{ try m.member(a, "id", try m.string(a, if (group) item.actual else try fresh(r))), try m.member(a, "displayName", try m.string(a, item.name)) });
-    if (item.exported) try result.append(a, try m.member(a, "exported", .json_true));
-    if (names.len > 0) try result.append(a, try m.member(a, "typeParameters", .{ .array = names }));
-    var materializer: m.Materializer = .{ .a = a, .r = r, .types = undefined, .fresh = fresh_parameters, .function_id = .json_null, .parameters = &.{} };
+    for (item.parameters, fresh_parameters) |name, *parameter| parameter.* = .{ .name = name, .id = try fresh(r) };
+    var materializer: m.Materializer = .{ .a = a, .r = r, .types = undefined, .fresh = fresh_parameters, .function_id = tm.none, .parameters = &.{} };
+    const names = try a.alloc(tm.TypeParameter, item.parameters.len);
+    for (fresh_parameters, names) |parameter, *value| value.* = .{ .id = try materializer.internId(.type_parameter, parameter.id), .name = try materializer.internString(parameter.name) };
+    const type_id = try materializer.internId(.type, if (group) item.actual else try fresh(r));
+    const result = try a.create(tm.Type);
+    result.* = .{ .id = type_id, .name = try materializer.internString(item.name), .exported = item.exported, .type_parameters = if (names.len == 0) null else names, .product = item.kind == .product, .fields = &.{}, .variants = &.{} };
     switch (item.kind) {
-        .product => |fs| {
-            try result.append(a, try m.member(a, "kind", try m.string(a, "product")));
-            try result.append(a, try m.member(a, "fields", try materializeFields(&materializer, fs, intents)));
-        },
-        .union_ => |vs| {
-            try result.append(a, try m.member(a, "kind", try m.string(a, "union")));
-            const variants = try a.alloc(Value, vs.len);
-            for (vs, variants) |v, *out| out.* = try m.object(a, &.{ try m.member(a, "id", try m.id(a)), try m.member(a, "displayName", try m.string(a, v.name)), try m.member(a, "fields", try materializeFields(&materializer, v.fields, intents)) });
-            try result.append(a, try m.member(a, "variants", .{ .array = variants }));
+        .product => |fields| result.fields = try materializeFields(&materializer, fields, intents),
+        .union_ => |items| {
+            const variants = try a.alloc(tm.Variant, items.len);
+            for (items, variants) |variant, *out| {
+                const variant_id = try materializer.freshId(.variant);
+                out.* = .{ .id = variant_id, .name = try materializer.internString(variant.name), .fields = try materializeFields(&materializer, variant.fields, intents) };
+            }
+            result.variants = variants;
         },
     }
-    return .{ .object = result.items };
+    return typedRecord(r, .{ .type_declaration = result });
 }
 
 pub fn createType(r: *query.Request, out: *Writer) !void {
@@ -306,7 +334,9 @@ pub fn createType(r: *query.Request, out: *Writer) !void {
         try v.kind(item.kind);
     }
     if (group) try checkInhabited(r, intents.items);
-    if (group) for (intents.items) |*item| { item.actual = try fresh(r); };
+    if (group) for (intents.items) |*item| {
+        item.actual = try fresh(r);
+    };
     const created = try r.a.alloc(Value, intents.items.len);
     for (intents.items, created) |item, *value| value.* = try materializeType(r, item, if (group) intents.items else &.{}, group);
     try proposals.declare(r, out, .{ .kind = if (group) "createTypes" else "createType", .group = "types", .subject = "type", .items = created });
@@ -322,11 +352,11 @@ pub fn createEffect(r: *query.Request, out: *Writer) !void {
     try r.ensureUsable();
     try checkBase(r, "effect", "EffectDeclaration", wanted);
     try checkName(r, "effect", "EffectDeclaration", "effects", name);
-    var members: std.ArrayList(model.Member) = .empty;
-    try members.appendSlice(r.a, &.{ try m.member(r.a, "id", try m.id(r.a)), try m.member(r.a, "displayName", try m.string(r.a, name)) });
-    if (exported) try members.append(r.a, try m.member(r.a, "exported", .json_true));
-    const created: Value = .{ .object = members.items };
-    try proposals.declare(r, out, .{ .kind = "createEffect", .group = "effects", .subject = "effect", .items = &.{created} });
+    var materializer: m.Materializer = .{ .a = r.a, .r = r, .types = undefined, .fresh = &.{}, .function_id = tm.none, .parameters = &.{} };
+    const effect = try r.a.create(tm.Effect);
+    const effect_id = try materializer.freshId(.effect);
+    effect.* = .{ .id = effect_id, .name = try materializer.internString(name), .exported = exported };
+    try proposals.declare(r, out, .{ .kind = "createEffect", .group = "effects", .subject = "effect", .items = &.{typedRecord(r, .{ .effect = effect })} });
 }
 
 pub fn createCapability(r: *query.Request, out: *Writer) !void {
@@ -339,7 +369,7 @@ pub fn createCapability(r: *query.Request, out: *Writer) !void {
     var wanted: []const u8 = r.snapshot_id;
     if (!by_name) wanted = try expected(&d, root);
     const name = try d.requiredString(root, "displayName");
-    if (by_name) for (try query.visible(r, "capability")) |item| if (m.same(query.nameOf(item), name)) return r.fail("Capability display name '{s}' already exists. Choose a unique name or use the exact-ID authoring surface.", .{name});
+    if (by_name) for (try query.typedVisible(r, "capability")) |item| if (m.same(query.nameOf(item), name)) return r.fail("Capability display name '{s}' already exists. Choose a unique name or use the exact-ID authoring surface.", .{name});
     if (by_name) wanted = try expected(&d, root);
     const exported = try boolean(&d, root, "exported");
     const task_bound = try boolean(&d, root, "taskBound");
@@ -369,32 +399,46 @@ pub fn createCapability(r: *query.Request, out: *Writer) !void {
     if (preflight.repeated(names)) |duplicate| return v.fail("DuplicateOperationDisplayName", try std.fmt.allocPrint(r.a, "Capability operation '{s}' is declared more than once; operation display names must be unique within their Capability.", .{duplicate}));
     for (operations.items, 0..) |operation, i| {
         if (try recipe.isBlank(r.a, operation.name)) return v.fail("OperationDisplayNameBlank", try std.fmt.allocPrint(r.a, "Capability operation at index {d} must have a nonblank display name.", .{i}));
-        if (preflight.declaration(r, "effects", operation.effect) == null) return v.fail("UnknownEffect", try std.fmt.allocPrint(r.a, "Capability operation at index {d} references unknown effect '{s}'.", .{i, operation.effect}));
+        if (preflight.typedDeclaration(r, "effects", operation.effect) == null) return v.fail("UnknownEffect", try std.fmt.allocPrint(r.a, "Capability operation at index {d} references unknown effect '{s}'.", .{ i, operation.effect }));
         const ps = try r.a.alloc([]const u8, operation.parameters.len);
         for (operation.parameters, ps, 0..) |parameter, *n, j| {
             n.* = parameter.name;
-            if (try recipe.isBlank(r.a, parameter.name)) return v.fail("ParameterDisplayNameBlank", try std.fmt.allocPrint(r.a, "Operation at index {d} parameter at index {d} must have a nonblank display name.", .{i, j}));
-            try v.typeRef(try std.fmt.allocPrint(r.a, "Operation at index {d} parameter at index {d}", .{i, j}), parameter.type);
+            if (try recipe.isBlank(r.a, parameter.name)) return v.fail("ParameterDisplayNameBlank", try std.fmt.allocPrint(r.a, "Operation at index {d} parameter at index {d} must have a nonblank display name.", .{ i, j }));
+            try v.typeRef(try std.fmt.allocPrint(r.a, "Operation at index {d} parameter at index {d}", .{ i, j }), parameter.type);
         }
         if (preflight.repeated(ps) != null) return v.fail("DuplicateParameterDisplayName", try std.fmt.allocPrint(r.a, "Operation at index {d} parameter display names must be distinct within their operation.", .{i}));
         try v.typeRef(try std.fmt.allocPrint(r.a, "Capability operation at index {d} result", .{i}), operation.result);
     }
     const a = r.a;
-    const id = try m.id(a);
-    var materializer: m.Materializer = .{ .a = a, .r = r, .types = undefined, .fresh = &.{}, .function_id = .json_null, .parameters = &.{} };
-    const ops = try a.alloc(Value, operations.items.len);
+    var materializer: m.Materializer = .{ .a = a, .r = r, .types = undefined, .fresh = &.{}, .function_id = tm.none, .parameters = &.{} };
+    const capability_id = try materializer.freshId(.capability);
+    const ops = try a.alloc(tm.Operation, operations.items.len);
     for (operations.items, ops) |operation, *value| {
-        const operation_id = try m.id(a);
-        const ps = try a.alloc(Value, operation.parameters.len);
-        for (operation.parameters, ps) |parameter, *p| p.* = try m.object(a, &.{ try m.member(a, "id", try m.id(a)), try m.member(a, "displayName", try m.string(a, parameter.name)), try m.member(a, "type", try materializer.typeRef(parameter.type)) });
-        var members: std.ArrayList(model.Member) = .empty;
-        try members.appendSlice(a, &.{ try m.member(a, "id", operation_id), try m.member(a, "displayName", try m.string(a, operation.name)), try m.member(a, "parameters", .{ .array = ps }), try m.member(a, "resultType", try materializer.typeRef(operation.result)), try m.member(a, "effectId", try m.string(a, operation.effect)) });
-        if (operation.may_wait) try members.append(a, try m.member(a, "mayWait", .json_true));
-        value.* = .{ .object = members.items };
+        const operation_id = try materializer.freshId(.operation);
+        const ps = try a.alloc(tm.Typed, operation.parameters.len);
+        for (operation.parameters, ps) |parameter, *p| {
+            const parameter_id = try materializer.freshId(.capability_parameter);
+            p.* = .{ .id = parameter_id, .name = try materializer.internString(parameter.name), .type = try materializer.typeRef(parameter.type) };
+        }
+        value.* = .{ .id = operation_id, .name = try materializer.internString(operation.name), .parameters = ps, .result = try materializer.typeRef(operation.result), .failure = null, .effect = try materializer.internId(.effect, operation.effect), .may_wait = operation.may_wait };
     }
-    var members: std.ArrayList(model.Member) = .empty;
-    try members.appendSlice(a, &.{ try m.member(a, "id", id), try m.member(a, "displayName", try m.string(a, name)), try m.member(a, "operations", .{ .array = ops }) });
-    if (exported) try members.append(a, try m.member(a, "exported", .json_true));
-    if (task_bound) try members.append(a, try m.member(a, "taskBound", .json_true));
-    try proposals.declare(r, out, .{ .kind = "createCapability", .group = "capabilities", .subject = "capability", .items = &.{.{ .object = members.items }} });
+    const capability = try a.create(tm.Capability);
+    capability.* = .{ .id = capability_id, .name = try materializer.internString(name), .exported = exported, .task_bound = task_bound, .operations = ops };
+    try proposals.declare(r, out, .{ .kind = "createCapability", .group = "capabilities", .subject = "capability", .items = &.{typedRecord(r, .{ .capability = capability })} });
+}
+
+test "typed generic declaration rewrites group references and fresh type parameters" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    var interner: tm.Interner = .{ .gpa = a };
+    const generation: tm.Generation = .{ .snapshot = try interner.id(.snapshot, &.{'s'}), .parent = tm.none, .marker = null, .types = &.{}, .effects = &.{}, .capabilities = &.{}, .functions = &.{}, .obligations = &.{} };
+    var request: query.Request = .{ .a = a, .line = "", .root = .empty, .provenance = null, .generation = &generation, .interner = &interner };
+    const item: Intent = .{ .name = "Box", .exported = true, .parameters = &.{"T"}, .raw = .null, .path = "", .reference = "local", .actual = "actual", .kind = .{ .product = &.{ .{ .name = "value", .type = .{ .type_parameter = "T" } }, .{ .name = "next", .type = .{ .named = .{ .id = "local", .arguments = &.{.{ .type_parameter = "T" }} } } } } } };
+    const created = (try materializeType(&request, item, &.{item}, true)).data.type_declaration;
+    try std.testing.expectEqualSlices(u16, &.{ 'a', 'c', 't', 'u', 'a', 'l' }, interner.idText(.type, created.id));
+    try std.testing.expectEqual(created.type_parameters.?[0].id, created.fields[0].type.type_parameter);
+    try std.testing.expectEqual(created.id, created.fields[1].type.named.id);
+    try std.testing.expectEqual(created.type_parameters.?[0].id, created.fields[1].type.named.arguments.?[0].type_parameter);
+    try std.testing.expect(created.fields[0].id != created.fields[1].id);
 }

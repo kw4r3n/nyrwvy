@@ -13,20 +13,20 @@ fn id(d: *recipe.Decoder, item: Json, key: []const u8) ![]const u8 {
 fn index(d: *recipe.Decoder, path: []const u8, i: usize) ![]const u8 {
     return std.fmt.allocPrint(d.r.a, "{s}/{d}", .{ path, i });
 }
-fn named(d: *recipe.Decoder, kind: []const u8, name: []const u8) !query.Value {
-    return query.exactOne(d.r, kind, try query.readable(d.r, name), try query.visible(d.r, kind));
+fn named(d: *recipe.Decoder, kind: []const u8, name: []const u8) !model.Model {
+    return query.typedExactOne(d.r, kind, try query.readable(d.r, name), try query.typedVisible(d.r, kind));
 }
-fn member(d: *recipe.Decoder, label: []const u8, parent: query.Value, group: []const u8, name: []const u8) !query.Value {
+fn member(d: *recipe.Decoder, label: []const u8, parent: model.Model, group: []const u8, name: []const u8) !model.Model {
     const marker = std.mem.indexOf(u8, label, "{s}") orelse unreachable;
     const rendered = try std.mem.concat(d.r.a, u8, &.{ label[0..marker], query.nameOf(parent), label[marker + 3 ..] });
-    return query.exactOne(d.r, rendered, try query.readable(d.r, name), model.arrayItems(parent, group));
+    return query.typedExactOne(d.r, rendered, try query.readable(d.r, name), @import("typed_edit.zig").children(parent, std.meta.stringToEnum(@import("typed_edit.zig").Collection, group).?));
 }
-fn productField(d: *recipe.Decoder, owner: query.Value, name: []const u8) !query.Value {
-    if (model.property(owner, "variants") != null) return d.r.fail("Type '{s}' is not a product type.", .{query.nameOf(owner)});
+fn productField(d: *recipe.Decoder, owner: model.Model, name: []const u8) !model.Model {
+    if (!owner.data.type_declaration.product) return d.r.fail("Type '{s}' is not a product type.", .{query.nameOf(owner)});
     return member(d, "field on {s}", owner, "fields", name);
 }
-fn unionVariant(d: *recipe.Decoder, owner: query.Value, name: []const u8) !query.Value {
-    if (model.property(owner, "variants") == null) return d.r.fail("Type '{s}' is not a union type.", .{query.nameOf(owner)});
+fn unionVariant(d: *recipe.Decoder, owner: model.Model, name: []const u8) !model.Model {
+    if (owner.data.type_declaration.product) return d.r.fail("Type '{s}' is not a union type.", .{query.nameOf(owner)});
     return member(d, "variant on {s}", owner, "variants", name);
 }
 fn decodeId(d: *recipe.Decoder, item: Json, by_name: bool, exact_key: []const u8, name_key: []const u8, kind: []const u8) ![]const u8 {
@@ -112,7 +112,7 @@ fn rename(d: *recipe.Decoder, item: Json, path: []const u8, by_name: bool, kind:
     } else if (target_kind == .variant) resolved = query.idOf(try unionVariant(d, try named(d, "type", try d.requiredString(item, "type")), try d.requiredString(item, "variant"))) else if (target_kind == .parameter) resolved = query.idOf(try member(d, "parameter on {s}", try named(d, "function", try d.requiredString(item, "function")), "parameters", try d.requiredString(item, "parameter"))) else {
         const cap = try named(d, "capability", try d.requiredString(item, "capability"));
         const op = try member(d, "operation on {s}", cap, "operations", try d.requiredString(item, "operation"));
-        resolved = if (target_kind == .capabilityOperation) query.idOf(op) else query.idOf(try query.exactOne(d.r, try std.fmt.allocPrint(d.r.a, "parameter on operation {s}", .{query.nameOf(op)}), try d.requiredString(item, "parameter"), model.arrayItems(op, "parameters")));
+        resolved = if (target_kind == .capabilityOperation) query.idOf(op) else query.idOf(try query.typedExactOne(d.r, try std.fmt.allocPrint(d.r.a, "parameter on operation {s}", .{query.nameOf(op)}), try d.requiredString(item, "parameter"), op.parameters()));
     }
     return .{ .rename = .{ .target = target_kind, .id = resolved, .name = try d.requiredString(item, "displayName") } };
 }
@@ -147,7 +147,13 @@ fn visibility(d: *recipe.Decoder, item: Json, path: []const u8, by_name: bool) !
     };
     const key = selected orelse return d.r.fail("A set-exported operation names exactly one declaration with one of {s}.", .{try std.mem.join(d.r.a, ", ", &names)});
     const target_kind: types.Target = if (std.mem.eql(u8, key, names[0])) .type else if (std.mem.eql(u8, key, names[1])) .function else if (std.mem.eql(u8, key, names[2])) .effect else .capability;
-    const target_name = switch (target_kind) { .type => "type", .function => "function", .effect => "effect", .capability => "capability", else => unreachable };
+    const target_name = switch (target_kind) {
+        .type => "type",
+        .function => "function",
+        .effect => "effect",
+        .capability => "capability",
+        else => unreachable,
+    };
     const selector = try d.requiredString(item, key);
     var result: types.Visibility = .{ .target = target_kind, .id = if (by_name) query.idOf(try named(d, target_name, selector)) else try d.stableId(key, selector), .value = undefined };
     const exported = try d.property(item, "exported");
@@ -188,7 +194,7 @@ fn addFunctionParameter(d: *recipe.Decoder, item: Json, path: []const u8, by_nam
     const display_name = try d.requiredString(item, "displayName");
     const old_owner = d.owner;
     defer d.owner = old_owner;
-    var function_value: ?query.Value = null;
+    var function_value: ?model.Model = null;
     if (by_name) {
         function_value = try named(d, "function", try d.requiredString(item, "function"));
         d.owner = .{ .name = "" };
@@ -212,11 +218,11 @@ fn addFunctionParameter(d: *recipe.Decoder, item: Json, path: []const u8, by_nam
     return .{ .add_function_parameter = .{ .function = function, .field = .{ .name = display_name, .type = bound_type }, .calls = plans.items } };
 }
 
-fn bindDeclaredTypeParameters(a: std.mem.Allocator, function: query.Value, value: recipe.TypeRef) anyerror!recipe.TypeRef {
+fn bindDeclaredTypeParameters(a: std.mem.Allocator, function: model.Model, value: recipe.TypeRef) anyerror!recipe.TypeRef {
     return switch (value) {
         .type_parameter => |name| blk: {
-            for (model.arrayItems(function, "typeParameters")) |parameter| if (std.mem.eql(u8, query.nameOf(parameter), name)) {
-                break :blk .{ .type_parameter = model.utf8(model.decoded(model.property(parameter, "typeParameterId").?)) };
+            for (function.typeParameters()) |parameter| if (std.mem.eql(u8, query.nameOf(parameter), name)) {
+                break :blk .{ .type_parameter = model.utf8(parameter.id()) };
             };
             break :blk value;
         },
@@ -230,7 +236,7 @@ fn bindDeclaredTypeParameters(a: std.mem.Allocator, function: query.Value, value
         else => value,
     };
 }
-fn bindTypes(a: std.mem.Allocator, function: query.Value, values: []const recipe.TypeRef) anyerror![]const recipe.TypeRef {
+fn bindTypes(a: std.mem.Allocator, function: model.Model, values: []const recipe.TypeRef) anyerror![]const recipe.TypeRef {
     const result = try a.alloc(recipe.TypeRef, values.len);
     for (values, result) |value, *bound| bound.* = try bindDeclaredTypeParameters(a, function, value);
     return result;
@@ -268,4 +274,27 @@ fn addCapabilityOperation(d: *recipe.Decoder, item: Json, path: []const u8, by_n
         try implementations.append(d.r.a, .{ .construct = construct, .function = implementation });
     }
     return .{ .add_capability_operation = .{ .capability = cap, .name = display_name, .parameters = parameters.items, .result = result, .effect = effect, .may_wait = may_wait, .implementations = implementations.items } };
+}
+
+test "typed operation decoding resolves member names and constructs native union variants" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    const read = model.readDocument(a,
+        \\{"schemaVersion":24,"snapshotId":"s","types":[{"id":"t","displayName":"T","kind":"product","fields":[{"id":"field","displayName":"Field","type":{"kind":"primitive","primitive":"unit"}}]},{"id":"u","displayName":"U","kind":"union","variants":[{"id":"v","displayName":"V","fields":[]}]}],"effects":[{"id":"e","displayName":"E"}],"capabilities":[{"id":"c","displayName":"C","operations":[{"id":"o","displayName":"Op","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"effectId":"e"}]}],"functions":[],"obligations":[]}
+    );
+    const text =
+        \\{"id":"r","op":"simulateOperationsByName","operations":[{"kind":"renameField","type":"T","field":"Field","displayName":"Renamed"},{"kind":"setMayWait","capability":"C","operation":"Op","mayWait":true},{"kind":"addCapabilityOperation","capability":"C","displayName":"New","parameters":[],"resultType":{"kind":"primitive","primitive":"unit"},"effect":"E","implementations":[]},{"kind":"addUnionVariant","type":"U","displayName":"NewVariant","fields":[],"arms":[]}]}
+    ;
+    const input = try std.json.parseFromSlice(Json, a, text, .{ .allocate = .alloc_always });
+    var interner: model.session_model.Interner = .{ .gpa = a };
+    const generation = try model.session_model.load(a, &interner, read.root, null);
+    var request: query.Request = .{ .a = a, .line = text, .root = input.value.object, .provenance = null, .generation = &generation, .interner = &interner, .snapshot_id = "s" };
+    const intents = try decode(&request, true);
+    try std.testing.expectEqual(@as(usize, 4), intents.len);
+    try std.testing.expectEqualStrings("field", intents[0].rename.id);
+    try std.testing.expectEqualStrings("o", intents[1].set_attribute.id);
+    try std.testing.expectEqualStrings("c", intents[2].add_capability_operation.capability);
+    try std.testing.expectEqualStrings("NewVariant", query.nameOf(intents[3].add_union_variant.variant));
+    try std.testing.expectEqual(@as(usize, 0), intents[3].add_union_variant.variant.data.variant.fields.len);
 }
