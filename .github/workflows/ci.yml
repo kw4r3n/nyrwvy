@@ -132,10 +132,8 @@ jobs:
         env:
           NYRWVY_HOST: zig
 
-      # shortcut: the Zig host does not start create/pin/upgrade yet, so these tests fail; drop continue-on-error once it does.
       - name: Test MCP transport contract against the Zig host
         run: node scripts/run-node-tests.mjs fast-mcp
-        continue-on-error: true
         env:
           NYRWVY_HOST: zig
 
