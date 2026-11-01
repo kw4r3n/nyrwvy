@@ -289,7 +289,9 @@ public sealed class Broken : {className}
                         let reply=rawSend request
                         replies.Add(reply.Replace(target,"<dir>"))
                         reply
-                    let pid ()=if OperatingSystem.IsLinux() then Some(workerPid host) else None
+                    // A replayed F# host has no worker process; its runs are checked by their replies.
+                    let tracked=OperatingSystem.IsLinux() && (zig || hostReference="live")
+                    let pid ()=if tracked then Some(workerPid host) else None
                     let echoed value=runName "echo" [stringValue value] (Some(stringValue value))
                     send (echoed "cold") |> matches
                     let first=pid ()
@@ -302,7 +304,7 @@ public sealed class Broken : {className}
                     for index in 3..64 do send (echoed(string index)) |> matches
                     Assert.Equal(first,pid ())
                     send (echoed "replacement") |> matches
-                    if OperatingSystem.IsLinux() then Assert.NotEqual(first,pid ())
+                    if tracked then Assert.NotEqual(first,pid ())
                     if zig && OperatingSystem.IsLinux() then Assert.Equal(coldCompiles,compileCount ())
                     publish send """{"id":"rename","op":"simulateOperationsByName","operations":[{"kind":"renameFunction","function":"echo","displayName":"renamed"}]}"""
                     send (runName "renamed" ["\"after rename\""] (Some "\"after rename\"")) |> matches
@@ -314,14 +316,14 @@ public sealed class Broken : {className}
                     let beforeTimeout=pid ()
                     Assert.Equal("RunTimeout",code(send(runName "spin" [] None)))
                     recovered ()
-                    if OperatingSystem.IsLinux() then Assert.NotEqual(beforeTimeout,pid ())
+                    if tracked then Assert.NotEqual(beforeTimeout,pid ())
                     let beforeCrash=pid ()
                     let crash=send(runName "deep" [] None)
                     Assert.Equal("RunRuntimeFailure",code crash)
                     Assert.Equal("System.StackOverflowException",(error crash).GetProperty("exceptionType").GetString())
                     Assert.NotEmpty((error crash).GetProperty("frames").EnumerateArray())
                     recovered ()
-                    if OperatingSystem.IsLinux() then Assert.NotEqual(beforeCrash,pid ()))
+                    if tracked then Assert.NotEqual(beforeCrash,pid ()))
                 transcripts.Add(List.ofSeq replies)
             Assert.Equal<string list>(transcripts[0],transcripts[1])
             Assert.Equal<byte[]>(File.ReadAllBytes(paths[0]),File.ReadAllBytes(paths[1])))

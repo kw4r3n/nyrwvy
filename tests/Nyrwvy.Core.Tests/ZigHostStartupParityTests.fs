@@ -126,7 +126,8 @@ module ZigHostStartupCommandParityTests =
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Native startup upgrades apply reviewed single batch and selection plans without allocating proposal IDs`` () =
-        withDirectory (fun dir ->
+        // Review fingerprints bind the absolute workspace path, which differs per run; live F# only.
+        if hostReference = "live" then withDirectory (fun dir ->
             for extension in [ ".json"; ".nyrec" ] do
                 let old, updated = library "old", library "new"
                 let path, source = Path.Combine(dir, "app" + extension), Path.Combine(dir, "new" + extension)
@@ -188,7 +189,8 @@ module ZigHostStartupCommandParityTests =
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Native startup rejects malformed forms with identical usage and holds the same workspace lock`` () =
-        withDirectory (fun dir ->
+        // Holds a live F# host's lock against the Zig host; a replayed run holds none.
+        if hostReference = "live" then withDirectory (fun dir ->
             let path = Path.Combine(dir, "app.json")
             let malformed =
                 [ [ "pin"; "--snapshot"; path; "--dependency"; "a"; "--dependency"; "b" ]
@@ -254,7 +256,8 @@ module ZigHostStartupCommandParityTests =
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Native startup flattens resolved dependency sources and applies two member reviewed upgrades`` () =
-        withDirectory (fun dir ->
+        // Review fingerprints bind the absolute workspace path, which differs per run; live F# only.
+        if hostReference = "live" then withDirectory (fun dir ->
             for extension in [ ".json"; ".nyrec" ] do
                 let old, updated = library "nested-old", library "nested-new"
                 let other, nextOther = Snapshot.empty (sid<SnapshotTag> "other-old"), Snapshot.empty (sid<SnapshotTag> "other-new")
@@ -380,7 +383,8 @@ module ZigHostStartupCliParityTests =
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Startup upgrade verifies single batch and selection reviews and persists exact pairs`` () =
-        withDirectory (fun dir ->
+        // Review fingerprints bind the absolute workspace path, which differs per run; live F# only.
+        if hostReference = "live" then withDirectory (fun dir ->
             for record in [ false; true ] do
                 let ext = if record then ".nyrec" else ".json"
                 let path = Path.Combine(dir, "app" + ext)
