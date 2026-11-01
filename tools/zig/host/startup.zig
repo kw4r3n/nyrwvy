@@ -83,8 +83,10 @@ fn parse(a: Allocator, args: []const []const u8) !?Command {
 fn rejection(problem: query.Rejection) noreturn {
     host.startupFailure("{s}: {s}", .{ problem.code, problem.message });
 }
-fn failed(r: *query.Request) noreturn {
-    rejection(r.rejection);
+/// Only `error.Rejected` carries `r.rejection`; any other error goes up to the startup failure path.
+fn failed(r: *query.Request, err: anyerror) anyerror {
+    if (err == error.Rejected) rejection(r.rejection);
+    return err;
 }
 /// `root` written at the current schema, marked with `selected`, in the form `path`'s extension selects.
 fn publish(a: Allocator, path: []const u8, root: model.Model, selected: ?host.Dependency) ![]const u8 {
@@ -112,12 +114,12 @@ fn create(io: std.Io, a: Allocator, command: Command) !void {
     if (fileExists(io, path) or fileExists(io, sidecar)) alreadyExists(path);
     var request: query.Request = .{ .a = a, .line = "{}", .root = .{}, .provenance = null, .snapshot_path = path };
     var pinned: std.ArrayList(planning.Pinned) = .empty;
-    for (command.sources) |source| try pinned.append(a, planning.pin(&request, source) catch failed(&request));
+    for (command.sources) |source| try pinned.append(a, planning.pin(&request, source) catch |e| return failed(&request, e));
     for (pinned.items, 0..) |item, i| for (pinned.items[0..i]) |previous| if (same(item.source, previous.source)) host.startupFailure("DependencyFailure: Each dependency may be selected only once.", .{});
     var selected: ?host.Dependency = null;
     var manifest: ?[]const u8 = null;
     if (pinned.items.len > 0) {
-        const combined = planning.combine(&request, pinned.items) catch failed(&request);
+        const combined = planning.combine(&request, pinned.items) catch |e| return failed(&request, e);
         selected = combined[0];
         manifest = combined[1];
     }
@@ -174,7 +176,7 @@ fn upgrade(io: std.Io, a: Allocator, command: Command) !void {
     if (command.mode != .selection and host.selection == null) host.startupFailure("DependencyFailure: This workspace has no dependency to upgrade; add one with a selection whose replaces is empty.", .{});
     const line = if (command.mode == .single) "{\"op\":\"previewDependencyUpgrade\"}" else try std.fmt.allocPrint(a, "{{\"op\":\"previewDependencyUpgrades\",\"{s}\":{s}}}", .{ if (command.mode == .batch) @as([]const u8, "upgrades") else "selection", command.payload });
     var request = try host.startupRequest(a, line, (try std.json.parseFromSliceLeaky(Json, a, line, .{})).object);
-    const plan = if (command.mode == .single) planning.planSingle(&request, command.sources[0], command.replaces) catch failed(&request) else planning.planChange(&request) catch failed(&request);
+    const plan = if (command.mode == .single) planning.planSingle(&request, command.sources[0], command.replaces) catch |e| return failed(&request, e) else planning.planChange(&request) catch |e| return failed(&request, e);
     if (!same(plan.fingerprint, command.fingerprint)) host.startupFailure("DependencyFailure: {s}", .{switch (command.mode) {
         .single => @as([]const u8, "The source differs from the reviewed upgrade version."),
         .batch => "The workspace, current pins, targets or new selected content differ from the reviewed batch. Preview the dependency upgrades again.",
@@ -194,7 +196,11 @@ fn upgrade(io: std.Io, a: Allocator, command: Command) !void {
         const sidecar = try std.mem.concat(a, u8, &.{ host.snapshot_path, ".dependency.json" });
         if (fileExists(io, sidecar)) rejection(.{ .code = "ExternalModification", .message = "The snapshot file changed outside this session." });
         try createAtomic(a, sidecar, plan.manifest);
-        if (try host.replaceAtomically(a, host.snapshot_path, source)) |problem| {
+        const replaced = host.replaceAtomically(a, host.snapshot_path, source) catch |e| {
+            std.Io.Dir.cwd().deleteFile(io, sidecar) catch {};
+            return e;
+        };
+        if (replaced) |problem| {
             std.Io.Dir.cwd().deleteFile(io, sidecar) catch {};
             rejection(problem);
         }
