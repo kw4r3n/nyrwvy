@@ -1,0 +1,79 @@
+# Memory ownership in the Zig backend
+
+- **Status:** Accepted (owner decisions A–D, 2026-11-01)
+- **Date:** 2026-11-01
+- **Plan:** [backend-neutral semantics and generated library bindings](../plans/multi-backend-and-bindings.md#backend-notes), Backend notes (Zig) and Order step 5
+
+The Zig backend runs nearly every program, but its runtime (`tools/zig/emitter/runtime.zig`) takes three shortcuts that are fine for `runPure` and wrong for a long-running program: every String and boxed value lives in one process arena (line 33), every List update copies (line 516), and Sets and Maps look up linearly and copy on update (line 652). Its scheduler is a port of the C# deterministic virtual clock (line 90). The plan already settles the direction (atomic reference counting, count-of-one reuse, persistent collections). This record turns it into a contract before any runtime or emitter change, and fixes the order those changes can land in.
+
+The likely first real use is small: Rhifill's `Screen.Read` (`app/Screen.cs`, about line 204) calls the pure `layoutFrame(List<List<Int64>>, CellGrid): List<List<Int64>>` once per frame, copies the result into `long[][]` and keeps nothing. That use needs neither reference counting nor a scheduler, so this record separates what it needs from what a general production backend needs.
+
+## Settled by the plan (not re-decided here)
+
+- Values are immutable and acyclic, and function values are capture-free function pointers (`functionValueId`), so reference counting reclaims everything without a collector, and function values carry no count.
+- Allocation failure and stack overflow are fatal. Pure code has no error union, so a panic in a pure export ends the host process.
+- Strings are UTF-8 (scalar values only); host failures are `NyError!T` with the failure in the thread-local `ny_failure` slot.
+
+## Decision
+
+**1. Ownership of generated values (lands after F# removal; see 5).**
+
+- **Representation.** Every heap value (String bytes, boxed Product and Union payloads, List nodes, Set and Map storage, Bytes) carries one `u32` count before its payload; Int64, Float64, Bool, Unit, inline Option and function values carry none. Plain counts (decision A).
+- **Owned parameters, owned returns (Perceus).** A call consumes its arguments and returns an owned result. The emitter inserts a retain before each use of a binding except the last, and a release where a binding dies unused (including the arms of a `match` that do not use it: each arm releases what it drops). Borrowed parameters are an optimisation the emitter may add later for a parameter that a function only reads, never a semantic rule.
+- **Containers.** Storing a value in a Product, Union, List, Set or Map transfers the reference; reading a field or item retains it. Releasing a container releases its children (iteratively for List spines, so a long list never overflows the stack).
+- **Count-of-one reuse.** A `ProductUpdate`, `ListSetAt`, `ListAppend`, `SetInsert`, `MapInsert` and similar update whose input count is one mutates in place and returns the same storage; otherwise it copies (path-copying for persistent structures). The result is the same either way, so reuse is never observable and needs no parity case of its own.
+- **Tail self-calls** stay loops; each iteration releases the previous iteration's dead bindings before rebinding the parameters.
+- **Failure paths.** Every `try` on an effectful call has an `errdefer` releasing the owned bindings live at that point, so an abort (fault or cancellation) leaks nothing on its way to `ExceptionCatch`. `UseResource` (emitter `main.zig` about line 1339) keeps releasing the resource on every path; the count release is added beside it, not instead.
+- **Tasks.** Starting a task transfers its captured arguments to the task; `TaskWait` returns an owned result and the task's own reference to it is dropped when the task record is released at scope exit. A cancelled task releases its live bindings through the same `errdefer` path.
+- **Leak test.** The runner allocates through a counting allocator (`std.heap.DebugAllocator` in the conformance build) and exits with a dedicated failure when any allocation is live after `main` returns. The parity client already reports a failing run per saved case, so every saved case becomes a zero-leak check with no new protocol. The runner frees a reported failure's message before the check, so an expected-failure case is not a false leak.
+
+**2. Collections.**
+
+- **List:** the persistent vector the C# backend uses (32-way trie with tail, a start position for shared slices, the retention rule of [list slices that share structure](list-slice-sharing.md)), plus count-of-one in-place reuse once 1 lands. Complexity targets are those already documented in the [language subset](../reference/language-subset.md): `ListSetAt` O(log n), insert and remove O(log n + length − index), length O(1).
+- **Set and Map:** an insertion-ordered dense entry array plus a hash index (open addressing over entry positions), with structural hashing over every equatable type (consistent with `ValueEqual`). Lookup and contains are expected O(1). Insert and remove copy (O(n)) until count-of-one reuse lands, then are O(1) amortised when the input is unique and still O(n) when it is shared, which is weaker than the documented O(log n) for shared values (decision D). Removal compacts by copying while emitted code iterates `.items` directly; tombstones (skipped on iteration, compacted past half) arrive with reuse, when the emitter changes anyway.
+
+**3. Host and C ABI boundary.**
+
+- **Direction.** The first boundary is the inverse of the mapping tables: C# (or C) calls an exported Nyr function. A new emitter **library mode** emits the program without the runner `main` plus one `export fn ... callconv(.c)` per function the workspace marks for export. It reuses the Conversions and Ownership vocabulary of the mapping tables (plan §8 table, [C# mapping tables](csharp-mapping-tables.md)); the C# side is a generated P/Invoke facade like [the C# facade](csharp-facade.md).
+- **Marshalling.** Int64, Float64 and Bool pass by value. Bytes and Lists of scalars pass as pointer and length; a nested List of scalars passes as one flat buffer plus row lengths. Strings cross as UTF-8 pointer and length; the C# facade converts to and from UTF-16 (`Encoding.UTF8`), and `Encoding.UTF8` already replaces unpaired surrogates with U+FFFD on the way out, so the Zig side receives well-formed UTF-8 from the generated facade and does not validate it again.
+- **Ownership across the boundary.** Arguments are borrowed for the call: the export copies what it keeps. Results are written into a caller-provided buffer when the caller can size it (`layoutFrame` returns `rows × (cols + 1)` positions); otherwise the export returns an owned handle with a generated `ny_free_<type>` function and the facade releases it in `Dispose`. Callbacks into the host are out of scope until plan §5's callback kinds land.
+- **Errors and cancellation.** A pure export cannot fail (allocation failure is fatal). An effectful export returns a status code (`0` ok, `1` fault, `2` cancelled) with the message readable through `ny_last_failure` on the calling thread; cancellation enters as a token handle argument that the host signals.
+- **Threading.** The runtime's globals (arena, scheduler gate) are process-wide, so exports are serialised by one runtime mutex. A UI host calls from its UI thread; an export that may wait must not be called from a function declared not to wait (plan §3).
+- **`hostSources` stays unsupported on Zig** (`tools/zig/host/run_pure.zig` about line 185): it compiles C#. The Zig equivalent is a mapping table binding capabilities to C functions (Order step 5, "program-defined and host capabilities"), not a Zig `hostSources`.
+
+**4. Scheduler.** The virtual clock stays the only mode `runPure` and the parity client use. Production adds a real-time mode selected at build time: delays wait on the monotonic clock, waits block on the event they name after releasing `ny_gate` (an OS call such as `Pty.read` or `Fs` releases it too, and reacquires it before touching values), and cancellation from a PTY read or a UI action signals the task's token through the same `NyCancel` path. The one-thread-at-a-time gate stays in both modes (decision A depends on this). Deadlock detection (every waiter fails when nothing can resume) remains only in virtual mode, where it is exact.
+
+**5. Sequencing.** `NYRWVY_ZIG_EMITTER_CHECK` byte-compares the Zig emitter's runner with the deprecated F# emitter in the extended suite. `runtime.zig` is one file embedded by both (`Nyrwvy.Backend.Zig.fsproj` as a resource, the Zig emitter by `@embedFile`), so:
+
+- **Before F# removal** (allowed now), two kinds: changes confined to `runtime.zig` that keep every function the emitted code calls and every field it reads (`.items` of a Set, slices for Lists), which covers the Set and Map hash index behind the existing `items` field and the real-time scheduler mode; and additive emitter modes in `main.zig` that `runPure` does not use, so the check never compares them, which covers library mode.
+- **After F# removal** ([Zig session host, the switch](zig-session-host.md#the-switch), steps 4 and 5, which also delete `NYRWVY_ZIG_*_CHECK`): anything that changes the runner output, which is all of 1 (retain and release sites, `errdefer`) and the List representation (the emitter writes `[]const T` and iterates slices directly). Retiring the emitter check alone earlier would also unblock them; that is the owner's call, not this record's.
+
+**First milestone (before F# removal).** Library mode exports `layoutFrame`; the export copies its result into the caller's buffer and then resets the arena (`reset(.retain_capacity)`), which bounds memory per call without reference counting. Acceptance:
+
+1. The saved cases for `layoutFrame` (Rhifill has one today, `app/nyr/cases/layoutFrame-1-2-table.json`; add at least empty, wide-only, combining and 300×100 cases) agree between C# and Zig through the parity client.
+2. Rhifill calls the Zig export behind a switch and renders identically on the same cases.
+3. Measured on one Linux machine with the existing Rhifill bench (`spikes/bench-nyrwvy`): per-frame `layoutFrame` p50 and p99 for C# and Zig at 80×24 and 300×100, and process RSS over a one-hour scrolling run, flat after warm-up.
+
+Reference counting (1) and the persistent List are the second milestone and start right after the first (owner: land it early, not gated on a long-lived program). To unblock it, switch steps 4 and 5 come next; if they lag behind the first milestone, the emitter check is retired early instead of waiting.
+
+## Decisions (owner, 2026-11-01)
+
+- **A. Plain counts.** `u32` counts, because the runtime lets one thread run at a time under `ny_gate` and its mutex hand-off orders every count change; atomic counts cost a locked instruction per retain and buy nothing while that holds. If parallel task execution shows a measured benefit (a workload where `ParallelAll` or concurrent tasks are CPU-bound), adopt the Koka scheme: mark a value shared when it crosses to another task and count only shared values atomically.
+- **B. First milestone without reference counting, then reference counting early.** The per-call arena reset above lands first so real measurement does not wait for F# removal; reference counting follows immediately as the second milestone (see sequencing).
+- **C. Export marking in a sidecar.** A list of function names in the workspace's `<snapshot>.backends.json`-style sidecar (tool configuration, outside the fingerprint), not a graph property, until a second consumer needs it.
+- **D. Dense array plus hash index for Map and Set.** O(1) lookups and unique updates, O(n) for updating a shared Set or Map, below the O(log n) the language reference documents; the reference records it as a Zig backend difference. If a measured workload suffers from shared updates, switch to a path-copying hash trie (HAMT), which keeps the documented bound at the cost of slower lookups and more runtime code.
+
+## Reason
+
+The arena is the shortcut that blocks real use, but the first real use (a pure per-frame function whose result the host copies) is served by resetting the arena per call, which needs no change to emitted code and so can land while the F# emitter is still the byte reference. Owned parameters with count-of-one reuse are the plan's choice and keep the common functional update (build a list, update a record) allocation-free once unique. Plain counts follow from the scheduler the backend already has. Counting live allocations after every saved case turns the existing conformance suite into a leak suite at no protocol cost.
+
+## Consequences
+
+- A panic in an exported pure function ends the embedding process; Rhifill must treat the Zig export as trusted, not sandboxed.
+- Library-mode exports are serialised; a host that calls from several threads waits on the runtime mutex.
+- Until 1 lands, only exports whose results the caller copies out are safe to call repeatedly; returning a handle needs reference counting.
+- The emitter check stays a hard gate until switch steps 4 and 5 or its early retirement (B): nothing in 1 or the List change merges while it runs.
+
+## Revisit conditions
+
+Revisit A when parallel task execution shows a measured benefit; D when a measured workload updates shared Sets or Maps heavily; the per-call arena reset when an export must return a value that outlives the call; and the whole order if the owner retires the emitter check before F# removal.
