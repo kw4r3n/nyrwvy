@@ -98,6 +98,8 @@ pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
         };
     }
     const assembly = try std.fs.path.join(lifetime, &.{ output, "Compiler.dll" });
+    // A cached driver that no longer identifies itself (say, its runtime is gone) is rebuilt next time.
+    defer if (driver == null) std.Io.Dir.cwd().deleteTree(io, output) catch {};
     const identified = try p.launch(a, io, &.{ dotnet, assembly, "identity" }, output, "C# compiler identification", 30);
     const text = switch (identified) {
         .failed => |d| return d,
