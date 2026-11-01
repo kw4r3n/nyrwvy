@@ -271,6 +271,36 @@ module ZigHostRunPureParityTests =
             Assert.Equal("renamed", (success replies.Head).GetProperty("function").GetString()))
 
     [<Fact; Trait("Suite", "Extended")>]
+    let ``native Zig host takes its child process groups down when it is terminated`` () =
+        withDirectory (fun directory ->
+            let path, _ = fixture directory
+            let compiler = Path.Combine(directory, "compiler-hangs")
+            let shell, sleeper = Path.Combine(directory, "shell.pid"), Path.Combine(directory, "sleep.pid")
+            // The compiler's own child is a grandchild of the host, reached only through its process group.
+            File.WriteAllText(compiler, $"#!/bin/sh\nsleep 300 &\necho $! > '{sleeper}'\necho $$ > '{shell}'\nwait\n")
+            File.SetUnixFileMode(compiler, UnixFileMode.UserRead ||| UnixFileMode.UserWrite ||| UnixFileMode.UserExecute)
+            zigHost () |> ignore
+            use host = startWithEnvironment [ "NYRWVY_ZIG", compiler ] true [ "open"; "--snapshot"; path; "--read-only" ]
+            host.StandardInput.WriteLine(runName "constant" [] None)
+            host.StandardInput.Flush()
+            let started = DateTime.UtcNow
+            while not (File.Exists shell && File.ReadAllText(shell).EndsWith "\n") && DateTime.UtcNow - started < silence do
+                Threading.Thread.Sleep 50
+            let pids = [ shell; sleeper ] |> List.map (fun file -> int (File.ReadAllText(file).Trim()))
+            use signal = Diagnostics.Process.Start("kill", [ "-TERM"; string host.Id ])
+            signal.WaitForExit()
+            Assert.True(host.WaitForExit 10000, "The host outlived SIGTERM.")
+            let alive (pid: int) =
+                try
+                    let state = File.ReadAllText($"/proc/{pid}/stat").Split(") ")[1]
+                    not (state.StartsWith "Z")
+                with :? IOException -> false
+            let gone = DateTime.UtcNow
+            while List.exists alive pids && DateTime.UtcNow - gone < TimeSpan.FromSeconds 10.0 do
+                Threading.Thread.Sleep 50
+            for pid in pids do Assert.False(alive pid, $"Process {pid} outlived the host."))
+
+    [<Fact; Trait("Suite", "Extended")>]
     let ``native Zig host bounds recursive execution and survives compiler failure`` () =
         withDirectory (fun directory ->
             let path, _ = fixture directory

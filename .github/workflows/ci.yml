@@ -88,3 +88,56 @@ jobs:
         if: ${{ inputs.extended }}
         run: fish scripts/test-extended.fish
 
+  zig-host:
+    name: Zig session host adapter tests (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Read the Zig version that mise.toml pins
+        id: zig
+        run: echo "version=$(sed -n 's/^zig = "\(.*\)"$/\1/p' mise.toml)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ steps.zig.outputs.version }}
+          use-cache: false
+
+      # The Zig host still builds and runs C# through dotnet.
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install locked adapter dependencies
+        run: npm ci --no-audit --no-fund
+
+      # A cold ReleaseSafe build takes minutes. The binary path is keyed by its sources, so a restored host is never stale.
+      - name: Restore the built Zig host
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/nyrwvy/zig-host
+          key: zig-host-${{ steps.zig.outputs.version }}-${{ hashFiles('tools/zig/**', 'src/Nyrwvy.Viewer/**', 'scripts/build-zig-host.mjs') }}
+
+      - name: Build the Zig session host
+        run: node scripts/build-zig-host.mjs
+
+      - name: Test shared schemas against the Zig host
+        run: npm run test:adapters
+        env:
+          NYRWVY_HOST: zig
+
+      - name: Test MCP transport contract against the Zig host
+        run: node scripts/run-node-tests.mjs fast-mcp
+        env:
+          NYRWVY_HOST: zig
+

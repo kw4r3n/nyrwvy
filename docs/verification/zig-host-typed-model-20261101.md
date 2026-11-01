@@ -1,5 +1,8 @@
 # Zig host typed-model migration
 
+> Merge note (2026-11-01): merging origin/main (PR #590, #591) replaced `NYRWVY_AUTHORING_EXECUTABLE` with `NYRWVY_HOST=zig` and the test-only `NYRWVY_HOST_EXECUTABLE`. The commands below are recorded as they were run; today use `NYRWVY_HOST=zig NYRWVY_HOST_EXECUTABLE=/absolute/path/to/host` for the same run.
+
+
 Working-tree verification against `2be64ee`. The F# host remains the default.
 
 ## Implementation

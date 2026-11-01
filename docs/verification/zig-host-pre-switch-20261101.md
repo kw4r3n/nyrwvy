@@ -1,5 +1,8 @@
 # Zig host pre-switch hardening
 
+> Merge note (2026-11-01): merging origin/main (PR #590, #591) replaced `NYRWVY_AUTHORING_EXECUTABLE` with `NYRWVY_HOST=zig` and the test-only `NYRWVY_HOST_EXECUTABLE`. The commands below are recorded as they were run; today use `NYRWVY_HOST=zig NYRWVY_HOST_EXECUTABLE=/absolute/path/to/host` for the same run.
+
+
 Scope: startup CLI parity, session memory retention, and build identity. The F# host remains the default; full typed-model reads and the default switch are a separate stage. See the [decision amendment](../decisions/zig-session-host.md#pre-switch-hardening-2026-11-01).
 
 Observed on the working-tree changes based on `7508977`, Linux, Zig 0.17.0, .NET SDK 10.0.403/runtime 10.0.14, Node 26.12.1, and Bun 1.4.4. This run did not repeat the checks on other operating systems or the documented older Node/Bun pins.

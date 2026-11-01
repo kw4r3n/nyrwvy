@@ -159,7 +159,7 @@ pub fn replaceAtomic(a: Allocator, path: []const u8, content: []const u8) !Outco
     return writeConfined(a, std.fs.path.dirname(path) orelse "/", &.{}, std.fs.path.basename(path), content, true, true);
 }
 
-/// Creation publishes a flushed temporary without replacing a racing writer's file.
+/// `SessionStorage.createAtomically`: like `replaceAtomic`, but an existing file is never replaced.
 pub fn createAtomic(a: Allocator, path: []const u8, content: []const u8) !Outcome {
     return writeConfined(a, std.fs.path.dirname(path) orelse "/", &.{}, std.fs.path.basename(path), content, true, false);
 }

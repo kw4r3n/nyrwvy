@@ -46,7 +46,7 @@ For repeated execution checks, the [saved-fixture MCP client](../../examples/run
 
 `nyrwvy_open` also reports `toolCodeCommit`, the commit of the tool code the server process loaded at startup (absent outside a git checkout), next to `status.build`, the session build that serves the requests. Tool descriptions and `nyrwvy_recipe_reference` come from the loaded code, while each open starts the session from the current build. When the two name different commits, the reply carries a `warning` to reconnect the server so its descriptions and recipe reference match the session.
 
-For testing an alternate host, set `NYRWVY_AUTHORING_EXECUTABLE` to its absolute executable path in the adapter's environment. The executable receives the same session arguments directly; without this setting the adapter launches the F# host through `dotnet`. The Zig host is experimental and is not the default.
+To run the native Zig host, set `NYRWVY_HOST=zig` in the adapter's environment; the adapter builds it with `scripts/build-zig-host.mjs` and passes it the same session arguments. `NYRWVY_HOST_EXECUTABLE` (an absolute path) replaces the launched executable for tests. Without these settings the adapter launches the F# host through `dotnet`. The Zig host is experimental and is not the default.
 
 
 For example, a function proposal takes these arguments directly:

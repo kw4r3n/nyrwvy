@@ -182,6 +182,44 @@ module ZigHostParityTests =
             Assert.Equal("after", after.RootElement.GetProperty("id").GetString())
             Assert.Equal(before.RootElement.GetProperty("result").GetRawText(), after.RootElement.GetProperty("result").GetRawText()))
 
+    /// Exit code, stderr and stdout lines of a host fed `input` as raw bytes, which a TextWriter would re-encode.
+    let internal runBytes zig arguments (input: byte[]) =
+        use host = start zig arguments
+        let output = host.StandardOutput.ReadToEndAsync()
+        let errors = host.StandardError.ReadToEndAsync()
+        try
+            host.StandardInput.BaseStream.Write(input, 0, input.Length)
+            host.StandardInput.Close()
+        with :? IOException -> ()
+        if not (host.WaitForExit 300000) then
+            host.Kill true
+            failwithf "The %s host did not finish its byte input" (if zig then "Zig" else "F#")
+        host.ExitCode, errors.Result.Trim(), output.Result.Split('\n') |> Array.filter ((<>) "") |> Array.toList
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host splits limits and decodes request lines as the F# host does`` () =
+        withDirectory (fun dir ->
+            let snapshot = snapshots dir |> List.head
+            let ascii (text: string) = Text.Encoding.ASCII.GetBytes text
+            let limit = 16 * 1024 * 1024
+            // 0xE9 alone is ill-formed UTF-8; the limit counts UTF-16 units, so two-byte é fills it at 32 MiB.
+            let input =
+                Array.concat
+                    [ ascii "{\"id\":\"cr\",\"op\":\"declarations\"}\r"
+                      ascii "{\"id\":\"bad\",\"op\":\"search\",\"text\":\"a"; [| 0xE9uy |]; ascii "b\"}\r\n\r\r\n"
+                      Array.replicate limit (Text.Encoding.UTF8.GetBytes "é") |> Array.concat; ascii "\n"
+                      Array.replicate (limit + 1) (Text.Encoding.UTF8.GetBytes "é") |> Array.concat; ascii "\n"
+                      ascii "{\"id\":\"last\",\"op\":\"status\"}" ]
+            let arguments = [ "open"; "--snapshot"; snapshot; "--read-only" ]
+            let fsharpCode, fsharpErrors, expected = runBytes false arguments input
+            let zigCode, zigErrors, actual = runBytes true arguments input
+            Assert.True((fsharpCode = 0), fsharpErrors)
+            Assert.True((zigCode = 0), zigErrors)
+            Assert.Equal(7, expected.Length)
+            Assert.Equal("""{"id":null,"ok":false,"error":{"code":"ProtocolError","message":"Request line exceeds 16 MiB."}}""", expected[5])
+            Assert.Contains("\\uFFFD", expected[1])
+            Assert.Equal<string list>(expected |> List.map comparable, actual |> List.map comparable))
+
     /// `references`, `search` and `unreferenced` requests built from a session's own declarations:
     /// every declaration and member by exact ID and by display names (as a string and as a
     /// selector object), and searches for parts of their names.

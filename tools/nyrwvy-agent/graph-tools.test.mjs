@@ -118,13 +118,14 @@ test("open warns only when the session build names another commit than the loade
   assert.equal(staleToolWarning(undefined, `1.0.0+${b}`), undefined)
   assert.equal(staleToolWarning(a, "1.0.0"), undefined)
   assert.equal(staleToolWarning(a, undefined), undefined)
+  assert.equal(staleToolWarning(a, "nyrwvy-zig-host"), undefined) // The Zig host binary is keyed by its sources, so it is never stale.
 })
 
 test("an explicitly selected host receives session arguments and its build drives the warning", { timeout: 10_000 }, async () => {
   const { openAuthoring, closeAuthoring } = await import("./authoring.ts")
   const dir = await mkdtemp(join(tmpdir(), "nyrwvy-host-select-"))
   const executable = join(dir, "host")
-  const previous = process.env.NYRWVY_AUTHORING_EXECUTABLE
+  const previous = { host: process.env.NYRWVY_HOST, executable: process.env.NYRWVY_HOST_EXECUTABLE }
   const context = { sessionID: "selected-host", worktree: dir }
   try {
     await writeFile(executable, `#!${process.execPath}
@@ -139,19 +140,22 @@ input.on("line", line => {
 }).on("close", () => clearInterval(alive))
 `)
     await chmod(executable, 0o700)
-    process.env.NYRWVY_AUTHORING_EXECUTABLE = executable
+    process.env.NYRWVY_HOST = "zig"
+    process.env.NYRWVY_HOST_EXECUTABLE = executable
     const opened = JSON.parse(await openAuthoring("read", "snapshot.nyrec", context))
     assert.deepEqual(opened.status.result.args, ["open", "--snapshot", join(dir, "snapshot.nyrec"), "--read-only"])
     assert.match(opened.warning, /runs build 000000000000/)
     await closeAuthoring(context)
-    process.env.NYRWVY_AUTHORING_EXECUTABLE = join(dir, "missing")
-    await assert.rejects(openAuthoring("read", "snapshot.nyrec", context), /Check NYRWVY_AUTHORING_EXECUTABLE/)
+    process.env.NYRWVY_HOST_EXECUTABLE = join(dir, "missing")
+    await assert.rejects(openAuthoring("read", "snapshot.nyrec", context), /session host .*missing could not be started/)
   } finally {
     try {
       await closeAuthoring(context)
     } finally {
-      if (previous === undefined) delete process.env.NYRWVY_AUTHORING_EXECUTABLE
-      else process.env.NYRWVY_AUTHORING_EXECUTABLE = previous
+      for (const [name, value] of [["NYRWVY_HOST", previous.host], ["NYRWVY_HOST_EXECUTABLE", previous.executable]]) {
+        if (value === undefined) delete process.env[name]
+        else process.env[name] = value
+      }
       await rm(dir, { recursive: true, force: true })
     }
   }

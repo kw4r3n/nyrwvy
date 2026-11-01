@@ -1,6 +1,7 @@
 //! The Zig session host (docs/decisions/zig-session-host.md): the F# host's JSONL protocol, one
 //! response line per request line, and its startup. So far: `open` of a `.json` or `.nyrec`
-//! snapshot, unresolved or with its dependency sidecar (read-only or under its lock), the request envelope and its errors as
+//! snapshot, unresolved or with its dependency sidecar (read-only or under its lock), the other
+//! startup modes but `migrate` (`startup_modes.zig`), the request envelope and its errors as
 //! `AuthoringProtocol.executeLine` gives them, and `status`; every other operation is
 //! `UnsupportedOperation`. `ZigHostParityTests` compares it with the F# host. The snapshot is read
 //! by the model and snapshot readers, imported as modules (`ZigTools` builds them together).
@@ -14,14 +15,14 @@ const ids = @import("ids.zig");
 const proposals = @import("proposals.zig");
 
 /// The open snapshot: what `status` reports, the model (merged with the dependency, if any) and
-/// the selected dependency. Initial values live in `startup`; commits own retained bytes.
+/// the selected dependency. Initial values live in the startup arena; commits own retained bytes.
 var snapshot_id: []const u8 = "";
-var snapshot_path: []const u8 = "";
+pub var snapshot_path: []const u8 = "";
 var fingerprints: model_reader.Fingerprints = undefined;
 pub var selection: ?Dependency = null;
 var retained_owned = false;
 var test_fail_operation: ?[]const u8 = null;
-var writable = false;
+pub var writable = false;
 pub var invalidated = false;
 pub var persisted_source: []const u8 = "";
 pub var dependency_manifest: ?[]const u8 = null;
@@ -30,6 +31,9 @@ pub var host_sources_allowed = false;
 
 // `WireInput.requestMaxJsonDepth`: 3 + 3 * 256 + 64.
 const max_depth = 835;
+
+// `CommandLine.usage`, verbatim (migrate stays F#-only: docs/decisions/zig-session-host.md).
+const usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> ...] [--allow-host-sources] (create may name several dependencies; pin takes at most one same-content source)\n       Nyrwvy.AuthoringSession open --snapshot <snapshot-path> --read-only [--allow-host-sources] (takes no lock, so it works while another session has the snapshot open; commit is refused)\n       Nyrwvy.AuthoringSession migrate --snapshot <snapshot-path> [--dependency <exact copy of a legacy pin's source>] [--to <new-path>] (rewrites the snapshot and its dependency sidecar to the current schema, prints the migration report and exits; no session is started; --to writes the result to a new path instead, in the form its extension selects (.nyrec for records), and leaves the source untouched)\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --dependency <new-version-path> --expect <reviewed-fingerprint> [--replaces <snapshot-id>] [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --upgrades <JSON array of {source,replaces}> --review <reviewFingerprint> [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --selection <JSON {sources:[paths],replaces:[current SnapshotIds]}> --review <reviewFingerprint> [--allow-host-sources]\n\n       Nyrwvy.AuthoringSession bind-c --header <file.h> ... (proposes capabilities and a C# mapping table for C functions; run bind-c alone for its options)\n--allow-host-sources lets runPure/runPureByName compile and run hostSources C# with your permissions; it is off by default.\n";
 
 /// A JSON string as `JsonSerializer` writes it with `JavaScriptEncoder.Default`: printable ASCII
 /// except `"&'+<>` and backtick, the short forms \b \t \n \f \r \\, and every other code point as
@@ -626,48 +630,29 @@ fn isTemporaryOf(name: []const u8, file: []const u8) bool {
 /// `AuthoringSession.openUsing`: the file, the lock and the sweep (unless read-only), the dependency
 /// sidecar or the marker's absence, then the readers' verdict, unresolved or against the
 /// dependency. The lock lives until the process ends.
-pub fn open(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only: bool, pin: bool, source_override: ?[]const u8, sweep: bool) !void {
-    const path = try std.fs.path.resolveAlloc(a, &.{ try std.process.currentPathAlloc(io, a), given });
+fn open(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only: bool) !void {
+    const path = try existing(io, a, given, !read_only);
+    if (!read_only) try lock(io, a, path, true);
+    try load(io, a, path, true);
+}
+
+/// The absolute snapshot path, which must name a file; the session's path from here on.
+pub fn existing(io: std.Io, a: std.mem.Allocator, given: []const u8, write: bool) ![]const u8 {
+    const path = try absolute(io, a, given);
     snapshot_path = path;
-    writable = !read_only;
+    writable = write;
     const stat = std.Io.Dir.cwd().statFile(io, path, .{}) catch null;
     if (stat == null or stat.?.kind != .file) startupFailure("SnapshotFileNotFound: No snapshot file at {s}. Use create (MCP nyrwvy_open mode \"create\") to start a new one.", .{path});
-    if (!read_only) try acquireSnapshotLock(io, a, path, sweep);
-    const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, a, .unlimited) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
-    // `File.ReadAllText`: a UTF-8 byte order mark is dropped, ill-formed bytes become U+FFFD.
-    const unmarked = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
-    const source: []const u8 = if (std.unicode.utf8ValidateSlice(unmarked)) unmarked else try std.fmt.allocPrint(a, "{f}", .{std.unicode.fmtUtf8(unmarked)});
-    persisted_source = source;
-    ids.observe(source);
-    const record = std.mem.endsWith(u8, path, ".nyrec");
-    const read = openSource(io, a, path, record, source, source_override) catch {
-        // `openUsing`'s recovery hints: an interrupted replacement or first addition is named.
-        const failed = failure_line;
-        const previous = try std.mem.concat(a, u8, &.{ path, ".dependency.json.previous" });
-        if (!pin and sweep and exists(io, previous) and matches(io, a, previous, record, source))
-            startupFailure("DependencyFailure: The dependency sidecar '{s}.dependency.json' does not match the snapshot, but '{s}' does: a dependency replacement was interrupted. Restore it over the sidecar to recover the previous selection.", .{ path, previous });
-        if (!pin and sweep and exists(io, try std.mem.concat(a, u8, &.{ path, ".dependency.json" })) and (if (readSource(a, record, source, null)) |_| true else |_| false))
-            startupFailure("DependencyFailure: The snapshot '{s}' has no dependency, but '{s}.dependency.json' exists: adding a first dependency was interrupted. Delete the sidecar to recover the workspace without it, then add the dependency again.", .{ path, path });
-        startupFailure("{s}", .{failed});
-    };
-    if (selection != null) dependency_manifest = try readText(a, try std.mem.concat(a, u8, &.{ path, ".dependency.json" }));
-    if (pin) try @import("startup_cli.zig").persistPin(a, path, source_override);
-    try install(a, path, source, read, selection);
-    writable = !read_only;
+    return path;
 }
 
-pub fn install(a: std.mem.Allocator, path: []const u8, source: []const u8, read: model_reader.DocumentRead, selected: ?Dependency) !void {
-    snapshot_path = path;
-    writable = true;
-    persisted_source = source;
-    snapshot_id = read.id;
-    fingerprints = read.fingerprints.?;
-    try proposals.initializeSnapshot(read.generation.?, read.interner.?);
-    selection = selected;
-    _ = a;
+/// `SessionStorage.fullPath`: `given` against the working directory.
+pub fn absolute(io: std.Io, a: std.mem.Allocator, given: []const u8) ![]const u8 {
+    return std.fs.path.resolveAlloc(a, &.{ try std.process.currentPathAlloc(io, a), given });
 }
 
-pub fn acquireSnapshotLock(io: std.Io, a: std.mem.Allocator, path: []const u8, sweep: bool) !void {
+/// `SessionStorage.acquireLock`, then `sweepTemporaries` when `sweep`.
+pub fn lock(io: std.Io, a: std.mem.Allocator, path: []const u8, sweep: bool) !void {
     var link: [std.fs.max_path_bytes]u8 = undefined;
     if (std.Io.Dir.cwd().readLink(io, path, &link)) |_| {
         startupFailure("IoFailure: The snapshot path {s} is a symbolic link; open the file it points to instead.", .{path});
@@ -687,6 +672,48 @@ pub fn acquireSnapshotLock(io: std.Io, a: std.mem.Allocator, path: []const u8, s
     } else |_| {}
 }
 
+/// The snapshot and its sidecar read into the session; `hints` names an interrupted dependency
+/// replacement or first addition, as `openUsing` does except for pin.
+pub fn load(io: std.Io, a: std.mem.Allocator, path: []const u8, hints: bool) !void {
+    const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, a, .unlimited) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
+    // `File.ReadAllText`: a UTF-8 byte order mark is dropped, ill-formed bytes become U+FFFD.
+    const unmarked = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
+    const source: []const u8 = if (std.unicode.utf8ValidateSlice(unmarked)) unmarked else try std.fmt.allocPrint(a, "{f}", .{std.unicode.fmtUtf8(unmarked)});
+    persisted_source = source;
+    ids.observe(source);
+    const record = std.mem.endsWith(u8, path, ".nyrec");
+    const read = openSource(io, a, path, record, source) catch {
+        const failed = failure_line;
+        if (!hints) startupFailure("{s}", .{failed});
+        // `openUsing`'s recovery hints: an interrupted replacement or first addition is named.
+        const previous = try std.mem.concat(a, u8, &.{ path, ".dependency.json.previous" });
+        if (exists(io, previous) and matches(io, a, previous, record, source))
+            startupFailure("DependencyFailure: The dependency sidecar '{s}.dependency.json' does not match the snapshot, but '{s}' does: a dependency replacement was interrupted. Restore it over the sidecar to recover the previous selection.", .{ path, previous });
+        if (exists(io, try std.mem.concat(a, u8, &.{ path, ".dependency.json" })) and (if (readSource(a, record, source, null)) |_| true else |_| false))
+            startupFailure("DependencyFailure: The snapshot '{s}' has no dependency, but '{s}.dependency.json' exists: adding a first dependency was interrupted. Delete the sidecar to recover the workspace without it, then add the dependency again.", .{ path, path });
+        startupFailure("{s}", .{failed});
+    };
+    dependency_manifest = if (selection != null) try readText(a, try std.mem.concat(a, u8, &.{ path, ".dependency.json" })) else null;
+    try install(a, path, source, read, selection);
+}
+
+pub fn install(a: std.mem.Allocator, path: []const u8, source: []const u8, read: model_reader.DocumentRead, selected: ?Dependency) !void {
+    snapshot_path = path;
+    persisted_source = source;
+    snapshot_id = read.id;
+    fingerprints = read.fingerprints.?;
+    try proposals.initializeSnapshot(read.generation.?, read.interner.?);
+    selection = selected;
+    _ = a;
+}
+
+/// A request at startup, as `execute` builds one, for the dependency planners.
+pub fn startupRequest(a: std.mem.Allocator, line: []const u8, root: std.json.ObjectMap) !query.Request {
+    var r: query.Request = .{ .a = a, .line = line, .root = root, .provenance = if (selection) |d| d.provenance else null, .snapshot_id = snapshot_id, .snapshot_fingerprint = fingerprints.snapshot, .snapshot_path = snapshot_path };
+    try proposals.bindTypedRead(&r);
+    return r;
+}
+
 /// A startup failure on its way to stderr: the line `WireEncode.startupMessage` prints.
 const Startup = error{ Startup, OutOfMemory };
 pub var failure_line: []const u8 = "";
@@ -703,8 +730,8 @@ pub fn exists(io: std.Io, path: []const u8) bool {
 }
 
 /// The snapshot read with its sidecar's dependency, or unresolved without one.
-fn openSource(io: std.Io, a: std.mem.Allocator, path: []const u8, record: bool, source: []const u8, source_override: ?[]const u8) Startup!model_reader.DocumentRead {
-    const dependency = try loadSidecarWithSource(io, a, try std.mem.concat(a, u8, &.{ path, ".dependency.json" }), source_override);
+fn openSource(io: std.Io, a: std.mem.Allocator, path: []const u8, record: bool, source: []const u8) Startup!model_reader.DocumentRead {
+    const dependency = try loadSidecar(io, a, try std.mem.concat(a, u8, &.{ path, ".dependency.json" }));
     selection = dependency;
     if (dependency == null and bound(a, record, source)) return fail(a, "DependencyFailure: The dependency sidecar '{s}.dependency.json' is missing. Restore the exact sidecar that belongs to this snapshot; pinning a new version cannot recover a lost selection.", .{path});
     return readSource(a, record, source, dependency);
@@ -809,10 +836,6 @@ fn dependencyOf(read: model_reader.DocumentRead, members: []const wire.Provenanc
 /// `PinnedDependency.loadFrom`: null without a sidecar; one member, or a set of at least two
 /// embedded members combined (`DependencyGraph.combine`).
 pub fn loadSidecar(io: std.Io, a: std.mem.Allocator, manifest_path: []const u8) Startup!?Dependency {
-    return loadSidecarWithSource(io, a, manifest_path, null);
-}
-
-fn loadSidecarWithSource(io: std.Io, a: std.mem.Allocator, manifest_path: []const u8, source_override: ?[]const u8) Startup!?Dependency {
     var scratch = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer scratch.deinit();
     const bytes = std.Io.Dir.cwd().readFileAlloc(io, manifest_path, scratch.allocator(), .unlimited) catch |e| switch (e) {
@@ -828,7 +851,7 @@ fn loadSidecarWithSource(io: std.Io, a: std.mem.Allocator, manifest_path: []cons
     _ = std.json.parseFromSliceLeaky(std.json.Value, scratch.allocator(), text, .{ .duplicate_field_behavior = .@"error" }) catch return fail(a, "DependencyFailure: Invalid dependency manifest.", .{});
     if (root != .object) return fail(a, invalid, .{});
     const set = root.object.get("dependencies");
-    if (set == null or root.object.count() != 1) return try loadMemberWithSource(io, a, root.object, source_override);
+    if (set == null or root.object.count() != 1) return try loadMember(io, a, root.object);
     if (source_override != null) return fail(a, "DependencyFailure: Pin with a source applies only to a single legacy dependency.", .{});
     if (set.? != .array or set.?.array.items.len < 2) return fail(a, "DependencyFailure: A dependency set lists at least two dependencies.", .{});
     var members: std.ArrayList(Dependency) = .empty;
@@ -840,13 +863,12 @@ fn loadSidecarWithSource(io: std.Io, a: std.mem.Allocator, manifest_path: []cons
     return try combineMembers(a, members.items);
 }
 
+/// Pin's absolute `--dependency`, read in place of the selected member's content while set.
+pub var source_override: ?[]const u8 = null;
+
 /// `PinnedDependency.loadMember`: the embedded content or the file at `path`, whose fingerprint
 /// and snapshot ID must be the recorded ones.
 pub fn loadMember(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap) Startup!Dependency {
-    return loadMemberWithSource(io, a, manifest, null);
-}
-
-fn loadMemberWithSource(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap, source_override: ?[]const u8) Startup!Dependency {
     const invalid = "DependencyFailure: Invalid dependency manifest or source path.";
     var fields: std.ArrayList([]const u8) = .empty;
     for (manifest.keys()) |key| fields.append(a, key) catch return fail(a, "out of memory", .{});
@@ -876,6 +898,8 @@ fn loadMemberWithSource(io: std.Io, a: std.mem.Allocator, manifest: std.json.Obj
     };
     for (values) |value| if (value == null or std.mem.trim(u8, value.?, " \t\r\n").len == 0)
         return fail(a, "DependencyFailure: Dependency manifest fields must be non-blank strings.", .{});
+    // `Path.GetFullPath("")` throws, which `loadFrom` reports as an invalid manifest.
+    if (source_override) |given| if (given.len == 0) return fail(a, invalid, .{});
     const dependency = if (embedded_key != null and source_override == null) blk: {
         const key = embedded_key.?;
         const content = switch (manifest.get(key).?) {
@@ -886,7 +910,7 @@ fn loadMemberWithSource(io: std.Io, a: std.mem.Allocator, manifest: std.json.Obj
         if (std.mem.trim(u8, content, " \t\r\n").len == 0) return fail(a, "DependencyFailure: The embedded dependency is missing.", .{});
         break :blk try decodeDependency(a, std.mem.eql(u8, key, "snapshotRecords"), content, values[0].?, true);
     } else blk: {
-        const source_path = if (source_override) |given| try std.fs.path.resolveAlloc(a, &.{ (std.process.currentPathAlloc(io, a) catch |err| return fail(a, "IoFailure: {s}", .{@errorName(err)})), given }) else values[0].?;
+        const source_path = source_override orelse values[0].?;
         if (!std.fs.path.isAbsolute(source_path) or !exists(io, source_path))
             return fail(a, "DependencyFailure: The selected dependency is unavailable. Use pin with an exact copy of the original version to recover a legacy selection.", .{});
         const bytes = std.Io.Dir.cwd().readFileAlloc(io, source_path, a, .unlimited) catch |e| return fail(a, "IoFailure: {s}", .{@errorName(e)});
@@ -975,38 +999,40 @@ pub fn main(init: std.process.Init) !void {
         if (code != 0) std.process.exit(code);
         return;
     }
-    const command = try @import("startup_cli.zig").parse(process_arena, args.items) orelse {
-        std.debug.print("{s}\n", .{@import("startup_cli.zig").usage});
+    const modes = @import("startup_modes.zig");
+    const mode = modes.parse(process_arena, args.items) orelse {
+        std.debug.print("{s}", .{usage});
         std.process.exit(2);
     };
-    try @import("run_process.zig").init(process_arena, init.io, init.environ_map);
-    try @import("run_csharp.zig").init(process_arena, init.io, init.environ_map);
+    @import("run_process.zig").init(process_arena, init.io, init.environ_map) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
+    @import("run_csharp.zig").init(process_arena, init.io, init.environ_map) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
     defer @import("run_csharp.zig").deinit(init.io);
-    @import("startup_cli.zig").start(init.io, process_arena, command) catch |err| switch (err) {
-        error.Startup => startupFailure("{s}", .{failure_line}),
-        else => startupFailure("IoFailure: {s}", .{@errorName(err)}),
-    };
+    switch (mode) {
+        .open => |read_only| try open(init.io, process_arena, args.items[2], read_only),
+        else => try modes.start(init.io, process_arena, args.items[2], mode),
+    }
 
     var in_buffer: [1 << 16]u8 = undefined;
     var reader = std.Io.File.stdin().reader(init.io, &in_buffer);
-    var line: std.Io.Writer.Allocating = .init(std.heap.page_allocator);
+    var line: std.ArrayList(u8) = .empty;
+    var skip_line_feed = false;
     var out_buffer: [1 << 16]u8 = undefined;
     var writer = std.Io.File.stdout().writer(init.io, &out_buffer);
     const out = &writer.interface;
     defer proposals.deinit();
     defer freeRetained();
-    while (true) {
-        line.clearRetainingCapacity();
-        _ = try reader.interface.streamDelimiterEnding(&line.writer, '\n');
-        const ended = reader.interface.takeByte() == error.EndOfStream;
-        if (ended and line.written().len == 0) break;
+    while (try readLine(&reader.interface, &line, &skip_line_feed)) {
         // A request's allocations live until its response is written.
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
         var response: std.Io.Writer.Allocating = .init(arena.allocator());
         var request_id: ?[]const u8 = null;
         const previous_proposals = proposals.count();
-        execute(arena.allocator(), &response.writer, std.mem.trimEnd(u8, line.written(), "\r"), &request_id) catch {
+        // Console.In decodes ill-formed UTF-8 as U+FFFD before Protocol counts the line's UTF-16 units.
+        const text = if (std.unicode.utf8ValidateSlice(line.items)) line.items else try std.fmt.allocPrint(arena.allocator(), "{f}", .{std.unicode.fmtUtf8(line.items)});
+        if (line.items.len > 3 * request_line_units or @import("managed_text.zig").units(text) > request_line_units) {
+            try failure(&response.writer, null, "ProtocolError", "Request line exceeds 16 MiB.");
+        } else execute(arena.allocator(), &response.writer, text, &request_id) catch {
             proposals.discardAfter(previous_proposals);
             response.clearRetainingCapacity();
             try failure(out, request_id, "InternalError", "Unexpected internal failure; this request was not applied and the session is unchanged.");
@@ -1014,7 +1040,41 @@ pub fn main(init: std.process.Init) !void {
         try out.writeAll(response.written());
         try out.writeByte('\n');
         try out.flush();
-        if (ended) break;
+    }
+}
+
+/// `Protocol.readLine` allows 16 Mi UTF-16 units; a unit takes at most three UTF-8 bytes.
+const request_line_units = 16 * 1024 * 1024;
+
+/// `Protocol.readLine`: a line ends at `\n`, `\r` or `\r\n`, and the `\n` after a `\r` is skipped
+/// only when the next line is read, so a `\r`-ended request is answered at once. Bytes beyond
+/// the most a 16 Mi unit line can take are drained, not kept. False at the end of input.
+fn readLine(reader: *std.Io.Reader, line: *std.ArrayList(u8), skip_line_feed: *bool) !bool {
+    line.clearRetainingCapacity();
+    var started = false;
+    while (true) {
+        const chunk = reader.peekGreedy(1) catch |e| switch (e) {
+            error.EndOfStream => return started,
+            else => return e,
+        };
+        if (skip_line_feed.*) {
+            skip_line_feed.* = false;
+            if (chunk[0] == '\n') {
+                reader.toss(1);
+                continue;
+            }
+        }
+        started = true;
+        const end = std.mem.indexOfAny(u8, chunk, "\r\n");
+        const piece = chunk[0 .. end orelse chunk.len];
+        const room = 3 * request_line_units + 1 -| line.items.len;
+        try line.appendSlice(std.heap.page_allocator, piece[0..@min(piece.len, room)]);
+        if (end) |at| {
+            skip_line_feed.* = chunk[at] == '\r';
+            reader.toss(at + 1);
+            return true;
+        }
+        reader.toss(chunk.len);
     }
 }
 
@@ -1081,4 +1141,8 @@ test "dependency pair restores a failed snapshot write and preserves recovery on
             try std.testing.expect(!invalidated);
         }
     }
+}
+
+test {
+    _ = @import("startup_modes.zig");
 }

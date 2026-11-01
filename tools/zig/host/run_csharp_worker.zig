@@ -34,8 +34,7 @@ fn stderrRead(w: *Worker, io: std.Io) Fail![]const u8 {
 fn retire(io: std.Io) void {
     const w = current orelse return;
     current = null;
-    if (w.child.id) |pid| _ = std.os.linux.kill(-pid, .KILL);
-    w.child.kill(io);
+    p.kill(io, &w.child);
     if (w.errors) |*task| _ = task.cancel(io) catch {};
     w.errors_file.close(io);
     if (w.child.stdin) |f| f.close(io);
@@ -96,7 +95,7 @@ pub fn run(a: A, io: std.Io, worker_assembly: []const u8, assembly: []const u8, 
     if (current) |w| if (w.served >= 64) retire(io);
     if (current == null) {
         const w = try std.heap.page_allocator.create(Worker);
-        w.* = .{ .arena = .init(std.heap.page_allocator), .child = std.process.spawn(io, .{ .argv = &.{ @import("run_csharp_build.zig").dotnet, worker_assembly }, .cwd = .{ .path = std.fs.path.dirname(worker_assembly).? }, .stdin = .pipe, .stdout = .pipe, .stderr = .pipe, .pgid = 0 }) catch |e| {
+        w.* = .{ .arena = .init(std.heap.page_allocator), .child = p.spawn(io, .{ .argv = &.{ @import("run_csharp_build.zig").dotnet, worker_assembly }, .cwd = .{ .path = std.fs.path.dirname(worker_assembly).? }, .stdin = .pipe, .stdout = .pipe, .stderr = .pipe }) catch |e| {
             std.heap.page_allocator.destroy(w);
             return .{ .failed = .{ .code = "RunStartupFailure", .message = @errorName(e) } };
         }, .last = .now(io, .awake) };
