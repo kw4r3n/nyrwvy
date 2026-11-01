@@ -53,11 +53,22 @@ module StableIdAllocator =
             while found > current && Threading.Interlocked.CompareExchange(&allocated, found, current) <> current do
                 current <- Threading.Interlocked.Read &allocated
 
+    let private flowSeed = Threading.AsyncLocal<(string * int64 ref) option>()
+
+    /// Test-only: while `f` runs, new IDs on this async flow are `seededPayload seed 1, 2, …`, apart
+    /// from other tests' allocations, so in-process fixtures are the same in every run (the recorded
+    /// F# host answers in tests/goldens depend on them). No host calls it.
+    let withTestSeed (seed: string) (f: unit -> 'T) : 'T =
+        let previous = flowSeed.Value
+        flowSeed.Value <- Some(seed, ref 0L)
+        try f () finally flowSeed.Value <- previous
+
     let private allocate<'Kind> (): StableId<'Kind> =
         let payload =
-            match testSeed.Value with
-            | Some seed -> seededPayload seed (Threading.Interlocked.Increment &allocated)
-            | None -> Guid.CreateVersion7().ToString("D")
+            match flowSeed.Value, testSeed.Value with
+            | Some(seed, count), _ -> seededPayload seed (Threading.Interlocked.Increment &count.contents)
+            | None, Some seed -> seededPayload seed (Threading.Interlocked.Increment &allocated)
+            | None, None -> Guid.CreateVersion7().ToString("D")
         match StableId.tryCreate<'Kind> payload with
         | Ok id -> id
         | Error error -> invalidOp $"Generated UUIDv7 was rejected as a stable ID: {error}."

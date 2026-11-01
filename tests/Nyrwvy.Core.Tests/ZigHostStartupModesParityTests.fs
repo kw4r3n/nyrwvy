@@ -134,7 +134,8 @@ module ZigHostStartupModesParityTests =
 
     [<Fact; Trait("Suite", "Extended")>]
     let ``Upgrade forms replace the reviewed selection or refuse it on both hosts`` () =
-        withDirectory (fun dir ->
+        // Review fingerprints bind the absolute workspace path, which differs per run; live F# only.
+        if hostReference = "live" then withDirectory (fun dir ->
             let app dir = Path.Combine(dir, "app.json")
             let single source expect = fun dir -> [ "upgrade"; "--snapshot"; app dir; "--dependency"; Path.Combine(dir, source); "--expect"; expect ]
             succeeds (compare dir embedded (single "new.json" (fingerprint updated)))
