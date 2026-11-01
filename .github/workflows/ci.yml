@@ -1,11 +1,9 @@
 name: CI
 
-# GitHub Actions minutes are billed. CI ran only on demand (owner, 2026-10-05); pull requests
-# run it too while the Zig session host replaces the F# one (docs/decisions/zig-session-host.md).
-# Routine changes still run the same checks in a local or cloud session before a PR; see
-# docs/developer/verification.md.
+# GitHub Actions minutes are billed, so CI runs only on demand at major milestones (owner,
+# 2026-10-05). Routine changes run the same checks in a local or cloud session before a PR;
+# see docs/developer/verification.md.
 on:
-  pull_request:
   workflow_dispatch:
     inputs:
       extended:
