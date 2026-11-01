@@ -408,7 +408,7 @@ fn identifier(prefix: []const u8, raw: []const u8) []const u8 {
             if (point >= 0x10000) out.appendAssumeCapacity('_');
         }
     }
-    return out.items;
+    return out.toOwnedSlice(a) catch oom();
 }
 
 // Value and block identifiers by ID: each is written many times.

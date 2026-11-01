@@ -64,6 +64,9 @@ pub const Interner = struct {
             std.debug.assert(removed);
             self.gpa.free(text);
         }
+        // Removals leave tombstones that std never reclaims short of growth; clear them once they dominate.
+        const map = &table.map;
+        if (map.capacity() / 2 > map.size + map.available) map.rehash(Utf16Context{});
     }
 
     pub fn restore(self: *Interner, previous: Checkpoint) void {
@@ -1218,6 +1221,22 @@ test "interner checkpoint releases failed proposal entries and retains prior han
         try std.testing.expectEqual(@as(usize, 0), interner.strings.texts.items.len);
         try std.testing.expectEqualSlices(u16, &.{'f'}, interner.idText(.function, kept));
     }
+}
+
+test "interner restore cycles keep lookups correct and the map bounded" {
+    var interner: Interner = .{ .gpa = std.testing.allocator };
+    defer interner.deinit();
+    const kept = try interner.id(.function, &.{'f'});
+    const checkpoint = interner.checkpoint();
+    var capacity: u32 = 0;
+    for (0..2000) |round| {
+        for (0..8) |i| _ = try interner.id(.node, &.{ @intCast(round % 60000), @intCast(i) });
+        interner.restore(checkpoint);
+        try std.testing.expectEqual(kept, interner.findId(.function, &.{'f'}).?);
+        try std.testing.expect(interner.findId(.node, &.{ 0, 0 }) == null);
+        capacity = @max(capacity, interner.ids[@backingInt(Domain.node)].map.capacity());
+    }
+    try std.testing.expect(capacity <= 64);
 }
 
 test "failed live-set preparation leaves the old generation usable" {

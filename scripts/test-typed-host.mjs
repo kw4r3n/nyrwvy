@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url"
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const zig = process.env.NYRWVY_ZIG || "zig"
-// Every host unit test except run_pure's dispatch-name check, which leaks under this runner's per-test allocator.
+// Every host unit test.
 const filters = [
   "C# runner keeps recursive codecs finite and argument values out of source",
   "a child registered after shutdown is killed even after the monitor has finished",
@@ -19,6 +19,7 @@ const filters = [
   "confined recipe paths reject parent traversal on each platform",
   "dependency pair restores a failed snapshot write and preserves recovery on rollback failure",
   "empty facade and Unicode name checks",
+  "equatability of an irregularly recursive type terminates",
   "exclusive snapshot creation preserves an existing destination and removes its temporary",
   "facade name collisions and reserved fields",
   "generated output preflight refuses invalid paths without publication",
@@ -40,6 +41,7 @@ const filters = [
   "retained dependency owns typed graph interner and provenance after source arena release",
   "run declarations hide imported private members without changing the model",
   "run values keep exact integers, binary64 signs, and text tokens",
+  "runner dispatch name preserves arbitrary UTF-8 stable IDs",
   "scalar decoding preserves negative zero and rejects unsigned negative zero",
   "seeded UUIDv7 payloads and restart guard",
   "signature remap restores parameter and function IDs and generic binding types",

@@ -98,7 +98,7 @@ pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
     var digest: [32]u8 = undefined;
     std.crypto.hash.sha2.Sha256.hash(try std.mem.join(a, "\x00", &.{ dotnet, driver_project, driver_source }), &digest, .{});
     const drivers = try std.fs.path.join(a, &.{ p.cache_root, "csharp-driver" });
-    const output = try std.fs.path.join(lifetime, &.{ drivers, &std.fmt.bytesToHex(digest, .lower) });
+    const output = try std.fs.path.join(a, &.{ drivers, &std.fmt.bytesToHex(digest, .lower) });
     if (std.Io.Dir.cwd().access(io, try std.fs.path.join(a, &.{ output, "Compiler.dll" }), .{})) |_| {} else |_| {
         _ = try std.Io.Dir.cwd().createDirPathStatus(io, drivers, if (windows) .default_dir else .fromMode(0o700));
         var random: [16]u8 = undefined;
@@ -117,7 +117,7 @@ pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
             std.Io.Dir.cwd().access(io, try std.fs.path.join(a, &.{ output, "Compiler.dll" }), .{}) catch return e;
         };
     }
-    const assembly = try std.fs.path.join(lifetime, &.{ output, "Compiler.dll" });
+    const assembly = try std.fs.path.join(a, &.{ output, "Compiler.dll" });
     // A driver that ran but did not identify itself (say, its runtime is gone) is moved aside and rebuilt
     // next time; a timeout or launch failure may be transient, and other sessions share this directory.
     var stale = false;
@@ -138,7 +138,7 @@ pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
         },
         .completed => |done| if (done.term.success()) done.stdout else return try p.processFailure(a, done),
     };
-    const parsed = std.json.parseFromSliceLeaky(std.json.Value, lifetime, text, .{}) catch return .{ .code = "RunStartupFailure", .message = "The C# compiler did not return its build identity." };
+    const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, text, .{}) catch return .{ .code = "RunStartupFailure", .message = "The C# compiler did not return its build identity." };
     const invalid: p.Diagnostic = .{ .code = "RunStartupFailure", .message = "The C# compiler did not return its build identity." };
     if (parsed != .object) return invalid;
     const id = parsed.object.get("identity") orelse return invalid;
@@ -146,12 +146,13 @@ pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
     const runtime_major = parsed.object.get("major") orelse return invalid;
     const context = parsed.object.get("buildContextFingerprint") orelse return invalid;
     if (id != .string or version != .string or context != .string or runtime_major != .integer or runtime_major.integer < 1) return invalid;
-    identity = id.string;
+    // Only a successful identification outlives the request.
+    identity = try lifetime.dupe(u8, id.string);
     major = runtime_major.integer;
-    runtime_version = version.string;
-    build_context_fingerprint = context.string;
+    runtime_version = try lifetime.dupe(u8, version.string);
+    build_context_fingerprint = try lifetime.dupe(u8, context.string);
+    driver = try lifetime.dupe(u8, assembly);
     stale = false;
-    driver = assembly;
     return null;
 }
 fn install(a: A, io: std.Io, directory: []const u8, pe: []const u8, pdb: []const u8) ![]const u8 {

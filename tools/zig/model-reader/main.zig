@@ -2528,15 +2528,50 @@ fn reaches(direct: *const Direct, start: Str, goal: Str) bool {
     return false;
 }
 
+/// This reference names a type that reaches `owner` back, with arguments other than plain type parameters.
+fn irregularRef(direct: *const Direct, owner: Str, type_ref: Model) bool {
+    if (!isName(type_ref.kind(), "named")) return false;
+    const arguments = type_ref.arguments();
+    var plain = true;
+    for (arguments) |argument| plain = plain and isName(argument.kind(), "typeParameter");
+    return arguments.len > 0 and !plain and reaches(direct, type_ref.reference("typeId"), owner);
+}
+
 fn checkRecursion(direct: *const Direct, owner: Str, field: Model, type_ref: Model) void {
-    if (isName(type_ref.kind(), "named")) {
-        const arguments = type_ref.arguments();
-        var plain = true;
-        for (arguments) |argument| plain = plain and isName(argument.kind(), "typeParameter");
-        if (arguments.len > 0 and !plain and reaches(direct, type_ref.reference("typeId"), owner))
-            add("IrregularRecursiveType", cat(&.{ L("Field "), describe(field.displayName(), field.id()), L(" refers back to its recursive type group with type arguments other than plain type parameters.") }));
-    }
+    if (irregularRef(direct, owner, type_ref))
+        add("IrregularRecursiveType", cat(&.{ L("Field "), describe(field.displayName(), field.id()), L(" refers back to its recursive type group with type arguments other than plain type parameters.") }));
     for (typeChildren(type_ref)) |child| checkRecursion(direct, owner, field, child);
+}
+
+fn hasIrregularRef(direct: *const Direct, owner: Str, type_ref: Model) bool {
+    if (irregularRef(direct, owner, type_ref)) return true;
+    for (typeChildren(type_ref)) |child| if (hasIrregularRef(direct, owner, child)) return true;
+    return false;
+}
+
+/// `direct[type]`: the declared types its fields name.
+fn directOf(types: []const Model) Direct {
+    var direct: Direct = .empty;
+    for (types) |type_entity| {
+        var set: Set = .empty;
+        for (fieldsOf(type_entity)) |field| named(field.declaredType(), &set);
+        direct.put(a, idKey(type_entity.id()), set) catch oom();
+    }
+    return direct;
+}
+
+/// Types with a field that recurses irregularly (`IrregularRecursiveType`). The type walkers inspect
+/// these once by ID rather than per arguments: their instantiations never repeat, and F# overflows.
+var irregular_types: Set = .empty;
+
+/// The visited-set key for a declared type reference in `bearingWith` and `firstNotEquatableAt`.
+fn visitKey(t: TypeRef) []const u8 {
+    var key: List(u8) = .empty;
+    if (irregular_types.contains(idKey(t.name))) {
+        key.append(a, '!') catch oom();
+        key.appendSlice(a, idKey(t.name)) catch oom();
+    } else typeKey(t, &key);
+    return key.items;
 }
 
 fn fieldsOf(type_entity: Model) []const Model {
@@ -2717,9 +2752,7 @@ fn bearingWith(mentions: *const fn (TypeRef) bool, t: TypeRef, visited: *Set) bo
     var named_list: List(TypeRef) = .empty;
     namedIn(t, &named_list);
     for (named_list.items) |n| {
-        var key: List(u8) = .empty;
-        typeKey(n, &key);
-        if ((visited.getOrPut(a, key.items) catch oom()).found_existing) continue;
+        if ((visited.getOrPut(a, visitKey(n)) catch oom()).found_existing) continue;
         const type_entity = types_by_id.get(idKey(n.name)) orelse continue;
         for (fieldsOf(type_entity)) |field| {
             if (bearingWith(mentions, instantiate(type_entity, n.args, typeRefOf(field.declaredType())), visited)) return true;
@@ -2810,9 +2843,7 @@ fn firstNotEquatableAt(path: *List(Str), t: TypeRef, visited: *Set) ?NotEquatabl
             return null;
         },
         .named => {
-            var key: List(u8) = .empty;
-            typeKey(t, &key);
-            if ((visited.getOrPut(a, key.items) catch oom()).found_existing) return null;
+            if ((visited.getOrPut(a, visitKey(t)) catch oom()).found_existing) return null;
             const type_entity = types_by_id.get(idKey(t.name)) orelse return null;
             const type_name = type_entity.displayName();
             if (isName(type_entity.kind(), "product")) {
@@ -4888,11 +4919,15 @@ fn directCallRules(node: Model) void {
 }
 
 /// `validateGraph`: the graph's own rules, each node's rules, then its nested graphs.
-fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, context: Str, graph: Model) void {
+/// `visible` and `visible_patterns` are scoped: what a graph adds is removed again before it returns.
+fn validateGraph(visible: *Set, visible_patterns: *Set, context: Str, graph: Model) void {
     const nodes = graph.nodes();
     const local = idSet(nodes);
-    var visible = outer_visible.clone(a) catch oom();
-    for (local.keys()) |key| visible.put(a, key, {}) catch oom();
+    var added: List([]const u8) = .empty;
+    for (local.keys()) |key| if (!(visible.getOrPut(a, key) catch oom()).found_existing) added.append(a, key) catch oom();
+    defer for (added.items) |key| {
+        _ = visible.swapRemove(key);
+    };
 
     const result_id = graph.resultNodeId();
     if (!local.contains(idKey(result_id)))
@@ -4933,7 +4968,7 @@ fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, contex
             // The right graph is a Conditional branch in all but name: abrupt is allowed, normal must be Bool.
             if (normalType(in_function.resolver.graph(right))) |t| if (!t.isPrimitive("bool"))
                 addIn("BoolOperandTypeMismatch", cat(&.{ role, L(" node '"), id, L("' requires a Bool right operand.") }));
-            validateGraph(&visible, visible_patterns, cat(&.{ role, L(" right operand of '"), id, L("'") }), right);
+            validateGraph(visible, visible_patterns, cat(&.{ role, L(" right operand of '"), id, L("'") }), right);
         } else if (isName(kind, "conditional")) {
             if (nodeTypeAt(node, "conditionNodeId")) |t| if (!t.isPrimitive("bool"))
                 addIn("ConditionalConditionTypeMismatch", nodeLabel("Conditional", node, "requires a Bool condition."));
@@ -4941,34 +4976,44 @@ fn validateGraph(outer_visible: *const Set, visible_patterns: *const Set, contex
             const when_false = node.graphPayload("whenFalse");
             if (!compatibleArms(&.{ when_true, when_false }))
                 addIn("ConditionalBranchTypeMismatch", nodeLabel("Conditional", node, "branches do not produce one common type."));
-            validateGraph(&visible, visible_patterns, cat(&.{ L("Conditional true branch of '"), id, L("'") }), when_true);
-            validateGraph(&visible, visible_patterns, cat(&.{ L("Conditional false branch of '"), id, L("'") }), when_false);
+            validateGraph(visible, visible_patterns, cat(&.{ L("Conditional true branch of '"), id, L("'") }), when_true);
+            validateGraph(visible, visible_patterns, cat(&.{ L("Conditional false branch of '"), id, L("'") }), when_false);
         } else if (isName(kind, "matchUnion")) {
             for (node.arms()) |arm| {
-                var patterns = visible_patterns.clone(a) catch oom();
-                for (arm.fieldBindings()) |field| patterns.put(a, idKey((field.boundBinding()).id()), {}) catch oom();
-                validateGraph(&visible, &patterns, cat(&.{ L("Union match arm '"), describeArm(arm), L("'") }), arm.body());
+                var bound: List([]const u8) = .empty;
+                for (arm.fieldBindings()) |field| {
+                    const key = idKey((field.boundBinding()).id());
+                    if (!(visible_patterns.getOrPut(a, key) catch oom()).found_existing) bound.append(a, key) catch oom();
+                }
+                defer for (bound.items) |key| {
+                    _ = visible_patterns.swapRemove(key);
+                };
+                validateGraph(visible, visible_patterns, cat(&.{ L("Union match arm '"), describeArm(arm), L("'") }), arm.body());
             }
         } else if (isName(kind, "bind")) {
             const body = node.arm("boundBody");
-            validateGraph(&visible, &withPattern(visible_patterns, body.armBinding()), cat(&.{ L("Bind body of '"), id, L("'") }), body.body());
+            withPattern(visible, visible_patterns, body.armBinding(), cat(&.{ L("Bind body of '"), id, L("'") }), body.body());
         } else if (isName(kind, "matchOption")) {
             const some = node.arm("someArm");
-            validateGraph(&visible, &withPattern(visible_patterns, some.armBinding()), cat(&.{ L("Option.Some arm of '"), id, L("'") }), some.body());
-            validateGraph(&visible, visible_patterns, cat(&.{ L("Option.None arm of '"), id, L("'") }), node.graphPayload("noneBody"));
+            withPattern(visible, visible_patterns, some.armBinding(), cat(&.{ L("Option.Some arm of '"), id, L("'") }), some.body());
+            validateGraph(visible, visible_patterns, cat(&.{ L("Option.None arm of '"), id, L("'") }), node.graphPayload("noneBody"));
         } else if (isName(kind, "matchResult")) {
             const ok_arm = node.arm("okArm");
             const err_arm = node.arm("errArm");
-            validateGraph(&visible, &withPattern(visible_patterns, ok_arm.armBinding()), cat(&.{ L("Result.Ok arm of '"), id, L("'") }), ok_arm.body());
-            validateGraph(&visible, &withPattern(visible_patterns, err_arm.armBinding()), cat(&.{ L("Result.Err arm of '"), id, L("'") }), err_arm.body());
+            withPattern(visible, visible_patterns, ok_arm.armBinding(), cat(&.{ L("Result.Ok arm of '"), id, L("'") }), ok_arm.body());
+            withPattern(visible, visible_patterns, err_arm.armBinding(), cat(&.{ L("Result.Err arm of '"), id, L("'") }), err_arm.body());
         }
     }
 }
 
-fn withPattern(patterns: *const Set, binding: Model) Set {
-    var out = patterns.clone(a) catch oom();
-    out.put(a, idKey(binding.id()), {}) catch oom();
-    return out;
+/// `validateGraph` with one more pattern binding visible.
+fn withPattern(visible: *Set, patterns: *Set, binding: Model, context: Str, graph: Model) void {
+    const key = idKey(binding.id());
+    const added = !(patterns.getOrPut(a, key) catch oom()).found_existing;
+    defer if (added) {
+        _ = patterns.swapRemove(key);
+    };
+    validateGraph(visible, patterns, context, graph);
 }
 
 /// `UnionMatchArm.canonicalVariantIds` joined with `|`: the arm's variant IDs, sorted ordinally.
@@ -5481,7 +5526,9 @@ fn validateFunctionGraphs(functions: []const Model) void {
                     addIn("AbortValueUse", cat(&.{ L("Node '"), node.id(), L("' uses abrupt node '"), reference, L("' as a value in function "), label, L(".") }));
             }
         }
-        validateGraph(&.empty, &.empty, cat(&.{ L("Function "), label, L(" body") }), body);
+        var visible: Set = .empty;
+        var patterns: Set = .empty;
+        validateGraph(&visible, &patterns, cat(&.{ L("Function "), label, L(" body") }), body);
         effectOrderRules();
         if (resolver.nodeType(body.resultNodeId())) |t| if (!typeEql(t, typeRefOf(function.resultType())))
             addIn("FunctionResultTypeMismatch", cat(&.{ L("Function "), label, L(" result node type does not match its declared result type.") }));
@@ -5505,6 +5552,11 @@ fn prepareContext(root: Model) void {
     types_by_id = byId(types);
     all_types = types;
     capability_ids = idSet(capabilities);
+    irregular_types = .empty;
+    const direct = directOf(types);
+    for (types) |type_entity| for (fieldsOf(type_entity)) |field| {
+        if (hasIrregularRef(&direct, type_entity.id(), field.declaredType())) irregular_types.put(a, idKey(type_entity.id()), {}) catch oom();
+    };
     type_parameter_names = .empty;
     for ([_][]const Model{ types, functions }) |declared| for (declared) |owner| for (owner.typeParameters()) |declaration|
         type_parameter_names.put(a, idKey(declaration.reference("typeParameterId")), declaration.displayName()) catch oom();
@@ -5628,12 +5680,7 @@ fn validate(root: Model) void {
             add("UnknownCapabilityEffect", cat(&.{ L("Capability operation "), describe(operation.displayName(), operation.id()), L(" references unknown effect "), effectLabel(effect_id), L(".") }));
     }
 
-    var direct: Direct = .empty;
-    for (types) |type_entity| {
-        var set: Set = .empty;
-        for (fieldsOf(type_entity)) |field| named(field.declaredType(), &set);
-        direct.put(a, idKey(type_entity.id()), set) catch oom();
-    }
+    const direct = directOf(types);
     for (types) |type_entity| {
         typeParameterDeclarations("Type", describe(type_entity.displayName(), type_entity.id()), type_entity.typeParameters());
         for (fieldsOf(type_entity)) |field| checkRecursion(&direct, type_entity.id(), field, field.declaredType());
@@ -6795,6 +6842,7 @@ fn resetState() void {
     types_by_id = .empty;
     all_types = &.{};
     capability_ids = .empty;
+    irregular_types = .empty;
     type_parameter_names = .empty;
     variant_owners = .empty;
     functions_by_id = .empty;
@@ -7242,4 +7290,25 @@ test "resolved native documents reuse decoded dependencies and return complete n
     const rejected = readResolvedTypedDocument(allocator, dependency.generation.?, dependency.interner.?, dependency.id, "wrong", first_source);
     try std.testing.expect(rejected.generation == null);
     try std.testing.expect(std.mem.startsWith(u8, rejected.lines, "error InvalidShape:"));
+}
+
+test "irregular recursive types are reported without unbounded instantiation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // `Nest<a> = Leaf(a) | Deeper(Nest<List<a>>)`, used as `Nest<Int64>` and as a Set item.
+    const read = readDocument(arena.allocator(),
+        \\{"schemaVersion":24,"snapshotId":"s","types":[{"id":"nest","displayName":"Nest","typeParameters":[{"typeParameterId":"t","displayName":"T"}],"kind":"union","variants":[{"id":"leaf","displayName":"Leaf","fields":[{"id":"value","displayName":"value","type":{"kind":"typeParameter","typeParameterId":"t"}}]},{"id":"deeper","displayName":"Deeper","fields":[{"id":"inner","displayName":"inner","type":{"kind":"named","typeId":"nest","arguments":[{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","typeParameterId":"t"}]}]}}]}]}],"effects":[{"id":"e","displayName":"E"}],"capabilities":[{"id":"c","displayName":"C","operations":[{"id":"o","displayName":"O","parameters":[{"id":"p","displayName":"P","type":{"kind":"builtinGeneric","generic":"set","arguments":[{"kind":"named","typeId":"nest","arguments":[{"kind":"primitive","primitive":"int64"}]}]}}],"resultType":{"kind":"named","typeId":"nest","arguments":[{"kind":"primitive","primitive":"int64"}]},"effectId":"e"}]}],"functions":[],"obligations":[]}
+    );
+    try std.testing.expect(std.mem.indexOf(u8, read.lines, "IrregularRecursiveType") != null);
+}
+
+test "a nested graph's nodes leave scope when the graph ends" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    // The false branch reads `x`, which only the true branch owns.
+    const read = readDocument(arena.allocator(),
+        \\{"schemaVersion":24,"snapshotId":"s","types":[],"effects":[],"capabilities":[],"functions":[{"id":"f","displayName":"F","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"nodes":[{"id":"c","kind":"boolLiteral","value":true},{"id":"k","kind":"conditional","conditionNodeId":"c","whenTrue":{"nodes":[{"id":"x","kind":"boolLiteral","value":true}],"resultNodeId":"x"},"whenFalse":{"nodes":[{"id":"y","kind":"boolNot","operandNodeId":"x"}],"resultNodeId":"y"}}],"resultNodeId":"k"}}],"obligations":[]}
+    );
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, read.lines, "ValueNodeOutOfScope"));
+    try std.testing.expect(std.mem.indexOf(u8, read.lines, "'y' references value node 'x'") != null);
 }

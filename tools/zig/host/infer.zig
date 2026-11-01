@@ -493,9 +493,11 @@ pub const Infer = struct {
                 return null;
             },
             .named => |n| {
-                for (visited.items) |seen| if (eqlType(seen, t)) return null;
-                try visited.append(a, t);
                 const declared = self.typeDeclaration(n.id) orelse return null;
+                // An irregularly recursive type is inspected once by ID: its instantiations never repeat.
+                const by_id = try self.irregular(declared);
+                for (visited.items) |seen| if (if (by_id) seen == .named and same(seen.named.id, n.id) else eqlType(seen, t)) return null;
+                try visited.append(a, t);
                 const type_name = query.nameOf(declared);
                 if ((!(declared).data.type_declaration.product)) {
                     for ((declared).variants()) |variant| for ((variant).fields()) |field| {
@@ -509,6 +511,61 @@ pub const Infer = struct {
                 return null;
             },
         }
+    }
+
+    /// The declared type's fields as models, its variants' fields in order for a union.
+    fn declaredFields(self: *Infer, declared: Model) Fail![]const Model {
+        if (declared.data.type_declaration.product) return declared.fields();
+        var out: std.ArrayList(Model) = .empty;
+        for (declared.variants()) |variant| try out.appendSlice(self.a, variant.fields());
+        return out.items;
+    }
+
+    /// `IrregularRecursiveType`, which only validation reports: a field of `declared` refers back to its
+    /// recursive type group with arguments other than plain type parameters. A union variant added
+    /// before validation can make one.
+    fn irregular(self: *Infer, declared: Model) Fail!bool {
+        for (try self.declaredFields(declared)) |field| if (try self.irregularIn(query.idOf(declared), try typeOf(self.a, field.declaredType()))) return true;
+        return false;
+    }
+
+    fn irregularIn(self: *Infer, owner: []const u8, t: TypeRef) Fail!bool {
+        switch (t) {
+            .named => |n| {
+                for (n.arguments) |argument| if (argument != .type_parameter) {
+                    if (try self.reaches(n.id, owner)) return true;
+                    break;
+                };
+                for (n.arguments) |argument| if (try self.irregularIn(owner, argument)) return true;
+            },
+            .builtin => |b| for (b.arguments) |argument| if (try self.irregularIn(owner, argument)) return true,
+            .function => |f| {
+                for (f.parameters) |parameter| if (try self.irregularIn(owner, parameter)) return true;
+                return self.irregularIn(owner, f.result.*);
+            },
+            else => {},
+        }
+        return false;
+    }
+
+    /// `goal` is reachable in one or more steps through the declared types' fields from `start`.
+    fn reaches(self: *Infer, start: []const u8, goal: []const u8) Fail!bool {
+        var seen: std.StringHashMapUnmanaged(void) = .empty;
+        var stack: std.ArrayList([]const u8) = .empty;
+        try stack.append(self.a, start);
+        while (stack.pop()) |id| {
+            const declared = self.typeDeclaration(id) orelse continue;
+            for (try self.declaredFields(declared)) |field| {
+                var named: std.ArrayList([]const u8) = .empty;
+                try namedIds(self.a, try typeOf(self.a, field.declaredType()), &named);
+                for (named.items) |next| {
+                    if ((try seen.getOrPut(self.a, next)).found_existing) continue;
+                    if (same(next, goal)) return true;
+                    try stack.append(self.a, next);
+                }
+            }
+        }
+        return false;
     }
 
     fn isEquatable(self: *Infer, t: TypeRef) Fail!bool {
@@ -1713,6 +1770,21 @@ pub const Infer = struct {
     }
 };
 
+fn namedIds(a: Allocator, t: TypeRef, out: *std.ArrayList([]const u8)) Fail!void {
+    switch (t) {
+        .named => |n| {
+            try out.append(a, n.id);
+            for (n.arguments) |argument| try namedIds(a, argument, out);
+        },
+        .builtin => |b| for (b.arguments) |argument| try namedIds(a, argument, out),
+        .function => |f| {
+            for (f.parameters) |parameter| try namedIds(a, parameter, out);
+            try namedIds(a, f.result.*, out);
+        },
+        else => {},
+    }
+}
+
 fn appended(a: Allocator, items: []const []const u8, item: []const u8) ![]const []const u8 {
     const out = try a.alloc([]const u8, items.len + 1);
     @memcpy(out[0..items.len], items);
@@ -1812,4 +1884,23 @@ pub fn runWithPath(r: *query.Request, c: preflight.Creation, fresh: []const pref
         return preflight.rejected(r, "FunctionCreationResultTypeMismatch", try std.fmt.allocPrint(r.a, "The function body produces {s}, but the requested result type is {s}.", .{ try self.ty(completion.normal), try self.ty(c.result_type) }));
     }
     return self;
+}
+
+test "equatability of an irregularly recursive type terminates" {
+    var arena: std.heap.ArenaAllocator = .init(std.testing.allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+    // `Nest<a> = Leaf(a) | Deeper(Nest<List<a>>)`, loaded without the validation that rejects it.
+    const declarations = try model.parseValue(a,
+        \\{"snapshotId":"s","types":[{"id":"nest","displayName":"Nest","typeParameters":[{"typeParameterId":"t","displayName":"T"}],"kind":"union","variants":[{"id":"leaf","displayName":"Leaf","fields":[{"id":"value","displayName":"value","type":{"kind":"typeParameter","typeParameterId":"t"}}]},{"id":"deeper","displayName":"Deeper","fields":[{"id":"inner","displayName":"inner","type":{"kind":"named","typeId":"nest","arguments":[{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"typeParameter","typeParameterId":"t"}]}]}}]}]}],"effects":[],"capabilities":[],"functions":[],"obligations":[]}
+    );
+    var interner: model.session_model.Interner = .{ .gpa = a };
+    defer interner.deinit();
+    const generation = try model.session_model.load(a, &interner, declarations, null);
+    var r: query.Request = .{ .a = a, .line = "", .root = .empty, .generation = &generation, .interner = &interner, .provenance = null };
+    var infer: Infer = .{ .r = &r, .a = a, .c = undefined, .local = &.{}, .fresh = &.{} };
+    const nest: TypeRef = .{ .named = .{ .id = "nest", .arguments = &.{primitive("int64")} } };
+    try std.testing.expect(try infer.isEquatable(nest));
+    const floats: TypeRef = .{ .named = .{ .id = "nest", .arguments = &.{primitive("float64")} } };
+    try std.testing.expect(!try infer.isEquatable(floats));
 }
