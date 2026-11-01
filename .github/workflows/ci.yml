@@ -108,6 +108,12 @@ jobs:
           version: ${{ steps.zig.outputs.version }}
           use-cache: false
 
+      # The Zig host still builds and runs C# through dotnet.
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:

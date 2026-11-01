@@ -98,11 +98,24 @@ pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
         };
     }
     const assembly = try std.fs.path.join(lifetime, &.{ output, "Compiler.dll" });
-    // A cached driver that no longer identifies itself (say, its runtime is gone) is rebuilt next time.
-    defer if (driver == null) std.Io.Dir.cwd().deleteTree(io, output) catch {};
+    // A driver that ran but did not identify itself (say, its runtime is gone) is moved aside and rebuilt
+    // next time; a timeout or launch failure may be transient, and other sessions share this directory.
+    var stale = false;
+    defer if (stale) {
+        var random: [16]u8 = undefined;
+        io.random(&random);
+        if (std.fmt.allocPrint(a, "{s}.stale.{x}", .{ output, random })) |aside| {
+            if (std.Io.Dir.renameAbsolute(output, aside, io)) |_| std.Io.Dir.cwd().deleteTree(io, aside) catch {} else |_| {}
+        } else |_| {}
+    };
+    errdefer stale = false;
     const identified = try p.launch(a, io, &.{ dotnet, assembly, "identity" }, output, "C# compiler identification", 30);
+    stale = true;
     const text = switch (identified) {
-        .failed => |d| return d,
+        .failed => |d| {
+            stale = false;
+            return d;
+        },
         .completed => |done| if (done.term.success()) done.stdout else return try p.processFailure(a, done),
     };
     const parsed = std.json.parseFromSliceLeaky(std.json.Value, lifetime, text, .{}) catch return .{ .code = "RunStartupFailure", .message = "The C# compiler did not return its build identity." };
@@ -117,6 +130,7 @@ pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
     major = runtime_major.integer;
     runtime_version = version.string;
     build_context_fingerprint = context.string;
+    stale = false;
     driver = assembly;
     return null;
 }
