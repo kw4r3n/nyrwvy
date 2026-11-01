@@ -495,6 +495,8 @@ pub const Infer = struct {
             .named => |n| {
                 const declared = self.typeDeclaration(n.id) orelse return null;
                 // An irregularly recursive type is inspected once by ID: its instantiations never repeat.
+                // shortcut: by ID the answer can be inexact (e.g. W<a -> a>) and `irregular` re-searches on every visit;
+                // only snapshots validation rejects reach this, so memoize per Infer if it shows up in profiles.
                 const by_id = try self.irregular(declared);
                 for (visited.items) |seen| if (if (by_id) seen == .named and same(seen.named.id, n.id) else eqlType(seen, t)) return null;
                 try visited.append(a, t);

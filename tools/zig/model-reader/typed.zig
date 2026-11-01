@@ -29,6 +29,8 @@ const Utf16Context = struct {
 const Table = struct {
     map: std.HashMapUnmanaged(Str, u32, Utf16Context, 80) = .empty,
     texts: std.ArrayList(Str) = .empty,
+    /// Removals since the last rehash; std leaves each as a tombstone (`size + available` stays fixed).
+    tombstones: usize = 0,
 
     fn intern(self: *Table, gpa: Allocator, text: Str) !u32 {
         if (self.map.get(text)) |existing| return existing;
@@ -63,10 +65,13 @@ pub const Interner = struct {
             const removed = table.map.remove(text);
             std.debug.assert(removed);
             self.gpa.free(text);
+            table.tombstones += 1;
         }
-        // Removals leave tombstones that std never reclaims short of growth; clear them once they dominate.
-        const map = &table.map;
-        if (map.capacity() / 2 > map.size + map.available) map.rehash(Utf16Context{});
+        // Tombstones are never reused as free slots, so lookups slow as they pile up; clear them past a quarter.
+        if (table.tombstones > table.map.capacity() / 4) {
+            table.map.rehash(Utf16Context{});
+            table.tombstones = 0;
+        }
     }
 
     pub fn restore(self: *Interner, previous: Checkpoint) void {
@@ -1234,7 +1239,9 @@ test "interner restore cycles keep lookups correct and the map bounded" {
         interner.restore(checkpoint);
         try std.testing.expectEqual(kept, interner.findId(.function, &.{'f'}).?);
         try std.testing.expect(interner.findId(.node, &.{ 0, 0 }) == null);
-        capacity = @max(capacity, interner.ids[@backingInt(Domain.node)].map.capacity());
+        const table = &interner.ids[@backingInt(Domain.node)];
+        capacity = @max(capacity, table.map.capacity());
+        try std.testing.expect(table.tombstones <= table.map.capacity() / 4);
     }
     try std.testing.expect(capacity <= 64);
 }
