@@ -1,6 +1,7 @@
 # Memory ownership in the Zig backend
 
 - **Status:** Accepted (owner decisions A–D, 2026-11-01)
+- **Progress:** First milestone, Nyrwvy half landed: library mode (see [Library mode as built](#library-mode-as-built)). Remaining for the milestone, on the Rhifill side: the extra `layoutFrame` saved cases (acceptance 1), the C# P/Invoke wiring behind a switch (2) and the p50/p99 and one-hour RSS bench (3).
 - **Date:** 2026-11-01
 - **Plan:** [backend-neutral semantics and generated library bindings](../plans/multi-backend-and-bindings.md#backend-notes), Backend notes (Zig) and Order step 5
 
@@ -55,6 +56,14 @@ The likely first real use is small: Rhifill's `Screen.Read` (`app/Screen.cs`, ab
 3. Measured on one Linux machine with the existing Rhifill bench (`spikes/bench-nyrwvy`): per-frame `layoutFrame` p50 and p99 for C# and Zig at 80×24 and 300×100, and process RSS over a one-hour scrolling run, flat after warm-up.
 
 Reference counting (1) and the persistent List are the second milestone and start right after the first (owner: land it early, not gated on a long-lived program). To unblock it, switch steps 4 and 5 come next; if they lag behind the first milestone, the emitter check is retired early instead of waiting.
+
+## Library mode as built
+
+- **Exports.** `<snapshot>.backends.json` gains `"exports": ["<function display name>", ...]` beside `"targets"` (decision C; the sidecar is tool configuration, outside the fingerprint). Each name resolves to exactly one visible function and is exported as the C symbol `ny_<name>`.
+- **Generation.** The authoring operation `emitZigLibrary` (optional `output`, a `.zig` path confined like `emitCSharp`'s) returns or writes the program without the runner `main` and fakes, plus the exports; the reply lists `{function, functionId, symbol}`. Build it with `zig build-lib -dynamic -lc -O ReleaseSafe <file>.zig -femit-bin=<lib>` (`-lc` because the runtime uses thread-local storage). The emitter's `library` entry is separate from `runner`, so `runPure` output and the emitter check are unchanged.
+- **C ABI** (`tools/zig/emitter/library_support.zig`). Int64, Float64 and Bool by value; String as UTF-8 `ptr, len`; `List<Int64|Float64>` as `ptr, len`; a nested list as a flat `ptr`, `row_lens` and `rows`; a non-generic Product of scalars as its fields, flattened in field-ID order (the generated doc comment names the order). A scalar result goes to `out`; a String or List to `out, out_cap, out_len`; a nested list to `out, out_cap, out_len, out_row_lens, out_row_cap, out_rows`. Every export returns `c_int`: `0` ok, `1` fault (message through `ny_last_failure(&len)`, per thread, until its next failure), `2` cancelled (reserved), `3` a result buffer too small (the lengths written are what is needed; call again). Other types, generic functions, capability parameters and names that are not C identifiers are rejected as unsupported; a function that uses tasks is not rejected but has no scheduler I/O to run on (untested). `ny_arena_capacity()` reports the arena's retained bytes. `ny_last_failure` and `ny_arena_capacity` are exported by every library, so two Nyr libraries cannot share one process yet. The C# wiring must read the field-ID order from the generated comment (or the `declarations` reply), since IDs do not follow display-name order.
+- **Memory and threading.** Arguments are borrowed (read in place, never kept); after the result is copied, the arena is reset with `.retain_capacity` under one runtime mutex that serialises every export.
+- **Still aborts the process:** allocation failure, stack overflow and ReleaseSafe safety checks (bounds, `unreachable`) in generated code (decision consequences: the export is trusted, not sandboxed).
 
 ## Decisions (owner, 2026-11-01)
 
