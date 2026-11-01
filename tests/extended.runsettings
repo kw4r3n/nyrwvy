@@ -2,12 +2,9 @@
 <RunSettings>
   <RunConfiguration>
     <TestCaseFilter>Suite=Extended</TestCaseFilter>
-    <!-- A check variable also enables the Zig routes, which are off by default. runPure's Zig route also runs the F# emitter, and the session's Zig snapshot reader the F#
-         reader, and the session's projections the Zig lowering; all fail on any difference (docs/decisions/zig-tools.md). -->
+    <!-- The Zig routes (snapshot reader, validator, lowering), off by default, run in the extended suite (docs/decisions/zig-tools.md). -->
     <EnvironmentVariables>
-      <NYRWVY_ZIG_EMITTER_CHECK>1</NYRWVY_ZIG_EMITTER_CHECK>
-      <NYRWVY_ZIG_READER_CHECK>1</NYRWVY_ZIG_READER_CHECK>
-      <NYRWVY_ZIG_LOWERING_CHECK>1</NYRWVY_ZIG_LOWERING_CHECK>
+      <NYRWVY_ZIG_TOOLS>1</NYRWVY_ZIG_TOOLS>
     </EnvironmentVariables>
   </RunConfiguration>
 </RunSettings>

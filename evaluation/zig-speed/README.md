@@ -11,7 +11,7 @@ Rows:
 - **(2) to Zig source:** runPure's whole program up to the runner source.
   - The Zig route: `ModelJson`, then `model-reader --execution-ir`, then the Zig emitter.
   - `fsharp+zig-emitter`: the F# lowering with the Zig emitter, the route before #534.
-  - `fsharp`: the F# lowering and the F# emitter.
+  - `fsharp`: the F# lowering and the F# emitter (no longer measured: the F# emitter was removed on 2026-11-02).
 - **(3) tools:** the steps on their own.
 
 Inputs:
@@ -69,7 +69,7 @@ After the changes: parse 2.6–3.3, shape about 1, `scalarRules` 0.7. The F# ope
 
 ## Caching the emitter's output (2026-10-28)
 
-runPure cached the Zig lowering per snapshot but ran the Zig emitter on every call. The emitter's output is now cached by emitter build (its source hash), entry and IR hash. Under `NYRWVY_ZIG_EMITTER_CHECK` a cached output is still compared with the F# emitter on every call. Merging the lowering and the emitter into one process would have saved only the spawn and the IR file round trip (about 1–2 ms on Rhifill), so it was dropped for this.
+runPure cached the Zig lowering per snapshot but ran the Zig emitter on every call. The emitter's output is now cached by emitter build (its source hash), entry and IR hash. Under the emitter check (removed with the F# emitter on 2026-11-02) a cached output was still compared with the F# emitter on every call. Merging the lowering and the emitter into one process would have saved only the spawn and the IR file round trip (about 1–2 ms on Rhifill), so it was dropped for this.
 
 | | before | after |
 |---|---|---|
@@ -260,7 +260,7 @@ The tiny-echo rows exclude startup and use the same result assertions through bo
 The same three tasks, from the same JSON files, in both languages:
 - `validate` is `model-reader --validate` against `SnapshotCodec.deserialize`.
 - `lower` is `model-reader --execution-ir` (it validates first) against deserialize, `TypedSemanticIr.project`, `ExecutionIr.lower` and `ExecutionIrSerializer.serialize`.
-- `emit` is the Zig `emitter` on the IR JSON against `ZigBackend.runner` on the lowered program.
+- `emit` is the Zig `emitter` on the IR JSON against `ZigBackend.runner` on the lowered program (`fsbench` lost `emit` with the F# emitter on 2026-11-02).
 
 The F# side is `fsbench/` (`fsbench <task> <snapshot.json> [runs|check]`). The Zig side is the tools' `--bench <runs>` mode. Each run starts from a fresh arena and fresh globals, and must give the first run's output.
 

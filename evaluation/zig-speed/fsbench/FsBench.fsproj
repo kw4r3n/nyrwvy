@@ -10,6 +10,5 @@
   <ItemGroup>
     <ProjectReference Include="../../../src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
     <ProjectReference Include="../../../src/Nyrwvy.Execution/Nyrwvy.Execution.fsproj" />
-    <ProjectReference Include="../../../src/Nyrwvy.Backend.Zig/Nyrwvy.Backend.Zig.fsproj" />
   </ItemGroup>
 </Project>

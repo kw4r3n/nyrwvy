@@ -1,19 +1,9 @@
 namespace Nyrwvy.Core
 
-/// Zig source the backend emits with every program, and the support a runPure runner adds.
+/// The case-mapping tables the Zig emitter and the Zig host embed, generated from .NET's mapping
+/// (the C# backend's) and checked against the files by `ZigBackendTests`.
 [<RequireQualifiedAccess>]
 module ZigRuntime =
-    let private resource (name: string) =
-        use stream = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceStream name
-        use reader = new System.IO.StreamReader(stream)
-        reader.ReadToEnd()
-
-    let runtime = resource "runtime.zig"
-
-    /// Zig support for a runPure runner: reads argument tokens in the order the authoring session
-    /// writes them and writes a result in the session's envelope form.
-    let runnerSupport = resource "runner_support.zig"
-
     /// The simple (one-to-one) case mapping the C# backend's NyText.ToLower/ToUpper apply: .NET's
     /// invariant mapping per code point, except U+0130 -> i, U+0131 -> I and U+00DF -> U+1E9E.
     let private mapCase (lower: bool) (code: int) =

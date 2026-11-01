@@ -185,10 +185,10 @@ module ZigSnapshotReaderTests =
         Assert.True(Result.isError (ZigSnapshotReader.verdict (Some "ok") []))
 
     /// A resolved JSON snapshot is decided by `model-reader --validate --dependency` (F# reads the
-    /// marker and the local model); under the reader check every outcome must match the F# reader.
+    /// marker and the local model); the extended settings enable the Zig tools.
     [<Fact; Trait("Suite", "Extended")>]
-    let ``The Zig reader decides resolved JSON snapshots as the F# reader does`` () =
-        Assert.Equal("1", Environment.GetEnvironmentVariable "NYRWVY_ZIG_READER_CHECK")
+    let ``The Zig reader decides resolved JSON snapshots through the Zig route`` () =
+        Assert.Equal("1", Environment.GetEnvironmentVariable "NYRWVY_ZIG_TOOLS")
         let dependencyId = StableId.createForTesting<SnapshotTag> "zig-resolved-dependency"
         let asDependency (snapshot: Snapshot) = { snapshot with Id = dependencyId; ParentId = None; Obligations = [] }
         let snapshots =

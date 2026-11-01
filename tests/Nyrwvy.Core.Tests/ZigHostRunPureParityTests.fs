@@ -473,7 +473,7 @@ module ZigHostRunPureParityTests =
             let path = Path.Combine(directory, "unsupported.json")
             File.WriteAllText(path, SnapshotCodec.serialize snapshot |> unwrap)
             let request = runName "unsupported" [ "[[[[1]]]]" ] None
-            for environment in [ []; [ "NYRWVY_ZIG_TOOLS", "1" ]; [ "NYRWVY_ZIG_EMITTER_CHECK", "1" ] ] do
+            for environment in [ []; [ "NYRWVY_ZIG_TOOLS", "1" ] ] do
                 let reply = (strictPairWithEnvironment environment path [ request ]).Head
                 Assert.Equal("RunBackendUnsupported", code reply)
                 use document = parseDocument reply

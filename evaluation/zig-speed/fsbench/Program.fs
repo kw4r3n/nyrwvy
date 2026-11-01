@@ -1,5 +1,5 @@
-// `fsbench <validate|lower|emit> <snapshot.json> [runs|check]`: the F# counterpart of `model-reader
-// --validate`, `model-reader --execution-ir` and `emitter`. Without `runs` it does the task once (a
+// `fsbench <validate|lower> <snapshot.json> [runs|check]`: the F# counterpart of `model-reader
+// --validate` and `model-reader --execution-ir` (the F# emitter was removed). Without `runs` it does the task once (a
 // cold process); with it, it prints the median of `runs` runs after `runs` warm-up runs, in ms.
 open System
 open System.Diagnostics
@@ -20,9 +20,6 @@ let main argv =
         match argv[0] with
         | "validate" -> fun () -> SnapshotCodec.deserialize text |> ok "validate" |> fun _ -> "ok"
         | "lower" -> fun () -> lower text |> ExecutionIrSerializer.serialize
-        // Both emitters do the whole pass before reporting problems (Rhifill's capability types).
-        // The F# emitter has no IR reader, so it takes the lowered program in memory (the Zig emitter parses the IR JSON).
-        | "emit" -> let program = lower text in fun () -> match ZigBackend.runner program None with Ok source -> source | Error problems -> String.Join("\n", problems)
         | task -> failwithf "unknown task %s" task
     if argv.Length < 3 then task () |> ignore
     // `check`: the output's SHA-256, so that the JIT, ReadyToRun and AOT builds can be compared.
