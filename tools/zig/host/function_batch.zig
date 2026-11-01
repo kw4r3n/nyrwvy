@@ -16,17 +16,19 @@ pub fn create(r: *query.Request, out: *std.Io.Writer) anyerror!void {
     if (input.value.array.items.len == 0) return r.fail("functions must list at least one function.", .{});
     const expected = if (r.root.get("expectedSnapshotId") != null) try decoder.stableId("expectedSnapshotId", try decoder.requiredString(.{ .object = r.root }, "expectedSnapshotId")) else r.snapshot_id;
     try r.ensureUsable();
-    var created: std.ArrayList(model.Value) = .empty;
+    var created: std.ArrayList(model.Model) = .empty;
     var problems: std.ArrayList(model.Value) = .empty;
     var messages: std.ArrayList([]const u8) = .empty;
     const sources = try @import("recipe_file.zig").rawArrayItems(r.a, input.source);
     for (input.value.array.items, 0..) |item, index| {
         var scratch = r.*;
         // A builder sees the original declarations plus successfully materialized predecessors.
-        const functions = try std.mem.concat(r.a, model.Value, &.{ model.arrayItems(r.model, "functions"), created.items });
-        const fields = try r.a.dupe(model.Member, r.model.object);
-        for (fields) |*field| if (m.same(model.utf8(field.name), "functions")) { field.value = .{ .array = functions }; break; };
-        scratch.model = .{ .object = fields };
+        var generation = r.generation.?.*;
+        const functions = try r.a.alloc(*const model.session_model.Function, generation.functions.len + created.items.len);
+        @memcpy(functions[0..generation.functions.len], generation.functions);
+        for (created.items, functions[generation.functions.len..]) |function, *slot| slot.* = function.data.function;
+        generation.functions = functions;
+        scratch.generation = &generation;
         const source = sources[index];
         scratch.line = source;
         scratch.root = if (item == .object) item.object else .empty;
@@ -47,9 +49,17 @@ pub fn create(r: *query.Request, out: *std.Io.Writer) anyerror!void {
             try messages.append(r.a, try std.fmt.allocPrint(r.a, "[{d}] {s}: {s}", .{ index, display_name, scratch.rejection.message }));
             continue;
         };
-        const fresh = preflight.run(&scratch, creation) catch |err| { r.rejection = scratch.rejection; return err; };
-        var inferred = infer.run(&scratch, creation, fresh) catch |err| { r.rejection = scratch.rejection; return err; };
-        try created.append(r.a, try m.function(&scratch, creation, fresh, &inferred));
+        const fresh = preflight.run(&scratch, creation) catch |err| {
+            r.rejection = scratch.rejection;
+            return err;
+        };
+        var inferred = infer.run(&scratch, creation, fresh) catch |err| {
+            r.rejection = scratch.rejection;
+            return err;
+        };
+        const function = try m.function(&scratch, creation, fresh, &inferred);
+        const context = model.typedRoot(r.a, r.interner.?, &generation).context;
+        try created.append(r.a, .{ .context = context, .data = .{ .function = function } });
     }
     if (problems.items.len > 0) {
         var details: std.Io.Writer.Allocating = .init(r.a);

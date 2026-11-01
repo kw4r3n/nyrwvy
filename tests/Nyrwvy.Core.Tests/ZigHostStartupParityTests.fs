@@ -43,7 +43,8 @@ module ZigHostStartupCliParityTests =
                 let second = Path.Combine(dir, "second" + ext)
                 let reset () =
                     for file in Directory.GetFiles(dir, "*", SearchOption.AllDirectories) do File.Delete file
-                    File.WriteAllText(first, encoded record (library "018bcfe5-6801-7000-8000-000000000001"))
+                    let dependency = { library "018bcfe5-6801-7000-8000-000000000001" with ParentId = Some(StableId.createForTesting<SnapshotTag> "018bcfe5-6801-7000-8000-000000000000") }
+                    File.WriteAllText(first, encoded record dependency)
                     File.WriteAllText(second, encoded record (library "018bcfe5-6801-7000-8000-000000000002"))
                 let relative = Path.GetRelativePath(Environment.CurrentDirectory, first)
                 for dependencies in [ []; [ "--dependency"; first ]; [ "--dependency"; relative ]; [ "--dependency"; first; "--dependency"; second ]; [ "--dependency"; first; "--dependency"; relative ] ] do

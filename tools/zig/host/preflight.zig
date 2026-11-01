@@ -87,8 +87,8 @@ fn validateTypeParameters(r: *query.Request, c: Creation) Fail!void {
         return rejected(r, "FunctionCreationTypeParameterNotInferable", try std.fmt.allocPrint(a, "Type parameter '{s}' is mentioned by no parameter type, so a call could not determine it; a type parameter must appear in at least one parameter type.", .{name}));
 }
 
-pub fn declaration(r: *query.Request, group: []const u8, id: []const u8) ?query.Value {
-    for (model.arrayItems(r.model, group)) |item| if (std.mem.eql(u8, query.idOf(item), id)) return item;
+pub fn typedDeclaration(r: *query.Request, group: []const u8, id: []const u8) ?model.Model {
+    for (r.typedModel().declarations(group)) |item| if (std.mem.eql(u8, query.idOf(item), id)) return item;
     return null;
 }
 
@@ -98,12 +98,12 @@ pub fn validateTypeRef(r: *query.Request, t: TypeRef) Fail!void {
     switch (t) {
         .primitive, .type_parameter => {},
         .named => |n| {
-            const type_ = declaration(r, "types", n.id) orelse return rejected(r, "PureExpressionInvalidTypeRef", try std.fmt.allocPrint(a, "Type reference names unknown type '{s}'.", .{n.id}));
-            const arity = model.arrayItems(type_, "typeParameters").len;
+            const type_ = typedDeclaration(r, "types", n.id) orelse return rejected(r, "PureExpressionInvalidTypeRef", try std.fmt.allocPrint(a, "Type reference names unknown type '{s}'.", .{n.id}));
+            const arity = type_.typeParameters().len;
             if (arity != n.arguments.len) return rejected(r, "NamedTypeArityMismatch", try std.fmt.allocPrint(a, "{s} takes {d} type arguments, but the type reference gives {d}.", .{ query.nameOf(type_), arity, n.arguments.len }));
             for (n.arguments) |arg| try validateTypeRef(r, arg);
         },
-        .capability => |id| if (declaration(r, "capabilities", id) == null)
+        .capability => |id| if (typedDeclaration(r, "capabilities", id) == null)
             return rejected(r, "PureExpressionInvalidTypeRef", try std.fmt.allocPrint(a, "Type reference names unknown capability '{s}'.", .{id})),
         .function => |f| {
             for (f.parameters) |p| try validateTypeRef(r, p);
@@ -192,14 +192,14 @@ fn runWith(r: *query.Request, c: Creation, unique: bool) Fail![]const TypeParame
     }
     if (!std.mem.eql(u8, c.expected_snapshot_id, r.snapshot_id)) return rejected(r, "StructuralExpectedBaseMismatch", "The function-creation request targets a different base snapshot.");
     if (try recipe.isBlank(a, c.display_name)) return rejected(r, "FunctionCreationDisplayNameBlank", "Function display name must not be blank.");
-    if (unique) for (model.arrayItems(r.model, "functions")) |item| if (std.mem.eql(u8, query.nameOf(item), c.display_name))
+    if (unique) for (r.typedModel().functions()) |item| if (std.mem.eql(u8, query.nameOf(item), c.display_name))
         return rejected(r, "FunctionCreationDuplicateDisplayName", try std.fmt.allocPrint(a, "A function named '{s}' already exists; function display names must be unique.", .{c.display_name}));
     for (c.parameters, 0..) |p, index| if (try recipe.isBlank(a, p.name))
         return rejected(r, "FunctionCreationParameterDisplayNameBlank", try std.fmt.allocPrint(a, "Parameter at index {d} must have a nonblank display name.", .{index}));
     try validateTypeRef(r, c.result_type);
     for (c.parameters) |p| try validateTypeRef(r, p.type);
     if (repeated(c.required_effects)) |id| return rejected(r, "FunctionCreationDuplicateRequiredEffect", try std.fmt.allocPrint(a, "Required effect '{s}' appears more than once.", .{id}));
-    for (c.required_effects) |id| if (declaration(r, "effects", id) == null)
+    for (c.required_effects) |id| if (typedDeclaration(r, "effects", id) == null)
         return rejected(r, "FunctionCreationRequiredEffectNotFound", try std.fmt.allocPrint(a, "Required effect '{s}' does not exist.", .{id}));
     try validateRecipeBounds(r, c.body);
     return fresh;

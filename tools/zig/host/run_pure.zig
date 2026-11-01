@@ -60,11 +60,11 @@ fn loweringError(r: *q.Request, failure: []const u8) !void {
     r.rejection = .{ .code = "ExecutionLoweringFailure", .message = case };
     if (!m.same(case, "AmbiguousEffectOrder")) return error.Rejected;
     const detail = failure[case.len + 2 ..];
-    for (model.arrayItems(r.model, "functions")) |function| {
+    for (r.typedModel().functions()) |function| {
         const id = q.idOf(function);
         if (!std.mem.startsWith(u8, detail, id) or detail.len <= id.len or detail[id.len] != ' ') continue;
         const pair = detail[id.len + 1 ..];
-        const nodes = model.bodyNodes(r.a, function);
+        const nodes = model.typedBodyNodes(r.a, function);
         for (nodes) |first| {
             const first_id = q.idOf(first);
             if (!std.mem.startsWith(u8, pair, first_id) or pair.len <= first_id.len or pair[first_id.len] != ' ') continue;
@@ -89,23 +89,23 @@ fn loweringError(r: *q.Request, failure: []const u8) !void {
     return error.Rejected;
 }
 
-fn loweringOperand(r: *q.Request, id: []const u8, nodes: []const model.Value) !model.Value {
+fn loweringOperand(r: *q.Request, id: []const u8, nodes: []const model.Model) !model.Value {
     var kind: []const u8 = "unknown";
     var name = id;
     for (nodes) |node| if (m.same(q.idOf(node), id)) {
-        const tag = model.utf8(model.decoded(model.property(node, "kind").?));
+        const tag = model.utf8(node.kind());
         kind = try r.a.dupe(u8, tag);
         @constCast(kind)[0] = std.ascii.toUpper(kind[0]);
         name = kind;
         if (m.same(tag, "directCall")) {
-            const target = model.utf8(model.decoded(model.property(node, "targetFunctionId").?));
-            for (model.arrayItems(r.model, "functions")) |function| if (m.same(q.idOf(function), target)) {
+            const target = model.utf8(node.reference("targetFunctionId"));
+            for (r.typedModel().functions()) |function| if (m.same(q.idOf(function), target)) {
                 name = try std.mem.concat(r.a, u8, &.{ "Call to ", q.nameOf(function) });
                 break;
             };
         } else if (m.same(tag, "capabilityInvoke")) {
-            const operation_id = model.utf8(model.decoded(model.property(node, "operationId").?));
-            for (model.arrayItems(r.model, "capabilities")) |capability| for (model.arrayItems(capability, "operations")) |operation| if (m.same(q.idOf(operation), operation_id)) {
+            const operation_id = model.utf8(node.reference("operationId"));
+            for (r.typedModel().capabilities()) |capability| for (capability.operations()) |operation| if (m.same(q.idOf(operation), operation_id)) {
                 name = try std.mem.concat(r.a, u8, &.{ q.nameOf(capability), ".", q.nameOf(operation) });
             };
         }
@@ -115,7 +115,7 @@ fn loweringOperand(r: *q.Request, id: []const u8, nodes: []const model.Value) !m
 }
 
 pub fn lowered(r: *q.Request, entry: ?[]const u8) ![]const u8 {
-    return switch (model.executionForEntry(r.a, r.model, entry)) {
+    return switch (model.typedExecutionForEntry(r.a, r.typedModel(), entry)) {
         .ir => |ir| ir,
         .projection => |case| {
             r.rejection = .{ .code = "SemanticProjectionFailure", .message = case };
@@ -129,7 +129,7 @@ pub fn lowered(r: *q.Request, entry: ?[]const u8) ![]const u8 {
 }
 
 fn runner(r: *q.Request, input: *values.Input, reach: []const u8) ![]const u8 {
-    const first = switch (model.executionForEntry(r.a, r.model, null)) {
+    const first = switch (model.typedExecutionForEntry(r.a, r.typedModel(), null)) {
         .ir => |ir| ir,
         else => reach,
     };

@@ -239,6 +239,22 @@ The three `ZigSpeed` facts passed in 1.0929 min. The tiny generated-echo benchma
 
 These are observations from this machine and run, not universal ratios. The Zig host's Zig-backend repeat is particularly sensitive to the existing compiler-identity query (`mise` selection measured about 31 ms in the separate warm-path profile above); the 33.8 ms vs 0.9 ms row does not establish a general runtime difference. The C# first-request values include unnormalized helper/build/cache work, so they do not isolate compilation cost. Rhifill's C#-target `runPureByName(actionName, 4)` returned `focus_left` through the Zig host; this benchmark's tiny echo rows are separate from that Rhifill check.
 
+## Typed-model host migration benchmark (2026-11-01)
+
+Measured on the working tree based on `2be64ee`, after the final functional checks. All three `ZigSpeed` facts passed in 1.2924 minutes. `DOTNET_PROCESSOR_COUNT=1` was set, and no other task builds or tests ran during measurement; normal background machine load was not controlled. Rhifill used a copy of the resolved workspace (456 KiB merged model). Values are milliseconds; repeated and startup measurements are medians of 9 runs after one warm-up.
+
+| Case | F# host (ms) | Zig host (ms) |
+|---|---:|---:|
+| Rhifill resolved workspace: startup | 674.3 | 65.1 |
+| Rhifill resolved workspace: startup, F# runPure warm-up off | 665.0 | — |
+| Rhifill merged model copy: startup | 569.3 | 67.6 |
+| Tiny generated echo, explicit Zig backend: first request | 15,133.1 | 15,317.0 |
+| Tiny generated echo, explicit Zig backend: repeated | 0.9 | 37.9 |
+| Tiny generated echo, explicit C# backend: first request | 2,280.4 | 6,498.2 |
+| Tiny generated echo, explicit C# backend: repeated | 2.7 | 3.7 |
+
+The tiny-echo rows exclude startup and use the same result assertions through both hosts. First requests include unnormalized compiler/helper/cache costs. The existing per-request compiler-identity lookup still affects the native Zig-backend repeat. These results establish neither a general runPure speedup nor a before/after performance gain from this migration. Real-workspace peak memory was not benchmarked; the separate live-set regression fixture checks bounded retention, not total process RSS. Functional and ownership checks are recorded in [the migration verification record](../../docs/verification/zig-host-typed-model-20261101.md).
+
 ## F# and Zig on equal terms (2026-10-28)
 
 The same three tasks, from the same JSON files, in both languages:

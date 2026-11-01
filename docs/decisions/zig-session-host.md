@@ -213,6 +213,40 @@ The original typed-read switch condition below remains in force. This stage does
 
 Implemented and verified: [pre-switch verification record](../verification/zig-host-pre-switch-20261101.md). The shared adapter accepts `NYRWVY_AUTHORING_EXECUTABLE` for opt-in native runs; its default remains F#. Native startup, lifecycle, adapter, and maintained suites passed. This completes the three hardening items above, not the full switch criteria.
 
+## Typed-model migration (2026-11-01, implemented and verified)
+
+The next stage replaces snapshot-tree access throughout the host, including semantic analysis,
+proposal edits, dependency planning, and persistence. Moving only query encoders is not completion.
+The F# host remains the default throughout this stage.
+
+- The runtime snapshot is a `Generation` plus its session `Interner`. Declaration records and
+  borrowed node/graph views expose domain data directly. A generic object/property facade over
+  typed storage, or serializing and reparsing a generation for semantic access, does not meet this
+  decision.
+- One shared decoder owns the packed body payload layout. Consumers use its typed payload views;
+  they do not independently calculate offsets. Traversal preserves node-then-nested-scope order,
+  rather than assuming that flat body storage has the same order.
+- Live-set rebuilding copies and remaps typed records directly, preserving shared records and
+  bodies. It must not need the old snapshot projection to reconstruct them.
+- Query, validation, inference, lowering, and editing migrate onto these shared domain APIs.
+  Source order and canonical order remain distinct wherever response/error ordering requires it.
+- Writers produce current-schema, minimum-schema, and semantic-normalized bytes directly from
+  typed records. Fingerprints retain the existing domains, ordering, and normalization rules.
+- JSON remains an external format for decoding snapshots, recipes, manifests, protocol replies,
+  immutable reviews, viewer data, and Execution IR. Snapshot syntax decoding may use a transient
+  tree, but runtime semantic validation and proposal construction must use typed records.
+
+Implementation proceeds through the shared kernel and typed live-set rebuild, simple reads,
+semantic analysis and remaining reads, typed edits/dependencies, and direct writers/lifecycle
+integration. Temporary bridges during implementation are not a relaxation of the final gate.
+Completion requires removal of retained snapshot projections and host snapshot `Value` access,
+all-kind payload/remapping tests, byte parity for replies and persisted files, lifecycle/failure
+coverage, native adapter and Rhifill checks, maintained suites, and recorded `ZigSpeed` results.
+
+These gates passed on the typed implementation: [verification record](../verification/zig-host-typed-model-20261101.md).
+The F# host remains the default; changing the default and the subsequent deprecation/removal
+steps below are separate work.
+
 ## How parity with F# is checked
 
 - **Differential transcripts.** Each request stream is fed to both hosts, as separate processes, and every response line is compared byte for byte. Both hosts get a test-only deterministic ID seed (`NYRWVY_TEST_ID_SEED`), because new UUIDv7 IDs and timestamps are the only nondeterministic output.
@@ -249,4 +283,4 @@ These differences between the hosts are accepted. The parity tests do not cover 
 
 ## Open decisions
 
-- No Step 7 design decision remains open. The opt-in executable selection and Node adapter verification are complete. Full typed-model reads remain a separate prerequisite before switching the default; the F# deprecation, frozen tag/golden corpus, and removal sequence still follows the switch plan above.
+- No Step 7 design decision remains open. The opt-in executable selection, Node adapter verification and full typed-model migration are complete. The default switch, F# deprecation, frozen tag/golden corpus, and removal sequence still follow the switch plan above.

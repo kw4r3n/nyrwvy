@@ -12,7 +12,7 @@ const Allocator = std.mem.Allocator;
 const Fail = anyerror;
 const TypeRef = recipe.TypeRef;
 const Node = recipe.Node;
-const Value = query.Value;
+const Model = model.Model;
 
 /// `UnsupportedOperation` messages; the parity tests tell them apart.
 pub const unported = "The Zig host does not infer {s} recipes yet (at {s}).";
@@ -21,12 +21,8 @@ fn same(x: []const u8, y: []const u8) bool {
     return std.mem.eql(u8, x, y);
 }
 
-fn text(v: Value) []const u8 {
-    return model.utf8(model.decoded(v));
-}
-
-fn prop(v: Value, name: []const u8) []const u8 {
-    return text(model.property(v, name).?);
+fn text(v: Model) []const u8 {
+    return model.utf8(v.literal());
 }
 
 /// The wire spelling with its first letter in the other case: `int64` ⇄ `Int64`, `oneShot` ⇄ `OneShot`.
@@ -76,24 +72,70 @@ fn builtinOf(t: TypeRef, name: []const u8, arity: usize) ?[]const TypeRef {
 }
 
 /// A type of the open model (canonical snapshot JSON) as a `TypeRef`.
-pub fn typeOf(a: Allocator, v: Value) Fail!TypeRef {
-    const kind = prop(v, "kind");
-    if (same(kind, "primitive")) return primitive(prop(v, "primitive"));
-    if (same(kind, "named")) return .{ .named = .{ .id = prop(v, "typeId"), .arguments = try typesOf(a, model.arrayItems(v, "arguments")) } };
-    if (same(kind, "capability")) return .{ .capability = prop(v, "capabilityId") };
-    if (same(kind, "typeParameter")) return .{ .type_parameter = prop(v, "typeParameterId") };
+fn wireProp(v: query.Value, name: []const u8) []const u8 {
+    return model.utf8(model.decoded(model.property(v, name).?));
+}
+pub fn typeOf(a: Allocator, v: anytype) Fail!TypeRef {
+    if (comptime @TypeOf(v) == Model) return nativeType(a, v);
+    if (comptime @TypeOf(v) == model.SemanticType) return semanticType(a, v);
+    const kind = wireProp(v, "kind");
+    if (same(kind, "primitive")) return primitive(wireProp(v, "primitive"));
+    if (same(kind, "named")) return .{ .named = .{ .id = wireProp(v, "typeId"), .arguments = try typesOf(a, model.arrayItems(v, "arguments")) } };
+    if (same(kind, "capability")) return .{ .capability = wireProp(v, "capabilityId") };
+    if (same(kind, "typeParameter")) return .{ .type_parameter = wireProp(v, "typeParameterId") };
     if (same(kind, "function")) {
         const result = try a.create(TypeRef);
         result.* = try typeOf(a, model.property(v, "resultType").?);
         return .{ .function = .{ .parameters = try typesOf(a, model.arrayItems(v, "parameters")), .result = result } };
     }
-    return .{ .builtin = .{ .generic = prop(v, "generic"), .arguments = try typesOf(a, model.arrayItems(v, "arguments")) } };
+    return .{ .builtin = .{ .generic = wireProp(v, "generic"), .arguments = try typesOf(a, model.arrayItems(v, "arguments")) } };
 }
 
-fn typesOf(a: Allocator, items: []const Value) Fail![]const TypeRef {
+fn typesOf(a: Allocator, items: []const query.Value) Fail![]const TypeRef {
     const out = try a.alloc(TypeRef, items.len);
     for (items, out) |item, *slot| slot.* = try typeOf(a, item);
     return out;
+}
+
+fn nativeTypes(a: Allocator, items: []const Model) Fail![]const TypeRef {
+    const out = try a.alloc(TypeRef, items.len);
+    for (items, out) |item, *slot| slot.* = try nativeType(a, item);
+    return out;
+}
+fn nativeType(a: Allocator, v: Model) Fail!TypeRef {
+    const t = v.data.type_ref;
+    return switch (t) {
+        .primitive => primitive(model.utf8(v.primitive())),
+        .named => .{ .named = .{ .id = model.utf8(v.reference("typeId")), .arguments = try nativeTypes(a, v.arguments()) } },
+        .type_parameter => .{ .type_parameter = model.utf8(v.reference("typeParameterId")) },
+        .capability => .{ .capability = model.utf8(v.reference("capabilityId")) },
+        .generic => .{ .builtin = .{ .generic = model.utf8(v.generic()), .arguments = try nativeTypes(a, v.arguments()) } },
+        .function => blk: {
+            const result = try a.create(TypeRef);
+            result.* = try nativeType(a, v.resultType());
+            break :blk .{ .function = .{ .parameters = try nativeTypes(a, v.parameters()), .result = result } };
+        },
+    };
+}
+
+fn semanticTypes(a: Allocator, items: []const model.SemanticType) Fail![]const TypeRef {
+    const out = try a.alloc(TypeRef, items.len);
+    for (items, out) |item, *slot| slot.* = try semanticType(a, item);
+    return out;
+}
+fn semanticType(a: Allocator, t: model.SemanticType) Fail!TypeRef {
+    return switch (t.kind) {
+        .primitive => primitive(model.utf8(t.name)),
+        .named => .{ .named = .{ .id = model.utf8(t.name), .arguments = try semanticTypes(a, t.args) } },
+        .type_parameter => .{ .type_parameter = model.utf8(t.name) },
+        .capability => .{ .capability = model.utf8(t.name) },
+        .generic => .{ .builtin = .{ .generic = model.utf8(t.name), .arguments = try semanticTypes(a, t.args) } },
+        .function => blk: {
+            const result = try a.create(TypeRef);
+            result.* = try semanticType(a, t.result.?.*);
+            break :blk .{ .function = .{ .parameters = try semanticTypes(a, t.args), .result = result } };
+        },
+    };
 }
 
 /// `TypeParameters.substitute` and `matchType`, keyed by type-parameter identity.
@@ -262,7 +304,7 @@ pub const Infer = struct {
     r: *query.Request,
     a: Allocator,
     c: preflight.Creation,
-    existing: ?Value = null,
+    existing: ?Model = null,
     original: ?TypeRef = null,
     description: []const u8 = "the function being created",
     /// The request's own type parameters (declared or derived), fresh identities in F#.
@@ -308,8 +350,8 @@ pub const Infer = struct {
         return std.fmt.allocPrint(self.a, format, args);
     }
 
-    fn typeDeclaration(self: *Infer, id: []const u8) ?Value {
-        return preflight.declaration(self.r, "types", id);
+    fn typeDeclaration(self: *Infer, id: []const u8) ?Model {
+        return preflight.typedDeclaration(self.r, "types", id);
     }
 
     // ------------------------------------------------------------ rendering
@@ -318,11 +360,11 @@ pub const Infer = struct {
 
     /// `TypeParameters.names snapshot`: the display name of a declared type parameter.
     fn declaredTypeParameterName(self: *Infer, id: []const u8) ?[]const u8 {
-        if (self.existing) |f| for (model.arrayItems(f, "typeParameters")) |p| {
-            if (same(prop(p, "typeParameterId"), id)) return query.nameOf(p);
+        if (self.existing) |f| for ((f).typeParameters()) |p| {
+            if (same(model.utf8((p).reference("typeParameterId")), id)) return query.nameOf(p);
         };
-        for ([_][]const u8{ "types", "functions" }) |group| for (model.arrayItems(self.r.model, group)) |item| for (model.arrayItems(item, "typeParameters")) |p| {
-            if (same(prop(p, "typeParameterId"), id)) return query.nameOf(p);
+        for ([_][]const u8{ "types", "functions" }) |group| for ((self.r.typedModel()).declarations(group)) |item| for ((item).typeParameters()) |p| {
+            if (same(model.utf8((p).reference("typeParameterId")), id)) return query.nameOf(p);
         };
         return null;
     }
@@ -336,7 +378,7 @@ pub const Infer = struct {
                 const name = if (self.typeDeclaration(n.id)) |d| query.nameOf(d) else try self.fmt("type '{s}'", .{n.id});
                 return if (n.arguments.len == 0) name else self.renderGeneric(name, n.arguments, mode);
             },
-            .capability => |id| return if (preflight.declaration(self.r, "capabilities", id)) |d| query.nameOf(d) else try self.fmt("capability '{s}'", .{id}),
+            .capability => |id| return if (preflight.typedDeclaration(self.r, "capabilities", id)) |d| query.nameOf(d) else try self.fmt("capability '{s}'", .{id}),
             .function => |f| return self.fmt("({s}) -> {s}", .{ try self.renderList(f.parameters, mode), try self.render(f.result.*, mode) }),
             .type_parameter => |id| {
                 for (self.fresh) |p| if (same(p.name, id))
@@ -455,14 +497,14 @@ pub const Infer = struct {
                 try visited.append(a, t);
                 const declared = self.typeDeclaration(n.id) orelse return null;
                 const type_name = query.nameOf(declared);
-                if (model.property(declared, "variants") != null) {
-                    for (model.arrayItems(declared, "variants")) |variant| for (model.arrayItems(variant, "fields")) |field| {
+                if ((!(declared).data.type_declaration.product)) {
+                    for ((declared).variants()) |variant| for ((variant).fields()) |field| {
                         const step = try self.fmt("{s}.{s}.{s}", .{ type_name, query.nameOf(variant), query.nameOf(field) });
-                        if (try self.visitEquatable(visited, try appended(a, path, step), try self.instantiate(declared, n.arguments, try typeOf(a, model.property(field, "type").?)))) |found| return found;
+                        if (try self.visitEquatable(visited, try appended(a, path, step), try self.instantiate(declared, n.arguments, try typeOf(a, (field).declaredType())))) |found| return found;
                     };
-                } else for (model.arrayItems(declared, "fields")) |field| {
+                } else for ((declared).fields()) |field| {
                     const step = try self.fmt("{s}.{s}", .{ type_name, query.nameOf(field) });
-                    if (try self.visitEquatable(visited, try appended(a, path, step), try self.instantiate(declared, n.arguments, try typeOf(a, model.property(field, "type").?)))) |found| return found;
+                    if (try self.visitEquatable(visited, try appended(a, path, step), try self.instantiate(declared, n.arguments, try typeOf(a, (field).declaredType())))) |found| return found;
                 }
                 return null;
             },
@@ -491,26 +533,26 @@ pub const Infer = struct {
     // ------------------------------------------------------------ declared types
 
     /// `TypeParameters.instantiate`: a field type as seen through a reference with these arguments.
-    pub fn instantiate(self: *Infer, declared: Value, arguments: []const TypeRef, t: TypeRef) Fail!TypeRef {
-        const parameters = model.arrayItems(declared, "typeParameters");
+    pub fn instantiate(self: *Infer, declared: Model, arguments: []const TypeRef, t: TypeRef) Fail!TypeRef {
+        const parameters = (declared).typeParameters();
         if (parameters.len == 0) return t;
         var s: Subst = .empty;
         for (parameters, 0..) |p, index| {
             if (index >= arguments.len) break;
-            try s.put(self.a, prop(p, "typeParameterId"), arguments[index]);
+            try s.put(self.a, model.utf8((p).reference("typeParameterId")), arguments[index]);
         }
         return substitute(self.a, &s, t);
     }
 
-    fn fieldsOf(self: *Infer, declared: Value, owner: Value, arguments: []const TypeRef) Fail![]const Field {
-        const items = model.arrayItems(owner, "fields");
+    fn fieldsOf(self: *Infer, declared: Model, owner: Model, arguments: []const TypeRef) Fail![]const Field {
+        const items = (owner).fields();
         const out = try self.a.alloc(Field, items.len);
-        for (items, out) |item, *slot| slot.* = .{ .id = query.idOf(item), .name = query.nameOf(item), .type = try self.instantiate(declared, arguments, try typeOf(self.a, model.property(item, "type").?)) };
+        for (items, out) |item, *slot| slot.* = .{ .id = query.idOf(item), .name = query.nameOf(item), .type = try self.instantiate(declared, arguments, try typeOf(self.a, (item).declaredType())) };
         return out;
     }
 
-    fn variantsOf(self: *Infer, declared: Value, arguments: []const TypeRef) Fail![]const Variant {
-        const items = model.arrayItems(declared, "variants");
+    fn variantsOf(self: *Infer, declared: Model, arguments: []const TypeRef) Fail![]const Variant {
+        const items = (declared).variants();
         const out = try self.a.alloc(Variant, items.len);
         for (items, out) |item, *slot| slot.* = .{ .id = query.idOf(item), .name = query.nameOf(item), .fields = try self.fieldsOf(declared, item, arguments) };
         return out;
@@ -521,7 +563,7 @@ pub const Infer = struct {
         if (self.c.parameters.len == 0) return self.fmt("{s} has no parameters.", .{self.description});
         var entries: std.ArrayList([]const u8) = .empty;
         for (self.c.parameters, 0..) |p, slot| {
-            const label = if (self.existing) |f| try self.describe(p.name, query.idOf(model.arrayItems(f, "parameters")[slot])) else try self.fmt("'{s}'", .{p.name});
+            const label = if (self.existing) |f| try self.describe(p.name, query.idOf((f).parameters()[slot])) else try self.fmt("'{s}'", .{p.name});
             try entries.append(self.a, try self.fmt("{d} = {s}", .{ slot, label }));
         }
         return self.fmt("Parameters of {s}: {s}.", .{ self.description, try std.mem.join(self.a, ", ", entries.items) });
@@ -529,15 +571,15 @@ pub const Infer = struct {
 
     // ------------------------------------------------------------ pattern references
 
-    const FieldOwner = struct { field: Value, owner: []const u8 };
+    const FieldOwner = struct { field: Model, owner: []const u8 };
 
     /// `tryFindFieldWithOwner`.
     fn fieldWithOwner(self: *Infer, id: []const u8) Fail!?FieldOwner {
-        for (model.arrayItems(self.r.model, "types")) |t| {
-            if (model.property(t, "variants") != null) {
-                for (model.arrayItems(t, "variants")) |variant| for (model.arrayItems(variant, "fields")) |field| if (same(query.idOf(field), id))
+        for ((self.r.typedModel()).types()) |t| {
+            if ((!(t).data.type_declaration.product)) {
+                for ((t).variants()) |variant| for ((variant).fields()) |field| if (same(query.idOf(field), id))
                     return .{ .field = field, .owner = try self.fmt("variant '{s}' of '{s}'", .{ query.nameOf(variant), query.nameOf(t) }) };
-            } else for (model.arrayItems(t, "fields")) |field| if (same(query.idOf(field), id))
+            } else for ((t).fields()) |field| if (same(query.idOf(field), id))
                 return .{ .field = field, .owner = try self.fmt("product '{s}'", .{query.nameOf(t)}) };
         }
         return null;
@@ -566,10 +608,10 @@ pub const Infer = struct {
     fn describeFrame(self: *Infer, frame: *const Frame) Fail![]const u8 {
         const opener: []const u8 = switch (frame.kind) {
             .union_arm => |ids| blk: {
-                for (model.arrayItems(self.r.model, "types")) |t| {
-                    if (model.property(t, "variants") == null) continue;
+                for ((self.r.typedModel()).types()) |t| {
+                    if (!(!(t).data.type_declaration.product)) continue;
                     var names: std.ArrayList([]const u8) = .empty;
-                    for (model.arrayItems(t, "variants")) |variant| if (preflight.contains(ids, query.idOf(variant))) try names.append(self.a, query.nameOf(variant));
+                    for ((t).variants()) |variant| if (preflight.contains(ids, query.idOf(variant))) try names.append(self.a, query.nameOf(variant));
                     if (names.items.len > 0) break :blk try self.fmt("arm '{s}' of MatchUnion on '{s}'", .{ try std.mem.join(self.a, "|", names.items), query.nameOf(t) });
                 }
                 break :blk try self.fmt("arm '{s}' of MatchUnion", .{try std.mem.join(self.a, "|", ids)});
@@ -670,11 +712,11 @@ pub const Infer = struct {
         if (same(case, "OriginalTarget")) return self.original orelse self.reject("OriginalTargetOutsideTargetedReplacement", "originalTarget is accepted only in the replacement of a targeted replacement.");
         if (same(case, "Parameter")) {
             const id = node.slots[0].data.id;
-            if (self.existing) |f| for (model.arrayItems(f, "parameters")) |p| {
-                if (same(query.idOf(p), id)) return typeOf(a, model.property(p, "type").?);
+            if (self.existing) |f| for ((f).parameters()) |p| {
+                if (same(query.idOf(p), id)) return typeOf(a, (p).declaredType());
             };
             const foreign = blk: {
-                for (model.arrayItems(self.r.model, "functions")) |f| for (model.arrayItems(f, "parameters")) |p| if (same(query.idOf(p), id))
+                for ((self.r.typedModel()).functions()) |f| for ((f).parameters()) |p| if (same(query.idOf(p), id))
                     break :blk try self.fmt("Parameter {s} of function {s}", .{ try self.describe(query.nameOf(p), id), try self.describe(query.nameOf(f), query.idOf(f)) });
                 break :blk try self.fmt("Parameter '{s}'", .{id});
             };
@@ -738,7 +780,7 @@ pub const Infer = struct {
         if (same(case, "ProductConstruct")) {
             const id = node.slots[0].data.id;
             const declared = self.typeDeclaration(id) orelse return self.reject("PureExpressionProductTypeNotFound", try self.fmt("Product construction references unknown type '{s}'.", .{id}));
-            if (model.property(declared, "variants") != null) return self.reject("PureExpressionProductTargetMismatch", try self.fmt("Product construction target '{s}' is not a product type.", .{id}));
+            if ((!(declared).data.type_declaration.product)) return self.reject("PureExpressionProductTargetMismatch", try self.fmt("Product construction target '{s}' is not a product type.", .{id}));
             const fields = node.slots[2].data.pairs;
             const arguments = try self.typeArgumentsFor(frames, "ProductConstruct", declared, try self.fieldsOf(declared, declared, &.{}), node.slots[1].data.types, fields);
             try self.validateFieldBindings(frames, "ProductConstruct", try self.fieldsOf(declared, declared, arguments), fields);
@@ -747,20 +789,20 @@ pub const Infer = struct {
         if (same(case, "FieldAccess")) {
             const id = node.slots[1].data.id;
             const owner, const field = blk: {
-                for (model.arrayItems(self.r.model, "types")) |t| {
-                    if (model.property(t, "variants") != null) continue;
-                    for (model.arrayItems(t, "fields")) |field| if (same(query.idOf(field), id)) break :blk .{ t, field };
+                for ((self.r.typedModel()).types()) |t| {
+                    if ((!(t).data.type_declaration.product)) continue;
+                    for ((t).fields()) |field| if (same(query.idOf(field), id)) break :blk .{ t, field };
                 }
                 return self.reject("PureExpressionProductFieldNotFound", try self.fmt("Field access references field '{s}' that is not owned by a product type.", .{id}));
             };
             const source = try self.infer(frames, child(node, 0));
-            if (source == .named and same(source.named.id, query.idOf(owner))) return self.instantiate(owner, source.named.arguments, try typeOf(a, model.property(field, "type").?));
+            if (source == .named and same(source.named.id, query.idOf(owner))) return self.instantiate(owner, source.named.arguments, try typeOf(a, (field).declaredType()));
             return self.reject("PureExpressionFieldAccessTypeMismatch", try self.fmt("Field access to {s} requires {s}, but the source recipe produces {s}.", .{ try self.describe(query.nameOf(field), id), try self.namedType(query.idOf(owner)), try self.typeRefWithId(source) }));
         }
         if (same(case, "ProductUpdate")) {
             const id = node.slots[0].data.id;
             const declared = self.typeDeclaration(id) orelse return self.reject("PureExpressionProductTypeNotFound", try self.fmt("Product update references unknown type '{s}'.", .{id}));
-            if (model.property(declared, "variants") != null) return self.reject("PureExpressionProductTargetMismatch", try self.fmt("Product update target '{s}' is not a product type.", .{id}));
+            if ((!(declared).data.type_declaration.product)) return self.reject("PureExpressionProductTargetMismatch", try self.fmt("Product update target '{s}' is not a product type.", .{id}));
             const fields = node.slots[2].data.pairs;
             if (fields.len == 0) return self.reject("PureExpressionEmptyProductUpdate", try self.fmt("Product update of {s} must replace at least one field.", .{try self.namedType(id)}));
             const declared_fields = try self.fieldsOf(declared, declared, &.{});
@@ -780,7 +822,7 @@ pub const Infer = struct {
         if (same(case, "UnionConstruct")) {
             const id = node.slots[0].data.id;
             const owner, const variant = blk: {
-                for (model.arrayItems(self.r.model, "types")) |t| for (model.arrayItems(t, "variants")) |variant| if (same(query.idOf(variant), id)) break :blk .{ t, variant };
+                for ((self.r.typedModel()).types()) |t| for ((t).variants()) |variant| if (same(query.idOf(variant), id)) break :blk .{ t, variant };
                 return self.reject("PureExpressionUnionVariantNotFound", try self.fmt("Union construction references unknown variant '{s}'.", .{id}));
             };
             const fields = node.slots[2].data.pairs;
@@ -868,9 +910,9 @@ pub const Infer = struct {
     }
 
     /// `typeArgumentsFor`: the given type arguments, checked, or the ones the field values determine.
-    fn typeArgumentsFor(self: *Infer, frames: ?*const Frame, role: []const u8, owner: Value, declared_fields: []const Field, given: []const TypeRef, bindings: []const recipe.Pair) Fail![]const TypeRef {
+    fn typeArgumentsFor(self: *Infer, frames: ?*const Frame, role: []const u8, owner: Model, declared_fields: []const Field, given: []const TypeRef, bindings: []const recipe.Pair) Fail![]const TypeRef {
         const a = self.a;
-        const parameters = model.arrayItems(owner, "typeParameters");
+        const parameters = (owner).typeParameters();
         const owner_name = query.nameOf(owner);
         if (parameters.len == 0 and given.len == 0) return &.{};
         if (given.len > 0) {
@@ -894,7 +936,7 @@ pub const Infer = struct {
         var missing: std.ArrayList([]const u8) = .empty;
         var arguments: std.ArrayList(TypeRef) = .empty;
         for (parameters) |p| {
-            if (s.get(prop(p, "typeParameterId"))) |bound| try arguments.append(a, bound) else try missing.append(a, query.nameOf(p));
+            if (s.get(model.utf8((p).reference("typeParameterId")))) |bound| try arguments.append(a, bound) else try missing.append(a, query.nameOf(p));
         }
         if (missing.items.len > 0) return self.reject("PureExpressionTypeArgumentsRequired", try self.fmt("{s} of {s} cannot derive type parameter {s} from its field values; give typeArguments.", .{ role, owner_name, try std.mem.join(a, ", ", missing.items) }));
         return arguments.items;
@@ -907,16 +949,16 @@ pub const Infer = struct {
     const Function = struct { id: []const u8, name: []const u8, parameters: []const Param, result: TypeRef, effects: []const []const u8, generic: bool };
 
     fn functionOf(self: *Infer, id: []const u8) Fail!?Function {
-        const declared = preflight.declaration(self.r, "functions", id) orelse return null;
+        const declared = preflight.typedDeclaration(self.r, "functions", id) orelse return null;
         var effects: std.ArrayList([]const u8) = .empty;
-        for (model.arrayItems(declared, "requiredEffects")) |e| try effects.append(self.a, text(e));
-        return .{ .id = id, .name = query.nameOf(declared), .parameters = try self.paramsOf(declared), .result = try typeOf(self.a, model.property(declared, "resultType").?), .effects = effects.items, .generic = model.arrayItems(declared, "typeParameters").len > 0 };
+        for ((declared).requiredEffects()) |e| try effects.append(self.a, text(e));
+        return .{ .id = id, .name = query.nameOf(declared), .parameters = try self.paramsOf(declared), .result = try typeOf(self.a, (declared).resultType()), .effects = effects.items, .generic = (declared).typeParameters().len > 0 };
     }
 
-    fn paramsOf(self: *Infer, declared: Value) Fail![]const Param {
-        const items = model.arrayItems(declared, "parameters");
+    fn paramsOf(self: *Infer, declared: Model) Fail![]const Param {
+        const items = (declared).parameters();
         const out = try self.a.alloc(Param, items.len);
-        for (items, out) |item, *slot| slot.* = .{ .id = query.idOf(item), .name = query.nameOf(item), .type = try typeOf(self.a, model.property(item, "type").?) };
+        for (items, out) |item, *slot| slot.* = .{ .id = query.idOf(item), .name = query.nameOf(item), .type = try typeOf(self.a, (item).declaredType()) };
         return out;
     }
 
@@ -940,12 +982,12 @@ pub const Infer = struct {
         while (pending.pop()) |current| {
             if (preflight.contains(seen.items, current)) continue;
             try seen.append(self.a, current);
-            const declared = preflight.declaration(self.r, "functions", current) orelse return false;
-            if (model.arrayItems(declared, "requiredEffects").len > 0) return false;
-            for (model.bodyNodes(self.a, declared)) |node| {
-                const kind = prop(node, "kind");
+            const declared = preflight.typedDeclaration(self.r, "functions", current) orelse return false;
+            if ((declared).requiredEffects().len > 0) return false;
+            for (model.typedBodyNodes(self.a, declared)) |node| {
+                const kind = model.utf8((node).kind());
                 for ([_][]const u8{ "parallelAll", "cancellationRequested", "useResource", "exceptionCatch", "exceptionRethrow", "cancellationShield", "taskScope", "taskStart", "taskWait", "oneShotCreate", "oneShotComplete", "oneShotWait", "taskCancel", "capabilityInvoke" }) |effectful| if (same(kind, effectful)) return false;
-                for (model.functionIdsOf(node)) |target| try pending.append(self.a, model.utf8(target));
+                for (model.typedFunctionIdsOf(node)) |target| try pending.append(self.a, model.utf8(target));
             }
         }
         return true;
@@ -958,7 +1000,7 @@ pub const Infer = struct {
     }
 
     fn effectLabel(self: *Infer, id: []const u8) Fail![]const u8 {
-        return if (preflight.declaration(self.r, "effects", id)) |e| self.describe(query.nameOf(e), id) else self.fmt("'{s}'", .{id});
+        return if (preflight.typedDeclaration(self.r, "effects", id)) |e| self.describe(query.nameOf(e), id) else self.fmt("'{s}'", .{id});
     }
 
     fn missingEffectError(self: *Infer, subject: []const u8, id: []const u8) Fail {
@@ -1279,15 +1321,15 @@ pub const Infer = struct {
                 return self.reject("UseResourceBodyMismatch", try self.fmt("UseResource body {s} must have exactly one parameter not bound by context, of the acquired resource type {s}; the body has type {s}.", .{ try self.callbackName(body), try self.ty(parts[0]), try self.callbackSignature(body) }));
             if (!eqlType(receiver, .{ .capability = query.idOf(owner_capability) })) return self.reject("UseResourceReleaseReceiverMismatch", "UseResource release capability value does not own the release operation.");
             const body_result = try substitute(a, &ctx.subst, body.result);
-            const effects = try appended(a, body.effects, prop(operation, "effectId"));
+            const effects = try appended(a, body.effects, model.utf8((operation).reference("effectId")));
             if (self.missingEffect(effects)) |e| return self.missingEffectError("UseResource", e);
             const result_parts = builtinOf(body_result, "result", 2);
             if (result_parts == null or !eqlType(result_parts.?[1], parts[1]))
                 return self.reject("UseResourceResultMismatch", try self.fmt("UseResource body {s} must return Result<T, E> with the acquisition error type E = {s}; it returns {s}.", .{ try self.callbackName(body), try self.ty(parts[1]), try self.ty(body_result) }));
-            const operation_parameters = model.arrayItems(operation, "parameters");
-            const operation_result = try typeOf(a, model.property(operation, "resultType").?);
+            const operation_parameters = (operation).parameters();
+            const operation_result = try typeOf(a, (operation).resultType());
             const releases_result = eqlType(operation_result, try generic(a, "result", &.{ primitive("unit"), parts[1] }));
-            if (operation_parameters.len == 1 and eqlType(try typeOf(a, model.property(operation_parameters[0], "type").?), parts[0]) and (eqlType(operation_result, primitive("unit")) or releases_result)) return body_result;
+            if (operation_parameters.len == 1 and eqlType(try typeOf(a, (operation_parameters[0]).declaredType()), parts[0]) and (eqlType(operation_result, primitive("unit")) or releases_result)) return body_result;
             return self.reject("UseResourceReleaseSignatureMismatch", "The release operation must take exactly the resource and return Unit or Result<Unit, E>.");
         }
         if (same(case, "ExceptionCatch")) {
@@ -1401,16 +1443,16 @@ pub const Infer = struct {
     }
 
     /// `capabilityOperationsById`: the owning capability and the operation.
-    fn operationOf(self: *Infer, id: []const u8) Fail!?struct { Value, Value } {
-        for (model.arrayItems(self.r.model, "capabilities")) |capability| for (model.arrayItems(capability, "operations")) |operation| if (same(query.idOf(operation), id)) return .{ capability, operation };
+    fn operationOf(self: *Infer, id: []const u8) Fail!?struct { Model, Model } {
+        for ((self.r.typedModel()).capabilities()) |capability| for ((capability).operations()) |operation| if (same(query.idOf(operation), id)) return .{ capability, operation };
         return null;
     }
 
     /// `CapabilityImplementations.validate`: the first problem, in its order.
     fn capabilityConstruct(self: *Infer, capability_id: []const u8, implementations: []const recipe.Implementation) Fail!TypeRef {
         const a = self.a;
-        const capability = preflight.declaration(self.r, "capabilities", capability_id) orelse return self.reject("UnknownCapabilityConstructTarget", "A capability construction must name an existing capability.");
-        const operations = model.arrayItems(capability, "operations");
+        const capability = preflight.typedDeclaration(self.r, "capabilities", capability_id) orelse return self.reject("UnknownCapabilityConstructTarget", "A capability construction must name an existing capability.");
+        const operations = (capability).operations();
         var ids: std.ArrayList([]const u8) = .empty;
         for (implementations) |i| try ids.append(a, i.operation);
         if (preflight.repeated(ids.items) != null) return self.reject("DuplicateCapabilityImplementation", "Each capability operation must have exactly one implementation.");
@@ -1426,9 +1468,9 @@ pub const Infer = struct {
             } else continue;
             if (f.generic) return self.reject("GenericCapabilityImplementationUnsupported", "Use a monomorphic wrapper for a generic implementation function.");
             if (!try self.isPure(f.id)) return self.reject("ImpureCapabilityImplementation", try self.fmt("Implementation '{s}' must be transitively pure, including ambient cancellation behavior.", .{i.function}));
-            const operation_parameters = model.arrayItems(operation, "parameters");
-            var matches = operation_parameters.len == f.parameters.len and eqlType(f.result, try typeOf(a, model.property(operation, "resultType").?));
-            if (matches) for (operation_parameters, f.parameters) |op, p| if (!eqlType(try typeOf(a, model.property(op, "type").?), p.type)) {
+            const operation_parameters = (operation).parameters();
+            var matches = operation_parameters.len == f.parameters.len and eqlType(f.result, try typeOf(a, (operation).resultType()));
+            if (matches) for (operation_parameters, f.parameters) |op, p| if (!eqlType(try typeOf(a, (op).declaredType()), p.type)) {
                 matches = false;
             };
             if (!matches) return self.reject("CapabilityImplementationSignatureMismatch", try self.fmt("Implementation '{s}' must match operation '{s}' parameter order, parameter types and result type exactly.", .{ i.function, i.operation }));
@@ -1476,7 +1518,7 @@ pub const Infer = struct {
         }
         // The snapshot-wide derivation is lazy and shared by every generic call in this request.
         for (subst.values()) |bound| if (mentionsScope(bound)) {
-            if (self.one_shot_requirements == null) self.one_shot_requirements = model.oneShotPayloadRequirementsOf(a, self.r.model);
+            if (self.one_shot_requirements == null) self.one_shot_requirements = model.typedOneShotPayloadRequirementsOf(a, self.r.typedModel());
             for (self.one_shot_requirements.?) |requirement| if (same(requirement.function, callee.id)) {
                 for (requirement.parameters) |parameter| if (subst.get(parameter)) |actual| if (mentionsScope(actual))
                     return self.reject("OneShotScopePayloadUnsupported", "This generic call would place TaskScope inside a OneShot payload, directly or through another generic call.");
@@ -1529,12 +1571,12 @@ pub const Infer = struct {
         const receiver = try self.infer(frames, child(node, 0));
         const owner_type: TypeRef = .{ .capability = query.idOf(capability) };
         if (!eqlType(receiver, owner_type)) return self.reject("ExpressionCapabilityValueTypeMismatch", try self.fmt("CapabilityInvoke operation {s} requires {s}, but the receiver produces {s}.", .{ operation_label, try self.ty(owner_type), try self.ty(receiver) }));
-        const effect = prop(operation, "effectId");
+        const effect = model.utf8((operation).reference("effectId"));
         if (!preflight.contains(self.c.required_effects, effect)) return self.reject("ExpressionCapabilityMissingEffectRequirement", try self.fmt("CapabilityInvoke operation {s} requires effect {s} not declared by {s}.", .{ operation_label, try self.effectLabel(effect), self.description }));
         var ids: std.ArrayList([]const u8) = .empty;
         for (bindings) |pair| try ids.append(a, pair.id);
         if (preflight.repeated(ids.items)) |duplicate| return self.reject("ExpressionDuplicateCapabilityArgument", try self.fmt("CapabilityInvoke binds parameter '{s}' more than once.", .{duplicate}));
-        const parameters = model.arrayItems(operation, "parameters");
+        const parameters = (operation).parameters();
         var matched = parameters.len == bindings.len;
         for (parameters) |p| if (!preflight.contains(ids.items, query.idOf(p))) {
             matched = false;
@@ -1544,14 +1586,14 @@ pub const Infer = struct {
             const value = for (bindings) |pair| {
                 if (same(pair.id, query.idOf(p))) break pair.value;
             } else unreachable;
-            const expected = try typeOf(a, model.property(p, "type").?);
+            const expected = try typeOf(a, (p).declaredType());
             const actual = try self.infer(frames, value);
             if (!eqlType(actual, expected)) {
                 const pair = try self.tyPair(expected, actual);
                 return self.reject("ExpressionCapabilityArgumentTypeMismatch", try self.fmt("CapabilityInvoke parameter {s} of operation {s} requires {s}, but the recipe produces {s}.", .{ try self.describe(query.nameOf(p), query.idOf(p)), operation_label, pair[0], pair[1] }));
             }
         }
-        return typeOf(a, model.property(operation, "resultType").?);
+        return typeOf(a, (operation).resultType());
     }
 
     /// A rejection a sibling operand's diagnostic must not displace: F# types operand pairs together
@@ -1598,7 +1640,7 @@ pub const Infer = struct {
             const mismatch = "MatchUnion input must produce an existing named union type.";
             if (input != .named) return self.reject("PureExpressionMatchInputTypeMismatch", mismatch);
             const declared = self.typeDeclaration(input.named.id) orelse return self.reject("PureExpressionMatchInputTypeMismatch", mismatch);
-            if (model.property(declared, "variants") == null) return self.reject("PureExpressionMatchInputTypeMismatch", mismatch);
+            if (!(!(declared).data.type_declaration.product)) return self.reject("PureExpressionMatchInputTypeMismatch", mismatch);
             const variants = try self.variantsOf(declared, input.named.arguments);
             var expected: ?Completion = null;
             for (try self.resolveUnionArms(variants, node.slots[1].data.arms)) |arm| {
@@ -1681,14 +1723,14 @@ fn appended(a: Allocator, items: []const []const u8, item: []const u8) ![]const 
 /// The F# field name of a slot (`recipeFieldName`), where it differs from the wire name.
 fn pathName(case: []const u8, slot: []const u8) []const u8 {
     const renamed = [_][3][]const u8{
-        .{ "ListRange", "start", "left" },          .{ "ListRange", "end", "right" },
-        .{ "StringRepeat", "text", "left" },        .{ "StringRepeat", "count", "right" },
-        .{ "Float64Round", "value", "left" },       .{ "Float64Round", "digits", "right" },
-        .{ "SetInsert", "set", "map" },             .{ "SetInsert", "item", "key" },
-        .{ "SetRemove", "set", "map" },             .{ "SetRemove", "item", "key" },
-        .{ "SetContains", "set", "map" },           .{ "SetContains", "item", "key" },
+        .{ "ListRange", "start", "left" },                    .{ "ListRange", "end", "right" },
+        .{ "StringRepeat", "text", "left" },                  .{ "StringRepeat", "count", "right" },
+        .{ "Float64Round", "value", "left" },                 .{ "Float64Round", "digits", "right" },
+        .{ "SetInsert", "set", "map" },                       .{ "SetInsert", "item", "key" },
+        .{ "SetRemove", "set", "map" },                       .{ "SetRemove", "item", "key" },
+        .{ "SetContains", "set", "map" },                     .{ "SetContains", "item", "key" },
         .{ "OptionGetOrDefault", "default", "defaultValue" }, .{ "ResultGetOrDefault", "default", "defaultValue" },
-        .{ "MapGetOrDefault", "default", "defaultValue" },   .{ "MapInsert", "value", "end" },
+        .{ "MapGetOrDefault", "default", "defaultValue" },    .{ "MapInsert", "value", "end" },
     };
     if (same(slot, "value") and (same(case, "ExceptionMessage") or same(case, "ExceptionIsCancellation") or same(case, "ExceptionRethrow"))) return "exceptionValue";
     if (same(slot, "map") and (same(case, "MapFold") or same(case, "MapFilter") or same(case, "MapMapValues"))) return "source";
@@ -1721,20 +1763,20 @@ pub fn run(r: *query.Request, c: preflight.Creation, fresh: []const preflight.Ty
     return runIn(r, c, fresh, null);
 }
 
-pub fn runIn(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Value) Fail!Infer {
+pub fn runIn(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Model) Fail!Infer {
     return runTarget(r, c, fresh, existing, null, null, null);
 }
 
-pub fn runTarget(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Value, original: ?TypeRef, frames: ?*const Frame, target_type: ?Completion) Fail!Infer {
+pub fn runTarget(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Model, original: ?TypeRef, frames: ?*const Frame, target_type: ?Completion) Fail!Infer {
     return runWithPath(r, c, fresh, existing, original, frames, target_type, if (existing != null) "replacement" else "body");
 }
 
 /// Infer a structural plan in its lexical frames; its operation owns the completion check.
-pub fn runScoped(r: *query.Request, c: preflight.Creation, existing: Value, frames: ?*const Frame, path: []const u8) Fail!Infer {
+pub fn runScoped(r: *query.Request, c: preflight.Creation, existing: Model, frames: ?*const Frame, path: []const u8) Fail!Infer {
     return runWithPath(r, c, &.{}, existing, null, frames, .aborts, path);
 }
 
-pub fn runWithPath(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Value, original: ?TypeRef, frames: ?*const Frame, target_type: ?Completion, root_path: []const u8) Fail!Infer {
+pub fn runWithPath(r: *query.Request, c: preflight.Creation, fresh: []const preflight.TypeParameter, existing: ?Model, original: ?TypeRef, frames: ?*const Frame, target_type: ?Completion, root_path: []const u8) Fail!Infer {
     var local: std.ArrayList([]const u8) = .empty;
     for (c.parameters) |p| try preflight.occurring(r.a, p.type, &local);
     var self: Infer = .{ .r = r, .a = r.a, .c = c, .local = c.type_parameters orelse local.items, .fresh = fresh };

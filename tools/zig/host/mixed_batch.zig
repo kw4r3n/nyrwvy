@@ -27,19 +27,17 @@ pub fn simulate(r: *query.Request, out: *Writer) anyerror!void {
     try r.ensureUsable();
     const sources = try @import("recipe_file.zig").rawArrayItems(r.a, input.source);
     const captures = try r.a.alloc(query.Capture, sources.len);
-    var candidate = r.model;
+    var candidate = r.typedModel();
     for (input.value.array.items, sources, captures, 0..) |item, source, *capture, index| {
         capture.* = .{};
         var scratch = r.*;
-        scratch.model = candidate;
+        scratch.generation = candidate.data.snapshot;
         scratch.line = source;
         scratch.root = if (item == .object) item.object else .empty;
         scratch.capture = capture;
-        scratch.snapshot_id = model.utf8(model.decoded(model.property(candidate, "snapshotId").?));
+        scratch.snapshot_id = model.utf8(candidate.id());
         if (index > 0) {
-            var encoded: Writer.Allocating = .init(r.a);
-            try m.write(&encoded.writer, candidate);
-            scratch.snapshot_fingerprint = model.readDocument(r.a, encoded.written()).fingerprints.?.snapshot;
+            scratch.snapshot_fingerprint = (try model.session_writer.fingerprints(r.a, r.interner.?, candidate.data.snapshot)).snapshot;
         }
         if (item == .object) try kindLookup(r, source);
         const label = if (item == .object) blk: {
@@ -55,7 +53,7 @@ pub fn simulate(r: *query.Request, out: *Writer) anyerror!void {
             }
             return rejectStep(r, &scratch, index, label);
         };
-        candidate = capture.candidate;
+        candidate = capture.candidate orelse return error.MissingBatchCandidate;
     }
     try proposals.publishBatch(r, out, captures, candidate);
 }

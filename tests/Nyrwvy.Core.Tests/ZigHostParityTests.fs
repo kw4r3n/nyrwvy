@@ -444,7 +444,14 @@ module ZigHostParityTests =
             Assert.Equal(wanted, found)
         for wanted, found in List.zip (expectedTrees @ [ files fsharpDir ]) (actualTrees @ [ files zigDir ]) do
             Assert.Equal<string list>(wanted |> Map.keys |> Seq.toList, found |> Map.keys |> Seq.toList)
-            for KeyValue(name, bytes) in wanted do Assert.True((bytes = found[name]), $"File differs: {name}")
+            for KeyValue(name, bytes) in wanted do
+                let actual = found[name]
+                if bytes <> actual then
+                    let offset = Seq.zip bytes actual |> Seq.tryFindIndex (fun (left, right) -> left <> right) |> Option.defaultValue (min bytes.Length actual.Length)
+                    let excerpt (content: byte[]) =
+                        let start = max 0 (offset - 80)
+                        Text.Encoding.UTF8.GetString(content, start, min 240 (content.Length - start))
+                    Assert.Fail($"File differs: {name} at byte {offset}\nF#: {excerpt bytes}\nZig: {excerpt actual}")
         fsharpDir, zigDir
 
     /// Whether the F# reply is a preflight rejection, which the Zig host must answer byte for byte.
@@ -664,6 +671,37 @@ module ZigHostQueryParityTests =
                 if not (row.StartsWith "#") then
                     let shown = $"\"kind\":{{\"kind\":\"{row.Split('|')[1]}\""
                     Assert.True(answered.ToString().Contains shown, $"No F# reply shows {shown}; the parity test does not cover it."))
+
+    [<Fact; Trait("Suite", "Extended")>]
+    let ``The Zig host canonicalizes unordered input before answering queries`` () =
+        withDirectory (fun dir ->
+            let unordered = set [ "types"; "effects"; "capabilities"; "functions"; "obligations"; "nodes"; "fields"; "variants"; "operations"; "fieldBindings"; "implementations"; "arms"; "variantIds"; "requiredEffects" ]
+            let mutable reversed = 0
+            let sources = constructedSnapshots dir |> List.truncate 4
+            Assert.NotEmpty sources
+            for index, source in List.indexed sources do
+                let doc = JsonNode.Parse(File.ReadAllText source)
+                for node in ZigModelReaderSupport.containers doc do
+                    match node with
+                    | :? JsonObject as obj ->
+                        for p in obj do
+                            match p.Value with
+                            | :? JsonArray as values when unordered.Contains p.Key && values.Count > 1 ->
+                                let items = values |> Seq.map (fun item -> if isNull item then null else item.DeepClone()) |> Seq.rev |> Seq.toArray
+                                values.Clear()
+                                for item in items do values.Add item
+                                reversed <- reversed + 1
+                            | _ -> ()
+                    | _ -> ()
+                let path = Path.Combine(dir, $"unordered-{index}.json")
+                File.WriteAllText(path, doc.ToJsonString(), Text.UTF8Encoding false)
+                use session = AuthoringSession.openReadOnly path |> unwrap
+                let requests = queries session
+                let expected = requests |> List.map (AuthoringProtocol.executeLine session)
+                let code, errors, actual = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
+                Assert.True((code = 0), errors)
+                sameAnswers (Path.GetFileName path) expected actual requests
+            Assert.True(reversed > 0, "No ID-keyed input collection was reordered."))
 
 /// Its own class, so xunit runs it beside the other host parity tests.
 module ZigHostSeedTests =

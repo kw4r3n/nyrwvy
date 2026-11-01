@@ -5,12 +5,13 @@ const model = @import("model_reader");
 const records = @import("snapshot_reader");
 const query = @import("query.zig");
 const m = @import("materialize.zig");
-const edit = @import("operation_model.zig");
 const planning = @import("dependency_upgrade.zig");
 const files = @import("view_file.zig");
 const A = std.mem.Allocator;
 const Json = std.json.Value;
 const Value = model.Value;
+const tm = model.session_model;
+const typed_edit = @import("typed_edit.zig");
 
 pub const usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> ...] [--allow-host-sources] (create may name several dependencies; pin takes at most one same-content source)\n       Nyrwvy.AuthoringSession open --snapshot <snapshot-path> --read-only [--allow-host-sources] (takes no lock, so it works while another session has the snapshot open; commit is refused)\n       Nyrwvy.AuthoringSession migrate --snapshot <snapshot-path> [--dependency <exact copy of a legacy pin's source>] [--to <new-path>] (rewrites the snapshot and its dependency sidecar to the current schema, prints the migration report and exits; no session is started; --to writes the result to a new path instead, in the form its extension selects (.nyrec for records), and leaves the source untouched)\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --dependency <new-version-path> --expect <reviewed-fingerprint> [--replaces <snapshot-id>] [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --upgrades <JSON array of {source,replaces}> --review <reviewFingerprint> [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --selection <JSON {sources:[paths],replaces:[current SnapshotIds]}> --review <reviewFingerprint> [--allow-host-sources]\n\n       Nyrwvy.AuthoringSession bind-c --header <file.h> ... (proposes capabilities and a C# mapping table for C functions; run bind-c alone for its options)\n--allow-host-sources lets runPure/runPureByName compile and run hostSources C# with your permissions; it is off by default.";
 
@@ -96,7 +97,7 @@ fn rejected(a: A, r: query.Request) error{Startup} {
     return fail(a, r.rejection.code, r.rejection.message);
 }
 fn request(a: A, path: []const u8) query.Request {
-    return .{ .a = a, .line = "{}", .root = .{}, .model = .json_null, .provenance = null, .snapshot_path = path };
+    return .{ .a = a, .line = "{}", .root = .{}, .provenance = null, .snapshot_path = path };
 }
 fn text(a: A, value: Value) ![]const u8 {
     var out: std.Io.Writer.Allocating = .init(a);
@@ -110,18 +111,21 @@ fn createAtomic(a: A, path: []const u8, content: []const u8) !void {
         .internal => unreachable,
     }
 }
-fn publishSource(a: A, path: []const u8, root: Value, selected: ?host.Dependency) ![]const u8 {
+fn publishSource(a: A, path: []const u8, root: model.Model, selected: ?host.Dependency) ![]const u8 {
     var persisted = root;
     if (selected) |dep| {
-        for ([_][]const u8{ "types", "effects", "capabilities", "functions", "obligations" }) |name| {
-            var locals: std.ArrayList(Value) = .empty;
-            for (model.arrayItems(root, name)) |item| if (edit.find(dep.root, name, query.idOf(item)) == null) try locals.append(a, item);
-            persisted = try edit.set(a, persisted, name, .{ .array = locals.items });
+        const imported = dep.typedModel(a);
+        for ([_]typed_edit.Collection{ .types, .effects, .capabilities, .functions, .obligations }) |group| {
+            var locals: std.ArrayList(model.Model) = .empty;
+            for (typed_edit.children(root, group)) |item| if (typed_edit.find(imported, group, query.idOf(item)) == null) try locals.append(a, item);
+            persisted = try typed_edit.withChildren(a, persisted, group, locals.items);
         }
-        persisted = try edit.set(a, persisted, "dependency", try m.object(a, &.{ try m.member(a, "snapshotId", try m.string(a, dep.id)), try m.member(a, "digest", try m.string(a, dep.digest)) }));
     }
-    const encoded = (try model.writtenText(a, try text(a, persisted))).text;
-    return if (std.mem.endsWith(u8, path, ".nyrec")) try records.recordsOf(a, encoded) else encoded;
+    var generation = persisted.data.snapshot.*;
+    if (selected) |dep| generation.marker = .{ .snapshot = try std.unicode.utf8ToUtf16LeAlloc(a, dep.id), .digest = try std.unicode.utf8ToUtf16LeAlloc(a, dep.digest) };
+    var out: std.Io.Writer.Allocating = .init(a);
+    try model.session_writer.writeDocument(&out.writer, root.context.interner, &generation, model.currentVersion());
+    return if (std.mem.endsWith(u8, path, ".nyrec")) try records.recordsOf(a, out.written()) else out.written();
 }
 
 fn fileExists(io: std.Io, path: []const u8) bool {
@@ -148,14 +152,15 @@ fn create(io: std.Io, a: A, command: Command) !void {
         else => return err,
     } else null;
     const id = try @import("ids.zig").next();
-    var fields: std.ArrayList(model.Member) = .empty;
-    try fields.append(a, try m.member(a, "schemaVersion", try m.number(a, model.currentVersion())));
-    try fields.append(a, try m.member(a, "snapshotId", try m.string(a, &id)));
-    for ([_][]const u8{ "types", "effects", "capabilities", "functions", "obligations" }) |name| try fields.append(a, try m.member(a, name, .{ .array = &.{} }));
-    var root: Value = .{ .object = fields.items };
-    if (combined) |pair| for ([_][]const u8{ "types", "effects", "capabilities", "functions", "obligations" }) |name| {
-        root = try edit.set(a, root, name, .{ .array = model.arrayItems(pair[0].root, name) });
-    };
+    var interner: tm.Interner = .{ .gpa = a };
+    var generation: tm.Generation = if (combined) |pair| blk: {
+        var compactor: tm.Compactor = .{ .arena = a, .scratch = a, .old_interner = pair[0].interner.?, .interner = &interner };
+        break :blk try compactor.generation(pair[0].generation.?);
+    } else .{ .snapshot = tm.none, .parent = tm.none, .marker = null, .types = &.{}, .effects = &.{}, .capabilities = &.{}, .functions = &.{}, .obligations = &.{} };
+    generation.parent = tm.none;
+    generation.marker = null;
+    generation.snapshot = try interner.id(.snapshot, try std.unicode.utf8ToUtf16LeAlloc(a, &id));
+    const root = model.typedRoot(a, &interner, &generation);
     const selected: ?host.Dependency = if (combined) |pair| pair[0] else null;
     const source = try publishSource(a, path, root, selected);
     const read = try host.readSource(a, std.mem.endsWith(u8, path, ".nyrec"), source, selected);
@@ -167,7 +172,7 @@ fn create(io: std.Io, a: A, command: Command) !void {
     const backends = try std.mem.concat(a, u8, &.{ path, ".backends.json" });
     if (!fileExists(io, backends)) createAtomic(a, backends, "{\"targets\": [\"csharp\"]}\n") catch {};
     host.dependency_manifest = if (combined) |pair| pair[1] else null;
-    host.install(a, path, source, read, selected);
+    try host.install(a, path, source, read, selected);
 }
 
 pub fn persistPin(a: A, path: []const u8, source_override: ?[]const u8) !void {
@@ -179,7 +184,7 @@ pub fn persistPin(a: A, path: []const u8, source_override: ?[]const u8) !void {
     members[0].embedded = true;
     pinned.provenance.members = members;
     const is_record = std.mem.endsWith(u8, provenance.path, ".nyrec");
-    const json = (try model.writtenText(a, selected.canonical)).text;
+    const json = selected.canonical;
     const manifest = try text(a, try m.object(a, &.{
         try m.member(a, "fingerprint", try m.string(a, selected.fingerprint)),
         try m.member(a, "path", try m.string(a, provenance.path)),
@@ -200,6 +205,7 @@ pub fn start(io: std.Io, a: A, command: Command) !void {
     if (!upgrading) return;
     const path = try std.fs.path.resolveAlloc(a, &.{ try std.process.currentPathAlloc(io, a), command.path });
     var r = request(a, path);
+    try @import("proposals.zig").bindTypedRead(&r);
     try r.root.put(a, "op", .{ .string = "previewDependencyUpgrades" });
     const current = host.selection;
     if ((command.mode == .single or command.mode == .upgrades) and current == null) return fail(a, "DependencyFailure", "This workspace has no dependency to upgrade; add one with a selection whose replaces is empty.");
@@ -248,7 +254,7 @@ pub fn start(io: std.Io, a: A, command: Command) !void {
         }
     }
     host.dependency_manifest = plan.manifest;
-    host.install(a, path, source, read, plan.dependency);
+    try host.install(a, path, source, read, plan.dependency);
 }
 
 test "startup parser preserves positional CLI forms" {
