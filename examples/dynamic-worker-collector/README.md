@@ -36,7 +36,7 @@ Use Node 22.6+ and .NET 10 from the normal repository setup:
 
 ```sh
 npm ci
-dotnet build tools/Nyrwvy.AuthoringSession --configuration Release
+npm run build:host
 node examples/dynamic-worker-collector/run.mjs /path/to/empty-bundle
 node examples/dynamic-worker-collector/run.mjs --replay /path/to/empty-bundle
 node examples/dynamic-worker-collector/test-runtime.mjs /path/to/empty-bundle

@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Text.Json
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// Reviewed result-type migration: the target's result type, body and every direct caller change
@@ -131,61 +130,3 @@ module ResultTypeMigrationTests =
         let ws = create ws "all" [ "keys", TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ]) ] (TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ stringType ]))
                     (ExpressionRecipe.ListMap(ExpressionRecipe.ParameterSlot 0, lookup.Id, []))
         Assert.Equal("ResultTypeMigrationUnsupportedCallerUse", rejects ws (request ws))
-
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``migrated result type is authored over the wire and runs through the common runner`` () =
-        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-result-migration-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(root) |> ignore
-        let path = Path.Combine(root, "workspace.json")
-        try
-            File.WriteAllText(path, AgentWorkspace.serializeCurrentSnapshot (fixture ()) |> unwrap "serialize")
-            use session = AuthoringSession.openExisting path |> unwrap "open"
-            let functionId name = (session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)).Id
-            let describe = PureRun.run session (functionId "describe") [ PureRunValue.String "other" ] None |> unwrap "before"
-            Assert.Equal(PureRunValue.String "value: ", describe.Actual)
-            let lookup = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "lookup")
-            let describeFn = session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = "describe")
-            let lookupKey = StableId.value (List.exactlyOne lookup.Parameters).Id
-            let describeKey = StableId.value (List.exactlyOne describeFn.Parameters).Id
-            let text value = sprintf """{"kind":"stringLiteral","value":"%s"}""" value
-            let parameter id = sprintf """{"kind":"parameter","parameterId":"%s"}""" id
-            let targetBody =
-                sprintf """{"kind":"conditional","condition":{"kind":"stringEqual","left":%s,"right":%s},"whenTrue":{"kind":"optionSome","value":%s},"whenFalse":{"kind":"optionNone","itemType":{"kind":"primitive","primitive":"string"}}}"""
-                    (parameter lookupKey) (text "known") (text "value")
-            let callerBody =
-                sprintf """{"kind":"matchOption","input":{"kind":"directCall","functionId":"%s","arguments":[{"parameterId":"%s","value":%s}]},"someBody":{"kind":"stringConcat","left":%s,"right":{"kind":"patternReference","scopeDepth":0,"slot":"value"}},"noneBody":%s}"""
-                    (StableId.value lookup.Id) lookupKey (parameter describeKey) (text "value: ") (text "missing")
-            let line =
-                sprintf """{"id":"migrate","op":"simulateResultTypeMigration","targetFunctionId":"%s","newResultType":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"string"}]},"targetReplacement":%s,"callerRewrites":[{"callerFunctionId":"%s","replacement":%s}]}"""
-                    (StableId.value lookup.Id) targetBody (StableId.value describeFn.Id) callerBody
-            use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
-            Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
-            let result = proposed.RootElement.GetProperty("result")
-            Assert.Equal("resultTypeMigration", result.GetProperty("review").GetProperty("kind").GetString())
-            // Compact rewrites carry node summaries with literal values but no rewritten bodies.
-            Assert.False(result.GetProperty("review").TryGetProperty("rewrittenFunctions") |> fst)
-            let literals =
-                result.GetProperty("review").GetProperty("diff").GetProperty("bodyRewrites").EnumerateArray()
-                |> Seq.collect (fun rewrite -> rewrite.GetProperty("addedNodes").EnumerateArray())
-                |> Seq.choose (fun node ->
-                    match node.GetProperty("literal") with
-                    | literal when literal.ValueKind = JsonValueKind.Object -> Some(literal.GetProperty("value").GetString())
-                    | _ -> None)
-                |> Set.ofSeq
-            Assert.Equal<Set<string>>(set [ "known"; "value"; "value: "; "missing" ], literals)
-            // Full adds each rewritten function's proposed body, in review order.
-            use full = AuthoringProtocol.executeLine session (line.Substring(0, line.Length - 1) + ""","detail":"full"}""") |> JsonDocument.Parse
-            Assert.True(full.RootElement.GetProperty("ok").GetBoolean(), full.RootElement.ToString())
-            let rewritten = full.RootElement.GetProperty("result").GetProperty("review").GetProperty("rewrittenFunctions")
-            Assert.Equal<string list>([ "lookup"; "describe" ], rewritten.EnumerateArray() |> Seq.map (fun fn -> fn.GetProperty("displayName").GetString()) |> Seq.toList)
-            Assert.True(rewritten.[0].GetProperty("body").GetProperty("nodes").GetArrayLength() > 1)
-            let proposalId = result.GetProperty("proposalId").GetString()
-            use committed = AuthoringProtocol.executeLine session (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId) |> JsonDocument.Parse
-            Assert.True(committed.RootElement.GetProperty("ok").GetBoolean(), committed.RootElement.ToString())
-            let run key = (PureRun.run session (functionId "describe") [ PureRunValue.String key ] None |> unwrap key).Actual
-            Assert.Equal(PureRunValue.String "value: value", run "known")
-            Assert.Equal(PureRunValue.String "missing", run "other")
-            let migrated = PureRun.run session lookup.Id [ PureRunValue.String "other" ] (Some(PureRunValue.StringOption None)) |> unwrap "lookup"
-            Assert.Equal(Some true, migrated.Matches)
-        finally
-            if Directory.Exists root then Directory.Delete(root, true)

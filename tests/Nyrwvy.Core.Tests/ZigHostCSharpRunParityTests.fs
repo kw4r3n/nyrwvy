@@ -5,7 +5,6 @@ open System.Diagnostics
 open System.IO
 open System.Text.Json
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// C# execution stays byte-compatible while graph decisions and worker ownership live in Zig.
@@ -36,11 +35,8 @@ module ZigHostCSharpRunParityTests =
 
     let private fixture directory =
         let path = Path.Combine(directory, "workspace.json")
-        use session = AuthoringSession.createNew path |> unwrap
-        let publish line =
-            let result = AuthoringProtocol.executeLine session line |> success
-            let id = result.GetProperty("proposalId").GetString()
-            AuthoringProtocol.executeLine session $"""{{"id":"commit","op":"commit","proposalId":"{id}"}}""" |> success |> ignore
+        let requests = ResizeArray<string>()
+        let publish (line: string) = requests.Add line
         let create name parameters result effects body =
             let parameters = parameters |> List.map (fun (name, kind) -> $"""{{"displayName":"{name}","type":{kind}}}""") |> String.concat ","
             publish $"""{{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"{name}","parameters":[{parameters}],"resultType":{result},"requiredEffects":[{String.concat "," (effects |> List.map stringValue)}],"body":{body}}}"""
@@ -71,8 +67,9 @@ module ZigHostCSharpRunParityTests =
             $"""{{"kind":"matchOption","input":{parameter "value"},"someBody":{{"kind":"int64Literal","value":"7"}},"noneBody":{{"kind":"int64Literal","value":"0"}}}}"""
         publish $"""{{"id":"recursive","op":"simulateCreateFunctionsByName","functions":[{{"displayName":"swapLoop","exported":true,"parameters":[{{"displayName":"a","type":{integer}}},{{"displayName":"b","type":{integer}}},{{"displayName":"count","type":{integer}}}],"resultType":{integer},"requiredEffects":[],"body":{{"kind":"conditional","condition":{{"kind":"int64LessThan","left":{parameter "count"},"right":{{"kind":"int64Literal","value":"1"}}}},"whenTrue":{{"kind":"int64WrappingSubtract","left":{parameter "a"},"right":{parameter "b"}}},"whenFalse":{{"kind":"directCall","function":"swapLoop","arguments":[{{"parameter":"a","value":{parameter "b"}}},{{"parameter":"b","value":{parameter "a"}}},{{"parameter":"count","value":{{"kind":"int64WrappingSubtract","left":{parameter "count"},"right":{{"kind":"int64Literal","value":"1"}}}}}}]}}}}}}]}}"""
         publish $"""{{"id":"recursive","op":"simulateCreateFunctionsByName","functions":[{{"displayName":"deep","exported":true,"parameters":[],"resultType":{integer},"requiredEffects":[],"body":{{"kind":"int64WrappingAdd","left":{{"kind":"directCall","function":"deep","arguments":[]}},"right":{{"kind":"int64Literal","value":"1"}}}}}}]}}"""
+        publishWithZigHost "create" path (List.ofSeq requests)
         File.WriteAllText(path + ".backends.json", """{"targets":["csharp"]}""")
-        path, session.Declarations()
+        path, fst (declarationsOf path)
 
     let private pair textValue count = $"""{{"kind":"product","type":"Pair","fields":[{{"field":"text","value":{{"kind":"string","value":{stringValue textValue}}}}},{{"field":"count","value":{{"kind":"int64","value":"{count}"}}}}]}}"""
     let private found value = $"""{{"kind":"union","type":"Answer","variant":"Found","fields":[{{"field":"text","value":{{"kind":"string","value":{stringValue value}}}}}]}}"""
@@ -290,7 +287,7 @@ public sealed class Broken : {className}
                         replies.Add(reply.Replace(target,"<dir>"))
                         reply
                     // A replayed F# host has no worker process; its runs are checked by their replies.
-                    let tracked=OperatingSystem.IsLinux() && (zig || hostReference="live")
+                    let tracked=OperatingSystem.IsLinux() && zig
                     let pid ()=if tracked then Some(workerPid host) else None
                     let echoed value=runName "echo" [stringValue value] (Some(stringValue value))
                     send (echoed "cold") |> matches

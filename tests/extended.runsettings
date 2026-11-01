@@ -2,9 +2,5 @@
 <RunSettings>
   <RunConfiguration>
     <TestCaseFilter>Suite=Extended</TestCaseFilter>
-    <!-- The Zig routes (snapshot reader, validator, lowering), off by default, run in the extended suite (docs/decisions/zig-tools.md). -->
-    <EnvironmentVariables>
-      <NYRWVY_ZIG_TOOLS>1</NYRWVY_ZIG_TOOLS>
-    </EnvironmentVariables>
   </RunConfiguration>
 </RunSettings>

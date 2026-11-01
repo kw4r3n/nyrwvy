@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RunSettings>
   <RunConfiguration>
-    <TestCaseFilter>Suite!=Extended&amp;Suite!=Benchmark</TestCaseFilter>
+    <TestCaseFilter>Suite!=Extended</TestCaseFilter>
   </RunConfiguration>
 </RunSettings>

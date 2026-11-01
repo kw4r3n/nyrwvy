@@ -173,33 +173,6 @@ module Int64Tests =
         childProcess.ExitCode, stdoutTask.Result, stderrTask.Result
 
     [<Fact>]
-    let ``Int64 nodes expose local types dependencies and viewer roles`` () =
-        let fixture = createFixture ()
-        Assert.Empty(SnapshotValidator.validate fixture.Snapshot)
-
-        let focus = SemanticQuery.focusFunction fixture.Snapshot fixture.AddFunctionId |> unwrap "Focus query"
-        let resultType =
-            focus.NodeTypes
-            |> List.find (fun item -> item.NodeId = fixture.AddResultNodeId)
-            |> fun item -> item.Type
-        Assert.Equal(Some int64Type, resultType)
-
-        let dependencies =
-            SemanticQuery.getDependencies fixture.Snapshot fixture.AddFunctionId fixture.AddResultNodeId
-            |> unwrap "Dependency query"
-        let expectedDependencies = [ fixture.AddLeftNodeId; fixture.AddRightNodeId ] |> List.sortBy StableId.value
-        Assert.Equal<GraphNodeId list>(expectedDependencies, dependencies)
-
-        let viewer = ViewerProjection.focus focus
-        let resultNode = viewer.Graph.Nodes |> List.find (fun node -> node.Id = fixture.AddResultNodeId)
-        Assert.Equal(ViewerNodeRole.Operation "Int64WrappingAdd", resultNode.Role)
-        Assert.Equal(Some int64Type, resultNode.Type)
-
-        let html = ViewerRendering.focus viewer
-        Assert.Contains("Int64 wrapping add", html)
-        Assert.Contains("<code>Int64</code>", html)
-
-    [<Fact>]
     let ``Int64 operations reject non-Int64 operands`` () =
         let fixture = createFixture ()
         let changedFunctions =

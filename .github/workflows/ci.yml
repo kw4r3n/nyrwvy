@@ -100,13 +100,6 @@ jobs:
       - name: Test MCP transport contract
         run: node scripts/run-node-tests.mjs fast-mcp
 
-      - name: Test the explicit legacy host selection
-        env:
-          NYRWVY_HOST_EXECUTABLE: ${{ github.workspace }}/tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll
-        run: |
-          node scripts/run-node-tests.mjs fast-contracts fast-adapters fast-mcp
-          npm run test:bun
-
       - name: Test extended suites
         if: ${{ inputs.extended }}
         run: fish scripts/test-extended.fish

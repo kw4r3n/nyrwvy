@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Text.Json
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// Waiting operations, must-not-wait functions and task-bound capabilities
@@ -217,109 +216,12 @@ module WaitAttributesTests =
 
     // ---- Authoring wire forms ----------------------------------------------------------------
 
-    let private execute (session: AuthoringSession) (line: string) = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
-
-    let private result session line =
-        use reply = execute session line
-        if not (reply.RootElement.GetProperty("ok").GetBoolean()) then failwithf "JSONL request failed: %s" (reply.RootElement.GetRawText())
-        reply.RootElement.GetProperty("result").Clone()
-
-    let private publish session line =
-        let proposal = result session line
-        result session $"""{{"id":"commit","op":"commit","proposalId":"{proposal.GetProperty("proposalId").GetString()}"}}""" |> ignore
-        proposal
-
-    let private failure session line =
-        use reply = execute session line
-        Assert.False(reply.RootElement.GetProperty("ok").GetBoolean(), reply.RootElement.GetRawText())
-        reply.RootElement.GetRawText()
-
     let private stringJson = """{"kind":"primitive","primitive":"string"}"""
     let private fsJson = """{"kind":"capability","name":"Fs"}"""
     let private invoke operation = $"""{{"kind":"capabilityInvoke","capabilityValue":{{"kind":"parameter","name":"fs"}},"capability":"Fs","operation":"{operation}","arguments":[]}}"""
     let private functionJson name (mustNotWait: bool) operation =
         let marker = if mustNotWait then """"mustNotWait":true,""" else ""
         $"""{{"id":"{name}","op":"simulateCreateFunctionByName",{marker}"displayName":"{name}","parameters":[{{"displayName":"fs","type":{fsJson}}}],"resultType":{stringJson},"requiredEffects":["io"],"body":{invoke operation}}}"""
-
-    [<Fact>]
-    let ``creation and set operations carry the markers and the review shows may wait`` () =
-        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-wait-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory root |> ignore
-        try
-            use session = AuthoringSession.createNew (Path.Combine(root, "workspace.json")) |> unwrap "create"
-            publish session """{"id":"e","op":"simulateCreateEffect","displayName":"io"}""" |> ignore
-            publish session $"""{{"id":"c","op":"simulateCreateCapabilityByName","displayName":"Fs","taskBound":true,"operations":[{{"displayName":"read","parameters":[],"resultType":{stringJson},"effect":"io","mayWait":true}},{{"displayName":"peek","parameters":[],"resultType":{stringJson},"effect":"io"}}]}}""" |> ignore
-            let fs = session.Declarations().Capabilities |> List.exactlyOne
-            Assert.True(fs.TaskBound)
-            Assert.Equal<(string * bool) list>([ "peek", false; "read", true ], fs.Operations |> List.map (fun op -> op.DisplayName, op.MayWait) |> List.sort)
-            let listed = (result session """{"id":"d","op":"declarations"}""").GetProperty("capabilities")[0]
-            Assert.True(listed.GetProperty("taskBound").GetBoolean())
-
-            // A must-not-wait function that invokes a waiting operation is rejected; one that does not is accepted.
-            let rejected = failure session (functionJson "handler" true "read")
-            Assert.Contains("MustNotWaitFunctionWaits", rejected)
-            Assert.Contains("Fs.read", rejected)
-            publish session (functionJson "handler" true "peek") |> ignore
-            publish session (functionJson "loader" false "read") |> ignore
-            let handler = session.Declarations().Functions |> List.find (fun item -> item.DisplayName = "handler")
-            Assert.True(handler.MustNotWait)
-
-            // The focus of a waiting function shows the path; a quiet one shows nothing.
-            let focus name = (result session $"""{{"id":"r","op":"readFunction","function":"{name}"}}""")
-            Assert.Contains("Fs.read", (focus "loader").GetProperty("waitPath").GetString())
-            Assert.False((focus "handler").TryGetProperty("mayWait") |> fst)
-            Assert.True((focus "handler").GetProperty("function").GetProperty("mustNotWait").GetBoolean())
-
-            // Marking `peek` waiting would make `handler` wait: rejected. The exact form then unmarks
-            // `handler` in the same batch; the review lists both attributeChanges.
-            let peek = fs.Operations |> List.find (fun op -> op.DisplayName = "peek")
-            let setPeek = $"""{{"kind":"setMayWait","operationId":"{StableId.value peek.Id}","mayWait":true}}"""
-            Assert.Contains("MustNotWaitFunctionWaits", failure session $"""{{"id":"x","op":"simulateOperations","operations":[{setPeek}]}}""")
-            let review = publish session $"""{{"id":"x","op":"simulateOperations","operations":[{{"kind":"setMustNotWait","functionId":"{StableId.value handler.Id}","mustNotWait":false}},{setPeek}]}}"""
-            let changes = review.GetProperty("review").GetProperty("diff").GetProperty("attributeChanges")
-            Assert.Equal(2, changes.GetArrayLength())
-            Assert.Equal("mayWait", changes[0].GetProperty("attribute").GetString())
-            Assert.Equal("Fs.peek", changes[0].GetProperty("displayName").GetString())
-            Assert.True(changes[0].GetProperty("value").GetBoolean())
-            Assert.Equal("mustNotWait", changes[1].GetProperty("attribute").GetString())
-            Assert.False(changes[1].GetProperty("value").GetBoolean())
-            Assert.True(session.Declarations().Capabilities.Head.Operations |> List.forall (fun op -> op.MayWait))
-            publish session """{"id":"y","op":"simulateOperationsByName","operations":[{"kind":"setTaskBound","capability":"Fs","taskBound":false},{"kind":"setMayWait","capability":"Fs","operation":"read","mayWait":false}]}""" |> ignore
-            let after = session.Declarations()
-            Assert.False(after.Capabilities.Head.TaskBound)
-            Assert.False((after.Functions |> List.find (fun item -> item.DisplayName = "handler")).MustNotWait)
-            Assert.Contains("AttributeUnchanged", failure session """{"id":"z","op":"simulateOperationsByName","operations":[{"kind":"setTaskBound","capability":"Fs","taskBound":false}]}""")
-            Assert.Contains("NoChange", failure session """{"id":"z","op":"simulateOperationsByName","operations":[{"kind":"setTaskBound","capability":"Fs","taskBound":true},{"kind":"setTaskBound","capability":"Fs","taskBound":false}]}""")
-            session.Close()
-        finally
-            Directory.Delete(root, true)
-
-    [<Fact>]
-    let ``a dependent cannot reach an imported waiting operation from a must-not-wait function`` () =
-        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-wait-dependency-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory root |> ignore
-        try
-            let libraryPath = Path.Combine(root, "library.json")
-            using (AuthoringSession.createNew libraryPath |> unwrap "library") (fun library ->
-                publish library """{"id":"e","op":"simulateCreateEffect","exported":true,"displayName":"io"}""" |> ignore
-                publish library $"""{{"id":"c","op":"simulateCreateCapabilityByName","exported":true,"displayName":"Fs","operations":[{{"displayName":"read","parameters":[],"resultType":{stringJson},"effect":"io","mayWait":true}}]}}""" |> ignore
-                library.Close())
-            use consumer = AuthoringSession.createNewWithDependency (Path.Combine(root, "consumer.json")) (Some libraryPath) |> unwrap "consumer"
-            let rejected = failure consumer (functionJson "handler" true "read")
-            Assert.Contains("MustNotWaitFunctionWaits", rejected)
-            Assert.Contains("waiting operation Fs.read", rejected)
-            // The creation review shows the derived fact.
-            let review = (publish consumer (functionJson "loader" false "read")).GetProperty("review")
-            Assert.True(review.GetProperty("mayWait").GetBoolean())
-            Assert.Contains("Fs.read", review.GetProperty("waitPath").GetString())
-            // The imported operation's marker is read-only.
-            let read = (consumer.Declarations().Capabilities |> List.exactlyOne).Operations |> List.exactlyOne
-            Assert.Contains(
-                "ImportedDeclarationModified",
-                failure consumer $"""{{"id":"x","op":"simulateOperations","operations":[{{"kind":"setMayWait","operationId":"{StableId.value read.Id}","mayWait":false}}]}}""")
-            consumer.Close()
-        finally
-            Directory.Delete(root, true)
 
     /// `spawnAll<T>` runs a ParallelAll over `List<T>`; `outer<T>` forwards to it. `direct` and
     /// `forwarded` instantiate T with the capability `Ui`.

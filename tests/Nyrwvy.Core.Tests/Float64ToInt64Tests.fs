@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Text.Json
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// Float64RoundToInt64 and Float64FloorToInt64 (post-M2 order 34; rounding half away from zero since
@@ -75,66 +74,3 @@ module Float64ToInt64Tests =
                                         { node with Kind = SemanticNodeKind.Int64Literal 1L }
                                     | _ -> node) } }) }
         Assert.Contains(SnapshotValidator.validate broken, fun issue -> issue.Code = "Float64OperandTypeMismatch")
-
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``JSONL-authored conversions match Python round and math.floor`` () =
-        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-float64-to-int64-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(root) |> ignore
-        let path = Path.Combine(root, "workspace.json")
-        try
-            File.WriteAllText(path, SnapshotCodec.serialize (Snapshot.empty (id<SnapshotTag> "session")) |> unwrap "serialize")
-            // A snapshot written directly declares its backend as `create` would.
-            File.WriteAllText(path + ".backends.json", """{"targets": ["csharp"]}""")
-            let session = AuthoringSession.openExisting path |> unwrap "open"
-            let call (line: string) =
-                use response = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
-                Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
-                response.RootElement.GetProperty("result").Clone()
-            let proposal =
-                call
-                    """{"id":"both","op":"simulateCreateFunctionByName","exported":true,"displayName":"both","parameters":[{"displayName":"value","type":{"kind":"primitive","primitive":"float64"}}],"resultType":{"kind":"builtinGeneric","generic":"list","arguments":[{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]}]},"requiredEffects":[],"body":{"kind":"listConstruct","itemType":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]},"items":[{"kind":"float64RoundToInt64","value":{"kind":"parameter","name":"value"}},{"kind":"float64FloorToInt64","value":{"kind":"parameter","name":"value"}}]}}"""
-            call ("""{"id":"commit","op":"commit","proposalId":""" + "\"" + proposal.GetProperty("proposalId").GetString() + "\"}") |> ignore
-            let option (value: string) =
-                if isNull value then """{"kind":"option","itemKind":"int64","hasValue":false}"""
-                else """{"kind":"option","itemKind":"int64","hasValue":true,"value":""" + "\"" + value + "\"}"
-            // Each expected pair is x rounded half away from zero and math.floor(x), or None where the
-            // result is outside Int64 or x is not finite.
-            let cases: (string * string * string) list =
-                [ "0.0", "0", "0"
-                  "\"-0\"", "0", "0"
-                  "0.5", "1", "0"
-                  "1.5", "2", "1"
-                  "2.5", "3", "2"
-                  "-0.5", "-1", "-1"
-                  "-1.5", "-2", "-2"
-                  "-2.5", "-3", "-3"
-                  "0.49999999999999994", "0", "0"
-                  "-0.49999999999999994", "0", "-1"
-                  "4503599627370495.5", "4503599627370496", "4503599627370495"
-                  "-4503599627370495.5", "-4503599627370496", "-4503599627370496"
-                  "4503599627370497.0", "4503599627370497", "4503599627370497"
-                  "5e-324", "0", "0"
-                  "-5e-324", "0", "-1"
-                  "123.456", "123", "123"
-                  "-123.456", "-123", "-124"
-                  // The largest double below 2^63, then -2^63 itself, both in range; 2^63 and the
-                  // double below -2^63 are not.
-                  "9223372036854774784.0", "9223372036854774784", "9223372036854774784"
-                  "-9223372036854775808.0", "-9223372036854775808", "-9223372036854775808"
-                  "9223372036854775808.0", null, null
-                  "-9223372036854777856.0", null, null
-                  "1e300", null, null
-                  "\"Infinity\"", null, null
-                  "\"-Infinity\"", null, null
-                  "\"NaN\"", null, null ]
-            for value, rounded, floored in cases do
-                let result =
-                    call (
-                        """{"id":"run","op":"runPureByName","function":"both","arguments":[{"kind":"float64","value":"""
-                        + value
-                        + """}],"expected":{"kind":"list","itemType":{"kind":"builtinGeneric","generic":"option","arguments":[{"kind":"primitive","primitive":"int64"}]},"items":["""
-                        + option rounded + "," + option floored + "]}}")
-                Assert.True(result.GetProperty("matches").GetBoolean(), value + ": " + result.ToString())
-            session.Close()
-        finally
-            if Directory.Exists root then Directory.Delete(root, true)

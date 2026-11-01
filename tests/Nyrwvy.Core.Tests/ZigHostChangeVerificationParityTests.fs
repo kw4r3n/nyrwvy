@@ -11,7 +11,6 @@ open System.Text.RegularExpressions
 open System.Threading
 open System.Threading.Tasks
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// Only the four genuinely different module identities are excluded from behavioral evidence parity.
@@ -50,10 +49,8 @@ module ZigHostChangeVerificationParityTests =
     let private fixture directory records =
         Directory.CreateDirectory directory |> ignore
         let json = Path.Combine(directory, "workspace.json")
-        use session = AuthoringSession.createNew json |> unwrap
-        let publish line =
-            let proposal = AuthoringProtocol.executeLine session line |> success |> fun value -> value.GetProperty("proposalId").GetString()
-            AuthoringProtocol.executeLine session (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposal) |> success |> ignore
+        let requests = ResizeArray<string>()
+        let publish (line: string) = requests.Add line
         let create name parameters result effects body =
             let ps = parameters |> List.map (fun (name, kind) -> sprintf """{"displayName":"%s","type":%s}""" name kind) |> String.concat ","
             publish (sprintf """{"id":"create","op":"simulateCreateFunctionByName","exported":true,"displayName":"%s","parameters":[%s],"resultType":%s,"requiredEffects":[%s],"body":%s}""" name ps result (effects |> List.map (fun (name: string) -> JsonSerializer.Serialize name) |> String.concat ",") body)
@@ -69,7 +66,8 @@ module ZigHostChangeVerificationParityTests =
         create "job" [ "item", integer ] (generic "result" [ integer; text ]) [] (sprintf """{"kind":"resultOk","errorType":%s,"value":%s}""" text (parameter "item"))
         create "fan" [] (generic "result" [ generic "list" [ integer ]; text ]) [] parallelBody
         publish """{"id":"generic","op":"simulateCreateFunctionByName","displayName":"generic","typeParameters":["T"],"parameters":[{"displayName":"value","type":{"kind":"typeParameter","name":"T"}}],"resultType":{"kind":"typeParameter","name":"T"},"requiredEffects":[],"body":{"kind":"parameter","name":"value"}}"""
-        let declarations = session.Declarations()
+        publishWithZigHost "create" json (List.ofSeq requests)
+        let declarations = fst (declarationsOf json)
         let path = if records then Path.Combine(directory, "workspace.nyrec") else json
         if records then File.WriteAllText(path, RecordCodec.ofJson(File.ReadAllText json))
         path, declarations
@@ -85,7 +83,7 @@ module ZigHostChangeVerificationParityTests =
         "zig-sha256:" + Convert.ToHexString(SHA256.HashData executable))
 
     let private normalize zig directory (json: string) =
-        let node = JsonNode.Parse(json.Replace(directory, "<dir>") |> comparable, documentOptions = JsonDocumentOptions(MaxDepth = WireInput.requestMaxJsonDepth))
+        let node = JsonNode.Parse(json.Replace(directory, "<dir>") |> comparable, documentOptions = JsonDocumentOptions(MaxDepth = requestMaxJsonDepth))
         let get (key: string) (node: JsonNode) = match node with :? JsonObject as value -> value[key] | _ -> null
         let evidence =
             let response = node |> get "result" |> get "evidence"
@@ -171,7 +169,7 @@ module ZigHostChangeVerificationParityTests =
     let private verify = verifyOn "verifyChangeByName"
 
     let private statuses (evidence: JsonElement) = evidence.GetProperty("cases").EnumerateArray() |> Seq.map (fun item -> item.GetProperty("status").GetString()) |> Seq.toList
-    let private fnId (declarations: AuthoringDeclarations) name = declarations.Functions |> List.find (fun fn -> fn.DisplayName = name) |> fun fn -> StableId.value fn.Id
+    let private fnId (declarations: FixtureDeclarations) name = declarations.Functions |> List.find (fun fn -> fn.DisplayName = name) |> fun fn -> StableId.value fn.Id
 
     [<Theory; Trait("Suite", "Extended"); InlineData(false); InlineData(true)>]
     let ``verification preserves raw cases caller closure context names and saved receipts on JSON and records`` records =
@@ -277,29 +275,3 @@ module ZigHostChangeVerificationParityTests =
                 Assert.Equal("ProposalNotFound", request committed cases |> send |> errorCode)
                 Assert.Equal("ExternalModification", request stale cases |> send |> errorCode)
                 send """{"id":"run","op":"runPureByName","backend":"csharp","function":"echo","arguments":[42],"expected":2}""" |> success |> fun result -> Assert.True(result.GetProperty("matches").GetBoolean())))
-
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``verification detects a source edit after execution starts and preserves the external bytes`` () =
-        // Edits the source while the F# host is still running; a replayed run has already answered.
-        if OperatingSystem.IsLinux() && hostReference = "live" then
-            withDirectory (fun directory ->
-                let source, _ = fixture (Path.Combine(directory, "input")) false
-                pair "verification-external-edit" source [] (fun path send during ->
-                    let recursive = sprintf """{"kind":"directCall","function":"echo","arguments":[{"parameter":"value","value":%s}]}""" (parameter "value")
-                    let proposal = replace send "echo" recursive
-                    let original = File.ReadAllBytes path
-                    let edited = Array.append original [| byte '\n' |]
-                    let change (host: Process) (reading: Task<string>) =
-                        // Observe a child of this host after the initial persisted-source check, without a delay guess.
-                        let started () =
-                            reading.IsCompleted ||
-                            (try Directory.GetDirectories(sprintf "/proc/%d/task" host.Id)
-                                 |> Array.exists (fun thread -> not (String.IsNullOrWhiteSpace(File.ReadAllText(Path.Combine(thread, "children")))))
-                             with :? IOException | :? UnauthorizedAccessException -> false)
-                        Assert.True(SpinWait.SpinUntil(Func<bool>(started), silence), "No managed child started within the response budget.")
-                        Assert.False(reading.IsCompleted, "The recursive candidate must still be running when the source is changed.")
-                        File.WriteAllBytes(path, edited)
-                    let request = sprintf """{"id":"edit","op":"verifyChangeByName","proposalId":"%s","cases":[%s]}""" proposal (case "echo" [ intValue 42 ] None)
-                    Assert.Equal("ExternalModification", during change request |> errorCode)
-                    Assert.Equal<byte>(edited, File.ReadAllBytes path)
-                    Assert.Equal("SessionInvalidated", send """{"id":"after","op":"runPureByName","backend":"csharp","function":"echo","arguments":[42]}""" |> errorCode)))

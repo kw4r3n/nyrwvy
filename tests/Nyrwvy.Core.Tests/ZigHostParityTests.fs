@@ -7,7 +7,6 @@ open System.Text.Json
 open System.Text.Json.Nodes
 open System.Text.RegularExpressions
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// The Zig session host (tools/zig/host, docs/decisions/zig-session-host.md) against the F# host:
@@ -18,25 +17,18 @@ open Xunit
 module ZigHostParityTests =
     let internal unwrap = function Ok x -> x | Error e -> failwithf "%A" e
 
+    /// The hosts' request depth limit (3 + 3 * 256 + 64, `max_depth` in tools/zig/host/main.zig).
+    let internal requestMaxJsonDepth = 835
+
     // Successful proposals can carry signatures deeper than JsonDocument's default 64 levels.
     let internal parseDocument (json: string) =
-        JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = WireInput.requestMaxJsonDepth))
+        JsonDocument.Parse(json, JsonDocumentOptions(MaxDepth = requestMaxJsonDepth))
 
     let internal comparable (line: string) =
         let masked = Regex.Replace(line, "\"build\":\"[^\"]*\"", "\"build\":\"…\"")
         Regex.Replace(masked, "(Invalid JSON: |not valid JSON: ).*", "$1…")
 
     let internal zigHost () = ZigTools.tool "host" |> Result.mapError (fun (code, message) -> $"{code}: {message}") |> unwrap
-    let internal fsharpHost = Path.Combine(AppContext.BaseDirectory, "Nyrwvy.AuthoringSession.dll")
-
-    /// Where the F# host's answers come from: `live` runs the F# host, `record` runs it and writes its
-    /// runs to tests/goldens/zig-host, `golden` replays those runs (scripts/host-golden.mjs). Without
-    /// NYRWVY_HOST_REFERENCE, live while the F# host is built, golden once it is gone (step 5).
-    let internal hostReference =
-        match Environment.GetEnvironmentVariable "NYRWVY_HOST_REFERENCE" with
-        | null | "" -> if File.Exists fsharpHost then "live" else "golden"
-        | ("live" | "record" | "golden") as mode -> mode
-        | other -> failwithf "NYRWVY_HOST_REFERENCE must be live, record or golden, not %s" other
 
     let private goldenRuns = Collections.Concurrent.ConcurrentDictionary<string, int ref>()
 
@@ -57,29 +49,21 @@ module ZigHostParityTests =
         let n = lock count (fun () -> count.Value <- count.Value + 1; count.Value)
         Path.Combine(ZigModelReaderSupport.root (), "tests", "goldens", "zig-host", name, $"{n}.jsonl.br")
 
-    /// Starts a redirected host on `arguments`, with optional per-process environment overrides.
+    /// Starts a redirected host on `arguments`, with optional per-process environment overrides: the
+    /// Zig host, or for the reference (`zig = false`) the replay of the F# host's recorded run
+    /// (scripts/host-golden.mjs; the F# host is at tag fsharp-host-final).
     let internal startWithEnvironment (environment: (string * string) list) (zig: bool) (arguments: string list) =
         let info =
             if zig then ProcessStartInfo(zigHost (), arguments)
-            elif hostReference = "live" then ProcessStartInfo("dotnet", fsharpHost :: arguments)
             else
                 let overrides = JsonSerializer.Serialize(dict environment)
                 let script = Path.Combine(ZigModelReaderSupport.root (), "scripts", "host-golden.mjs")
-                ProcessStartInfo("node", [ script; (if hostReference = "record" then "record" else "replay"); goldenRun (); overrides; "--" ] @ arguments)
-        info.Environment["NYRWVY_FSHARP_HOST_DLL"] <- fsharpHost
+                ProcessStartInfo("node", [ script; "replay"; goldenRun (); overrides; "--" ] @ arguments)
         info.RedirectStandardInput <- true
         info.RedirectStandardOutput <- true
         info.RedirectStandardError <- true
         info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
         for name, value in environment do info.Environment[name] <- value
-        if not zig && hostReference <> "golden" then
-            // Warm the Zig tools before the F# child's first-response timer; it still owns build failures.
-            // runPure's Zig backend always lowers and emits with them.
-            ZigTools.tool "model-reader" |> ignore
-            ZigTools.tool "emitter" |> ignore
-            match info.Environment.TryGetValue "NYRWVY_ZIG_TOOLS" with
-            | true, "1" -> ZigTools.tool "snapshot-reader" |> ignore
-            | _ -> ()
         Process.Start info
 
     let internal start zig arguments = startWithEnvironment [] zig arguments
@@ -169,11 +153,16 @@ module ZigHostParityTests =
         File.WriteAllText(json, File.ReadAllText records.Head |> RecordCodec.deserialize |> unwrap |> SnapshotCodec.serialize |> unwrap)
         records @ [ json ]
 
+    // The last seeded ID count each test's Zig-built fixtures reached.
+    let private fixtureCounts = Collections.Concurrent.ConcurrentDictionary<string, int64>()
+
     /// A fresh directory for `f`. In-process fixtures built inside get IDs seeded by the test's name,
     /// so the requests made from them match the recorded F# runs.
     let internal withDirectory f =
         let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-host-" + Guid.NewGuid().ToString("N"))
         Directory.CreateDirectory dir |> ignore
+        // Each body starts its fixture count afresh, as the F# fixtures' async-local seed did.
+        testName () |> Option.iter (fixtureCounts.TryRemove >> ignore)
         let seeded = match testName () with Some name -> StableIdAllocator.withTestSeed ("fixture:" + name) | None -> fun run -> run ()
         try seeded (fun () -> f dir) finally Directory.Delete(dir, true)
 
@@ -254,64 +243,149 @@ module ZigHostParityTests =
             Assert.Contains("\\uFFFD", expected[1])
             Assert.Equal<string list>(expected |> List.map comparable, actual |> List.map comparable))
 
-    /// `references`, `search` and `unreferenced` requests built from a session's own declarations:
-    /// every declaration and member by exact ID and by display names (as a string and as a
-    /// selector object), and searches for parts of their names.
-    let internal queries (session: AuthoringSession) =
-        let declarations = session.Declarations()
-        let quote (text: string) = JsonSerializer.Serialize text
-        let id = StableId.value
-        let byName kind (key: string) name =
-            [ $"""{{"id":"r","op":"references","kind":"{kind}","{key}":{quote name}}}"""
-              $"""{{"id":"r","op":"references","kind":"{kind}","{key}":{{"name":{quote name}}}}}""" ]
-        let named kind exactKey (exact: string) (name: string) =
-            $"""{{"id":"r","op":"references","kind":"{kind}","{exactKey}":{quote exact}}}""" :: byName kind kind name
-        let parts (name: string) = [ name; name.ToUpperInvariant(); (if name.Length > 2 then name.Substring(1, 2) else name) ]
-        [ for item in declarations.Functions do
-              yield! named "function" "functionId" (id item.Id) item.DisplayName
-              yield! parts item.DisplayName |> List.map (fun text -> $"""{{"id":"q","op":"search","text":{quote text},"limit":3}}""")
-          for item in declarations.Types do
-              yield! named "type" "typeId" (id item.Id) item.DisplayName
-              match item.Kind with
-              | SemanticTypeKind.Product fields ->
-                  for field in fields do
-                      yield $"""{{"id":"r","op":"references","kind":"field","fieldId":{quote (id field.Id)}}}"""
-                      yield $"""{{"id":"r","op":"references","kind":"field","type":{quote item.DisplayName},"field":{quote field.DisplayName}}}"""
-                  yield $"""{{"id":"r","op":"references","kind":"variant","type":{quote item.DisplayName},"variant":"x"}}"""
-              | SemanticTypeKind.Union variants ->
-                  for variant in variants do
-                      yield $"""{{"id":"r","op":"references","kind":"variant","variantId":{quote (id variant.Id)}}}"""
-                      yield $"""{{"id":"r","op":"references","kind":"variant","type":{{"id":{quote (id item.Id)}}},"variant":{quote variant.DisplayName}}}"""
-                      for field in variant.Fields do
-                          yield $"""{{"id":"r","op":"references","kind":"field","fieldId":{quote (id field.Id)}}}"""
-                          yield $"""{{"id":"r","op":"references","kind":"field","type":{quote item.DisplayName},"variant":{quote variant.DisplayName},"field":{quote field.DisplayName}}}"""
-                  yield $"""{{"id":"r","op":"references","kind":"field","type":{quote item.DisplayName},"field":"x"}}"""
-          for item in declarations.Effects do yield! named "effect" "effectId" (id item.Id) item.DisplayName
-          for item in declarations.Capabilities do
-              yield! named "capability" "capabilityId" (id item.Id) item.DisplayName
-              for operation in item.Operations do
-                  yield $"""{{"id":"r","op":"references","kind":"capabilityOperation","operationId":{quote (id operation.Id)}}}"""
-                  yield $"""{{"id":"r","op":"references","kind":"capabilityOperation","capability":{quote item.DisplayName},"operation":{quote operation.DisplayName}}}"""
-                  yield! parts operation.DisplayName |> List.map (fun text -> $"""{{"id":"q","op":"search","text":{quote text}}}""")
-          for item in declarations.Provenance do
-              for ownership in [ "local"; "imported" ] do
-                  yield $"""{{"id":"r","op":"references","kind":"{item.Kind}","{item.Kind}":{{"id":{quote item.Id},"ownership":"{ownership}"}}}}"""
-              for source in item.Sources do
-                  yield $"""{{"id":"r","op":"references","kind":"{item.Kind}","{item.Kind}":{{"id":{quote item.Id},"dependencySnapshotId":{quote source.SnapshotId}}}}}"""
-          for item in declarations.Functions do
-              for node in ValueGraph.collectNodes item.Body |> List.truncate 60 do
-                  yield $"""{{"id":"b","op":"bindingScopes","functionId":{quote (id item.Id)},"nodeId":{quote (id node.Id)}}}"""
-              yield $"""{{"id":"b","op":"bindingScopes","function":{quote item.DisplayName},"nodeId":{quote (id item.Body.ResultNodeId)}}}"""
-              yield $"""{{"id":"b","op":"bindingScopes","function":{quote item.DisplayName},"nodeId":"missing"}}"""
-              yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)},"detail":"compact"}}"""
-              yield $"""{{"id":"f","op":"readFunction","function":{quote item.DisplayName},"detail":"compact"}}"""
-              yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)},"detail":"outline"}}"""
-              yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)}}}"""
-          yield """{"id":"e","op":"executionReadiness"}"""
-          yield """{"id":"e","op":"executionReadiness","extra":true}"""
-          yield """{"id":"u","op":"unreferenced"}"""
-          for item in declarations.Functions |> List.truncate 3 do
-              yield $"""{{"id":"u","op":"unreferenced","roots":[{quote item.DisplayName}]}}""" ]
+    /// Simulates and commits each request in turn on a Zig host (`create` makes the snapshot), as
+    /// the in-process F# fixtures did. New IDs are seeded by the test's name, as `withDirectory`
+    /// seeds in-process allocation, so the fixture and the requests built from it match the
+    /// recorded F# runs. The F# fixtures of one test shared one count, so a later fixture of the
+    /// same test starts from an empty snapshot whose ID is the next seeded one, which the host
+    /// observes before it allocates.
+    let internal publishWithZigHost (mode: string) (path: string) (requests: string list) =
+        let name = testName () |> Option.defaultWith (fun () -> failwith "A Zig fixture was built outside a test method's thread.")
+        let seed = "fixture:" + name
+        let mode =
+            match mode, fixtureCounts.TryGetValue name with
+            | "create", (true, count) ->
+                let id = StableId.tryCreate<SnapshotTag> (StableIdAllocator.seededPayload seed (count + 1L)) |> unwrap
+                let workspace = AgentWorkspace.create (Snapshot.empty id) |> unwrap
+                File.WriteAllText(path, AgentWorkspace.serializeCurrentSnapshot workspace |> unwrap)
+                File.WriteAllText(path + ".backends.json", "{\"targets\": [\"csharp\"]}\n")
+                "open"
+            | _ -> mode
+        let info = ProcessStartInfo(zigHost (), [ mode; "--snapshot"; path ])
+        info.RedirectStandardInput <- true
+        info.RedirectStandardOutput <- true
+        info.RedirectStandardError <- true
+        info.Environment["NYRWVY_TEST_ID_SEED"] <- seed
+        use host = Process.Start info
+        let errors = host.StandardError.ReadToEndAsync()
+        let mutable reached = 0L
+        let send (line: string) =
+            host.StandardInput.Write(line + "\n")
+            host.StandardInput.Flush()
+            let reply = host.StandardOutput.ReadLine()
+            if isNull reply then failwithf "The Zig host ended before answering %s: %s" line errors.Result
+            reached <- max reached (StableIdAllocator.seededCount seed reply)
+            use document = parseDocument reply
+            if not (document.RootElement.GetProperty("ok").GetBoolean()) then failwithf "%s\n%s" line reply
+            document.RootElement.GetProperty("result").Clone()
+        for request in requests do
+            let proposal = (send request).GetProperty("proposalId").GetString()
+            send $"""{{"id":"commit","op":"commit","proposalId":"{proposal}"}}""" |> ignore
+        host.StandardInput.Close()
+        host.WaitForExit()
+        Assert.True((host.ExitCode = 0), errors.Result)
+        let written = StableIdAllocator.seededCount seed (File.ReadAllText path)
+        fixtureCounts.AddOrUpdate(name, max reached written, fun _ count -> max count (max reached written)) |> ignore
+
+    /// A snapshot file without a dependency, read with the F# libraries.
+    let internal readSnapshot (path: string) =
+        let text = File.ReadAllText path
+        if path.EndsWith(".nyrec", StringComparison.Ordinal) then RecordCodec.deserialize text |> unwrap
+        else SnapshotCodec.deserialize text |> unwrap
+
+    /// The declarations a session on a snapshot without a dependency lists, each sorted by ID as
+    /// `AgentWorkspace` lists them, and the snapshot's ID.
+    type internal FixtureDeclarations =
+        { Functions: SemanticFunction list
+          Types: SemanticType list
+          Effects: SemanticEffect list
+          Capabilities: SemanticCapability list }
+
+    let internal declarationsOf (path: string) =
+        let workspace = AgentWorkspace.create (readSnapshot path) |> unwrap
+        { Functions = AgentWorkspace.listFunctions workspace
+          Types = AgentWorkspace.listTypes workspace
+          Effects = AgentWorkspace.listEffects workspace
+          Capabilities = AgentWorkspace.listCapabilities workspace },
+        StableId.value (AgentWorkspace.currentSnapshotId workspace)
+
+    /// `references`, `search` and `unreferenced` requests built from the declarations the Zig host
+    /// lists for `snapshot` (its `declarations` reply, which the parity tests hold equal to the F#
+    /// host's): every declaration and member by exact ID and by display names (as a string and as a
+    /// selector object), and searches for parts of their names. Function bodies come from
+    /// `functions` by ID. None when the Zig host does not open the snapshot.
+    let internal queriesFrom (functions: SemanticFunction list) (snapshot: string) =
+        let code, _, replies = run true [ "open"; "--snapshot"; snapshot; "--read-only" ] [ """{"id":"d","op":"declarations"}""" ]
+        let reply = if code = 0 && not replies.IsEmpty then Some(parseDocument replies.Head) else None
+        let build (declarations: JsonElement) =
+            let all (owner: JsonElement) (name: string) = owner.GetProperty(name).EnumerateArray() |> Seq.toList
+            let text (item: JsonElement) (name: string) = item.GetProperty(name).GetString()
+            let bodies = functions |> List.map (fun item -> StableId.value item.Id, item) |> Map.ofList
+            let quote (text: string) = JsonSerializer.Serialize text
+            let id = StableId.value
+            let byName kind (key: string) name =
+                [ $"""{{"id":"r","op":"references","kind":"{kind}","{key}":{quote name}}}"""
+                  $"""{{"id":"r","op":"references","kind":"{kind}","{key}":{{"name":{quote name}}}}}""" ]
+            let named kind exactKey (exact: string) (name: string) =
+                $"""{{"id":"r","op":"references","kind":"{kind}","{exactKey}":{quote exact}}}""" :: byName kind kind name
+            let parts (name: string) = [ name; name.ToUpperInvariant(); (if name.Length > 2 then name.Substring(1, 2) else name) ]
+            let listed = all declarations "functions" |> List.map (fun item -> bodies[text item "id"])
+            Some
+                [ for item in listed do
+                      yield! named "function" "functionId" (id item.Id) item.DisplayName
+                      yield! parts item.DisplayName |> List.map (fun text -> $"""{{"id":"q","op":"search","text":{quote text},"limit":3}}""")
+                  for item in all declarations "types" do
+                      let typeName = text item "displayName"
+                      yield! named "type" "typeId" (text item "id") typeName
+                      let kind = item.GetProperty "typeKind"
+                      match kind.GetProperty("kind").GetString() with
+                      | "product" ->
+                          for field in all kind "fields" do
+                              yield $"""{{"id":"r","op":"references","kind":"field","fieldId":{quote (text field "id")}}}"""
+                              yield $"""{{"id":"r","op":"references","kind":"field","type":{quote typeName},"field":{quote (text field "displayName")}}}"""
+                          yield $"""{{"id":"r","op":"references","kind":"variant","type":{quote typeName},"variant":"x"}}"""
+                      | _ ->
+                          for variant in all kind "variants" do
+                              yield $"""{{"id":"r","op":"references","kind":"variant","variantId":{quote (text variant "id")}}}"""
+                              yield $"""{{"id":"r","op":"references","kind":"variant","type":{{"id":{quote (text item "id")}}},"variant":{quote (text variant "displayName")}}}"""
+                              for field in all variant "fields" do
+                                  yield $"""{{"id":"r","op":"references","kind":"field","fieldId":{quote (text field "id")}}}"""
+                                  yield $"""{{"id":"r","op":"references","kind":"field","type":{quote typeName},"variant":{quote (text variant "displayName")},"field":{quote (text field "displayName")}}}"""
+                          yield $"""{{"id":"r","op":"references","kind":"field","type":{quote typeName},"field":"x"}}"""
+                  for item in all declarations "effects" do yield! named "effect" "effectId" (text item "id") (text item "displayName")
+                  for item in all declarations "capabilities" do
+                      let capabilityName = text item "displayName"
+                      yield! named "capability" "capabilityId" (text item "id") capabilityName
+                      for operation in all item "operations" do
+                          yield $"""{{"id":"r","op":"references","kind":"capabilityOperation","operationId":{quote (text operation "id")}}}"""
+                          yield $"""{{"id":"r","op":"references","kind":"capabilityOperation","capability":{quote capabilityName},"operation":{quote (text operation "displayName")}}}"""
+                          yield! parts (text operation "displayName") |> List.map (fun text -> $"""{{"id":"q","op":"search","text":{quote text}}}""")
+                  for item in all declarations "provenance" do
+                      let kind, itemId = text item "kind", text item "id"
+                      for ownership in [ "local"; "imported" ] do
+                          yield $"""{{"id":"r","op":"references","kind":"{kind}","{kind}":{{"id":{quote itemId},"ownership":"{ownership}"}}}}"""
+                      for source in all item "sources" do
+                          yield $"""{{"id":"r","op":"references","kind":"{kind}","{kind}":{{"id":{quote itemId},"dependencySnapshotId":{quote (text source "snapshotId")}}}}}"""
+                  for item in listed do
+                      for node in ValueGraph.collectNodes item.Body |> List.truncate 60 do
+                          yield $"""{{"id":"b","op":"bindingScopes","functionId":{quote (id item.Id)},"nodeId":{quote (id node.Id)}}}"""
+                      yield $"""{{"id":"b","op":"bindingScopes","function":{quote item.DisplayName},"nodeId":{quote (id item.Body.ResultNodeId)}}}"""
+                      yield $"""{{"id":"b","op":"bindingScopes","function":{quote item.DisplayName},"nodeId":"missing"}}"""
+                      yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)},"detail":"compact"}}"""
+                      yield $"""{{"id":"f","op":"readFunction","function":{quote item.DisplayName},"detail":"compact"}}"""
+                      yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)},"detail":"outline"}}"""
+                      yield $"""{{"id":"f","op":"readFunction","functionId":{quote (id item.Id)}}}"""
+                  yield """{"id":"e","op":"executionReadiness"}"""
+                  yield """{"id":"e","op":"executionReadiness","extra":true}"""
+                  yield """{"id":"u","op":"unreferenced"}"""
+                  for item in listed |> List.truncate 3 do
+                      yield $"""{{"id":"u","op":"unreferenced","roots":[{quote item.DisplayName}]}}""" ]
+        match reply with
+        | Some reply when reply.RootElement.GetProperty("ok").GetBoolean() -> build (reply.RootElement.GetProperty "result")
+        | _ -> None
+
+    /// `queriesFrom` on a snapshot without a dependency.
+    let internal queries (snapshot: string) = queriesFrom (readSnapshot snapshot).Functions snapshot |> Option.get
 
     /// A `SessionError` reply carries .NET's exception text, so it is compared by its code (and ID) only.
     let internal sessionErrorCode (reply: string) =
@@ -518,6 +592,108 @@ module ZigHostParityTests =
             if comparable expected <> comparable actual then
                 failwithf "%s line %d: %s\n F#:  %s\n Zig: %s" label (index + 1) request expected actual)
 
+    /// The ownership functions of the removed Bytes tests, created and committed with the F#
+    /// libraries as the F# session did (so the seeded IDs are the same), written to `path` with the
+    /// backend sidecar a new session writes.
+    let internal writeOwnershipSnapshot (path: string) =
+        let bytesType = TypeRef.Primitive PrimitiveType.Bytes
+        let intType = TypeRef.Primitive PrimitiveType.Int64
+        let listOf item = TypeRef.BuiltinGeneric(BuiltinGenericType.List, [ item ])
+        let slot = ExpressionRecipe.ParameterSlot
+        let mutable workspace = AgentWorkspace.create (Snapshot.empty (StableIdAllocator.newSnapshotId ())) |> unwrap
+        let create name parameters resultType body =
+            let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
+                { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = AgentWorkspace.currentSnapshotId workspace; DisplayName = name
+                  TypeParameters = None
+                  Parameters = parameters |> List.map (fun (name, t) -> { DisplayName = name; Type = t })
+                  ResultType = resultType; RequiredEffects = []; Body = body }
+            let proposal = AgentExpressionStructuralWorkflow.FunctionCreation.simulate workspace request |> unwrap
+            match AgentExpressionStructuralWorkflow.FunctionCreation.commit workspace proposal with
+            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Committed(candidate, _) -> workspace <- candidate
+            | AgentExpressionStructuralWorkflow.FunctionCreation.CommitResult.Rejected diagnostics -> failwithf "%A" diagnostics
+            AgentWorkspace.listFunctions workspace |> List.find (fun fn -> fn.DisplayName = name)
+        let value = ExpressionRecipe.PatternReference { ScopeDepth = 0; Slot = RecipePatternSlot.Value }
+        let plus1 recipe = ExpressionRecipe.Int64WrappingAdd(recipe, ExpressionRecipe.Int64Literal 1L)
+        // A tail-recursive fill: after the first copy, every turn writes into the same buffer.
+        let fillLoop =
+            create "fillLoop" [ "b", bytesType; "i", intType; "n", intType ] bytesType
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64LessThan(slot 1, slot 2),
+                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, slot 1, plus1 (slot 1)); 1, plus1 (slot 1); 2, slot 2 ],
+                    slot 0))
+        // The caller's buffer is unchanged by the loop it was passed to.
+        let keepsArgument =
+            create "keepsArgument" [ "b", bytesType ] (listOf bytesType)
+                (ExpressionRecipe.ListConstruct(bytesType,
+                    [ slot 0; ExpressionRecipe.DirectCall(fillLoop.Id, [ fillLoop.Parameters[0].Id, slot 0; fillLoop.Parameters[1].Id, ExpressionRecipe.Int64Literal 0L; fillLoop.Parameters[2].Id, ExpressionRecipe.Int64Literal 3L ]) ]))
+        // A buffer stored into a list must not change when the loop updates it on a later turn.
+        let snapshots =
+            create "snapshots" [ "buf", bytesType; "acc", listOf bytesType; "i", intType ] (listOf bytesType)
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64LessThan(slot 2, ExpressionRecipe.Int64Literal 3L),
+                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, slot 2); 1, ExpressionRecipe.ListAppendItem(slot 1, slot 0); 2, plus1 (slot 2) ],
+                    slot 1))
+        // One buffer passed as two arguments of a tail self-call: updating one must not change the other.
+        let twins =
+            create "twins" [ "a", bytesType; "c", bytesType; "i", intType ] (listOf bytesType)
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64LessThan(slot 2, ExpressionRecipe.Int64Literal 1L),
+                    ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 1L),
+                        ExpressionRecipe.SelfCall [ 0, value; 1, value; 2, ExpressionRecipe.Int64Literal 1L ]),
+                    ExpressionRecipe.ListConstruct(bytesType, [ ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 5L); slot 1 ])))
+        // The old value is read after the update: the update copies.
+        let oldAndNew =
+            create "oldAndNew" [ "b", bytesType ] (listOf bytesType)
+                (ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
+                    ExpressionRecipe.ListConstruct(bytesType, [ value; slot 0 ])))
+        // The same read-after-update on a buffer the invocation already owns (second loop turn): a wrong
+        // in-place decision would show up in the result here, not only in the plan.
+        let ownedOldAndNew =
+            create "ownedOldAndNew" [ "b", bytesType; "i", intType ] (listOf bytesType)
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 1L),
+                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 1L, ExpressionRecipe.Int64Literal 1L); 1, plus1 (slot 1) ],
+                    ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
+                        ExpressionRecipe.ListConstruct(bytesType, [ value; slot 0 ]))))
+        // The old value returned through a conditional's merge block, which has no instruction of its
+        // own: on an owned buffer (second turn) the update must still copy.
+        let ownedMergeReturn =
+            create "ownedMergeReturn" [ "b", bytesType; "i", intType ] bytesType
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 1L),
+                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 1L, ExpressionRecipe.Int64Literal 1L); 1, plus1 (slot 1) ],
+                    ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
+                        ExpressionRecipe.Conditional(ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 5L), slot 0, slot 0))))
+        // Appending in a loop grows one buffer.
+        let appendLoop =
+            create "appendLoop" [ "b", bytesType; "i", intType ] bytesType
+                (ExpressionRecipe.Conditional(
+                    ExpressionRecipe.Int64LessThan(slot 1, ExpressionRecipe.Int64Literal 300L),
+                    ExpressionRecipe.SelfCall [ 0, ExpressionRecipe.BytesAppend(slot 0, slot 1); 1, plus1 (slot 1) ],
+                    slot 0))
+        // A loop that reads its buffer beside the update: lowering must emit the read first, whatever
+        // order the node IDs happen to have, so the update can still write in place. Several copies,
+        // because IDs created within one millisecond are ordered by their random bits.
+        let readerLoops =
+            [ for k in 1..8 ->
+                create $"readerLoop{k}" [ "b", bytesType; "i", intType; "n", intType; "acc", intType ] intType
+                    (ExpressionRecipe.Conditional(
+                        ExpressionRecipe.Int64LessThan(slot 1, slot 2),
+                        ExpressionRecipe.SelfCall
+                            [ 0, ExpressionRecipe.BytesSet(slot 0, slot 1, ExpressionRecipe.Int64Literal 1L)
+                              1, plus1 (slot 1)
+                              2, slot 2
+                              3, ExpressionRecipe.Int64WrappingAdd(slot 3, ExpressionRecipe.BytesLength(slot 0)) ],
+                        slot 3)) ]
+        // The old value read by a function value invoked after the update, which forces the copy.
+        let passBytes = create "passBytes" [ "b", bytesType ] bytesType (slot 0)
+        create "invokesOld" [ "b", bytesType ] (listOf bytesType)
+            (ExpressionRecipe.Bind(ExpressionRecipe.BytesSet(slot 0, ExpressionRecipe.Int64Literal 0L, ExpressionRecipe.Int64Literal 7L),
+                ExpressionRecipe.ListConstruct(bytesType, [ value; ExpressionRecipe.FunctionInvoke(ExpressionRecipe.FunctionReference passBytes.Id, [ slot 0 ]) ])))
+        |> ignore
+        File.WriteAllText(path, AgentWorkspace.serializeCurrentSnapshot workspace |> unwrap)
+        File.WriteAllText(path + ".backends.json", "{\"targets\": [\"csharp\"]}\n")
+
     /// Snapshots with the constructs the examples lack (aborts, waits, open obligations, long
     /// literals, Bytes updates), written into `dir`.
     let internal constructedSnapshots (dir: string) =
@@ -556,10 +732,7 @@ module ZigHostParityTests =
                     wide ] }
         // Bytes updates that write in place and that must copy (`copiedUpdates`).
         let ownership = Path.Combine(dir, "ownership.json")
-        do
-            use session = AuthoringSession.createNew ownership |> unwrap
-            BytesTests.ownershipFunctions session |> ignore
-            session.Close()
+        writeOwnershipSnapshot ownership
         (RecordCodecAllKindsTests.allKindSnapshots () @ [ fixture.Snapshot; incomplete; long ]
          |> List.mapi (fun index snapshot ->
              let path = Path.Combine(dir, $"kinds-{index}.json")
@@ -682,8 +855,7 @@ module ZigHostQueryParityTests =
             // One snapshot at a time: running them in parallel starved the timed runPure tests beside this one.
             let answered = Text.StringBuilder()
             for snapshot in snapshots dir @ constructed do
-                use session = AuthoringSession.openReadOnly snapshot |> unwrap
-                let requests = queries session
+                let requests = queries snapshot
                 let code, errors, answers = run true [ "open"; "--snapshot"; snapshot; "--read-only" ] requests
                 Assert.True((code = 0), errors)
                 let fsharp = fsharpReplies snapshot requests
@@ -720,43 +892,12 @@ module ZigHostQueryParityTests =
                     | _ -> ()
                 let path = Path.Combine(dir, $"unordered-{index}.json")
                 File.WriteAllText(path, doc.ToJsonString(), Text.UTF8Encoding false)
-                use session = AuthoringSession.openReadOnly path |> unwrap
-                let requests = queries session
+                let requests = queries path
                 let expected = fsharpReplies path requests
                 let code, errors, actual = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
                 Assert.True((code = 0), errors)
                 sameAnswers (Path.GetFileName path) expected actual requests
             Assert.True(reversed > 0, "No ID-keyed input collection was reordered."))
-
-/// Its own class, so xunit runs it beside the other host parity tests.
-module ZigHostSeedTests =
-    open ZigHostParityTests
-
-    /// With the seed, two runs of the F# host on the same requests answer the same, new IDs included.
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``The F# host allocates the same IDs for the same seed`` () =
-        // Checks the F# host itself (random snapshot names); nothing to check once it is replayed.
-        if hostReference = "live" then withDirectory (fun dir ->
-            let request =
-                """{"id":"c","op":"simulateCreateFunctionByName","exported":true,"displayName":"flag","parameters":[],"resultType":{"kind":"primitive","primitive":"bool"},"requiredEffects":[],"body":{"kind":"boolLiteral","value":true}}"""
-            let session (seed: string) (text: string) =
-                let path = Path.Combine(dir, $"{Guid.NewGuid():N}.json")
-                File.WriteAllText(path, text)
-                let code, errors, answers = runWithEnvironment [ "NYRWVY_TEST_ID_SEED", seed ] false [ "open"; "--snapshot"; path; "--read-only" ] [ request ]
-                Assert.True((code = 0), errors)
-                Assert.Equal(seedWarning, errors)
-                Assert.Single answers
-            let fixture = MilestoneZeroGraph.create ()
-            let text = SnapshotCodec.serialize fixture.Snapshot |> unwrap
-            let first = session "parity" text
-            Assert.Contains("\"proposalId\":\"018bcfe5-68", first)
-            Assert.Equal(first, session "parity" text)
-            Assert.NotEqual<string>(first, session "other" text)
-            let taken = StableIdAllocator.seededPayload "parity" 30L
-            let output = session "parity" (text.Replace(StableId.value fixture.ValidateFunctionId, taken))
-            use reply = parseDocument output
-            let proposal = reply.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
-            Assert.True(StableIdAllocator.seededCount "parity" proposal > 30L, proposal))
 
 /// Its own class, so xunit runs it beside the other host parity tests.
 module ZigHostViewParityTests =
@@ -784,8 +925,7 @@ module ZigHostViewParityTests =
                     target, Path.Combine(target, Path.GetFileName source)
                 let fsharpDir, fsharpSnapshot = copy "fsharp"
                 let zigDir, zigSnapshot = copy "zig"
-                use session = AuthoringSession.openReadOnly fsharpSnapshot |> unwrap
-                let functions = session.Declarations().Functions
+                let functions = (fst (declarationsOf fsharpSnapshot)).Functions
                 let id (value: StableId<'Kind>) = StableId.value value
                 let requests =
                     [ for position, item in List.indexed functions do
@@ -870,36 +1010,6 @@ module ZigHostStartupParityTests =
             Assert.Contains("is a legacy schema, which the Zig host does not read", errors))
 
 /// Its own class, so xunit runs it beside the other host parity tests.
-module ZigHostLockParityTests =
-    open ZigHostParityTests
-
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``The Zig and F# hosts lock each other out and sweep temporaries`` () =
-        // Needs two live hosts at once; a replayed F# run holds no lock. Step 5 deletes this test.
-        if hostReference = "live" then withDirectory (fun dir ->
-            let snapshot = Path.Combine(dir, "locked.json")
-            File.Copy(Path.Combine(dir, (snapshots dir |> List.last)), snapshot)
-            let stray = Path.Combine(dir, ".locked.json.0123456789abcdef0123456789abcdef.tmp")
-            let foreign = Path.Combine(dir, ".locked.json.not-a-temporary.tmp")
-            for file in [ stray; foreign ] do File.WriteAllText(file, "")
-            for holder in [ false; true ] do
-                use held = start holder [ "open"; "--snapshot"; snapshot ]
-                held.StandardInput.WriteLine """{"id":"s","op":"status"}"""
-                Assert.Contains("\"ok\":true", held.StandardOutput.ReadLine())
-                let code, errors, _ = run (not holder) [ "open"; "--snapshot"; snapshot ] []
-                Assert.Equal(2, code)
-                Assert.Equal($"LockUnavailable: {snapshot} is open in another authoring session. Close that session first.", errors)
-                // Read-only takes no lock.
-                let code, _, _ = run (not holder) [ "open"; "--snapshot"; snapshot; "--read-only" ] [ """{"id":"s","op":"status"}""" ]
-                Assert.Equal(0, code)
-                held.StandardInput.Close()
-                held.WaitForExit()
-                if holder then
-                    Assert.False(File.Exists stray, "The Zig host left a temporary of an interrupted write.")
-                    Assert.True(File.Exists foreign, "The Zig host removed a file outside the temporary pattern.")
-                File.WriteAllText(stray, ""))
-
-/// Its own class, so xunit runs it beside the other host parity tests.
 module ZigHostResolvedParityTests =
     open ZigHostParityTests
 
@@ -932,11 +1042,9 @@ module ZigHostResolvedParityTests =
                     let request =
                         if not readOnly then request
                         else
-                            match AuthoringSession.openReadOnly path with
-                            | Ok session ->
-                                use session = session
-                                request @ queries session
-                            | Error _ -> request
+                            match queriesFrom (originals |> List.collect (fun snapshot -> snapshot.Functions)) path with
+                            | Some queries -> request @ queries
+                            | None -> request
                     let fsharpRun = run false arguments request
                     let fsharp, zig = shown fsharpRun, shown (run true arguments request)
                     Assert.True((fsharp = zig), $"{name}:\n F#:  {fsharp}\n Zig: {zig}")
@@ -1061,8 +1169,7 @@ module ZigTypedModelTests =
             // What a commit of each example writes, and of its resolved form (the declarations as an
             // imported dependency, the functions local), as `serializeWithDependency` writes it.
             for index, path in List.indexed (snapshots (Path.Combine(dir, "json") |> fun d -> Directory.CreateDirectory d |> ignore; d)) do
-                use session = AuthoringSession.openReadOnly path |> unwrap
-                let snapshot = session.CommitJson() |> unwrap |> SnapshotCodec.deserialize |> unwrap
+                let snapshot = AgentWorkspace.create (readSnapshot path) |> unwrap |> AgentWorkspace.serializeCurrentSnapshot |> unwrap |> SnapshotCodec.deserialize |> unwrap
                 plain $"example-{index}" snapshot
                 let snapshot = recordFixture $"resolved-{index}" snapshot
                 let dependencyId = StableIdAllocator.seededPayload "record-fixture:typed-dependency" (int64 index + 1L) |> StableId.createForTesting<SnapshotTag>
@@ -1232,7 +1339,7 @@ module ZigHostCreateDecodeTests =
               yield line (ok.Replace("\"parameters\":[]", "\"parameters\":[{\"displayName\":\"x\",\"type\":" + t + "}]")) ]
 
     /// Requests that reach each preflight diagnostic (step 3c-3a), against the session's declarations.
-    let private preflightRequests (declarations: AuthoringDeclarations) (snapshotId: string) =
+    let private preflightRequests (declarations: FixtureDeclarations) (snapshotId: string) =
         let line (fields: string) (body: string) = $"""{{"id":"p","op":"simulateCreateFunction",{fields},"body":{body}}}"""
         let unitType = """{"kind":"primitive","primitive":"unit"}"""
         let int64Type = """{"kind":"primitive","primitive":"int64"}"""
@@ -1282,8 +1389,8 @@ module ZigHostCreateDecodeTests =
         withDirectory (fun dir ->
             let path = Path.Combine(dir, "decode.json")
             File.WriteAllText(path, SnapshotCodec.serialize (MilestoneZeroGraph.create ()).Snapshot |> unwrap)
-            use session = AuthoringSession.openReadOnly path |> unwrap
-            let requests = recipeRequests () @ requestMutations () @ preflightRequests (session.Declarations()) (StableId.value session.SnapshotId)
+            let declarations, snapshotId = declarationsOf path
+            let requests = recipeRequests () @ requestMutations () @ preflightRequests declarations snapshotId
             let expected, answers = seededPair "create-decode" path requests
             let mutable rejected = 0
             let mutable preflight = 0
@@ -1325,8 +1432,7 @@ module ZigHostLoneSurrogateTests =
         withDirectory (fun dir ->
             let path = Path.Combine(dir, "lone.json")
             File.WriteAllText(path, SnapshotCodec.serialize (MilestoneZeroGraph.create ()).Snapshot |> unwrap)
-            use session = AuthoringSession.openReadOnly path |> unwrap
-            let requests = spoiled (queries session)
+            let requests = spoiled (queries path)
             let code, errors, answers = run true [ "open"; "--snapshot"; path; "--read-only" ] requests
             Assert.True((code = 0), errors)
             let fsharp = fsharpReplies path requests |> List.map sessionErrorCode
@@ -1342,7 +1448,7 @@ module ZigHostCreateByNameTests =
 
     /// Requests for a session's declarations: a valid instance of each by-name recipe kind (from
     /// tools/zig/host/recipe_kinds_byname.txt), broken one way at a time, and the signature around it.
-    let internal requests (declarations: AuthoringDeclarations) (snapshotId: string) =
+    let internal requests (declarations: FixtureDeclarations) (snapshotId: string) =
         let first fallback items = items |> List.tryHead |> Option.defaultValue fallback
         let products = declarations.Types |> List.choose (fun t -> match t.Kind with SemanticTypeKind.Product fields when not fields.IsEmpty -> Some(t.DisplayName, fields.Head.DisplayName) | _ -> None)
         // Prefer members with members of their own; fall back to any, so names still resolve partway.
@@ -1540,8 +1646,7 @@ module ZigHostCreateByNameTests =
             let mismatches = ResizeArray<string>()
             let answered = Text.StringBuilder()
             for snapshot in snapshots dir do
-                use session = AuthoringSession.openReadOnly snapshot |> unwrap
-                let lines = requests (session.Declarations()) (StableId.value session.SnapshotId)
+                let lines = declarationsOf snapshot ||> requests
                 let expected, answers = seededPair "create-by-name" snapshot lines
                 for request, (fsharp, zig) in List.zip lines (List.zip expected answers) do
                     answered.Append(fsharp) |> ignore
@@ -2289,13 +2394,12 @@ module ZigHostReplaceBodyTests =
             File.WriteAllText(inference, SnapshotCodec.serialize (ZigHostCreateInferenceTests.snapshot ()) |> unwrap)
             let mutable protocols = 0
             for source in inference :: snapshots dir do
-                use session = AuthoringSession.openReadOnly source |> unwrap
-                let declarations = session.Declarations()
+                let declarations, snapshotId = declarationsOf source
                 let f = declarations.Functions.Head
                 let requests =
                     mutations f
                     @ (bodies (ZigHostCreateDecodeTests.recipeRequests ()) |> List.map (exact f))
-                    @ (bodies (ZigHostCreateByNameTests.requests declarations (StableId.value session.SnapshotId)) |> List.map (symbolic f))
+                    @ (bodies (ZigHostCreateByNameTests.requests declarations snapshotId) |> List.map (symbolic f))
                 let replies = strictPair "replace-decode" source requests
                 protocols <- protocols + (replies |> List.filter (fun r -> r.Contains "\"code\":\"ProtocolError\"") |> List.length)
             Assert.True(protocols > 1000, $"Only {protocols} decode rejections."))
@@ -2363,8 +2467,7 @@ module ZigHostReplaceBodyTests =
             let inference = Path.Combine(dir, "inference.json")
             File.WriteAllText(inference, SnapshotCodec.serialize (ZigHostCreateInferenceTests.snapshot ()) |> unwrap)
             for source in inference :: snapshots dir do
-                use session = AuthoringSession.openReadOnly source |> unwrap
-                let functions = session.Declarations().Functions
+                let functions = (fst (declarationsOf source)).Functions
                 let lines =
                     [ for f in functions do
                           // A complete self call preserves the result type and existing parameter IDs.
@@ -2559,8 +2662,7 @@ module ZigHostReplaceBodyTests =
                     root["targetNodeId"] <- JsonValue.Create (StableId.value node))
             let mutable successes = 0
             for path in source :: snapshots dir do
-                use session = AuthoringSession.openReadOnly path |> unwrap
-                let functions = session.Declarations().Functions
+                let functions = (fst (declarationsOf path)).Functions
                 let requests =
                     [ for f in functions do
                           // Body wrappers take the same target path, including the allocated old-root ID

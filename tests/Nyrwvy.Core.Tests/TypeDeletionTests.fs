@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Text.Json
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 module TypeDeletionTests =
@@ -146,39 +145,3 @@ module TypeDeletionTests =
         let removed = AgentChangeProposal.review proposal |> fun review -> List.exactlyOne review.ResultingChange.Diff.TypesRemoved
         Assert.Equal<VariantId list>([ variantId ], removed.RemovedVariantIds)
         Assert.Equal<FieldId list>([ unionFieldId ], removed.RemovedFieldIds)
-
-    [<Fact>]
-    let ``JSONL simulates and commits function and type cleanup across reopen`` () =
-        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-delete-type-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(root) |> ignore
-        let path = Path.Combine(root, "workspace.json")
-        try
-            let initial = fixture ()
-            File.WriteAllText(path, SnapshotCodec.serialize initial |> function
-                | Ok text -> text
-                | Error error -> failwithf "Serialization failed: %A" error)
-            use session = AuthoringSession.openExisting path |> function
-                | Ok value -> value
-                | Error error -> failwithf "Open failed: %A" error
-            let command =
-                $"""{{"id":"cleanup","op":"simulateOperations","operations":[{{"kind":"deleteType","typeId":"{StableId.value removedTypeId}"}},{{"kind":"deleteFunction","functionId":"{StableId.value obsoleteFunctionId}"}}]}}"""
-            use response = AuthoringProtocol.executeLine session command |> JsonDocument.Parse
-            Assert.True(response.RootElement.GetProperty("ok").GetBoolean(), response.RootElement.ToString())
-            let result = response.RootElement.GetProperty("result")
-            Assert.Equal(1, result.GetProperty("review").GetProperty("diff").GetProperty("typesRemoved").GetArrayLength())
-            let proposalId = result.GetProperty("proposalId").GetString()
-            use commit =
-                AuthoringProtocol.executeLine session ($"""{{"id":"commit","op":"commit","proposalId":"{proposalId}"}}""")
-                |> JsonDocument.Parse
-            Assert.True(commit.RootElement.GetProperty("ok").GetBoolean(), commit.RootElement.ToString())
-            session.Close()
-            use reopened = AuthoringSession.openExisting path |> function
-                | Ok value -> value
-                | Error error -> failwithf "Reopen failed: %A" error
-            let snapshot = SnapshotCodec.deserialize (File.ReadAllText path) |> function
-                | Ok value -> value
-                | Error error -> failwithf "Stored snapshot invalid: %A" error
-            Assert.Equal<TypeId list>([ retainedTypeId ], snapshot.Types |> List.map (fun item -> item.Id))
-            Assert.Equal<FunctionId list>([ retainedFunctionId ], snapshot.Functions |> List.map (fun item -> item.Id))
-        finally
-            if Directory.Exists root then Directory.Delete(root, true)

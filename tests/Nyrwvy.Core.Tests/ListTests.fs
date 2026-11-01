@@ -185,48 +185,6 @@ module ListTests =
         childProcess.ExitCode, stdoutTask.Result, stderrTask.Result
 
     [<Fact>]
-    let ``List nodes expose complete types dependencies and viewer roles`` () =
-        let fixture = createFixture ()
-        Assert.Empty(SnapshotValidator.validate fixture.Snapshot)
-
-        let focus = SemanticQuery.focusFunction fixture.Snapshot fixture.PipelineFunctionId |> unwrap "pipeline focus"
-        let typesByNode = focus.NodeTypes |> List.map (fun item -> item.NodeId, item.Type) |> Map.ofList
-        Assert.Equal(Some int64ListType, Map.find fixture.FirstListNodeId typesByNode)
-        Assert.Equal(Some int64ListType, Map.find fixture.AppendedListNodeId typesByNode)
-        Assert.Equal(Some int64ListType, Map.find fixture.ConcatenatedListNodeId typesByNode)
-        Assert.Equal(Some int64Type, Map.find fixture.PipelineLengthNodeId typesByNode)
-
-        let dependencies =
-            SemanticQuery.getDependencies fixture.Snapshot fixture.PipelineFunctionId fixture.ConcatenatedListNodeId
-            |> unwrap "concat dependencies"
-        Assert.Equal<GraphNodeId list>(
-            [ fixture.AppendedListNodeId; fixture.SecondListNodeId ] |> List.sortBy StableId.value,
-            dependencies
-        )
-
-        let viewer = ViewerProjection.focus focus
-        let roles = viewer.Graph.Nodes |> List.map (fun node -> node.Role)
-        for role in
-            [ ViewerNodeRole.Operation "ListConstruct"
-              ViewerNodeRole.Operation "ListAppendItem"
-              ViewerNodeRole.Operation "ListConcat"
-              ViewerNodeRole.Operation "ListLength" ] do
-            Assert.Contains(role, roles)
-
-        let emptyViewer =
-            SemanticQuery.focusFunction fixture.Snapshot fixture.EmptyLengthFunctionId
-            |> unwrap "empty focus"
-            |> ViewerProjection.focus
-        Assert.Contains(ViewerNodeRole.Operation "ListEmpty", emptyViewer.Graph.Nodes |> List.map (fun node -> node.Role))
-
-        let html = ViewerRendering.focus viewer
-        Assert.Contains("List construct", html)
-        Assert.Contains("List append item", html)
-        Assert.Contains("List concat", html)
-        Assert.Contains("List length", html)
-        Assert.Contains("<code>List&lt;Int64&gt;</code>", html)
-
-    [<Fact>]
     let ``List validation reports precise shape and item type failures`` () =
         let fixture = createFixture ()
 

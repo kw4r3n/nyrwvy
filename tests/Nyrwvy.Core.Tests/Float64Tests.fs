@@ -256,45 +256,6 @@ module Float64Tests =
         Assert.Equal("8000000000000000", Float64Bits.toHex negativeZero)
 
     [<Fact>]
-    let ``Float64 nodes expose local types dependencies exact literals and viewer roles`` () =
-        let fixture = createFixture ()
-        Assert.Empty(SnapshotValidator.validate fixture.Snapshot)
-
-        let focus = SemanticQuery.focusFunction fixture.Snapshot fixture.AddFunctionId |> unwrap "Focus query"
-        let resultType =
-            focus.NodeTypes
-            |> List.find (fun item -> item.NodeId = fixture.AddResultNodeId)
-            |> fun item -> item.Type
-        Assert.Equal(Some float64Type, resultType)
-
-        let dependencies =
-            SemanticQuery.getDependencies fixture.Snapshot fixture.AddFunctionId fixture.AddResultNodeId
-            |> unwrap "Dependency query"
-        let expectedDependencies = [ fixture.AddLeftNodeId; fixture.AddRightNodeId ] |> List.sortBy StableId.value
-        Assert.Equal<GraphNodeId list>(expectedDependencies, dependencies)
-
-        let zeroFocus =
-            SemanticQuery.focusFunction fixture.Snapshot fixture.ZeroEqualFunctionId
-            |> unwrap "Signed-zero Focus query"
-            |> ViewerProjection.focus
-        requireMatch
-            "Float64Equal viewer role"
-            (fun node -> node.Role = ViewerNodeRole.Operation "Float64Equal")
-            zeroFocus.Graph.Nodes
-        requireMatch
-            "negative-zero viewer literal"
-            (fun node ->
-                match node.Role with
-                | ViewerNodeRole.Float64Literal value -> Float64Bits.value value = 0x8000000000000000UL
-                | _ -> false)
-            zeroFocus.Graph.Nodes
-
-        let html = ViewerRendering.focus zeroFocus
-        Assert.Contains("Float64 equal", html)
-        Assert.Contains("Float64 literal 0x8000000000000000", html)
-        Assert.Contains("<code>Float64</code>", html)
-
-    [<Fact>]
     let ``Float64 operations and classifiers reject non-Float64 operands`` () =
         let fixture = createFixture ()
         let invalidBinary =

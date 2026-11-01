@@ -17,7 +17,7 @@ or whole-program equivalence from sampled agreement.
 ## Reproduce
 
 From the repository root, after installing the existing locked dependencies and
-building the Release AuthoringSession:
+building the Zig session host (`npm run build:host`):
 
 ```sh
 node examples/config-request-batch/run.mjs --v2 /path/to/empty-baseline

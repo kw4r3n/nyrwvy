@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Text.Json
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// Adding a Union variant with fields "like" an existing variant, with every match arm cloned.
@@ -147,34 +146,6 @@ module UnionVariantWithFieldsTests =
             code (AgentUnionVariantEvolutionWorkflow.simulateWithFields ws (like ws "Ring") [ { inner with DisplayName = "radius" } ]))
         Assert.Equal("UnionVariantEvolutionDuplicateVariantDisplayName",
             code (AgentUnionVariantEvolutionWorkflow.simulateWithFields ws (like ws "Empty") []))
-
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``variant with fields is added over the wire and runs through the cloned arm`` () =
-        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-variant-fields-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(root) |> ignore
-        let path = Path.Combine(root, "workspace.json")
-        try
-            File.WriteAllText(path, AgentWorkspace.serializeCurrentSnapshot (fixture ()) |> unwrap "serialize")
-            use session = AuthoringSession.openExisting path |> unwrap "open"
-            let line =
-                sprintf """{"id":"variant","op":"simulateAddUnionVariantLike","typeId":"%s","sourceVariantId":"%s","displayName":"Ring","additionalFields":[{"displayName":"inner","type":{"kind":"primitive","primitive":"int64"}}]}"""
-                    (StableId.value shapeId) (StableId.value circleId)
-            use proposed = AuthoringProtocol.executeLine session line |> JsonDocument.Parse
-            Assert.True(proposed.RootElement.GetProperty("ok").GetBoolean(), proposed.RootElement.ToString())
-            let proposalId = proposed.RootElement.GetProperty("result").GetProperty("proposalId").GetString()
-            use committed = AuthoringProtocol.executeLine session (sprintf """{"id":"commit","op":"commit","proposalId":"%s"}""" proposalId) |> JsonDocument.Parse
-            Assert.True(committed.RootElement.GetProperty("ok").GetBoolean(), committed.RootElement.ToString())
-            let shape = session.Declarations().Types |> List.find (fun item -> item.Id = shapeId)
-            let ring =
-                match shape.Kind with
-                | SemanticTypeKind.Union variants -> variants |> List.find (fun variant -> variant.DisplayName = "Ring")
-                | _ -> failwith "Shape must stay a Union."
-            let area = (session.Declarations().Functions |> List.exactlyOne).Id
-            let fields = ring.Fields |> List.map (fun field -> field.Id, PureRunValue.Int64(if field.DisplayName = "radius" then 7L else 2L))
-            let result = PureRun.run session area [ PureRunValue.Union(shapeId, [], ring.Id, fields) ] (Some(PureRunValue.Int64 49L)) |> unwrap "run"
-            Assert.Equal(Some true, result.Matches)
-        finally
-            if Directory.Exists root then Directory.Delete(root, true)
 
     [<Fact>]
     let ``a variant like a generic source variant binds its fields at a concrete match input's type arguments`` () =

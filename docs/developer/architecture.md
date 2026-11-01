@@ -175,7 +175,7 @@ validation, including commit re-simulation results and semantic-fingerprint
 normalization.
 No-scope callers use the uncached oracle. External-file/dependency checks and
 publication I/O are never memoized. Optional measurement/reuse-disable controls
-support the [authoring profiling probe](../../scripts/measure-authoring-passes.fsx),
+support the authoring profiling probe (`scripts/measure-authoring-passes.fsx`, removed with the F# host; tag `fsharp-host-final`),
 not a semantic-validation bypass.
 
 ## Identity

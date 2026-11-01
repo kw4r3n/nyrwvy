@@ -36,7 +36,7 @@ faults; the earliest-started faulted child wins even under reverse completion.
 The join helper masks its caller cancellation only while waiting; child scope
 tokens are already captured and stay linked to their original owner.
 
-From the repository root, with the Release AuthoringSession built and locked
+From the repository root, with the Zig session host built (`npm run build:host`) and locked
 Node dependencies installed, run each command serially in Nushell:
 
 ```nu

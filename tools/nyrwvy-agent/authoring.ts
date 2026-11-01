@@ -318,14 +318,12 @@ async function launchAuthoring(
   if (!(await stat(worktree).catch(() => undefined))?.isDirectory()) throw new Error(`workspace directory does not exist: ${worktree}`)
   const workspace = resolve(worktree, snapshot)
   const root = resolve(context.repositoryRoot ?? context.worktree)
-  // The native host is the default; NYRWVY_HOST=fsharp selects the deprecated F# host, and an explicit
-  // NYRWVY_HOST_EXECUTABLE (relative to the repository root; a `.dll` launches through dotnet) wins over both.
+  // The native host; an explicit NYRWVY_HOST_EXECUTABLE (relative to the repository root; a `.dll`
+  // launches through dotnet) overrides it. The F# host was removed (tag fsharp-host-final).
   const selection = process.env.NYRWVY_HOST || "zig"
-  if (selection !== "fsharp" && selection !== "zig") throw new Error(`NYRWVY_HOST must be zig or fsharp, not ${selection}.`)
+  if (selection !== "zig") throw new Error(`NYRWVY_HOST must be zig, not ${selection}; the F# host was removed (tag fsharp-host-final).`)
   const selected = process.env.NYRWVY_HOST_EXECUTABLE
-  const host = resolve(root, selected || (selection === "fsharp"
-    ? "tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll"
-    : `tools/zig/host/bin/nyrwvy-host${process.platform === "win32" ? ".exe" : ""}`))
+  const host = resolve(root, selected || `tools/zig/host/bin/nyrwvy-host${process.platform === "win32" ? ".exe" : ""}`)
   const managed = /\.dll$/i.test(host)
   const executable = managed ? "dotnet" : host
   // Mode read is open without the workspace lock; the session cannot commit.

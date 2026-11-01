@@ -160,9 +160,6 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
         let initialFocus = SemanticQuery.focusFunction reloaded fixture.ValidateFunctionId |> unwrap "initial focus query"
         if initialFocus.Function.Id <> fixture.ValidateFunctionId then
             failwith "Focus query changed validate_user semantic identity."
-        let initialFocusArtifact = ViewerArtifact.ofFocus initialFocus
-        if not (initialFocusArtifact.Content.Contains(StableId.value fixture.ValidateFunctionId, StringComparison.Ordinal)) then
-            failwith "Focus artifact does not expose the selected stable function identity."
 
         // 5. Lower, generate, compile, and execute the initial program.
         let initialArtifact = lowerAndEmit fixture reloaded
@@ -248,9 +245,6 @@ NyFunctions.{mainFunctionName}(invalidEmail, policy, console);
         if affectedFunctions <> expectedAffectedFunctions then
             failwithf "Unexpected affected function slice: %A" changeReview.AffectedFunctionIds
 
-        let reviewArtifact = ViewerArtifact.ofChangeReview changeReview
-        if not (reviewArtifact.Content.Contains(StableId.value obligationId, StringComparison.Ordinal)) then
-            failwith "Change Review artifact does not expose the blocking obligation identity."
 
         match SemanticWorkspace.commit renamedWorkspace addParameterRequest with
         | WorkspaceCommitResult.Rejected [ diagnostic ] when diagnostic.Code = "BlockingObligations" -> ()

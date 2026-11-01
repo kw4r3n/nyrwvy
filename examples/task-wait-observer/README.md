@@ -79,7 +79,7 @@ a new fail-fast policy.
 From the repository root, with Node 22.6+ and installed .NET 10:
 
 ```nu
-dotnet build tools/Nyrwvy.AuthoringSession --configuration Release -m:1
+npm run build:host
 node --test .opencode/tests-extended/nyrwvy-authoring-task-wait-observer.test.mjs
 ```
 

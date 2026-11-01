@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Threading.Tasks
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 module SnapshotComputationScopeTests =
@@ -98,46 +97,3 @@ module SnapshotComputationScopeTests =
         for result in results do Assert.Empty(result)
         Assert.Equal(1, (metric "validation" scope).Computations)
         Assert.Equal(15, (metric "validation" scope).CacheHits)
-
-    [<Theory>]
-    [<InlineData("rename")>]
-    [<InlineData("create")>]
-    let ``session passes reuse validation without caching or skipping persistence`` operation =
-        let fixture = TestGraph.create ()
-        let phase reuse action =
-            use scope = SnapshotComputationScope.Start(reuse = reuse, measure = true)
-            let result = action ()
-            result, scope.Measurements
-        let run reuse =
-            let directory = Path.Combine(Path.GetTempPath(), "nyrwvy-scope-" + Guid.NewGuid().ToString("N"))
-            Directory.CreateDirectory directory |> ignore
-            try
-                let path = Path.Combine(directory, "snapshot.json")
-                File.WriteAllText(path, SnapshotCodec.serialize fixture.Snapshot |> unwrap)
-                use session = AuthoringSession.openExisting path |> unwrap
-                let before = File.ReadAllText path
-                let proposal, simulation = phase reuse (fun () ->
-                    match operation with
-                    | "rename" -> session.SimulateOperations [ AgentOperationIntent.RenameDisplayName(AgentRenameTarget.Function fixture.ValidateFunctionId, "renamed") ] |> unwrap
-                    | "create" -> session.SimulateCreateFunction
-                                        { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = fixture.Snapshot.Id; DisplayName = "created"; Parameters = []
-                                          TypeParameters = None
-                                          ResultType = TypeRef.Primitive PrimitiveType.Int64; RequiredEffects = []
-                                          Body = ExpressionRecipe.Int64Literal 1L } |> unwrap
-                    | _ -> failwith "Unknown operation")
-                Assert.Equal(before, File.ReadAllText path)
-                let receipt, publication = phase reuse (fun () -> session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap)
-                let persisted = File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap
-                Assert.Equal(receipt.PublishedSnapshotId, persisted.Id)
-                Assert.NotEqual<string>(before, File.ReadAllText path)
-                let measurements = simulation @ publication
-                let runs name = measurements |> List.filter (fun item -> item.Name = name) |> List.sumBy (fun item -> item.Computations)
-                Assert.Equal(1, runs "persistence.replace")
-                runs "validation"
-            finally Directory.Delete(directory, true)
-        let baseline = run false
-        let reused = run true
-        // A base opened through the Zig reader is not validated again in F#, so the uncached count
-        // is lower with Zig (8 for "create") than with the F# reader (10 or more).
-        Assert.True(baseline >= 8, $"Unexpected uncached workload: {baseline}")
-        Assert.True(reused <= 6 && reused < baseline, $"Validation passes: uncached={baseline}, reused={reused}")

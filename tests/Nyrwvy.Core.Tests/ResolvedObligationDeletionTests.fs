@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Text.Json
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 module ResolvedObligationDeletionTests =
@@ -107,47 +106,3 @@ module ResolvedObligationDeletionTests =
         let combined = simulate opened [SemanticOperation.ResolveMissingArgument {TargetObligationId=left.Obligation;ResolutionValueNodeId=left.Value};SemanticOperation.DeleteFunction left.Caller.Id]
         let retired = (Assert.Single combined.Diff.FunctionsRemoved).RetiredObligations |> Assert.Single
         Assert.Equal(ObligationStatus.Resolved {TransactionId=combined.TransactionId;ValueNodeId=left.Value},retired.Status)
-
-    [<Theory; InlineData(true); InlineData(false)>]
-    let ``session deletion reviews expose retirement before commit and reopen without dangling obligations`` named =
-        let left, right, _, _, before = fixture ()
-        let root = Path.Combine(Path.GetTempPath(),"nyrwvy-obligation-retirement-"+Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory root |> ignore
-        let path=Path.Combine(root,"workspace.json")
-        let old=before.Obligations |> List.find (fun item -> item.Id=left.Obligation)
-        try
-            File.WriteAllText(path,SnapshotCodec.serialize before |> unwrap)
-            use session=AuthoringSession.openExisting path |> unwrap
-            let operation = if named then $""""op":"simulateOperationsByName","operations":[{{"kind":"deleteFunction","function":"leftCaller"}},{{"kind":"deleteFunction","function":"leftCallee"}}]""" else $""""op":"simulateOperations","operations":[{{"kind":"deleteFunction","functionId":"{StableId.value left.Caller.Id}"}},{{"kind":"deleteFunction","functionId":"{StableId.value left.Callee.Id}"}}]"""
-            let raw=AuthoringProtocol.executeLine session $"""{{"id":"delete",{operation}}}"""
-            use response=JsonDocument.Parse raw
-            Assert.True(response.RootElement.GetProperty("ok").GetBoolean(),raw)
-            let result=response.RootElement.GetProperty("result")
-            let removed=result.GetProperty("review").GetProperty("diff").GetProperty("functionsRemoved").EnumerateArray() |> Seq.find (fun item -> item.GetProperty("functionId").GetString()=StableId.value left.Caller.Id)
-            let record=(removed.GetProperty("retiredObligations"))[0]
-            Assert.Equal(StableId.value old.Id,record.GetProperty("obligationId").GetString())
-            Assert.Equal(StableId.value old.OriginTransactionId,record.GetProperty("originTransactionId").GetString())
-            Assert.Equal(StableId.value old.CallNodeId,record.GetProperty("callNodeId").GetString())
-            Assert.Equal(StableId.value old.ParameterId,record.GetProperty("parameterId").GetString())
-            match old.Status with
-            | ObligationStatus.Resolved resolution ->
-                Assert.Equal("resolved",record.GetProperty("status").GetProperty("kind").GetString())
-                Assert.Equal(StableId.value resolution.TransactionId,record.GetProperty("status").GetProperty("transactionId").GetString())
-                Assert.Equal(StableId.value resolution.ValueNodeId,record.GetProperty("status").GetProperty("valueNodeId").GetString())
-            | _ -> failwith "Expected resolved fixture"
-            let id=result.GetProperty("proposalId").GetString()
-            let view=session.PendingProposalView id |> unwrap
-            let _,artifact=ViewerFile.writeProposalReview path None view (fun target -> session.FocusFunction target |> Result.toOption) |> unwrap
-            let content=ViewerRendering.page artifact.Content
-            Assert.Contains("Retired resolved obligation",content)
-            for expected in [old.Id |> StableId.value;old.OriginTransactionId |> StableId.value;old.CallNodeId |> StableId.value;old.ParameterId |> StableId.value] do Assert.Contains(expected,content)
-            Assert.Equal(SnapshotCodec.serialize before |> unwrap,File.ReadAllText path)
-            session.Commit(id,CommitPolicy.RejectBlockingObligations) |> unwrap |> ignore
-            session.Close()
-            use reopened=AuthoringSession.openExisting path |> unwrap
-            let stored=File.ReadAllText path |> SnapshotCodec.deserialize |> unwrap
-            Assert.Equal<ObligationId list>([right.Obligation],stored.Obligations |> List.map (fun item -> item.Id))
-            Assert.Equal<FunctionId list>([right.Callee.Id;right.Caller.Id] |> List.sort, reopened.Declarations().Functions |> List.map (fun item -> item.Id) |> List.sort)
-            Assert.Empty(SnapshotValidator.validate stored)
-        finally
-            Directory.Delete(root,true)

@@ -3,7 +3,6 @@ namespace Nyrwvy.Core.Tests
 open System
 open System.IO
 open Nyrwvy.Core
-open Nyrwvy.Tools.AuthoringSession
 open Xunit
 
 /// StringEncodeUtf8 (post-M2 order 67): the UTF-8 bytes of a String held one per code point
@@ -99,57 +98,3 @@ module StringEncodeUtf8Tests =
                                         { node with Kind = SemanticNodeKind.Int64Literal 1L }
                                     | _ -> node) } }) }
         Assert.Contains(SnapshotValidator.validate broken, fun issue -> issue.Code = "StringIntrinsicTypeMismatch")
-
-    [<Fact; Trait("Suite", "Extended")>]
-    let ``StringEncodeUtf8 matches Python's encoding, inverts StringDecodeUtf8Lossy and has the counted length`` () =
-        let root = Path.Combine(Path.GetTempPath(), "nyrwvy-string-encode-" + Guid.NewGuid().ToString("N"))
-        Directory.CreateDirectory(root) |> ignore
-        let path = Path.Combine(root, "workspace.json")
-        try
-            File.WriteAllText(path, SnapshotCodec.serialize (Snapshot.empty (id<SnapshotTag> "session")) |> unwrap "serialize")
-            let session = AuthoringSession.openExisting path |> unwrap "open"
-            let define name parameters resultType body =
-                let request: AgentExpressionStructuralWorkflow.FunctionCreation.Request =
-                    { MustNotWait = false; Exported = true; ExpectedBaseSnapshotId = (session.Status() |> unwrap "status").SnapshotId
-                      TypeParameters = None
-                      DisplayName = name
-                      Parameters = parameters
-                      ResultType = resultType
-                      RequiredEffects = []
-                      Body = body }
-                let proposal = session.SimulateCreateFunction request |> unwrap name
-                session.Commit(proposal.ProposalId, CommitPolicy.RejectBlockingObligations) |> unwrap ("commit " + name) |> ignore
-                session.Declarations().Functions |> List.find (fun fn -> fn.DisplayName = name)
-            let textParameter: AgentExpressionStructuralWorkflow.FunctionCreation.ParameterIntent = { DisplayName = "text"; Type = stringType }
-            let slot = ExpressionRecipe.ParameterSlot 0
-            let encode = define "encode" [ textParameter ] stringType (ExpressionRecipe.StringEncodeUtf8 slot)
-            // decode(encode(text)) and the byte count of text, for the same inputs.
-            let roundTrip = define "roundTrip" [ textParameter ] stringType (ExpressionRecipe.StringDecodeUtf8Lossy(ExpressionRecipe.StringEncodeUtf8 slot))
-            let encodedLength = define "encodedLength" [ textParameter ] intType (ExpressionRecipe.StringLength(ExpressionRecipe.StringEncodeUtf8 slot))
-            let byteCount = define "byteCount" [ textParameter ] intType (ExpressionRecipe.StringUtf8ByteCount slot)
-            let table name (fn: SemanticFunction) resultType =
-                define name [] (listOf resultType)
-                    (ExpressionRecipe.ListConstruct(resultType, cases |> List.map (fun (input, _) -> ExpressionRecipe.DirectCall(fn.Id, [ fn.Parameters.Head.Id, text input ]))))
-            let run (fn: SemanticFunction) expected =
-                let result = PureRun.run session fn.Id [] (Some expected) |> unwrap fn.DisplayName
-                Assert.True((result.Matches = Some true), sprintf "%s: %A" fn.DisplayName result.Actual)
-            run (table "encoded" encode stringType) (PureRunValue.StringList(cases |> List.map snd))
-            // Well-formed text comes back unchanged; an unpaired surrogate comes back as U+FFFD.
-            let replaced (input: string) =
-                let builder = Text.StringBuilder()
-                let mutable index = 0
-                while index < input.Length do
-                    if Char.IsHighSurrogate input.[index] && index + 1 < input.Length && Char.IsLowSurrogate input.[index + 1] then
-                        builder.Append(input, index, 2) |> ignore
-                        index <- index + 2
-                    else
-                        builder.Append(if Char.IsSurrogate input.[index] then '�' else input.[index]) |> ignore
-                        index <- index + 1
-                builder.ToString()
-            run (table "roundTripped" roundTrip stringType) (PureRunValue.StringList(cases |> List.map (fst >> replaced)))
-            let lengths = cases |> List.map (fun (_, bytes) -> int64 bytes.Length)
-            run (table "encodedLengths" encodedLength intType) (PureRunValue.Int64List lengths)
-            run (table "byteCounts" byteCount intType) (PureRunValue.Int64List lengths)
-            session.Close()
-        finally
-            if Directory.Exists root then Directory.Delete(root, true)

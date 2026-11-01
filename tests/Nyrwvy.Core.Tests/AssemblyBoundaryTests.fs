@@ -51,8 +51,7 @@ module AssemblyBoundaryTests =
         |> forbidReferences
             [ "Nyrwvy.Execution"
               "Nyrwvy.Backend.CSharp"
-              "Nyrwvy.Viewer"
-              "Nyrwvy.AuthoringSession" ]
+              "Nyrwvy.Viewer" ]
 
     [<Fact>]
     let ``shared structural contracts stay in semantics`` () =

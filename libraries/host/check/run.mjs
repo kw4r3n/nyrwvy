@@ -1,6 +1,6 @@
 // Checks NyHost.cs against the real OS: builds a program that imports host.json, emits its C#, and runs
 // Program.cs, which calls every host class and a Nyrwvy function driving a pty. Linux, needs dotnet and cat.
-// Usage: node libraries/host/check/run.mjs [<Nyrwvy.AuthoringSession.dll>]
+// Usage: node libraries/host/check/run.mjs [<host executable>] (default: the Zig host, `npm run build:host`)
 import { spawn, spawnSync } from "node:child_process"
 import { createInterface } from "node:readline"
 import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
@@ -10,11 +10,11 @@ import { fileURLToPath } from "node:url"
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, "../../..")
-const dll = process.argv[2] ?? join(repo, "tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll")
+const executable = process.argv[2] ?? join(repo, "tools/zig/host/bin/nyrwvy-host")
 const work = mkdtempSync(join(tmpdir(), "nyr-host-check-"))
 copyFileSync(join(here, "../host.json"), join(work, "host.json"))
 
-const cli = spawn("dotnet", [dll, "create", "--snapshot", join(work, "check.json"), "--dependency", join(work, "host.json")], { stdio: ["pipe", "pipe", "inherit"] })
+const cli = spawn(executable, ["create", "--snapshot", join(work, "check.json"), "--dependency", join(work, "host.json")], { stdio: ["pipe", "pipe", "inherit"] })
 const lines = createInterface({ input: cli.stdout })[Symbol.asyncIterator]()
 let n = 0
 const send = async request => {

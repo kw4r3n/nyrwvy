@@ -2,7 +2,7 @@
 
 Harness for [probe 26](../../docs/verification/task-communication-probe26-20261007.md): a reduced `codex.py` client written as an event loop (`eventloop.mjs`) and as a reader task with scoped `OneShot` chains (`oneshot.mjs`), against the same specification (`SPEC.md`), declarations (`declare.mjs`) and scenarios (`cases.mjs`). `spike-chain.mjs` is the smaller check that ran first.
 
-From the repository root, after `npm ci` and `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release`:
+From the repository root, after `npm ci` and `npm run build:host`:
 
 ```sh
 node evaluation/task-communication-probe26/eventloop.mjs
