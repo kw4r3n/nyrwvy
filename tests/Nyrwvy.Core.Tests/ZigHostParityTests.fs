@@ -72,23 +72,14 @@ module ZigHostParityTests =
         info.RedirectStandardError <- true
         info.Environment["NYRWVY_RUNPURE_WARMUP"] <- "0"
         for name, value in environment do info.Environment[name] <- value
-        let enabled name =
-            match info.Environment.TryGetValue name with
-            | true, value -> not (String.IsNullOrEmpty value)
-            | _ -> false
-        let checkMode = [ "NYRWVY_ZIG_READER_CHECK"; "NYRWVY_ZIG_LOWERING_CHECK"; "NYRWVY_ZIG_EMITTER_CHECK" ] |> List.exists enabled
-        let useZigReader =
-            match info.Environment.TryGetValue "NYRWVY_SNAPSHOT_READER" with
-            | true, "fsharp" -> false
-            | _ -> true
         if not zig && hostReference <> "golden" then
-            // Warm enabled check tools before the F# child’s first-response timer; it still owns build failures.
-            if checkMode then
-                ZigTools.tool "model-reader" |> ignore
-            if checkMode && useZigReader then
-                ZigTools.tool "snapshot-reader" |> ignore
-            if enabled "NYRWVY_ZIG_EMITTER_CHECK" then
-                ZigTools.tool "emitter" |> ignore
+            // Warm the Zig tools before the F# child's first-response timer; it still owns build failures.
+            // runPure's Zig backend always lowers and emits with them.
+            ZigTools.tool "model-reader" |> ignore
+            ZigTools.tool "emitter" |> ignore
+            match info.Environment.TryGetValue "NYRWVY_ZIG_TOOLS" with
+            | true, "1" -> ZigTools.tool "snapshot-reader" |> ignore
+            | _ -> ()
         Process.Start info
 
     let internal start zig arguments = startWithEnvironment [] zig arguments

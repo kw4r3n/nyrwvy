@@ -180,6 +180,7 @@
     <Compile Include="PureRunBuildCacheTests.fs" />
     <Compile Include="PureRunWorkerTests.fs" />
     <Compile Include="PureRunLoneSurrogateTests.fs" />
+    <Compile Include="ZigRuntime.fs" />
     <Compile Include="ZigBackendTests.fs" />
     <Compile Include="ZigSnapshotReaderTests.fs" />
     <Compile Include="ZigModelReaderTests.fs" />

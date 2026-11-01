@@ -1208,16 +1208,13 @@ module PureRun =
     /// A Zig tool (`tools/zig/<name>`), built once per process (see `ZigTools.tool`).
     let zigTool (name: string) = ZigTools.tool name |> Result.mapError (fun (code, message) -> diagnostic code message)
 
-    // The Zig emitter's output by emitter build, entry and IR hash: a repeated run skips the emitter;
-    // the emitter check below still runs on every call.
+    // The Zig emitter's output by emitter build, entry and IR hash: a repeated run skips the emitter.
     let private emitCache = Collections.Generic.Dictionary<string, Result<string, string list>>()
     let mutable internal emitCacheHits = 0
 
-    /// The complete runPure runner for an Execution IR text from the Zig emitter (see
-    /// `ZigBackend.runner`), or the constructs it does not support. With `NYRWVY_ZIG_EMITTER_CHECK`
-    /// set (the extended tests set it), the F# emitter's output on `reference ()`, the F# program of
-    /// the same IR, must match byte for byte, also for a cached output.
-    let zigEmit (ir: string) (reference: unit -> Result<ExecutionProgram, PureRunError>) (entry: FunctionId option) : Result<Result<string, string list>, PureRunError> =
+    /// The complete runPure runner for an Execution IR text from the Zig emitter, or the constructs it
+    /// does not support.
+    let zigEmit (ir: string) (entry: FunctionId option) : Result<Result<string, string list>, PureRunError> =
         zigTool "emitter"
         |> Result.bind (fun emitter ->
             // The tool's path holds the hash of its sources, so a changed emitter misses.
@@ -1254,22 +1251,10 @@ module PureRun =
                         if emitCache.Count >= 8 then emitCache.Clear()
                         emitCache[key] <- output)
                     output))
-        |> Result.bind (fun emitted ->
-            match Environment.GetEnvironmentVariable "NYRWVY_ZIG_EMITTER_CHECK" with
-            | null | "" -> Ok emitted
-            | _ ->
-                reference ()
-                |> Result.bind (fun program ->
-                let reference = ZigBackend.runner program entry
-                match emitted, reference with
-                | Ok zig, Ok fsharp when zig <> fsharp ->
-                    let left, right = zig.Split('\n'), fsharp.Split('\n')
-                    let index = Seq.zip left right |> Seq.tryFindIndex (fun (x, y) -> x <> y) |> Option.defaultValue (min left.Length right.Length)
-                    let at (lines: string[]) = if index < lines.Length then lines[index] else "<end>"
-                    Error(diagnostic "RunBackendMismatch" $"The Zig emitter differs from the F# emitter at line {index + 1}: Zig `{at left}`, F# `{at right}`.")
-                | Ok _, Error problems -> Error(diagnostic "RunBackendMismatch" ("Only the F# emitter rejects the program: " + String.Join(", ", problems) + "."))
-                | Error problems, Ok _ -> Error(diagnostic "RunBackendMismatch" ("Only the Zig emitter rejects the program: " + String.Join(", ", problems) + "."))
-                | _ -> Ok emitted))
+
+    /// The Zig emitter's name for a non-generic function (`functionName` in tools/zig/emitter/main.zig).
+    let private zigFunctionName (functionId: FunctionId) =
+        "f_" + String(StableId.value functionId |> Seq.map (fun c -> if Char.IsAsciiLetterOrDigit c then c else '_') |> Array.ofSeq)
 
     // Set once `model-reader` could not be built or run: the process then lowers with F#.
     let mutable private loweringUnavailable = 0
@@ -1296,10 +1281,8 @@ module PureRun =
             match context.ModelJson () with
             | Error error -> Error $"the snapshot does not serialize: {(Microsoft.FSharp.Reflection.FSharpValue.GetUnionFields(error, typeof<SnapshotCodecError>) |> fst).Name}"
             | Ok(json, validated) ->
-                // Bytes the Zig validator accepted are not validated again, except under the check,
-                // which compares the tool's full readiness with F#'s.
-                let check = not (String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_LOWERING_CHECK"))
-                let mode = if validated && not check then [ "--execution-ir"; "--validated" ] else [ "--execution-ir" ]
+                // Bytes the Zig validator accepted are not validated again.
+                let mode = if validated then [ "--execution-ir"; "--validated" ] else [ "--execution-ir" ]
                 let stem = Path.Combine(zigCache, "lower-" + Guid.NewGuid().ToString("N"))
                 let result =
                     try
@@ -1321,30 +1304,17 @@ module PureRun =
 
     /// The Execution IR text of `entry` (or of the whole snapshot) from the Zig lowering; `fsharp` is
     /// the same program from the F# lowering, which decides when Zig reports an error, serves when
-    /// `model-reader` cannot run (sticky for a build or launch failure, noted once on stderr) and,
-    /// with `NYRWVY_ZIG_LOWERING_CHECK` set, must give the same text.
+    /// `model-reader` cannot run (sticky for a build or launch failure, noted once on stderr).
     let private lowerIr context entry (fsharp: unit -> Result<ExecutionProgram, PureRunError>) : Result<string, PureRunError> =
-        let check = not (String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_LOWERING_CHECK"))
-        let what = match entry with Some id -> $"entry {StableId.value id}" | None -> "the whole snapshot"
-        let mismatch (text: string) = Error(diagnostic "RunBackendMismatch" $"The Zig lowering of {what} {text}.")
-        let zig = if not check && loweringUnavailable <> 0 then Error "unavailable" else zigLower context entry
+        let zig = if loweringUnavailable <> 0 then Error "unavailable" else zigLower context entry
         match zig with
-        | Error problem when check -> mismatch $"could not run: {problem}"
         | Error problem ->
             // Only a tool that cannot be built or started sticks; anything else belongs to this run.
             let sticky = problem.StartsWith("RunProcessFailure", StringComparison.Ordinal) || problem.StartsWith("RunStartupFailure", StringComparison.Ordinal)
             if sticky && Threading.Interlocked.Exchange(&loweringUnavailable, 1) = 0 then
                 eprintfn "nyrwvy: the Zig lowering is unavailable (%s); runPure lowers with F#." problem
             fsharp () |> Result.map ExecutionIrSerializer.serialize
-        | Ok None ->
-            match fsharp () with
-            | Ok program when check -> mismatch "fails where the F# lowering succeeds" |> Result.map (fun () -> ExecutionIrSerializer.serialize program)
-            | result -> result |> Result.map ExecutionIrSerializer.serialize
-        | Ok(Some ir) when check ->
-            match fsharp () with
-            | Ok program when ExecutionIrSerializer.serialize program = ir -> Ok ir
-            | Ok _ -> mismatch "differs from the F# lowering"
-            | Error _ -> mismatch "succeeds where the F# lowering fails"
+        | Ok None -> fsharp () |> Result.map ExecutionIrSerializer.serialize
         | Ok(Some ir) -> Ok ir
 
     /// Runs the entry on the Zig backend: emits the program and a runner that reads argument tokens
@@ -1358,7 +1328,7 @@ module PureRun =
         let declarations = context.Declarations
         let unsupported (problems: string list) =
             Error(diagnostic "RunBackendUnsupported" ("The Zig backend does not yet support: " + String.Join(", ", problems |> List.truncate 8) + "."))
-        // The F# programs: the fallback, the reference of the checks, and the source of the errors.
+        // The F# programs: the lowering's fallback and the source of its errors.
         let reach () = context.Project fn.Id |> Result.mapError PureRunError.SessionFailure
         let whole () =
             match context.ProjectAll |> Option.map (fun project -> project ()) with
@@ -1369,25 +1339,15 @@ module PureRun =
         // snapshot; a program the backend cannot emit whole falls back to this entry's reach. A
         // proposal's snapshot, or one whose whole program does not lower, starts from the reach.
         let emitted =
-            if not (ZigTools.enabled ()) then
-                // The default: the F# lowering and the F# emitter.
-                reach ()
-                |> Result.map (fun reachProgram ->
-                    let first = (if context.ProjectAll.IsNone then None else whole () |> Result.toOption) |> Option.defaultValue reachProgram
-                    match ZigBackend.runner first None with
-                    | Ok runner -> Ok runner
-                    | Error _ -> ZigBackend.runner reachProgram (Some fn.Id))
-            else
-                lowerIr context (Some fn.Id) reach
-                |> Result.bind (fun reachIr ->
-                    let wholeIr =
-                        if context.ProjectAll.IsNone then None
-                        else lowerIr context None whole |> Result.toOption
-                    let first, firstReference = match wholeIr with Some ir -> ir, whole | None -> reachIr, reach
-                    zigEmit first firstReference None
-                    |> Result.bind (function
-                        | Ok runner -> Ok(Ok runner)
-                        | Error _ -> zigEmit reachIr reach (Some fn.Id)))
+            lowerIr context (Some fn.Id) reach
+            |> Result.bind (fun reachIr ->
+                let wholeIr =
+                    if context.ProjectAll.IsNone then None
+                    else lowerIr context None whole |> Result.toOption
+                zigEmit (wholeIr |> Option.defaultValue reachIr) None
+                |> Result.bind (function
+                    | Ok runner -> Ok(Ok runner)
+                    | Error _ -> zigEmit reachIr (Some fn.Id)))
         // As on the C# backend, waiting fake responses need a program that uses the concurrency runtime.
         let waitingResponses =
             arguments |> List.exists (function
@@ -1432,7 +1392,7 @@ module PureRun =
             try
                 let built = buildZigRunner (zigExecutable ()) zigDirectory.Value zigCache directory runner
                 built
-                |> Result.bind (fun () -> launchProcess executable "pure function" directory (ZigBackend.functionName fn.Id :: List.ofSeq tokens) 5000)
+                |> Result.bind (fun () -> launchProcess executable "pure function" directory (zigFunctionName fn.Id :: List.ofSeq tokens) 5000)
                 |> Result.bind (fun (code, output, errors) ->
                     // A Zig panic (allocation failure) or a crash (stack overflow) ends the run: fatal.
                     if code <> 0 then

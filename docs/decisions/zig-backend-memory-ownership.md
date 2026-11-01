@@ -44,7 +44,7 @@ The likely first real use is small: Rhifill's `Screen.Read` (`app/Screen.cs`, ab
 
 **4. Scheduler.** The virtual clock stays the only mode `runPure` and the parity client use. Production adds a real-time mode selected at build time: delays wait on the monotonic clock, waits block on the event they name after releasing `ny_gate` (an OS call such as `Pty.read` or `Fs` releases it too, and reacquires it before touching values), and cancellation from a PTY read or a UI action signals the task's token through the same `NyCancel` path. The one-thread-at-a-time gate stays in both modes (decision A depends on this). Deadlock detection (every waiter fails when nothing can resume) remains only in virtual mode, where it is exact.
 
-**5. Sequencing.** `NYRWVY_ZIG_EMITTER_CHECK` byte-compares the Zig emitter's runner with the deprecated F# emitter in the extended suite. `runtime.zig` is one file embedded by both (`Nyrwvy.Backend.Zig.fsproj` as a resource, the Zig emitter by `@embedFile`), so:
+**5. Sequencing.** **Unblocked 2026-11-02:** the emitter check and the F# emitter are removed (switch step 5, first part; [verification](../verification/zig-emitter-check-removal-20261102.md)), so changes to the runner output, reference counting included, may merge. The text below records the constraint as it stood. The emitter check byte-compared the Zig emitter's runner with the deprecated F# emitter in the extended suite. `runtime.zig` is one file embedded by both (`Nyrwvy.Backend.Zig.fsproj` as a resource, the Zig emitter by `@embedFile`), so:
 
 - **Before F# removal** (allowed now), two kinds: changes confined to `runtime.zig` that keep every function the emitted code calls and every field it reads (`.items` of a Set, slices for Lists), which covers the Set and Map hash index behind the existing `items` field and the real-time scheduler mode; and additive emitter modes in `main.zig` that `runPure` does not use, so the check never compares them, which covers library mode.
 - **After F# removal** ([Zig session host, the switch](zig-session-host.md#the-switch), steps 4 and 5, which also delete `NYRWVY_ZIG_*_CHECK`): anything that changes the runner output, which is all of 1 (retain and release sites, `errdefer`) and the List representation (the emitter writes `[]const T` and iterates slices directly). Retiring the emitter check alone earlier would also unblock them; that is the owner's call, not this record's.
@@ -55,7 +55,7 @@ The likely first real use is small: Rhifill's `Screen.Read` (`app/Screen.cs`, ab
 2. Rhifill calls the Zig export behind a switch and renders identically on the same cases.
 3. Measured on one Linux machine with the existing Rhifill bench (`spikes/bench-nyrwvy`): per-frame `layoutFrame` p50 and p99 for C# and Zig at 80×24 and 300×100, and process RSS over a one-hour scrolling run, flat after warm-up.
 
-Reference counting (1) and the persistent List are the second milestone and start right after the first (owner: land it early, not gated on a long-lived program). To unblock it, switch steps 4 and 5 come next; if they lag behind the first milestone, the emitter check is retired early instead of waiting.
+Reference counting (1) and the persistent List are the second milestone and start right after the first (owner: land it early, not gated on a long-lived program). To unblock it, switch steps 4 and 5 come next; if they lag behind the first milestone, the emitter check is retired early instead of waiting. The emitter check was retired on 2026-11-02, ahead of the F# host's removal.
 
 ## Library mode as built
 

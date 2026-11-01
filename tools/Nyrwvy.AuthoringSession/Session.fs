@@ -550,60 +550,6 @@ module internal ZigSnapshotReader =
         | :? IOException as error -> Error("RunIoFailure: " + error.Message)
         | :? UnauthorizedAccessException as error -> Error("RunIoFailure: " + error.Message)
 
-    /// Check mode: the Zig and F# outcomes must agree (the same writer JSON, or the same error, with
-    /// .NET's own JSON messages compared by case and prefix), else `ReaderMismatch`.
-    let compare (merge: Snapshot -> Snapshot) (zig: Result<Snapshot, AuthoringSessionError>) (fsharp: Result<Snapshot, AuthoringSessionError>) =
-        let key = function
-            | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidJson _)) -> Error(SnapshotCodecError.InvalidJson "")
-            | Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidShape message))
-                when message.StartsWith("Invalid JSON string encoding:", StringComparison.Ordinal)
-                     || message.StartsWith("Invalid JSON property name encoding:", StringComparison.Ordinal) ->
-                Error(SnapshotCodecError.InvalidShape(message.Substring(0, message.IndexOf ':' + 1)))
-            | Error(AuthoringSessionError.SnapshotCodecFailure error) -> Error error
-            | Error error -> Error(SnapshotCodecError.InvalidShape(sprintf "%A" error))
-            | Ok snapshot -> SnapshotCodec.serialize (merge snapshot) |> Result.mapError (fun error -> SnapshotCodecError.InvalidShape(sprintf "writer: %A" error))
-        if key zig = key fsharp then zig
-        else
-            let describe = function
-                | Ok _ -> "accepts"
-                | Error error -> (let text = sprintf "%A" error in if text.Length > 2000 then text.Substring(0, 2000) + "…" else text)
-            Error(AuthoringSessionError.IoFailure $"ReaderMismatch: Zig {describe zig}, F# {describe fsharp}")
-
-/// The lowering's check mode (`NYRWVY_ZIG_LOWERING_CHECK`, set by the extended test settings):
-/// `model-reader --execution-ir` on the canonical JSON of the snapshot a session projects must give
-/// the F# program's `ExecutionIrSerializer` JSON, or reject it where F# does; else `LoweringMismatch`.
-/// The session keeps the F# program either way (docs/decisions/zig-tools.md).
-module internal ZigLowering =
-    let check (snapshotJson: unit -> Result<string, SnapshotCodecError>) (entry: FunctionId option) (fsharp: Result<ExecutionProgram, AuthoringSessionError>) =
-        if String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_LOWERING_CHECK") then fsharp
-        else
-            let mismatch (text: string) = Error(AuthoringSessionError.IoFailure("LoweringMismatch: " + text))
-            // The writer validates the whole snapshot, an entry's projection only what it reaches; a
-            // snapshot the writer rejects is not checked.
-            match snapshotJson () with
-            | Error _ -> fsharp
-            | Ok json ->
-                let stem = Path.Combine(ZigTools.cache, "lower-" + Guid.NewGuid().ToString("N"))
-                try
-                    try
-                        ZigTools.createPrivateDirectory ZigTools.cache
-                        File.WriteAllText(stem + ".json", json, UTF8Encoding false)
-                        let target = entry |> Option.map StableId.value |> Option.defaultValue "-"
-                        match ZigSnapshotReader.run "model-reader" [ "--execution-ir"; stem + ".json"; stem + ".out.json"; target ], fsharp with
-                        | Error problem, _ -> mismatch problem
-                        | Ok [ "ok" ], Ok program ->
-                            if ExecutionIrSerializer.serialize program = File.ReadAllText(stem + ".out.json") then fsharp
-                            else mismatch $"the Zig Execution IR of entry {target} differs from the F# lowering"
-                        | Ok [ "ok" ], Error error -> mismatch $"only F# rejects entry {target}: %A{error}"
-                        | Ok _, Error _ -> fsharp
-                        | Ok lines, Ok _ -> mismatch ($"only Zig rejects entry {target}: " + String.Join(" | ", lines))
-                    finally
-                        for file in [ stem + ".json"; stem + ".out.json" ] do
-                            if File.Exists file then File.Delete file
-                with
-                | :? IOException as error -> mismatch error.Message
-                | :? UnauthorizedAccessException as error -> mismatch error.Message
-
 module internal SessionStorage =
     let fullPath (path: string): string = Path.GetFullPath(path)
     let lockPath (path: string): string = path + ".lock"
@@ -683,14 +629,11 @@ module internal SessionStorage =
     /// F# still checks the dependency marker and reads the local model); the F# reader reads a
     /// resolved record, a legacy schema, a dependency at another schema version, and every source when
     /// `NYRWVY_SNAPSHOT_READER=fsharp` or the Zig tools cannot be built or run (noted once on stderr).
-    /// With `NYRWVY_ZIG_READER_CHECK` set, both run, any difference is a `ReaderMismatch` and there is
-    /// no fallback.
     let decodeWith (record: bool) (dependency: Snapshot option) (source: string): Result<Snapshot, AuthoringSessionError> =
-        let check = not (String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_READER_CHECK"))
         let routed =
             ZigTools.enabled ()
             && ZigSnapshotReader.routes (Environment.GetEnvironmentVariable "NYRWVY_SNAPSHOT_READER") record dependency
-            && (check || zigUnavailable = 0)
+            && zigUnavailable = 0
         let dependencyText =
             if not routed then None
             else
@@ -703,14 +646,11 @@ module internal SessionStorage =
         if not routed || (match dependencyText with Some(Error _) -> true | _ -> false) then
             decodeFSharp record dependency source
         else
-            // Under the check, F# builds the model without trusting the Zig verdict.
             let build =
                 match dependency with
-                | Some imported -> SnapshotCodec.readResolvedUnvalidated (not check) imported
-                | None -> if check then SnapshotCodec.readUnvalidated else SnapshotCodec.readZigValidated
-            let merge = match dependency with Some imported -> SnapshotCodec.resolveDependency imported | None -> id
+                | Some imported -> SnapshotCodec.readResolvedUnvalidated true imported
+                | None -> SnapshotCodec.readZigValidated
             match ZigSnapshotReader.read record source (dependencyText |> Option.map Result.toOption |> Option.flatten) build with
-            | Error problem when check -> Error(AuthoringSessionError.IoFailure $"ReaderMismatch: the Zig reader failed: {problem}")
             | Error problem ->
                 // A timeout or oversized output belongs to this source; only a build or launch failure sticks.
                 let perInput = problem.StartsWith("RunTimeout", StringComparison.Ordinal) || problem.StartsWith("RunOutputTooLarge", StringComparison.Ordinal)
@@ -726,21 +666,20 @@ module internal SessionStorage =
                     match model.Value with
                     | Error error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
                     | Ok _ -> Error(AuthoringSessionError.SnapshotCodecFailure(SnapshotCodecError.InvalidSnapshot issues))
-                if check then ZigSnapshotReader.compare merge zig (decodeFSharp record dependency source) else zig
+                zig
             | Ok(ZigSnapshotReader.Verdict.Rejected _, _, _) when dependency.IsSome -> decodeFSharp record dependency source
             | Ok(verdict, json, model) ->
                 let zig =
                     match verdict with
                     | ZigSnapshotReader.Verdict.Rejected error -> Error(AuthoringSessionError.SnapshotCodecFailure error)
                     // F# builds the model Zig accepted; its error, if any, is a parity bug and keeps an unvalidated model out.
-                    | _ when check -> model.Value |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
                     // Validated once, by Zig: the Snapshot is recorded as valid and keeps its bytes for runPure.
                     // (A model built for a source Zig rejects is marked valid too, but dropped unseen.)
                     | _ ->
                         model.Value
                         |> Result.map (fun snapshot -> (if dependency.IsNone then zigValidatedJson.AddOrUpdate(snapshot, json)); snapshot)
                         |> Result.mapError AuthoringSessionError.SnapshotCodecFailure
-                if check then ZigSnapshotReader.compare merge zig (decodeFSharp record dependency source) else zig
+                zig
 
     /// Decodes `source` in the form `path` persists.
     let decodeAs (path: string) = decodeWith (isRecordPath path)
@@ -2001,7 +1940,6 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
         (match AgentExecution.projectTypedSemanticIr workspace with
          | Error error -> Error(AuthoringSessionError.SemanticProjectionFailure error)
          | Ok typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure)
-        |> ZigLowering.check (fun () -> AgentWorkspace.serializeCurrentSnapshot workspace) None
 
     /// The execution program of one entry over the committed snapshot. It is a pure function of the
     /// workspace state and the entry, so it is kept with the workspace object, which every commit
@@ -2030,7 +1968,6 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     AgentExecution.projectEntryTypedSemanticIr workspace entry
                     |> Result.mapError AuthoringSessionError.SemanticProjectionFailure
                     |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure)
-                    |> ZigLowering.check (fun () -> AgentWorkspace.serializeCurrentSnapshot workspace) (Some entry)
                 projections[entry] <- projected
                 projected)
 
@@ -2055,7 +1992,6 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                     |> TypedSemanticIr.project
                     |> Result.mapError AuthoringSessionError.SemanticProjectionFailure
                     |> Result.bind (fun typed -> ExecutionIr.lower typed |> Result.mapError AuthoringSessionError.ExecutionLoweringFailure)
-                    |> ZigLowering.check (fun () -> SnapshotCodec.serialize snapshot) (Some entry)
                   ProjectAll = None
                   ModelJson = fun () ->
                     use _scope = SnapshotComputationScope.Start()
@@ -2075,11 +2011,8 @@ type AuthoringSession internal (path: string, initialWorkspace: AgentWorkspace, 
                       ModelJson =
                         let current = workspace
                         fun () ->
-                            // The lowering check keeps comparing on the writer's JSON, as before (runPure
-                            // then never passes `--validated`).
-                            let check = not (String.IsNullOrEmpty(Environment.GetEnvironmentVariable "NYRWVY_ZIG_LOWERING_CHECK"))
                             match SessionStorage.workspaceJson.TryGetValue current with
-                            | true, json when not check -> Ok(json, true)
+                            | true, json -> Ok(json, true)
                             | _ ->
                                 use _scope = SnapshotComputationScope.Start()
                                 AgentWorkspace.serializeCurrentSnapshot current |> Result.map (fun json -> json, true)

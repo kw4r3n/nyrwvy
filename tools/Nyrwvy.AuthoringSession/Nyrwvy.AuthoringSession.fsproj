@@ -45,7 +45,6 @@
     <ProjectReference Include="../../src/Nyrwvy.Semantics/Nyrwvy.Semantics.fsproj" />
     <ProjectReference Include="../../src/Nyrwvy.Execution/Nyrwvy.Execution.fsproj" />
     <ProjectReference Include="../../src/Nyrwvy.Backend.CSharp/Nyrwvy.Backend.CSharp.fsproj" />
-    <ProjectReference Include="../../src/Nyrwvy.Backend.Zig/Nyrwvy.Backend.Zig.fsproj" />
     <ProjectReference Include="../../src/Nyrwvy.Viewer/Nyrwvy.Viewer.fsproj" />
   </ItemGroup>
 </Project>

@@ -133,10 +133,8 @@ type ZigSpeed(output: ITestOutputHelper) =
                 let emit = median (fun () -> launch emitter [ ir ] |> ignore)
                 // runPure's emission, which a repeated run of the same IR takes from the cache.
                 let irText = File.ReadAllText ir
-                let emitRepeated = median (fun () -> PureRun.zigEmit irText (fun () -> failwith "no check") None |> ok |> ignore)
+                let emitRepeated = median (fun () -> PureRun.zigEmit irText None |> ok |> ignore)
                 let fsLower = median (fun () -> session.ProjectExecution() |> ok |> ExecutionIrSerializer.serialize |> ignore)
-                let program = session.ProjectExecution() |> ok
-                let fsEmit = median (fun () -> ZigBackend.runner program None |> ignore)
                 // (3) the tools on their own.
                 let validate = median (fun () -> launch modelReader [ "--validate"; json ] |> ignore)
                 let text = File.ReadAllText json
@@ -145,9 +143,9 @@ type ZigSpeed(output: ITestOutputHelper) =
                 let fsValidate = median (fun () -> SnapshotValidator.validate snapshot |> ignore)
                 output.WriteLine($"-- {name}: {text.Length / 1024} KiB model JSON, lowering {lowered} ({String.Join(' ', mode)})")
                 row "(1) open" [ "zig-decided", openZig; "fsharp", openFs ]
-                row "(2) to Zig source" [ "zig", zigModel + zigLower + emit; "fsharp+zig-emitter", fsLower + emit; "fsharp", fsLower + fsEmit ]
+                row "(2) to Zig source" [ "zig", zigModel + zigLower + emit; "fsharp+zig-emitter", fsLower + emit ]
                 row "    zig route" [ "ModelJson", zigModel; "model-reader lower", zigLower; "emitter", emit; "repeated runPure emit", emitRepeated ]
-                row "    fsharp route" [ "project+lower+ser", fsLower; "F# emitter", fsEmit ]
+                row "    fsharp route" [ "project+lower+ser", fsLower ]
                 row "(3) tools" [ "model-reader validate", validate; "F# Snapshot build", build; "F# validate", fsValidate ]
             match Environment.GetEnvironmentVariable "NYRWVY_SPEED_RHIFILL" with
             | null | "" -> ()

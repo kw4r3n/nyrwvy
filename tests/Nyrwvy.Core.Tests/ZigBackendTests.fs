@@ -602,11 +602,10 @@ module ZigBackendTests =
         let host = Path.Combine(root (DirectoryInfo AppContext.BaseDirectory), "tools", "zig", "host", "case_runs.zig")
         Assert.True((ZigRuntime.caseRunTables.Value = File.ReadAllText host), "tools/zig/host/case_runs.zig is stale.")
 
-    /// Every repository snapshot, whole and per entry, emits the same Zig from the Zig emitter as from
-    /// the F# one (the extended settings turn the comparison on), or both reject it.
+    /// Every repository snapshot, whole and per entry, goes through the Zig emitter (emitted or
+    /// rejected as unsupported), and a repeated emission comes from the cache.
     [<Fact; Trait("Suite", "Extended")>]
-    let ``The Zig emitter matches the F# emitter on every repository snapshot`` () =
-        Assert.Equal("1", Environment.GetEnvironmentVariable "NYRWVY_ZIG_EMITTER_CHECK")
+    let ``The Zig emitter emits every repository snapshot and caches a repeated emission`` () =
         let rec root (directory: DirectoryInfo) =
             if File.Exists(Path.Combine(directory.FullName, "Nyrwvy.slnx")) then directory.FullName else root directory.Parent
         let snapshots = Directory.GetFiles(Path.Combine(root (DirectoryInfo AppContext.BaseDirectory), "examples"), "*.nyrec", SearchOption.AllDirectories)
@@ -616,28 +615,23 @@ module ZigBackendTests =
             use session = AuthoringSession.openReadOnly path |> unwrap
             let program = session.ProjectExecution() |> unwrap
             for candidate, entry in (program, None) :: (program.Functions |> List.map (fun fn -> ExecutionCallGraph.forEntry program fn.SemanticFunctionId, Some fn.SemanticFunctionId)) do
-                match PureRun.zigEmit (ExecutionIrSerializer.serialize candidate) (fun () -> Ok candidate) entry with
+                match PureRun.zigEmit (ExecutionIrSerializer.serialize candidate) entry with
                 | Ok(Ok _) -> emitted <- emitted + 1
                 | Ok(Error _) -> ()
                 | Error error -> failwithf "%s: %A" path error
-        Assert.True(emitted > 0, "No repository program was emitted, so nothing was compared.")
-        // A repeated emission comes from the cache, and the check still compares it.
-        let program, ir =
+        Assert.True(emitted > 0, "No repository program was emitted.")
+        let ir =
             snapshots |> Seq.pick (fun path ->
                 use session = AuthoringSession.openReadOnly path |> unwrap
-                let program = session.ProjectExecution() |> unwrap
-                let ir = ExecutionIrSerializer.serialize program
-                match PureRun.zigEmit ir (fun () -> Ok program) None with
-                | Ok(Ok _) when program.Functions.Length > 1 -> Some(program, ir)
+                let ir = session.ProjectExecution() |> unwrap |> ExecutionIrSerializer.serialize
+                match PureRun.zigEmit ir None with
+                | Ok(Ok _) -> Some ir
                 | _ -> None)
         let hits = PureRun.emitCacheHits
-        let other = { program with Functions = program.Functions |> List.truncate 1 }
-        match PureRun.zigEmit ir (fun () -> Ok other) None with
-        | Error error -> Assert.Contains("RunBackendMismatch", $"%A{error}")
-        | Ok _ -> failwith "A cached emission skipped the emitter check."
+        PureRun.zigEmit ir None |> unwrap |> ignore
         Assert.True(PureRun.emitCacheHits > hits, "The repeated emission did not come from the cache.")
 
-    /// The instruction kinds no other Zig test reaches, so the emitter check covers them too.
+    /// The instruction kinds no other Zig test reaches.
     [<Fact; Trait("Suite", "Extended")>]
     let ``Zig runs the remaining list, map and set operations and agrees with the C# backend`` () =
         let dir = Path.Combine(Path.GetTempPath(), "nyrwvy-zig-" + Guid.NewGuid().ToString("N"))

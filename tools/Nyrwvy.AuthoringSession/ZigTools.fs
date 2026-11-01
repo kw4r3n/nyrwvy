@@ -90,12 +90,9 @@ module internal ZigTools =
     let private tools = Collections.Generic.Dictionary<string, string>()
 
     /// Whether the session's paths use the Zig tools (reader, validator, lowering, emitter): only when
-    /// `NYRWVY_ZIG_TOOLS=1` or a `NYRWVY_ZIG_*_CHECK` parity mode is set. By default every path is F#,
-    /// so that F# and Zig are not mixed at run time (docs/decisions/zig-tools.md).
-    let enabled () =
-        Environment.GetEnvironmentVariable "NYRWVY_ZIG_TOOLS" = "1"
-        || [ "NYRWVY_ZIG_READER_CHECK"; "NYRWVY_ZIG_LOWERING_CHECK"; "NYRWVY_ZIG_EMITTER_CHECK" ]
-           |> List.exists (Environment.GetEnvironmentVariable >> String.IsNullOrEmpty >> not)
+    /// `NYRWVY_ZIG_TOOLS=1` is set. By default they are F# (docs/decisions/zig-tools.md); runPure's
+    /// Zig backend always lowers and emits with the Zig tools.
+    let enabled () = Environment.GetEnvironmentVariable "NYRWVY_ZIG_TOOLS" = "1"
 
     // The modules a tool imports (`@import("model_reader")` for `tools/zig/model-reader`), each a
     // directory below the repository with a `main.zig` or, for the viewer page, `asset.zig`.
