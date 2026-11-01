@@ -59,7 +59,8 @@ module Float64Bits =
                     System.Globalization.CultureInfo.InvariantCulture
                 )
             with
-            | true, bits -> Ok(create bits)
+            | true, bits when toHex (create bits) = text -> Ok(create bits)
+            | true, _ -> Error "Float64 bits must use canonical lowercase hexadecimal text and NaN bits."
             | false, _ -> Error "Float64 bits contain invalid hexadecimal digits."
 
 [<RequireQualifiedAccess>]

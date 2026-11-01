@@ -1635,6 +1635,8 @@ module Transaction =
         match operation with
         | RenameDisplayName(_, newDisplayName) when String.IsNullOrWhiteSpace newDisplayName ->
             Error("InvalidDisplayName", "A display name cannot be blank.")
+        | RenameDisplayName(_, newDisplayName) when LooseJsonString.hasLoneSurrogate newDisplayName ->
+            Error("InvalidDisplayName", "A display name cannot contain a lone UTF-16 surrogate.")
         | RenameDisplayName(RenameTarget.TypeTarget id, newDisplayName) ->
             renameType id newDisplayName snapshot |> Result.map (fun next -> next, changes)
         | RenameDisplayName(RenameTarget.FunctionTarget id, newDisplayName) ->

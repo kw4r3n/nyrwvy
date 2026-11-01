@@ -218,7 +218,7 @@ type ZigModelReaderComparison(output: ITestOutputHelper) =
               yield! edit (replaceFirst "\"displayName\":" "\"display\\u004Eame\":")
               yield! edit (replaceFirst "\"displayName\":\"" "\"displayName\":\"\\ud800")
               yield! edit (replaceFirst "\"kind\":\"stringLiteral\",\"value\":\"" "\"kind\":\"stringLiteral\",\"value\":\"\\udc00x\\ud83d\\ude00")
-              for bits in [ "7FF8000000000000"; "7ff800000000000"; "7ff800000000000g"; "+7ff800000000000" ] do
+              for bits in [ "7FF8000000000000"; "7ff0000000000001"; "fff8000000000000"; "7ff800000000000"; "7ff800000000000g"; "+7ff800000000000" ] do
                   yield! edit (replaceFirst "\"kind\":\"float64Literal\",\"bits\":\"[0-9a-f]{16}\"" $"\"kind\":\"float64Literal\",\"bits\":\"{bits}\"")
               for n in [ "-0"; "1.0"; "1e2"; "9223372036854775808"; "-9223372036854775808" ] do
                   yield! edit (replaceFirst "\"kind\":\"int64Literal\",\"value\":-?\\d+" $"\"kind\":\"int64Literal\",\"value\":{n}")

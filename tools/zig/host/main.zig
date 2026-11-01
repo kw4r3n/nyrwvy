@@ -10,12 +10,14 @@ pub const ids = @import("ids.zig");
 const proposals = @import("proposals.zig");
 
 /// The open snapshot: what `status` reports, the model (merged with the dependency, if any) and
-/// the selected dependency. All live in `startup`.
+/// the selected dependency. Initial values live in `startup`; commits own retained bytes.
 var snapshot_id: []const u8 = "";
 pub var snapshot_path: []const u8 = "";
 var fingerprints: model_reader.Fingerprints = undefined;
 pub var selection: ?Dependency = null;
 var startup: std.mem.Allocator = undefined;
+var retained_owned = false;
+var test_fail_operation: ?[]const u8 = null;
 pub var writable = false;
 var session_changed = false;
 pub var invalidated = false;
@@ -179,7 +181,7 @@ pub fn maskLoneSurrogates(a: std.mem.Allocator, line: []const u8) !Masked {
     return if (genuine) .{} else masked;
 }
 
-fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
+fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8, request_id: *?[]const u8) !void {
     // The model reader's helpers allocate from the request's arena, not a freed earlier one.
     model_reader.beginRequest(a);
     const masked = try maskLoneSurrogates(a, given);
@@ -188,8 +190,10 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
     if (std.mem.trim(u8, line, " \t\r\n").len == 0) return failure(out, null, "ProtocolError", "Empty request line; expected one JSON object.");
     // The F# message carries .NET's parser text after this prefix; the parity test compares the prefix.
     if (tooDeep(line)) return failure(out, null, "ProtocolError", "Invalid JSON: maximum depth exceeded.");
-    const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, line, .{ .duplicate_field_behavior = .use_last }) catch |e|
-        return failure(out, null, "ProtocolError", try std.fmt.allocPrint(a, "Invalid JSON: {s}", .{@errorName(e)}));
+    const parsed = std.json.parseFromSliceLeaky(std.json.Value, a, line, .{ .duplicate_field_behavior = .use_last }) catch |e| switch (e) {
+        error.OutOfMemory => return e,
+        else => return failure(out, null, "ProtocolError", try std.fmt.allocPrint(a, "Invalid JSON: {s}", .{@errorName(e)})),
+    };
     if (parsed != .object) return failure(out, null, "ProtocolError", "Expected a JSON object.");
     if (masked.root_key) return failure(out, null, "SessionError", query.lone_message);
     var problem: []const u8 = "";
@@ -198,6 +202,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
         else => return e,
     };
     if (query.masked and std.mem.indexOf(u8, id, query.lone_mark) != null) return failure(out, null, "SessionError", query.lone_message);
+    request_id.* = id;
     const op = requiredString(a, parsed.object, "op", &problem) catch |e| switch (e) {
         Problem.Protocol => return failure(out, id, "ProtocolError", problem),
         else => return e,
@@ -218,6 +223,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8) !void {
     if (std.mem.eql(u8, op, "status")) {
         if (try fieldProblem(a, line, parsed.object, "status request", &.{ "id", "op" }, &.{ "id", "op" })) |message| return failure(out, id, "ProtocolError", message);
         try out.writeAll("{\"id\":");
+        if (test_fail_operation) |operation| if (std.mem.eql(u8, op, operation)) return error.InjectedFailure;
         try writeString(out, id);
         try out.writeAll(",\"ok\":true,\"result\":{\"snapshotId\":");
         try writeString(out, snapshot_id);
@@ -394,8 +400,11 @@ fn replaceDependencyPairUsing(a: std.mem.Allocator, next_source: []const u8, nex
     defer if (consistent) std.Io.Dir.cwd().deleteFile(host_io, previous) catch {};
     if (try replace(a, sidecar, next_manifest)) |problem| return problem;
     consistent = false;
-    if (try replace(a, snapshot_path, next_source)) |problem| {
-        if (try replace(a, sidecar, manifest)) |rollback| return .{ .code = "IoFailure", .message = try std.fmt.allocPrint(a, "{s} Restoring the previous dependency selection also failed: {s} The previous sidecar is kept at '{s}'.", .{ problem.message, rollback.message, previous }) };
+    // A thrown write error needs the same rollback as an ordinary storage rejection.
+    const snapshot_problem: ?query.Rejection = replace(a, snapshot_path, next_source) catch |err| .{ .code = "IoFailure", .message = @errorName(err) };
+    if (snapshot_problem) |problem| {
+        const rollback_problem: ?query.Rejection = replace(a, sidecar, manifest) catch |err| .{ .code = "IoFailure", .message = @errorName(err) };
+        if (rollback_problem) |rollback| return .{ .code = "IoFailure", .message = try std.fmt.allocPrint(a, "{s} Restoring the previous dependency selection also failed: {s} The previous sidecar is kept at '{s}'.", .{ problem.message, rollback.message, previous }) };
         consistent = true;
         return problem;
     }
@@ -500,29 +509,54 @@ fn publish(a: std.mem.Allocator, out: *std.Io.Writer, id: []const u8, op: []cons
     const written = try model_reader.writtenText(a, source.written());
     const encoded = if (std.mem.endsWith(u8, snapshot_path, ".nyrec")) try snapshot_reader.recordsOf(a, written.text) else written.text;
     // Allocate all retained state before publication, leaving no fallible install after rename.
-    const retained_source = try startup.dupe(u8, encoded);
-    const retained_id = try startup.dupe(u8, validated.id);
-    const retained_fingerprints: model_reader.Fingerprints = .{ .snapshot = try startup.dupe(u8, next_fingerprints.snapshot), .semantic = try startup.dupe(u8, next_fingerprints.semantic), .canonical = "", .normalized = "" };
+    const retained = std.heap.page_allocator;
+    const retained_source = try retained.dupe(u8, encoded);
+    var installed = false;
+    defer if (!installed) retained.free(retained_source);
+    const retained_id = try retained.dupe(u8, validated.id);
+    defer if (!installed) retained.free(retained_id);
+    const retained_snapshot = try retained.dupe(u8, next_fingerprints.snapshot);
+    defer if (!installed) retained.free(retained_snapshot);
+    const retained_semantic = try retained.dupe(u8, next_fingerprints.semantic);
+    defer if (!installed) retained.free(retained_semantic);
+    const retained_fingerprints: model_reader.Fingerprints = .{ .snapshot = retained_snapshot, .semantic = retained_semantic, .canonical = "", .normalized = "" };
+    // Encode the entire reply before publication too: buffering can fail with OOM.
+    try success(out, id);
+    try out.writeAll("{\"transactionId\":");
+    try writeString(out, wanted);
+    try out.writeAll(",\"publishedSnapshotId\":");
+    try writeString(out, retained_id);
+    try out.writeAll(",\"readiness\":");
+    try proposals.writeReadiness(out, p.model);
+    try out.writeAll("}}");
     try proposals.prepareInstall();
     const storage_problem = if (p.dependency) |d| try replaceDependencyPair(a, encoded, d.manifest) else try replaceAtomically(a, snapshot_path, encoded);
-    if (storage_problem) |storage_error| return failureWith(out, id, storage_error.code, storage_error.message, storage_error.details);
+    if (storage_problem) |storage_error| {
+        out.end = 0; // Discard the pre-encoded success reply.
+        return failureWith(out, id, storage_error.code, storage_error.message, storage_error.details);
+    }
     if (p.dependency) |d| {
         selection = d.selected;
         dependency_manifest = d.manifest;
     }
     session_changed = true;
+    freeRetained();
     snapshot_id = retained_id;
     fingerprints = retained_fingerprints;
     persisted_source = retained_source;
-    try success(out, id);
-    try out.writeAll("{\"transactionId\":");
-    try writeString(out, wanted);
-    try out.writeAll(",\"publishedSnapshotId\":");
-    try writeString(out, snapshot_id);
-    try out.writeAll(",\"readiness\":");
-    try proposals.writeReadiness(out, p.model);
-    try out.writeAll("}}");
+    retained_owned = true;
+    installed = true;
     proposals.install(wanted);
+}
+
+fn freeRetained() void {
+    if (!retained_owned) return;
+    const a = std.heap.page_allocator;
+    a.free(persisted_source);
+    a.free(snapshot_id);
+    a.free(fingerprints.snapshot);
+    a.free(fingerprints.semantic);
+    retained_owned = false;
 }
 
 /// `{"id":…,"ok":true,"result":` (the caller writes the result and the closing brace).
@@ -702,7 +736,7 @@ fn fail(a: std.mem.Allocator, comptime format: []const u8, args: anytype) Startu
     return error.Startup;
 }
 
-fn exists(io: std.Io, path: []const u8) bool {
+pub fn exists(io: std.Io, path: []const u8) bool {
     return if (std.Io.Dir.cwd().statFile(io, path, .{})) |_| true else |_| false;
 }
 
@@ -950,6 +984,7 @@ pub fn combineMembers(a: std.mem.Allocator, members: []const Dependency) Startup
 }
 
 pub fn main(init: std.process.Init) !void {
+    test_fail_operation = init.environ_map.get("NYRWVY_TEST_HOST_FAIL_OPERATION");
     const process_arena = init.arena.allocator();
     host_io = init.io;
     ids.init(init.io, init.environ_map.get("NYRWVY_TEST_ID_SEED"));
@@ -975,8 +1010,8 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("{s}\n", .{usage});
         std.process.exit(2);
     }
-    try @import("run_process.zig").init(process_arena, init.io, init.environ_map);
-    try @import("run_csharp.zig").init(process_arena, init.io, init.environ_map);
+    @import("run_process.zig").init(process_arena, init.io, init.environ_map) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
+    @import("run_csharp.zig").init(process_arena, init.io, init.environ_map) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
     defer @import("run_csharp.zig").deinit(init.io);
     try @import("process_lifetime.zig").run(init.io, serve);
 }
@@ -984,23 +1019,67 @@ pub fn main(init: std.process.Init) !void {
 fn serve(io: std.Io) !void {
     var in_buffer: [1 << 16]u8 = undefined;
     var reader = std.Io.File.stdin().reader(io, &in_buffer);
-    var line: std.Io.Writer.Allocating = .init(std.heap.page_allocator);
+    var line: std.ArrayList(u8) = .empty;
+    var skip_line_feed = false;
     var out_buffer: [1 << 16]u8 = undefined;
     var writer = std.Io.File.stdout().writer(io, &out_buffer);
     const out = &writer.interface;
     defer proposals.deinit();
-    while (!@import("process_lifetime.zig").isStopping()) {
-        line.clearRetainingCapacity();
-        _ = try reader.interface.streamDelimiterEnding(&line.writer, '\n');
-        const ended = reader.interface.takeByte() == error.EndOfStream;
-        if (ended and line.written().len == 0) break;
+    defer freeRetained();
+    while (!@import("process_lifetime.zig").isStopping() and try readLine(&reader.interface, &line, &skip_line_feed)) {
         // A request's allocations live until its response is written.
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
-        try execute(arena.allocator(), out, std.mem.trimEnd(u8, line.written(), "\r"));
+        var response: std.Io.Writer.Allocating = .init(arena.allocator());
+        var request_id: ?[]const u8 = null;
+        const previous_proposals = proposals.count();
+        // Console.In decodes ill-formed UTF-8 as U+FFFD before Protocol counts the line's UTF-16 units.
+        const text = if (std.unicode.utf8ValidateSlice(line.items)) line.items else try std.fmt.allocPrint(arena.allocator(), "{f}", .{std.unicode.fmtUtf8(line.items)});
+        if (line.items.len > 3 * request_line_units or @import("managed_text.zig").units(text) > request_line_units) {
+            try failure(&response.writer, null, "ProtocolError", "Request line exceeds 16 MiB.");
+        } else execute(arena.allocator(), &response.writer, text, &request_id) catch {
+            proposals.discardAfter(previous_proposals);
+            response.clearRetainingCapacity();
+            try failure(out, request_id, "InternalError", "Unexpected internal failure; this request was not applied and the session is unchanged.");
+        };
+        try out.writeAll(response.written());
         try out.writeByte('\n');
         try out.flush();
-        if (ended) break;
+    }
+}
+
+/// `Protocol.readLine` allows 16 Mi UTF-16 units; a unit takes at most three UTF-8 bytes.
+const request_line_units = 16 * 1024 * 1024;
+
+/// `Protocol.readLine`: a line ends at `\n`, `\r` or `\r\n`, and the `\n` after a `\r` is skipped
+/// only when the next line is read, so a `\r`-ended request is answered at once. Bytes beyond
+/// the most a 16 Mi unit line can take are drained, not kept. False at the end of input.
+fn readLine(reader: *std.Io.Reader, line: *std.ArrayList(u8), skip_line_feed: *bool) !bool {
+    line.clearRetainingCapacity();
+    var started = false;
+    while (true) {
+        const chunk = reader.peekGreedy(1) catch |e| switch (e) {
+            error.EndOfStream => return started,
+            else => return e,
+        };
+        if (skip_line_feed.*) {
+            skip_line_feed.* = false;
+            if (chunk[0] == '\n') {
+                reader.toss(1);
+                continue;
+            }
+        }
+        started = true;
+        const end = std.mem.indexOfAny(u8, chunk, "\r\n");
+        const piece = chunk[0 .. end orelse chunk.len];
+        const room = 3 * request_line_units + 1 -| line.items.len;
+        try line.appendSlice(std.heap.page_allocator, piece[0..@min(piece.len, room)]);
+        if (end) |at| {
+            skip_line_feed.* = chunk[at] == '\r';
+            reader.toss(at + 1);
+            return true;
+        }
+        reader.toss(chunk.len);
     }
 }
 
@@ -1028,10 +1107,12 @@ test "dependency pair restores a failed snapshot write and preserves recovery on
     const Fault = struct {
         var rollback_failure = false;
         var sidecar_failure = false;
+        var snapshot_error = false;
         fn replace(allocator: std.mem.Allocator, path: []const u8, content: []const u8) !?query.Rejection {
             if (std.mem.eql(u8, path, snapshot_path)) {
                 const manifest_path = try std.mem.concat(allocator, u8, &.{ snapshot_path, ".dependency.json" });
                 try std.testing.expectEqualStrings("new-manifest", try readText(allocator, manifest_path));
+                if (snapshot_error) return error.InjectedFailure;
                 return .{ .code = "IoFailure", .message = "snapshot write failed" };
             }
             if (std.mem.endsWith(u8, path, ".dependency.json")) {
@@ -1041,10 +1122,11 @@ test "dependency pair restores a failed snapshot write and preserves recovery on
             return replaceAtomically(allocator, path, content);
         }
     };
-    for ([_]u8{ 0, 1, 2 }) |phase| {
+    for ([_]u8{ 0, 1, 2, 3 }) |phase| {
         invalidated = false;
         Fault.sidecar_failure = phase == 0;
         Fault.rollback_failure = phase == 2;
+        Fault.snapshot_error = phase == 3;
         try std.testing.expect((try replaceAtomically(a, snapshot_path, persisted_source)) == null);
         try std.testing.expect((try replaceAtomically(a, sidecar, dependency_manifest.?)) == null);
         const problem = (try replaceDependencyPairUsing(a, "new-source", "new-manifest", Fault.replace)).?;
@@ -1057,7 +1139,7 @@ test "dependency pair restores a failed snapshot write and preserves recovery on
             try std.testing.expectEqualStrings("DependencyFailure", (try verifyPersisted(a)).?.code);
             try std.testing.expect(invalidated);
         } else {
-            try std.testing.expectEqualStrings(if (phase == 0) "sidecar write failed" else "snapshot write failed", problem.message);
+            try std.testing.expectEqualStrings(if (phase == 0) "sidecar write failed" else if (phase == 3) "InjectedFailure" else "snapshot write failed", problem.message);
             try std.testing.expectEqualStrings("old-manifest", try readText(a, sidecar));
             try std.testing.expectError(error.FileNotFound, readText(a, previous));
             try std.testing.expect((try verifyPersisted(a)) == null);

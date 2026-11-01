@@ -42,12 +42,12 @@ export type DependencyUpgrade = { source: string; replaces: string }
 export type DependencySelectionUpgrade = { sources: string[]; replaces: string[] }
 type UpgradeOptions = { expectedFingerprint: string; replaces?: string } | { upgrades: DependencyUpgrade[]; reviewFingerprint: string } | { selection: DependencySelectionUpgrade; reviewFingerprint: string }
 export type Request = { op: string; [key: string]: unknown }
-type Reply = { id: string; ok: boolean; result?: unknown; error?: unknown }
+type Reply = { id: string | null; ok: boolean; result?: unknown; error?: unknown }
 type Pending = { id: string; resolve: (line: string) => void; reject: (error: Error) => void }
 
 const shutdownTimeoutMs = 5_000
-/** Generous enough for a runPure or verifyChange that builds and runs several cases. */
-const requestTimeoutMs = 600_000
+/** Allows a cold Zig runPure to finish its tool build, emitter, runner build and run limits. */
+const requestTimeoutMs = 900_000
 const stderrLimit = 8_192
 const replyLimit = 64 * 1024 * 1024
 const recoveryAdvice = "A sent request's outcome is unknown if its response was lost. Reopen and inspect committed state before retrying; requests are never replayed."
@@ -83,7 +83,7 @@ export class AuthoringClient {
 
   /**
    * Why a child that never answered has gone, worded for the person who launched it: startup
-   * errors (the session's own stderr line, or a missing dotnet) are configuration problems, not
+   * errors (the session's own stderr line, or a missing executable) are configuration problems, not
    * lost responses, so they carry no replay advice.
    */
   get startupFailure(): string | undefined {
@@ -124,7 +124,7 @@ export class AuthoringClient {
     lines.on("line", (line) => {
       try {
         const reply = JSON.parse(line) as Reply
-        if (!this.pending || reply.id !== this.pending.id || typeof reply.ok !== "boolean") {
+        if (!this.pending || (reply.id !== this.pending.id && !(reply.id === null && reply.ok === false)) || typeof reply.ok !== "boolean") {
           throw new Error("Unexpected AuthoringSession response; reopen and inspect committed state.")
         }
         const pending = this.pending
@@ -167,8 +167,14 @@ export class AuthoringClient {
       if (this.reaped) return
       this.child.stdin.destroy()
       for (const signal of ["SIGTERM", "SIGKILL"] as const) {
-        try { this.child.kill(signal) } catch (error) {
-          this.fail(error instanceof Error ? error : new Error(String(error)), false)
+        try {
+          // A POSIX host leads its own group (detached), so its whole group gets the signal.
+          if (this.child.pid === undefined || process.platform === "win32") this.child.kill(signal)
+          else process.kill(-this.child.pid, signal)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+            this.fail(error instanceof Error ? error : new Error(String(error)), false)
+          }
         }
         if (await settlesWithin(this.exited)) return
       }
@@ -284,6 +290,7 @@ export async function openAuthoring(
   const sessionKey = key(context)
   // The slot is reserved before the first await, so a concurrent open of the same session fails
   // instead of spawning a second child whose ownership the map would silently drop.
+  if (sessions.get(sessionKey)?.isReaped) sessions.delete(sessionKey)
   if (sessions.has(sessionKey) || opening.has(sessionKey)) throw new Error("An authoring session is already open. Close it before opening another.")
   let resolveStarted!: () => void
   const started = new Promise<void>(resolve => { resolveStarted = resolve })
@@ -311,8 +318,14 @@ async function launchAuthoring(
   if (!(await stat(worktree).catch(() => undefined))?.isDirectory()) throw new Error(`workspace directory does not exist: ${worktree}`)
   const workspace = resolve(worktree, snapshot)
   const root = resolve(context.repositoryRoot ?? context.worktree)
+  // The native host is the default; NYRWVY_HOST=fsharp selects the deprecated F# host, and an explicit
+  // NYRWVY_HOST_EXECUTABLE (relative to the repository root; a `.dll` launches through dotnet) wins over both.
+  const selection = process.env.NYRWVY_HOST || "zig"
+  if (selection !== "fsharp" && selection !== "zig") throw new Error(`NYRWVY_HOST must be zig or fsharp, not ${selection}.`)
   const selected = process.env.NYRWVY_HOST_EXECUTABLE
-  const host = resolve(root, selected || `tools/zig/host/bin/nyrwvy-host${process.platform === "win32" ? ".exe" : ""}`)
+  const host = resolve(root, selected || (selection === "fsharp"
+    ? "tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll"
+    : `tools/zig/host/bin/nyrwvy-host${process.platform === "win32" ? ".exe" : ""}`))
   const managed = /\.dll$/i.test(host)
   const executable = managed ? "dotnet" : host
   // Mode read is open without the workspace lock; the session cannot commit.
@@ -332,11 +345,20 @@ async function launchAuthoring(
       if (upgrade.replaces !== undefined) args.push("--replaces", upgrade.replaces)
     }
   }
+  // These values are raw argv tokens; paths and structured upgrades above are already encoded.
+  const rawValues = upgrade === undefined ? [] : "expectedFingerprint" in upgrade
+    ? [upgrade.expectedFingerprint, upgrade.replaces]
+    : [upgrade.reviewFingerprint]
+  if (rawValues.some(value => value?.startsWith("-"))) {
+    throw new Error("expectedFingerprint, replaces and reviewFingerprint must not start with '-' (command-line option).")
+  }
   const allowHostSources = hostSourcesAllowed(context)
   if (allowHostSources) args.push("--allow-host-sources")
+  if (context.abort?.aborted) throw new Error("Authoring open cancelled before starting.")
   const client = new AuthoringClient(spawn(executable, managed ? [host, ...args] : args, {
-    cwd: worktree, stdio: ["pipe", "pipe", "pipe"],
-  }), executable, !selected)
+    cwd: worktree, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, NYRWVY_REPOSITORY_ROOT: root },
+  }), executable, !selected && selection === "zig")
   sessions.set(sessionKey, client)
   markStarted()
   try {

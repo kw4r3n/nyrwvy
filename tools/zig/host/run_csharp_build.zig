@@ -32,11 +32,12 @@ pub fn init(a: A, io: std.Io, env: *const std.process.Environ.Map) !void {
             break;
         } else |_| {}
     }
-    session_root = try temporary(a, io, "nyrwvy-csharp-session");
+    if (!windows) sweep(io, temp_root);
+    session_root = try temporary(a, io, try std.fmt.allocPrint(a, "{s}{d}", .{ session_prefix, currentPid() }));
     source_root = try std.fs.path.join(a, &.{ session_root, "compiler-source" });
     _ = try std.Io.Dir.cwd().createDirPathStatus(io, source_root, if (windows) .default_dir else .fromMode(0o700));
-    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ source_root, "Compiler.csproj" }), .data = @embedFile("csharp/Compiler.csproj") });
-    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ source_root, "Compiler.cs" }), .data = @embedFile("csharp/Compiler.cs") });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ source_root, "Compiler.csproj" }), .data = driver_project });
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = try std.fs.path.join(a, &.{ source_root, "Compiler.cs" }), .data = driver_source });
 }
 fn resolveTempRoot(a: A, cwd: []const u8, configured: []const u8) ![]const u8 {
     return std.fs.path.resolveAlloc(a, &.{ cwd, configured });
@@ -45,12 +46,20 @@ fn nonEmpty(value: ?[]const u8) ?[]const u8 {
     const text = value orelse return null;
     return if (text.len == 0) null else text;
 }
+const driver_project = @embedFile("csharp/Compiler.csproj");
+const driver_source = @embedFile("csharp/Compiler.cs");
+const session_prefix = "nyrwvy-csharp-session-";
+fn currentPid() i64 {
+    return if (windows) std.os.windows.GetCurrentProcessId() else if (@import("builtin").os.tag == .linux) std.os.linux.getpid() else std.c.getpid();
+}
+/// A fresh private directory `<prefix>-<random>` in the session directory (the temp root before it exists),
+/// so the startup sweep of a dead host's session also removes its workers' and runs' directories.
 pub fn temporary(a: A, io: std.Io, prefix: []const u8) ![]const u8 {
     for (0..16) |_| {
         var random: [16]u8 = undefined;
         try io.randomSecure(&random);
         const name = try std.fmt.allocPrint(a, "{s}-{x}", .{ prefix, random });
-        const path = try std.fs.path.join(a, &.{ temp_root, name });
+        const path = try std.fs.path.join(a, &.{ if (session_root.len > 0) session_root else temp_root, name });
         std.Io.Dir.cwd().createDir(io, path, if (windows) .default_dir else .fromMode(0o700)) catch |err| switch (err) {
             error.PathAlreadyExists => continue,
             else => return err,
@@ -58,6 +67,19 @@ pub fn temporary(a: A, io: std.Io, prefix: []const u8) ![]const u8 {
         return path;
     }
     return error.TempDirectoryUnavailable;
+}
+/// Deletes session directories (`nyrwvy-csharp-session-<pid>-…`) whose host no longer runs.
+fn sweep(io: std.Io, parent: []const u8) void {
+    var dir = std.Io.Dir.cwd().openDir(io, parent, .{ .iterate = true }) catch return;
+    defer dir.close(io);
+    var entries_of = dir.iterate();
+    while (entries_of.next(io) catch return) |entry| {
+        if (entry.kind != .directory or !std.mem.startsWith(u8, entry.name, session_prefix)) continue;
+        const rest = entry.name[session_prefix.len..];
+        const pid = std.fmt.parseInt(std.posix.pid_t, rest[0 .. std.mem.indexOfScalar(u8, rest, '-') orelse continue], 10) catch continue;
+        // EPERM is a live process of another user.
+        if (pid > 0) std.posix.kill(pid, @fromBackingInt(@intCast(0))) catch |e| if (e == error.ProcessNotFound) dir.deleteTree(io, entry.name) catch {};
+    }
 }
 fn evict(index: usize) void {
     const e = entries.swapRemove(index);
@@ -72,17 +94,48 @@ pub fn deinit(io: std.Io) void {
 }
 pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
     if (driver != null) return null;
-    const project = try std.fs.path.join(a, &.{ source_root, "Compiler.csproj" });
-    const output = try std.fs.path.join(lifetime, &.{ session_root, "compiler" });
-    const result = try p.launch(a, io, &.{ dotnet, "build", project, "--configuration", "Release", "--output", output, "--nologo", "--verbosity", "quiet" }, source_root, "C# compiler driver build", 30);
-    switch (result) {
-        .failed => |d| return d,
-        .completed => |done| if (!done.term.success()) return try p.processFailure(a, done),
+    // Built once per user under a key of its sources and the dotnet that builds it, then shared.
+    var digest: [32]u8 = undefined;
+    std.crypto.hash.sha2.Sha256.hash(try std.mem.join(a, "\x00", &.{ dotnet, driver_project, driver_source }), &digest, .{});
+    const drivers = try std.fs.path.join(a, &.{ p.cache_root, "csharp-driver" });
+    const output = try std.fs.path.join(lifetime, &.{ drivers, &std.fmt.bytesToHex(digest, .lower) });
+    if (std.Io.Dir.cwd().access(io, try std.fs.path.join(a, &.{ output, "Compiler.dll" }), .{})) |_| {} else |_| {
+        _ = try std.Io.Dir.cwd().createDirPathStatus(io, drivers, if (windows) .default_dir else .fromMode(0o700));
+        var random: [16]u8 = undefined;
+        io.random(&random);
+        // Built under a fresh name and renamed, so no session runs a partial driver.
+        const partial = try std.fmt.allocPrint(a, "{s}.{x}", .{ output, random });
+        defer std.Io.Dir.cwd().deleteTree(io, partial) catch {};
+        const project = try std.fs.path.join(a, &.{ source_root, "Compiler.csproj" });
+        const result = try p.launch(a, io, &.{ dotnet, "build", project, "--configuration", "Release", "--output", partial, "--nologo", "--verbosity", "quiet" }, source_root, "C# compiler driver build", 300);
+        switch (result) {
+            .failed => |d| return d,
+            .completed => |done| if (!done.term.success()) return try p.processFailure(a, done),
+        }
+        // A concurrent session may have renamed its own build into place first.
+        std.Io.Dir.renameAbsolute(partial, output, io) catch |e| {
+            std.Io.Dir.cwd().access(io, try std.fs.path.join(a, &.{ output, "Compiler.dll" }), .{}) catch return e;
+        };
     }
     const assembly = try std.fs.path.join(lifetime, &.{ output, "Compiler.dll" });
+    // A driver that ran but did not identify itself (say, its runtime is gone) is moved aside and rebuilt
+    // next time; a timeout or launch failure may be transient, and other sessions share this directory.
+    var stale = false;
+    defer if (stale) {
+        var random: [16]u8 = undefined;
+        io.random(&random);
+        if (std.fmt.allocPrint(a, "{s}.stale.{x}", .{ output, random })) |aside| {
+            if (std.Io.Dir.renameAbsolute(output, aside, io)) |_| std.Io.Dir.cwd().deleteTree(io, aside) catch {} else |_| {}
+        } else |_| {}
+    };
+    errdefer stale = false;
     const identified = try p.launch(a, io, &.{ dotnet, assembly, "identity" }, output, "C# compiler identification", 30);
+    stale = true;
     const text = switch (identified) {
-        .failed => |d| return d,
+        .failed => |d| {
+            stale = false;
+            return d;
+        },
         .completed => |done| if (done.term.success()) done.stdout else return try p.processFailure(a, done),
     };
     const parsed = std.json.parseFromSliceLeaky(std.json.Value, lifetime, text, .{}) catch return .{ .code = "RunStartupFailure", .message = "The C# compiler did not return its build identity." };
@@ -97,6 +150,7 @@ pub fn ensureDriver(a: A, io: std.Io) !?p.Diagnostic {
     major = runtime_major.integer;
     runtime_version = version.string;
     build_context_fingerprint = context.string;
+    stale = false;
     driver = assembly;
     return null;
 }
@@ -207,4 +261,20 @@ test "temporary directories use the configured root and are distinct" {
     try std.testing.expectEqualStrings(path, std.fs.path.dirname(first).?);
     try std.Io.Dir.cwd().access(std.testing.io, first, .{});
     try std.Io.Dir.cwd().access(std.testing.io, second, .{});
+}
+
+test "sweep removes session directories whose host is gone" {
+    const io = std.testing.io;
+    var parent = std.testing.tmpDir(.{});
+    defer parent.cleanup();
+    const path = try parent.dir.realPathFileAlloc(io, ".", std.testing.allocator);
+    defer std.testing.allocator.free(path);
+    var buffer: [64]u8 = undefined;
+    const live = try std.fmt.bufPrint(&buffer, session_prefix ++ "{d}-a", .{currentPid()});
+    const gone = session_prefix ++ "2147483646-b";
+    for ([_][]const u8{ live, gone, "nyrwvy-other-1-c" }) |name| try parent.dir.createDir(io, name, .default_dir);
+    sweep(io, path);
+    try parent.dir.access(io, live, .{});
+    try parent.dir.access(io, "nyrwvy-other-1-c", .{});
+    try std.testing.expectError(error.FileNotFound, parent.dir.access(io, gone, .{}));
 }

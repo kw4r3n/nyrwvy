@@ -14,6 +14,13 @@ const modules = [
   ["viewer_asset", "src/Nyrwvy.Viewer/asset.zig"],
 ]
 
+// `--optional` exits 0 without building when no zig runs (setup on machines without Zig).
+if (process.argv.includes("--optional")) {
+  try { execFileSync(process.env.NYRWVY_ZIG || "zig", ["version"], { cwd: root, stdio: "ignore", timeout: 30_000 }) } catch {
+    console.error("zig is not available; skipping the Zig session host build.")
+    process.exit(0)
+  }
+}
 await mkdir(output, { recursive: true, mode: 0o700 })
 const temporary = await mkdtemp(join(output, ".build-"))
 try {

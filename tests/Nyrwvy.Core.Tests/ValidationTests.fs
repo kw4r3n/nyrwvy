@@ -14,6 +14,26 @@ module ValidationTests =
         let issues = SnapshotValidator.validate fixture.Snapshot
         Assert.Empty(issues)
 
+    [<Theory>]
+    [<InlineData(true)>]
+    [<InlineData(false)>]
+    let ``display names reject lone UTF16 surrogates`` highSurrogate =
+        let fixture = TestGraph.create ()
+        let name = "T" + string (char (if highSurrogate then 0xd800 else 0xdc00))
+        let snapshots =
+            [ { fixture.Snapshot with
+                    Types = fixture.Snapshot.Types |> List.map (fun item -> { item with DisplayName = name }) }
+              { fixture.Snapshot with
+                    Functions = fixture.Snapshot.Functions |> List.map (fun item -> { item with DisplayName = name }) }
+              { fixture.Snapshot with
+                    Functions = fixture.Snapshot.Functions |> List.map (fun item ->
+                        { item with Parameters = item.Parameters |> List.map (fun parameter -> { parameter with DisplayName = name }) }) } ]
+        for snapshot in snapshots do
+            SnapshotValidator.validate snapshot |> requireIssue "InvalidDisplayName"
+            match SnapshotCodec.serialize snapshot with
+            | Error _ -> ()
+            | Ok _ -> failwith "Serialized a display name with a lone surrogate."
+
     let private withResolvedObligation (fixture: GraphFixture) =
         let transactionId = StableId.createForTesting<TransactionTag> "transaction-owner-check"
         { fixture.Snapshot with

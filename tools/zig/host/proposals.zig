@@ -66,6 +66,13 @@ pub fn deinit() void {
 pub fn count() usize {
     return pending.items.len;
 }
+/// An encoder can fail after registering a proposal. Drop this request's additions on error.
+pub fn discardAfter(previous_count: usize) void {
+    while (pending.items.len > previous_count) {
+        const p = pending.pop().?;
+        freeArena(p.arena);
+    }
+}
 pub fn find(wanted: []const u8) ?*const Pending {
     for (pending.items) |*p| if (m.same(p.id, wanted)) return p;
     return null;

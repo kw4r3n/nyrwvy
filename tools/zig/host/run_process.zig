@@ -18,11 +18,17 @@ pub fn init(a: Allocator, io: std.Io, env: *const std.process.Environ.Map) !void
     if (compiler.len == 0) compiler = "zig";
     const build_info = @import("build_info");
     const repository_root: ?[]const u8 = if (@hasDecl(build_info, "repository_root")) build_info.repository_root else null;
-    directory = repository_root orelse try std.process.currentPathAlloc(io, a);
+    // The adapter names the checkout; otherwise the one the host was built from, then the working directory.
+    const named = if (env.get("NYRWVY_REPOSITORY_ROOT")) |path| (if (path.len > 0) path else null) else null;
+    directory = named orelse repository_root orelse try std.process.currentPathAlloc(io, a);
     const root = if (env.get("XDG_CACHE_HOME")) |path| (if (path.len > 0) path else null) else null;
     const base = root orelse if (windows) env.get("LOCALAPPDATA") orelse return error.CacheDirectoryUnavailable else try std.fs.path.join(a, &.{ env.get("HOME") orelse ".", ".cache" });
-    cache = try std.fs.path.join(a, &.{ base, "nyrwvy", "zig-runners" });
+    cache_root = try std.fs.path.join(a, &.{ base, "nyrwvy" });
+    cache = try std.fs.path.join(a, &.{ cache_root, "zig-runners" });
 }
+
+/// `$XDG_CACHE_HOME/nyrwvy` (`%LOCALAPPDATA%\nyrwvy` on Windows), or `~/.cache/nyrwvy`.
+pub var cache_root: []const u8 = "";
 
 pub const Outcome = union(enum) { completed: std.process.RunResult, failed: Diagnostic };
 

@@ -101,6 +101,7 @@ pub fn run(io: std.Io, comptime serve: fn (std.Io) anyerror!void) !void {
     const Handlers = struct {
         var term: std.posix.Sigaction = undefined;
         var interrupt: std.posix.Sigaction = undefined;
+        var hangup: std.posix.Sigaction = undefined;
     };
     var console_registered = false;
     if (windows) {
@@ -111,12 +112,14 @@ pub fn run(io: std.Io, comptime serve: fn (std.Io) anyerror!void) !void {
         const action: std.posix.Sigaction = .{ .handler = .{ .handler = terminate }, .mask = std.posix.sigemptyset(), .flags = 0 };
         std.posix.sigaction(.TERM, &action, &Handlers.term);
         std.posix.sigaction(.INT, &action, &Handlers.interrupt);
+        std.posix.sigaction(.HUP, &action, &Handlers.hangup);
     }
     defer if (windows) {
         if (console_registered) _ = win.SetConsoleCtrlHandler(consoleTerminate, .FALSE);
     } else {
         std.posix.sigaction(.TERM, &Handlers.term, null);
         std.posix.sigaction(.INT, &Handlers.interrupt, null);
+        std.posix.sigaction(.HUP, &Handlers.hangup, null);
     };
     const Result = union(enum) { serving: anyerror!void, termination: std.Io.Cancelable!void };
     var buffer: [2]Result = undefined;

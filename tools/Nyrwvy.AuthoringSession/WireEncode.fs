@@ -573,12 +573,14 @@ module internal WireEncode =
         objectValue [ "text", box text; "totalCount", box matches.Length; "matches", matches |> List.truncate limit |> arrayValue ]
 
     let references (declarations: AuthoringDeclarations) (subject: ReferenceSubject) (items: DeclarationReference list) =
+        let names = System.Collections.Generic.Dictionary<string * string, string>()
+        for item in declarations.Functions do names[("function", StableId.value item.Id)] <- item.DisplayName
+        for item in declarations.Types do names[("type", StableId.value item.Id)] <- item.DisplayName
+        for item in declarations.Effects do names[("effect", StableId.value item.Id)] <- item.DisplayName
+        for item in declarations.Capabilities do names[("capability", StableId.value item.Id)] <- item.DisplayName
         let displayName kind (id: string) =
-            match kind with
-            | "function" -> declarations.Functions |> List.tryFind (fun item -> StableId.value item.Id = id) |> Option.map (fun item -> item.DisplayName)
-            | "type" -> declarations.Types |> List.tryFind (fun item -> StableId.value item.Id = id) |> Option.map (fun item -> item.DisplayName)
-            | "effect" -> declarations.Effects |> List.tryFind (fun item -> StableId.value item.Id = id) |> Option.map (fun item -> item.DisplayName)
-            | "capability" -> declarations.Capabilities |> List.tryFind (fun item -> StableId.value item.Id = id) |> Option.map (fun item -> item.DisplayName)
+            match names.TryGetValue((kind, id)) with
+            | true, name -> Some name
             | _ -> None
         let named kind (id: string) =
             match displayName kind id with

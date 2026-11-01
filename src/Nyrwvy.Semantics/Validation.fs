@@ -205,6 +205,25 @@ module SnapshotValidator =
         |> List.iter (fun (id, _) ->
             add "BlankPatternBindingDisplayName" $"Pattern binding '{StableId.value id}' has a blank display name.")
 
+        let displayNames =
+            [ for item in snapshot.Types do
+                  yield item.DisplayName
+                  yield! item.TypeParameters |> List.map snd
+              for item in snapshot.Effects do yield item.DisplayName
+              for item in snapshot.Capabilities do yield item.DisplayName
+              for _, item in capabilityOperationEntries do yield item.DisplayName
+              for _, item in capabilityParameterEntries do yield item.DisplayName
+              for _, _, field in fieldEntries do yield field.DisplayName
+              for _, variant in variantEntries do yield variant.DisplayName
+              for item in snapshot.Functions do
+                  yield item.DisplayName
+                  yield! item.TypeParameters |> List.map snd
+              for _, parameter in parameterEntries do yield parameter.DisplayName
+              for _, binding in patternEntries do yield! Option.toList binding.DisplayName ]
+        for displayName in displayNames do
+            if not (isNull displayName) && LooseJsonString.hasLoneSurrogate displayName then
+                add "InvalidDisplayName" "A display name cannot contain a lone UTF-16 surrogate."
+
         let typeIds = snapshot.Types |> List.map (fun item -> item.Id) |> Set.ofList
         let effectIds = snapshot.Effects |> List.map (fun item -> item.Id) |> Set.ofList
         let effectNames = snapshot.Effects |> List.map (fun item -> item.Id, item.DisplayName) |> Map.ofList
@@ -499,6 +518,15 @@ module SnapshotValidator =
 
         for functionEntity in snapshot.Functions do
             let allNodes = ValueGraph.collectNodes functionEntity.Body
+            let consumersByNodeId =
+                allNodes
+                |> List.collect (fun node ->
+                    SemanticNodeShape.directValueReferences node
+                    |> List.distinct
+                    |> List.map (fun reference -> reference, node.Id))
+                |> List.groupBy fst
+                |> List.map (fun (reference, consumers) -> reference, List.map snd consumers)
+                |> Map.ofList
             // The validator already has the owning function, including for nested nodes.
             // Keep codes stable and add context here rather than parsing UUIDs downstream.
             let add code message = add code $"In function {StableId.describe functionEntity.DisplayName functionEntity.Id}: {message}"
@@ -1878,11 +1906,11 @@ module SnapshotValidator =
                                 add
                                     "UseResourceAcquireOutOfGraph"
                                     $"UseResource node '{StableId.value node.Id}' acquires resource node '{StableId.value acquireNodeId}' from an enclosing graph; the acquisition must be owned by the same graph as the node that releases it."
-                            for other in allNodes do
-                                if other.Id <> node.Id && SemanticNodeShape.directValueReferences other |> List.contains acquireNodeId then
+                            for consumerId in Map.tryFind acquireNodeId consumersByNodeId |> Option.defaultValue [] do
+                                if consumerId <> node.Id then
                                     add
                                         "UseResourceAcquireShared"
-                                        $"UseResource node '{StableId.value node.Id}' must be the only consumer of resource node '{StableId.value acquireNodeId}', which node '{StableId.value other.Id}' also uses."
+                                        $"UseResource node '{StableId.value node.Id}' must be the only consumer of resource node '{StableId.value acquireNodeId}', which node '{StableId.value consumerId}' also uses."
                         match nodeType acquireNodeId, Map.tryFind bodyFunctionId functionsById, Map.tryFind releaseOperationId capabilityOperationsById with
                         | Some(TypeRef.BuiltinGeneric(BuiltinGenericType.Result, [ resourceType; errorType ])), Some body, Some(ownerCapabilityId, operation) ->
                             let unbound, contextSubstitution = validateCallbackContext node.Id body context

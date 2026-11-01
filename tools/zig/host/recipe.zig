@@ -715,6 +715,11 @@ pub const Decoder = struct {
                     const digits = std.mem.trimEnd(u8, bits, "\x00");
                     const parsed = std.fmt.parseInt(u64, digits, 16) catch return self.fail("Invalid Float64 bits: Float64 bits contain invalid hexadecimal digits..", .{});
                     for (digits) |c| if (!std.ascii.isHex(c)) return self.fail("Invalid Float64 bits: Float64 bits contain invalid hexadecimal digits..", .{});
+                    // F# re-encodes the value and requires the same text: lowercase, no trailing NUL, one NaN.
+                    const is_nan = parsed & 0x7ff0000000000000 == 0x7ff0000000000000 and parsed & 0x000fffffffffffff != 0;
+                    var canonical: [16]u8 = undefined;
+                    _ = std.fmt.bufPrint(&canonical, "{x:0>16}", .{if (is_nan) @as(u64, 0x7ff8000000000000) else parsed}) catch unreachable;
+                    if (!std.mem.eql(u8, &canonical, bits)) return self.fail("Invalid Float64 bits: Float64 bits must use canonical lowercase hexadecimal text and NaN bits..", .{});
                     break :blk .{ .bits = parsed };
                 },
                 .context => if ((try self.tryProperty(value, name)) != null) .{ .pairs = try self.targets(path, value, name, "call argument", "parameterId") } else .{ .pairs = &.{} },
