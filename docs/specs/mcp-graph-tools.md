@@ -14,7 +14,7 @@ Requires Node 22.6+ (Node 22 recommended), npm and the .NET 10 SDK. From the rep
 npm --prefix tools/nyrwvy-mcp run setup
 ```
 
-This installs the pinned MCP SDK dependencies and builds the existing Release AuthoringSession. It does not install OpenCode, need model credentials, start a network listener, or modify client configuration. Rebuild AuthoringSession after changing its implementation. The MCP client will launch the server itself.
+This installs the pinned MCP SDK dependencies, builds the existing Release AuthoringSession and, when `zig` runs, the Zig session host (`NYRWVY_HOST=zig` in the server's environment selects it; Linux only, see the [README](../../README.md#quick-start)). It does not install OpenCode, need model credentials, start a network listener, or modify client configuration. Rebuild AuthoringSession after changing its implementation. The MCP client will launch the server itself.
 
 The ordinary server launch command is:
 
@@ -28,7 +28,7 @@ Use an absolute server path. Relative snapshot paths default to the MCP server p
 
 `--workspace /absolute/path/my-project` remains an optional server-level override for a deliberately fixed workspace. In addition, `nyrwvy_open` accepts an optional `workspace` argument so an agent can supply the host-known project directory when a GUI, plugin cache, desktop host, or other MCP launcher starts the server elsewhere. The user therefore does not need to bake a program directory into ordinary MCP registration.
 
-Nyrwvy intentionally does not add a dependency on MCP Roots for this. Roots are deprecated in the 2026-07-28 MCP specification, which recommends passing directories/files through tool parameters, resource URIs, or server configuration for new implementations. The .NET assembly is always located relative to the server's repository, independently of the client project. Use an absolute `node` executable path when a graphical client does not inherit the expected PATH; `dotnet` must also be available to the launched server (see [Claude Desktop](#claude-desktop)).
+Nyrwvy intentionally does not add a dependency on MCP Roots for this. Roots are deprecated in the 2026-07-28 MCP specification, which recommends passing directories/files through tool parameters, resource URIs, or server configuration for new implementations. The .NET assembly, and with `NYRWVY_HOST=zig` the Zig host's sources, are always located relative to the server's repository, independently of the client project. Use an absolute `node` executable path when a graphical client does not inherit the expected PATH; `dotnet` must also be available to the launched server (see [Claude Desktop](#claude-desktop)), and with the Zig host `zig` too, unless the host is already built.
 
 ### What the path arguments can reach
 
@@ -36,7 +36,7 @@ Nyrwvy intentionally does not add a dependency on MCP Roots for this. Roots are 
 
 ### Startup errors
 
-When the session cannot start, `nyrwvy_open` reports the session's one-line diagnostic (for example `SnapshotFileNotFound: No snapshot file at /project/planner.json. Use create ... to start a new one.`, `SnapshotFileAlreadyExists`, `LockUnavailable` for a snapshot open in another session, or `SnapshotCodecFailure` for a file that is not a snapshot) rather than a lost-response error: nothing was sent, so there is nothing to inspect or replay. A `workspace` that does not exist is reported as such before anything is launched, and a missing `dotnet` as `dotnet was not found on the PATH of this process`.
+When the session cannot start, `nyrwvy_open` reports the session's one-line diagnostic (for example `SnapshotFileNotFound: No snapshot file at /project/planner.json. Use create ... to start a new one.`, `SnapshotFileAlreadyExists`, `LockUnavailable` for a snapshot open in another session, or `SnapshotCodecFailure` for a file that is not a snapshot) rather than a lost-response error: nothing was sent, so there is nothing to inspect or replay. A `workspace` that does not exist is reported as such before anything is launched, and a missing `dotnet` as `dotnet was not found on the PATH of this process`. With `NYRWVY_HOST=zig`, a `zig` that does not run or a failed host build is reported as such (`zig could not run from …`, `Zig host build failed: …`) before the host starts.
 
 ## Client configuration
 
@@ -101,7 +101,7 @@ Claude Desktop reads the same `mcpServers` shape from `claude_desktop_config.jso
 }
 ```
 
-Replace the `PATH` value with the directories that hold `dotnet` and `node` on your machine (`dirname "$(command -v dotnet)"`). Claude Desktop use is configuration guidance, not a live compatibility claim.
+Replace the `PATH` value with the directories that hold `dotnet` and `node` on your machine (`dirname "$(command -v dotnet)"`); to try the Zig host on Linux, add `"NYRWVY_HOST": "zig"` to `env` and build it first with `node scripts/build-zig-host.mjs`. Claude Desktop use is configuration guidance, not a live compatibility claim.
 
 ### Zed
 

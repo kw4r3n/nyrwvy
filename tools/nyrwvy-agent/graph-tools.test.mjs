@@ -115,4 +115,5 @@ test("open warns only when the session build names another commit than the loade
   assert.equal(staleToolWarning(undefined, `1.0.0+${b}`), undefined)
   assert.equal(staleToolWarning(a, "1.0.0"), undefined)
   assert.equal(staleToolWarning(a, undefined), undefined)
+  assert.equal(staleToolWarning(a, "nyrwvy-zig-host"), undefined) // The Zig host binary is keyed by its sources, so it is never stale.
 })

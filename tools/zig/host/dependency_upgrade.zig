@@ -11,7 +11,7 @@ const Value = model.Value;
 const Json = std.json.Value;
 const Allocator = std.mem.Allocator;
 const Writer = std.Io.Writer;
-const Pinned = struct { dependency: host.Dependency, manifest: Value, source: []const u8 };
+pub const Pinned = struct { dependency: host.Dependency, manifest: Value, source: []const u8 };
 pub const Plan = struct { dependency: host.Dependency, manifest: []const u8, local: Value, candidate: Value, preview: Value, fingerprint: []const u8 };
 const Replacement = struct { before: Pinned, after: Pinned };
 
@@ -25,7 +25,7 @@ fn storageFailure(r: *query.Request) anyerror {
     r.rejection = .{ .code = line[0..split], .message = line[split + 2 ..], .details = host.failure_details };
     return error.Rejected;
 }
-fn write(a: Allocator, value: Value) ![]const u8 {
+pub fn write(a: Allocator, value: Value) ![]const u8 {
     var out: Writer.Allocating = .init(a);
     try m.write(&out.writer, value);
     return out.written();
@@ -38,7 +38,7 @@ pub fn checkPersisted(r: *query.Request) !void {
         return error.Rejected;
     }
 }
-fn pin(r: *query.Request, source: []const u8) !Pinned {
+pub fn pin(r: *query.Request, source: []const u8) !Pinned {
     if (source.len == 0 or std.mem.indexOfScalar(u8, source, 0) != null) return failure(r, "Invalid dependency path.");
     const path = try std.fs.path.resolve(r.a, &.{source});
     const stat = std.Io.Dir.cwd().statFile(host.host_io, path, .{}) catch null;
@@ -58,17 +58,20 @@ fn pin(r: *query.Request, source: []const u8) !Pinned {
         const flattened = try write(r.a, resolved.root);
         break :blk host.decodeDependency(r.a, false, flattened, path, true) catch return storageFailure(r);
     } else host.decodeDependency(r.a, std.mem.endsWith(u8, path, ".nyrec"), content, path, true) catch return storageFailure(r);
-    const json = (try model.writtenText(r.a, dependency.canonical)).text;
-    const is_record = std.mem.endsWith(u8, path, ".nyrec");
-    const manifest = try m.object(r.a, &.{
-        try m.member(r.a, "fingerprint", try m.string(r.a, dependency.fingerprint)),
-        try m.member(r.a, "path", try m.string(r.a, path)),
-        try m.member(r.a, "snapshotId", try m.string(r.a, dependency.id)),
-        try m.member(r.a, if (is_record) "snapshotRecords" else "snapshotJson", try m.string(r.a, if (is_record) try records.recordsOf(r.a, json) else json)),
-    });
-    return .{ .dependency = dependency, .manifest = manifest, .source = path };
+    return .{ .dependency = dependency, .manifest = try embedded(r.a, dependency, path), .source = path };
 }
-fn members(r: *query.Request) ![]const Pinned {
+/// `PinnedDependency.embed`: the manifest retaining `dependency`'s exact content, in the form `path`'s extension selects.
+pub fn embedded(a: Allocator, dependency: host.Dependency, path: []const u8) !Value {
+    const json = (try model.writtenText(a, dependency.canonical)).text;
+    const is_record = std.mem.endsWith(u8, path, ".nyrec");
+    return m.object(a, &.{
+        try m.member(a, "fingerprint", try m.string(a, dependency.fingerprint)),
+        try m.member(a, "path", try m.string(a, path)),
+        try m.member(a, "snapshotId", try m.string(a, dependency.id)),
+        try m.member(a, if (is_record) "snapshotRecords" else "snapshotJson", try m.string(a, if (is_record) try records.recordsOf(a, json) else json)),
+    });
+}
+pub fn members(r: *query.Request) ![]const Pinned {
     const text = host.dependency_manifest orelse return &.{};
     const root = try std.json.parseFromSliceLeaky(Json, r.a, text, .{});
     const set = root.object.get("dependencies");
@@ -81,7 +84,7 @@ fn members(r: *query.Request) ![]const Pinned {
     }
     return result;
 }
-fn combine(r: *query.Request, items: []const Pinned) !struct { host.Dependency, []const u8 } {
+pub fn combine(r: *query.Request, items: []const Pinned) !struct { host.Dependency, []const u8 } {
     if (items.len == 1) return .{ items[0].dependency, try write(r.a, items[0].manifest) };
     const dependencies = try r.a.alloc(host.Dependency, items.len);
     const manifests = try r.a.alloc(Value, items.len);

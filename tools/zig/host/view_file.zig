@@ -100,6 +100,10 @@ const directory_flags: linux.O = .{ .DIRECTORY = true, .CLOEXEC = true };
 /// then each parent below it without following links, creating missing ones, then `content` into a
 /// new temporary file there, renamed over the target name.
 fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u8, name: []const u8, content: []const u8, snapshot: bool) !Outcome {
+    return writeConfinedAs(a, directory, parents, name, content, snapshot, true);
+}
+
+fn writeConfinedAs(a: Allocator, directory: []const u8, parents: []const []const u8, name: []const u8, content: []const u8, snapshot: bool, replace: bool) !Outcome {
     var current: i32 = blk: {
         const fd = linux.openat(linux.AT.FDCWD, try a.dupeSentinel(u8, directory, 0), directory_flags, 0);
         if (linux.errno(fd) != .SUCCESS) return failure(a, linux.errno(fd), "open", directory);
@@ -147,7 +151,8 @@ fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u
         }
         if (linux.errno(linux.fsync(@intCast(fd))) != .SUCCESS) return .{ .refused = "I/O error: fsync failed." };
     }
-    const rc = linux.renameat(current, temporary, current, try a.dupeSentinel(u8, name, 0));
+    const target = try a.dupeSentinel(u8, name, 0);
+    const rc = if (replace) linux.renameat(current, temporary, current, target) else linux.renameat2(current, temporary, current, target, .{ .NOREPLACE = true });
     if (linux.errno(rc) != .SUCCESS) return failure(a, linux.errno(rc), "rename", name);
     renamed = true;
     return .{ .written = "" };
@@ -156,6 +161,11 @@ fn writeConfined(a: Allocator, directory: []const u8, parents: []const []const u
 /// Snapshot publication already holds the snapshot lock; unlike viewer output it replaces any file.
 pub fn replaceAtomic(a: Allocator, path: []const u8, content: []const u8) !Outcome {
     return writeConfined(a, std.fs.path.dirname(path) orelse "/", &.{}, std.fs.path.basename(path), content, true);
+}
+
+/// `SessionStorage.createAtomically`: like `replaceAtomic`, but an existing file is never replaced.
+pub fn createAtomic(a: Allocator, path: []const u8, content: []const u8) !Outcome {
+    return writeConfinedAs(a, std.fs.path.dirname(path) orelse "/", &.{}, std.fs.path.basename(path), content, true, false);
 }
 
 /// `ViewerFile.write` of `content` for the snapshot at `snapshot_path` (absolute): to `requested`,
