@@ -261,6 +261,7 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8, request
         .{ "runPure", @import("run_pure.zig").run },
         .{ "runPureByName", @import("run_pure.zig").run },
         .{ "emitCSharp", @import("emit_csharp.zig").run },
+        .{ "emitZigLibrary", @import("emit_zig_library.zig").run },
         .{ "verifyChange", @import("change_verification.zig").run },
         .{ "verifyChangeByName", @import("change_verification.zig").run },
         .{ "simulateDependencyUpgrade", @import("dependency_simulation.zig").simulate },

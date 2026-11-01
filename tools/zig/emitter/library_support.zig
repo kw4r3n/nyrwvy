@@ -1,0 +1,77 @@
+// Library mode's C ABI (docs/decisions/zig-backend-memory-ownership.md, section 3 and the first
+// milestone). Arguments are borrowed for the call; a result is copied into caller buffers and the
+// arena is then reset, so memory per call stays bounded. One mutex serialises every export. Status:
+// 0 ok, 1 fault and 2 cancelled (message through `ny_last_failure`), 3 a result buffer too small
+// (the lengths written say what is needed). OOM, stack overflow and safety panics still abort.
+
+var ny_export_lock: std.Io.Mutex = .init;
+threadlocal var ny_export_failure: []u8 = &.{};
+
+fn nyExportEnter() void {
+    // Real OS futexes, so the lock blocks across threads; this Io offers no concurrency of its own.
+    const io = std.Io.Threaded.global_single_threaded.io();
+    ny_export_lock.lockUncancelable(io);
+    ny_io = io;
+}
+
+fn nyExportLeave() void {
+    _ = ny_arena.reset(.retain_capacity);
+    ny_export_lock.unlock(ny_io);
+}
+
+fn nyExportFail() c_int {
+    std.heap.page_allocator.free(ny_export_failure);
+    ny_export_failure = std.heap.page_allocator.dupe(u8, ny_failure.message) catch &.{};
+    return if (ny_failure.cancelled) 2 else 1;
+}
+
+/// The message of this thread's last failed call; valid until its next failed call.
+export fn ny_last_failure(len: *usize) [*]const u8 {
+    len.* = ny_export_failure.len;
+    return ny_export_failure.ptr;
+}
+
+/// Bytes the runtime arena keeps between calls; flat across repeated calls of the same size.
+export fn ny_arena_capacity() usize {
+    nyExportEnter();
+    defer ny_export_lock.unlock(ny_io);
+    return ny_arena.queryCapacity();
+}
+
+fn nySlice(comptime T: type, ptr: ?[*]const T, len: usize) []const T {
+    return if (len == 0) &.{} else ptr.?[0..len];
+}
+
+fn nyRows(comptime T: type, ptr: ?[*]const T, row_lens: ?[*]const usize, rows: usize) []const []const T {
+    const out = nyAllocator().alloc([]const T, rows) catch @panic("out of memory");
+    var at: usize = 0;
+    for (out, 0..) |*row, index| {
+        const len = row_lens.?[index];
+        row.* = if (len == 0) &.{} else ptr.?[at..][0..len];
+        at += len;
+    }
+    return out;
+}
+
+fn nyCopyOut(comptime T: type, items: []const T, out: ?[*]T, cap: usize, out_len: *usize) bool {
+    out_len.* = items.len;
+    if (items.len > cap) return false;
+    if (items.len > 0) @memcpy(out.?[0..items.len], items);
+    return true;
+}
+
+fn nyCopyRows(comptime T: type, rows: []const []const T, out: ?[*]T, cap: usize, out_len: *usize, out_row_lens: ?[*]usize, row_cap: usize, out_rows: *usize) bool {
+    var total: usize = 0;
+    for (rows) |row| total += row.len;
+    out_len.* = total;
+    out_rows.* = rows.len;
+    if (total > cap or rows.len > row_cap) return false;
+    var at: usize = 0;
+    for (rows, 0..) |row, index| {
+        out_row_lens.?[index] = row.len;
+        if (row.len > 0) @memcpy(out.?[at..][0..row.len], row);
+        at += row.len;
+    }
+    return true;
+}
+

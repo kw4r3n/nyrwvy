@@ -12,6 +12,7 @@ const json = std.json;
 const runtime = @embedFile("runtime.zig");
 const case_mapping = @embedFile("case_mapping.zig");
 const runner_support = @embedFile("runner_support.zig");
+const library_support = @embedFile("library_support.zig");
 pub const build_source = @embedFile("main.zig");
 
 pub fn functionName(allocator: std.mem.Allocator, id: []const u8) []const u8 {
@@ -1860,6 +1861,118 @@ fn runnerMain(ordered: []const Function, entry: ?[]const u8) []const u8 {
     return out.items;
 }
 
+/// A function the library exports, and its C symbol.
+pub const Export = struct { id: []const u8, symbol: []const u8 };
+var library_exports: ?[]const Export = null;
+
+fn abiScalar(t: *const Type) ?[]const u8 {
+    if (t.* != .primitive) return null;
+    if (eql(t.primitive, "primitiveInt64")) return "i64";
+    if (eql(t.primitive, "primitiveFloat64")) return "f64";
+    if (eql(t.primitive, "primitiveBool")) return "bool";
+    return null;
+}
+
+/// The item of a List whose items are Int64 or Float64.
+fn abiListItem(t: *const Type) ?[]const u8 {
+    if (t.* != .builtin or !eql(t.builtin.kind, "list")) return null;
+    const item = abiScalar(t.builtin.args[0]) orelse return null;
+    return if (eql(item, "bool")) null else item;
+}
+
+fn abiRowsItem(t: *const Type) ?[]const u8 {
+    if (t.* != .builtin or !eql(t.builtin.kind, "list")) return null;
+    return abiListItem(t.builtin.args[0]);
+}
+
+fn isString(t: *const Type) bool {
+    return t.* == .primitive and eql(t.primitive, "primitiveString");
+}
+
+/// The fields of a non-generic Product whose fields are all scalars.
+fn abiProduct(t: *const Type) ?[]Field {
+    if (t.* != .named or t.named.args.len > 0) return null;
+    const fields = (declarations.get(t.named.id) orelse return null).product orelse return null;
+    for (fields) |field| if (abiScalar(field.type) == null) return null;
+    return fields;
+}
+
+fn libraryExports(exports: []const Export) []const u8 {
+    var out: List(u8) = .empty;
+    out.appendSlice(a, library_support) catch oom();
+    // Exports take no capability, so functions that do are never analysed; Zig still resolves their names.
+    for (capabilities) |capability| lineCat(&out, &.{ "const ", identifier("C_", capability.id), " = struct {};" });
+    line(&out, "");
+    for (exports) |item| {
+        const fn_ = functions.get(item.id) orelse {
+            problem(cat(&.{ "export of unknown function ", item.id }));
+            continue;
+        };
+        const valid = item.symbol.len > 0 and !std.ascii.isDigit(item.symbol[0]) and for (item.symbol) |c| {
+            if (!std.ascii.isAlphanumeric(c) and c != '_') break false;
+        } else true;
+        if (!valid) problem(cat(&.{ "export symbol ", item.symbol }));
+        if (fn_.type_parameters.len > 0) problem(cat(&.{ "export of generic function ", item.symbol }));
+        if (!valid or fn_.type_parameters.len > 0) continue;
+        var parameters: List([]const u8) = .empty;
+        var arguments: List([]const u8) = .empty;
+        var doc: List([]const u8) = .empty;
+        for (fn_.parameters, 0..) |parameter, index| {
+            const t = parameter.value.type;
+            const p = std.fmt.allocPrint(a, "a{d}", .{index}) catch oom();
+            if (abiScalar(t)) |zig_type| {
+                push([]const u8, &parameters, cat(&.{ p, ": ", zig_type }));
+                push([]const u8, &arguments, p);
+            } else if (isString(t)) {
+                push([]const u8, &parameters, cat(&.{ p, ": ?[*]const u8, ", p, "_len: usize" }));
+                push([]const u8, &arguments, cat(&.{ "nySlice(u8, ", p, ", ", p, "_len)" }));
+            } else if (abiListItem(t)) |zig_type| {
+                push([]const u8, &parameters, cat(&.{ p, ": ?[*]const ", zig_type, ", ", p, "_len: usize" }));
+                push([]const u8, &arguments, cat(&.{ "nySlice(", zig_type, ", ", p, ", ", p, "_len)" }));
+            } else if (abiRowsItem(t)) |zig_type| {
+                push([]const u8, &parameters, cat(&.{ p, ": ?[*]const ", zig_type, ", ", p, "_row_lens: ?[*]const usize, ", p, "_rows: usize" }));
+                push([]const u8, &arguments, cat(&.{ "nyRows(", zig_type, ", ", p, ", ", p, "_row_lens, ", p, "_rows)" }));
+            } else if (abiProduct(t)) |fields| {
+                var inits: List([]const u8) = .empty;
+                var names: List([]const u8) = .empty;
+                for (fields) |field| {
+                    const name = cat(&.{ p, "_", fieldName(field.id) });
+                    push([]const u8, &parameters, cat(&.{ name, ": ", abiScalar(field.type).? }));
+                    push([]const u8, &inits, cat(&.{ ".", fieldName(field.id), " = ", name }));
+                    push([]const u8, &names, field.id);
+                }
+                push([]const u8, &doc, cat(&.{ p, " fields in this order: ", join(", ", names.items) }));
+                push([]const u8, &arguments, cat(&.{ "nyBox(", typeName(t.named.id, &.{}), ", .{ ", join(", ", inits.items), " })" }));
+            } else problem(cat(&.{ "export parameter type ", typeDisplay(t) }));
+        }
+        const r = fn_.result;
+        const copy = if (abiScalar(r)) |zig_type| blk: {
+            push([]const u8, &parameters, cat(&.{ "out: *", zig_type }));
+            break :blk "    out.* = result;\n    return 0;\n";
+        } else if (r.* == .primitive and eql(r.primitive, "primitiveUnit")) "    _ = result;\n    return 0;\n" else if (isString(r) or abiListItem(r) != null) blk: {
+            const zig_type = if (isString(r)) "u8" else abiListItem(r).?;
+            push([]const u8, &parameters, cat(&.{ "out: ?[*]", zig_type, ", out_cap: usize, out_len: *usize" }));
+            break :blk cat(&.{ "    return if (nyCopyOut(", zig_type, ", result, out, out_cap, out_len)) 0 else 3;\n" });
+        } else if (abiRowsItem(r)) |zig_type| blk: {
+            push([]const u8, &parameters, cat(&.{ "out: ?[*]", zig_type, ", out_cap: usize, out_len: *usize, out_row_lens: ?[*]usize, out_row_cap: usize, out_rows: *usize" }));
+            break :blk cat(&.{ "    return if (nyCopyRows(", zig_type, ", result, out, out_cap, out_len, out_row_lens, out_row_cap, out_rows)) 0 else 3;\n" });
+        } else blk: {
+            problem(cat(&.{ "export result type ", typeDisplay(r) }));
+            break :blk "";
+        };
+        for (doc.items) |text| lineCat(&out, &.{ "/// ", text });
+        lineCat(&out, &.{ "export fn ", item.symbol, "(", join(", ", parameters.items), ") c_int {" });
+        line(&out, "    nyExportEnter();");
+        line(&out, "    defer nyExportLeave();");
+        const fail = if (failing(fn_.id)) " catch return nyExportFail()" else "";
+        lineCat(&out, &.{ "    const result = ", instanceName(fn_.id, &.{}), "(", join(", ", arguments.items), ")", fail, ";" });
+        out.appendSlice(a, copy) catch oom();
+        line(&out, "}");
+        line(&out, "");
+    }
+    return out.items;
+}
+
 fn functionKey(item: Function) []const u8 {
     return item.id;
 }
@@ -1924,6 +2037,11 @@ fn emitAll(text: []const u8, entry: ?[]const u8) !?[]const u8 {
     function_instances = .init(a);
     computeMayFail();
     const source = emit(ordered) orelse return null;
+    if (library_exports) |exports| {
+        const tail = libraryExports(exports);
+        if (problems.items.len > 0) return null;
+        return std.mem.concat(a, u8, &.{ source, tail }) catch oom();
+    }
     const fakes = fakeCapabilities() orelse return null;
     return std.mem.concat(a, u8, &.{ source, fakes, runnerMain(ordered, entry) }) catch oom();
 }
@@ -1932,6 +2050,20 @@ fn emitAll(text: []const u8, entry: ?[]const u8) !?[]const u8 {
 /// this invocation's allocator; no request-arena reference survives the next call.
 pub const Runner = union(enum) { source: []const u8, unsupported: []const []const u8 };
 pub fn runner(allocator: std.mem.Allocator, text: []const u8, entry: ?[]const u8) !Runner {
+    library_exports = null;
+    return emitRequest(allocator, text, entry);
+}
+
+/// Library mode (docs/decisions/zig-backend-memory-ownership.md, first milestone): the program without
+/// the runner `main`, plus one C export per entry. runPure never takes this path, so the runner output
+/// the emitter check compares is unchanged.
+pub fn library(allocator: std.mem.Allocator, text: []const u8, exports: []const Export) !Runner {
+    library_exports = exports;
+    defer library_exports = null;
+    return emitRequest(allocator, text, null);
+}
+
+fn emitRequest(allocator: std.mem.Allocator, text: []const u8, entry: ?[]const u8) !Runner {
     a = allocator;
     value_names = .empty;
     block_names = .empty;
