@@ -200,6 +200,8 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
    - **Shared resources.** Existing F# defaults and reference behavior remain unchanged; shared resources were byte-hash compared with the baseline.
 8. **Switch and removal** (below).
 
+**Startup modes (implemented).** The Zig host accepts every startup form of `CommandLine.parse` except `migrate`, so the adapter can launch either host with the same argv: `create --snapshot P [--dependency D ...]`, `open` (also `--read-only`), `pin --snapshot P [--dependency D]`, and `upgrade` with `--dependency D --expect F [--replaces ID]`, `--upgrades JSON --review F` or `--selection JSON --review F`. `tools/zig/host/startup_modes.zig` parses them (bad JSON payloads print the F# usage, which the host now prints verbatim) and ports `createNewWithDependencies`, `pinExistingDependency` and `upgradeUsing`. The upgrade forms reuse the preview planner (`dependency_upgrade.zig`), so plans, review fingerprints and refusals are the previews'; the files are written with the commit path's `replaceDependencyPair` or, for a first dependency, an `addDependencyPair` port. Each mode ends by loading the written files as `open` does. `ZigHostStartupModesParityTests` runs every form on both hosts from the same files, with successes and the main refusals (an existing snapshot, a missing or duplicate dependency, a changed or missing pin source, a wrong `--expect` or `--review`, an incompatible upgrade, bad JSON), and compares exit code, stderr, the `status`/`declarations` replies and every file left behind byte for byte. One shortcut: the single `--dependency --expect` form is planned as a one-item batch, which refuses a duplicate final SnapshotId before combining, where F# reports the combination's failure.
+
 **Adapter executable selection remains a Step 8 prerequisite.** `tools/nyrwvy-agent/authoring.ts` currently launches the F# `Nyrwvy.AuthoringSession.dll` through `dotnet`; MCP delegates to that agent authoring client. The adapters do not yet select the Zig host, and their Node suites have not yet been run against it. Keep this explicit rather than treating the earlier one-setting plan as implemented. Step 8 must add executable selection and pass the Node adapter suites against the Zig host before switching the default.
 
 ## How parity with F# is checked
@@ -221,7 +223,7 @@ Each step is one or a few PRs. The sizes are rough Zig line counts.
 
 ## The switch
 
-1. All operations have parity, the adapters' Node tests pass against the Zig host, and Rhifill works through the Zig host. Every read works on the typed model; no part of the host reads the model reader's JSON tree any more.
+1. All operations and all startup modes (create, open, pin and the three upgrade forms) have parity, the adapters' Node tests pass against the Zig host, and Rhifill works through the Zig host. Every read works on the typed model; no part of the host reads the model reader's JSON tree any more.
 2. One PR makes the Zig host the default in the adapters and docs, and marks the F# host deprecated in its README and in `docs/decisions/zig-tools.md`.
 3. Tag the last commit with the F# host, for example `fsharp-host-final`, and push the tag, so that the F# version stays on the remote (the user's idea: mark F# deprecated, cut a tag, keep it on the remote).
 4. Before removal, record the corpus responses of the F# host as golden files. After removal, the Zig host is tested against the goldens instead of a live F# host.
@@ -234,6 +236,7 @@ These differences between the hosts are accepted. The parity tests do not cover 
 - **I/O failure text.** A file the host cannot read or lock prints `IoFailure: <Zig error name>` (for example `AccessDenied`). The F# host prints .NET's exception message. The code is the same, and the message names an OS condition the user resolves the same way.
 - **JSON parser text.** Invalid JSON in a request or a snapshot reports the Zig parser's text after `Invalid JSON:` or `The snapshot is not valid JSON:`, not .NET's. The code and the prefix are the same.
 - **Deep JSON in the marker check.** Before decoding, `requireSidecarForResolvedSource` parses a JSON snapshot with .NET's default depth (64) to look for the dependency marker. The Zig host has no depth limit there. A snapshot nested deeper than 64 levels with a marker and no sidecar reports the missing sidecar in Zig, while F# goes on to decode it (and the decode reports the marker as an unsupported property). Real snapshots do not nest that deep at their root.
+- **`migrate`.** The migration command stays on the F# host; the Zig host prints the usage for it and exits with 2.
 - **Legacy schemas.** Schemas 9 to 20, for a snapshot or a dependency, are refused with a message naming the migration on the last F# host (not ported).
 
 ## Open decisions
