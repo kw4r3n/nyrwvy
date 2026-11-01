@@ -40,7 +40,7 @@ def symbol_maps(symbols: dict) -> dict[str, dict[str, str]]:
 
 def main() -> int:
     if len(sys.argv) != 2:
-        raise SystemExit("usage: materialize.py <successful-workspace.json>")
+        raise SystemExit("usage: materialize.py <successful-workspace.nyrec>")
 
     source_snapshot = pathlib.Path(sys.argv[1]).expanduser().resolve()
     if not source_snapshot.is_file():
