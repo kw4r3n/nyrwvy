@@ -288,8 +288,8 @@ fn simulate(r: *query.Request, wanted: []const u8, type_id: []const u8, source_i
 
 test "union clone remaps nested results and separate node binding domains while retaining literals" {
     const ids = @import("ids.zig");
-    ids.init("typed-union-clone");
-    defer ids.init(null);
+    ids.init(std.testing.io, "typed-union-clone");
+    defer ids.init(std.testing.io, null);
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

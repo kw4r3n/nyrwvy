@@ -317,64 +317,17 @@ module ZigHostParityTests =
               "UnknownCapabilityConstructTarget"; "UnknownCapabilityImplementationFunction"; "UnknownFunctionReference"; "UseResourceAcquireTypeMismatch"
               "UseResourceBodyMismatch"; "UseResourceReleaseReceiverMismatch"; "UseResourceReleaseSignatureMismatch"; "UseResourceResultMismatch" ]
 
-    /// The recipe kinds the Zig host infers (tools/zig/host/infer.zig), plus the type kinds a request spells.
-    let internal portedKinds =
-        set [ yield! OperationSignatures.table |> List.map (fun entry -> entry.Kind)
-              yield! [ "parameter"; "parameterSlot"; "patternReference"; "originalTarget"; "stringLiteral"; "boolLiteral"; "unitLiteral"; "int64Literal"; "float64Literal"
-                       "boolAnd"; "boolOr"; "valueEqual"; "listEmpty"; "setEmpty"; "mapEmpty"; "listConstruct"; "productConstruct"; "fieldAccess"; "productUpdate"; "unionConstruct"
-                       "optionNone"; "resultOk"; "resultErr"; "abort"; "conditional"; "matchUnion"; "bind"; "matchOption"; "matchResult"
-                       "directCall"; "cancellationShield"; "capabilityConstruct"; "capabilityInvoke"; "exceptionCatch"; "exceptionIsCancellation"; "exceptionMessage"
-                       "exceptionRethrow"; "functionInvoke"; "functionReference"; "listAll"; "listAny"; "listEffectFold"; "listFilter"; "listFindIndex"
-                       "listFlatMap"; "listFold"; "listMap"; "listMaxBy"; "listMinBy"; "listScan"; "listSortBy"; "listZipWith"; "mapFilter"; "mapFold"
-                       "mapFromList"; "mapMapValues"; "oneShotComplete"; "oneShotCreate"; "oneShotWait"; "optionAndThen"; "optionMap"; "parallelAll"
-                       "resultAndThen"; "resultMap"; "resultMapErr"; "selfCall"; "setFilter"; "setFold"; "setMap"; "taskCancel"; "taskScope"; "taskStart"
-                       "taskWait"; "useResource"
-                       "primitive"; "named"; "capability"; "typeParameter"; "builtinGeneric"; "function" ] ]
-
-    /// Whether the request spells a recipe kind the Zig host does not infer yet.
-    let internal hasUnportedKind (request: string) =
-        Regex.Matches(request, "\"kind\":\"([A-Za-z0-9]+)\"") |> Seq.exists (fun m -> not (portedKinds.Contains m.Groups[1].Value))
-
-    /// The Zig host's fixed `UnsupportedOperation` replies of step 3c-3b, told apart by message; the
-    /// first names the kind it stopped at and its path.
-    let internal unportedKindReply (zig: string) = zig.Contains "\"code\":\"UnsupportedOperation\",\"message\":\"The Zig host does not infer "
-    let internal unportedKindPath (zig: string) = Regex.Match(zig, "does not infer [A-Za-z0-9]+ recipes yet \\(at (body[^ ]*)\\)").Groups[1].Value
-
     /// `locate`'s suffix on an inference diagnostic: the failing node's path, or None for a preflight one.
     let internal locatedPath (message: string) =
         let found = Regex.Match(message, " At (body[^ ]*) \\([a-z][A-Za-z0-9]*\\)\\.(?:\"|$)")
         if found.Success then Some found.Groups[1].Value else None
 
-    /// Whether `path` is `ancestor` or below it (`body.arms[1].body` is below `body.arms[1]`).
-    let internal atOrBelow (ancestor: string) (path: string) =
-        path = ancestor || path.StartsWith(ancestor + ".") || path.StartsWith(ancestor + "[")
-
-    /// Whether the Zig reply to a create request matches the F# one: a `ProtocolError`, a preflight or
-    /// an inference `SimulationRejected` byte for byte, a `SessionError` by code, and
-    /// successful compact and full replies byte for byte. An
-    /// inference rejection may instead be the Zig host's fixed `UnsupportedOperation` when the request
-    /// reaches a kind it does not infer.
-    let internal createReplyMatches (request: string) (fsharp: string) (zig: string) =
+    /// Whether the Zig reply to a create request matches the F# one: a `SessionError` by code, and
+    /// every other reply (protocol errors, rejections, compact and full successes) byte for byte.
+    let internal createReplyMatches (_request: string) (fsharp: string) (zig: string) =
         use reply = parseDocument fsharp
         match reply.RootElement.TryGetProperty "error" with
-        | true, error ->
-            match error.GetProperty("code").GetString() with
-            | "SessionError" -> sessionErrorCode fsharp = sessionErrorCode zig
-            | "ProtocolError" -> fsharp = zig
-            | "SimulationRejected" ->
-                let diagnostic = error.GetProperty("details").GetProperty("diagnostics").[0]
-                let code = diagnostic.GetProperty("code").GetString()
-                let message = diagnostic.GetProperty("message").GetString()
-                let located = locatedPath message
-                if preflightCodes.Contains code && located.IsNone then fsharp = zig
-                elif preflightCodes.Contains code || inferenceCodes.Contains code then
-                    // The Zig host stops at a kind it does not infer where F# enters it, so F#'s diagnostic
-                    // came from that subtree, from an ancestor it returned to, or from after inference (the
-                    // result-type check); one from a sibling F# reached later still counts as a mismatch.
-                    fsharp = zig
-                    || (unportedKindReply zig && hasUnportedKind request && (located |> Option.forall (fun path -> atOrBelow (unportedKindPath zig) path || atOrBelow path (unportedKindPath zig))))
-                else fsharp = zig || (code = "InvalidProposedSnapshot" && zig.Contains "The Zig host does not word proposed-snapshot validation failures yet.")
-            | _ -> fsharp = zig
+        | true, error when error.GetProperty("code").GetString() = "SessionError" -> sessionErrorCode fsharp = sessionErrorCode zig
         | _ -> fsharp = zig
 
     [<Fact>]
@@ -1661,7 +1614,7 @@ module ZigHostCreateInferenceTests =
             Effects = [ { Id = effectId; DisplayName = "io"; Exported = true } ]; Capabilities = [ capability ] }
 
     /// Requests reaching each inference diagnostic, the location suffix through each renamed field,
-    /// F#'s traversal order around kinds the Zig host does not infer, and the type-parameter cases.
+    /// F#'s traversal order, and the type-parameter cases.
     let internal requests () =
         let primitive name = $"""{{"kind":"primitive","primitive":"{name}"}}"""
         let unitT, int64T, boolT, stringT, float64T = primitive "unit", primitive "int64", primitive "bool", primitive "string", primitive "float64"
@@ -2032,8 +1985,6 @@ module ZigHostCreateInferenceTests =
                 answered.Append(fsharp) |> ignore
                 if (locatedPath zig).IsSome then located <- located + 1
                 if not (createReplyMatches request fsharp zig) then mismatches.Add $"{request}\n F#:  {fsharp}\n Zig: {zig}"
-                // Every recipe kind in this corpus is inferred, including generic calls.
-                if unportedKindReply zig then mismatches.Add $"{request}\n Zig did not infer: {zig}"
             let shownText = answered.ToString().Replace("\\u0027", "'").Replace("\\u003C", "<").Replace("\\u003E", ">")
             // The wire spells one `otherwise` arm, so a second one is a decode rejection.
             for shown in Set.toList (Set.remove "PureExpressionMatchOtherwiseDuplicate" inferenceCodes) @ [ "This generic call would place TaskScope inside a OneShot payload, directly or through another generic call."; "At body.exceptionValue (listLength)"; "At body.source (listLength)"; "At body.task (listLength)"; "At body.context[0].value (listLength)"; "At body.arguments[0] (listLength)"; "The slot is found at depths 0, 1;"; "Visible frames, innermost first: depth 0 = Bind body (binds Value)"; "binds 'radius'"; "(not a declared field)"; "At body.end (listLength)"; "At body.defaultValue (listLength)"; "At body.key (listLength)"; "At body.left (listLength)"; "At body.right (listLength)"; "At body.items[1] (listLength)"; "At body.fields[1].value (listLength)"; "At body.arms[2].body (listLength)"; "At body.arms[1].body (listLength)"; "At body.fields[0].value (originalTarget)"; "At body.arms[0].body (originalTarget)"; "At body.right (originalTarget)"; "The function body produces T, but the requested result type is Int64."; "found T and Int64"; "but the source recipe produces T. At body (fieldAccess)."; "but the source recipe produces T. At body (productUpdate)."; "requires List<T>, but the recipe produces List<Int64>"; "The function body produces " + String.replicate 30 "Box<" + "Int64" + String.replicate 30 ">" + ", but"; "The function body produces " + String.replicate 28 "Maybe<" + "Point" + String.replicate 28 ">" + ", but"; "Exception<> is not equatable"; "at Shape.circle.radius"; "at List item"; "type parameters are never equatable" ] do

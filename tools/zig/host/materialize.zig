@@ -376,8 +376,8 @@ test "typed materializer creates postorder nodes and fresh parameter references"
 }
 
 test "typed materializer allocates both result bindings before arm nodes and resolves lexical slots" {
-    ids.init("typed-materializer-order");
-    defer ids.init(null);
+    ids.init(std.testing.io, "typed-materializer-order");
+    defer ids.init(std.testing.io, null);
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const a = arena.allocator();

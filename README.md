@@ -6,19 +6,19 @@ In plain terms: an AI agent writes and maintains a small, strongly typed program
 
 ## Quick start
 
-Prerequisites: a .NET 10 SDK (any patch of the feature band pinned in [`global.json`](global.json), currently 10.0.4xx), Node 22.6+ (22.22.2 recommended, see [`.node-version`](.node-version); older 22.x releases install the development dependencies with engine warnings) and npm. Nothing else is required for this section.
+Prerequisites: a .NET 10 SDK (any patch of the feature band pinned in [`global.json`](global.json), currently 10.0.4xx), Node 22.6+ (22.22.2 recommended, see [`.node-version`](.node-version); older 22.x releases install the development dependencies with engine warnings), npm, and Zig 0.17.0 on `PATH` or selected with `NYRWVY_ZIG`. The native host build needs only Node and Zig; .NET remains required for the C# backend.
 
 ```shell
 npm ci
-dotnet build tools/Nyrwvy.AuthoringSession --configuration Release
+npm run build:host
 node --experimental-strip-types examples/function-abort/run.mjs
 ```
 
 The example authors a function that reads a file through a capability and aborts on failure, using exactly the tool handlers an agent uses. It prints the three scenario results and writes a `workspace.json` snapshot and a `transcript.jsonl` of every tool request and review to a temporary directory. The [example README](examples/function-abort/README.md) explains what to look at; [`examples/`](examples/README.md) lists four more small programs kept as snapshots with generated runners, and the probe programs.
 
-To drive the same tools from an AI agent, run the MCP server (`npm --prefix tools/nyrwvy-mcp run setup`, then point your MCP client at `tools/nyrwvy-mcp/server.mjs`) as the [MCP guide](docs/specs/mcp-graph-tools.md) describes; OpenCode users can load the plugin under `.opencode/` instead. The [tool contract](docs/specs/agent-graph-tools.md) lists the twelve `nyrwvy_*` tools.
+To drive the same tools from an AI agent, run the MCP server (`npm --prefix tools/nyrwvy-mcp run setup`, then point your MCP client at `tools/nyrwvy-mcp/server.mjs`) as the [MCP guide](docs/specs/mcp-graph-tools.md) describes; OpenCode users can load the plugin under `.opencode/` instead. The direct typed-read migration and Linux verification are complete, including focused, maintained, adapter, and benchmark checks. Portability code targets macOS and Windows too, but those native runtime checks are on hold: hosted platform jobs did not start under an account-level runner restriction, and the owner deferred another hosted attempt. This does not change product support scope. Step 8a remains unmerged and main's F# default is unchanged. See the [host runtime note](tools/Nyrwvy.AuthoringSession/README.md) and [typed-read migration and platform verification record](docs/decisions/zig-session-host.md#step-8-blocker--typed-read-architecture-confirmed). The [tool contract](docs/specs/agent-graph-tools.md) lists the twelve `nyrwvy_*` tools.
 
-The adapters launch the F# AuthoringSession by default. `NYRWVY_HOST=zig` in their environment selects the native Zig session host instead ([decision](docs/decisions/zig-session-host.md)); it is still being brought to parity, as the decision record tracks. The Zig host is supported on Linux only and needs Zig 0.17.0 (pinned in [`mise.toml`](mise.toml); `NYRWVY_ZIG` names another compiler). The adapter builds it on first use, which takes a few minutes, or ahead of time with `node scripts/build-zig-host.mjs` (the MCP `setup` does this when Zig is available); the binary is cached under `$XDG_CACHE_HOME/nyrwvy/zig-host/` keyed by its sources. The .NET SDK is still required with either host, since the C# backend (`runPure`, `emitCSharp`) builds with it.
+On this candidate branch the adapters launch the native Zig session host, `tools/zig/host/bin/nyrwvy-host`, which `npm run build:host` builds (a cold build takes a few minutes; rebuild it after changing host sources). `NYRWVY_HOST=fsharp` selects the deprecated F# AuthoringSession instead, and `NYRWVY_HOST_EXECUTABLE` names any other host ([decision](docs/decisions/zig-session-host.md)). The .NET SDK is still required with either host, since the C# backend (`runPure`, `emitCSharp`) builds with it.
 
 ## Core model
 
@@ -91,7 +91,7 @@ npm run typecheck
 npm test
 ```
 
-`npm test` is the fast root entry point for the adapter contracts plus the Node transport and MCP contracts (`test:adapters` and `test:node`; the latter needs the Release AuthoringSession built). `npm run test:node:extended` selects only the heavy Node example pipelines; `fish scripts/test-extended.fish` runs both xUnit extended and those pipelines. These are deterministic checks, not live model evaluations. Node runs the Node adapters with native type stripping; Bun 1.4.2 runs only the Bun unit tests (`npm run test:bun`), which the CI workflow includes; the Node adapters do not need it. See [adapter setup and test suites](tests/README.md#adapter-toolchain-and-typechecking) for the dependency ownership, configuration boundaries, and runtime test prerequisites.
+`npm test` is the fast root entry point for the adapter contracts plus the Node transport and MCP contracts (`test:adapters` and `test:node`; the latter needs the native host and standalone C# compiler helper built, available through the full MCP setup above). `npm run test:node:extended` selects only the heavy Node example pipelines; `fish scripts/test-extended.fish` runs both xUnit extended and those pipelines. These are deterministic checks, not live model evaluations. Node runs the Node adapters with native type stripping; Bun 1.4.2 runs only the Bun unit tests (`npm run test:bun`), which the CI workflow includes; the Node adapters do not need it. See [adapter setup and test suites](tests/README.md#adapter-toolchain-and-typechecking) for the dependency ownership, configuration boundaries, and runtime test prerequisites.
 
 Tests run locally before a change is merged. The only GitHub Actions workflow, `CI` (the checks above plus the MCP and Bun contracts), is started manually by the maintainer at milestones rather than on every push or pull request, and the extended suite runs locally only; see the [verification philosophy](docs/developer/verification.md#reproducible-tooling-and-shell-checks). External pull requests are not accepted at this stage.
 

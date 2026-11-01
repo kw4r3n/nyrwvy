@@ -217,24 +217,8 @@ pub fn preview(r: *query.Request, out: *Writer) !void {
         try d.ensureFields("", .{ .object = r.root }, "previewDependencyUpgrade request", &.{ "id", "op", "source", "replaces" }, &.{ "id", "op", "source" });
         const replaces = if (r.root.get("replaces") != null) try d.requiredString(.{ .object = r.root }, "replaces") else null;
         const source = try d.requiredString(.{ .object = r.root }, "source");
-        try checkPersisted(r);
-        if (host.selection == null) return failure(r, "This workspace has no dependency to upgrade.");
-        const current = try members(r);
-        if (replaces == null and current.len != 1) return failure(r, "Name the dependency to replace by its SnapshotId when the workspace has several.");
-        const target = for (current) |item| {
-            if (replaces == null or m.same(item.dependency.id, replaces.?)) break item;
-        } else return failure(r, try std.fmt.allocPrint(r.a, "No selected dependency has SnapshotId '{s}'.", .{replaces.?}));
-        const replacement = try pin(r, source);
-        if (m.same(replacement.dependency.fingerprint, target.dependency.fingerprint)) return failure(r, "The source is the version already selected; use pin to retain or relocate it.");
-        const upgraded = try r.a.dupe(Pinned, current);
-        for (upgraded) |*item| if (m.same(item.dependency.id, target.dependency.id)) {
-            item.* = replacement;
-            break;
-        };
-        const selected = (try combine(r, upgraded))[0];
-        const candidate = (try merged(r, selected))[1];
-        const issues = try compatibility(r, selected, candidate);
-        const result = try memberPreview(r, .{ .before = target, .after = replacement }, issues);
+        const plan = try planSingle(r, source, replaces);
+        const result = plan.preview;
         // Public single-preview order differs from the nested member object.
         try out.writeAll("{");
         for ([_][]const u8{ "replacedSnapshotId", "replacedFingerprint", "newSnapshotId", "newFingerprint", "compatible", "added", "removed", "changed", "issues" }, 0..) |name, i| {
@@ -391,4 +375,29 @@ pub fn planChange(r: *query.Request) !Plan {
         try m.member(r.a, "issues", issues),
     });
     return .{ .dependency = combined[0], .manifest = combined[1], .local = graphs[0], .candidate = graphs[1], .preview = result, .fingerprint = fingerprint };
+}
+
+/// Startup upgrades plan directly, consuming no proposal or transaction IDs.
+pub fn planSingle(r: *query.Request, source: []const u8, replaces: ?[]const u8) !Plan {
+    try checkPersisted(r);
+    if (host.selection == null) return failure(r, "This workspace has no dependency to upgrade.");
+    const current = try members(r);
+    if (replaces == null and current.len != 1) return failure(r, "Name the dependency to replace by its SnapshotId when the workspace has several.");
+    const target = for (current) |item| {
+        if (replaces == null or m.same(item.dependency.id, replaces.?)) break item;
+    } else return failure(r, try std.fmt.allocPrint(r.a, "No selected dependency has SnapshotId '{s}'.", .{replaces.?}));
+    const replacement = try pin(r, source);
+    if (m.same(replacement.dependency.fingerprint, target.dependency.fingerprint)) return failure(r, "The source is the version already selected; use pin to retain or relocate it.");
+    const upgraded = try r.a.dupe(Pinned, current);
+    for (upgraded) |*item| if (m.same(item.dependency.id, target.dependency.id)) {
+        item.* = replacement;
+        break;
+    };
+    const combined = try combine(r, upgraded);
+    const selected = combined[0];
+    const graphs = try merged(r, selected);
+    const candidate = graphs[1];
+    const issues = try compatibility(r, selected, candidate);
+    const result = try memberPreview(r, .{ .before = target, .after = replacement }, issues);
+    return .{ .dependency = selected, .manifest = combined[1], .local = graphs[0], .candidate = candidate, .preview = result, .fingerprint = replacement.dependency.fingerprint };
 }

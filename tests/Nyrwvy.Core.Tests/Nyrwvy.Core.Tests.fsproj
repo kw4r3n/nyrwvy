@@ -184,6 +184,8 @@
     <Compile Include="ZigSnapshotReaderTests.fs" />
     <Compile Include="ZigModelReaderTests.fs" />
     <Compile Include="ZigHostParityTests.fs" />
+    <Compile Include="ZigHostStartupParityTests.fs" />
+    <Compile Include="ZigHostCreateValidationParityTests.fs" />
     <Compile Include="ZigHostRunPureParityTests.fs" />
     <Compile Include="ZigHostCSharpRunParityTests.fs" />
     <Compile Include="ZigHostChangeVerificationParityTests.fs" />
@@ -191,7 +193,6 @@
     <Compile Include="ZigHostOperationsParityTests.fs" />
     <Compile Include="ZigHostMixedBatchParityTests.fs" />
     <Compile Include="ZigHostDependencyUpgradeParityTests.fs" />
-    <Compile Include="ZigHostStartupParityTests.fs" />
     <Compile Include="ZigHostDependencySimulationParityTests.fs" />
     <Compile Include="ZigHostMigrationsParityTests.fs" />
     <Compile Include="ZigHostStructuralMigrationsParityTests.fs" />

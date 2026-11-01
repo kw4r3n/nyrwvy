@@ -1,6 +1,6 @@
 # Examples
 
-Small, self-contained programs that exercise the maintained authoring tools. Each directory's README gives the exact commands; all of them are run from the repository root after `npm ci` and `dotnet build tools/Nyrwvy.AuthoringSession --configuration Release`.
+Small, self-contained programs that exercise the maintained authoring tools. Each directory's README gives the exact commands; from a clean checkout, run `npm ci` and `npm run build:host` first. The native host build needs Node 22.6+ and Zig 0.17.0 on `PATH` or selected with `NYRWVY_ZIG`; .NET 10 is additionally required by examples that use the C# backend. `npm --prefix tools/nyrwvy-mcp run setup` performs the full MCP setup, including the native host and C# compiler build.
 
 The snapshot files are the programs; `runner/Generated.cs` files are projections written by `emitCSharp` and are never edited by hand. Most directories below are probes: each was authored through the ordinary tools to check one contract, and its README states the base commit and what it does and does not establish. Directories marked *(fast)* are exercised by the fast suite (`scripts/tests`) and those marked *(extended)* by the local extended suite (`.opencode/tests-extended`); the others are run only through their own documented commands.
 

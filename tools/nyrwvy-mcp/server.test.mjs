@@ -9,7 +9,7 @@ import { Client } from "@modelcontextprotocol/client"
 import { StdioClientTransport, getDefaultEnvironment } from "@modelcontextprotocol/client/stdio"
 
 // The SDK passes the server only a few variables; the host selection must reach it too.
-const hostSelection = Object.fromEntries(["NYRWVY_HOST"].filter(name => process.env[name]).map(name => [name, process.env[name]]))
+const hostSelection = Object.fromEntries(["NYRWVY_HOST", "NYRWVY_HOST_EXECUTABLE", "NYRWVY_ZIG"].filter(name => process.env[name]).map(name => [name, process.env[name]]))
 
 const serverPath = fileURLToPath(new URL("./server.mjs", import.meta.url))
 const bool = value => ({ kind: "boolLiteral", value })
@@ -139,8 +139,15 @@ test("MCP exposes shared tools, preserves explicit publication, and releases the
     // A person reviews the pending proposal before it is rejected.
     const review = (await call(first, "view", { proposalId: discard.proposalId })).result
     assert.equal(review.kind, "changeReview")
+    const reviewHtml = await readFile(review.path, "utf8")
+    const embedded = reviewHtml.match(/<script type="application\/json" id="nyrwvy-data">([\s\S]*?)<\/script>/)
+    assert.ok(embedded, "review page embeds viewer data")
+    const reviewData = JSON.parse(embedded[1])
+    assert.equal(reviewData.view, "proposalReview")
+    assert.equal(reviewData.proposalKind, "replaceBody")
+    assert.equal(reviewData.transactionId, discard.proposalId)
+    assert.ok(reviewData.changedFunctions.some(change => change.proposed.function.id === functionId))
     assert.match(await renderedPage(review.path), /Change Review — replaceBody/)
-    assert.match(await readFile(review.path, "utf8"), /"proposalKind":"replaceBody"/) // The page renders its title from this embedded data.
     await failed(first, "view", { proposalId: discard.proposalId, function: "value" })
     await call(first, "reject", { proposalId: discard.proposalId })
     await failed(first, "view", { proposalId: discard.proposalId })

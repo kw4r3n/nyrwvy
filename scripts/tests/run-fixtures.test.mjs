@@ -65,6 +65,7 @@ test("only expected-bearing run requests are accepted before any server is start
 test("the real CLI resolves the workspace-owned SDK and crosses MCP before running fixtures", { timeout: 20000 }, async t => {
   const root = await workspace(t), fixture = join(root, "unicode.json"), snapshot = join(root, "workspace.json")
   const log = join(root, "requests.jsonl")
+  const environmentLog = join(root, "host-environment.json")
   await writeFile(fixture, JSON.stringify(request))
   await writeFile(snapshot, "unchanged snapshot fixture")
   // Only the compiled semantic process is replaced. The CLI, SDK, stdio MCP
@@ -72,6 +73,7 @@ test("the real CLI resolves the workspace-owned SDK and crosses MCP before runni
   await writeFile(join(root, "dotnet"), `#!${process.execPath}
 const fs = require('node:fs');
 if (process.argv.includes('--allow-host-sources')) process.exit(9);
+fs.writeFileSync(require('node:path').join(__dirname, 'host-environment.json'), JSON.stringify({ zig: process.env.NYRWVY_ZIG, allowHostSources: process.env.NYRWVY_ALLOW_HOST_SOURCES }));
 require('node:readline').createInterface({input:process.stdin}).on('line', line => {
   const request = JSON.parse(line);
   fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(request)+'\\n');
@@ -80,7 +82,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
 `, { mode: 0o700 })
   const cli = fileURLToPath(new URL("../../examples/run-fixtures/client.mjs", import.meta.url))
   const { stdout } = await promisify(execFile)(process.execPath, [cli, snapshot, fixture], {
-    cwd: root, env: { ...process.env, PATH: `${root}:${process.env.PATH}`, NYRWVY_HOST: "", NYRWVY_HOST_EXECUTABLE: "", NYRWVY_ALLOW_HOST_SOURCES: "1" }, timeout: 15000,
+    cwd: root, env: { ...process.env, NYRWVY_HOST_EXECUTABLE: join(root, "dotnet"), NYRWVY_ZIG: join(root, "zig compiler"), NYRWVY_ALLOW_HOST_SOURCES: "1" }, timeout: 15000,
   })
   assert.match(stdout, /unicode.json: PASSED/)
   assert.match(stdout, /1 passed, 0 failed, 0 unknown/)
@@ -92,6 +94,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line', line 
   assert.equal(events[1].response.structuredContent.result.matches, true)
   assert.deepEqual(events[1].request, request)
   const requests = (await readFile(log, "utf8")).trim().split("\n").map(JSON.parse)
+  assert.deepEqual(JSON.parse(await readFile(environmentLog, "utf8")), { zig: join(root, "zig compiler"), allowHostSources: "0" })
   assert.deepEqual(requests.map(item => item.op), ["status", "runPureByName"])
   const { id, op, ...args } = requests[1]
   assert.equal(typeof id, "string")

@@ -331,3 +331,51 @@ With dependencies (1c), the row "start, Zig host" times the Zig host on the reso
 
 The resolved workspace is the faster of the two for Zig: its local part is small, and the dependency (49 KiB) is read, validated and fingerprinted on its own.
 
+## Step 8 candidate host benchmark (2026-10-31)
+
+The three `ZigSpeed` facts passed in 1.6774 min. These are single-run observations on one machine under uncontrolled background load; first-request timings include unnormalized compiler/helper build and cache work. Do not compare these values with Step 7 as a regression or speedup. The Zig host also queries compiler identity on each request, a known repeated-call cost. The broader Step 8 validation and architecture blocker are recorded in [zig-session-host.md](../../docs/decisions/zig-session-host.md).
+
+| Case | F# host (ms) | Native host (ms) |
+|---|---:|---:|
+| Rhifill resolved workspace: startup | 862.5 | 104.5 |
+| Rhifill resolved workspace: startup, F# warm-up off | 878.8 | — |
+| Rhifill merged model: startup | 738.6 | 106.5 |
+| Tiny generated echo, Zig backend: first | 22,827.5 | 22,202.2 |
+| Tiny generated echo, Zig backend: repeated | 1.3 | 45.9 |
+| Tiny generated echo, C# backend: first | 2,056.0 | 7,405.5 |
+| Tiny generated echo, C# backend: repeated | 3.1 | 3.7 |
+
+Repeated native Zig time includes the compiler-identity query; first-request backend timings include compiler/helper cache setup. The copied Rhifill C# default-adapter smoke is separate from these benchmark rows.
+
+## Step 8 final candidate host benchmark (2026-10-31)
+
+The final `ZigSpeed` run passed 3/3 in 1.0840 min after the typed-read migration. The table reports measured F# and native host times in ms:
+
+| Case | F# host (ms) | Native host (ms) |
+|---|---:|---:|
+| Rhifill resolved workspace: startup | 604.4 | 191.3 |
+| Rhifill resolved workspace: startup, F# warm-up off | 600.7 | — |
+| Rhifill merged model: startup | 500.5 | 175.5 |
+| Tiny generated echo, Zig backend: first | 13,757.1 | 13,879.7 |
+| Tiny generated echo, Zig backend: repeated | 0.9 | 34.6 |
+| Tiny generated echo, C# backend: first | 1,437.5 | 3,849.9 |
+| Tiny generated echo, C# backend: repeated | 2.5 | 3.1 |
+
+These are single-machine measurements under uncontrolled background load; caches are uncontrolled, and first timings are not normalized. The Zig host queries compiler identity on each request, a known repeated-call cost. Treat these rows as observations only: they do not establish a general speedup or a regression against another run. The copied Rhifill C# smoke was repeated with the final native binary; it returned `focus_left` for `actionName` with input `4`, and all 92 original input hashes remained unchanged after benchmarking. The host cutover status and held non-Linux runtime checks are recorded in [zig-session-host.md](../../docs/decisions/zig-session-host.md).
+
+## Step 8 Linux portability candidate benchmark (2026-10-31)
+
+The Linux portability-candidate `ZigSpeed` run passed 3/3 in 2.1222 min. Times are milliseconds:
+
+| Case | F# host (ms) | Native host (ms) |
+|---|---:|---:|
+| Rhifill resolved workspace: startup | 640.8 | 193.8 |
+| Rhifill resolved workspace: startup, F# warm-up off | 645.8 | — |
+| Rhifill merged model: startup | 542.0 | 177.9 |
+| Tiny generated echo, Zig backend: first | 15,238.5 | 16,860.1 |
+| Tiny generated echo, Zig backend: repeated | 0.9 | 221.0 |
+| Tiny generated echo, C# backend: first | 5,844.0 | 15,107.0 |
+| Tiny generated echo, C# backend: repeated | 20.0 | 14.8 |
+
+These are single-machine measurements under uncontrolled background load; caches are uncontrolled and first timings are not normalized. The Zig host queries compiler identity on each request, a known repeated-call cost. The 221.0 ms repeated Zig-backend observation is not by itself evidence of a general regression; the rows do not establish a general speedup or regression against another run. The copied Rhifill C# smoke passed with `actionName` and input `4`, returning `focus_left`; all 92 original input hashes remained unchanged after all benchmark runs. These measurements establish Linux behavior only; non-Linux native runtime checks are currently held, as recorded in [zig-session-host.md](../../docs/decisions/zig-session-host.md).
+

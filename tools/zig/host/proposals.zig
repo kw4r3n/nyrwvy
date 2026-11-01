@@ -278,12 +278,6 @@ pub fn rollbackRequest(checkpoint: typed.Interner.Checkpoint, previous_count: us
     interner.restore(checkpoint);
 }
 
-const validation_bail = "The Zig host does not word proposed-snapshot validation failures yet.";
-fn unsupported(r: *query.Request, message: []const u8) anyerror {
-    r.rejection = .{ .code = "UnsupportedOperation", .message = message };
-    return error.Rejected;
-}
-
 fn receipt(a: Allocator, transaction: Value, snapshot: Value, r: *query.Request, fingerprints: model.Fingerprints) ![]const u8 {
     const value = try m.object(a, &.{
         try m.member(a, "transactionId", transaction),
@@ -431,7 +425,7 @@ fn publishChange(r: *query.Request, out: *Writer, created: Model, previous: ?Mod
     candidate = try typed_edit.changed(r.a, candidate, .{ .snapshot = try interner.id(.snapshot, model.decoded(snapshot)) });
     candidate = try typed_edit.changed(r.a, candidate, .{ .parent = r.generation.?.snapshot });
     const read = model.validateTyped(r.a, &interner, candidate.data.snapshot);
-    if ((previous != null or declaration != null) and read.validation_issues.len > 0) {
+    if (read.validation_issues.len > 0) {
         var details: Writer.Allocating = .init(r.a);
         try details.writer.writeAll("{\"diagnostics\":[");
         for (read.validation_issues, 0..) |issue, i| {
@@ -445,7 +439,12 @@ fn publishChange(r: *query.Request, out: *Writer, created: Model, previous: ?Mod
         r.rejection = .{ .code = "SimulationRejected", .message = if (declaration) |d| if (m.same(d.group, "functions")) "The structural request was rejected." else try std.fmt.allocPrint(r.a, "The {s} declaration was rejected.", .{d.subject}) else "The structural request was rejected.", .details = details.written() };
         return error.Rejected;
     }
-    if (!read.valid) return unsupported(r, validation_bail);
+    // F# `computeReceipt` -> `FingerprintFailed`, worded by WireEncode's `caseName` arm; no valid request reaches it.
+    if (!read.valid) {
+        const group_code: []const u8 = if (declaration) |d| if (m.same(d.group, "types")) "TypeDeclarationSimulationFailure" else if (m.same(d.group, "effects")) "EffectDeclarationSimulationFailure" else if (m.same(d.group, "capabilities")) "CapabilityDeclarationSimulationFailure" else "StructuralSimulationFailure" else "StructuralSimulationFailure";
+        r.rejection = .{ .code = group_code, .message = "FingerprintFailed" };
+        return error.Rejected;
+    }
     if (previous != null or declaration != null) try checkImports(r, candidate, null);
     const found = try model.session_writer.fingerprints(r.a, &interner, candidate.data.snapshot);
     const proof = try receipt(r.a, transaction, snapshot, r, found);

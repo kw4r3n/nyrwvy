@@ -4,7 +4,6 @@ import { createInterface } from "node:readline"
 import { stat } from "node:fs/promises"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { zigHost } from "../../scripts/build-zig-host.mjs"
 
 /**
  * The commit of the tool code this process loaded, read once at startup; undefined outside a git checkout.
@@ -90,9 +89,11 @@ export class AuthoringClient {
   get startupFailure(): string | undefined {
     if (!this.reaped || this.replies > 0) return undefined
     if (this.spawnError?.code === "ENOENT") {
-      if (this.executable !== "dotnet") return `The session host ${this.executable} could not be started (${this.spawnError.message}). Rebuild it with node scripts/build-zig-host.mjs.`
-      return `dotnet was not found on the PATH of this process (${this.spawnError.message}). Install the .NET 10 SDK or make dotnet available to the host that launches the server.`
+      return this.defaultHost
+        ? `Native host executable was not found: ${this.executable}. Run npm run build:host from the repository root.`
+        : `Host executable could not be started: ${this.executable} (${this.spawnError.message}).${this.executable === "dotnet" ? " Install .NET or make dotnet available on PATH." : " Check NYRWVY_HOST_EXECUTABLE."}`
     }
+    if (this.spawnError) return `Host executable could not be started: ${this.executable} (${this.spawnError.message}). Check executable permissions and NYRWVY_HOST_EXECUTABLE.`
     // A child killed by this client (a signal, not an exit code) hung rather than failed to start.
     if (typeof this.exitCode !== "number") return undefined
     const detail = this.stderr.trim()
@@ -102,10 +103,12 @@ export class AuthoringClient {
   private child: ChildProcessWithoutNullStreams
 
   private executable: string
+  private defaultHost: boolean
 
-  constructor(child: ChildProcessWithoutNullStreams, executable = "dotnet") {
+  constructor(child: ChildProcessWithoutNullStreams, executable = "dotnet", defaultHost = false) {
     this.child = child
     this.executable = executable
+    this.defaultHost = defaultHost
     // Registered before readline, so an oversized reply fails before it is parsed.
     let lineLength = 0
     child.stdout.on("data", (chunk: Buffer) => {
@@ -165,7 +168,8 @@ export class AuthoringClient {
       this.child.stdin.destroy()
       for (const signal of ["SIGTERM", "SIGKILL"] as const) {
         try {
-          if (this.child.pid === undefined) this.child.kill(signal)
+          // A POSIX host leads its own group (detached), so its whole group gets the signal.
+          if (this.child.pid === undefined || process.platform === "win32") this.child.kill(signal)
           else process.kill(-this.child.pid, signal)
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
@@ -313,12 +317,19 @@ async function launchAuthoring(
   // Node reports a missing cwd as ENOENT on the executable; name the real problem instead.
   if (!(await stat(worktree).catch(() => undefined))?.isDirectory()) throw new Error(`workspace directory does not exist: ${worktree}`)
   const workspace = resolve(worktree, snapshot)
-  const repositoryRoot = context.repositoryRoot ?? context.worktree
-  const host = process.env.NYRWVY_HOST || "fsharp"
-  if (host !== "fsharp" && host !== "zig") throw new Error(`NYRWVY_HOST must be fsharp or zig, not ${host}.`)
+  const root = resolve(context.repositoryRoot ?? context.worktree)
+  // The native host is the default; NYRWVY_HOST=fsharp selects the deprecated F# host, and an explicit
+  // NYRWVY_HOST_EXECUTABLE (relative to the repository root; a `.dll` launches through dotnet) wins over both.
+  const selection = process.env.NYRWVY_HOST || "zig"
+  if (selection !== "fsharp" && selection !== "zig") throw new Error(`NYRWVY_HOST must be zig or fsharp, not ${selection}.`)
+  const selected = process.env.NYRWVY_HOST_EXECUTABLE
+  const host = resolve(root, selected || (selection === "fsharp"
+    ? "tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll"
+    : `tools/zig/host/bin/nyrwvy-host${process.platform === "win32" ? ".exe" : ""}`))
+  const managed = /\.dll$/i.test(host)
+  const executable = managed ? "dotnet" : host
   // Mode read is open without the workspace lock; the session cannot commit.
   const args = mode === "read" ? ["open", "--snapshot", workspace, "--read-only"] : [mode, "--snapshot", workspace]
-  if (host === "fsharp") args.unshift(resolve(repositoryRoot, "tools/Nyrwvy.AuthoringSession/bin/Release/net10.0/Nyrwvy.AuthoringSession.dll"))
   for (const source of [...(dependency === undefined ? [] : [dependency]), ...(dependencies ?? [])]) {
     args.push("--dependency", resolve(worktree, source))
   }
@@ -343,14 +354,11 @@ async function launchAuthoring(
   }
   const allowHostSources = hostSourcesAllowed(context)
   if (allowHostSources) args.push("--allow-host-sources")
-  // NYRWVY_HOST_EXECUTABLE replaces the executable for transport tests; it still receives the selected host's argv.
-  // The first Zig build takes minutes, so it runs before and outside the per-request timeout, with its own limit.
-  const executable = process.env.NYRWVY_HOST_EXECUTABLE || (host === "zig" ? await zigHost(repositoryRoot, context.abort) : "dotnet")
   if (context.abort?.aborted) throw new Error("Authoring open cancelled before starting.")
-  const client = new AuthoringClient(spawn(executable, args, {
-    cwd: worktree, detached: true, stdio: ["pipe", "pipe", "pipe"],
-    env: host === "zig" ? { ...process.env, NYRWVY_REPOSITORY_ROOT: repositoryRoot } : process.env,
-  }), host === "zig" ? executable : "dotnet")
+  const client = new AuthoringClient(spawn(executable, managed ? [host, ...args] : args, {
+    cwd: worktree, detached: process.platform !== "win32", stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, NYRWVY_REPOSITORY_ROOT: root },
+  }), executable, !selected && selection === "zig")
   sessions.set(sessionKey, client)
   markStarted()
   try {

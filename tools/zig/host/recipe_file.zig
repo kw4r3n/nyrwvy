@@ -5,9 +5,16 @@ const query = @import("query.zig");
 const recipe = @import("recipe.zig");
 const root = @import("root");
 const limit = 1048576;
+const windows = @import("builtin").os.tag == .windows;
 
 fn ioFailure(r: *query.Request, name: []const u8) anyerror {
     return r.fail("{s} cannot be read as a JSON file inside the snapshot's directory.", .{name});
+}
+
+fn outside(relative: []const u8, is_windows: bool) bool {
+    return (if (is_windows) std.fs.path.isAbsoluteWindows(relative) else std.fs.path.isAbsolutePosix(relative)) or
+        std.mem.eql(u8, relative, "..") or
+        (relative.len > 2 and std.mem.startsWith(u8, relative, "..") and (relative[2] == '/' or (is_windows and relative[2] == '\\')));
 }
 
 pub const Input = struct { value: std.json.Value, source: []const u8 };
@@ -32,8 +39,8 @@ pub fn load(d: *recipe.Decoder, requested: []const u8, file_name: []const u8, in
     if (std.mem.indexOfScalar(u8, requested, 0) != null) return ioFailure(r, file_name);
     const directory = std.fs.path.dirname(r.snapshot_path) orelse "/";
     const full = std.fs.path.resolveAlloc(a, &.{ directory, requested }) catch return ioFailure(r, file_name);
-    const relative = std.fs.path.relativeAlloc(a, "/", null, directory, full) catch return ioFailure(r, file_name);
-    if (std.fs.path.isAbsolute(relative) or std.mem.eql(u8, relative, "..") or std.mem.startsWith(u8, relative, "../") or std.mem.eql(u8, full, directory)) return r.fail("{s} must stay inside the snapshot's directory.", .{file_name});
+    const relative = std.fs.path.relativeAlloc(a, directory, null, directory, full) catch return ioFailure(r, file_name);
+    if (outside(relative, windows) or std.mem.eql(u8, full, directory)) return r.fail("{s} must stay inside the snapshot's directory.", .{file_name});
     if (try @import("view_file.zig").linkedComponent(a, directory, full) != null) return r.fail("{s} must not pass through a symbolic link or reparse point.", .{file_name});
     const info = std.Io.Dir.cwd().statFile(root.host_io, full, .{}) catch return r.fail("{s} must name an existing JSON file.", .{file_name});
     if (info.kind != .file) return r.fail("{s} must name an existing JSON file.", .{file_name});
@@ -83,4 +90,16 @@ pub fn rawArrayItems(a: std.mem.Allocator, source: []const u8) ![]const []const 
         }
         if (depth == 1 and token != .array_begin) try items.append(a, std.mem.trim(u8, source[start..scanner.cursor], " \t\r\n,"));
     }
+}
+
+
+test "confined recipe paths reject parent traversal on each platform" {
+    try std.testing.expect(outside("..", false));
+    try std.testing.expect(outside("../outside.json", false));
+    try std.testing.expect(!outside("..\\inside.json", false));
+    try std.testing.expect(outside("..\\outside.json", true));
+    try std.testing.expect(outside("../outside.json", true));
+    try std.testing.expect(outside("D:\\outside.json", true));
+    try std.testing.expect(!outside("..allowed/file.json", true));
+    try std.testing.expect(!outside("nested\\file.json", true));
 }

@@ -11,6 +11,10 @@ or exit $status
 
 cd "$repo_root"
 or exit $status
+if not contains -- --no-build $argv; and test -z "$NYRWVY_HOST_EXECUTABLE"
+    npm run build:host
+    or exit $status
+end
 # The suite partition audit reads the built test assemblies, so it runs after the dotnet stage.
 node "$script_dir/check-test-suite-partition.mjs"
 or exit $status

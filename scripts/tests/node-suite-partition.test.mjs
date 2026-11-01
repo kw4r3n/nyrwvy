@@ -81,18 +81,18 @@ test("suite wrappers forward dotnet arguments once and propagate either stage's 
   const calls = join(fixture, "calls")
   mkdirSync(commands)
   mkdirSync(join(repo, "scripts"), { recursive: true })
-  for (const command of ["dotnet", "node"]) {
+  for (const command of ["dotnet", "node", "npm"]) {
     writeFileSync(join(commands, command), `#!/bin/sh\nprintf '%s\\n' '${command}' "$PWD" "$@" >> "$SUITE_CALLS"\nexit "$SUITE_${command.toUpperCase()}_STATUS"\n`, { mode: 0o755 })
   }
   try {
     for (const [name, suite] of [["fast", "fast-contracts"], ["extended", "extended"]]) {
       const wrapper = `test-${name}.fish`
       copyFileSync(join(repositoryRoot, "scripts", wrapper), join(repo, "scripts", wrapper))
-      const run = (dotnetStatus, nodeStatus) => {
+      const run = (dotnetStatus, nodeStatus, args = ["--no-build", "--filter", "Category=fixture with spaces"], host = undefined, npmStatus = 0) => {
         writeFileSync(calls, "")
-        const result = spawnSync("fish", ["--no-config", join(repo, "scripts", wrapper), "--no-build", "--filter", "Category=fixture with spaces"], {
+        const result = spawnSync("fish", ["--no-config", join(repo, "scripts", wrapper), ...args], {
           cwd: fixture, encoding: "utf8",
-          env: { ...process.env, PATH: `${commands}:${process.env.PATH}`, SUITE_CALLS: calls, SUITE_DOTNET_STATUS: String(dotnetStatus), SUITE_NODE_STATUS: String(nodeStatus) },
+          env: { ...process.env, PATH: `${commands}:${process.env.PATH}`, SUITE_CALLS: calls, SUITE_DOTNET_STATUS: String(dotnetStatus), SUITE_NODE_STATUS: String(nodeStatus), SUITE_NPM_STATUS: String(npmStatus), NYRWVY_HOST_EXECUTABLE: host },
         })
         if (result.error) throw result.error
         return { status: result.status, calls: readFileSync(calls, "utf8").trim().split("\n"), stderr: result.stderr }
@@ -109,6 +109,56 @@ test("suite wrappers forward dotnet arguments once and propagate either stage's 
       assert.equal(failedDotnet.status, 23)
       assert.ok(!failedDotnet.calls.includes("node"))
       assert.equal(run(0, 17).status, 17)
+      const builds = run(0, 0, [])
+      assert.equal(builds.status, 0)
+      assert.ok(builds.calls.includes("npm"))
+      assert.ok(builds.calls.includes("build:host"))
+      const emptyHost = run(0, 0, [], "")
+      assert.equal(emptyHost.status, 0)
+      assert.ok(emptyHost.calls.includes("build:host"))
+      assert.ok(!run(0, 0, [], "/explicit/host").calls.includes("npm"))
+      const failedBuild = run(0, 0, [], undefined, 19)
+      assert.equal(failedBuild.status, 19)
+      assert.ok(!failedBuild.calls.includes("node"))
     }
+  } finally { rmSync(fixture, { recursive: true, force: true }) }
+})
+
+test("typed host gate selects both Zig suites and stops after a failure", () => {
+  const fixture = mkdtempSync(join(tmpdir(), "nyrwvy-typed-host-"))
+  const repo = join(fixture, "repository with spaces")
+  const calls = join(fixture, "calls")
+  const preload = join(fixture, "fake zig.cjs")
+  mkdirSync(join(repo, "scripts"), { recursive: true })
+  for (const file of ["test-typed-host.mjs", "test-typed-host.fish"]) copyFileSync(join(repositoryRoot, "scripts", file), join(repo, "scripts", file))
+  writeFileSync(preload, `const fs = require('node:fs');\nif (!process.argv[1]?.endsWith('test-typed-host.mjs')) {\n  fs.appendFileSync(process.env.TYPED_CALLS, JSON.stringify({cwd: process.cwd(), args: ['test', ...process.argv.slice(2)]}) + '\\n');\n  process.exit(Number(process.env.TYPED_FAIL) === fs.readFileSync(process.env.TYPED_CALLS, 'utf8').trim().split('\\n').length ? 23 : 0);\n}\n`)
+  const run = (fail, fish = false) => {
+    writeFileSync(calls, "")
+    const command = fish ? "fish" : process.execPath
+    const args = fish ? ["--no-config", join(repo, "scripts/test-typed-host.fish")] : [join(repo, "scripts/test-typed-host.mjs")]
+    const result = spawnSync(command, args, {
+      cwd: fixture, encoding: "utf8", env: { ...process.env, NODE_OPTIONS: `--require="${preload}"`, NYRWVY_ZIG: process.execPath, TYPED_CALLS: calls, TYPED_FAIL: String(fail) },
+    })
+    if (result.error) throw result.error
+    return { ...result, calls: readFileSync(calls, "utf8").trim().split("\n").filter(Boolean).map(line => JSON.parse(line)) }
+  }
+  try {
+    const success = run(0)
+    assert.equal(success.status, 0, success.stderr)
+    assert.equal(success.calls.length, 2)
+    assert.ok(success.calls.every(call => call.cwd === repo))
+    const linkerArgs = process.platform === "darwin" ? ["-lc"] : []
+    assert.deepEqual(success.calls[0].args, ["test", ...linkerArgs, "-O", "ReleaseSafe", "tools/zig/model-reader/main.zig"])
+    const args = success.calls[1].args
+    assert.deepEqual(args.slice(0, 5 + linkerArgs.length), ["test", ...linkerArgs, "-O", "ReleaseSafe", "--test-filter", "C# runner keeps recursive codecs finite and argument values out of source"])
+    assert.ok(args.includes("--test-runner") && args.includes("tools/zig/host/test_runner.zig") && !args.includes("runner dispatch name preserves arbitrary UTF-8 stable IDs"))
+    for (const arg of ["host=root", "-Mroot=tools/zig/host/main.zig", "-Mbuild_info=tools/zig/host/build_info.zig"]) assert.ok(args.includes(arg))
+    const failure = run(1)
+    assert.equal(failure.status, 23)
+    assert.equal(failure.calls.length, 1)
+    const secondFailure = run(2)
+    assert.equal(secondFailure.status, 23)
+    assert.equal(secondFailure.calls.length, 2)
+    if (!spawnSync("fish", ["--version"]).error) assert.deepEqual(run(0, true).calls, success.calls)
   } finally { rmSync(fixture, { recursive: true, force: true }) }
 })

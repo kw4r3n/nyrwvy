@@ -1,17 +1,13 @@
-//! The Zig session host (docs/decisions/zig-session-host.md): the F# host's JSONL protocol, one
-//! response line per request line, and its startup. So far: `open` of a `.json` or `.nyrec`
-//! snapshot, unresolved or with its dependency sidecar (read-only or under its lock), the other
-//! startup modes but `migrate` (`startup_modes.zig`), the request envelope and its errors as
-//! `AuthoringProtocol.executeLine` gives them, and `status`; every other operation is
-//! `UnsupportedOperation`. `ZigHostParityTests` compares it with the F# host. The snapshot is read
-//! by the model and snapshot readers, imported as modules (`ZigTools` builds them together).
+//! Native authoring session startup and JSONL protocol (docs/decisions/zig-session-host.md).
+//! Snapshot/dependency validation, planning and publication share the native reader and host modules;
+//! startup commands create, pin or apply reviewed dependency selections before serving requests.
 const std = @import("std");
 const build_info = @import("build_info");
 const model_reader = @import("model_reader");
 const snapshot_reader = @import("snapshot_reader");
 const wire = @import("wire.zig");
 const query = @import("query.zig");
-const ids = @import("ids.zig");
+pub const ids = @import("ids.zig");
 const proposals = @import("proposals.zig");
 
 /// The open snapshot: what `status` reports, the model (merged with the dependency, if any) and
@@ -32,8 +28,7 @@ pub var host_sources_allowed = false;
 // `WireInput.requestMaxJsonDepth`: 3 + 3 * 256 + 64.
 const max_depth = 835;
 
-// `CommandLine.usage`, verbatim (migrate stays F#-only: docs/decisions/zig-session-host.md).
-const usage = "Usage: Nyrwvy.AuthoringSession <open|create|pin> --snapshot <snapshot-path> [--dependency <snapshot-path> ...] [--allow-host-sources] (create may name several dependencies; pin takes at most one same-content source)\n       Nyrwvy.AuthoringSession open --snapshot <snapshot-path> --read-only [--allow-host-sources] (takes no lock, so it works while another session has the snapshot open; commit is refused)\n       Nyrwvy.AuthoringSession migrate --snapshot <snapshot-path> [--dependency <exact copy of a legacy pin's source>] [--to <new-path>] (rewrites the snapshot and its dependency sidecar to the current schema, prints the migration report and exits; no session is started; --to writes the result to a new path instead, in the form its extension selects (.nyrec for records), and leaves the source untouched)\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --dependency <new-version-path> --expect <reviewed-fingerprint> [--replaces <snapshot-id>] [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --upgrades <JSON array of {source,replaces}> --review <reviewFingerprint> [--allow-host-sources]\n       Nyrwvy.AuthoringSession upgrade --snapshot <snapshot-path> --selection <JSON {sources:[paths],replaces:[current SnapshotIds]}> --review <reviewFingerprint> [--allow-host-sources]\n\n       Nyrwvy.AuthoringSession bind-c --header <file.h> ... (proposes capabilities and a C# mapping table for C functions; run bind-c alone for its options)\n--allow-host-sources lets runPure/runPureByName compile and run hostSources C# with your permissions; it is off by default.\n";
+const usage = @import("startup.zig").usage;
 
 /// A JSON string as `JsonSerializer` writes it with `JavaScriptEncoder.Default`: printable ASCII
 /// except `"&'+<>` and backtick, the short forms \b \t \n \f \r \\, and every other code point as
@@ -228,7 +223,9 @@ fn execute(a: std.mem.Allocator, out: *std.Io.Writer, given: []const u8, request
         try out.writeAll(",\"semanticFingerprint\":");
         try writeString(out, fingerprints.semantic);
         // `build` names each host's own build; the parity test masks it.
-        return out.print(",\"pendingProposalCount\":{d},\"build\":\"{s}\"}}}}", .{ proposals.count(), build_info.value });
+        try out.print(",\"pendingProposalCount\":{d},\"build\":", .{proposals.count()});
+        try writeString(out, @import("build_info").build);
+        return out.writeAll("}}");
     }
     const plain = [_][]const u8{ "dependency", "declarations", "proposals" };
     for (plain) |name| if (std.mem.eql(u8, op, name)) {
@@ -627,32 +624,7 @@ fn isTemporaryOf(name: []const u8, file: []const u8) bool {
     return true;
 }
 
-/// `AuthoringSession.openUsing`: the file, the lock and the sweep (unless read-only), the dependency
-/// sidecar or the marker's absence, then the readers' verdict, unresolved or against the
-/// dependency. The lock lives until the process ends.
-fn open(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only: bool) !void {
-    const path = try existing(io, a, given, !read_only);
-    if (!read_only) try lock(io, a, path, true);
-    try load(io, a, path, true);
-}
-
-/// The absolute snapshot path, which must name a file; the session's path from here on.
-pub fn existing(io: std.Io, a: std.mem.Allocator, given: []const u8, write: bool) ![]const u8 {
-    const path = try absolute(io, a, given);
-    snapshot_path = path;
-    writable = write;
-    const stat = std.Io.Dir.cwd().statFile(io, path, .{}) catch null;
-    if (stat == null or stat.?.kind != .file) startupFailure("SnapshotFileNotFound: No snapshot file at {s}. Use create (MCP nyrwvy_open mode \"create\") to start a new one.", .{path});
-    return path;
-}
-
-/// `SessionStorage.fullPath`: `given` against the working directory.
-pub fn absolute(io: std.Io, a: std.mem.Allocator, given: []const u8) ![]const u8 {
-    return std.fs.path.resolveAlloc(a, &.{ try std.process.currentPathAlloc(io, a), given });
-}
-
-/// `SessionStorage.acquireLock`, then `sweepTemporaries` when `sweep`.
-pub fn lock(io: std.Io, a: std.mem.Allocator, path: []const u8, sweep: bool) !void {
+pub fn acquireLock(io: std.Io, a: std.mem.Allocator, path: []const u8) !void {
     var link: [std.fs.max_path_bytes]u8 = undefined;
     if (std.Io.Dir.cwd().readLink(io, path, &link)) |_| {
         startupFailure("IoFailure: The snapshot path {s} is a symbolic link; open the file it points to instead.", .{path});
@@ -661,20 +633,45 @@ pub fn lock(io: std.Io, a: std.mem.Allocator, path: []const u8, sweep: bool) !vo
         error.WouldBlock => startupFailure("LockUnavailable: {s} is open in another authoring session. Close that session first.", .{path}),
         else => startupFailure("IoFailure: {s}", .{@errorName(e)}),
     };
-    if (!sweep) return;
-    const directory_path = std.fs.path.dirname(path) orelse "/";
-    if (std.Io.Dir.cwd().openDir(io, directory_path, .{ .iterate = true })) |directory| {
-        var entries = directory.iterate();
-        while (entries.next(io) catch null) |entry| {
-            // `Directory.EnumerateFiles` also lists links to files and entries of unknown type.
-            if (entry.kind != .directory and isTemporaryOf(std.fs.path.basename(path), entry.name)) directory.deleteFile(io, entry.name) catch {};
+}
+
+/// `AuthoringSession.openUsing`: the file, the lock and the sweep (unless read-only), the dependency
+/// sidecar or the marker's absence, then the readers' verdict, unresolved or against the
+/// dependency. The lock lives until the process ends.
+pub fn open(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only: bool) !void {
+    return openUsing(io, a, given, read_only, false, null, true);
+}
+
+pub fn openUsing(io: std.Io, a: std.mem.Allocator, given: []const u8, read_only: bool, pin: bool, source_override: ?[]const u8, recovery: bool) !void {
+    const path = try std.fs.path.resolveAlloc(a, &.{ try std.process.currentPathAlloc(io, a), given });
+    snapshot_path = path;
+    writable = !read_only;
+    const stat = std.Io.Dir.cwd().statFile(io, path, .{}) catch null;
+    if (stat == null or stat.?.kind != .file) startupFailure("SnapshotFileNotFound: No snapshot file at {s}. Use create (MCP nyrwvy_open mode \"create\") to start a new one.", .{path});
+    if (!read_only) {
+        try acquireLock(io, a, path);
+        if (pin or recovery) {
+            const directory_path = std.fs.path.dirname(path) orelse "/";
+            if (std.Io.Dir.cwd().openDir(io, directory_path, .{ .iterate = true })) |directory| {
+                var entries = directory.iterate();
+                while (entries.next(io) catch null) |entry| {
+                    // `Directory.EnumerateFiles` also lists links to files and entries of unknown type.
+                    if (entry.kind != .directory and isTemporaryOf(std.fs.path.basename(path), entry.name)) directory.deleteFile(io, entry.name) catch {};
+                }
+            } else |_| {}
         }
-    } else |_| {}
+    }
+    try loadUsing(io, a, path, source_override, !pin and recovery);
+    if (pin) try @import("startup.zig").persistPin(a, source_override);
 }
 
 /// The snapshot and its sidecar read into the session; `hints` names an interrupted dependency
 /// replacement or first addition, as `openUsing` does except for pin.
 pub fn load(io: std.Io, a: std.mem.Allocator, path: []const u8, hints: bool) !void {
+    return loadUsing(io, a, path, null, hints);
+}
+
+fn loadUsing(io: std.Io, a: std.mem.Allocator, path: []const u8, source_override: ?[]const u8, hints: bool) !void {
     const bytes = std.Io.Dir.cwd().readFileAlloc(io, path, a, .unlimited) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
     // `File.ReadAllText`: a UTF-8 byte order mark is dropped, ill-formed bytes become U+FFFD.
     const unmarked = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
@@ -682,10 +679,10 @@ pub fn load(io: std.Io, a: std.mem.Allocator, path: []const u8, hints: bool) !vo
     persisted_source = source;
     ids.observe(source);
     const record = std.mem.endsWith(u8, path, ".nyrec");
-    const read = openSource(io, a, path, record, source) catch {
+    const read = openSourceUsing(io, a, path, record, source, source_override) catch {
+        // `openUsing`'s recovery hints: an interrupted replacement or first addition is named.
         const failed = failure_line;
         if (!hints) startupFailure("{s}", .{failed});
-        // `openUsing`'s recovery hints: an interrupted replacement or first addition is named.
         const previous = try std.mem.concat(a, u8, &.{ path, ".dependency.json.previous" });
         if (exists(io, previous) and matches(io, a, previous, record, source))
             startupFailure("DependencyFailure: The dependency sidecar '{s}.dependency.json' does not match the snapshot, but '{s}' does: a dependency replacement was interrupted. Restore it over the sidecar to recover the previous selection.", .{ path, previous });
@@ -730,8 +727,8 @@ pub fn exists(io: std.Io, path: []const u8) bool {
 }
 
 /// The snapshot read with its sidecar's dependency, or unresolved without one.
-fn openSource(io: std.Io, a: std.mem.Allocator, path: []const u8, record: bool, source: []const u8) Startup!model_reader.DocumentRead {
-    const dependency = try loadSidecar(io, a, try std.mem.concat(a, u8, &.{ path, ".dependency.json" }));
+fn openSourceUsing(io: std.Io, a: std.mem.Allocator, path: []const u8, record: bool, source: []const u8, source_override: ?[]const u8) Startup!model_reader.DocumentRead {
+    const dependency = try loadSidecarUsing(io, a, try std.mem.concat(a, u8, &.{ path, ".dependency.json" }), source_override);
     selection = dependency;
     if (dependency == null and bound(a, record, source)) return fail(a, "DependencyFailure: The dependency sidecar '{s}.dependency.json' is missing. Restore the exact sidecar that belongs to this snapshot; pinning a new version cannot recover a lost selection.", .{path});
     return readSource(a, record, source, dependency);
@@ -836,6 +833,10 @@ fn dependencyOf(read: model_reader.DocumentRead, members: []const wire.Provenanc
 /// `PinnedDependency.loadFrom`: null without a sidecar; one member, or a set of at least two
 /// embedded members combined (`DependencyGraph.combine`).
 pub fn loadSidecar(io: std.Io, a: std.mem.Allocator, manifest_path: []const u8) Startup!?Dependency {
+    return loadSidecarUsing(io, a, manifest_path, null);
+}
+
+fn loadSidecarUsing(io: std.Io, a: std.mem.Allocator, manifest_path: []const u8, source_override: ?[]const u8) Startup!?Dependency {
     var scratch = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer scratch.deinit();
     const bytes = std.Io.Dir.cwd().readFileAlloc(io, manifest_path, scratch.allocator(), .unlimited) catch |e| switch (e) {
@@ -846,29 +847,33 @@ pub fn loadSidecar(io: std.Io, a: std.mem.Allocator, manifest_path: []const u8) 
     const invalid = "DependencyFailure: Invalid dependency manifest or source path.";
     const text = if (std.mem.startsWith(u8, bytes, "\xEF\xBB\xBF")) bytes[3..] else bytes;
     const root = std.json.parseFromSliceLeaky(std.json.Value, scratch.allocator(), text, .{ .duplicate_field_behavior = .use_last }) catch return fail(a, invalid, .{});
-    // `JsonDocument` keeps a repeated name, so its field list no longer matches any manifest form.
-    // shortcut: decided before any member loads, where F# reports an earlier member's failure first.
-    _ = std.json.parseFromSliceLeaky(std.json.Value, scratch.allocator(), text, .{ .duplicate_field_behavior = .@"error" }) catch return fail(a, "DependencyFailure: Invalid dependency manifest.", .{});
     if (root != .object) return fail(a, invalid, .{});
+    // JsonDocument retains repeated names. Check each object only when its member is reached,
+    // so a later malformed member cannot replace an earlier dependency-load failure.
+    const duplicates = @import("recipe.zig").duplicatePaths(a, text) catch return fail(a, "DependencyFailure: Invalid dependency manifest.", .{});
+    if (duplicates.contains("")) return fail(a, "DependencyFailure: Invalid dependency manifest.", .{});
     const set = root.object.get("dependencies");
-    if (set == null or root.object.count() != 1) return try loadMember(io, a, root.object);
+    if (set == null or root.object.count() != 1) return try loadMemberUsing(io, a, root.object, source_override);
     if (source_override != null) return fail(a, "DependencyFailure: Pin with a source applies only to a single legacy dependency.", .{});
     if (set.? != .array or set.?.array.items.len < 2) return fail(a, "DependencyFailure: A dependency set lists at least two dependencies.", .{});
     var members: std.ArrayList(Dependency) = .empty;
-    for (set.?.array.items) |item| {
+    for (set.?.array.items, 0..) |item, index| {
         if (item != .object or (item.object.get("snapshotJson") == null and item.object.get("snapshotRecords") == null))
             return fail(a, "DependencyFailure: Every member of a dependency set must embed its content.", .{});
+        const member_path = try std.fmt.allocPrint(a, "/dependencies/{d}", .{index});
+        if (duplicates.contains(member_path)) return fail(a, "DependencyFailure: Invalid dependency manifest.", .{});
         members.append(a, try loadMember(io, a, item.object)) catch return fail(a, "out of memory", .{});
     }
     return try combineMembers(a, members.items);
 }
 
-/// Pin's absolute `--dependency`, read in place of the selected member's content while set.
-pub var source_override: ?[]const u8 = null;
-
 /// `PinnedDependency.loadMember`: the embedded content or the file at `path`, whose fingerprint
 /// and snapshot ID must be the recorded ones.
 pub fn loadMember(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap) Startup!Dependency {
+    return loadMemberUsing(io, a, manifest, null);
+}
+
+fn loadMemberUsing(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap, source_override: ?[]const u8) Startup!Dependency {
     const invalid = "DependencyFailure: Invalid dependency manifest or source path.";
     var fields: std.ArrayList([]const u8) = .empty;
     for (manifest.keys()) |key| fields.append(a, key) catch return fail(a, "out of memory", .{});
@@ -896,10 +901,12 @@ pub fn loadMember(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap
         .null => null,
         else => return fail(a, invalid, .{}),
     };
-    for (values) |value| if (value == null or std.mem.trim(u8, value.?, " \t\r\n").len == 0)
+    for (values) |value| if (value == null or try @import("recipe.zig").isBlank(a, value.?))
         return fail(a, "DependencyFailure: Dependency manifest fields must be non-blank strings.", .{});
-    // `Path.GetFullPath("")` throws, which `loadFrom` reports as an invalid manifest.
-    if (source_override) |given| if (given.len == 0) return fail(a, invalid, .{});
+    const selected_path = if (source_override) |given| blk: {
+        if (given.len == 0 or std.mem.indexOfScalar(u8, given, 0) != null) return fail(a, invalid, .{});
+        break :blk std.fs.path.resolveAlloc(a, &.{ std.process.currentPathAlloc(io, a) catch return fail(a, invalid, .{}), given }) catch return fail(a, invalid, .{});
+    } else values[0].?;
     const dependency = if (embedded_key != null and source_override == null) blk: {
         const key = embedded_key.?;
         const content = switch (manifest.get(key).?) {
@@ -907,10 +914,10 @@ pub fn loadMember(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap
             .null => "",
             else => return fail(a, invalid, .{}),
         };
-        if (std.mem.trim(u8, content, " \t\r\n").len == 0) return fail(a, "DependencyFailure: The embedded dependency is missing.", .{});
+        if (try @import("recipe.zig").isBlank(a, content)) return fail(a, "DependencyFailure: The embedded dependency is missing.", .{});
         break :blk try decodeDependency(a, std.mem.eql(u8, key, "snapshotRecords"), content, values[0].?, true);
     } else blk: {
-        const source_path = source_override orelse values[0].?;
+        const source_path = selected_path;
         if (!std.fs.path.isAbsolute(source_path) or !exists(io, source_path))
             return fail(a, "DependencyFailure: The selected dependency is unavailable. Use pin with an exact copy of the original version to recover a legacy selection.", .{});
         const bytes = std.Io.Dir.cwd().readFileAlloc(io, source_path, a, .unlimited) catch |e| return fail(a, "IoFailure: {s}", .{@errorName(e)});
@@ -919,7 +926,7 @@ pub fn loadMember(io: std.Io, a: std.mem.Allocator, manifest: std.json.ObjectMap
         ids.observe(content);
         const record = std.mem.endsWith(u8, source_path, ".nyrec");
         if (bound(a, record, content)) return fail(a, "DependencyFailure: The dependency sidecar '{s}.dependency.json' is missing. Restore the exact sidecar that belongs to this snapshot; pinning a new version cannot recover a lost selection.", .{source_path});
-        break :blk try decodeDependency(a, record, content, source_path, false);
+        break :blk try decodeDependency(a, record, content, source_path, embedded_key != null);
     };
     if (!std.mem.eql(u8, dependency.fingerprint, values[1].?) or !std.mem.eql(u8, dependency.id, values[2].?))
         return fail(a, "DependencyFailure: The selected dependency version changed. Pin only accepts the exact previously selected content, not an upgrade.", .{});
@@ -977,10 +984,10 @@ pub fn combineMembers(a: std.mem.Allocator, members: []const Dependency) Startup
 }
 
 pub fn main(init: std.process.Init) !void {
-    ids.init(init.environ_map.get("NYRWVY_TEST_ID_SEED"));
     test_fail_operation = init.environ_map.get("NYRWVY_TEST_HOST_FAIL_OPERATION");
     const process_arena = init.arena.allocator();
     host_io = init.io;
+    ids.init(init.io, init.environ_map.get("NYRWVY_TEST_ID_SEED"));
     const all = try init.minimal.args.toSlice(process_arena);
     for (all[1..]) |arg| if (std.mem.eql(u8, arg, "--allow-host-sources")) {
         host_sources_allowed = true;
@@ -999,29 +1006,27 @@ pub fn main(init: std.process.Init) !void {
         if (code != 0) std.process.exit(code);
         return;
     }
-    const modes = @import("startup_modes.zig");
-    const mode = modes.parse(process_arena, args.items) orelse {
-        std.debug.print("{s}", .{usage});
+    if (!try @import("startup.zig").run(init.io, process_arena, args.items)) {
+        std.debug.print("{s}\n", .{usage});
         std.process.exit(2);
-    };
+    }
     @import("run_process.zig").init(process_arena, init.io, init.environ_map) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
     @import("run_csharp.zig").init(process_arena, init.io, init.environ_map) catch |e| startupFailure("IoFailure: {s}", .{@errorName(e)});
     defer @import("run_csharp.zig").deinit(init.io);
-    switch (mode) {
-        .open => |read_only| try open(init.io, process_arena, args.items[2], read_only),
-        else => try modes.start(init.io, process_arena, args.items[2], mode),
-    }
+    try @import("process_lifetime.zig").run(init.io, serve);
+}
 
+fn serve(io: std.Io) !void {
     var in_buffer: [1 << 16]u8 = undefined;
-    var reader = std.Io.File.stdin().reader(init.io, &in_buffer);
+    var reader = std.Io.File.stdin().reader(io, &in_buffer);
     var line: std.ArrayList(u8) = .empty;
     var skip_line_feed = false;
     var out_buffer: [1 << 16]u8 = undefined;
-    var writer = std.Io.File.stdout().writer(init.io, &out_buffer);
+    var writer = std.Io.File.stdout().writer(io, &out_buffer);
     const out = &writer.interface;
     defer proposals.deinit();
     defer freeRetained();
-    while (try readLine(&reader.interface, &line, &skip_line_feed)) {
+    while (!@import("process_lifetime.zig").isStopping() and try readLine(&reader.interface, &line, &skip_line_feed)) {
         // A request's allocations live until its response is written.
         var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
         defer arena.deinit();
@@ -1143,6 +1148,17 @@ test "dependency pair restores a failed snapshot write and preserves recovery on
     }
 }
 
-test {
-    _ = @import("startup_modes.zig");
+comptime {
+    if (@import("builtin").is_test) {
+        _ = @import("run_pure.zig");
+        _ = @import("proposals.zig");
+        _ = @import("operation_engine.zig");
+        _ = @import("operation_special_decode.zig");
+        _ = @import("operation_model.zig");
+        _ = @import("run_value.zig");
+        _ = @import("structural_migration.zig");
+        _ = @import("ids.zig");
+        _ = @import("run_csharp_build.zig");
+        _ = @import("recipe_file.zig");
+    }
 }

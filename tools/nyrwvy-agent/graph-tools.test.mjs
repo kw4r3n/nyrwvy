@@ -147,7 +147,7 @@ input.on("line", line => {
     assert.match(opened.warning, /runs build 000000000000/)
     await closeAuthoring(context)
     process.env.NYRWVY_HOST_EXECUTABLE = join(dir, "missing")
-    await assert.rejects(openAuthoring("read", "snapshot.nyrec", context), /session host .*missing could not be started/)
+    await assert.rejects(openAuthoring("read", "snapshot.nyrec", context), /Host executable could not be started: .*missing/)
   } finally {
     try {
       await closeAuthoring(context)

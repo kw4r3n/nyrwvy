@@ -138,7 +138,9 @@ async function main() {
   try {
     await client.connect(new StdioClientTransport({ command: process.execPath,
       args: ["--experimental-strip-types", server, "--workspace", dirname(snapshot)],
-      cwd: dirname(snapshot), env: { NYRWVY_ALLOW_HOST_SOURCES: "0" }, stderr: "inherit" }))
+      cwd: dirname(snapshot), env: { NYRWVY_ALLOW_HOST_SOURCES: "0",
+        ...(process.env.NYRWVY_HOST_EXECUTABLE ? { NYRWVY_HOST_EXECUTABLE: process.env.NYRWVY_HOST_EXECUTABLE } : {}),
+        ...(process.env.NYRWVY_ZIG ? { NYRWVY_ZIG: process.env.NYRWVY_ZIG } : {}) }, stderr: "inherit" }))
     const opened = await client.callTool({ name: "nyrwvy_open", arguments: { mode: "open", snapshot } })
     await appendFile(transcript, JSON.stringify({ phase: "open", response: opened }) + "\n")
     if (opened.isError || payload(opened)?.ok === false) throw new Error("Could not open snapshot; see transcript.")
